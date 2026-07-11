@@ -115,6 +115,15 @@ def _stage_request(request: AtomicWriteRequest, *, validate: bool = True) -> Pat
 def _pid_alive(pid: int) -> bool:
     if pid <= 0:
         return False
+    if os.name == "nt":
+        import ctypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        handle = kernel32.OpenProcess(0x1000, False, pid)
+        if handle:
+            kernel32.CloseHandle(handle)
+            return True
+        return ctypes.get_last_error() == 5
     try:
         os.kill(pid, 0)
         return True
@@ -261,21 +270,19 @@ def atomic_write_group(
         "owner_pid": os.getpid(),
         "state": "staging",
         "affected_dataset_ids": [str(path) for path in destinations],
-        "base_generations": {},
+        "base_generation_ids": {},
         "entries": entries,
         "staged_paths": [],
+        "final_paths": [],
         "lock_paths": [],
-        "expected_checksums": {
-            str(request.destination.resolve()): hashlib.sha256(request.payload).hexdigest()
-            for request in request_tuple
-        },
+        "expected_checksums": {},
         "started_at": now,
         "updated_at": now,
         "committed_at": None,
-        "recovery_instructions": (
+        "recovery_instructions": [
             "On interrupted startup, verify journal and payload checksums, then restore the "
             "previous complete generation. Never promote ambiguous staging data."
-        ),
+        ],
     }
     interrupted = False
 
@@ -292,6 +299,9 @@ def atomic_write_group(
         _write_journal(journal_path, journal_payload)
         if lifecycle_hook is not None:
             lifecycle_hook("staging", journal_path)
+        locks = _acquire_group_locks(parents, journal_path)
+        journal_payload["lock_paths"] = [str(path.resolve()) for path in locks]
+        _write_journal(journal_path, journal_payload)
         for index, request in enumerate(request_tuple):
             original = request.destination.read_bytes() if request.destination.is_file() else None
             previous[request.destination] = original
@@ -313,15 +323,28 @@ def atomic_write_group(
                 }
             )
             journal_payload["staged_paths"] = [str(path.resolve()) for path in staged.values()]
+            journal_payload["final_paths"] = [str(entry["destination"]) for entry in entries]
+            expected_checksums = journal_payload["expected_checksums"]
+            assert isinstance(expected_checksums, dict)
+            expected_checksums[str(request.destination.resolve())] = hashlib.sha256(
+                request.payload
+            ).hexdigest()
             journal_payload["updated_at"] = datetime.now(timezone.utc).isoformat()
             _write_journal(journal_path, journal_payload)
         publish_state("validating")
         for request in request_tuple:
             request.validator(staged[request.destination])
-        lock_paths = [str((parent / ".atomic-write-group.lock").resolve()) for parent in parents]
-        journal_payload["lock_paths"] = lock_paths
         publish_state("committing")
-        locks = _acquire_group_locks(parents, journal_path)
+        for request in request_tuple:
+            staged_path = staged[request.destination]
+            request.validator(staged_path)
+            expected = str(journal_payload["expected_checksums"][str(request.destination.resolve())])
+            actual = sha256_file(staged_path)
+            if actual != expected:
+                raise OSError(
+                    f"staged payload checksum mismatch: {staged_path} "
+                    f"(expected {expected}, found {actual})"
+                )
         for request in request_tuple:
             staged[request.destination].replace(request.destination)
         publish_state("manifest_publish")

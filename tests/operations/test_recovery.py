@@ -10,12 +10,19 @@ from etf_cockpit.core import atomic_io
 from etf_cockpit.core.migrations import MigrationContext, run_migrations
 
 
+def _request(path: Path, payload: bytes) -> atomic_io.AtomicWriteRequest:
+    return atomic_io.AtomicWriteRequest(path, payload, lambda staged: staged.read_bytes())
+
+
 def _recover(data_root: Path):
     try:
         recovery = __import__("etf_cockpit.operations.recovery", fromlist=["recover_incomplete_transactions"])
     except ModuleNotFoundError:
         return []
-    return recovery.recover_incomplete_transactions(data_root)
+    return recovery.recover_incomplete_transactions(
+        data_root,
+        event_path=data_root / "logs" / "session.jsonl",
+    )
 
 
 def _interrupted_transaction(tmp_path: Path, state: str, *, corrupt_payload: bool = False) -> Path:
@@ -40,8 +47,8 @@ def _interrupted_transaction(tmp_path: Path, state: str, *, corrupt_payload: boo
                 "transaction_type": "canonical_refresh",
                 "owner_pid": 999999,
                 "state": state,
-                "affected_datasets": ["canonical"],
-                "base_generations": {"canonical": "generation-old"},
+                "affected_dataset_ids": ["canonical"],
+                "base_generation_ids": {"canonical": "generation-old"},
                 "entries": [
                     {
                         "destination": str(destination.resolve()),
@@ -52,11 +59,15 @@ def _interrupted_transaction(tmp_path: Path, state: str, *, corrupt_payload: boo
                     }
                 ],
                 "staged_paths": [str(staged.resolve())],
+                "final_paths": [str(destination.resolve())],
                 "lock_paths": [],
                 "expected_checksums": {
                     str(destination.resolve()): hashlib.sha256(b"new").hexdigest()
                 },
-                "recovery_instructions": "Restore the previous complete generation.",
+                "started_at": "2026-07-11T00:00:00+00:00",
+                "updated_at": "2026-07-11T00:00:01+00:00",
+                "committed_at": None,
+                "recovery_instructions": ["Restore the previous complete generation."],
             }
         ),
         encoding="utf-8",
@@ -176,6 +187,21 @@ def test_recovery_outcome_is_visible_in_the_authoritative_operational_trace(tmp_
     assert event["event_hash"]
 
 
+def test_recovery_uses_authoritative_session_trace_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _interrupted_transaction(tmp_path, "validating")
+    recovery = __import__("etf_cockpit.operations.recovery", fromlist=["SESSION_LOG_PATH"])
+    event_path = tmp_path / "logs" / "session.jsonl"
+    monkeypatch.setattr(recovery, "SESSION_LOG_PATH", event_path)
+
+    recovery.recover_incomplete_transactions(tmp_path)
+
+    event = json.loads(event_path.read_text(encoding="utf-8").splitlines()[-1])
+    assert event["event_type"] == "write_transaction_recovery"
+    assert event["event_hash"]
+
+
 def test_migration_recovers_interrupted_atomic_write_before_schema_changes(tmp_path: Path) -> None:
     destination = _interrupted_transaction(tmp_path, "committing")
     context = MigrationContext(tmp_path, tmp_path / "backups")
@@ -186,12 +212,156 @@ def test_migration_recovers_interrupted_atomic_write_before_schema_changes(tmp_p
     assert destination.read_bytes() == b"old"
 
 
+def test_migration_recovers_real_nested_writer_and_emits_authoritative_event(tmp_path: Path) -> None:
+    destination = tmp_path / "data" / "clean" / "canonical.bin"
+    destination.parent.mkdir(parents=True)
+    destination.write_bytes(b"old")
+
+    def interrupt(state: str, _journal: Path) -> None:
+        if state == "manifest_publish":
+            raise atomic_io.AtomicWriteInterrupted(state)
+
+    with pytest.raises(atomic_io.AtomicWriteInterrupted):
+        atomic_io.atomic_write_group((_request(destination, b"new"),), lifecycle_hook=interrupt)
+    journal = next((tmp_path / "data" / "clean").glob(".atomic-transactions/*/journal.json"))
+
+    report = run_migrations(MigrationContext(tmp_path, tmp_path / "backups"))
+
+    assert report.current_version == 4
+    assert destination.read_bytes() == b"old"
+    assert not journal.exists()
+    event_path = tmp_path / "logs" / "session.jsonl"
+    events = [json.loads(line) for line in event_path.read_text(encoding="utf-8").splitlines()]
+    recovery_events = [item for item in events if item["event_type"] == "write_transaction_recovery"]
+    assert recovery_events[-1]["status"] == "rolled_back"
+    assert recovery_events[-1]["event_hash"]
+
+
+def _valid_v2_payload(root: Path, transaction_id: str = "valid") -> tuple[Path, dict[str, object]]:
+    destination = root / "data" / "current.bin"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(b"new")
+    transaction_root = root / ".atomic-transactions" / transaction_id
+    transaction_root.mkdir(parents=True)
+    backup = transaction_root / "backup-0.bin"
+    backup.write_bytes(b"old")
+    staged = destination.parent / ".current.bin.valid.group.tmp"
+    staged.write_bytes(b"new")
+    expected = hashlib.sha256(b"new").hexdigest()
+    payload: dict[str, object] = {
+        "schema_version": 2,
+        "transaction_id": transaction_id,
+        "workflow_run_id": "workflow-1",
+        "transaction_type": "canonical_refresh",
+        "owner_pid": 999999,
+        "state": "committing",
+        "affected_dataset_ids": ["canonical"],
+        "base_generation_ids": {"canonical": "generation-old"},
+        "entries": [{
+            "destination": str(destination.resolve()),
+            "backup_path": str(backup.resolve()),
+            "previous_sha256": hashlib.sha256(b"old").hexdigest(),
+            "staged_path": str(staged.resolve()),
+            "expected_sha256": expected,
+        }],
+        "staged_paths": [str(staged.resolve())],
+        "final_paths": [str(destination.resolve())],
+        "lock_paths": [],
+        "expected_checksums": {str(destination.resolve()): expected},
+        "started_at": "2026-07-11T00:00:00+00:00",
+        "updated_at": "2026-07-11T00:00:01+00:00",
+        "committed_at": None,
+        "recovery_instructions": ["Restore the previous complete generation."],
+    }
+    journal = transaction_root / "journal.json"
+    journal.write_text(json.dumps(payload), encoding="utf-8")
+    return journal, payload
+
+
+@pytest.mark.parametrize(
+    ("damage", "expected_reason"),
+    [
+        ("unknown_state", "state"),
+        ("missing_required", "required"),
+        ("contradictory_maps", "cardinality"),
+        ("contradictory_checksums", "contradict"),
+        ("identity", "transaction"),
+    ],
+)
+def test_structurally_invalid_v2_journal_is_preserved_for_manual_review(
+    tmp_path: Path, damage: str, expected_reason: str
+) -> None:
+    journal, payload = _valid_v2_payload(tmp_path)
+    if damage == "unknown_state":
+        payload["state"] = "nonsense"
+    elif damage == "missing_required":
+        payload.pop("recovery_instructions")
+    elif damage == "contradictory_maps":
+        payload["final_paths"] = []
+    elif damage == "contradictory_checksums":
+        checksums = payload["expected_checksums"]
+        assert isinstance(checksums, dict)
+        destination = str(payload["final_paths"][0])
+        checksums[destination] = "f" * 64
+    else:
+        payload["transaction_id"] = "forged-id"
+    journal.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = _recover(tmp_path)[0]
+
+    assert result.state == "recovery_required"
+    assert result.startup_mode == "read_only"
+    assert expected_reason in result.reason.lower()
+    assert journal.exists()
+
+
+@pytest.mark.parametrize("payload", [["not", "an", "object"], {"schema_version": "two"}])
+def test_malformed_top_level_journal_is_preserved_without_startup_exception(
+    tmp_path: Path, payload: object
+) -> None:
+    transaction_root = tmp_path / ".atomic-transactions" / "malformed"
+    transaction_root.mkdir(parents=True)
+    journal = transaction_root / "journal.json"
+    journal.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = _recover(tmp_path)[0]
+
+    assert result.state == "recovery_required"
+    assert result.startup_mode == "read_only"
+    assert journal.exists()
+
+
+def test_v2_journal_cannot_mutate_a_path_outside_supplied_recovery_root(tmp_path: Path) -> None:
+    root = tmp_path / "recovery-root"
+    outside = tmp_path / "outside.bin"
+    outside.write_bytes(b"do-not-touch")
+    journal, payload = _valid_v2_payload(root)
+    entry = payload["entries"][0]
+    assert isinstance(entry, dict)
+    original_destination = entry["destination"]
+    entry["destination"] = str(outside.resolve())
+    payload["final_paths"] = [str(outside.resolve())]
+    checksums = payload["expected_checksums"]
+    assert isinstance(checksums, dict)
+    checksums[str(outside.resolve())] = checksums.pop(original_destination)
+    journal.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = _recover(root)[0]
+
+    assert result.state == "recovery_required"
+    assert result.startup_mode == "read_only"
+    assert "outside recovery root" in result.reason.lower()
+    assert outside.read_bytes() == b"do-not-touch"
+    assert journal.exists()
+
+
 def test_lingering_committed_journal_keeps_verified_new_generation(tmp_path: Path) -> None:
     destination = _interrupted_transaction(tmp_path, "manifest_publish")
     root = tmp_path / ".atomic-transactions" / "tx-manifest_publish"
     journal = root / "journal.json"
     payload = json.loads(journal.read_text(encoding="utf-8"))
     payload["state"] = "committed"
+    payload["committed_at"] = "2026-07-11T00:00:02+00:00"
     Path(payload["entries"][0]["staged_path"]).unlink()
     journal.write_text(json.dumps(payload), encoding="utf-8")
 

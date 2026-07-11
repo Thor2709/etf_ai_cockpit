@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal, Self
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class OperationalEvent(BaseModel):
@@ -62,7 +62,7 @@ class ClosureEvidenceRecord(BaseModel):
 
 
 WriteTransactionStatus = Literal[
-    "started",
+    "planned",
     "staging",
     "validating",
     "ready_to_commit",
@@ -86,15 +86,32 @@ class WriteTransaction(BaseModel):
     affected_dataset_ids: list[str] = Field(
         validation_alias=AliasChoices("affected_dataset_ids", "affected_datasets")
     )
-    base_generations: dict[str, str]
-    staging_paths: dict[str, str]
-    final_paths: dict[str, str]
+    base_generation_ids: dict[str, str] = Field(
+        validation_alias=AliasChoices("base_generation_ids", "base_generations")
+    )
+    staging_paths: list[str]
+    final_paths: list[str]
     expected_checksums: dict[str, str]
     status: WriteTransactionStatus
     started_at: datetime = Field(validation_alias=AliasChoices("started_at", "created_at"))
     updated_at: datetime
     committed_at: datetime | None = None
-    recovery_instructions: str
+    recovery_instructions: list[str]
+
+    @field_validator("staging_paths", "final_paths", mode="before")
+    @classmethod
+    def accept_legacy_path_maps(cls, value: object) -> object:
+        """Accept the pre-approval mapping shape while exposing only list fields."""
+        if isinstance(value, dict):
+            return list(value.values())
+        return value
+
+    @field_validator("recovery_instructions", mode="before")
+    @classmethod
+    def accept_legacy_recovery_instruction(cls, value: object) -> object:
+        if isinstance(value, str):
+            return [value]
+        return value
 
     @property
     def affected_datasets(self) -> list[str]:
@@ -105,3 +122,8 @@ class WriteTransaction(BaseModel):
     def created_at(self) -> datetime:
         """Compatibility alias for the pre-approval Task 3 draft name."""
         return self.started_at
+
+    @property
+    def base_generations(self) -> dict[str, str]:
+        """Compatibility alias for the pre-approval Task 3 draft name."""
+        return self.base_generation_ids

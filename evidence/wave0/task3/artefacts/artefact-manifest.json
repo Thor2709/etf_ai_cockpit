@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "purpose": "Synthetic Task 3 backup and recovery evidence; no market data or secrets.",
+  "artefacts": [
+    {
+      "path": "backup-drill/backups/20260711T081411.470664Z/9eb3d7d8a764_canonical-sample.txt",
+      "sha256": "4cc3b522f5488c1e82a06ba9988ea02c1dbc2b6acc064331c7ffe6ae06ae91aa",
+      "bytes": 37
+    },
+    {
+      "path": "backup-drill/backups/20260711T081411.470664Z/manifest.json",
+      "sha256": "f04e498f217da4546620c003cd7b311d4ed9597b1bf045260e022640b3492631",
+      "bytes": 616
+    },
+    {
+      "path": "backup-drill/canonical-sample.txt",
+      "sha256": "4cc3b522f5488c1e82a06ba9988ea02c1dbc2b6acc064331c7ffe6ae06ae91aa",
+      "bytes": 37
+    },
+    {
+      "path": "backup-drill/restore-result.json",
+      "sha256": "1e03b7d066b4758fac3137785122fb597c303d5132a32534ca0515f04294f19c",
+      "bytes": 663
+    },
+    {
+      "path": "recovery-drill/data/clean/canonical-sample.txt",
+      "sha256": "4cc3b522f5488c1e82a06ba9988ea02c1dbc2b6acc064331c7ffe6ae06ae91aa",
+      "bytes": 37
+    },
+    {
+      "path": "recovery-drill/interrupted-journal.json",
+      "sha256": "a2dbe15a4c87e6de70adb986b29e738cba0ee5b8bdce02128e04359b36abd634",
+      "bytes": 2491
+    },
+    {
+      "path": "recovery-drill/recovery-result.json",
+      "sha256": "70711c6110c72ae5e6fda384a28d0bad1b7c2fa2aee7d8a199ca5ee73e6fe6b9",
+      "bytes": 747
+    },
+    {
+      "path": "recovery-drill/session.jsonl",
+      "sha256": "5810a49942e0beaa7186adf4855a271a27e43a4ef505168fc15fa5b43b86d017",
+      "bytes": 662
+    }
+  ]
+}

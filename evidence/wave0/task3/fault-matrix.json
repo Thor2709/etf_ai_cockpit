@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "task": "wave0-task3-atomic-recovery",
-  "captured_at": "2026-07-11",
+  "captured_at": "2026-07-11T08:14:11Z",
   "fault_matrix": [
     {"fault": "staging interruption", "result": "rolled_back", "startup_mode": "normal", "visible_generation": "old complete"},
     {"fault": "validation interruption", "result": "rolled_back", "startup_mode": "normal", "visible_generation": "old complete"},
@@ -14,13 +14,28 @@
     {"fault": "locked destination during rollback", "result": "recovery_required", "startup_mode": "read_only", "visible_generation": "not promoted"},
     {"fault": "lingering verified committed journal", "result": "committed", "startup_mode": "normal", "visible_generation": "new complete"},
     {"fault": "legacy schema-1 prepared journal", "result": "rolled_back", "startup_mode": "normal", "visible_generation": "old complete"},
+    {"fault": "second concurrent writer interrupted after first writer commits", "result": "rolled_back", "startup_mode": "normal", "visible_generation": "first writer complete"},
+    {"fault": "post-hook staged payload tampering", "result": "write rejected", "startup_mode": "normal", "visible_generation": "old complete"},
+    {"fault": "forged destination outside recovery root", "result": "recovery_required", "startup_mode": "read_only", "visible_generation": "outside path untouched"},
+    {"fault": "unknown or structurally invalid schema-2 journal", "result": "recovery_required", "startup_mode": "read_only", "visible_generation": "journal preserved for manual review"},
+    {"fault": "real nested data/clean transaction before migration", "result": "rolled_back before migration", "startup_mode": "normal", "visible_generation": "old complete"},
     {"fault": "clean restart", "result": "no recovery records", "startup_mode": "normal", "visible_generation": "unchanged"}
   ],
   "source_sha256": {
-    "src/etf_cockpit/core/atomic_io.py": "48a159c9cfbc1f53a67e89ec8f41a5eb5cc34c4c68bd2ad6bafb5f2258673bf0",
-    "src/etf_cockpit/core/migrations.py": "07b727bcca93cbb1bd854a7af7e1eaa1bd54982c203a3e5f09832f670fb51357",
-    "src/etf_cockpit/operations/models.py": "f16fb8acbdfbcf0968f46b625cc9f74b3a86ad94509407a698d1d2b964f3d6f9",
-    "src/etf_cockpit/operations/recovery.py": "0aacc2503be8f1875a41db56bbb7abde31bb57f7d9d9a854ff8eac2fad53a865"
+    "src/etf_cockpit/core/atomic_io.py": "c5ad5ab577719de680df0902eb227709a8170bdacfc65d9e9737d73d85154434",
+    "src/etf_cockpit/core/migrations.py": "653c09426d6535b8fabaeb6de03c31fe4e3343369e5d442f9d9e19de9f22496b",
+    "src/etf_cockpit/operations/models.py": "4c3c01bd15993132c614dffaa49e22189493d5148a791c5aad1dd135d8163392",
+    "src/etf_cockpit/operations/recovery.py": "f5cdc8711afa1e4f16571e670a5e6d187b2c145754a517631851459a94e37585"
+  },
+  "durable_artefact_manifest": {
+    "path": "evidence/wave0/task3/artefacts/artefact-manifest.json",
+    "sha256": "b45d6f25f97084f3262fe723b4d2667df7d1cd0a0b9aa107c23a7286dec71c92",
+    "backup_manifest_path": "evidence/wave0/task3/artefacts/backup-drill/backups/20260711T081411.470664Z/manifest.json",
+    "backup_manifest_sha256": "f04e498f217da4546620c003cd7b311d4ed9597b1bf045260e022640b3492631",
+    "recovery_result_path": "evidence/wave0/task3/artefacts/recovery-drill/recovery-result.json",
+    "recovery_result_sha256": "70711c6110c72ae5e6fda384a28d0bad1b7c2fa2aee7d8a199ca5ee73e6fe6b9",
+    "authoritative_event_path": "evidence/wave0/task3/artefacts/recovery-drill/session.jsonl",
+    "authoritative_event_sha256": "5810a49942e0beaa7186adf4855a271a27e43a4ef505168fc15fa5b43b86d017"
   },
   "visual_evidence": "pending_later_task: Task 3 adds no user-visible surface; ISSUE-0040 UI/browser/package gates remain open"
 }

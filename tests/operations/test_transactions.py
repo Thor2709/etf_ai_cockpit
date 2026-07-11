@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+import threading
+from typing import get_args, get_origin
 
 import pytest
 
@@ -52,7 +54,7 @@ def test_transaction_model_carries_the_approved_recovery_fields() -> None:
         "workflow_run_id",
         "transaction_type",
         "affected_dataset_ids",
-        "base_generations",
+        "base_generation_ids",
         "staging_paths",
         "final_paths",
         "expected_checksums",
@@ -62,6 +64,14 @@ def test_transaction_model_carries_the_approved_recovery_fields() -> None:
         "committed_at",
         "recovery_instructions",
     } <= fields
+    assert get_origin(model.model_fields["staging_paths"].annotation) is list
+    assert get_args(model.model_fields["staging_paths"].annotation) == (str,)
+    assert get_origin(model.model_fields["final_paths"].annotation) is list
+    assert get_args(model.model_fields["final_paths"].annotation) == (str,)
+    assert get_origin(model.model_fields["recovery_instructions"].annotation) is list
+    assert get_args(model.model_fields["recovery_instructions"].annotation) == (str,)
+    assert "planned" in get_args(model.model_fields["status"].annotation)
+    assert "manifest_publish" not in get_args(model.model_fields["status"].annotation)
 
 
 def test_begin_and_ready_lifecycle_is_durable_in_the_atomic_journal(tmp_path: Path) -> None:
@@ -76,7 +86,7 @@ def test_begin_and_ready_lifecycle_is_durable_in_the_atomic_journal(tmp_path: Pa
         workflow_run_id="workflow-1",
         affected_datasets=["canonical"],
         base_generations={"canonical": "generation-old"},
-        final_paths={"canonical": str(tmp_path / "data" / "canonical.bin")},
+        final_paths=[str(tmp_path / "data" / "canonical.bin")],
     )
     ready = recovery.mark_transaction_ready(
         transaction.transaction_id,
@@ -90,6 +100,11 @@ def test_begin_and_ready_lifecycle_is_durable_in_the_atomic_journal(tmp_path: Pa
     assert durable["transaction_id"] == transaction.transaction_id
     assert durable["state"] == "ready_to_commit"
     assert durable["expected_checksums"] == ready.expected_checksums
+    assert transaction.base_generation_ids == {"canonical": "generation-old"}
+    assert transaction.base_generations == transaction.base_generation_ids
+    assert transaction.status == "planned"
+    assert isinstance(durable["final_paths"], list)
+    assert isinstance(durable["recovery_instructions"], list)
 
 
 @pytest.mark.parametrize("crash_point", ["staging", "validating", "committing", "manifest_publish"])
@@ -112,6 +127,33 @@ def test_real_group_interruption_leaves_one_existing_journal_for_startup_recover
     assert json.loads(journals[0].read_text(encoding="utf-8"))["state"] == crash_point
 
 
+@pytest.mark.parametrize("crash_point", ["staging", "validating", "committing", "manifest_publish"])
+def test_real_group_interruption_recovers_the_previous_complete_generation(
+    tmp_path: Path, crash_point: str
+) -> None:
+    from etf_cockpit.operations.recovery import recover_incomplete_transactions
+
+    destination = tmp_path / "data" / "canonical.bin"
+    destination.parent.mkdir(parents=True)
+    destination.write_bytes(b"old")
+
+    def interrupt(state: str, _journal: Path) -> None:
+        if state == crash_point:
+            raise atomic_io.AtomicWriteInterrupted(state)
+
+    with pytest.raises(atomic_io.AtomicWriteInterrupted):
+        atomic_io.atomic_write_group((_request(destination, b"new"),), lifecycle_hook=interrupt)
+
+    result = recover_incomplete_transactions(
+        tmp_path,
+        event_path=tmp_path / "logs" / "session.jsonl",
+    )[0]
+
+    assert result.state == "rolled_back"
+    assert result.startup_mode == "normal"
+    assert destination.read_bytes() == b"old"
+
+
 def test_concurrent_writer_times_out_without_changing_previous_value(tmp_path: Path) -> None:
     destination = tmp_path / "data" / "canonical.bin"
     destination.parent.mkdir(parents=True)
@@ -126,3 +168,76 @@ def test_concurrent_writer_times_out_without_changing_previous_value(tmp_path: P
         atomic_io.wait_for_atomic_group(destination, timeout_seconds=0.01)
 
     assert destination.read_bytes() == b"old"
+
+
+def test_recovery_of_interrupted_second_real_writer_preserves_first_commit(tmp_path: Path) -> None:
+    from etf_cockpit.operations.recovery import recover_incomplete_transactions
+
+    destination = tmp_path / "data" / "canonical.bin"
+    destination.parent.mkdir(parents=True)
+    destination.write_bytes(b"old")
+    first_at_commit = threading.Event()
+    release_first = threading.Event()
+    second_at_commit = threading.Event()
+    errors: list[BaseException] = []
+
+    def first_hook(state: str, _journal: Path) -> None:
+        if state == "committing":
+            first_at_commit.set()
+            assert release_first.wait(timeout=5)
+
+    def second_hook(state: str, _journal: Path) -> None:
+        if state == "committing":
+            second_at_commit.set()
+        if state == "manifest_publish":
+            raise atomic_io.AtomicWriteInterrupted(state)
+
+    def write(payload: bytes, hook) -> None:
+        try:
+            atomic_io.atomic_write_group((_request(destination, payload),), lifecycle_hook=hook)
+        except atomic_io.AtomicWriteInterrupted:
+            pass
+        except BaseException as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
+
+    first = threading.Thread(target=write, args=(b"new-1", first_hook))
+    second = threading.Thread(target=write, args=(b"new-2", second_hook))
+    first.start()
+    assert first_at_commit.wait(timeout=5)
+    second.start()
+    second_at_commit.wait(timeout=0.25)
+    release_first.set()
+    first.join(timeout=5)
+    second.join(timeout=5)
+
+    assert not first.is_alive() and not second.is_alive()
+    assert errors == []
+    assert destination.read_bytes() == b"new-2"
+
+    results = recover_incomplete_transactions(
+        tmp_path,
+        event_path=tmp_path / "logs" / "session.jsonl",
+    )
+
+    assert [result.state for result in results] == ["rolled_back"]
+    assert destination.read_bytes() == b"new-1"
+
+
+def test_staged_checksum_is_recomputed_after_commit_hook_before_activation(tmp_path: Path) -> None:
+    destination = tmp_path / "data" / "canonical.bin"
+    destination.parent.mkdir(parents=True)
+    destination.write_bytes(b"old")
+
+    def tamper(state: str, journal: Path) -> None:
+        if state == "committing":
+            payload = json.loads(journal.read_text(encoding="utf-8"))
+            Path(payload["entries"][0]["staged_path"]).write_bytes(b"TAMPERED")
+
+    with pytest.raises(OSError, match="staged payload checksum mismatch"):
+        atomic_io.atomic_write_group(
+            (_request(destination, b"new"),),
+            lifecycle_hook=tamper,
+        )
+
+    assert destination.read_bytes() == b"old"
+    assert list(tmp_path.rglob(".atomic-transactions/*/journal.json")) == []
