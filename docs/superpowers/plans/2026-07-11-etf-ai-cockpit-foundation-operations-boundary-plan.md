@@ -335,7 +335,7 @@ and later tracker records still require their complete issue-specific gates.
 
 **Produces:** fresh verification packages that a separate reviewer approves or rejects.
 
-- [ ] **Step 1: Write RED tests for stale/missing/falsified evidence**
+- [x] **Step 1: Write RED tests for stale/missing/falsified evidence**
 
 ```python
 def test_verify_issue_rejects_a_passing_result_from_a_different_source_hash(tmp_path: Path) -> None:
@@ -347,22 +347,44 @@ def test_verify_issue_never_updates_tracker_state(monkeypatch: pytest.MonkeyPatc
     assert verify_issue("ISSUE-0013").tracker_mutated is False
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `.\.venv\Scripts\python.exe -m pytest tests\release\test_clean_environment.py tests\release\test_package_matrix.py tests\operations\test_verification_records.py -q`
 
 Expected: FAIL because no verification command builds a typed evidence package.
 
-- [ ] **Step 3: Implement fixed command selection and manifest capture**
+- [x] **Step 3: Implement fixed command selection and manifest capture**
 
 `verify_issue.py` reads only the matrix-declared commands, stores stdout/stderr paths and SHA-256 checksums, records source/environment hashes, and returns a `VerificationRun`. It may never write `issues/open.md`, `issues/closed.md` or a closure status.
 
-- [ ] **Step 4: Run GREEN plus current source baseline**
+- [x] **Step 4: Run GREEN plus current source baseline**
 
 Run: `.\.venv\Scripts\python.exe -m pytest tests\release tests\operations -q`
 
 Expected: PASS. Then run `.\scripts\verify_clean_environment.ps1` only after all its package dependencies are explicitly present; otherwise record its exact blocked result without treating it as a pass.
 
-- [ ] **Step 5: Complete wave review package**
+- [x] **Step 5: Complete wave review package**
 
 The fresh reviewer receives the wave task reports, static-boundary JSON, fault matrix, closure-matrix diff and current source hash. Resolve every Critical or Important finding before the next wave begins.
+
+### Task 5 completion checkpoint - 2026-07-12
+
+Task 5 was implemented on `wave0/task5-evidence-automation`, independently
+reviewed, corrected for five Important fail-open findings, re-reviewed and
+merged through PR 4 (`https://github.com/Thor2709/etf_ai_cockpit/pull/4`) at
+`fc4d61cfc6e77da9a91aeb5afe0341b1d7658f55`. The implementation provides
+source/environment-bound, fresh, checksum-validated, deterministic and
+read-only issue evidence verification; fail-closed clean-environment,
+package and Chrome stages; and deterministic package-mode declarations.
+
+Fresh post-merge evidence: focused Task 5/review-record tests 31 passed;
+release and operations suites 26 and 81 passed; Ruff, compileall, pip check
+and PowerShell AST parsing passed; source smoke returned
+`snapshot_ok as_of=2026-07-09 signals=16 backtests=5`. A clean-environment
+execution requiring a fresh venv, package build and Chrome was not run because
+it would create machine-specific artefacts; its missing-tool paths are
+explicitly blocked and tested. No issue moved between the local ledgers;
+`UPDATEV2-0029`, `ISSUE-0013`, `ISSUE-0014` and `ISSUE-0045` remain open for
+their complete later release/UI/browser closure gates. The independent
+re-review is `.ai_worklog/task-5-review-rereview.md` with no Critical or
+Important findings. `execution_allowed` remains `false`.

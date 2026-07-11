@@ -237,3 +237,26 @@ Executing the approved plan at `docs/superpowers/plans/2026-07-09-launcher-spare
   fields false, and source smoke. No issue state changed; `ISSUE-0040` and
   later tracker records remain open. Wave 0 Task 5 is next; `execution_allowed`
   remains `false`.
+
+## 2026-07-12 Wave 0 Task 5 Integration Checkpoint
+
+- Task 5 implemented deterministic, read-only REL-03 evidence verification,
+  source/environment hash binding, freshness and checksum validation,
+  fail-closed clean-environment/package/Chrome stages and deterministic
+  package-mode declarations. The initial independent review found five
+  Important fail-open paths; a fresh fix implementer added RED tests and closed
+  all five. The fresh re-review approved specification compliance and code
+  quality with no Critical or Important findings; two Minor follow-ups remain
+  documented.
+- PR 4 (`https://github.com/Thor2709/etf_ai_cockpit/pull/4`) merged the final
+  Task 5 branch into `main` at
+  `fc4d61cfc6e77da9a91aeb5afe0341b1d7658f55`.
+- Post-merge verification on clean `main`: focused Task 5/review-record tests
+  31 passed; release tests 26 passed; operations tests 81 passed; Ruff,
+  compileall, pip check and PowerShell AST parsing passed; source smoke returned
+  `snapshot_ok as_of=2026-07-09 signals=16 backtests=5`.
+- The clean-environment script was not executed because it intentionally creates
+  a fresh venv, package output and browser profile; its missing-tool paths are
+  fail-closed and covered by focused tests. No issue moved between local ledgers
+  and no GitHub Issue state was changed. Task 5 owning issues remain open for
+  complete UI/package/browser closure evidence; Wave 1 governance Task 1 is next.

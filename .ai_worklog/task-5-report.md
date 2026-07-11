@@ -103,3 +103,21 @@ portfolio target, research threshold or coverage scope changed.
 | Migration/package/browser/source runtime evidence | pending | Later task-level and environment/package gates |
 | Independent task review | pending | Fresh reviewer required after this report |
 | Issue closure | pending | Owning issues require later UI/package/browser and full closure evidence |
+
+## Final integration evidence
+
+The five Important findings from the first independent review were fixed in a
+fresh RED-GREEN pass and independently re-reviewed. The re-review is recorded
+in `.ai_worklog/task-5-review-rereview.md` and approved specification
+compliance and code quality with no Critical or Important findings.
+
+PR 4 (`https://github.com/Thor2709/etf_ai_cockpit/pull/4`) merged the branch at
+`fc4d61cfc6e77da9a91aeb5afe0341b1d7658f55`. On clean `main`, focused Task 5
+and review-record tests passed 31, release tests passed 26, operations tests
+passed 81, Ruff/compileall/pip check/PowerShell AST parsing passed, and source
+smoke returned `snapshot_ok as_of=2026-07-09 signals=16 backtests=5`.
+
+The clean-environment execution itself remains explicitly unverified because
+it creates a fresh virtual environment, package output and browser profile;
+its unavailable-tool paths are fail-closed and covered by tests. No local or
+GitHub issue state changed. `execution_allowed` remains `false`.

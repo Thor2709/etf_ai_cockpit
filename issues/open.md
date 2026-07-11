@@ -10,6 +10,17 @@ Wave 0 Task 3 checkpoint 2026-07-12: atomic transaction and deterministic recove
 
 Wave 0 Task 4 checkpoint 2026-07-12: the no-execution/rejection boundary, auditable rejection registry and future-only architecture records were independently approved and merged through PR 2 at `0f2b2cb`. A post-merge generated-package false-positive was reproduced with RED evidence, corrected by excluding top-level ignored `build/` and `dist/` roots, independently approved and merged through PR 3 at `5b732e4`. Final clean-main scope/release, release/operations, static-scan and source-smoke checks passed. No open issue changed state; `ISSUE-0040` and later tracker records remain open, and Wave 0 Task 5 is next.
 
+Wave 0 Task 5 checkpoint 2026-07-12: deterministic read-only evidence
+verification, source/environment binding, freshness/checksum gates, fail-closed
+clean-environment/package/Chrome stages and deterministic package modes were
+independently approved after a fix pass and merged through PR 4 at
+`fc4d61cfc6e77da9a91aeb5afe0341b1d7658f55`. Focused Task 5/review-record
+tests (31), release tests (26), operations tests (81), Ruff, compileall, pip
+check, PowerShell AST parsing and source smoke passed post-merge. No open issue
+changed state; `UPDATEV2-0029`, `ISSUE-0013`, `ISSUE-0014`, `ISSUE-0045`,
+`ISSUE-0040` and later tracker records remain open for their complete closure
+gates. Wave 1 governance Task 1 is next.
+
 ## Tracker Rules
 
 Every issue below is open until all close criteria pass. User-facing issues must be implemented in source, visible in the app UI, tested, included in audit/export where relevant, rebuilt, started from the rebuilt app and smoke-tested from the user's point of view. Backend-only fields do not close UI-facing issues.

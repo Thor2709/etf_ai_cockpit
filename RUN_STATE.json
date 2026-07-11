@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-12T08:32:10+10:00",
+  "updated_at": "2026-07-12T10:20:00+10:00",
   "active_programme": {
     "name": "2026-07-11-etf-ai-cockpit-approved-programme",
     "programme_index": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-programme-index.md",
     "progress_ledger": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-progress-ledger.md",
-    "phase": "wave0_task4_integrated_task5_ready",
-    "next_task": "Wave 0, Foundation Task 5: build evidence automation without automatic issue closure",
+    "phase": "wave0_task5_integrated_wave1_governance_ready",
+    "next_task": "Wave 1, Governance Task 1: typed authority and non-execution contract",
     "git_repository": true,
     "git_branch": "main",
     "baseline": {
@@ -237,6 +237,54 @@
       "issue_state": "open",
       "execution_allowed": false,
       "data05_status": "still_open"
+    },
+    "task_5_checkpoint": {
+      "owning_epics": ["REL-03"],
+      "owning_issues": ["UPDATEV2-0029", "ISSUE-0013", "ISSUE-0014", "ISSUE-0045"],
+      "branch": "wave0/task5-evidence-automation",
+      "task_base": "d5ea6610f12a52736f9e2790dbf42aa58b7a34db",
+      "implementation_commits": ["7089cd7034fe0c2bbd732b664c6b54201ac8956a", "7a7adc7", "85139cc"],
+      "red": {
+        "command": ".\\.venv\\Scripts\\python.exe -m pytest tests\\release\\test_clean_environment.py tests\\release\\test_package_matrix.py tests\\operations\\test_verification_records.py -q --tb=short",
+        "exit_code": 1,
+        "behavioural_failures": 3,
+        "summary": "missing verifier, clean-environment script and package-mode artefacts"
+      },
+      "green": {
+        "focused_command": ".\\.venv\\Scripts\\python.exe -m pytest tests\\release\\test_verification_automation.py tests\\release\\test_clean_environment.py tests\\release\\test_package_matrix.py tests\\operations\\test_verification_records.py -q --tb=short",
+        "focused_exit_code": 0,
+        "focused_tests_passed": 31,
+        "release_command": ".\\.venv\\Scripts\\python.exe -m pytest tests\\release -q --tb=short",
+        "release_exit_code": 0,
+        "release_tests_passed": 26,
+        "operations_command": ".\\.venv\\Scripts\\python.exe -m pytest tests\\operations -q --tb=short",
+        "operations_exit_code": 0,
+        "operations_tests_passed": 81,
+        "ruff_exit_code": 0,
+        "compileall_exit_code": 0,
+        "pip_check_exit_code": 0,
+        "powershell_ast_exit_code": 0,
+        "source_smoke_exit_code": 0,
+        "source_smoke_output": "snapshot_ok as_of=2026-07-09 signals=16 backtests=5",
+        "clean_environment_execution": "not_run; fresh venv/package/Chrome artefacts deliberately not created"
+      },
+      "reports": [
+        ".ai_worklog/task-5-brief.md",
+        ".ai_worklog/task-5-report.md",
+        ".ai_worklog/task-5-fix-pass-1-report.md",
+        ".ai_worklog/task-5-review.md",
+        ".ai_worklog/task-5-review-rereview.md"
+      ],
+      "independent_review": "approved_with_minor_follow_up_no_critical_or_important_findings",
+      "integration": {
+        "pull_request": "https://github.com/Thor2709/etf_ai_cockpit/pull/4",
+        "merge_commit": "fc4d61cfc6e77da9a91aeb5afe0341b1d7658f55",
+        "main_matches_origin": true,
+        "working_tree_clean": true
+      },
+      "issue_state": "open",
+      "execution_allowed": false,
+      "data05_status": "still_open"
     }
   },
   "plan": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-foundation-operations-boundary-plan.md",
@@ -247,7 +295,7 @@
   "wave": 0,
   "task": 5,
   "step": 1,
-  "completed_tasks": [1, 2, 3, 4],
+  "completed_tasks": [1, 2, 3, 4, 5],
   "implementation_foundations": [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
   "issue_counts": {
     "reviewed": 41,
@@ -255,21 +303,25 @@
     "still_open": 37
   },
   "last_checkpoint": {
-    "name": "wave0_task4_integrated_task5_ready",
-    "result": "Task 4 was independently approved, corrected after post-merge generated-package verification, merged through PR 2 and PR 3 at 5b732e4e99d3139c3f5e370781c454ecb9718dad, and post-merge focused/release/operations tests, static scan and source smoke passed. ISSUE-0040 remains open for later UI/package/browser gates; Task 5 is next.",
+    "name": "wave0_task5_integrated_wave1_governance_ready",
+    "result": "Task 5 was independently approved after an Important-finding fix pass, merged through PR 4 at fc4d61cfc6e77da9a91aeb5afe0341b1d7658f55, and post-merge focused/release/operations tests, Ruff, compileall, pip check, PowerShell AST parsing and source smoke passed. Task 5 owning issues remain open for complete UI/package/browser closure gates; Wave 1 governance Task 1 is next.",
     "evidence": [
-      ".ai_worklog/task-4-report.md",
-      ".ai_worklog/task-4-review-postfix.md",
-      ".ai_worklog/task-4-postmerge-review.md",
-      "configs/rejection_registry.yaml"
+      ".ai_worklog/task-5-report.md",
+      ".ai_worklog/task-5-review-rereview.md",
+      ".ai_worklog/task-5-fix-pass-1-report.md",
+      "scripts/verify_issue.py",
+      "scripts/verify_clean_environment.ps1"
     ],
     "commands": {
+      "task5_focused_tests": {"exit_code": 0, "tests": 31},
+      "release": {"exit_code": 0, "tests": 26},
+      "operations": {"exit_code": 0, "tests": 81},
       "task4_focused_tests": {"exit_code": 0, "tests": 54},
-      "release_operations": {"exit_code": 0, "tests": 75},
+      "task4_release_operations": {"exit_code": 0, "tests": 75},
       "compileall": {"exit_code": 0},
       "scoped_ruff": {"exit_code": 0},
       "pip_check": {"exit_code": 0},
-      "production_static_scan": {"exit_code": 0, "result": "pass", "scanned_files": 358, "violations": 0, "policy_checksum": "89680ebfdca87827728919e687f50f30cebe014741ce35eb4b3c32daa83452f1", "execution_allowed": false, "executable_authority": false},
+      "task4_production_static_scan": {"exit_code": 0, "result": "pass", "scanned_files": 358, "violations": 0, "policy_checksum": "89680ebfdca87827728919e687f50f30cebe014741ce35eb4b3c32daa83452f1", "execution_allowed": false, "executable_authority": false},
       "source_smoke": {"exit_code": 0, "output": "snapshot_ok as_of=2026-07-09 signals=16 backtests=5"},
       "main_matches_origin": true,
       "working_tree_clean": true,
@@ -277,8 +329,8 @@
       "closure_evaluator": {"exit_code": 1, "ready": 4, "still_open": 37, "expected_nonzero": true}
     }
   },
-  "first_unpassed_criterion": "Wave 0 Task 5 evidence-automation implementation remains open; later ISSUE-0040 UI/package/browser closure gates also remain open",
-  "next_command": "Create the Wave 0 Task 5 isolated worktree/branch, dispatch a fresh implementer, write and run the specified stale/missing/falsified evidence RED tests, then obtain independent review",
+  "first_unpassed_criterion": "Wave 1 governance Task 1 remains incomplete; Wave 0 Task 5 owning issues remain open for complete UI/package/browser closure evidence",
+  "next_command": "Create the Wave 1 governance Task 1 isolated worktree/branch from origin/main, dispatch a fresh implementer, write and run its specified authority RED tests, then obtain independent review",
   "notes": [
     "No Git initialisation or commit occurred before the independently approved Task 2 boundary; the user now authorises local baseline Git setup and optional private GitHub push only.",
     "Closure status is evaluator-backed: 4/41 ready and 37 still open; do not close remaining issues without their complete dossiers.",
