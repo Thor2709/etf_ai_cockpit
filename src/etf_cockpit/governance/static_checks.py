@@ -43,7 +43,9 @@ _EXCLUDED_DIRECTORIES = frozenset(
 _EXCLUDED_ROOT_DIRECTORIES = frozenset(
     {
         "backups",
+        "build",
         "data",
+        "dist",
         "evidence",
         "exports",
         "issues",
