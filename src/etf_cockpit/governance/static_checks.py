@@ -244,6 +244,13 @@ def _is_dependency_manifest(path: Path) -> bool:
     return name.startswith("requirements") and path.suffix.lower() in {".in", ".txt"}
 
 
+def _is_env_file(path: Path) -> bool:
+    """Return whether *path* uses a dotenv-style filename."""
+
+    name = path.name.lower()
+    return name in _ENV_FILE_NAMES or bool(re.search(r"(?:^|\.)env(?:\..*)?$", name))
+
+
 def _iter_scannable_files(root: Path) -> Iterator[Path]:
     if not root.exists() or not root.is_dir():
         return
@@ -259,7 +266,7 @@ def _iter_scannable_files(root: Path) -> Iterator[Path]:
             continue
         if path.stat().st_size > MAX_TEXT_FILE_BYTES:
             continue
-        if _is_dependency_manifest(path) or path.name.lower() in _ENV_FILE_NAMES or path.suffix.lower() in _TEXT_SUFFIXES:
+        if _is_dependency_manifest(path) or _is_env_file(path) or path.suffix.lower() in _TEXT_SUFFIXES:
             yield path
 
 
@@ -345,6 +352,21 @@ def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
         ]
 
     violations: list[BoundaryViolation] = []
+    string_bindings: dict[str, tuple[str, ...]] = {}
+    for binding in ast.walk(tree):
+        if isinstance(binding, ast.Assign):
+            targets: list[str] = []
+            for target in binding.targets:
+                targets.extend(_target_names(target))
+            literals = tuple(_literal_strings(binding.value))
+        elif isinstance(binding, ast.AnnAssign):
+            targets = _target_names(binding.target)
+            literals = tuple(_literal_strings(binding.value)) if binding.value is not None else ()
+        else:
+            continue
+        if literals:
+            for target in targets:
+                string_bindings[target] = literals
     ui_path = "app" in {part.lower() for part in path.relative_to(root).parts} or path.stem.lower().endswith("ui") or "ui" in path.stem.lower()
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -385,6 +407,17 @@ def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
                             path,
                             "PROHIBITED_BROKER_DEPENDENCY",
                             f"Broker SDK import {alias.name!r} is not permitted.",
+                            node=node,
+                            evidence=alias.name,
+                        )
+                    )
+                if isinstance(node, ast.ImportFrom) and _normalise_symbol(alias.name) in _PROHIBITED_ORDER_SYMBOLS:
+                    violations.append(
+                        _violation(
+                            root,
+                            path,
+                            "PROHIBITED_ORDER_SYMBOL",
+                            f"Imported order-routing symbol {alias.name!r} is not permitted in production source.",
                             node=node,
                             evidence=alias.name,
                         )
@@ -474,7 +507,11 @@ def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
                                 evidence=literal,
                             )
                         )
-            if any(_ORDER_ENDPOINT_RE.search(value) for value in _literal_strings(node)):
+            call_literals = list(_literal_strings(node))
+            for argument in (*node.args, *(keyword.value for keyword in node.keywords)):
+                if isinstance(argument, ast.Name):
+                    call_literals.extend(string_bindings.get(argument.id, ()))
+            if any(_ORDER_ENDPOINT_RE.search(value) for value in call_literals):
                 if function_name.rsplit(".", 1)[-1] in {"post", "put", "patch", "request", "send", "get"}:
                     violations.append(
                         _violation(
@@ -510,7 +547,7 @@ def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
 
 def _read_config(path: Path, text: str) -> Any:
     suffix = path.suffix.lower()
-    if path.name.lower() in _ENV_FILE_NAMES:
+    if _is_env_file(path):
         values: dict[str, str] = {}
         for raw_line in text.splitlines():
             line = raw_line.strip()
@@ -656,8 +693,20 @@ def _scan_credential_resource(root: Path, path: Path, text: str) -> list[Boundar
     name = path.name.lower()
     if name == ".env.example":
         return []
+    if path.suffix.lower() in _CREDENTIAL_SUFFIXES:
+        return [
+            _violation(
+                root,
+                path,
+                "PROHIBITED_CREDENTIAL_RESOURCE",
+                "Private-key or credential-container resources are not permitted in the production tree.",
+                evidence=f"credential resource suffix {path.suffix.lower()}",
+                line=1,
+            )
+        ]
     suspicious_name = (
-        name in {".env", ".env.local", "secrets.json", "credentials.json"}
+        _is_env_file(path)
+        or name in {"secrets.json", "credentials.json"}
         or "secret" in name
         or "credential" in name
         or any(
@@ -882,14 +931,15 @@ def run_static_execution_boundary_check(root: Path) -> ExecutionBoundaryReport:
             continue
         if path.suffix.lower() == ".py":
             violations.extend(_scan_python(root, path, text))
-        if path.suffix.lower() in _CONFIG_SUFFIXES or path.name.lower() in _ENV_FILE_NAMES:
+        if path.suffix.lower() in _CONFIG_SUFFIXES or _is_env_file(path):
             violations.extend(_scan_config(root, path, text))
         if _is_dependency_manifest(path):
             violations.extend(_scan_dependency_manifest(root, path, text))
         if (
             path.suffix.lower() in {".env", ".ini", ".cfg", ".json", ".yaml", ".yml"}
             or path.suffix.lower() in _CREDENTIAL_SUFFIXES
-            or path.name.lower() in {*_ENV_FILE_NAMES, "secrets.json", "credentials.json"}
+            or _is_env_file(path)
+            or path.name.lower() in {"secrets.json", "credentials.json"}
         ):
             violations.extend(_scan_credential_resource(root, path, text))
 

@@ -119,3 +119,20 @@ The policy checksum is
 `e1b6d9198b36cf322b29f7fb2d029e7ee4d6fe2ae418c305b0c0559a3e7e81cc`; the
 registry contains 3 records. No issue status or unrelated tracker record was
 modified.
+
+## Final post-fix review boundary
+
+The second focused fix pass added regression coverage for arbitrary dotenv
+names, opaque credential-container suffixes, imported order-routing symbols
+and indirect order URLs. Its genuine RED and GREEN evidence is recorded in
+`.ai_worklog/task-4-fix-pass-2-report.md`. A fresh independent postfix review
+is recorded in `.ai_worklog/task-4-review-postfix.md`; it returned
+specification-compliance **APPROVED** and code-quality **APPROVED**, with no
+Critical, Important or Minor findings. The reviewer verified 53 focused
+scope/release tests, release regressions, deterministic production scans,
+adversarial fixtures and `execution_allowed=false` / `executable_authority=false`.
+
+The current branch contains the reviewed residual fixes and is ready for its
+final commit and integration. Task 4 does not close a local issue; `ISSUE-0040`
+and all later issue records remain open. No product authority, broker
+capability, credential handling, UI scope or approved coverage changed.

@@ -59,6 +59,38 @@ def test_order_router_symbols_and_ini_authority_are_rejected(tmp_path: Path) -> 
     assert any(item.code == "EXECUTION_AUTHORITY_ENABLED" for item in report.violations)
 
 
+def test_arbitrary_env_and_opaque_credential_resources_are_rejected(tmp_path: Path) -> None:
+    (tmp_path / "config.env").write_text(
+        "EXECUTION_ALLOWED=true\nEXECUTABLE_AUTHORITY=true\n", encoding="utf-8"
+    )
+    (tmp_path / "private.pem").write_bytes(b"opaque-private-key-bytes")
+    checker = _checker()
+    report = checker(tmp_path) if checker else None
+    assert report is not None
+    assert report.result == "fail"
+    codes = {item.code for item in report.violations}
+    assert "EXECUTION_AUTHORITY_ENABLED" in codes
+    assert "PROHIBITED_CREDENTIAL_RESOURCE" in codes
+
+
+def test_imported_order_symbols_and_indirect_order_url_are_rejected(tmp_path: Path) -> None:
+    (tmp_path / "imports.py").write_text(
+        "from helper import place_order\nfrom helper import OrderRouter as Router\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "endpoint.py").write_text(
+        "import requests\nurl = 'https://broker.example/orders'\nrequests.post(url)\n",
+        encoding="utf-8",
+    )
+    checker = _checker()
+    report = checker(tmp_path) if checker else None
+    assert report is not None
+    assert report.result == "fail"
+    codes = {item.code for item in report.violations}
+    assert "PROHIBITED_ORDER_SYMBOL" in codes
+    assert "PROHIBITED_ORDER_ENDPOINT" in codes
+
+
 def test_production_package_data_and_models_are_scanned(tmp_path: Path) -> None:
     """Runtime/cache exclusions must not hide production package source."""
 
