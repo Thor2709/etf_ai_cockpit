@@ -90,4 +90,4 @@ Task 3 therefore remains implementation-verified but review-pending. No issue cl
 
 ## Remote issue reconciliation preflight
 
-`issues/github_issue_map.json` is a read-only inventory manifest at this boundary. The local ledger parser found 98 canonical stable IDs (77 open, 21 closed), no remote GitHub Issues, and five documented historical/placement contradictions. No remote issue mutation has been performed. The local ledger and approved specification remain authoritative.
+`issues/github_issue_map.json` is a read-only inventory manifest at this boundary. The local ledger parser found 98 canonical stable IDs (77 open, 21 closed), no remote GitHub Issues, and five documented historical/placement contradictions. The later checkpoint note in `issues/open.md` makes its per-file source checksums a preflight snapshot; regenerate the manifest from the final local ledger before any remote write. No remote issue mutation has been performed. The local ledger and approved specification remain authoritative.
