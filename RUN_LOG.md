@@ -196,3 +196,12 @@ Executing the approved plan at `docs/superpowers/plans/2026-07-09-launcher-spare
 - Fresh audit ZIP validation passed: valid archive, zero checksum errors, zero secret findings, explicit candle/conflict handling, 16 unique holdings with required fields, and `model_advisory` provenance.
 - Closure evaluator returned 4 ready and 37 still open. Only `ISSUE-0069`, `UPDATEV2-0022` and `UPDATEV2-0028` changed from reopened to closed in this checkpoint; `ISSUE-0035` was already closed. Strict parser/provider records remain open.
 - Computer Use did not pass because the Windows URL-confidence policy stopped the attempt; this is recorded as a limitation, not a browser pass.
+
+## 2026-07-11 Wave 0 Task 3 Review-Capability Checkpoint
+
+- Task 3 implementation and fix commits are on `wave0/task3-atomic-recovery` from `445dd44b5382160d4e93e4cada018beb4ab0f5b5`; no push, pull request, merge or GitHub Issue mutation has occurred.
+- The focused transaction/recovery bundle passed 55 tests; the adversarial bundle passed 17 tests; scoped Ruff, compileall and diff checks passed.
+- The fresh full suite collected 323 tests, passed 316 and retained the same seven isolated-worktree generated-artefact baseline failures. No Task 3 test failed.
+- Durable Task 3 artefact and fault-matrix checks report zero checksum mismatches. `execution_allowed` remains `false`; `ISSUE-0040` and DATA-05 remain open.
+- A parent-side stale-lock containment gap was found through a RED test and fixed locally. The current containment fix and review artefacts are not yet committed.
+- The mandatory fresh independent re-review is pending because no permitted, verifiable GPT-5.6 Luna/Max custom role is available and the attempted dispatch returned a usage-limit error. Task 4 must not start until that review and integration gate pass.

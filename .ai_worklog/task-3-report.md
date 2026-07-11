@@ -34,7 +34,7 @@ Each row is updated only after fresh evidence exists.
 | Read-only or unavailable state when recovery is unproven | verified_task_scope | Invalid journals remain preserved and read-only |
 | ISSUE-0040 readable errors, panel, retry and Activity Log UI | pending_later_task | Required by issue but not this infrastructure task |
 | ISSUE-0040 package/build/browser gates | pending_later_task | Required by issue but not this infrastructure task |
-| Independent task review | rejected_fix_pending_rereview | Review 1 rejected; all findings received a fix pass; fresh rereview required |
+| Independent task review | pending_independent_review | Review 1 rejected; fix pass and parent adversarial checks are recorded, but the required fresh independent rereview is capability-blocked; see `task-3-review-2.md` |
 | Closure evaluator | pending_later_task | Issue and REL-02 remain open until all later UI/package/browser gates pass |
 | `execution_allowed` remains `false` | verified_unchanged | No execution-authority source or configuration changed |
 
@@ -46,9 +46,9 @@ To be recorded by the implementer and independently checked by the reviewer:
 - Review-fix RED cycle: the exact model test exited 1 because `base_generation_ids` was absent. The adversarial command covering staged tampering and corrupt journals exited 1: tampering did not raise, and unknown-state, missing-field, cardinality, transaction-identity and outside-root journals all returned `rolled_back` instead of `recovery_required`. The first nested-layout attempt had a test-fixture `NameError`; that fixture error was corrected before its behavioural result was counted. The initial combined concurrency run terminated its Windows test process because the existing POSIX-style `os.kill(pid, 0)` probe is destructive on Windows; the root cause was replaced with a read-only process-handle query, after which the real concurrency test could run normally.
 - Partial-staging RED cycle: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe -m pytest tests\operations\test_transactions.py::test_real_group_interruption_recovers_the_previous_complete_generation -q` exited 1 with the real `staging` interruption classified `recovery_required` because zero entries contradicted pre-populated top-level path/checksum fields. The writer now publishes those fields with each entry; the same command exited 0 with four passes.
 - GREEN plan command: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe -m pytest tests\operations\test_transactions.py tests\operations\test_recovery.py tests\operations\test_backups.py tests\test_atomic_io.py tests\test_backup_restore.py -q` exited 0 with 29 passed after the lifecycle/fault-injection increment.
-- Review-fix GREEN/refactor command: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe -m pytest tests\operations\test_transactions.py tests\operations\test_recovery.py tests\operations\test_backups.py tests\test_atomic_io.py tests\test_backup_restore.py tests\test_schema_migrations.py tests\operations\test_operational_events.py -q` exited 0 with 54 passed.
+- Review-fix GREEN/refactor command: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe -m pytest tests\operations\test_transactions.py tests\operations\test_recovery.py tests\operations\test_backups.py tests\test_atomic_io.py tests\test_backup_restore.py tests\test_schema_migrations.py tests\operations\test_operational_events.py -q` exited 0 with 54 passed. The later stale-lock containment RED-GREEN regression brought the same covering command to 55 passed.
 - Static checks: scoped Ruff exited 0 (`All checks passed!`); `python -m compileall -q src\etf_cockpit` exited 0; both `git diff --check HEAD` and `git diff --check 445dd44b5382160d4e93e4cada018beb4ab0f5b5` exited 0.
-- Full applicable verification: `python -m pytest tests -q` collected 322 tests and exited 1 with 315 passed and seven failures. These are exactly the unchanged clean-worktree baseline failures: six `tests/test_simple_scores.py` failures and `tests/test_trust_critical_artifacts.py::test_static_trust_artifacts_cover_providers_and_identity`, caused by ignored trade-candidate/catalogue artefacts absent from the isolated worktree. No Task 3 test failed.
+- Full applicable verification: `python -m pytest tests -q --tb=short` collected 323 tests and exited 1 with 316 passed and seven failures. These are exactly the unchanged clean-worktree baseline failures: six `tests/test_simple_scores.py` failures and `tests/test_trust_critical_artifacts.py::test_static_trust_artifacts_cover_providers_and_identity`, caused by ignored trade-candidate/catalogue artefacts absent from the isolated worktree. No Task 3 test failed.
 
 ## Implementation and compatibility record
 
@@ -78,9 +78,15 @@ To be recorded by the implementer and independently checked by the reviewer:
 - I4 fixed: default recovery emission and migration preflight both use the authoritative Task 2 session trace and produce hash-chained events.
 - I6 fixed: concrete backup, restore, interrupted-journal, recovery-result and event artefacts plus checksums are durable under `evidence/wave0/task3/artefacts`.
 - M1 fixed: both current-diff and full review-range whitespace checks exit 0.
-- M2 fixed: completed infrastructure gates are `verified_task_scope`; later UI/package/browser gates remain `pending_later_task`, review remains `rejected_fix_pending_rereview`, and `ISSUE-0040`/`REL-02` remain open.
+- M2 fixed: completed infrastructure gates are `verified_task_scope`; later UI/package/browser gates remain `pending_later_task`, review remains `pending_independent_review`, and `ISSUE-0040`/`REL-02` remain open.
 
 Fix implementation commit: `4d02c8076cbdbc1da296d9b39962104a8a2a224f` (`fix: harden atomic transaction recovery`).
+
+## Post-fix review checkpoint
+
+The parent-side adversarial checkpoint is recorded in `.ai_worklog/task-3-review-2.md`. It is not an independent re-review and does not approve integration. It found and fixed one residual stale-lock path-containment gap with a new RED-GREEN regression in `tests/operations/test_transactions.py`; the guard is currently uncommitted. The required fresh reviewer remains pending because no permitted, verifiable GPT-5.6 Luna/Max custom agent role is available and the attempted fresh dispatch returned a usage-limit error.
+
+Task 3 therefore remains implementation-verified but review-pending. No issue closure, branch push, pull request, merge or GitHub Issue mutation is authorised at this checkpoint.
 
 ## Remote issue reconciliation preflight
 

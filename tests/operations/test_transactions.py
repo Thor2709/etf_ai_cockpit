@@ -170,6 +170,49 @@ def test_concurrent_writer_times_out_without_changing_previous_value(tmp_path: P
     assert destination.read_bytes() == b"old"
 
 
+def test_stale_lock_cannot_recover_a_journal_outside_its_recovery_root(tmp_path: Path) -> None:
+    outside = tmp_path / "outside.bin"
+    outside.write_bytes(b"outside-new")
+    forged_root = tmp_path / "forged" / ".atomic-transactions" / "forged"
+    forged_root.mkdir(parents=True)
+    backup = forged_root / "backup.bin"
+    backup.write_bytes(b"outside-old")
+    journal = forged_root / "journal.json"
+    journal.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "transaction_id": "forged",
+                "owner_pid": 999999,
+                "state": "prepared",
+                "entries": [
+                    {
+                        "destination": str(outside.resolve()),
+                        "backup_path": str(backup.resolve()),
+                        "previous_sha256": hashlib.sha256(b"outside-old").hexdigest(),
+                    }
+                ],
+                "staged_paths": [],
+                "lock_paths": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    destination = tmp_path / "data" / "store.bin"
+    destination.parent.mkdir(parents=True)
+    lock = destination.parent / ".atomic-write-group.lock"
+    lock.write_text(
+        json.dumps({"owner_pid": 999999, "journal_path": str(journal.resolve())}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(TimeoutError):
+        atomic_io.wait_for_atomic_group(destination, timeout_seconds=0.01)
+
+    assert outside.read_bytes() == b"outside-new"
+    assert lock.exists()
+
+
 def test_recovery_of_interrupted_second_real_writer_preserves_first_commit(tmp_path: Path) -> None:
     from etf_cockpit.operations.recovery import recover_incomplete_transactions
 

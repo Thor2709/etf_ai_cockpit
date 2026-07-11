@@ -154,12 +154,73 @@ def _cleanup_transaction(payload: dict[str, object], journal_path: Path) -> None
     shutil.rmtree(journal_path.parent, ignore_errors=True)
 
 
+def _recovery_root_for_journal(journal_path: Path) -> tuple[Path, Path] | None:
+    try:
+        resolved = journal_path.resolve()
+    except (OSError, RuntimeError):
+        return None
+    if resolved.name != "journal.json" or resolved.parent.parent.name != ".atomic-transactions":
+        return None
+    return resolved.parent.parent.parent, resolved.parent
+
+
+def _path_is_contained(path_value: object, root: Path, *, transaction_root: Path | None = None) -> bool:
+    if not isinstance(path_value, str) or not path_value:
+        return False
+    try:
+        path = Path(path_value).resolve()
+        path.relative_to(root.resolve())
+        if transaction_root is not None:
+            path.relative_to(transaction_root.resolve())
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return True
+
+
+def _validate_recovery_payload_paths(payload: dict[str, object], journal_path: Path) -> bool:
+    roots = _recovery_root_for_journal(journal_path)
+    if roots is None:
+        return False
+    recovery_root, transaction_root = roots
+    transaction_id = payload.get("transaction_id")
+    if transaction_id is not None and transaction_id != transaction_root.name:
+        return False
+    entries = payload.get("entries", [])
+    if not isinstance(entries, list):
+        return False
+    for entry in entries:
+        if not isinstance(entry, dict):
+            return False
+        if not _path_is_contained(entry.get("destination"), recovery_root):
+            return False
+        backup_path = entry.get("backup_path")
+        if backup_path is not None and not _path_is_contained(
+            backup_path, recovery_root, transaction_root=transaction_root
+        ):
+            return False
+        staged_path = entry.get("staged_path")
+        if staged_path is not None and not _path_is_contained(staged_path, recovery_root):
+            return False
+    for field in ("staged_paths", "final_paths", "lock_paths"):
+        values = payload.get(field, [])
+        if not isinstance(values, list):
+            return False
+        if not all(_path_is_contained(value, recovery_root) for value in values):
+            return False
+    return True
+
+
 def _recover_journal(journal_path: Path, *, force: bool = False) -> bool:
     try:
         payload = json.loads(journal_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return False
-    owner_pid = int(payload.get("owner_pid", 0))
+    if not isinstance(payload, dict) or not _validate_recovery_payload_paths(payload, journal_path):
+        return False
+    try:
+        owner_pid = int(payload.get("owner_pid", 0))
+    except (TypeError, ValueError):
+        return False
     if not force and _pid_alive(owner_pid):
         return False
     if payload.get("state") != "committed":
@@ -189,7 +250,7 @@ def _recover_lock(lock: Path) -> bool:
     try:
         lock_payload = json.loads(lock.read_text(encoding="utf-8"))
         journal_path = Path(str(lock_payload["journal_path"]))
-    except (OSError, json.JSONDecodeError, KeyError):
+    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
         return False
     return _recover_journal(journal_path)
 
