@@ -148,12 +148,18 @@ def mark_transaction_ready(
     return _record_from_payload(payload)
 
 
-def _required_result(journal: Path, transaction_id: str, reason: str) -> RecoveryResult:
-    checksums: dict[str, str] = {}
+def _required_result(
+    journal: Path,
+    transaction_id: str,
+    reason: str,
+    *,
+    evidence_checksums: dict[str, str] | None = None,
+) -> RecoveryResult:
+    checksums = dict(evidence_checksums or {})
     if journal.is_file():
         try:
             checksums["journal_sha256"] = atomic_io.sha256_file(journal)
-        except OSError:
+        except (OSError, RuntimeError, ValueError):
             checksums["journal_sha256"] = "unavailable"
     return RecoveryResult(
         transaction_id,
@@ -553,7 +559,18 @@ def recover_incomplete_transactions(
         journal_state = str(payload.get("state", ""))
         schema_version = payload.get("schema_version", 1)
         if type(schema_version) is int and schema_version == 2:
-            error = _validate_v2_payload(payload, journal, data_root)
+            try:
+                error = _validate_v2_payload(payload, journal, data_root)
+            except (OSError, RuntimeError, ValueError) as exc:
+                result = _required_result(
+                    journal,
+                    transaction_id,
+                    f"v2 recovery evidence unavailable: {exc}",
+                    evidence_checksums={"payload_sha256": "unavailable"},
+                )
+                results.append(result)
+                _emit_recovery_event(result, resolved_event_path)
+                continue
             if error:
                 result = _required_result(journal, transaction_id, error)
                 results.append(result)

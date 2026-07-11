@@ -146,6 +146,38 @@ def test_unreadable_journal_evidence_returns_explicit_unavailable_result(
     assert journal.exists()
 
 
+def test_unreadable_v2_payload_hash_returns_read_only_unavailable_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journal, payload = _valid_v2_payload(tmp_path, transaction_id="locked-v2")
+    entry = payload["entries"][0]
+    assert isinstance(entry, dict)
+    backup = Path(str(entry["backup_path"]))
+    before_journal = journal.read_bytes()
+    before_backup = backup.read_bytes()
+    real_sha256_file = atomic_io.sha256_file
+
+    def unreadable(path: Path) -> str:
+        if path == backup:
+            raise PermissionError("locked backup")
+        return real_sha256_file(path)
+
+    monkeypatch.setattr(atomic_io, "sha256_file", unreadable)
+
+    try:
+        outcome = _recover(tmp_path)
+    except BaseException as exc:  # pragma: no cover - regression assertion below
+        pytest.fail(f"v2 payload hash failure escaped recovery: {exc!r}")
+
+    assert outcome[0].state == "recovery_required"
+    assert outcome[0].startup_mode == "read_only"
+    assert "locked backup" in outcome[0].reason
+    assert "unavailable" in outcome[0].evidence_checksums.values()
+    assert journal.exists()
+    assert journal.read_bytes() == before_journal
+    assert backup.read_bytes() == before_backup
+
+
 def test_unreadable_session_trace_does_not_abort_recovery(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
