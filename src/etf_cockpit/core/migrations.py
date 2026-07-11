@@ -90,6 +90,13 @@ def _load_state(path: Path) -> dict[str, object]:
 
 
 def run_migrations(context: MigrationContext) -> MigrationReport:
+    from etf_cockpit.operations.recovery import recover_incomplete_transactions
+
+    recovery_results = recover_incomplete_transactions(context.root)
+    blocked = [result for result in recovery_results if result.state == "recovery_required"]
+    if blocked:
+        reasons = "; ".join(result.reason for result in blocked)
+        raise OSError(f"migration blocked by incomplete atomic transaction: {reasons}")
     state = _load_state(context.state_path)
     current_version = int(state.get("schema_version", 0))
     pending = tuple(migration for migration in MIGRATIONS if migration.version > current_version)

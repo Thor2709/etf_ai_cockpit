@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "task": "wave0-task3-atomic-recovery",
+  "captured_at": "2026-07-11",
+  "fault_matrix": [
+    {"fault": "staging interruption", "result": "rolled_back", "startup_mode": "normal", "visible_generation": "old complete"},
+    {"fault": "validation interruption", "result": "rolled_back", "startup_mode": "normal", "visible_generation": "old complete"},
+    {"fault": "commit interruption", "result": "rolled_back", "startup_mode": "normal", "visible_generation": "old complete"},
+    {"fault": "manifest publication interruption", "result": "rolled_back", "startup_mode": "normal", "visible_generation": "old complete"},
+    {"fault": "corrupt journal", "result": "recovery_required", "startup_mode": "read_only", "visible_generation": "not promoted"},
+    {"fault": "staged checksum mismatch", "result": "recovery_required", "startup_mode": "read_only", "visible_generation": "not promoted"},
+    {"fault": "missing staged payload", "result": "recovery_required", "startup_mode": "read_only", "visible_generation": "not promoted"},
+    {"fault": "missing rollback backup", "result": "recovery_required", "startup_mode": "read_only", "visible_generation": "not promoted"},
+    {"fault": "locked destination during rollback", "result": "recovery_required", "startup_mode": "read_only", "visible_generation": "not promoted"},
+    {"fault": "lingering verified committed journal", "result": "committed", "startup_mode": "normal", "visible_generation": "new complete"},
+    {"fault": "legacy schema-1 prepared journal", "result": "rolled_back", "startup_mode": "normal", "visible_generation": "old complete"},
+    {"fault": "clean restart", "result": "no recovery records", "startup_mode": "normal", "visible_generation": "unchanged"}
+  ],
+  "source_sha256": {
+    "src/etf_cockpit/core/atomic_io.py": "48a159c9cfbc1f53a67e89ec8f41a5eb5cc34c4c68bd2ad6bafb5f2258673bf0",
+    "src/etf_cockpit/core/migrations.py": "07b727bcca93cbb1bd854a7af7e1eaa1bd54982c203a3e5f09832f670fb51357",
+    "src/etf_cockpit/operations/models.py": "f16fb8acbdfbcf0968f46b625cc9f74b3a86ad94509407a698d1d2b964f3d6f9",
+    "src/etf_cockpit/operations/recovery.py": "0aacc2503be8f1875a41db56bbb7abde31bb57f7d9d9a854ff8eac2fad53a865"
+  },
+  "visual_evidence": "pending_later_task: Task 3 adds no user-visible surface; ISSUE-0040 UI/browser/package gates remain open"
+}

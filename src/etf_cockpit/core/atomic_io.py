@@ -45,6 +45,10 @@ class AtomicWriteRequest:
     validator: Callable[[Path], None]
 
 
+class AtomicWriteInterrupted(RuntimeError):
+    """Fault-injection signal that preserves the durable journal for startup recovery."""
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -86,7 +90,7 @@ def atomic_write_bytes(
             temp_path.unlink(missing_ok=True)
 
 
-def _stage_request(request: AtomicWriteRequest) -> Path:
+def _stage_request(request: AtomicWriteRequest, *, validate: bool = True) -> Path:
     request.destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
         mode="wb",
@@ -99,11 +103,12 @@ def _stage_request(request: AtomicWriteRequest) -> Path:
         handle.write(request.payload)
         handle.flush()
         os.fsync(handle.fileno())
-    try:
-        request.validator(path)
-    except Exception:
-        path.unlink(missing_ok=True)
-        raise
+    if validate:
+        try:
+            request.validator(path)
+        except Exception:
+            path.unlink(missing_ok=True)
+            raise
     return path
 
 
@@ -227,7 +232,11 @@ def wait_for_atomic_group(path: Path, timeout_seconds: float = 5.0) -> None:
         time.sleep(0.025)
 
 
-def atomic_write_group(requests: Iterable[AtomicWriteRequest]) -> tuple[AtomicWriteResult, ...]:
+def atomic_write_group(
+    requests: Iterable[AtomicWriteRequest],
+    *,
+    lifecycle_hook: Callable[[str, Path], None] | None = None,
+) -> tuple[AtomicWriteResult, ...]:
     request_tuple = tuple(requests)
     if not request_tuple:
         return ()
@@ -243,8 +252,46 @@ def atomic_write_group(requests: Iterable[AtomicWriteRequest]) -> tuple[AtomicWr
     previous: dict[Path, bytes | None] = {}
     entries: list[dict[str, object]] = []
     locks: tuple[Path, ...] = ()
-    journal_payload: dict[str, object] = {}
+    now = datetime.now(timezone.utc).isoformat()
+    journal_payload: dict[str, object] = {
+        "schema_version": 2,
+        "transaction_id": transaction_root.name,
+        "workflow_run_id": "",
+        "transaction_type": "atomic_write_group",
+        "owner_pid": os.getpid(),
+        "state": "staging",
+        "affected_dataset_ids": [str(path) for path in destinations],
+        "base_generations": {},
+        "entries": entries,
+        "staged_paths": [],
+        "lock_paths": [],
+        "expected_checksums": {
+            str(request.destination.resolve()): hashlib.sha256(request.payload).hexdigest()
+            for request in request_tuple
+        },
+        "started_at": now,
+        "updated_at": now,
+        "committed_at": None,
+        "recovery_instructions": (
+            "On interrupted startup, verify journal and payload checksums, then restore the "
+            "previous complete generation. Never promote ambiguous staging data."
+        ),
+    }
+    interrupted = False
+
+    def publish_state(state: str) -> None:
+        journal_payload["state"] = state
+        journal_payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+        if state == "committed":
+            journal_payload["committed_at"] = journal_payload["updated_at"]
+        _write_journal(journal_path, journal_payload)
+        if lifecycle_hook is not None:
+            lifecycle_hook(state, journal_path)
+
     try:
+        _write_journal(journal_path, journal_payload)
+        if lifecycle_hook is not None:
+            lifecycle_hook("staging", journal_path)
         for index, request in enumerate(request_tuple):
             original = request.destination.read_bytes() if request.destination.is_file() else None
             previous[request.destination] = original
@@ -255,30 +302,30 @@ def atomic_write_group(requests: Iterable[AtomicWriteRequest]) -> tuple[AtomicWr
                     handle.write(original)
                     handle.flush()
                     os.fsync(handle.fileno())
-            staged[request.destination] = _stage_request(request)
+            staged[request.destination] = _stage_request(request, validate=False)
             entries.append(
                 {
                     "destination": str(request.destination.resolve()),
                     "backup_path": str(backup_path.resolve()) if backup_path else None,
                     "previous_sha256": hashlib.sha256(original).hexdigest() if original is not None else None,
+                    "staged_path": str(staged[request.destination].resolve()),
+                    "expected_sha256": hashlib.sha256(request.payload).hexdigest(),
                 }
             )
+            journal_payload["staged_paths"] = [str(path.resolve()) for path in staged.values()]
+            journal_payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+            _write_journal(journal_path, journal_payload)
+        publish_state("validating")
+        for request in request_tuple:
+            request.validator(staged[request.destination])
         lock_paths = [str((parent / ".atomic-write-group.lock").resolve()) for parent in parents]
-        journal_payload = {
-            "schema_version": 1,
-            "transaction_id": transaction_root.name,
-            "owner_pid": os.getpid(),
-            "state": "prepared",
-            "entries": entries,
-            "staged_paths": [str(path.resolve()) for path in staged.values()],
-            "lock_paths": lock_paths,
-        }
-        _write_journal(journal_path, journal_payload)
+        journal_payload["lock_paths"] = lock_paths
+        publish_state("committing")
         locks = _acquire_group_locks(parents, journal_path)
         for request in request_tuple:
             staged[request.destination].replace(request.destination)
-        journal_payload["state"] = "committed"
-        _write_journal(journal_path, journal_payload)
+        publish_state("manifest_publish")
+        publish_state("committed")
         return tuple(
             AtomicWriteResult(
                 destination=request.destination,
@@ -288,12 +335,17 @@ def atomic_write_group(requests: Iterable[AtomicWriteRequest]) -> tuple[AtomicWr
             )
             for request in request_tuple
         )
+    except AtomicWriteInterrupted:
+        interrupted = True
+        raise
     except Exception:
         if journal_path.is_file():
             _recover_journal(journal_path, force=True)
         raise
     finally:
-        if journal_path.is_file():
+        if interrupted:
+            pass
+        elif journal_path.is_file():
             _cleanup_transaction(journal_payload, journal_path)
         else:
             for path in staged.values():
