@@ -97,20 +97,31 @@ function New-Stage {
         [string]$Command = "",
         [string[]]$OutputPaths = @(),
         [string[]]$OutputChecksums = @(),
+        [string]$SourceHash = "",
+        [string]$EnvironmentHash = "",
         [string]$Limitation = ""
     )
 
+    if ([string]::IsNullOrWhiteSpace($SourceHash)) {
+        $SourceHash = [string]$script:sourceHash
+    }
+    if ([string]::IsNullOrWhiteSpace($EnvironmentHash)) {
+        $EnvironmentHash = [string]$script:environmentHash
+    }
+    $normalisedResult = $Result.ToLowerInvariant()
     return [ordered]@{
         verification_run_id = "clean-$Name"
         verification_type = $Name
         command = $Command
-        result = $Result
+        source_hash = $SourceHash
+        environment_hash = $EnvironmentHash
+        result = $normalisedResult
         exit_code = $ExitCode
         output_paths = @($OutputPaths)
         output_checksums = @($OutputChecksums)
         issue_ids = @("CLEAN-ENVIRONMENT")
         gates = @($Name)
-        skipped = ($Result -eq "BLOCKED" -and [string]::IsNullOrWhiteSpace($Command))
+        skipped = ($normalisedResult -eq "blocked" -and [string]::IsNullOrWhiteSpace($Command))
         informational = $false
         limitation = $Limitation
     }
@@ -160,13 +171,127 @@ function Invoke-LocalStage {
     return New-Stage -Name $Name -Result $result -ExitCode $exitCode -Command (($Executable) + " " + ($Arguments -join " ")) -OutputPaths @($relativeStdout, $relativeStderr) -OutputChecksums @((Get-FileDigest $stdoutFile), (Get-FileDigest $stderrFile)) -Limitation $(if ($exitCode -eq 0) { "" } else { "command failed" })
 }
 
+function Invoke-PackageStage {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][string]$Evidence,
+        [switch]$PackageToolAvailable
+    )
+
+    $stageRoot = Join-Path $Evidence "stages"
+    New-Item -ItemType Directory -Force -Path $stageRoot | Out-Null
+    $stdoutFile = Join-Path $stageRoot "package.stdout.txt"
+    $stderrFile = Join-Path $stageRoot "package.stderr.txt"
+    $packagePathFile = Join-Path $Root "build\portable_outdir.txt"
+    $command = "verify package launcher artefact from $packagePathFile"
+    $result = "blocked"
+    $exitCode = 127
+    $stdout = ""
+    $limitation = ""
+    try {
+        if (-not $PackageToolAvailable) {
+            throw "package tool or script is unavailable"
+        }
+        if (-not (Test-Path -LiteralPath $packagePathFile -PathType Leaf)) {
+            throw "package output marker is unavailable: $packagePathFile"
+        }
+        $packageValue = (Get-Content -LiteralPath $packagePathFile -Raw).Trim()
+        if ([string]::IsNullOrWhiteSpace($packageValue)) {
+            throw "package output marker is empty"
+        }
+        $packagePath = if ([System.IO.Path]::IsPathRooted($packageValue)) { $packageValue } else { Join-Path $Root $packageValue }
+        $rootResolved = [System.IO.Path]::GetFullPath($Root)
+        $packageResolved = [System.IO.Path]::GetFullPath($packagePath)
+        $rootPrefix = $rootResolved.TrimEnd("\") + "\"
+        if ($packageResolved -ne $rootResolved -and -not $packageResolved.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "package output escapes source root"
+        }
+        if (-not (Test-Path -LiteralPath $packageResolved -PathType Container)) {
+            throw "package output directory is unavailable: $packageResolved"
+        }
+        $launcher = Join-Path $packageResolved "ETF_AI_Cockpit.bat"
+        if (-not (Test-Path -LiteralPath $launcher -PathType Leaf) -or (Get-Item -LiteralPath $launcher).Length -le 0) {
+            throw "package launcher artefact is unavailable: $launcher"
+        }
+        $stdout = "package_root=$packageResolved`nlauncher=$launcher"
+        $result = "pass"
+        $exitCode = 0
+    }
+    catch {
+        $limitation = "real package output/launcher artefact is unavailable: $($_.Exception.Message)"
+    }
+    [System.IO.File]::WriteAllText($stdoutFile, (Redact-Text $stdout), [System.Text.Encoding]::UTF8)
+    [System.IO.File]::WriteAllText($stderrFile, (Redact-Text $limitation), [System.Text.Encoding]::UTF8)
+    $relativeStdout = $stdoutFile.Substring($Evidence.Length).TrimStart("\", "/").Replace("\", "/")
+    $relativeStderr = $stderrFile.Substring($Evidence.Length).TrimStart("\", "/").Replace("\", "/")
+    return New-Stage -Name "package" -Result $result -ExitCode $exitCode -Command $command -OutputPaths @($relativeStdout, $relativeStderr) -OutputChecksums @((Get-FileDigest $stdoutFile), (Get-FileDigest $stderrFile)) -Limitation $limitation
+}
+
+function Invoke-BrowserStage {
+    param(
+        [Parameter(Mandatory = $true)][string]$Evidence
+    )
+
+    $stageRoot = Join-Path $Evidence "stages"
+    New-Item -ItemType Directory -Force -Path $stageRoot | Out-Null
+    $stdoutFile = Join-Path $stageRoot "browser.stdout.txt"
+    $stderrFile = Join-Path $stageRoot "browser.stderr.txt"
+    $chromeCommand = Get-Command chrome.exe -ErrorAction SilentlyContinue
+    $chromePath = if ($null -ne $chromeCommand) { $chromeCommand.Source } else { "" }
+    if ([string]::IsNullOrWhiteSpace($chromePath)) {
+        $chromeCandidates = New-Object System.Collections.Generic.List[string]
+        foreach ($base in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:LOCALAPPDATA)) {
+            if (-not [string]::IsNullOrWhiteSpace($base)) {
+                $chromeCandidates.Add((Join-Path $base "Google\Chrome\Application\chrome.exe"))
+            }
+        }
+        foreach ($candidate in $chromeCandidates) {
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+                $chromePath = $candidate
+                break
+            }
+        }
+    }
+    $command = "chrome.exe --headless=new --disable-gpu --dump-dom about:blank"
+    if ([string]::IsNullOrWhiteSpace($chromePath)) {
+        [System.IO.File]::WriteAllText($stdoutFile, "", [System.Text.Encoding]::UTF8)
+        [System.IO.File]::WriteAllText($stderrFile, "required Chrome executable is unavailable", [System.Text.Encoding]::UTF8)
+        $relativeStdout = $stdoutFile.Substring($Evidence.Length).TrimStart("\", "/").Replace("\", "/")
+        $relativeStderr = $stderrFile.Substring($Evidence.Length).TrimStart("\", "/").Replace("\", "/")
+        return New-Stage -Name "browser" -Result "blocked" -ExitCode 127 -Command $command -OutputPaths @($relativeStdout, $relativeStderr) -OutputChecksums @((Get-FileDigest $stdoutFile), (Get-FileDigest $stderrFile)) -Limitation "required Chrome executable is unavailable"
+    }
+    $profile = Join-Path $Evidence ".chrome-profile"
+    New-Item -ItemType Directory -Force -Path $profile | Out-Null
+    $arguments = @("--headless=new", "--disable-gpu", "--no-sandbox", "--user-data-dir=$profile", "--dump-dom", "about:blank")
+    $exitCode = 1
+    try {
+        & $chromePath @arguments 1> $stdoutFile 2> $stderrFile
+        $exitCode = $LASTEXITCODE
+    }
+    catch {
+        [System.IO.File]::WriteAllText($stderrFile, (Redact-Text $_.Exception.ToString()), [System.Text.Encoding]::UTF8)
+        $exitCode = 1
+    }
+    $stdout = Redact-Text (Get-Content -LiteralPath $stdoutFile -Raw -ErrorAction SilentlyContinue)
+    $stderr = Redact-Text (Get-Content -LiteralPath $stderrFile -Raw -ErrorAction SilentlyContinue)
+    [System.IO.File]::WriteAllText($stdoutFile, $stdout, [System.Text.Encoding]::UTF8)
+    [System.IO.File]::WriteAllText($stderrFile, $stderr, [System.Text.Encoding]::UTF8)
+    $result = if ($exitCode -eq 0 -and $stdout -match "<html") { "pass" } else { "fail" }
+    $limitation = if ($result -eq "pass") { "" } elseif ($exitCode -eq 0) { "Chrome did not return HTML for the browser smoke stage" } else { "Chrome headless smoke command failed" }
+    $relativeStdout = $stdoutFile.Substring($Evidence.Length).TrimStart("\", "/").Replace("\", "/")
+    $relativeStderr = $stderrFile.Substring($Evidence.Length).TrimStart("\", "/").Replace("\", "/")
+    return New-Stage -Name "browser" -Result $result -ExitCode $exitCode -Command $command -OutputPaths @($relativeStdout, $relativeStderr) -OutputChecksums @((Get-FileDigest $stdoutFile), (Get-FileDigest $stderrFile)) -Limitation $limitation
+}
+
 $resolvedSourceRoot = (Resolve-Path -LiteralPath $SourceRoot).Path
 $resolvedEvidenceRoot = [System.IO.Path]::GetFullPath($EvidenceRoot)
 New-Item -ItemType Directory -Force -Path $resolvedEvidenceRoot | Out-Null
-$sourceHash = Get-SourceDigest -Root $resolvedSourceRoot
+$script:sourceHash = Get-SourceDigest -Root $resolvedSourceRoot
 $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
 $pythonPath = if ($null -eq $pythonCommand) { "unavailable" } else { $pythonCommand.Source }
-$environmentHash = Get-EnvironmentDigest -Root $resolvedSourceRoot -PythonPath $pythonPath
+$script:environmentHash = Get-EnvironmentDigest -Root $resolvedSourceRoot -PythonPath $pythonPath
+$sourceHash = $script:sourceHash
+$environmentHash = $script:environmentHash
 $stages = New-Object System.Collections.Generic.List[object]
 $limitations = New-Object System.Collections.Generic.List[string]
 
@@ -224,19 +349,20 @@ else {
         $cmdCommand = Get-Command cmd.exe -ErrorAction SilentlyContinue
         if ($null -ne $cmdCommand -and (Test-Path -LiteralPath $buildScript -PathType Leaf)) {
             $stages.Add((Invoke-LocalStage -Name "build" -Executable $cmdCommand.Source -Arguments @("/d", "/c", $buildScript) -Root $resolvedSourceRoot -Evidence $resolvedEvidenceRoot))
-            $stages.Add((New-Stage -Name "package" -Result $stages[$stages.Count - 1].result -ExitCode $stages[$stages.Count - 1].exit_code -Command "cmd.exe /d /c $buildScript" -Limitation $stages[$stages.Count - 1].limitation))
+            $stages.Add((Invoke-PackageStage -Root $resolvedSourceRoot -Evidence $resolvedEvidenceRoot -PackageToolAvailable))
         }
         else {
-            $stages.Add((New-Stage -Name "build" -Result "BLOCKED" -ExitCode 127 -Limitation "build tool or script is unavailable"))
-            $stages.Add((New-Stage -Name "package" -Result "BLOCKED" -ExitCode 127 -Limitation "package tool or script is unavailable"))
+            $stages.Add((New-Stage -Name "build" -Result "blocked" -ExitCode 127 -Limitation "build tool or script is unavailable"))
+            $stages.Add((Invoke-PackageStage -Root $resolvedSourceRoot -Evidence $resolvedEvidenceRoot))
             $limitations.Add("Build/package tooling is unavailable; both stages are BLOCKED.")
         }
     }
 }
 
-$blocked = @($stages | Where-Object { $_.result -eq "BLOCKED" }).Count -gt 0
+$stages.Add((Invoke-BrowserStage -Evidence $resolvedEvidenceRoot))
+$blocked = @($stages | Where-Object { $_.result -eq "blocked" }).Count -gt 0
 $failed = @($stages | Where-Object { $_.result -eq "fail" }).Count -gt 0
-$overall = if ($blocked) { "BLOCKED" } elseif ($failed) { "fail" } else { "pass" }
+$overall = if ($blocked) { "blocked" } elseif ($failed) { "fail" } else { "pass" }
 $manifest = [ordered]@{
     schema_version = "1.0"
     verification_policy_version = "1.0"
@@ -253,6 +379,6 @@ $manifest = [ordered]@{
 $manifestPath = Join-Path $resolvedEvidenceRoot "verification_manifest.json"
 $manifest | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
 Write-Output "verification_manifest=$manifestPath status=$overall source_hash=$sourceHash environment_hash=$environmentHash"
-if ($overall -eq "BLOCKED") { exit 2 }
+if ($overall -eq "blocked") { exit 2 }
 if ($overall -eq "fail") { exit 1 }
 exit 0

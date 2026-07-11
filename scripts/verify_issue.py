@@ -16,6 +16,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import struct
 import subprocess
 import sys
 from typing import Any, Iterable, Literal, Mapping, Sequence
@@ -85,6 +86,7 @@ _SENSITIVE_VALUE = re.compile(
 _BEARER_VALUE = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+")
 _SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
 _IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".bmp"})
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
 class IssueVerificationResultBase:
@@ -335,6 +337,27 @@ def _string_list(raw: object) -> list[str] | None:
     return [value for value in raw]
 
 
+def _normalise_command(command: object) -> str:
+    """Return a deterministic comparison form for a shell-free argv string.
+
+    Manifest commands are recorded as a human-readable space-joined argv.  Do
+    not execute or shell-parse that text while validating it: collapse
+    whitespace and remove only quoting used to represent paths/arguments.
+    This keeps Windows paths (including spaces and backslashes) stable while
+    rejecting any command text that differs from the fixed command plan.
+    """
+
+    if isinstance(command, (list, tuple)):
+        command = " ".join(str(part) for part in command)
+    if not isinstance(command, str):
+        return ""
+    return re.sub(r"\s+", " ", command.strip()).replace('"', "").replace("'", "")
+
+
+def _plan_command_text(argv: Sequence[str]) -> str:
+    return _normalise_command(tuple(argv))
+
+
 def _validate_output_files(
     *,
     evidence_root: Path,
@@ -348,6 +371,9 @@ def _validate_output_files(
         return False, limitations
     if len(paths) != len(checksums):
         limitations.append(f"{limitation_prefix} output paths/checksums length mismatch")
+        return False, limitations
+    if not paths:
+        limitations.append(f"{limitation_prefix} must capture at least one output with a SHA-256 checksum")
         return False, limitations
     valid = True
     root = evidence_root.resolve()
@@ -389,6 +415,98 @@ def _validate_output_files(
     return valid, limitations
 
 
+def _read_image_dimensions(path: Path) -> tuple[int, int] | None:
+    """Read dimensions from a small set of common screenshot headers.
+
+    This is deliberately stdlib-only and checks the bytes themselves rather
+    than trusting a filename or manifest-declared dimensions.  It is not a
+    general-purpose image decoder; it is a minimum authenticity check for
+    evidence screenshots.
+    """
+
+    try:
+        data = path.read_bytes()
+    except (OSError, ValueError):
+        return None
+
+    if data.startswith(_PNG_SIGNATURE):
+        if len(data) < 24 or data[12:16] != b"IHDR":
+            return None
+        chunk_length = int.from_bytes(data[8:12], "big")
+        if chunk_length != 13 or len(data) < 8 + 4 + 4 + chunk_length + 4:
+            return None
+        width, height = struct.unpack(">II", data[16:24])
+        return (width, height) if width > 0 and height > 0 else None
+
+    if data[:2] == b"BM":
+        if len(data) < 26:
+            return None
+        dib_size = int.from_bytes(data[14:18], "little")
+        if dib_size >= 40 and len(data) >= 26:
+            width = int.from_bytes(data[18:22], "little", signed=True)
+            height = int.from_bytes(data[22:26], "little", signed=True)
+            width, height = abs(width), abs(height)
+        elif dib_size == 12 and len(data) >= 22:
+            width = int.from_bytes(data[18:20], "little")
+            height = int.from_bytes(data[20:22], "little")
+        else:
+            return None
+        return (width, height) if width > 0 and height > 0 else None
+
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        offset = 12
+        while offset + 8 <= len(data):
+            chunk = data[offset : offset + 4]
+            size = int.from_bytes(data[offset + 4 : offset + 8], "little")
+            body = offset + 8
+            end = body + size
+            if end > len(data):
+                return None
+            if chunk == b"VP8X" and size >= 10:
+                width = 1 + int.from_bytes(data[body + 4 : body + 7], "little")
+                height = 1 + int.from_bytes(data[body + 7 : body + 10], "little")
+                return (width, height) if width > 0 and height > 0 else None
+            if chunk == b"VP8L" and size >= 5 and data[body] == 0x2F:
+                packed = int.from_bytes(data[body + 1 : body + 5], "little")
+                width = 1 + (packed & 0x3FFF)
+                height = 1 + ((packed >> 14) & 0x3FFF)
+                return (width, height) if width > 0 and height > 0 else None
+            offset = end + (size % 2)
+        return None
+
+    if data[:2] == b"\xff\xd8":
+        offset = 2
+        sof_markers = {
+            *range(0xC0, 0xC4),
+            *range(0xC5, 0xC8),
+            *range(0xC9, 0xCC),
+            *range(0xCD, 0xD0),
+        }
+        while offset + 4 <= len(data):
+            if data[offset] != 0xFF:
+                offset += 1
+                continue
+            while offset < len(data) and data[offset] == 0xFF:
+                offset += 1
+            if offset >= len(data):
+                return None
+            marker = data[offset]
+            offset += 1
+            if marker in {0xD8, 0xD9}:
+                continue
+            if marker == 0xDA:
+                return None
+            segment_length = int.from_bytes(data[offset : offset + 2], "big")
+            if segment_length < 2 or offset + segment_length > len(data):
+                return None
+            if marker in sof_markers and segment_length >= 7:
+                height = int.from_bytes(data[offset + 3 : offset + 5], "big")
+                width = int.from_bytes(data[offset + 5 : offset + 7], "big")
+                return (width, height) if width > 0 and height > 0 else None
+            offset += segment_length
+    return None
+
+
 def _validate_screenshot(
     *,
     raw: Mapping[str, Any] | None,
@@ -407,22 +525,30 @@ def _validate_screenshot(
         limitations.append(f"{limitation_prefix} screenshot path is unsafe or missing")
     if not isinstance(expected, str) or not _SHA256.fullmatch(expected.strip()):
         limitations.append(f"{limitation_prefix} screenshot checksum metadata is invalid")
-    if isinstance(width, bool) or not isinstance(width, (int, float)) or width <= 0:
+    if isinstance(width, bool) or not isinstance(width, int) or width <= 0:
         limitations.append(f"{limitation_prefix} screenshot width metadata is invalid")
-    if isinstance(height, bool) or not isinstance(height, (int, float)) or height <= 0:
+    if isinstance(height, bool) or not isinstance(height, int) or height <= 0:
         limitations.append(f"{limitation_prefix} screenshot height metadata is invalid")
     if safe is None or not isinstance(expected, str) or not _SHA256.fullmatch(expected.strip()):
         return False, limitations
     candidate = evidence_root / safe
     try:
         resolved = candidate.resolve(strict=True)
-        if candidate.is_symlink() or not resolved.is_relative_to(evidence_root.resolve()):
+        if candidate.is_symlink() or not resolved.is_relative_to(evidence_root.resolve()) or not resolved.is_file():
             raise OSError("not contained")
         if resolved.suffix.lower() not in _IMAGE_SUFFIXES:
             limitations.append(f"{limitation_prefix} screenshot is not an image file")
         actual = sha256_file(resolved)
         if actual.lower() != expected.strip().lower():
             limitations.append(f"{limitation_prefix} screenshot checksum mismatch")
+        dimensions = _read_image_dimensions(resolved)
+        if dimensions is None:
+            limitations.append(f"{limitation_prefix} screenshot bytes are not a valid image")
+        elif dimensions != (width, height):
+            limitations.append(
+                f"{limitation_prefix} screenshot dimensions do not match bytes: "
+                f"declared {width}x{height}, actual {dimensions[0]}x{dimensions[1]}"
+            )
     except (OSError, ValueError):
         limitations.append(f"{limitation_prefix} screenshot file is missing or escapes evidence root")
     return not limitations, limitations
@@ -434,6 +560,7 @@ def _make_run(
     issue_id: str,
     expected_source_hash: str,
     expected_environment_hash: str,
+    fixed_commands: Mapping[str, tuple[str, ...]],
     index: int,
 ) -> tuple[VerificationRun | None, tuple[str, ...], tuple[str, ...], bool]:
     """Parse one raw record and return (typed run, gates, limitations, valid)."""
@@ -462,11 +589,20 @@ def _make_run(
         exit_code = 1
         limitations.append(f"run {index} exit_code is invalid")
 
-    output_paths = _string_list(raw.get("output_paths", []))
-    output_checksums = _string_list(raw.get("output_checksums", []))
+    output_paths = _string_list(raw.get("output_paths"))
+    output_checksums = _string_list(raw.get("output_checksums"))
     gates = _run_gates(raw)
     if not gates:
         limitations.append(f"run {index} declares no closure gate")
+    normalised_command = _normalise_command(command)
+    if not normalised_command:
+        limitations.append(f"run {index} command is empty")
+    for gate in gates:
+        expected_argv = fixed_commands.get(gate)
+        if not expected_argv:
+            limitations.append(f"run {index} gate {gate!r} has no fixed command plan")
+        elif normalised_command != _plan_command_text(expected_argv):
+            limitations.append(f"run {index} command does not match the fixed command plan for gate {gate}")
     issue_ids = _string_list(raw.get("issue_ids", [issue_id]))
     if issue_ids is None:
         limitations.append(f"run {index} issue_ids must be a list")
@@ -478,8 +614,11 @@ def _make_run(
     if not isinstance(run_source_hash, str) or run_source_hash != expected_source_hash:
         limitations.append(f"run {index} source hash does not match the verification request")
         run_source_hash = str(run_source_hash or "")
-    run_environment_hash = raw.get("environment_hash", expected_environment_hash)
-    if run_environment_hash is not None and run_environment_hash != expected_environment_hash:
+    run_environment_hash = raw.get("environment_hash")
+    if not isinstance(run_environment_hash, str) or not run_environment_hash.strip():
+        limitations.append(f"run {index} environment hash is missing")
+        run_environment_hash = str(run_environment_hash or "")
+    elif run_environment_hash != expected_environment_hash:
         limitations.append(f"run {index} environment hash does not match the verification request")
     skipped = bool(raw.get("skipped", False))
     informational = bool(raw.get("informational", False))
@@ -643,6 +782,9 @@ def verify_issue(
         limitations.append("verification manifest runs must be a list")
         hard_block = True
 
+    fixed_commands = {
+        item.gate: item.argv for item in fixed_command_plan(GATE_ORDER)
+    }
     gate_validity: dict[str, bool] = {}
     for index, raw_run in enumerate(raw_runs):
         if not isinstance(raw_run, Mapping):
@@ -654,6 +796,7 @@ def verify_issue(
             issue_id=issue_id,
             expected_source_hash=expected_source_hash,
             expected_environment_hash=expected_environment_hash,
+            fixed_commands=fixed_commands,
             index=index,
         )
         if typed is not None:
@@ -664,8 +807,8 @@ def verify_issue(
             limitations.extend(run_limitations)
             hard_block = True
 
-        output_paths = _string_list(raw_run.get("output_paths", []))
-        output_checksums = _string_list(raw_run.get("output_checksums", []))
+        output_paths = _string_list(raw_run.get("output_paths"))
+        output_checksums = _string_list(raw_run.get("output_checksums"))
         output_valid, output_limitations = _validate_output_files(
             evidence_root=manifest_root,
             paths=output_paths,
@@ -679,7 +822,7 @@ def verify_issue(
             valid = False
 
         screenshot = raw_run.get("screenshot")
-        if any(gate in {"browser", "ui"} for gate in gates):
+        if any(gate in {"browser", "ui", "package", "build"} for gate in gates):
             screenshot_valid, screenshot_limitations = _validate_screenshot(
                 raw=screenshot,
                 evidence_root=manifest_root,
@@ -772,30 +915,38 @@ def execute_command_plan(
         gate_name = command.gate or f"gate-{index}"
         prefix = f"{index:02d}-{re.sub(r'[^A-Za-z0-9_.-]+', '_', gate_name)}"
         started = datetime.now(timezone.utc)
+        blocked_error = False
         if not command.argv:
             stdout = ""
             stderr = "command plan has no fixed argv"
-            exit_code = None
+            exit_code = 127
         else:
-            completed = subprocess.run(
-                list(command.argv),
-                cwd=Path(cwd),
-                env=os.environ.copy(),
-                check=False,
-                capture_output=True,
-                text=True,
-                shell=False,
-            )
-            stdout = redact_text(completed.stdout or "")
-            stderr = redact_text(completed.stderr or "")
-            exit_code = completed.returncode
+            try:
+                completed = subprocess.run(
+                    list(command.argv),
+                    cwd=Path(cwd),
+                    env=os.environ.copy(),
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    shell=False,
+                )
+            except OSError as exc:
+                stdout = ""
+                stderr = redact_text(f"{type(exc).__name__}: {exc}")
+                exit_code = 127
+                blocked_error = True
+            else:
+                stdout = redact_text(completed.stdout or "")
+                stderr = redact_text(completed.stderr or "")
+                exit_code = completed.returncode
         stdout_path = output_root / f"{prefix}.stdout.txt"
         stderr_path = output_root / f"{prefix}.stderr.txt"
         stdout_path.write_text(stdout, encoding="utf-8")
         stderr_path.write_text(stderr, encoding="utf-8")
         relative_stdout = stdout_path.relative_to(root).as_posix()
         relative_stderr = stderr_path.relative_to(root).as_posix()
-        result = "pass" if exit_code == 0 else ("blocked" if exit_code is None else "fail")
+        result = "pass" if exit_code == 0 else ("blocked" if blocked_error or not command.argv else "fail")
         runs.append(
             {
                 "verification_run_id": f"command-{index:02d}-{gate_name}",
@@ -813,6 +964,7 @@ def execute_command_plan(
                 "informational": False,
                 "started_at": started.isoformat(),
                 "captured_at": datetime.now(timezone.utc).isoformat(),
+                "limitation": "fixed command tool is unavailable" if blocked_error else "",
             }
         )
     return runs
