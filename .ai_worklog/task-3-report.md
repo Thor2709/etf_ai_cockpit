@@ -80,7 +80,7 @@ To be recorded by the implementer and independently checked by the reviewer:
 - M1 fixed: both current-diff and full review-range whitespace checks exit 0.
 - M2 fixed: completed infrastructure gates are `verified_task_scope`; later UI/package/browser gates remain `pending_later_task`, review remains `rejected_fix_pending_rereview`, and `ISSUE-0040`/`REL-02` remain open.
 
-Fix implementation commit: pending creation; the exact hash will be recorded in the follow-up evidence commit without rewriting the implementation commit.
+Fix implementation commit: `4d02c8076cbdbc1da296d9b39962104a8a2a224f` (`fix: harden atomic transaction recovery`).
 
 ## Remote issue reconciliation preflight
 
