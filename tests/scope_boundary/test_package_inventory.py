@@ -33,6 +33,19 @@ def test_injected_dependency_and_resource_violations_fail(tmp_path: Path) -> Non
     }
 
 
+def test_ignored_generated_package_roots_are_not_scanned(tmp_path: Path) -> None:
+    """Generated package output is covered by package gates, not source scanning."""
+
+    generated = tmp_path / "build" / "vendor" / "bad.py"
+    generated.parent.mkdir(parents=True)
+    generated.write_text("def place_order(): pass\n", encoding="utf-8")
+    checker = _checker()
+    report = checker(tmp_path) if checker else None
+    assert report is not None
+    assert report.result == "pass"
+    assert not any(item.path.startswith("build/") for item in report.violations)
+
+
 def test_future_documents_have_no_runnable_order_or_credential_examples() -> None:
     root = Path(__file__).resolve().parents[2]
     future = root / "docs" / "architecture" / "future"
