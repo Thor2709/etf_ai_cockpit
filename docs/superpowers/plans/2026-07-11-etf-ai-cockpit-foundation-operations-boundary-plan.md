@@ -257,7 +257,7 @@ Expected: PASS, including locked-file, checksum-mismatch and restore fixtures.
 
 - [x] **Step 5: Log recovery evidence**
 
-Write the fault matrix, backup manifest checksums and recovery-state screenshots to the wave evidence directory; update the ledger but do not close `REL-02` until package recovery has also passed.
+Write the fault matrix and backup manifest checksums to the wave evidence directory; recovery-state screenshots are not applicable because Task 3 adds no user-visible surface, as recorded in the task report. Update the ledger but do not close `REL-02` until package recovery has also passed.
 
 Task 3 implementation, fix-pass and parent-side adversarial evidence are recorded in `.ai_worklog/task-3-report.md` and `.ai_worklog/task-3-review-2.md`. The mandatory fresh independent re-review remains pending because no permitted, verifiable GPT-5.6 Luna/Max custom agent role is available; Task 4 must not start until that review and the integration gates pass.
 
