@@ -5,6 +5,31 @@ from pathlib import Path
 import yaml
 
 
+def _valid_registry_payload() -> dict:
+    return {
+        "schema_version": "1.0",
+        "registry_id": "test-registry",
+        "policy_version": "wave0-task4",
+        "last_reviewed": "2026-07-12",
+        "execution_allowed": False,
+        "executable_authority": False,
+        "rejections": [
+            {
+                "rejection_id": "TEST-1",
+                "status": "permanent",
+                "scope": "test-scope",
+                "decision_owner": "governance",
+                "rationale": "test rationale",
+                "created_at": "2026-07-12",
+                "reviewed_at": "2026-07-12",
+                "evidence_refs": ["docs/evidence.md"],
+                "execution_allowed": False,
+                "executable_authority": False,
+            }
+        ],
+    }
+
+
 def _load_registry(root: Path):
     try:
         from etf_cockpit.governance.static_checks import load_rejection_registry
@@ -74,3 +99,66 @@ def test_rejection_registry_validation_rejects_duplicate_ids_and_true_authority(
     errors = validate_rejection_registry(config)
     assert "duplicate rejection_id" in " ".join(errors)
     assert "execution_allowed" in " ".join(errors)
+
+
+def test_registry_validator_rejects_top_level_authority_and_missing_audit_schema() -> None:
+    try:
+        from etf_cockpit.governance.static_checks import validate_rejection_registry
+    except ImportError:
+        validate_rejection_registry = None
+    if validate_rejection_registry is None:
+        assert False, "rejection registry validator is not implemented"
+
+    payload = {
+        "schema_version": "1.0",
+        "execution_allowed": False,
+        "executable_authority": True,
+        "rejections": [
+            {
+                "rejection_id": "TEST-1",
+                "status": "permanent",
+                "decision_owner": "governance",
+                "rationale": "test rationale",
+                "created_at": "2026-07-12",
+                "evidence_refs": ["docs/evidence.md"],
+                "execution_allowed": False,
+                "executable_authority": False,
+            }
+        ],
+    }
+    errors = validate_rejection_registry(payload)
+    joined = " ".join(errors)
+    assert "executable_authority" in joined
+    for field_name in ("registry_id", "policy_version", "last_reviewed", "scope", "reviewed_at"):
+        assert field_name in joined
+
+
+def test_registry_validator_rejects_empty_and_non_string_evidence_refs() -> None:
+    try:
+        from etf_cockpit.governance.static_checks import validate_rejection_registry
+    except ImportError:
+        validate_rejection_registry = None
+    if validate_rejection_registry is None:
+        assert False, "rejection registry validator is not implemented"
+
+    payload = _valid_registry_payload()
+    payload["rejections"][0]["evidence_refs"] = ["", "   ", 42]
+    errors = validate_rejection_registry(payload)
+    assert "evidence_refs" in " ".join(errors)
+
+
+def test_registry_validator_rejects_missing_evidence_paths_when_loaded_from_file(tmp_path: Path) -> None:
+    try:
+        from etf_cockpit.governance.static_checks import validate_rejection_registry
+    except ImportError:
+        validate_rejection_registry = None
+    if validate_rejection_registry is None:
+        assert False, "rejection registry validator is not implemented"
+
+    payload = _valid_registry_payload()
+    payload["rejections"][0]["evidence_refs"] = ["missing-evidence.md#section"]
+    config = tmp_path / "configs" / "rejection_registry.yaml"
+    config.parent.mkdir()
+    config.write_text(yaml.safe_dump(payload), encoding="utf-8")
+    errors = validate_rejection_registry(config)
+    assert "path does not exist" in " ".join(errors)

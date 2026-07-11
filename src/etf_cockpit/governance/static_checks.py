@@ -30,8 +30,6 @@ MAX_TEXT_FILE_BYTES = 4 * 1024 * 1024
 
 _EXCLUDED_DIRECTORIES = frozenset(
     {
-        "backups",
-        "data",
         ".git",
         ".hg",
         ".mypy_cache",
@@ -40,6 +38,12 @@ _EXCLUDED_DIRECTORIES = frozenset(
         ".tox",
         ".venv",
         "__pycache__",
+    }
+)
+_EXCLUDED_ROOT_DIRECTORIES = frozenset(
+    {
+        "backups",
+        "data",
         "evidence",
         "exports",
         "issues",
@@ -53,6 +57,12 @@ _TEXT_SUFFIXES = frozenset(
         ".env",
         ".ini",
         ".json",
+        ".key",
+        ".markdown",
+        ".md",
+        ".p12",
+        ".pem",
+        ".pfx",
         ".py",
         ".toml",
         ".txt",
@@ -73,6 +83,9 @@ _MANIFEST_NAMES = frozenset(
     }
 )
 _CONFIG_SUFFIXES = frozenset({".cfg", ".ini", ".json", ".toml", ".yaml", ".yml"})
+_ENV_FILE_NAMES = frozenset({".env", ".env.local"})
+_CREDENTIAL_SUFFIXES = frozenset({".key", ".p12", ".pem", ".pfx"})
+_FUTURE_DOCUMENT_SUFFIXES = frozenset({".md", ".markdown"})
 _PROHIBITED_ORDER_SYMBOLS = frozenset(
     {
         "broker_adapter",
@@ -142,7 +155,9 @@ _ORDER_ENDPOINT_RE = re.compile(r"(?i)(?:^|/)(?:orders?|order-entry)(?:[/?#]|$)"
 _UI_ORDER_CONTROL_RE = re.compile(
     r"(?i)^\s*(?:place|submit|execute|send|cancel|replace)\s+(?:a\s+)?(?:broker\s+)?order\b"
     r"|^\s*(?:buy|sell)\s+(?:now|order)\b"
+    r"|^\s*(?:buy|submit|cancel|replace)\s*$"
 )
+_UI_SHORT_ORDER_CONTROL_RE = re.compile(r"(?i)^\s*(?:buy|submit|cancel|replace)\s*$")
 _PROHIBITED_CREDENTIAL_NAME_RE = re.compile(
     r"(?i)(?:broker|order|execution).*(?:api[_-]?key|secret|token|password|private[_-]?key)"
     r"|(?:api[_-]?key|secret|token|password|private[_-]?key).*(?:broker|order|execution)"
@@ -153,8 +168,9 @@ _PLACEHOLDER_VALUES = frozenset({"", "none", "null", "example", "changeme", "pla
 
 _POLICY = {
     "schema_version": SCHEMA_VERSION,
-    "allow_list": ["docs/architecture/future/**", "tests/**"],
+    "allow_list": ["docs/architecture/future/*.md", "docs/architecture/future/*.markdown", "tests/**"],
     "excluded_directories": sorted(_EXCLUDED_DIRECTORIES),
+    "excluded_runtime_roots": sorted(_EXCLUDED_ROOT_DIRECTORIES),
     "prohibited_order_symbols": sorted(_PROHIBITED_ORDER_SYMBOLS),
     "prohibited_imports": sorted(_PROHIBITED_IMPORTS),
     "prohibited_dependencies": sorted(_PROHIBITED_DEPENDENCIES),
@@ -214,7 +230,18 @@ def _relative_path(root: Path, path: Path) -> str:
 
 def _is_allow_listed(root: Path, path: Path) -> bool:
     relative = _relative_path(root, path).lower()
-    return relative == "tests" or relative.startswith("tests/") or relative == "docs/architecture/future" or relative.startswith("docs/architecture/future/")
+    if relative == "tests" or relative.startswith("tests/"):
+        return True
+    if relative == "docs/architecture/future" or relative.startswith("docs/architecture/future/"):
+        return path.suffix.lower() in _FUTURE_DOCUMENT_SUFFIXES
+    return False
+
+
+def _is_dependency_manifest(path: Path) -> bool:
+    name = path.name.lower()
+    if name in _MANIFEST_NAMES:
+        return True
+    return name.startswith("requirements") and path.suffix.lower() in {".in", ".txt"}
 
 
 def _iter_scannable_files(root: Path) -> Iterator[Path]:
@@ -222,11 +249,17 @@ def _iter_scannable_files(root: Path) -> Iterator[Path]:
         return
     candidates = sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix().lower())
     for path in candidates:
-        if not path.is_file() or any(part.lower() in _EXCLUDED_DIRECTORIES for part in path.relative_to(root).parts):
+        if not path.is_file():
+            continue
+        relative_parts = path.relative_to(root).parts
+        if (
+            any(part.lower() in _EXCLUDED_DIRECTORIES for part in relative_parts)
+            or (relative_parts and relative_parts[0].lower() in _EXCLUDED_ROOT_DIRECTORIES)
+        ):
             continue
         if path.stat().st_size > MAX_TEXT_FILE_BYTES:
             continue
-        if path.name.lower() in _MANIFEST_NAMES or path.name.lower() in {".env", ".env.local"} or path.suffix.lower() in _TEXT_SUFFIXES:
+        if _is_dependency_manifest(path) or path.name.lower() in _ENV_FILE_NAMES or path.suffix.lower() in _TEXT_SUFFIXES:
             yield path
 
 
@@ -283,6 +316,16 @@ def _literal_strings(node: ast.AST) -> Iterator[str]:
     for child in ast.walk(node):
         if isinstance(child, ast.Constant) and isinstance(child.value, str):
             yield child.value
+
+
+def _ui_control_target(targets: Sequence[str]) -> bool:
+    for target in targets:
+        normalised = _normalise_symbol(target)
+        if normalised in {"button", "control", "label", "submit", "cancel", "replace", "buy", "sell"}:
+            return True
+        if normalised.endswith(("_button", "_control", "_label")):
+            return True
+    return False
 
 
 def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
@@ -384,7 +427,9 @@ def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
                     )
             if ui_path and value is not None:
                 for literal in _literal_strings(value):
-                    if _UI_ORDER_CONTROL_RE.search(literal):
+                    if _UI_ORDER_CONTROL_RE.search(literal) and (
+                        not _UI_SHORT_ORDER_CONTROL_RE.search(literal) or _ui_control_target(targets)
+                    ):
                         violations.append(
                             _violation(
                                 root,
@@ -398,6 +443,37 @@ def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
 
         if isinstance(node, ast.Call):
             function_name = _dotted_name(node.func).lower()
+            if function_name in {"importlib.import_module", "import_module"} and node.args:
+                for literal in _literal_strings(node.args[0]):
+                    module = literal.split(".", 1)[0].lower()
+                    if module in _PROHIBITED_IMPORTS:
+                        violations.append(
+                            _violation(
+                                root,
+                                path,
+                                "PROHIBITED_BROKER_DEPENDENCY",
+                                f"Broker SDK import {literal!r} is not permitted.",
+                                node=node,
+                                evidence=literal,
+                            )
+                        )
+                        break
+            if ui_path and any(
+                marker in _normalise_symbol(function_name)
+                for marker in ("button", "order_control", "trade_control")
+            ):
+                for literal in _literal_strings(node):
+                    if _UI_SHORT_ORDER_CONTROL_RE.search(literal):
+                        violations.append(
+                            _violation(
+                                root,
+                                path,
+                                "PROHIBITED_UI_ORDER_CONTROL",
+                                "Current UI source must not expose an order-routing control.",
+                                node=node,
+                                evidence=literal,
+                            )
+                        )
             if any(_ORDER_ENDPOINT_RE.search(value) for value in _literal_strings(node)):
                 if function_name.rsplit(".", 1)[-1] in {"post", "put", "patch", "request", "send", "get"}:
                     violations.append(
@@ -411,7 +487,13 @@ def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
                         )
                     )
 
-        if ui_path and isinstance(node, ast.Constant) and isinstance(node.value, str) and _UI_ORDER_CONTROL_RE.search(node.value):
+        if (
+            ui_path
+            and isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and _UI_ORDER_CONTROL_RE.search(node.value)
+            and not _UI_SHORT_ORDER_CONTROL_RE.search(node.value)
+        ):
             violations.append(
                 _violation(
                     root,
@@ -428,6 +510,19 @@ def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
 
 def _read_config(path: Path, text: str) -> Any:
     suffix = path.suffix.lower()
+    if path.name.lower() in _ENV_FILE_NAMES:
+        values: dict[str, str] = {}
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or line.startswith(";"):
+                continue
+            if line.lower().startswith("export "):
+                line = line[7:].lstrip()
+            key, separator, value = line.partition("=")
+            if not separator or not key.strip():
+                continue
+            values[key.strip()] = value.strip().strip("\"'")
+        return values
     if suffix in {".yaml", ".yml"}:
         return yaml.safe_load(text)
     if suffix == ".json":
@@ -437,7 +532,17 @@ def _read_config(path: Path, text: str) -> Any:
     if suffix in {".ini", ".cfg"}:
         parser = configparser.ConfigParser()
         parser.read_string(text)
-        return {section: dict(parser.items(section)) for section in parser.sections()}
+        parsed: dict[str, dict[str, str]] = {}
+        if parser.defaults():
+            parsed["DEFAULT"] = dict(parser.defaults())
+        for section in parser.sections():
+            explicit = parser._sections.get(section, {})
+            parsed[section] = {
+                key: value
+                for key, value in parser.items(section, raw=True)
+                if key in explicit
+            }
+        return parsed
     return None
 
 
@@ -490,6 +595,16 @@ def _scan_config(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
                     path,
                     "EXECUTION_AUTHORITY_ENABLED",
                     "Configuration must keep executable_authority=false.",
+                    evidence=f"{dotted}={value!r}",
+                )
+            )
+        if isinstance(value, str) and _ORDER_ENDPOINT_RE.search(value):
+            violations.append(
+                _violation(
+                    root,
+                    path,
+                    "PROHIBITED_ORDER_ENDPOINT",
+                    "Configuration must not define a broker/order endpoint URL.",
                     evidence=f"{dotted}={value!r}",
                 )
             )
@@ -591,33 +706,78 @@ def _load_registry_data(path_or_root: Path) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
+def _non_empty_text(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _evidence_reference_path(reference: str) -> str:
+    return reference.split("#", 1)[0].strip()
+
+
 def validate_rejection_registry(path_or_root: Path | Mapping[str, Any]) -> list[str]:
     """Return auditable validation errors for a rejection registry."""
 
     if isinstance(path_or_root, Mapping):
         data: Mapping[str, Any] | None = path_or_root
+        base_dir: Path | None = None
     else:
-        data = _load_registry_data(Path(path_or_root))
+        source = Path(path_or_root)
+        data = _load_registry_data(source)
+        if source.is_dir():
+            base_dir = source
+        elif source.parent.name.lower() == "configs":
+            base_dir = source.parent.parent
+        else:
+            base_dir = source.parent
     if data is None:
         return ["registry is missing or is not a mapping"]
 
     errors: list[str] = []
+    top_level_required = (
+        "schema_version",
+        "registry_id",
+        "policy_version",
+        "last_reviewed",
+        "execution_allowed",
+        "executable_authority",
+        "rejections",
+    )
+    for field_name in top_level_required:
+        value = data.get(field_name)
+        if field_name in {"registry_id", "policy_version", "last_reviewed"}:
+            missing = not _non_empty_text(value)
+        else:
+            missing = value is None
+        if missing:
+            errors.append(f"{field_name} is required")
     if data.get("schema_version") != SCHEMA_VERSION:
         errors.append(f"schema_version must be {SCHEMA_VERSION}")
     if data.get("execution_allowed") is not False:
         errors.append("execution_allowed must be false")
+    if data.get("executable_authority") is not False:
+        errors.append("executable_authority must be false")
     records = data.get("rejections")
     if not isinstance(records, list) or not records:
         return [*errors, "rejections must be a non-empty list"]
 
     seen: set[str] = set()
-    required = ("rejection_id", "status", "decision_owner", "rationale", "created_at", "evidence_refs")
+    required = (
+        "rejection_id",
+        "status",
+        "scope",
+        "decision_owner",
+        "rationale",
+        "created_at",
+        "reviewed_at",
+        "evidence_refs",
+    )
     for index, record in enumerate(records):
         prefix = f"rejections[{index}]"
         if not isinstance(record, Mapping):
             errors.append(f"{prefix} must be a mapping")
             continue
-        identifier = str(record.get("rejection_id", ""))
+        identifier_value = record.get("rejection_id")
+        identifier = identifier_value.strip() if isinstance(identifier_value, str) else ""
         if not identifier:
             errors.append(f"{prefix}.rejection_id is required")
         elif identifier in seen:
@@ -625,7 +785,39 @@ def validate_rejection_registry(path_or_root: Path | Mapping[str, Any]) -> list[
         seen.add(identifier)
         for field_name in required:
             value = record.get(field_name)
-            if value in (None, "", []) or (field_name == "evidence_refs" and not isinstance(value, list)):
+            if field_name == "evidence_refs":
+                if not isinstance(value, list) or not value:
+                    errors.append(f"{prefix}.{field_name} is required")
+                else:
+                    for ref_index, reference in enumerate(value):
+                        if not _non_empty_text(reference):
+                            errors.append(
+                                f"{prefix}.evidence_refs[{ref_index}] must be a non-empty string"
+                            )
+                            continue
+                        if base_dir is None:
+                            continue
+                        target = _evidence_reference_path(reference)
+                        target_path = Path(target)
+                        if not target or target_path.is_absolute():
+                            errors.append(
+                                f"{prefix}.evidence_refs[{ref_index}] must reference a relative evidence path"
+                            )
+                            continue
+                        root_path = base_dir.resolve()
+                        resolved = (base_dir / target_path).resolve()
+                        try:
+                            resolved.relative_to(root_path)
+                        except ValueError:
+                            errors.append(
+                                f"{prefix}.evidence_refs[{ref_index}] escapes the registry root"
+                            )
+                        if resolved.exists() is False:
+                            errors.append(
+                                f"{prefix}.evidence_refs[{ref_index}] path does not exist: {target}"
+                            )
+                continue
+            if not _non_empty_text(value):
                 errors.append(f"{prefix}.{field_name} is required")
         if record.get("status") != "permanent":
             errors.append(f"{prefix}.status must be permanent")
@@ -641,7 +833,7 @@ def load_rejection_registry(root: Path) -> dict[str, Any]:
 
     path = _registry_path(Path(root))
     data = _load_registry_data(path)
-    errors = validate_rejection_registry(data or {})
+    errors = validate_rejection_registry(path)
     if errors:
         raise ValueError("; ".join(errors))
     assert data is not None
@@ -690,16 +882,15 @@ def run_static_execution_boundary_check(root: Path) -> ExecutionBoundaryReport:
             continue
         if path.suffix.lower() == ".py":
             violations.extend(_scan_python(root, path, text))
-        if path.suffix.lower() in _CONFIG_SUFFIXES:
+        if path.suffix.lower() in _CONFIG_SUFFIXES or path.name.lower() in _ENV_FILE_NAMES:
             violations.extend(_scan_config(root, path, text))
-        if path.name.lower() in _MANIFEST_NAMES:
+        if _is_dependency_manifest(path):
             violations.extend(_scan_dependency_manifest(root, path, text))
-        if path.suffix.lower() in {".env", ".ini", ".cfg", ".json", ".yaml", ".yml"} or path.name.lower() in {
-            ".env",
-            ".env.local",
-            "secrets.json",
-            "credentials.json",
-        }:
+        if (
+            path.suffix.lower() in {".env", ".ini", ".cfg", ".json", ".yaml", ".yml"}
+            or path.suffix.lower() in _CREDENTIAL_SUFFIXES
+            or path.name.lower() in {*_ENV_FILE_NAMES, "secrets.json", "credentials.json"}
+        ):
             violations.extend(_scan_credential_resource(root, path, text))
 
     violations.extend(_registry_violations(root))
