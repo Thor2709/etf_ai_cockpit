@@ -43,7 +43,7 @@ The following checks were run after the fix pass. They are evidence of implement
 
 The parent-side review identified one residual safety gap not covered by the first fix report: `_recover_lock()` could follow a stale lock to a syntactically valid legacy journal whose destination was outside that journal's recovery root. A direct RED test demonstrated that `wait_for_atomic_group()` restored an unrelated outside file. The test was added at `tests/operations/test_transactions.py::test_stale_lock_cannot_recover_a_journal_outside_its_recovery_root`; the RED run exited 1 with the outside file changed. The guard in `src/etf_cockpit/core/atomic_io.py` now validates canonical transaction identity and containment for journal entries, staging, final and lock paths before any recovery mutation. The focused regression then exited 0 and the outside file remained unchanged while the forged lock stayed present for timeout/manual handling.
 
-This safety fix is uncommitted and must be included in the next reviewed task checkpoint. It does not change execution authority or product scope.
+This safety fix is included in checkpoint commit `d7fdac5` and still requires independent re-review before integration. It does not change execution authority or product scope.
 
 ## Closure decision
 

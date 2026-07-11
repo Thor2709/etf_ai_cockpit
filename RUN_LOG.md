@@ -203,5 +203,5 @@ Executing the approved plan at `docs/superpowers/plans/2026-07-09-launcher-spare
 - The focused transaction/recovery bundle passed 55 tests; the adversarial bundle passed 17 tests; scoped Ruff, compileall and diff checks passed.
 - The fresh full suite collected 323 tests, passed 316 and retained the same seven isolated-worktree generated-artefact baseline failures. No Task 3 test failed.
 - Durable Task 3 artefact and fault-matrix checks report zero checksum mismatches. `execution_allowed` remains `false`; `ISSUE-0040` and DATA-05 remain open.
-- A parent-side stale-lock containment gap was found through a RED test and fixed locally. The current containment fix and review artefacts are not yet committed.
+- A parent-side stale-lock containment gap was found through a RED test and fixed locally; the containment fix and review artefacts are recorded in checkpoint commit `d7fdac5`.
 - The mandatory fresh independent re-review is pending because no permitted, verifiable GPT-5.6 Luna/Max custom role is available and the attempted dispatch returned a usage-limit error. Task 4 must not start until that review and integration gate pass.

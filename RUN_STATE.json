@@ -109,6 +109,7 @@
       "task_base": "445dd44b5382160d4e93e4cada018beb4ab0f5b5",
       "implementation_commit": "4d02c8076cbdbc1da296d9b39962104a8a2a224f",
       "documentation_commit": "902b21c4d2435109f07e9d5104d1823992fd09a0",
+      "checkpoint_commit": "d7fdac5",
       "red": {
         "initial_exit_code": 1,
         "initial_behavioural_failures": 11,
@@ -148,7 +149,7 @@
       "execution_allowed": false,
       "data05_status": "still_open",
       "task_4_started": false,
-      "current_worktree": "tracked implementation clean except uncommitted containment fix and review artefacts"
+      "current_worktree": "clean after checkpoint commit; independent review remains pending"
     }
   },
   "plan": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-foundation-operations-boundary-plan.md",

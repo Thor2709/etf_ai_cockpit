@@ -84,7 +84,7 @@ Fix implementation commit: `4d02c8076cbdbc1da296d9b39962104a8a2a224f` (`fix: har
 
 ## Post-fix review checkpoint
 
-The parent-side adversarial checkpoint is recorded in `.ai_worklog/task-3-review-2.md`. It is not an independent re-review and does not approve integration. It found and fixed one residual stale-lock path-containment gap with a new RED-GREEN regression in `tests/operations/test_transactions.py`; the guard is currently uncommitted. The required fresh reviewer remains pending because no permitted, verifiable GPT-5.6 Luna/Max custom agent role is available and the attempted fresh dispatch returned a usage-limit error.
+The parent-side adversarial checkpoint is recorded in `.ai_worklog/task-3-review-2.md`. It is not an independent re-review and does not approve integration. It found and fixed one residual stale-lock path-containment gap with a new RED-GREEN regression in `tests/operations/test_transactions.py`; the guard is included in checkpoint commit `d7fdac5`. The required fresh reviewer remains pending because no permitted, verifiable GPT-5.6 Luna/Max custom agent role is available and the attempted fresh dispatch returned a usage-limit error.
 
 Task 3 therefore remains implementation-verified but review-pending. No issue closure, branch push, pull request, merge or GitHub Issue mutation is authorised at this checkpoint.
 
