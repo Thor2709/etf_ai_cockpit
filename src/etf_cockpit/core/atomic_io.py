@@ -234,6 +234,20 @@ def _validate_recovery_payload_paths(payload: dict[str, object], journal_path: P
             backup_path, recovery_root, transaction_root=transaction_root
         ):
             return False
+        if (
+            payload.get("schema_version") == 2
+            and backup_path is None
+            and payload.get("state") != "committed"
+            and destination.exists()
+        ):
+            expected_checksum = entry.get("expected_sha256")
+            if not isinstance(expected_checksum, str):
+                return False
+            try:
+                if sha256_file(destination) != expected_checksum:
+                    return False
+            except (OSError, RuntimeError, ValueError):
+                return False
         staged_path = entry.get("staged_path")
         if staged_path is not None:
             if not _path_is_contained(staged_path, recovery_root):
@@ -307,7 +321,8 @@ def _recover_journal(journal_path: Path, *, force: bool = False) -> bool:
         return False
     if not isinstance(payload, dict) or not _validate_recovery_payload_paths(payload, journal_path):
         return False
-    if payload.get("state") in {"recovery_required", "quarantined"}:
+    state = payload.get("state")
+    if not isinstance(state, str) or state in {"recovery_required", "quarantined"}:
         return False
     try:
         owner_pid = int(payload.get("owner_pid", 0))
@@ -315,7 +330,7 @@ def _recover_journal(journal_path: Path, *, force: bool = False) -> bool:
         return False
     if not force and _pid_alive(owner_pid):
         return False
-    if payload.get("state") != "committed":
+    if state != "committed":
         for entry in reversed(payload.get("entries", [])):
             destination = Path(str(entry["destination"]))
             backup_value = entry.get("backup_path")

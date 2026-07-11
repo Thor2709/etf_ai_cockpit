@@ -345,6 +345,54 @@ def test_stale_lock_does_not_recover_unrelated_transaction_under_sibling_root(
     assert lock.exists()
 
 
+def test_stale_lock_with_unhashable_journal_state_is_left_in_place(tmp_path: Path) -> None:
+    destination = tmp_path / "data" / "store.bin"
+    destination.parent.mkdir(parents=True)
+    destination.write_bytes(b"new")
+    transaction_root = tmp_path / ".atomic-transactions" / "invalid-state"
+    transaction_root.mkdir(parents=True)
+    backup = transaction_root / "backup.bin"
+    backup.write_bytes(b"old")
+    lock = destination.parent / ".atomic-write-group.lock"
+    journal = transaction_root / "journal.json"
+    journal.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "transaction_id": "invalid-state",
+                "owner_pid": 999999,
+                "state": [],
+                "entries": [
+                    {
+                        "destination": str(destination.resolve()),
+                        "backup_path": str(backup.resolve()),
+                        "previous_sha256": hashlib.sha256(b"old").hexdigest(),
+                    }
+                ],
+                "staged_paths": [],
+                "lock_paths": [str(lock.resolve())],
+            }
+        ),
+        encoding="utf-8",
+    )
+    lock.write_text(
+        json.dumps(
+            {
+                "owner_pid": 999999,
+                "journal_path": str(journal.resolve()),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(TimeoutError):
+        atomic_io.wait_for_atomic_group(destination, timeout_seconds=0.01)
+
+    assert destination.read_bytes() == b"new"
+    assert journal.exists()
+    assert lock.exists()
+
+
 def test_activation_rollback_failure_preserves_recovery_evidence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

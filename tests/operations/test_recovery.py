@@ -545,6 +545,46 @@ def test_structurally_invalid_v2_journal_is_preserved_for_manual_review(
     assert journal.exists()
 
 
+def test_non_hashable_v2_state_is_preserved_for_manual_review(tmp_path: Path) -> None:
+    journal, payload = _valid_v2_payload(tmp_path, transaction_id="invalid-state")
+    payload["state"] = []
+    journal.write_text(json.dumps(payload), encoding="utf-8")
+    before_journal = journal.read_bytes()
+
+    try:
+        result = _recover(tmp_path)[0]
+    except BaseException as exc:  # pragma: no cover - regression assertion below
+        pytest.fail(f"non-hashable v2 state escaped recovery: {exc!r}")
+
+    assert result.state == "recovery_required"
+    assert result.startup_mode == "read_only"
+    assert "state" in result.reason.lower()
+    assert journal.exists()
+    assert journal.read_bytes() == before_journal
+
+
+def test_v2_existing_destination_without_backup_requires_manual_review(tmp_path: Path) -> None:
+    journal, payload = _valid_v2_payload(tmp_path, transaction_id="missing-backup")
+    entry = payload["entries"][0]
+    assert isinstance(entry, dict)
+    entry["backup_path"] = None
+    entry["previous_sha256"] = None
+    destination = Path(str(entry["destination"]))
+    destination.write_bytes(b"existing")
+    journal.write_text(json.dumps(payload), encoding="utf-8")
+    before_destination = destination.read_bytes()
+    before_journal = journal.read_bytes()
+
+    result = _recover(tmp_path)[0]
+
+    assert result.state == "recovery_required"
+    assert result.startup_mode == "read_only"
+    assert "backup" in result.reason.lower()
+    assert destination.read_bytes() == before_destination
+    assert journal.exists()
+    assert journal.read_bytes() == before_journal
+
+
 @pytest.mark.parametrize("payload", [["not", "an", "object"], {"schema_version": "two"}])
 def test_malformed_top_level_journal_is_preserved_without_startup_exception(
     tmp_path: Path, payload: object

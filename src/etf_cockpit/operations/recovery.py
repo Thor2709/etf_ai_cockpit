@@ -251,7 +251,7 @@ def _validate_v2_payload(
     if not isinstance(transaction_id, str) or transaction_id != journal.parent.name:
         return "transaction identity does not match transaction directory"
     state = payload.get("state")
-    if state not in _V2_STATES:
+    if not isinstance(state, str) or state not in _V2_STATES:
         return f"state is not approved: {state!r}"
     if not isinstance(payload.get("workflow_run_id"), str):
         return "workflow_run_id must be a string"
@@ -348,6 +348,12 @@ def _validate_v2_payload(
                 return f"entries[{index}].previous_sha256 is invalid"
         elif previous_checksum is not None:
             return f"entries[{index}] has previous checksum without rollback backup"
+        if backup is None and state != "committed" and destination.exists():
+            if atomic_io.sha256_file(destination) != expected_checksum:
+                return (
+                    "existing destination without rollback backup has an unexpected "
+                    f"checksum: {destination}"
+                )
         entry_destinations.append(str(destination))
         entry_staged_paths.append(str(staged))
         if backup is not None:
