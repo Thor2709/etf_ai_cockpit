@@ -211,3 +211,9 @@ Executing the approved plan at `docs/superpowers/plans/2026-07-09-launcher-spare
 - Five bounded fix passes addressed stale-lock scope, rollback-failure durability, owned artefact validation, unreadable evidence, malformed states and null-backup safety. Final implementation commit: `201ee9e`.
 - Final focused Task 3 bundle passed 71 tests; scoped Ruff, compileall and full-range `git diff --check` passed. Fresh independent review ran an 11-test adversarial slice and approved specification compliance and code quality with no Critical, Important or Minor findings (`.ai_worklog/task-3-review-final2.md`).
 - Task 3 is approved for branch integration. `ISSUE-0040` remains open because the later Error/Recovery UI, package and browser gates are not owned by Task 3. `execution_allowed` remains `false`; DATA-05 remains open; Task 4 has not started.
+
+## 2026-07-12 Wave 0 Task 3 Integration Checkpoint
+
+- PR 1 (`https://github.com/Thor2709/etf_ai_cockpit/pull/1`) merged `wave0/task3-atomic-recovery` into `main` at `046e3bbfe9cab41f6cfec59547f540bce85b2c44`; no required GitHub checks were configured for the branch.
+- Post-merge verification on clean `main`: focused Task 3 bundle 71 passed, scoped Ruff passed, compileall passed and `scripts/run_app.py --smoke` returned `snapshot_ok as_of=2026-07-09 signals=16 backtests=5`.
+- `main` is clean and matches `origin/main`. `ISSUE-0040` remains open for later UI/package/browser closure; Wave 0 Task 4 is the next task; `execution_allowed` remains `false`.

@@ -259,7 +259,7 @@ Expected: PASS, including locked-file, checksum-mismatch and restore fixtures.
 
 Write the fault matrix and backup manifest checksums to the wave evidence directory; recovery-state screenshots are not applicable because Task 3 adds no user-visible surface, as recorded in the task report. Update the ledger but do not close `REL-02` until package recovery has also passed.
 
-Task 3 implementation, five fix-pass evidence records and the fresh independent approval are recorded in `.ai_worklog/task-3-report.md`, `.ai_worklog/task-3-fix-pass-2-report.md`, `.ai_worklog/task-3-fix-pass-3-report.md`, `.ai_worklog/task-3-fix-pass-4-report.md`, `.ai_worklog/task-3-fix-pass-5-report.md` and `.ai_worklog/task-3-review-final2.md`. The task-level review gate is passed with no Critical, Important or Minor findings. Task 4 remains blocked only until the verified Task 3 branch is integrated and post-merge checks pass; `ISSUE-0040` remains open for its later UI/package/browser gates.
+Task 3 implementation, five fix-pass evidence records and the fresh independent approval are recorded in `.ai_worklog/task-3-report.md`, `.ai_worklog/task-3-fix-pass-2-report.md`, `.ai_worklog/task-3-fix-pass-3-report.md`, `.ai_worklog/task-3-fix-pass-4-report.md`, `.ai_worklog/task-3-fix-pass-5-report.md` and `.ai_worklog/task-3-review-final2.md`. The task-level review gate passed with no Critical, Important or Minor findings. PR `https://github.com/Thor2709/etf_ai_cockpit/pull/1` merged the branch at `046e3bbfe9cab41f6cfec59547f540bce85b2c44`; post-merge focused tests, Ruff, compileall and source smoke passed. Task 4 is now the next dependency-valid task; `ISSUE-0040` remains open for its later UI/package/browser gates.
 
 ### Task 4: Enforce the no-execution and rejection boundary
 

@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-12T00:20:00+10:00",
+  "updated_at": "2026-07-12T00:35:00+10:00",
   "active_programme": {
     "name": "2026-07-11-etf-ai-cockpit-approved-programme",
     "programme_index": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-programme-index.md",
     "progress_ledger": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-progress-ledger.md",
-    "phase": "wave0_task3_independently_approved_integration_pending",
-    "next_task": "Wave 0, Foundation Task 3: push and integrate reviewed branch, run post-merge verification; then start Task 4",
+    "phase": "wave0_task3_integrated_task4_ready",
+    "next_task": "Wave 0, Foundation Task 4: enforce the no-execution and rejection boundary",
     "git_repository": true,
-    "git_branch": "wave0/task3-atomic-recovery",
+    "git_branch": "main",
     "baseline": {
       "pytest": 0,
       "ruff": 0,
@@ -157,7 +157,7 @@
       "execution_allowed": false,
       "data05_status": "still_open",
       "task_4_started": false,
-      "current_worktree": "clean implementation commits; review reports pending documentation commit; branch ready for integration",
+      "current_worktree": "Task 3 branch merged; main is clean and matches origin/main after post-merge verification",
       "final_review": {
         "report": ".ai_worklog/task-3-review-final2.md",
         "specification_compliance": "approved",
@@ -166,18 +166,28 @@
         "focused_tests_passed": 71,
         "independent_adversarial_slice_passed": 11,
         "commit": "201ee9e95d77b7057e542c2446602e864c4bf636"
+      },
+      "integration": {
+        "pull_request": "https://github.com/Thor2709/etf_ai_cockpit/pull/1",
+        "merge_commit": "046e3bbfe9cab41f6cfec59547f540bce85b2c44",
+        "post_merge_focused_tests": 71,
+        "post_merge_source_smoke_exit_code": 0,
+        "post_merge_ruff_exit_code": 0,
+        "post_merge_compileall_exit_code": 0,
+        "main_matches_origin": true,
+        "working_tree_clean": true
       }
     }
   },
   "plan": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-foundation-operations-boundary-plan.md",
   "execution_mode": "subagent_driven_with_independent_review",
   "git_repository": true,
-  "git_branch": "wave0/task3-atomic-recovery",
+  "git_branch": "main",
   "progress_percent": 100,
-  "wave": 8,
-  "task": 25,
-  "step": 5,
-  "completed_tasks": [1, 2, 3, 4, 5],
+  "wave": 0,
+  "task": 4,
+  "step": 1,
+  "completed_tasks": [1, 2, 3],
   "implementation_foundations": [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
   "issue_counts": {
     "reviewed": 41,
@@ -185,8 +195,8 @@
     "still_open": 37
   },
   "last_checkpoint": {
-    "name": "final_package_browser_closure_checkpoint",
-    "result": "Fresh source regression, rebuild, source/native/portable smoke, root and package launcher checks, Chrome rendered route/workflow checks and audit ZIP validation passed. The evaluator reports four ready records: ISSUE-0035, ISSUE-0069, UPDATEV2-0022 and UPDATEV2-0028. The remaining 37 records stay open because their individual evidence gates are incomplete, with strict parser/provider gates explicitly preserved.",
+    "name": "wave0_task3_integrated_task4_ready",
+    "result": "Task 3 was independently approved, merged through PR 1 at 046e3bbfe9cab41f6cfec59547f540bce85b2c44, and post-merge focused tests, source smoke, Ruff and compileall passed. ISSUE-0040 remains open for later UI/package/browser gates; Task 4 is next.",
     "evidence": [
       "evidence/wave4/focused-trust-policy-after-fix.txt",
       "evidence/wave4/full-pytest-final-trust-policy.txt",
@@ -213,8 +223,8 @@
       "closure_evaluator": {"exit_code": 1, "ready": 4, "still_open": 37, "expected_nonzero": true}
     }
   },
-  "first_unpassed_criterion": "Task 3 post-merge verification and later ISSUE-0040 UI/package/browser closure gates remain open",
-  "next_command": "Push and integrate wave0/task3-atomic-recovery, run post-merge focused/regression checks, then begin Wave 0 Task 4; do not close ISSUE-0040 yet",
+  "first_unpassed_criterion": "Wave 0 Task 4 RED mutation tests and implementation remain open; later ISSUE-0040 UI/package/browser closure gates also remain open",
+  "next_command": "Create the Wave 0 Task 4 isolated worktree/branch, dispatch a fresh implementer, write and run the specified RED boundary tests, then obtain independent review",
   "notes": [
     "No Git initialisation or commit occurred before the independently approved Task 2 boundary; the user now authorises local baseline Git setup and optional private GitHub push only.",
     "Closure status is evaluator-backed: 4/41 ready and 37 still open; do not close remaining issues without their complete dossiers.",

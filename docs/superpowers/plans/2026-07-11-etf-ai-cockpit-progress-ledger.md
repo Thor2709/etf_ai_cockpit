@@ -7,9 +7,9 @@
 | Field | Value |
 |---|---|
 | Updated | 2026-07-11 |
-| Active phase | Wave 0 Task 3 implementation and five fix passes independently approved; integration gate in progress; Task 4 not started |
+| Active phase | Wave 0 Task 3 independently approved, merged and post-merge verified; Wave 0 Task 4 is next |
 | Active plan | `docs/superpowers/plans/2026-07-11-etf-ai-cockpit-foundation-operations-boundary-plan.md` |
-| Git state | Task 3 worktree `wave0/task3-atomic-recovery` is based on `origin/main` at `445dd44b5382160d4e93e4cada018beb4ab0f5b5`; implementation and review commits are ahead locally and await safe integration |
+| Git state | `main` is clean and matches `origin/main` at merge commit `046e3bbfe9cab41f6cfec59547f540bce85b2c44`; Task 3 branch and PR 1 are integrated |
 | Existing closure state | 4 ready / 37 tracker records still open; DATA-05 is a new separate requirement |
 | Fresh baseline | pytest exit 0, Ruff clean, compileall exit 0, source snapshot smoke exit 0, source/native/portable smoke exit 0 and rendered in-app-browser source-route inspection |
 | Pre-existing type state | recorded mypy failure caused by external stubs and existing typing debt; no new failure attributed |
@@ -19,7 +19,7 @@
 
 | Wave | Owning plan | State | Last verified evidence | Next gate |
 |---:|---|---|---|---|
-| 0 | foundation, operations and boundary | Task 3 implementation and five fix passes independently approved; integration pending | 71 focused Task 3 tests, fresh 11-test adversarial approval slice, 316/323 full-suite pass with seven recorded baseline failures, Ruff/compile/diff checks, eight-artefact checksum manifest, four fault-matrix source hashes, rollback/lock/ownership/read-only regressions | Push and integrate the reviewed branch, run post-merge checks, then start Task 4; `ISSUE-0040` remains open for later UI/package/browser gates |
+| 0 | foundation, operations and boundary | Task 3 independently approved, merged and post-merge verified; Task 4 next | 71 focused Task 3 tests, fresh 11-test adversarial approval slice, post-merge 71 tests, source smoke, Ruff/compile/diff checks, eight-artefact checksum manifest, four fault-matrix source hashes, rollback/lock/ownership/read-only regressions | Start Task 4 with RED mutation tests; `ISSUE-0040` remains open for later UI/package/browser gates |
 | 1 | governance | Not started | occurrence map identifies legacy action, `trading_allowed`, proposal and model-weight seams | establish typed governance RED suite |
 | 2 | registry and universe | Not started | `UniverseRecord`/optimistic revision/atomic save present | registry dry-run and validator RED suite |
 | 3 | DATA-05 | Not started | no live seed verification has been performed in this programme | retrieve current official identity evidence and write failing seed-contract tests |
@@ -55,7 +55,7 @@
 
 1. Read the attached specification, the programme index, this ledger and the active plan.
 2. Check `RUN_STATE.json`, `.ai_worklog/TESTING.md`, the latest task review and current file state.
-3. Continue only the first unchecked task whose prerequisites are verified; Task 3 now has fresh independent approval and may pass the task boundary after safe branch integration and post-merge verification. Task 4 must not begin until that integration completes.
+3. Continue only the first unchecked task whose prerequisites are verified; Task 3 is merged and post-merge verified. Start Task 4 with a fresh implementer and independent reviewer; do not close `ISSUE-0040` until its later UI/package/browser gates pass.
 4. Use a fresh implementer and a fresh reviewer for every substantive task; record their reports here.
 5. Do not update issue state to closed until the closure-matrix evidence is fresh and independently reviewed.
 
@@ -65,7 +65,7 @@ Task 3 initially reached this checkpoint with implementation/fix evidence and pa
 
 ### Wave 0 Task 3 independent approval and integration handoff - 2026-07-12
 
-Five bounded fix passes addressed the independent findings. Final implementation commit `201ee9e` passed 71 focused Task 3 tests, scoped Ruff, compileall and diff checks. A fresh independent reviewer ran an 11-test adversarial slice and approved specification compliance and code quality with no Critical, Important or Minor findings (`.ai_worklog/task-3-review-final2.md`). The task is ready for branch integration. `ISSUE-0040` remains open because its Error/Recovery UI, package and browser gates belong to later dependency-valid work; `execution_allowed` remains `false`; DATA-05 remains `still_open`.
+Five bounded fix passes addressed the independent findings. Final implementation commit `201ee9e` passed 71 focused Task 3 tests, scoped Ruff, compileall and diff checks. A fresh independent reviewer ran an 11-test adversarial slice and approved specification compliance and code quality with no Critical, Important or Minor findings (`.ai_worklog/task-3-review-final2.md`). PR 1 merged the branch at `046e3bbfe9cab41f6cfec59547f540bce85b2c44`; post-merge focused tests, source smoke, Ruff and compileall passed. `ISSUE-0040` remains open because its Error/Recovery UI, package and browser gates belong to later dependency-valid work; `execution_allowed` remains `false`; DATA-05 remains `still_open`.
 
 ### Round-3 checkpoint-evidence correction - 2026-07-11
 
