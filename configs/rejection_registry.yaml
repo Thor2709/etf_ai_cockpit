@@ -1,0 +1,43 @@
+schema_version: "1.0"
+registry_id: wave0-no-execution-boundary
+policy_version: wave0-task4
+execution_allowed: false
+executable_authority: false
+last_reviewed: "2026-07-12"
+rejections:
+  - rejection_id: FUTURE-01
+    status: permanent
+    scope: autonomous-or-broker-order-routing
+    decision_owner: governance-boundary
+    rationale: The cockpit is local-first decision support and cannot originate, submit, cancel or modify broker orders.
+    created_at: "2026-07-12"
+    reviewed_at: "2026-07-12"
+    evidence_refs:
+      - docs/architecture/future/execution_scope_and_approval.md
+      - docs/superpowers/plans/2026-07-11-etf-ai-cockpit-foundation-operations-boundary-plan.md#task-4
+    execution_allowed: false
+    executable_authority: false
+  - rejection_id: FUTURE-03
+    status: permanent
+    scope: broker-credential-and-endpoint-handling
+    decision_owner: governance-boundary
+    rationale: Broker credentials, order endpoints and broker SDK dependencies remain outside the approved local evidence boundary.
+    created_at: "2026-07-12"
+    reviewed_at: "2026-07-12"
+    evidence_refs:
+      - docs/architecture/future/broker_adapter_contract.md
+      - docs/superpowers/plans/2026-07-11-etf-ai-cockpit-foundation-operations-boundary-plan.md#task-4
+    execution_allowed: false
+    executable_authority: false
+  - rejection_id: WAVE0-NO-EXECUTION
+    status: permanent
+    scope: current-wave-authority
+    decision_owner: governance-boundary
+    rationale: Wave 0 may record advisory proposals and audit evidence only; it cannot grant execution authority or alter risk gates.
+    created_at: "2026-07-12"
+    reviewed_at: "2026-07-12"
+    evidence_refs:
+      - docs/architecture/future/source_of_truth_and_reconciliation.md
+      - .ai_worklog/task-4-brief.md
+    execution_allowed: false
+    executable_authority: false
