@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-11T16:45:00+10:00",
+  "updated_at": "2026-07-12T00:20:00+10:00",
   "active_programme": {
     "name": "2026-07-11-etf-ai-cockpit-approved-programme",
     "programme_index": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-programme-index.md",
     "progress_ledger": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-progress-ledger.md",
-    "phase": "wave0_task2_independently_reviewed_complete_git_baseline_committed_task3_pending",
-    "next_task": "Wave 0, Foundation Task 3: atomic transaction and deterministic recovery (deferred; do not begin in this handoff)",
+    "phase": "wave0_task3_independently_approved_integration_pending",
+    "next_task": "Wave 0, Foundation Task 3: push and integrate reviewed branch, run post-merge verification; then start Task 4",
     "git_repository": true,
-    "git_branch": "main",
+    "git_branch": "wave0/task3-atomic-recovery",
     "baseline": {
       "pytest": 0,
       "ruff": 0,
@@ -102,12 +102,77 @@
       "independent_review": "approved_task_review_only_no_issue_closure",
       "execution_allowed": false,
       "data05_status": "still_open"
+    },
+    "task_3_checkpoint": {
+      "owning_issue": "ISSUE-0040",
+      "branch": "wave0/task3-atomic-recovery",
+      "task_base": "445dd44b5382160d4e93e4cada018beb4ab0f5b5",
+      "implementation_commit": "201ee9e95d77b7057e542c2446602e864c4bf636",
+      "documentation_commit": "902b21c4d2435109f07e9d5104d1823992fd09a0",
+      "checkpoint_commit": "d7fdac5",
+      "red": {
+        "initial_exit_code": 1,
+        "initial_behavioural_failures": 11,
+        "containment_regression_exit_code": 1,
+        "containment_regression": "forged stale lock changed an outside file before the guard"
+      },
+      "green": {
+        "focused_command": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.venv\\Scripts\\python.exe -m pytest tests\\operations\\test_transactions.py tests\\operations\\test_recovery.py tests\\operations\\test_backups.py tests\\test_atomic_io.py tests\\test_backup_restore.py tests\\test_schema_migrations.py tests\\operations\\test_operational_events.py -q",
+        "focused_exit_code": 0,
+        "focused_tests_passed": 55,
+        "adversarial_tests_passed": 17,
+        "full_test_command": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.venv\\Scripts\\python.exe -m pytest tests -q --tb=short",
+        "full_test_exit_code": 1,
+        "full_test_collected": 323,
+        "full_test_passed": 316,
+        "full_test_preexisting_failures": 7,
+        "ruff_exit_code": 0,
+        "compileall_exit_code": 0,
+        "diff_check_exit_code": 0
+      },
+      "evidence": {
+        "fault_matrix": "evidence/wave0/task3/fault-matrix.json",
+        "artefact_manifest": "evidence/wave0/task3/artefacts/artefact-manifest.json",
+        "artefact_count": 8,
+        "artefact_checksum_mismatches": 0,
+        "source_checksum_mismatches": 0
+      },
+      "reports": [
+        ".ai_worklog/task-3-report.md",
+        ".ai_worklog/task-3-review-1.md",
+        ".ai_worklog/task-3-review-2.md",
+        ".ai_worklog/task-3-review-3.md",
+        ".ai_worklog/task-3-review-final.md",
+        ".ai_worklog/task-3-review-postfix.md",
+        ".ai_worklog/task-3-review-final2.md",
+        ".ai_worklog/task-3-fix-pass-2-report.md",
+        ".ai_worklog/task-3-fix-pass-3-report.md",
+        ".ai_worklog/task-3-fix-pass-4-report.md",
+        ".ai_worklog/task-3-fix-pass-5-report.md"
+      ],
+      "independent_review": "approved_no_critical_important_or_minor_findings",
+      "closure_evaluator": "not_run",
+      "issue_state": "open",
+      "github_sync": "not_started",
+      "execution_allowed": false,
+      "data05_status": "still_open",
+      "task_4_started": false,
+      "current_worktree": "clean implementation commits; review reports pending documentation commit; branch ready for integration",
+      "final_review": {
+        "report": ".ai_worklog/task-3-review-final2.md",
+        "specification_compliance": "approved",
+        "code_quality": "approved",
+        "findings": {"critical": 0, "important": 0, "minor": 0},
+        "focused_tests_passed": 71,
+        "independent_adversarial_slice_passed": 11,
+        "commit": "201ee9e95d77b7057e542c2446602e864c4bf636"
+      }
     }
   },
-  "plan": "docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md",
-  "execution_mode": "hybrid_subagent_driven",
+  "plan": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-foundation-operations-boundary-plan.md",
+  "execution_mode": "subagent_driven_with_independent_review",
   "git_repository": true,
-  "git_branch": "main",
+  "git_branch": "wave0/task3-atomic-recovery",
   "progress_percent": 100,
   "wave": 8,
   "task": 25,
@@ -148,8 +213,8 @@
       "closure_evaluator": {"exit_code": 1, "ready": 4, "still_open": 37, "expected_nonzero": true}
     }
   },
-  "first_unpassed_criterion": "37 records still lack one or more issue-specific closure gates; strict parser/provider workflows remain open",
-  "next_command": "Do not begin Wave 0 Task 3 in this handoff; Git baseline is committed on main, report the remaining GitHub authentication/repository-creation action",
+  "first_unpassed_criterion": "Task 3 post-merge verification and later ISSUE-0040 UI/package/browser closure gates remain open",
+  "next_command": "Push and integrate wave0/task3-atomic-recovery, run post-merge focused/regression checks, then begin Wave 0 Task 4; do not close ISSUE-0040 yet",
   "notes": [
     "No Git initialisation or commit occurred before the independently approved Task 2 boundary; the user now authorises local baseline Git setup and optional private GitHub push only.",
     "Closure status is evaluator-backed: 4/41 ready and 37 still open; do not close remaining issues without their complete dossiers.",
@@ -169,6 +234,6 @@
     ,"The latest independent review found JSON-string redaction, unknown source prefix, model authority labelling, candle manifest and exact holdings export gaps; all are now covered by focused tests and source fixes, but the package must be rebuilt before closure evidence can be refreshed."
     ,"Final package evidence is under evidence/wave4: build-followup-final.txt, smoke-source-followup-final.txt, smoke-native-followup-final.txt, smoke-portable-followup-final.txt, launcher-batch-followup-final.txt, launcher-portable-followup-final.txt and final-audit-validation-followup.txt."
     ,"Final Chrome evidence is under evidence/wave4/browser, with route coverage in followup-route-smoke.txt; rendered content required a 12-second settle wait after HTTP readiness."
-    ,"No Git repository exists; no commit was created and git init was not run."
+    ,"Git baseline commit 445dd44b5382160d4e93e4cada018beb4ab0f5b5 exists on main; Task 3 final implementation 201ee9e is independently approved on wave0/task3-atomic-recovery and is ready for safe integration."
   ]
 }

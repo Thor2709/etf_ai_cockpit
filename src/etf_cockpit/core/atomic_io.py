@@ -45,6 +45,10 @@ class AtomicWriteRequest:
     validator: Callable[[Path], None]
 
 
+class AtomicWriteInterrupted(RuntimeError):
+    """Fault-injection signal that preserves the durable journal for startup recovery."""
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -86,7 +90,7 @@ def atomic_write_bytes(
             temp_path.unlink(missing_ok=True)
 
 
-def _stage_request(request: AtomicWriteRequest) -> Path:
+def _stage_request(request: AtomicWriteRequest, *, validate: bool = True) -> Path:
     request.destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
         mode="wb",
@@ -99,17 +103,27 @@ def _stage_request(request: AtomicWriteRequest) -> Path:
         handle.write(request.payload)
         handle.flush()
         os.fsync(handle.fileno())
-    try:
-        request.validator(path)
-    except Exception:
-        path.unlink(missing_ok=True)
-        raise
+    if validate:
+        try:
+            request.validator(path)
+        except Exception:
+            path.unlink(missing_ok=True)
+            raise
     return path
 
 
 def _pid_alive(pid: int) -> bool:
     if pid <= 0:
         return False
+    if os.name == "nt":
+        import ctypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        handle = kernel32.OpenProcess(0x1000, False, pid)
+        if handle:
+            kernel32.CloseHandle(handle)
+            return True
+        return ctypes.get_last_error() == 5
     try:
         os.kill(pid, 0)
         return True
@@ -140,15 +154,183 @@ def _cleanup_transaction(payload: dict[str, object], journal_path: Path) -> None
     shutil.rmtree(journal_path.parent, ignore_errors=True)
 
 
+def _recovery_root_for_journal(journal_path: Path) -> tuple[Path, Path] | None:
+    try:
+        resolved = journal_path.resolve()
+    except (OSError, RuntimeError):
+        return None
+    if resolved.name != "journal.json" or resolved.parent.parent.name != ".atomic-transactions":
+        return None
+    return resolved.parent.parent.parent, resolved.parent
+
+
+def _is_writer_staged_path(staged_path: Path, destination: Path) -> bool:
+    """Return whether a stage path matches the writer's canonical temp-file shape."""
+    prefix = f".{destination.name}."
+    suffix = ".group.tmp"
+    return (
+        staged_path.parent == destination.parent
+        and staged_path.name.startswith(prefix)
+        and staged_path.name.endswith(suffix)
+        and len(staged_path.name) > len(prefix) + len(suffix)
+    )
+
+
+def _expected_group_lock_parents(destinations: Iterable[Path]) -> set[Path]:
+    resolved = tuple(path.resolve() for path in destinations)
+    if not resolved:
+        return set()
+    parents = tuple(path.parent for path in resolved)
+    try:
+        common_root = Path(os.path.commonpath([str(parent) for parent in parents])).resolve()
+    except (OSError, RuntimeError, ValueError):
+        return set()
+    return {*parents, common_root}
+
+
+def _is_writer_lock_path(lock_path: Path, destinations: Iterable[Path]) -> bool:
+    return (
+        lock_path.name == ".atomic-write-group.lock"
+        and lock_path.parent in _expected_group_lock_parents(destinations)
+    )
+
+
+def _path_is_contained(path_value: object, root: Path, *, transaction_root: Path | None = None) -> bool:
+    if not isinstance(path_value, str) or not path_value:
+        return False
+    try:
+        path = Path(path_value).resolve()
+        path.relative_to(root.resolve())
+        if transaction_root is not None:
+            path.relative_to(transaction_root.resolve())
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return True
+
+
+def _validate_recovery_payload_paths(payload: dict[str, object], journal_path: Path) -> bool:
+    roots = _recovery_root_for_journal(journal_path)
+    if roots is None:
+        return False
+    recovery_root, transaction_root = roots
+    transaction_id = payload.get("transaction_id")
+    if transaction_id is not None and transaction_id != transaction_root.name:
+        return False
+    entries = payload.get("entries", [])
+    if not isinstance(entries, list):
+        return False
+    destinations: list[Path] = []
+    entry_staged_paths: set[Path] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            return False
+        destination_value = entry.get("destination")
+        if not _path_is_contained(destination_value, recovery_root):
+            return False
+        destination = Path(str(destination_value)).resolve()
+        destinations.append(destination)
+        backup_path = entry.get("backup_path")
+        if backup_path is not None and not _path_is_contained(
+            backup_path, recovery_root, transaction_root=transaction_root
+        ):
+            return False
+        if (
+            payload.get("schema_version") == 2
+            and backup_path is None
+            and payload.get("state") != "committed"
+            and destination.exists()
+        ):
+            expected_checksum = entry.get("expected_sha256")
+            if not isinstance(expected_checksum, str):
+                return False
+            try:
+                if sha256_file(destination) != expected_checksum:
+                    return False
+            except (OSError, RuntimeError, ValueError):
+                return False
+        staged_path = entry.get("staged_path")
+        if staged_path is not None:
+            if not _path_is_contained(staged_path, recovery_root):
+                return False
+            staged = Path(str(staged_path)).resolve()
+            if not _is_writer_staged_path(staged, destination):
+                return False
+            entry_staged_paths.add(staged)
+    for field in ("staged_paths", "final_paths", "lock_paths"):
+        values = payload.get(field, [])
+        if not isinstance(values, list):
+            return False
+        for value in values:
+            if not _path_is_contained(value, recovery_root):
+                return False
+            resolved = Path(str(value)).resolve()
+            if field == "staged_paths" and resolved not in entry_staged_paths:
+                return False
+            if field == "lock_paths":
+                if not _is_writer_lock_path(resolved, destinations):
+                    return False
+                if resolved.is_file():
+                    try:
+                        lock_payload = json.loads(resolved.read_text(encoding="utf-8"))
+                        if not isinstance(lock_payload, dict):
+                            return False
+                        if lock_payload.get("lock_type") == "reader":
+                            return False
+                        lock_journal = lock_payload.get("journal_path")
+                        if not isinstance(lock_journal, str):
+                            return False
+                        if Path(lock_journal).resolve() != journal_path.resolve():
+                            return False
+                        lock_owner = lock_payload.get("owner_pid")
+                        journal_owner = payload.get("owner_pid")
+                        if type(lock_owner) is not int or type(journal_owner) is not int:
+                            return False
+                        if lock_owner != journal_owner:
+                            return False
+                    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                        return False
+    return True
+
+
+def _mark_recovery_required(
+    journal_path: Path, reason: BaseException | str
+) -> None:
+    """Persist an unresolved writer failure while leaving all recovery evidence in place."""
+    try:
+        current = json.loads(journal_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return
+    if not isinstance(current, dict):
+        return
+    durable = current
+    durable["state"] = "recovery_required"
+    durable["status"] = "recovery_required"
+    durable["updated_at"] = datetime.now(timezone.utc).isoformat()
+    durable["recovery_error"] = str(reason)
+    try:
+        _write_journal(journal_path, durable)
+    except Exception:
+        # The original journal is still valuable evidence when it cannot be rewritten.
+        return
+
+
 def _recover_journal(journal_path: Path, *, force: bool = False) -> bool:
     try:
         payload = json.loads(journal_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return False
-    owner_pid = int(payload.get("owner_pid", 0))
+    if not isinstance(payload, dict) or not _validate_recovery_payload_paths(payload, journal_path):
+        return False
+    state = payload.get("state")
+    if not isinstance(state, str) or state in {"recovery_required", "quarantined"}:
+        return False
+    try:
+        owner_pid = int(payload.get("owner_pid", 0))
+    except (TypeError, ValueError):
+        return False
     if not force and _pid_alive(owner_pid):
         return False
-    if payload.get("state") != "committed":
+    if state != "committed":
         for entry in reversed(payload.get("entries", [])):
             destination = Path(str(entry["destination"]))
             backup_value = entry.get("backup_path")
@@ -173,17 +355,63 @@ def _recover_journal(journal_path: Path, *, force: bool = False) -> bool:
 
 def _recover_lock(lock: Path) -> bool:
     try:
+        resolved_lock = lock.resolve()
+        if resolved_lock.name != ".atomic-write-group.lock":
+            return False
         lock_payload = json.loads(lock.read_text(encoding="utf-8"))
-        journal_path = Path(str(lock_payload["journal_path"]))
-    except (OSError, json.JSONDecodeError, KeyError):
+        if not isinstance(lock_payload, dict):
+            return False
+        if lock_payload.get("lock_type") == "reader":
+            return False
+        journal_value = lock_payload["journal_path"]
+        if not isinstance(journal_value, str) or not Path(journal_value).is_absolute():
+            return False
+        journal_path = Path(journal_value).resolve()
+        roots = _recovery_root_for_journal(journal_path)
+        if roots is None:
+            return False
+        recovery_root, transaction_root = roots
+        try:
+            resolved_lock.parent.relative_to(recovery_root.resolve())
+        except ValueError:
+            return False
+        journal_payload = json.loads(journal_path.read_text(encoding="utf-8"))
+        if not isinstance(journal_payload, dict):
+            return False
+        if journal_payload.get("transaction_id") != transaction_root.name:
+            return False
+        lock_paths = journal_payload.get("lock_paths")
+        if not isinstance(lock_paths, list):
+            return False
+        if resolved_lock not in {
+            Path(str(value)).resolve() for value in lock_paths if isinstance(value, str)
+        }:
+            return False
+        lock_owner = lock_payload.get("owner_pid")
+        journal_owner = journal_payload.get("owner_pid")
+        if type(lock_owner) is not int or type(journal_owner) is not int:
+            return False
+        if lock_owner != journal_owner:
+            return False
+    except (
+        OSError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        KeyError,
+        TypeError,
+        ValueError,
+        RuntimeError,
+    ):
         return False
     return _recover_journal(journal_path)
 
 
 def _acquire_group_locks(
     parents: tuple[Path, ...],
-    journal_path: Path,
+    journal_path: Path | None,
     timeout_seconds: float = 5.0,
+    *,
+    lock_type: str = "writer",
 ) -> tuple[Path, ...]:
     deadline = time.monotonic() + timeout_seconds
     locks: list[Path] = []
@@ -197,7 +425,15 @@ def _acquire_group_locks(
                     os.write(
                         descriptor,
                         json.dumps(
-                            {"owner_pid": os.getpid(), "journal_path": str(journal_path.resolve())}
+                            {
+                                "owner_pid": os.getpid(),
+                                "lock_type": lock_type,
+                                **(
+                                    {"journal_path": str(journal_path.resolve())}
+                                    if journal_path is not None
+                                    else {}
+                                ),
+                            }
                         ).encode("utf-8"),
                     )
                     os.close(descriptor)
@@ -227,7 +463,41 @@ def wait_for_atomic_group(path: Path, timeout_seconds: float = 5.0) -> None:
         time.sleep(0.025)
 
 
-def atomic_write_group(requests: Iterable[AtomicWriteRequest]) -> tuple[AtomicWriteResult, ...]:
+def read_atomic_group(
+    paths: Iterable[Path], *, timeout_seconds: float = 5.0
+) -> tuple[bytes, ...]:
+    """Read a group under the same lock boundary used for grouped publication.
+
+    A grouped writer holds every destination-parent lock plus the common-root
+    lock through activation and cleanup.  Acquiring those locks as a reader
+    keeps all payload reads within one complete generation boundary.
+    """
+    path_tuple = tuple(path.resolve() for path in paths)
+    if not path_tuple:
+        return ()
+    if len(path_tuple) != len(set(path_tuple)):
+        raise ValueError("atomic group reader paths must be unique")
+    parents = tuple(sorted({path.parent for path in path_tuple}, key=str))
+    common_root = Path(os.path.commonpath([str(parent) for parent in parents]))
+    lock_parents = tuple(sorted({*parents, common_root}, key=str))
+    locks = _acquire_group_locks(
+        lock_parents,
+        None,
+        timeout_seconds,
+        lock_type="reader",
+    )
+    try:
+        return tuple(path.read_bytes() for path in path_tuple)
+    finally:
+        for lock in reversed(locks):
+            lock.unlink(missing_ok=True)
+
+
+def atomic_write_group(
+    requests: Iterable[AtomicWriteRequest],
+    *,
+    lifecycle_hook: Callable[[str, Path], None] | None = None,
+) -> tuple[AtomicWriteResult, ...]:
     request_tuple = tuple(requests)
     if not request_tuple:
         return ()
@@ -236,6 +506,7 @@ def atomic_write_group(requests: Iterable[AtomicWriteRequest]) -> tuple[AtomicWr
         raise ValueError("atomic write group destinations must be unique")
     parents = tuple(sorted({request.destination.parent.resolve() for request in request_tuple}, key=str))
     common_root = Path(os.path.commonpath([str(parent) for parent in parents]))
+    lock_parents = tuple(sorted({*parents, common_root}, key=str))
     transaction_root = common_root / ".atomic-transactions" / uuid.uuid4().hex
     transaction_root.mkdir(parents=True, exist_ok=False)
     journal_path = transaction_root / "journal.json"
@@ -243,8 +514,48 @@ def atomic_write_group(requests: Iterable[AtomicWriteRequest]) -> tuple[AtomicWr
     previous: dict[Path, bytes | None] = {}
     entries: list[dict[str, object]] = []
     locks: tuple[Path, ...] = ()
-    journal_payload: dict[str, object] = {}
+    now = datetime.now(timezone.utc).isoformat()
+    journal_payload: dict[str, object] = {
+        "schema_version": 2,
+        "transaction_id": transaction_root.name,
+        "workflow_run_id": "",
+        "transaction_type": "atomic_write_group",
+        "owner_pid": os.getpid(),
+        "state": "staging",
+        "affected_dataset_ids": [str(path) for path in destinations],
+        "base_generation_ids": {},
+        "entries": entries,
+        "staged_paths": [],
+        "final_paths": [],
+        "lock_paths": [],
+        "expected_checksums": {},
+        "started_at": now,
+        "updated_at": now,
+        "committed_at": None,
+        "recovery_instructions": [
+            "On interrupted startup, verify journal and payload checksums, then restore the "
+            "previous complete generation. Never promote ambiguous staging data."
+        ],
+    }
+    interrupted = False
+    recovery_pending = False
+
+    def publish_state(state: str) -> None:
+        journal_payload["state"] = state
+        journal_payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+        if state == "committed":
+            journal_payload["committed_at"] = journal_payload["updated_at"]
+        _write_journal(journal_path, journal_payload)
+        if lifecycle_hook is not None:
+            lifecycle_hook(state, journal_path)
+
     try:
+        _write_journal(journal_path, journal_payload)
+        if lifecycle_hook is not None:
+            lifecycle_hook("staging", journal_path)
+        locks = _acquire_group_locks(lock_parents, journal_path)
+        journal_payload["lock_paths"] = [str(path.resolve()) for path in locks]
+        _write_journal(journal_path, journal_payload)
         for index, request in enumerate(request_tuple):
             original = request.destination.read_bytes() if request.destination.is_file() else None
             previous[request.destination] = original
@@ -255,30 +566,43 @@ def atomic_write_group(requests: Iterable[AtomicWriteRequest]) -> tuple[AtomicWr
                     handle.write(original)
                     handle.flush()
                     os.fsync(handle.fileno())
-            staged[request.destination] = _stage_request(request)
+            staged[request.destination] = _stage_request(request, validate=False)
             entries.append(
                 {
                     "destination": str(request.destination.resolve()),
                     "backup_path": str(backup_path.resolve()) if backup_path else None,
                     "previous_sha256": hashlib.sha256(original).hexdigest() if original is not None else None,
+                    "staged_path": str(staged[request.destination].resolve()),
+                    "expected_sha256": hashlib.sha256(request.payload).hexdigest(),
                 }
             )
-        lock_paths = [str((parent / ".atomic-write-group.lock").resolve()) for parent in parents]
-        journal_payload = {
-            "schema_version": 1,
-            "transaction_id": transaction_root.name,
-            "owner_pid": os.getpid(),
-            "state": "prepared",
-            "entries": entries,
-            "staged_paths": [str(path.resolve()) for path in staged.values()],
-            "lock_paths": lock_paths,
-        }
-        _write_journal(journal_path, journal_payload)
-        locks = _acquire_group_locks(parents, journal_path)
+            journal_payload["staged_paths"] = [str(path.resolve()) for path in staged.values()]
+            journal_payload["final_paths"] = [str(entry["destination"]) for entry in entries]
+            expected_checksums = journal_payload["expected_checksums"]
+            assert isinstance(expected_checksums, dict)
+            expected_checksums[str(request.destination.resolve())] = hashlib.sha256(
+                request.payload
+            ).hexdigest()
+            journal_payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+            _write_journal(journal_path, journal_payload)
+        publish_state("validating")
+        for request in request_tuple:
+            request.validator(staged[request.destination])
+        publish_state("committing")
+        for request in request_tuple:
+            staged_path = staged[request.destination]
+            request.validator(staged_path)
+            expected = str(journal_payload["expected_checksums"][str(request.destination.resolve())])
+            actual = sha256_file(staged_path)
+            if actual != expected:
+                raise OSError(
+                    f"staged payload checksum mismatch: {staged_path} "
+                    f"(expected {expected}, found {actual})"
+                )
         for request in request_tuple:
             staged[request.destination].replace(request.destination)
-        journal_payload["state"] = "committed"
-        _write_journal(journal_path, journal_payload)
+        publish_state("manifest_publish")
+        publish_state("committed")
         return tuple(
             AtomicWriteResult(
                 destination=request.destination,
@@ -288,12 +612,28 @@ def atomic_write_group(requests: Iterable[AtomicWriteRequest]) -> tuple[AtomicWr
             )
             for request in request_tuple
         )
+    except AtomicWriteInterrupted:
+        interrupted = True
+        raise
     except Exception:
         if journal_path.is_file():
-            _recover_journal(journal_path, force=True)
+            try:
+                recovered = _recover_journal(journal_path, force=True)
+            except Exception as recovery_error:
+                recovery_pending = True
+                _mark_recovery_required(journal_path, recovery_error)
+                raise
+            if not recovered:
+                recovery_pending = True
+                _mark_recovery_required(
+                    journal_path,
+                    "rollback could not be proven from the durable transaction evidence",
+                )
         raise
     finally:
-        if journal_path.is_file():
+        if interrupted or recovery_pending:
+            pass
+        elif journal_path.is_file():
             _cleanup_transaction(journal_payload, journal_path)
         else:
             for path in staged.values():

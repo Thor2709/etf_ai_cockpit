@@ -1,6 +1,6 @@
 # ETF AI Cockpit Programme Index
 
-> **Execution mode:** Subagent-Driven is mandatory. The project has no usable Git repository, so no branch, worktree, commit, push, pull request or Git initialisation is permitted. Checkpoints are durable files rather than commits.
+> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Task 3 is isolated in `wave0/task3-atomic-recovery` and has fresh independent approval. Integration and remote writes remain gated by the final post-review verification and branch integration evidence.
 
 **Binding inputs:**
 
@@ -27,7 +27,7 @@ The repository-recorded 262-pass run, package smoke and Chrome evidence remain h
 2. No authority inflation: evidence, analysis, experimental models, research states, portfolio-review states and user decisions remain distinct; `execution_allowed` is always `false`.
 3. Preserve the revision-protected universe store, atomic I/O/recovery, Data Health, provider/evidence contracts, source-aware score eligibility, session trace, audit manifests, router and responsive Flet shell.
 4. Extend through narrow migrations and compatibility adapters. Do not conduct unrelated repository-wide refactoring.
-5. Never initialise Git, rewrite history, delete user data, use credentials, purchase services, modify a remote repository, push, or open a pull request.
+5. Never rewrite history, delete user data, use credentials, purchase services or bypass review/check gates. Git branch, commit, push, pull-request and GitHub Issue actions are permitted only where the current user authorisation and applicable integration gates explicitly allow them.
 6. Retrieve current primary/official evidence where correctness depends on an external identifier, API, package, venue, issuer or standard. Empty, stale or conflicting evidence is explicit unavailable, conflicted or blocked state.
 7. Test observable behaviour, invariants and failure paths. A mock-call assertion alone is insufficient.
 8. Each substantive task follows RED - GREEN - REFACTOR, receives a fresh implementer and a separate fresh task reviewer, and records test/review evidence before completion.
@@ -96,7 +96,7 @@ No blocking authorised-requirement contradiction was found. The following preced
 2. `execution_allowed=false` and the no-broker boundary outrank all legacy action/proposal/ensemble wording.
 3. The canonical registry is the preferred DATA-05 path; the schema-versioned `UniverseRecord` compatibility migration is permitted only while it remains revision-protected and auditable.
 4. DATA-05 requires real-time official/source verification. The specification seeds are expected values, not facts to copy without a discrepancy manifest.
-5. The lack of Git was not a blocker during planning. All implementation tasks use `RUN_STATE.json`, this index, the progress ledger and `.ai_worklog` as checkpoints; after independently approved Wave 0 Task 2, the user has separately authorised only the local baseline Git setup and optional private GitHub push, with no Task 3 implementation in that handoff.
+5. The local baseline Git setup is complete at `445dd44b5382160d4e93e4cada018beb4ab0f5b5`. Task 3 is on the isolated branch `wave0/task3-atomic-recovery`; five fix passes and a fresh independent approval are recorded through `201ee9e`, while branch integration and remote issue synchronisation remain pending. `ISSUE-0040` is still open for its later UI/package/browser gates.
 
 ## Durable checkpoint protocol
 
@@ -117,4 +117,4 @@ The next agent must reread this index, the active plan, the progress ledger, the
 - Placeholder scan over all nine implementation plans found no `TBD`, `TODO`, `add tests`, `handle errors`, `similar to above` or `implement later` placeholder.
 - The documentation-only pre-flight change corrected the final plan heading. No implementation code, configuration, tracker status or user data has changed.
 - Fresh baseline evidence recorded before implementation: pytest exit 0, Ruff clean, compileall exit 0, source snapshot smoke exit 0, source/native/portable smoke exit 0, and a rendered in-app-browser inspection of the source Simple Scores route.
-- No blocking contradiction remains after applying the approved precedence rules. Wave 0, Tasks 1 and 2 are independently reviewed complete. Wave 0, Task 3 is the next incomplete implementation task, but it is explicitly deferred while the authorised Git baseline is established.
+- No blocking product contradiction remains after applying the approved precedence rules. Wave 0, Tasks 1 and 2 are independently reviewed complete. Wave 0, Task 3 is independently approved for integration with no Critical, Important or Minor findings; its post-merge verification remains pending. Wave 0, Task 4 has not started.

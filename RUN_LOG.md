@@ -196,3 +196,18 @@ Executing the approved plan at `docs/superpowers/plans/2026-07-09-launcher-spare
 - Fresh audit ZIP validation passed: valid archive, zero checksum errors, zero secret findings, explicit candle/conflict handling, 16 unique holdings with required fields, and `model_advisory` provenance.
 - Closure evaluator returned 4 ready and 37 still open. Only `ISSUE-0069`, `UPDATEV2-0022` and `UPDATEV2-0028` changed from reopened to closed in this checkpoint; `ISSUE-0035` was already closed. Strict parser/provider records remain open.
 - Computer Use did not pass because the Windows URL-confidence policy stopped the attempt; this is recorded as a limitation, not a browser pass.
+
+## 2026-07-11 Wave 0 Task 3 Review-Capability Checkpoint
+
+- Task 3 implementation and fix commits are on `wave0/task3-atomic-recovery` from `445dd44b5382160d4e93e4cada018beb4ab0f5b5`; no push, pull request, merge or GitHub Issue mutation has occurred.
+- The focused transaction/recovery bundle passed 55 tests; the adversarial bundle passed 17 tests; scoped Ruff, compileall and diff checks passed.
+- The fresh full suite collected 323 tests, passed 316 and retained the same seven isolated-worktree generated-artefact baseline failures. No Task 3 test failed.
+- Durable Task 3 artefact and fault-matrix checks report zero checksum mismatches. `execution_allowed` remains `false`; `ISSUE-0040` and DATA-05 remain open.
+- A parent-side stale-lock containment gap was found through a RED test and fixed locally; the containment fix and review artefacts are recorded in checkpoint commit `d7fdac5`.
+- The mandatory fresh independent re-review is pending because no permitted, verifiable GPT-5.6 Luna/Max custom role is available and the attempted dispatch returned a usage-limit error. Task 4 must not start until that review and integration gate pass.
+
+## 2026-07-12 Wave 0 Task 3 Independent Approval and Integration Handoff
+
+- Five bounded fix passes addressed stale-lock scope, rollback-failure durability, owned artefact validation, unreadable evidence, malformed states and null-backup safety. Final implementation commit: `201ee9e`.
+- Final focused Task 3 bundle passed 71 tests; scoped Ruff, compileall and full-range `git diff --check` passed. Fresh independent review ran an 11-test adversarial slice and approved specification compliance and code quality with no Critical, Important or Minor findings (`.ai_worklog/task-3-review-final2.md`).
+- Task 3 is approved for branch integration. `ISSUE-0040` remains open because the later Error/Recovery UI, package and browser gates are not owned by Task 3. `execution_allowed` remains `false`; DATA-05 remains open; Task 4 has not started.

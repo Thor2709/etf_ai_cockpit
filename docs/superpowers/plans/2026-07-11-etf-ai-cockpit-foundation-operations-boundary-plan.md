@@ -222,7 +222,7 @@ Store a JSONL fixture checksum, a diagnostics screenshot/semantic capture plan a
 
 **Produces:** `WriteTransaction` lifecycle and startup recovery result reused by registry, catalogue, portfolio and workflow tasks.
 
-- [ ] **Step 1: Write parameterised fault-injection RED tests**
+- [x] **Step 1: Write parameterised fault-injection RED tests**
 
 ```python
 @pytest.mark.parametrize("crash_point", ["staging", "validating", "committing", "manifest_publish"])
@@ -233,13 +233,13 @@ def test_recovery_exposes_old_or_new_complete_generation_only(tmp_path: Path, cr
     assert read_current_pointer(tmp_path) in {"generation-old", "generation-new"}
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `.\.venv\Scripts\python.exe -m pytest tests\operations\test_transactions.py tests\operations\test_recovery.py tests\test_atomic_io.py -q`
 
 Expected: FAIL because transaction records and recovery classification are absent.
 
-- [ ] **Step 3: Implement transaction records around, not beside, `atomic_io`**
+- [x] **Step 3: Implement transaction records around, not beside, `atomic_io`**
 
 ```python
 def begin_write_transaction(*, transaction_type: str, base_generations: dict[str, str]) -> WriteTransaction: ...
@@ -249,15 +249,17 @@ def recover_incomplete_transactions(data_root: Path) -> list[RecoveryResult]: ..
 
 Each function delegates actual byte/group commit, lock, journal, verification and backup work to `core.atomic_io`; it never introduces a second lock or journal format. Startup recovery must select normal, read-only diagnostic or recovery-required mode without promoting ambiguous staging data.
 
-- [ ] **Step 4: Run GREEN and restore drill**
+- [x] **Step 4: Run GREEN and restore drill**
 
 Run: `.\.venv\Scripts\python.exe -m pytest tests\operations\test_transactions.py tests\operations\test_recovery.py tests\operations\test_backups.py tests\test_atomic_io.py tests\test_backup_restore.py -q`
 
 Expected: PASS, including locked-file, checksum-mismatch and restore fixtures.
 
-- [ ] **Step 5: Log recovery evidence**
+- [x] **Step 5: Log recovery evidence**
 
-Write the fault matrix, backup manifest checksums and recovery-state screenshots to the wave evidence directory; update the ledger but do not close `REL-02` until package recovery has also passed.
+Write the fault matrix and backup manifest checksums to the wave evidence directory; recovery-state screenshots are not applicable because Task 3 adds no user-visible surface, as recorded in the task report. Update the ledger but do not close `REL-02` until package recovery has also passed.
+
+Task 3 implementation, five fix-pass evidence records and the fresh independent approval are recorded in `.ai_worklog/task-3-report.md`, `.ai_worklog/task-3-fix-pass-2-report.md`, `.ai_worklog/task-3-fix-pass-3-report.md`, `.ai_worklog/task-3-fix-pass-4-report.md`, `.ai_worklog/task-3-fix-pass-5-report.md` and `.ai_worklog/task-3-review-final2.md`. The task-level review gate is passed with no Critical, Important or Minor findings. Task 4 remains blocked only until the verified Task 3 branch is integrated and post-merge checks pass; `ISSUE-0040` remains open for its later UI/package/browser gates.
 
 ### Task 4: Enforce the no-execution and rejection boundary
 
