@@ -205,3 +205,9 @@ Executing the approved plan at `docs/superpowers/plans/2026-07-09-launcher-spare
 - Durable Task 3 artefact and fault-matrix checks report zero checksum mismatches. `execution_allowed` remains `false`; `ISSUE-0040` and DATA-05 remain open.
 - A parent-side stale-lock containment gap was found through a RED test and fixed locally; the containment fix and review artefacts are recorded in checkpoint commit `d7fdac5`.
 - The mandatory fresh independent re-review is pending because no permitted, verifiable GPT-5.6 Luna/Max custom role is available and the attempted dispatch returned a usage-limit error. Task 4 must not start until that review and integration gate pass.
+
+## 2026-07-12 Wave 0 Task 3 Independent Approval and Integration Handoff
+
+- Five bounded fix passes addressed stale-lock scope, rollback-failure durability, owned artefact validation, unreadable evidence, malformed states and null-backup safety. Final implementation commit: `201ee9e`.
+- Final focused Task 3 bundle passed 71 tests; scoped Ruff, compileall and full-range `git diff --check` passed. Fresh independent review ran an 11-test adversarial slice and approved specification compliance and code quality with no Critical, Important or Minor findings (`.ai_worklog/task-3-review-final2.md`).
+- Task 3 is approved for branch integration. `ISSUE-0040` remains open because the later Error/Recovery UI, package and browser gates are not owned by Task 3. `execution_allowed` remains `false`; DATA-05 remains open; Task 4 has not started.

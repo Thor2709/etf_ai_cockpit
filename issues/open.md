@@ -6,7 +6,7 @@ Closure update 2026-07-11: `ISSUE-0069`, `UPDATEV2-0022` and `UPDATEV2-0028` pas
 
 Wave 0 Task 2 checkpoint 2026-07-11: the session-trace operational-authority regression was independently approved, including workflow single-trace persistence, recovery, redaction and Diagnostics visibility. No open tracker record changed state; `DATA-05` remains `still_open`, and the next implementation task is Wave 0 Task 3.
 
-Wave 0 Task 3 checkpoint 2026-07-11: atomic transaction and deterministic recovery implementation/fix evidence is present on the isolated branch, including real interruption, locking, checksum, migration, corrupt-journal and audit-trace regressions. The required fresh independent re-review is capability-pending, so `ISSUE-0040` remains open and no issue closure or remote GitHub mutation has occurred. Task 4 has not started.
+Wave 0 Task 3 checkpoint 2026-07-12: atomic transaction and deterministic recovery implementation plus five bounded fix passes are present on `wave0/task3-atomic-recovery`, including real interruption, locking, checksum, migration, corrupt-journal, rollback-durability and audit-trace regressions. Fresh independent review approved specification compliance and code quality with no Critical, Important or Minor findings (`.ai_worklog/task-3-review-final2.md`). `ISSUE-0040` remains open because its Error/Recovery UI, package and browser gates are later work; Task 4 has not started and branch integration is the next gate.
 
 ## Tracker Rules
 

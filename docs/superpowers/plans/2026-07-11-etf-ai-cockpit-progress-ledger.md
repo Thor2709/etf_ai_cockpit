@@ -7,9 +7,9 @@
 | Field | Value |
 |---|---|
 | Updated | 2026-07-11 |
-| Active phase | Wave 0 Task 3 implementation and fix verification complete; fresh independent re-review pending capability; integration and Task 4 not started |
+| Active phase | Wave 0 Task 3 implementation and five fix passes independently approved; integration gate in progress; Task 4 not started |
 | Active plan | `docs/superpowers/plans/2026-07-11-etf-ai-cockpit-foundation-operations-boundary-plan.md` |
-| Git state | Task 3 worktree `wave0/task3-atomic-recovery` is based on `origin/main` at `445dd44b5382160d4e93e4cada018beb4ab0f5b5`; implementation commits are ahead locally; review artefacts and the current containment fix are not yet integrated |
+| Git state | Task 3 worktree `wave0/task3-atomic-recovery` is based on `origin/main` at `445dd44b5382160d4e93e4cada018beb4ab0f5b5`; implementation and review commits are ahead locally and await safe integration |
 | Existing closure state | 4 ready / 37 tracker records still open; DATA-05 is a new separate requirement |
 | Fresh baseline | pytest exit 0, Ruff clean, compileall exit 0, source snapshot smoke exit 0, source/native/portable smoke exit 0 and rendered in-app-browser source-route inspection |
 | Pre-existing type state | recorded mypy failure caused by external stubs and existing typing debt; no new failure attributed |
@@ -19,7 +19,7 @@
 
 | Wave | Owning plan | State | Last verified evidence | Next gate |
 |---:|---|---|---|---|
-| 0 | foundation, operations and boundary | Task 3 implementation/fix verified; independent re-review pending | 55 focused tests, 17 adversarial tests, 316/323 full-suite pass with seven recorded baseline failures, Ruff/compile/diff checks, eight-artefact checksum manifest, four fault-matrix source hashes, parent-side containment regression | Fresh permitted independent re-review, then branch integration and issue reconciliation; Task 4 remains not started |
+| 0 | foundation, operations and boundary | Task 3 implementation and five fix passes independently approved; integration pending | 71 focused Task 3 tests, fresh 11-test adversarial approval slice, 316/323 full-suite pass with seven recorded baseline failures, Ruff/compile/diff checks, eight-artefact checksum manifest, four fault-matrix source hashes, rollback/lock/ownership/read-only regressions | Push and integrate the reviewed branch, run post-merge checks, then start Task 4; `ISSUE-0040` remains open for later UI/package/browser gates |
 | 1 | governance | Not started | occurrence map identifies legacy action, `trading_allowed`, proposal and model-weight seams | establish typed governance RED suite |
 | 2 | registry and universe | Not started | `UniverseRecord`/optimistic revision/atomic save present | registry dry-run and validator RED suite |
 | 3 | DATA-05 | Not started | no live seed verification has been performed in this programme | retrieve current official identity evidence and write failing seed-contract tests |
@@ -40,7 +40,7 @@
 | 2026-07-11 | Wave 0 Task 1 - final independent task review | fresh closure reviewer | approved | original and actor-fix RED evidence recorded in task report | post-review 18 passed, Ruff clean, compileall exit 0 and source snapshot smoke exit 0 | Approved for Task 1 only; no issue closure | `.ai_worklog/task-1-review-4.md`, `.ai_worklog/task-1-report.md` | Important findings resolved; metadata-validation Minor retained for broad final triage |
 | 2026-07-11 | Wave 0 Task 2 - operational event authority implementation | fresh completion implementer after interrupted first implementer | fresh review 1 | `.\\.venv\\Scripts\\python.exe -m pytest tests\\operations\\test_event_store.py -q` - exit 1 for contextual schema-invalid complete-row error | same command - exit 0, 6 passed; focused operational/diagnostics regression 21 passed; full `tests` suite exit 0; scoped Ruff/compile exit 0 | Review 1 CHANGES_REQUIRED: default workflow secondary log and stale dashboard path | `.ai_worklog/task-2-report.md`, `.ai_worklog/task-2-review-package.md`, `.ai_worklog/task-2-review-1.md` | New event IDs/hashes, legacy rows, tail quarantine, AppState projection and diagnostics integrity status were otherwise accepted; no issue closure |
 | 2026-07-11 | Wave 0 Task 2 - authority-seam fix | fresh fix implementer | fresh review 2 | `.\\.venv\\Scripts\\python.exe -m pytest tests\\test_workflow_runtime.py -q` - exit 1, 2 failures and 5 passes | same command - exit 0, 7 passed; final focused review bundle 28 passed; full `tests` suite exit 0; Ruff/compile exit 0 | Approved after both Important findings resolved | `.ai_worklog/task-2-authority-fix-report.md`, `.ai_worklog/task-2-review-2.md`, `.ai_worklog/task-2-review-package-final.md` | Default workflow lifecycle now persists only through `logs/session.jsonl`; explicit `log_path` is a compatibility/test seam; no issue status changed |
-| 2026-07-11 | Wave 0 Task 3 - atomic transaction and deterministic recovery implementation/fix | fresh implementer and fresh fix implementer | Review 1 rejected; fresh re-review pending capability | initial RED exit 1 with 11 behavioural failures; fix RED covered model, tamper and corrupt-journal gaps; containment RED exited 1 after outside-file mutation | final focused bundle exit 0 with 55 passed; adversarial bundle exit 0 with 17 passed; Ruff/compile/diff exit 0 | Implementation verified locally; **not independently re-approved** | `.ai_worklog/task-3-report.md`, `.ai_worklog/task-3-review-1.md`, `.ai_worklog/task-3-review-2.md`, `evidence/wave0/task3/` | Fix commits `4d02c80`, `902b21c`; checkpoint commit `d7fdac5` records the containment fix and review state; no issue transition, push, PR, merge or GitHub Issue mutation |
+| 2026-07-11 | Wave 0 Task 3 - atomic transaction and deterministic recovery implementation/fix | fresh implementer plus five fresh fix/review cycles | fresh independent final reviewer `task-3-review-final2.md` | initial RED exit 1 with 11 behavioural failures; later RED cycles covered lock order, strict schema, mixed-reader, manual-review, rollback durability, owned artefacts, unreadable evidence, malformed states and null-backup safety | final focused bundle exit 0 with 71 passed; independent 11-test slice exit 0; Ruff/compile/diff exit 0 | **Approved for Task 3 integration**; no Critical, Important or Minor findings; issue remains open for later UI/package/browser closure | `.ai_worklog/task-3-report.md`, `.ai_worklog/task-3-fix-pass-2-report.md`, `.ai_worklog/task-3-fix-pass-3-report.md`, `.ai_worklog/task-3-fix-pass-4-report.md`, `.ai_worklog/task-3-fix-pass-5-report.md`, `.ai_worklog/task-3-review-final2.md`, `evidence/wave0/task3/` | Final implementation `201ee9e`; no issue transition yet; branch integration and GitHub synchronisation remain next gates |
 
 ## Open review findings
 
@@ -55,13 +55,17 @@
 
 1. Read the attached specification, the programme index, this ledger and the active plan.
 2. Check `RUN_STATE.json`, `.ai_worklog/TESTING.md`, the latest task review and current file state.
-3. Continue only the first unchecked task whose prerequisites are verified; Task 3 implementation is present but cannot pass the task boundary until a permitted fresh independent re-review and integration are complete. Task 4 must not begin.
+3. Continue only the first unchecked task whose prerequisites are verified; Task 3 now has fresh independent approval and may pass the task boundary after safe branch integration and post-merge verification. Task 4 must not begin until that integration completes.
 4. Use a fresh implementer and a fresh reviewer for every substantive task; record their reports here.
 5. Do not update issue state to closed until the closure-matrix evidence is fresh and independently reviewed.
 
 ### Wave 0 Task 3 review-capability checkpoint - 2026-07-11
 
-Task 3 now has implementation/fix evidence and parent-side adversarial verification, including real two-writer locking, post-hook checksum validation, nested migration recovery, strict corrupt-journal classification, outside-root containment, default session-event emission, durable synthetic evidence checksums and a stale-lock containment regression. The mandatory fresh independent re-review remains pending because no permitted, verifiable GPT-5.6 Luna/Max custom agent role is available; an attempted fresh dispatch returned a usage-limit error and produced no report. The branch remains local and unintegrated. `ISSUE-0040` remains open and `issues/open.md`/`issues/closed.md` are unchanged. `execution_allowed` remains `false`; DATA-05 remains `still_open`.
+Task 3 initially reached this checkpoint with implementation/fix evidence and parent-side adversarial verification, but its fresh independent review was then completed. The superseding final approval is recorded below; the historical capability-pending note is retained for audit chronology.
+
+### Wave 0 Task 3 independent approval and integration handoff - 2026-07-12
+
+Five bounded fix passes addressed the independent findings. Final implementation commit `201ee9e` passed 71 focused Task 3 tests, scoped Ruff, compileall and diff checks. A fresh independent reviewer ran an 11-test adversarial slice and approved specification compliance and code quality with no Critical, Important or Minor findings (`.ai_worklog/task-3-review-final2.md`). The task is ready for branch integration. `ISSUE-0040` remains open because its Error/Recovery UI, package and browser gates belong to later dependency-valid work; `execution_allowed` remains `false`; DATA-05 remains `still_open`.
 
 ### Round-3 checkpoint-evidence correction - 2026-07-11
 

@@ -1,6 +1,6 @@
 # ETF AI Cockpit Programme Index
 
-> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Task 3 is isolated in `wave0/task3-atomic-recovery`. Integration and remote writes remain gated by the required independent review and verification evidence.
+> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Task 3 is isolated in `wave0/task3-atomic-recovery` and has fresh independent approval. Integration and remote writes remain gated by the final post-review verification and branch integration evidence.
 
 **Binding inputs:**
 
@@ -96,7 +96,7 @@ No blocking authorised-requirement contradiction was found. The following preced
 2. `execution_allowed=false` and the no-broker boundary outrank all legacy action/proposal/ensemble wording.
 3. The canonical registry is the preferred DATA-05 path; the schema-versioned `UniverseRecord` compatibility migration is permitted only while it remains revision-protected and auditable.
 4. DATA-05 requires real-time official/source verification. The specification seeds are expected values, not facts to copy without a discrepancy manifest.
-5. The local baseline Git setup is complete at `445dd44b5382160d4e93e4cada018beb4ab0f5b5`. Task 3 is on the isolated branch `wave0/task3-atomic-recovery`; its implementation/fix evidence is present, but the required fresh independent re-review is pending capability and no integration or remote issue mutation has occurred.
+5. The local baseline Git setup is complete at `445dd44b5382160d4e93e4cada018beb4ab0f5b5`. Task 3 is on the isolated branch `wave0/task3-atomic-recovery`; five fix passes and a fresh independent approval are recorded through `201ee9e`, while branch integration and remote issue synchronisation remain pending. `ISSUE-0040` is still open for its later UI/package/browser gates.
 
 ## Durable checkpoint protocol
 
@@ -117,4 +117,4 @@ The next agent must reread this index, the active plan, the progress ledger, the
 - Placeholder scan over all nine implementation plans found no `TBD`, `TODO`, `add tests`, `handle errors`, `similar to above` or `implement later` placeholder.
 - The documentation-only pre-flight change corrected the final plan heading. No implementation code, configuration, tracker status or user data has changed.
 - Fresh baseline evidence recorded before implementation: pytest exit 0, Ruff clean, compileall exit 0, source snapshot smoke exit 0, source/native/portable smoke exit 0, and a rendered in-app-browser inspection of the source Simple Scores route.
-- No blocking product contradiction remains after applying the approved precedence rules. Wave 0, Tasks 1 and 2 are independently reviewed complete. Wave 0, Task 3 implementation and fix verification are recorded; its fresh independent re-review and integration gate remain pending. Wave 0, Task 4 has not started.
+- No blocking product contradiction remains after applying the approved precedence rules. Wave 0, Tasks 1 and 2 are independently reviewed complete. Wave 0, Task 3 is independently approved for integration with no Critical, Important or Minor findings; its post-merge verification remains pending. Wave 0, Task 4 has not started.

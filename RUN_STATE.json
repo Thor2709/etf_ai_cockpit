@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-11T21:52:59+10:00",
+  "updated_at": "2026-07-12T00:20:00+10:00",
   "active_programme": {
     "name": "2026-07-11-etf-ai-cockpit-approved-programme",
     "programme_index": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-programme-index.md",
     "progress_ledger": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-progress-ledger.md",
-    "phase": "wave0_task3_implementation_verified_independent_review_pending",
-    "next_task": "Wave 0, Foundation Task 3: fresh independent re-review and integration; Task 4 not started",
+    "phase": "wave0_task3_independently_approved_integration_pending",
+    "next_task": "Wave 0, Foundation Task 3: push and integrate reviewed branch, run post-merge verification; then start Task 4",
     "git_repository": true,
     "git_branch": "wave0/task3-atomic-recovery",
     "baseline": {
@@ -107,7 +107,7 @@
       "owning_issue": "ISSUE-0040",
       "branch": "wave0/task3-atomic-recovery",
       "task_base": "445dd44b5382160d4e93e4cada018beb4ab0f5b5",
-      "implementation_commit": "4d02c8076cbdbc1da296d9b39962104a8a2a224f",
+      "implementation_commit": "201ee9e95d77b7057e542c2446602e864c4bf636",
       "documentation_commit": "902b21c4d2435109f07e9d5104d1823992fd09a0",
       "checkpoint_commit": "d7fdac5",
       "red": {
@@ -140,20 +140,37 @@
       "reports": [
         ".ai_worklog/task-3-report.md",
         ".ai_worklog/task-3-review-1.md",
-        ".ai_worklog/task-3-review-2.md"
+        ".ai_worklog/task-3-review-2.md",
+        ".ai_worklog/task-3-review-3.md",
+        ".ai_worklog/task-3-review-final.md",
+        ".ai_worklog/task-3-review-postfix.md",
+        ".ai_worklog/task-3-review-final2.md",
+        ".ai_worklog/task-3-fix-pass-2-report.md",
+        ".ai_worklog/task-3-fix-pass-3-report.md",
+        ".ai_worklog/task-3-fix-pass-4-report.md",
+        ".ai_worklog/task-3-fix-pass-5-report.md"
       ],
-      "independent_review": "pending_capability_blocker",
+      "independent_review": "approved_no_critical_important_or_minor_findings",
       "closure_evaluator": "not_run",
       "issue_state": "open",
       "github_sync": "not_started",
       "execution_allowed": false,
       "data05_status": "still_open",
       "task_4_started": false,
-      "current_worktree": "clean after checkpoint commit; independent review remains pending"
+      "current_worktree": "clean implementation commits; review reports pending documentation commit; branch ready for integration",
+      "final_review": {
+        "report": ".ai_worklog/task-3-review-final2.md",
+        "specification_compliance": "approved",
+        "code_quality": "approved",
+        "findings": {"critical": 0, "important": 0, "minor": 0},
+        "focused_tests_passed": 71,
+        "independent_adversarial_slice_passed": 11,
+        "commit": "201ee9e95d77b7057e542c2446602e864c4bf636"
+      }
     }
   },
   "plan": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-foundation-operations-boundary-plan.md",
-  "execution_mode": "subagent_driven_with_independent_review_capability_blocker",
+  "execution_mode": "subagent_driven_with_independent_review",
   "git_repository": true,
   "git_branch": "wave0/task3-atomic-recovery",
   "progress_percent": 100,
@@ -196,8 +213,8 @@
       "closure_evaluator": {"exit_code": 1, "ready": 4, "still_open": 37, "expected_nonzero": true}
     }
   },
-  "first_unpassed_criterion": "Wave 0 Task 3 requires a fresh independent re-review before integration; later issue gates remain open",
-  "next_command": "Dispatch a permitted fresh independent reviewer for Wave 0 Task 3, then re-run integration gates; do not start Task 4",
+  "first_unpassed_criterion": "Task 3 post-merge verification and later ISSUE-0040 UI/package/browser closure gates remain open",
+  "next_command": "Push and integrate wave0/task3-atomic-recovery, run post-merge focused/regression checks, then begin Wave 0 Task 4; do not close ISSUE-0040 yet",
   "notes": [
     "No Git initialisation or commit occurred before the independently approved Task 2 boundary; the user now authorises local baseline Git setup and optional private GitHub push only.",
     "Closure status is evaluator-backed: 4/41 ready and 37 still open; do not close remaining issues without their complete dossiers.",
@@ -217,6 +234,6 @@
     ,"The latest independent review found JSON-string redaction, unknown source prefix, model authority labelling, candle manifest and exact holdings export gaps; all are now covered by focused tests and source fixes, but the package must be rebuilt before closure evidence can be refreshed."
     ,"Final package evidence is under evidence/wave4: build-followup-final.txt, smoke-source-followup-final.txt, smoke-native-followup-final.txt, smoke-portable-followup-final.txt, launcher-batch-followup-final.txt, launcher-portable-followup-final.txt and final-audit-validation-followup.txt."
     ,"Final Chrome evidence is under evidence/wave4/browser, with route coverage in followup-route-smoke.txt; rendered content required a 12-second settle wait after HTTP readiness."
-    ,"Git baseline commit 445dd44b5382160d4e93e4cada018beb4ab0f5b5 exists on main; Task 3 is isolated on wave0/task3-atomic-recovery and remains unintegrated pending independent review."
+    ,"Git baseline commit 445dd44b5382160d4e93e4cada018beb4ab0f5b5 exists on main; Task 3 final implementation 201ee9e is independently approved on wave0/task3-atomic-recovery and is ready for safe integration."
   ]
 }

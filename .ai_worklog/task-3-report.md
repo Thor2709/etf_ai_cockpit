@@ -34,7 +34,7 @@ Each row is updated only after fresh evidence exists.
 | Read-only or unavailable state when recovery is unproven | verified_task_scope | Invalid journals remain preserved and read-only |
 | ISSUE-0040 readable errors, panel, retry and Activity Log UI | pending_later_task | Required by issue but not this infrastructure task |
 | ISSUE-0040 package/build/browser gates | pending_later_task | Required by issue but not this infrastructure task |
-| Independent task review | pending_independent_review | Review 1 rejected; fix pass and parent adversarial checks are recorded, but the required fresh independent rereview is capability-blocked; see `task-3-review-2.md` |
+| Independent task review | passed | Fresh independent final review approved specification compliance and code quality with no Critical, Important or Minor findings; see `task-3-review-final2.md` |
 | Closure evaluator | pending_later_task | Issue and REL-02 remain open until all later UI/package/browser gates pass |
 | `execution_allowed` remains `false` | verified_unchanged | No execution-authority source or configuration changed |
 
@@ -47,7 +47,7 @@ To be recorded by the implementer and independently checked by the reviewer:
 - Partial-staging RED cycle: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe -m pytest tests\operations\test_transactions.py::test_real_group_interruption_recovers_the_previous_complete_generation -q` exited 1 with the real `staging` interruption classified `recovery_required` because zero entries contradicted pre-populated top-level path/checksum fields. The writer now publishes those fields with each entry; the same command exited 0 with four passes.
 - GREEN plan command: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe -m pytest tests\operations\test_transactions.py tests\operations\test_recovery.py tests\operations\test_backups.py tests\test_atomic_io.py tests\test_backup_restore.py -q` exited 0 with 29 passed after the lifecycle/fault-injection increment.
 - Review-fix GREEN/refactor command: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe -m pytest tests\operations\test_transactions.py tests\operations\test_recovery.py tests\operations\test_backups.py tests\test_atomic_io.py tests\test_backup_restore.py tests\test_schema_migrations.py tests\operations\test_operational_events.py -q` exited 0 with 54 passed. The later stale-lock containment RED-GREEN regression brought the same covering command to 55 passed.
-- Static checks: scoped Ruff exited 0 (`All checks passed!`); `python -m compileall -q src\etf_cockpit` exited 0; both `git diff --check HEAD` and `git diff --check 445dd44b5382160d4e93e4cada018beb4ab0f5b5` exited 0.
+- Static checks: scoped Ruff exited 0 (`All checks passed!`); `python -m compileall -q src\etf_cockpit` exited 0; both `git diff --check HEAD` and `git diff --check 445dd44b5382160d4e93e4cada018beb4ab0f5b5` exited 0. The final fix-pass bundle reached 71 focused tests; the fresh independent reviewer reran an 11-test adversarial slice with exit 0.
 - Full applicable verification: `python -m pytest tests -q --tb=short` collected 323 tests and exited 1 with 316 passed and seven failures. These are exactly the unchanged clean-worktree baseline failures: six `tests/test_simple_scores.py` failures and `tests/test_trust_critical_artifacts.py::test_static_trust_artifacts_cover_providers_and_identity`, caused by ignored trade-candidate/catalogue artefacts absent from the isolated worktree. No Task 3 test failed.
 
 ## Implementation and compatibility record
@@ -66,7 +66,7 @@ To be recorded by the implementer and independently checked by the reviewer:
 - Durable synthetic evidence inventory: `evidence/wave0/task3/artefacts/artefact-manifest.json`. It records the concrete backup manifest (`f04e498f217da4546620c003cd7b311d4ed9597b1bf045260e022640b3492631`), verified restore result, preserved interrupted journal, recovery result (`70711c6110c72ae5e6fda384a28d0bad1b7c2fa2aee7d8a199ca5ee73e6fe6b9`) and authoritative event artefact (`5810a49942e0beaa7186adf4855a271a27e43a4ef505168fc15fa5b43b86d017`). The drill contains synthetic text only, with no secrets or generated market data.
 - No UI was changed. Recovery screenshots, Error/Recovery panel, package rebuild and browser smoke remain `pending_later_task` for `ISSUE-0040`; the issue and `REL-02` remain open.
 - No issue files were moved or closed, no remote state was changed, and Task 4 was not started. The implementation adds no execution path and does not change the documented `execution_allowed=false` boundary.
-- Independent task review and closure evaluation remain pending.
+- Independent task review passed in `.ai_worklog/task-3-review-final2.md`. Closure evaluation remains pending because `ISSUE-0040` still requires the later user-facing Error/Recovery centre, package rebuild and browser failure evidence.
 
 ## Independent review 1 disposition
 
@@ -86,7 +86,7 @@ Fix implementation commit: `4d02c8076cbdbc1da296d9b39962104a8a2a224f` (`fix: har
 
 The parent-side adversarial checkpoint is recorded in `.ai_worklog/task-3-review-2.md`. It is not an independent re-review and does not approve integration. It found and fixed one residual stale-lock path-containment gap with a new RED-GREEN regression in `tests/operations/test_transactions.py`; the guard is included in checkpoint commit `d7fdac5`. The required fresh reviewer remains pending because no permitted, verifiable GPT-5.6 Luna/Max custom agent role is available and the attempted fresh dispatch returned a usage-limit error.
 
-Task 3 therefore remains implementation-verified but review-pending. No issue closure, branch push, pull request, merge or GitHub Issue mutation is authorised at this checkpoint.
+The later fix passes are recorded in `.ai_worklog/task-3-fix-pass-2-report.md`, `.ai_worklog/task-3-fix-pass-3-report.md`, `.ai_worklog/task-3-fix-pass-4-report.md` and `.ai_worklog/task-3-fix-pass-5-report.md`. The fresh independent approval is recorded in `.ai_worklog/task-3-review-final2.md`; no Critical, Important or Minor findings remain. Task 3 is therefore ready for branch integration, but `ISSUE-0040` remains open because its later UI/package/browser gates are not owned by this task.
 
 ## Remote issue reconciliation preflight
 
