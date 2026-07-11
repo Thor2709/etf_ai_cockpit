@@ -1,0 +1,2 @@
+smoke_port requested=8621 selected=8621 reason=port 8621 is free
+smoke_ok mode=native url=http://127.0.0.1:8621/

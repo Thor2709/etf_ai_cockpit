@@ -1,0 +1,12 @@
+path=C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\data\derived\data_health.csv
+rows=11
+header=dataset,status,path,row_count,checksum,as_of,freshness,provider,last_success,last_failure,warnings
+prices=True
+fx=True
+holdings=True
+fundamentals=True
+news=True
+macro=True
+forecasts=True
+backtest=True
+exit_code=0

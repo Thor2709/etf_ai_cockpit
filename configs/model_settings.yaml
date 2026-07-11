@@ -1,0 +1,49 @@
+forecast_horizons_trading_days: [5, 20, 60, 120, 180]
+models:
+  baseline:
+    enabled: true
+  timesfm:
+    enabled: true
+    mode: live
+    backend: transformers
+    hf_repo_id: google/timesfm-2.5-200m-transformers
+    model_path: models/timesfm/timesfm-2.5-200m-transformers
+    local_files_only: true
+    allow_remote_download: false
+    context_length: 2048
+    use_quantiles: true
+    device: auto
+    timeout_seconds: 60
+  toto:
+    enabled: true
+    mode: live
+    backend: toto2
+    model_size: 1b
+    hf_repo_id: Datadog/Toto-2.0-1B
+    hf_repo_ids:
+      4m: Datadog/Toto-2.0-4m
+      22m: Datadog/Toto-2.0-22m
+      313m: Datadog/Toto-2.0-313m
+      1b: Datadog/Toto-2.0-1B
+      2.5b: Datadog/Toto-2.0-2.5B
+    model_path: models/toto/Toto-2.0-1B
+    local_files_only: true
+    allow_remote_download: false
+    context_length: 2048
+    device: auto
+    timeout_seconds: 180
+    decode_block_size: 768
+  lightgbm:
+    enabled: false
+ensemble:
+  weights:
+    momentum: 0.20
+    trend: 0.15
+    risk: 0.10
+    rebalance: 0.10
+    relative_strength: 0.10
+    toto: 0.15
+    timesfm: 0.10
+    baseline_ml: 0.05
+    chatgpt_thesis: 0.05
+  allow_dynamic_weights: false

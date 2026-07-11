@@ -1,0 +1,7 @@
+theme_mode: dark
+window_width: 1400
+window_height: 900
+window_min_width: 1100
+window_min_height: 720
+default_page: /
+default_etf: VWCE

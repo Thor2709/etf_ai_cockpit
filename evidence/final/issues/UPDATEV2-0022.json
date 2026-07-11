@@ -1,0 +1,13 @@
+{
+  "issue_id": "UPDATEV2-0022",
+  "title": "Evidence ledger and score component audit trail",
+  "status": "closed",
+  "decision": "Score components carry provenance, authority, freshness, eligibility and driver fields; the packaged Evidence Ledger and expanded rows expose the evidence boundary, and the validated final archive contains the ledger exports.",
+  "source": ["src/etf_cockpit/data/evidence_ledger.py", "src/etf_cockpit/data/trust_artifacts.py", "src/etf_cockpit/app/pages/trust_evidence.py", "src/etf_cockpit/app/components/simple_scores.py"],
+  "tests": ["tests/test_evidence_ledger.py", "tests/test_trust_critical_artifacts.py", "tests/test_simple_scores.py"],
+  "ui": ["/evidence", "expanded Simple Scores rows"],
+  "export": "evidence/wave4/final-audit-validation-followup.txt:evidence_export/evidence_ledger.csv",
+  "build": "evidence/wave4/build-followup-final.txt",
+  "browser": "evidence/wave4/browser/followup-route-smoke.txt",
+  "limitations": ["External provider/parser workflows remain separately open under their strict issue gates.", "Chrome visual evidence is used; Windows Computer Use was not counted as a pass."]
+}

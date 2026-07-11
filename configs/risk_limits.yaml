@@ -1,0 +1,22 @@
+portfolio_limits:
+  max_single_etf_weight: 0.35
+  max_sector_weight: 0.35
+  max_region_weight: 0.70
+  max_theme_weight: 0.25
+  max_monthly_turnover: 0.25
+  max_trade_fraction_of_portfolio: 0.15
+  min_trade_value_eur: 100
+  max_expected_drawdown_60d: 0.12
+  min_edge_to_cost_ratio: 2.5
+  cash_min_weight: 0.02
+signal_limits:
+  min_confidence_for_buy: 0.60
+  min_confidence_for_trim: 0.55
+  default_action: no_trade
+  require_two_week_confirmation: true
+  no_trade_lower: -0.30
+  no_trade_upper: 0.50
+  add_threshold: 0.50
+  strong_add_threshold: 0.75
+  trim_threshold: -0.30
+  sell_threshold: -0.75

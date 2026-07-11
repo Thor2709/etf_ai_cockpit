@@ -1,0 +1,12 @@
+smoke_port requested=8581 selected=8581 reason=port 8581 is free
+Traceback (most recent call last):
+  File "C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\scripts\smoke_app.py", line 191, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\scripts\smoke_app.py", line 67, in main
+    process = _ensure_mode_ready(args.mode, port, args.timeout, already_ready=decision.reuse_existing)
+  File "C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\scripts\smoke_app.py", line 120, in _ensure_mode_ready
+    return _wait_for_process_ready(process, port, timeout)
+  File "C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\scripts\smoke_app.py", line 131, in _wait_for_process_ready
+    raise RuntimeError(f"smoke process did not become ready on port {port} within {timeout}s")
+RuntimeError: smoke process did not become ready on port 8581 within 60s

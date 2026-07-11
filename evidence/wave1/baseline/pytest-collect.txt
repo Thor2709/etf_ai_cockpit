@@ -1,0 +1,21 @@
+tests/test_backtest_costs.py: 4
+tests/test_chatgpt_import.py: 3
+tests/test_closure_matrix.py: 7
+tests/test_data_validation.py: 2
+tests/test_evidence_derivatives.py: 5
+tests/test_flet_startup.py: 12
+tests/test_launcher_workflow.py: 9
+tests/test_local_llm_audit.py: 6
+tests/test_model_shapes.py: 10
+tests/test_no_lookahead.py: 1
+tests/test_paths.py: 3
+tests/test_rebalancing.py: 2
+tests/test_release_hardening.py: 30
+tests/test_returns.py: 3
+tests/test_risk_analytics.py: 6
+tests/test_signal_gates.py: 3
+tests/test_simple_scores.py: 19
+tests/test_trade_proposals.py: 2
+tests/test_trust_critical_artifacts.py: 5
+tests/test_yfinance_provider.py: 6
+

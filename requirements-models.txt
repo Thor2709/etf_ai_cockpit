@@ -1,0 +1,21 @@
+# Optional live-forecast runtime.
+# Install only when you want to run TimesFM/Toto inference locally.
+# The normal app works without this file and remains baseline-only when these packages are absent.
+# This local workstation uses an RTX 5070 Laptop GPU; use the CUDA 13.0 PyTorch wheel.
+
+--extra-index-url https://download.pytorch.org/whl/cu130
+
+torch==2.12.1+cu130
+safetensors>=0.5.3
+huggingface-hub>=0.23.0
+transformers>=4.57.0
+einops>=0.7.0
+gluonts[torch]>=0.16.0
+lightning>=2.6.5
+pytorch-lightning>=2.6.5
+jaxtyping>=0.2.25
+dd-unit-scaling>=0.1.0
+
+# Local source archives supplied with the project.
+-e ./models/source_archives/timesfm-2.0.1[torch]
+-e ./models/source_archives/toto-toto-models-v1.0.0/toto2

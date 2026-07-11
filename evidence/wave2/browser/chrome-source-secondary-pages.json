@@ -1,0 +1,39 @@
+{
+  "results": [
+    {
+      "name": "evidence",
+      "file": "C:/Users/thor2/Desktop/Trading App/etf_ai_cockpit/evidence/wave2/browser/chrome-source-evidence.png",
+      "sha256": "1055a5f4123c6c430e34d92a607911e45f885b6be57b9644a34893a4ea5c3470",
+      "url": "http://127.0.0.1:8568/",
+      "title": "ETF AI Evidence Cockpit"
+    },
+    {
+      "name": "filings",
+      "file": "C:/Users/thor2/Desktop/Trading App/etf_ai_cockpit/evidence/wave2/browser/chrome-source-filings.png",
+      "sha256": "7415629f2d6813da96ca9ad0b8b41f34523d814dd01757b4eefdd8b65438adba",
+      "url": "http://127.0.0.1:8568/",
+      "title": "ETF AI Evidence Cockpit"
+    },
+    {
+      "name": "etf-disclosures",
+      "file": "C:/Users/thor2/Desktop/Trading App/etf_ai_cockpit/evidence/wave2/browser/chrome-source-etf-disclosures.png",
+      "sha256": "71af315d561df9c64095b64bd242ea97bfa2bacdc8a38a6d79631b70e887acb6",
+      "url": "http://127.0.0.1:8568/",
+      "title": "ETF AI Evidence Cockpit"
+    },
+    {
+      "name": "news-context",
+      "file": "C:/Users/thor2/Desktop/Trading App/etf_ai_cockpit/evidence/wave2/browser/chrome-source-news-context.png",
+      "sha256": "c4c0648eb004a3d429f5e71f58b4acf9e1be0161e6781dd993949a828ceefe53",
+      "url": "http://127.0.0.1:8568/",
+      "title": "ETF AI Evidence Cockpit"
+    },
+    {
+      "name": "diagnostics",
+      "file": "C:/Users/thor2/Desktop/Trading App/etf_ai_cockpit/evidence/wave2/browser/chrome-source-diagnostics.png",
+      "sha256": "140b0945a1ec2ce0d142aedfd7bfbd6222665ee417dcdf9ef9cb9e912e4714c7",
+      "url": "http://127.0.0.1:8568/",
+      "title": "ETF AI Evidence Cockpit"
+    }
+  ]
+}

@@ -1,0 +1,2 @@
+smoke_port requested=8600 selected=8600 reason=port 8600 is free
+smoke_ok mode=source url=http://127.0.0.1:8600/

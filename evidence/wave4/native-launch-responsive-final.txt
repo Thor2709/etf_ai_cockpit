@@ -1,0 +1,5 @@
+launch_port requested=8593 selected=8593 reason=port 8593 is free
+started mode=native pid=7240 cwd=C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\build\flet_dist_20260711_001333\ETF_AI_Cockpit url=http://127.0.0.1:8593/
+ready after 4.0s
+ready url=http://127.0.0.1:8593/
+exit_code=0

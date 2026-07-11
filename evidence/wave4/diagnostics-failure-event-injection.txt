@@ -1,0 +1,4 @@
+log_exists=True
+raw_secret_present=False
+fingerprint_present=True
+exit_code=0

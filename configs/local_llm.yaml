@@ -1,0 +1,6 @@
+enabled: true
+base_url: "http://localhost:1234/v1"
+api_key: ""
+model: ""
+timeout_seconds: 60
+max_tokens: 700

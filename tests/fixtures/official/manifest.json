@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "fixtures": [
+    {
+      "fixture_id": "sec-msft-companyfacts",
+      "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json",
+      "retrieved_at": "2026-07-10T03:52:17.4219126Z",
+      "sha256": "352bbb036cbf65b74e126bb7ac040d2a8f9538dc0a85a0363a9a28a22039c4c3",
+      "document_type": "sec_companyfacts",
+      "authority": "U.S. Securities and Exchange Commission",
+      "entity": "Microsoft Corporation",
+      "period": "current API snapshot",
+      "licence_note": "Official public SEC EDGAR API data; retained for deterministic parser tests.",
+      "relative_path": "sec_companyfacts/microsoft-companyfacts.json"
+    },
+    {
+      "fixture_id": "sec-msft-submissions",
+      "source_url": "https://data.sec.gov/submissions/CIK0000789019.json",
+      "retrieved_at": "2026-07-10T03:52:17.4219126Z",
+      "sha256": "a33237dbec83fc5a6529a3ec92990322400b2cb0f386993a44d0d0be69ea5804",
+      "document_type": "sec_submissions",
+      "authority": "U.S. Securities and Exchange Commission",
+      "entity": "Microsoft Corporation",
+      "period": "current API snapshot",
+      "licence_note": "Official public SEC EDGAR API data; retained for deterministic parser tests.",
+      "relative_path": "sec_submissions/microsoft-submissions.json"
+    },
+    {
+      "fixture_id": "esef-nl-api-latest-10",
+      "source_url": "https://filings.xbrl.org/api/filings?filter[country]=NL&sort=-processed&page[size]=10",
+      "retrieved_at": "2026-07-10T03:52:17.4219126Z",
+      "sha256": "32cb1bc8ff335469df1420ebd487d718f2e03f700d28452e35c0b7898ccdca3b",
+      "document_type": "esef_api_response",
+      "authority": "filings.xbrl.org",
+      "entity": "Netherlands ESEF filing index",
+      "period": "latest processed at retrieval",
+      "licence_note": "Public filings.xbrl.org API response retained with source URL and checksum.",
+      "relative_path": "esef_api_response/nl-latest-10.json"
+    },
+    {
+      "fixture_id": "esef-nl-selected-package",
+      "source_url": "https://filings.xbrl.org/7245003GZ2696Y0W1X57/2026-03-31/ESEF/NL/0/7245003GZ2696Y0W1X57-2026-03-31.xbri",
+      "retrieved_at": "2026-07-10T03:52:17.4219126Z",
+      "sha256": "ba41916fc4457e5e49b2de7543fd140fa9cb2a9f67b3fdc333d9ed485ea7af6f",
+      "document_type": "esef_report_package",
+      "authority": "filings.xbrl.org ESEF filing repository",
+      "entity": "7245003GZ2696Y0W1X57-2026-03-31-ESEF-NL-0",
+      "period": "2026-03-31",
+      "licence_note": "Public ESEF report package retained unmodified for parser verification.",
+      "relative_path": "esef_report_package/7245003GZ2696Y0W1X57-2026-03-31.xbri"
+    },
+    {
+      "fixture_id": "vanguard-ie000q4j3cw6-priips-kid",
+      "source_url": "https://fund-docs.vanguard.com/ie000q4j3cw6_priipskid_chen.pdf",
+      "retrieved_at": "2026-07-10T03:52:17.4219126Z",
+      "sha256": "43e2e1cdec61ba58bd708ae90536db70596910a0eab297a819397b79cffca049",
+      "document_type": "priips_kid",
+      "authority": "Vanguard",
+      "entity": "IE000Q4J3CW6",
+      "period": "document current at retrieval",
+      "licence_note": "Official issuer PRIIPs KID retained unmodified for parser verification.",
+      "relative_path": "priips_kid/vanguard-ie000q4j3cw6-priips-kid.pdf"
+    },
+    {
+      "fixture_id": "ftse-geis-ground-rules",
+      "source_url": "https://www.lseg.com/content/dam/ftse-russell/en_us/documents/ground-rules/ftse-global-equity-index-series-ground-rules.pdf",
+      "retrieved_at": "2026-07-10T03:52:17.4219126Z",
+      "sha256": "cdf26f18ca97dd3f3dd95e2ef3b03c372e8a92e1216b206f34b1712f7379c77d",
+      "document_type": "index_methodology",
+      "authority": "FTSE Russell / LSEG",
+      "entity": "FTSE Global Equity Index Series",
+      "period": "document current at retrieval",
+      "licence_note": "Official publicly accessible methodology retained unmodified for parser verification.",
+      "relative_path": "index_methodology/ftse-global-equity-index-series-ground-rules.pdf"
+    }
+  ]
+}

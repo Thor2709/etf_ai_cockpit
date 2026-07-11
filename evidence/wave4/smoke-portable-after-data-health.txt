@@ -1,0 +1,3 @@
+smoke_port requested=8592 selected=8592 reason=port 8592 is free
+smoke_ok mode=portable-native url=http://127.0.0.1:8592/
+exit_code=0

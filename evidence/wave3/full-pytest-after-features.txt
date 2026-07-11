@@ -1,0 +1,16 @@
+........................................................................ [ 30%]
+........................................................................ [ 61%]
+........................................................................ [ 92%]
+.................                                                        [100%]
+============================== warnings summary ===============================
+tests/test_e2e_workflow.py::test_navigation_matrix_has_all_declared_trust_routes
+  C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Lib\site-packages\gluonts\json.py:102: UserWarning: Using `json`-module for json-handling. Consider installing one of `orjson`, `ujson` to speed up serialization and deserialization.
+    warnings.warn(
+
+tests/test_score_history.py::test_score_history_append_is_idempotent_by_run_and_snapshot
+tests/test_score_history.py::test_invalid_history_rows_are_dropped_without_crashing
+  C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\src\etf_cockpit\data\score_history.py:40: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.
+    combined = pd.concat([existing, frame], ignore_index=True).drop_duplicates(subset=["run_id", "instrument_id"], keep="last")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+exit_code=0

@@ -1,0 +1,7 @@
+In-app browser verification attempt (2026-07-10):
+
+- http://127.0.0.1:8581/ -> ERR_CONNECTION_REFUSED
+- http://localhost:8581/ -> ERR_CONNECTION_REFUSED
+- http://127.0.0.1:8568/ -> ERR_CONNECTION_REFUSED
+
+Shell HTTP readiness checks returned 200 for the same local ports and Chrome rendered both source and native sessions. This is recorded as an in-app-browser connectivity limitation; Chrome and Windows computer-use evidence are retained as the fallback verification surface.

@@ -1,0 +1,11 @@
+start_date: null
+end_date: null
+rebalance_frequency_days: 21
+initial_value_eur: 10000
+transaction_cost_bps: 13
+strategies:
+  - buy_and_hold
+  - equal_weight
+  - momentum_only
+  - trend_only
+  - signal_strategy

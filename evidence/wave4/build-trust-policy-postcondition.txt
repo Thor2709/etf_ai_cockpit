@@ -1,0 +1,1 @@
+portable_manifest=C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\build\ETF_AI_Cockpit_Portable_v0.1.0

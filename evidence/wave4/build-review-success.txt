@@ -1,0 +1,13 @@
+Build command: cmd /c scripts\build_windows.bat
+Exit code: 0
+Native output: build\flet_dist\ETF_AI_Cockpit
+Native executable: build\flet_dist\ETF_AI_Cockpit\ETF_AI_Cockpit.exe
+Native executable size: 82853819 bytes
+Portable output: build\ETF_AI_Cockpit_Portable_v0.1.0
+Portable native executable: build\ETF_AI_Cockpit_Portable_v0.1.0\native\ETF_AI_Cockpit\ETF_AI_Cockpit.exe
+Portable source launcher: build\ETF_AI_Cockpit_Portable_v0.1.0\ETF_AI_Cockpit.bat
+Portable native launcher: build\ETF_AI_Cockpit_Portable_v0.1.0\Run_ETF_AI_Cockpit_EXE.bat
+PyInstaller: 6.21.0
+Python: 3.13.14
+Warnings: optional tensorboard/triton and hidden-import warnings were emitted; build completed successfully.
+Final rebuild after score-row expansion fix: exit code 0; native COLLECT completed successfully and portable folder was recreated.

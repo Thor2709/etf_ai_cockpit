@@ -1,0 +1,65 @@
+................................................                         [100%]
+============================== warnings summary ===============================
+tests/test_trust_critical_artifacts.py::test_diagnostics_ui_displays_redacted_exception_fingerprint
+  C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Lib\site-packages\gluonts\json.py:102: UserWarning: Using `json`-module for json-handling. Consider installing one of `orjson`, `ujson` to speed up serialization and deserialization.
+    warnings.warn(
+
+tests/test_trust_critical_artifacts.py::test_score_artifacts_write_history_components_and_drivers
+tests/test_trust_critical_artifacts.py::test_audit_export_includes_trust_critical_evidence_and_session_log
+  C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\src\etf_cockpit\data\trust_artifacts.py:931: DtypeWarning: Columns (12) have mixed types. Specify dtype option on import or set low_memory=False.
+    pd.read_csv(path)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=================================== PASSES ====================================
+_________ test_diagnostics_ui_displays_redacted_exception_fingerprint _________
+---------------------------- Captured stderr call -----------------------------
+W0711 06:09:24.009000 20360 .venv\Lib\site-packages\torch\utils\flop_counter.py:29] triton not found; flop counting will not work for triton kernels
+=========================== short test summary info ===========================
+PASSED tests/test_simple_scores.py::test_raw_score_conversion_to_x_out_of_ten
+PASSED tests/test_simple_scores.py::test_decision_threshold_mapping
+PASSED tests/test_simple_scores.py::test_final_label_requires_quality_and_friction
+PASSED tests/test_simple_scores.py::test_final_label_demotes_low_quality_high_score
+PASSED tests/test_simple_scores.py::test_model_score_cannot_rescue_weak_deterministic_evidence
+PASSED tests/test_simple_scores.py::test_expanded_score_component_renders_source_id
+PASSED tests/test_simple_scores.py::test_unmapped_score_component_does_not_invent_source_id
+PASSED tests/test_simple_scores.py::test_source_less_component_cannot_influence_score
+PASSED tests/test_simple_scores.py::test_model_confirmation_is_visible_but_not_deterministic_score_evidence
+PASSED tests/test_simple_scores.py::test_non_ok_component_cannot_influence_score
+PASSED tests/test_simple_scores.py::test_final_score_reweights_missing_components
+PASSED tests/test_simple_scores.py::test_candidate_without_portfolio_fields_gets_algorithm_scores
+PASSED tests/test_simple_scores.py::test_unavailable_model_forecast_is_na_and_excluded
+PASSED tests/test_simple_scores.py::test_scoreboard_frame_contains_quality_and_authority_columns
+PASSED tests/test_simple_scores.py::test_model_backtest_validity_marks_uncalibrated_optional_models_unverified
+PASSED tests/test_simple_scores.py::test_evidence_maturity_flags_short_high_score_and_large_return
+PASSED tests/test_simple_scores.py::test_evidence_maturity_missing_rows_is_unknown_not_mature
+PASSED tests/test_simple_scores.py::test_main_page_exposes_simple_workflow_buttons
+PASSED tests/test_simple_scores.py::test_two_tier_universe_config_contains_requested_primary_and_secondary_without_duplicates
+PASSED tests/test_simple_scores.py::test_simple_scores_show_all_two_tier_instruments_as_pending_without_refresh
+PASSED tests/test_simple_scores.py::test_simple_scores_group_into_required_main_page_sections
+PASSED tests/test_simple_scores.py::test_scoreboard_frame_preserves_needs_verification_isin_status
+PASSED tests/test_simple_scores.py::test_scoreboard_multi_file_write_rolls_back_on_late_template_failure
+PASSED tests/test_simple_scores.py::test_simple_score_tiles_render_instrument_rows
+PASSED tests/test_simple_scores.py::test_score_row_arrow_does_not_toggle_twice_on_parent_click
+PASSED tests/test_simple_scores.py::test_simple_score_grouped_sections_render_required_labels_and_sparebanken_isin_status
+PASSED tests/test_complete_audit_packet.py::test_audit_archive_manifest_checksums_and_unavailable_policy
+PASSED tests/test_complete_audit_packet.py::test_audit_archive_allows_explicitly_redacted_secret_values
+PASSED tests/test_complete_audit_packet.py::test_audit_archive_rejects_unredacted_secret_values
+PASSED tests/test_complete_audit_packet.py::test_audit_archive_rejects_env_and_bearer_secret_forms
+PASSED tests/test_complete_audit_packet.py::test_audit_archive_missing_required_path_fails
+PASSED tests/test_complete_audit_packet.py::test_allowed_unavailable_path_requires_explicit_marker
+PASSED tests/test_complete_audit_packet.py::test_allowed_unavailable_path_without_marker_fails
+PASSED tests/test_trust_critical_artifacts.py::test_session_log_clears_records_start_and_redacts_secrets
+PASSED tests/test_trust_critical_artifacts.py::test_session_log_redacts_nested_secret_values_without_dropping_event
+PASSED tests/test_trust_critical_artifacts.py::test_session_log_redacts_env_access_and_bearer_secret_forms
+PASSED tests/test_trust_critical_artifacts.py::test_diagnostics_ui_displays_redacted_exception_fingerprint
+PASSED tests/test_trust_critical_artifacts.py::test_static_trust_artifacts_cover_providers_and_identity
+PASSED tests/test_trust_critical_artifacts.py::test_score_artifacts_write_history_components_and_drivers
+PASSED tests/test_trust_critical_artifacts.py::test_score_evidence_distinguishes_official_and_missing_sources
+PASSED tests/test_trust_critical_artifacts.py::test_model_score_evidence_is_advisory_and_not_score_eligible
+PASSED tests/test_trust_critical_artifacts.py::test_trust_evidence_pages_are_registered
+PASSED tests/test_trust_critical_artifacts.py::test_audit_export_includes_trust_critical_evidence_and_session_log
+PASSED tests/test_data_contracts.py::test_provider_capability_redaction_and_score_eligibility
+PASSED tests/test_data_contracts.py::test_official_authority_ranks_above_vendor
+PASSED tests/test_provider_registry.py::test_disabled_provider_is_not_probed
+PASSED tests/test_provider_registry.py::test_missing_key_is_unavailable_and_ok_capabilities_are_score_eligible
+PASSED tests/test_provider_registry.py::test_injected_probe_can_return_ok_without_exposing_secret

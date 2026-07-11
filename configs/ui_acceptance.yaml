@@ -1,0 +1,23 @@
+version: 1
+controls:
+  - {key: navigation.home, route: /, control_label: Simple Scores, callback: navigate_to, success_signal: route=/, controlled_error_signal: session_event}
+  - {key: navigation.providers, route: /providers, control_label: Provider Status, callback: navigate_to, success_signal: route=/providers, controlled_error_signal: session_event}
+  - {key: navigation.evidence, route: /evidence, control_label: Evidence Ledger, callback: navigate_to, success_signal: route=/evidence, controlled_error_signal: session_event}
+  - {key: navigation.filings, route: /filings, control_label: Filings & Statements, callback: navigate_to, success_signal: route=/filings, controlled_error_signal: session_event}
+  - {key: navigation.etf-disclosures, route: /etf-disclosures, control_label: ETF Disclosures, callback: navigate_to, success_signal: route=/etf-disclosures, controlled_error_signal: session_event}
+  - {key: navigation.news-context, route: /news-context, control_label: News & Context, callback: navigate_to, success_signal: route=/news-context, controlled_error_signal: session_event}
+  - {key: navigation.diagnostics, route: /diagnostics, control_label: Diagnostics, callback: navigate_to, success_signal: route=/diagnostics, controlled_error_signal: session_event}
+  - {key: navigation.errors, route: /errors, control_label: Errors & Recovery, callback: navigate_to, success_signal: route=/errors, controlled_error_signal: session_event}
+  - {key: navigation.data-health, route: /data-health, control_label: Data Health, callback: navigate_to, success_signal: route=/data-health, controlled_error_signal: session_event}
+  - {key: navigation.universe, route: /universe, control_label: Universe, callback: navigate_to, success_signal: route=/universe, controlled_error_signal: session_event}
+  - {key: navigation.onboarding, route: /onboarding, control_label: First-run Setup, callback: navigate_to, success_signal: route=/onboarding, controlled_error_signal: session_event}
+  - {key: navigation.what-changed, route: /what-changed, control_label: What Changed, callback: navigate_to, success_signal: route=/what-changed, controlled_error_signal: session_event}
+  - {key: navigation.instrument, route: /instrument, control_label: Instrument Detail, callback: navigate_to, success_signal: route=/instrument, controlled_error_signal: session_event}
+  - {key: navigation.import-export, route: /import-export, control_label: Import & Export, callback: navigate_to, success_signal: route=/import-export, controlled_error_signal: session_event}
+  - {key: dashboard.refresh-yfinance, route: /, control_label: 1. Refresh yfinance data, callback: _run_action, success_signal: activity_complete, controlled_error_signal: activity_failed}
+  - {key: dashboard.run-algorithms, route: /, control_label: 2. Run algorithms, callback: _run_action, success_signal: activity_complete, controlled_error_signal: activity_failed}
+  - {key: dashboard.run-forecasting-models, route: /, control_label: 3. Run forecasting models, callback: _run_action, success_signal: activity_complete, controlled_error_signal: activity_failed}
+  - {key: dashboard.show-scores, route: /, control_label: 4. Show scores, callback: navigate_to, success_signal: route=/signals, controlled_error_signal: session_event}
+  - {key: dashboard.renew-import, route: /, control_label: Renew/import local files, callback: _open_renew_dialog, success_signal: dialog_open, controlled_error_signal: activity_failed}
+  - {key: dashboard.export-audit, route: /, control_label: Audit packet, callback: _export_pack, success_signal: archive_created, controlled_error_signal: activity_failed}
+  - {key: dashboard.open-data-models, route: /, control_label: Advanced data/model diagnostics, callback: navigate_to, success_signal: route=/data-models, controlled_error_signal: session_event}

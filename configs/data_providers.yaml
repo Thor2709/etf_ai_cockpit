@@ -1,0 +1,37 @@
+providers:
+  prices:
+    active_provider: yfinance
+    api_key: ""
+    base_url: ""
+    symbols_map:
+      VWCE: VWCE.DE
+      LYP6: LYP6.DE
+      SPYK: SPYK.DE
+      SXRJ_EMU_SMALL: SXRJ.DE
+      EXX1: EXX1.DE
+      UCG: UCG.MI
+      SU: SU.PA
+      LR: LR.PA
+      PRY: PRY.MI
+      NEX: NEX.PA
+      DB1: DB1.DE
+      ENX: ENX.PA
+      VIE: VIE.PA
+      SGO: SGO.PA
+      FLXI: FLXI.DE
+      H4ZT: H4ZT.DE
+  fx:
+    active_provider: yfinance
+    api_key: ""
+    base_url: ""
+    symbols_map: {}
+  etf_metadata:
+    active_provider: yfinance
+    api_key: ""
+    base_url: ""
+    symbols_map: {}
+  etf_holdings:
+    active_provider: yfinance
+    api_key: ""
+    base_url: ""
+    symbols_map: {}

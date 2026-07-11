@@ -1,0 +1,353 @@
+etfs:
+  - id: VWCE
+    name: Vanguard FTSE All-World UCITS ETF USD Accumulating
+    isin: IE00BK5BQT80
+    ticker: VWCE.DE
+    provider_symbol: VWCE.DE
+    exchange: XETRA
+    tradegate_ticker: VWCE
+    currency: EUR
+    asset_class: equity
+    instrument_type: etf
+    analysis_tier: primary
+    data_policy: yfinance_now_multi_provider_later
+    region: World
+    sector: Broad
+    theme: Global all-world equity
+    role: core
+    accumulating: true
+    ucits: true
+    ter:
+    max_weight: 1.0
+    min_history_days: 504
+    enabled: true
+  - id: LYP6
+    name: Amundi Core STOXX Europe 600 UCITS ETF Acc
+    isin: LU0908500753
+    ticker: LYP6.DE
+    provider_symbol: LYP6.DE
+    exchange: XETRA
+    tradegate_ticker: LYP6
+    currency: EUR
+    asset_class: equity
+    instrument_type: etf
+    analysis_tier: primary
+    data_policy: yfinance_now_multi_provider_later
+    region: Europe
+    sector: Broad
+    theme: Europe broad equity
+    role: regional
+    accumulating: true
+    ucits: true
+    ter:
+    max_weight: 1.0
+    min_history_days: 504
+    enabled: true
+  - id: SPYK
+    name: State Street SPDR MSCI Europe Technology UCITS ETF EUR Acc
+    isin: IE00BKWQ0K51
+    ticker: SPYK.DE
+    provider_symbol: SPYK.DE
+    exchange: XETRA
+    tradegate_ticker: SPYK
+    currency: EUR
+    asset_class: equity
+    instrument_type: etf
+    analysis_tier: primary
+    data_policy: yfinance_now_multi_provider_later
+    region: Europe
+    sector: Technology
+    theme: Europe technology
+    role: theme
+    accumulating: true
+    ucits: true
+    ter:
+    max_weight: 1.0
+    min_history_days: 504
+    enabled: true
+  - id: SXRJ_EMU_SMALL
+    name: iShares MSCI EMU Small Cap UCITS ETF EUR Acc
+    isin: IE00B3VWMM18
+    ticker: SXRJ.DE
+    provider_symbol: SXRJ.DE
+    exchange: XETRA
+    tradegate_ticker: SXRJ
+    currency: EUR
+    asset_class: equity
+    instrument_type: etf
+    analysis_tier: primary
+    data_policy: yfinance_now_multi_provider_later
+    region: Europe
+    sector: Small cap
+    theme: EMU small cap equity
+    role: theme
+    accumulating: true
+    ucits: true
+    ter:
+    max_weight: 1.0
+    min_history_days: 504
+    enabled: true
+  - id: EXX1
+    name: iShares EURO STOXX Banks 30-15 UCITS ETF DE
+    isin: DE0006289309
+    ticker: EXX1.DE
+    provider_symbol: EXX1.DE
+    exchange: XETRA
+    tradegate_ticker: EXX1
+    currency: EUR
+    asset_class: equity
+    instrument_type: etf
+    analysis_tier: primary
+    data_policy: yfinance_now_multi_provider_later
+    region: Europe
+    sector: Banks
+    theme: Eurozone banks
+    role: sector
+    accumulating: false
+    ucits: true
+    ter:
+    max_weight: 1.0
+    min_history_days: 504
+    enabled: true
+  - id: UCG
+    name: UniCredit SpA
+    isin: IT0005239360
+    ticker: UCG.MI
+    provider_symbol: UCG.MI
+    exchange: Borsa Italiana
+    tradegate_ticker: CRIN
+    currency: EUR
+    asset_class: equity
+    instrument_type: stock
+    analysis_tier: primary
+    data_policy: yfinance_now_multi_provider_later
+    region: Italy
+    sector: Banks
+    theme: European financials
+    role: watchlist
+    accumulating:
+    ucits: false
+    ter:
+    max_weight: 1.0
+    min_history_days: 504
+    enabled: true
+  - id: SU
+    name: Schneider Electric SE
+    isin: FR0000121972
+    ticker: SU.PA
+    provider_symbol: SU.PA
+    exchange: Euronext Paris
+    tradegate_ticker: SND
+    currency: EUR
+    asset_class: equity
+    instrument_type: stock
+    analysis_tier: primary
+    data_policy: yfinance_now_multi_provider_later
+    region: France
+    sector: Industrials
+    theme: Electrification
+    role: watchlist
+    accumulating:
+    ucits: false
+    ter:
+    max_weight: 1.0
+    min_history_days: 504
+    enabled: true
+  - id: LR
+    name: Legrand SA
+    isin: FR0010307819
+    ticker: LR.PA
+    provider_symbol: LR.PA
+    exchange: Euronext Paris
+    tradegate_ticker: LRC
+    currency: EUR
+    asset_class: equity
+    instrument_type: stock
+    analysis_tier: primary
+    data_policy: yfinance_now_multi_provider_later
+    region: France
+    sector: Industrials
+    theme: Electrical infrastructure
+    role: watchlist
+    accumulating:
+    ucits: false
+    ter:
+    max_weight: 1.0
+    min_history_days: 504
+    enabled: true
+  - id: PRY
+    name: Prysmian SpA
+    isin: IT0004176001
+    ticker: PRY.MI
+    provider_symbol: PRY.MI
+    exchange: Borsa Italiana
+    tradegate_ticker: AEU
+    currency: EUR
+    asset_class: equity
+    instrument_type: stock
+    analysis_tier: primary
+    data_policy: yfinance_now_multi_provider_later
+    region: Italy
+    sector: Industrials
+    theme: Cables and grid infrastructure
+    role: watchlist
+    accumulating:
+    ucits: false
+    ter:
+    max_weight: 1.0
+    min_history_days: 504
+    enabled: true
+  - id: NEX
+    name: Nexans SA
+    isin: FR0000044448
+    ticker: NEX.PA
+    provider_symbol: NEX.PA
+    exchange: Euronext Paris
+    tradegate_ticker: NXS
+    currency: EUR
+    asset_class: equity
+    instrument_type: stock
+    analysis_tier: primary
+    data_policy: yfinance_now_multi_provider_later
+    region: France
+    sector: Industrials
+    theme: Cables and electrification
+    role: watchlist
+    accumulating:
+    ucits: false
+    ter:
+    max_weight: 1.0
+    min_history_days: 504
+    enabled: true
+  - id: DB1
+    name: Deutsche Boerse AG
+    isin: DE0005810055
+    ticker: DB1.DE
+    provider_symbol: DB1.DE
+    exchange: XETRA
+    tradegate_ticker: DB1
+    currency: EUR
+    asset_class: equity
+    instrument_type: stock
+    analysis_tier: primary
+    data_policy: yfinance_now_multi_provider_later
+    region: Germany
+    sector: Financial exchanges
+    theme: Market infrastructure
+    role: watchlist
+    accumulating:
+    ucits: false
+    ter:
+    max_weight: 1.0
+    min_history_days: 504
+    enabled: true
+  - id: ENX
+    name: Euronext NV
+    isin: NL0006294274
+    ticker: ENX.PA
+    provider_symbol: ENX.PA
+    exchange: Euronext Paris
+    tradegate_ticker: ENXB
+    currency: EUR
+    asset_class: equity
+    instrument_type: stock
+    analysis_tier: primary
+    data_policy: yfinance_now_multi_provider_later
+    region: Netherlands
+    sector: Financial exchanges
+    theme: Market infrastructure
+    role: watchlist
+    accumulating:
+    ucits: false
+    ter:
+    max_weight: 1.0
+    min_history_days: 504
+    enabled: true
+  - id: VIE
+    name: Veolia Environnement SA
+    isin: FR0000124141
+    ticker: VIE.PA
+    provider_symbol: VIE.PA
+    exchange: Euronext Paris
+    tradegate_ticker: VVD
+    currency: EUR
+    asset_class: equity
+    instrument_type: stock
+    analysis_tier: primary
+    data_policy: yfinance_now_multi_provider_later
+    region: France
+    sector: Utilities
+    theme: Water and environmental services
+    role: watchlist
+    accumulating:
+    ucits: false
+    ter:
+    max_weight: 1.0
+    min_history_days: 504
+    enabled: true
+  - id: SGO
+    name: Compagnie de Saint-Gobain SA
+    isin: FR0000125007
+    ticker: SGO.PA
+    provider_symbol: SGO.PA
+    exchange: Euronext Paris
+    tradegate_ticker: GOB
+    currency: EUR
+    asset_class: equity
+    instrument_type: stock
+    analysis_tier: primary
+    data_policy: yfinance_now_multi_provider_later
+    region: France
+    sector: Industrials
+    theme: Building materials
+    role: watchlist
+    accumulating:
+    ucits: false
+    ter:
+    max_weight: 1.0
+    min_history_days: 504
+    enabled: true
+  - id: FLXI
+    name: Franklin FTSE India UCITS ETF
+    isin: IE00BHZRQZ17
+    ticker: FLXI.DE
+    provider_symbol: FLXI.DE
+    exchange: XETRA
+    tradegate_ticker: FLXI
+    currency: EUR
+    asset_class: equity
+    instrument_type: etf
+    analysis_tier: primary
+    data_policy: yfinance_now_multi_provider_later
+    region: India
+    sector: Broad
+    theme: India equity
+    role: regional
+    accumulating: false
+    ucits: true
+    ter:
+    max_weight: 1.0
+    min_history_days: 504
+    enabled: true
+  - id: H4ZT
+    name: HSBC MSCI Indonesia UCITS ETF
+    isin: IE00B46G8275
+    ticker: H4ZT.DE
+    provider_symbol: H4ZT.DE
+    exchange: XETRA
+    tradegate_ticker: H4ZT
+    currency: EUR
+    asset_class: equity
+    instrument_type: etf
+    analysis_tier: primary
+    data_policy: yfinance_now_multi_provider_later
+    region: Indonesia
+    sector: Broad
+    theme: Indonesia equity
+    role: regional
+    accumulating: false
+    ucits: true
+    ter:
+    max_weight: 1.0
+    min_history_days: 504
+    enabled: true

@@ -1,0 +1,11 @@
+{
+  "applied_versions": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "current_version": 4,
+  "backup_manifest": "evidence\\wave1\\migrations\\backups\\20260710T040251.510964Z\\manifest.json",
+  "backup_verified": true
+}

@@ -1,0 +1,7 @@
+Packaged portable Chrome failure-path evidence
+URL: http://127.0.0.1:8595/diagnostics
+Visible panel: Session log / Recent events
+Visible event: activity_failed | failed | packaged_portable_failure_path
+Visible fields: exception=RuntimeError, api_key=***redacted***, fingerprint=<redacted fingerprint value>
+The local injection command reported raw_secret_present=False and fingerprint_present=True.
+The Chrome screenshot shows the event and the redaction marker; no raw test secret is visible.

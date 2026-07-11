@@ -1,0 +1,11 @@
+Command: cmd /c "set ETF_COCKPIT_PORT=8584&& ETF_AI_Cockpit.bat"
+Exit code: 0
+Output summary:
+Requirement already satisfied: dependencies in .venv
+Starting ETF AI Cockpit from source on preferred port 8584.
+launch_port requested=8584 selected=8584 reason=port 8584 is free
+started mode=source pid=16432 cwd=C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit url=http://127.0.0.1:8584/
+ready after 2.5s
+browser open requested
+
+Result: source BAT resolved the repository root, started the source web app, waited for HTTP readiness and requested browser opening.

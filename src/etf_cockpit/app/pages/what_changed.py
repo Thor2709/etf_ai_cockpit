@@ -1,0 +1,31 @@
+from __future__ import annotations
+
+import flet as ft
+import pandas as pd
+
+from etf_cockpit.app import theme
+from etf_cockpit.app.components.cards import panel, section_header
+from etf_cockpit.app.state import AppState
+from etf_cockpit.core.paths import DERIVED_DIR
+from etf_cockpit.data.run_changes import compare_runs
+
+
+def what_changed_page(_page: ft.Page, _state: AppState) -> ft.Control:
+    path = DERIVED_DIR / "score_history.parquet"
+    try:
+        history = pd.read_parquet(path) if path.exists() else pd.DataFrame()
+    except Exception:
+        history = pd.DataFrame()
+    if history.empty or "run_id" not in history.columns:
+        body: ft.Control = ft.Text("No completed score runs are available yet. Run the deterministic scoring workflow twice to compare changes.", color=theme.MUTED)
+    else:
+        runs = list(dict.fromkeys(history["run_id"].astype(str).tolist()))
+        current = runs[-1]
+        previous = runs[-2] if len(runs) > 1 else None
+        report = compare_runs(history, current, previous)
+        rows = [
+            ft.DataRow(cells=[ft.DataCell(ft.Text(change.instrument_id, color=theme.TEXT)), ft.DataCell(ft.Text("N/A" if change.score_delta is None else f"{change.score_delta:+.1f}", color=theme.CYAN)), ft.DataCell(ft.Text(change.current_action, color=theme.MUTED)), ft.DataCell(ft.Text("yes" if change.action_changed else "no", color=theme.AMBER if change.action_changed else theme.GREEN))])
+            for change in report.changes
+        ]
+        body = ft.Column([ft.Text(f"Current run: {current} | Previous: {previous or 'none'}", color=theme.MUTED), ft.DataTable(columns=[ft.DataColumn(ft.Text(label, color=theme.TEXT)) for label in ("Instrument", "Score delta", "Current action", "Action changed")], rows=rows)], scroll=ft.ScrollMode.AUTO)
+    return ft.Column([panel(ft.Column([section_header("What Changed", "Historical score and warning differences are informational only and cannot override current evidence gates."), body], spacing=10))], expand=True, scroll=ft.ScrollMode.AUTO)

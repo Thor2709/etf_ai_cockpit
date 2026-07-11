@@ -1,0 +1,50 @@
+.....................................                                    [100%]
+============================== warnings summary ===============================
+tests/test_e2e_workflow.py::test_navigation_matrix_has_all_declared_trust_routes
+  C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Lib\site-packages\gluonts\json.py:102: UserWarning: Using `json`-module for json-handling. Consider installing one of `orjson`, `ujson` to speed up serialization and deserialization.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=================================== PASSES ====================================
+____________ test_navigation_matrix_has_all_declared_trust_routes _____________
+---------------------------- Captured stderr call -----------------------------
+W0711 00:17:38.984000 15580 .venv\Lib\site-packages\torch\utils\flop_counter.py:29] triton not found; flop counting will not work for triton kernels
+=========================== short test summary info ===========================
+PASSED tests/test_data_health.py::test_health_distinguishes_missing_stale_and_healthy_stores
+PASSED tests/test_data_health.py::test_corrupt_store_is_reported_and_exported
+PASSED tests/test_data_health.py::test_data_health_ui_names_cache_provenance_and_failure_columns
+PASSED tests/test_simple_scores.py::test_raw_score_conversion_to_x_out_of_ten
+PASSED tests/test_simple_scores.py::test_decision_threshold_mapping
+PASSED tests/test_simple_scores.py::test_final_label_requires_quality_and_friction
+PASSED tests/test_simple_scores.py::test_final_label_demotes_low_quality_high_score
+PASSED tests/test_simple_scores.py::test_model_score_cannot_rescue_weak_deterministic_evidence
+PASSED tests/test_simple_scores.py::test_final_score_reweights_missing_components
+PASSED tests/test_simple_scores.py::test_candidate_without_portfolio_fields_gets_algorithm_scores
+PASSED tests/test_simple_scores.py::test_unavailable_model_forecast_is_na_and_excluded
+PASSED tests/test_simple_scores.py::test_scoreboard_frame_contains_quality_and_authority_columns
+PASSED tests/test_simple_scores.py::test_model_backtest_validity_marks_uncalibrated_optional_models_unverified
+PASSED tests/test_simple_scores.py::test_evidence_maturity_flags_short_high_score_and_large_return
+PASSED tests/test_simple_scores.py::test_evidence_maturity_missing_rows_is_unknown_not_mature
+PASSED tests/test_simple_scores.py::test_main_page_exposes_simple_workflow_buttons
+PASSED tests/test_simple_scores.py::test_two_tier_universe_config_contains_requested_primary_and_secondary_without_duplicates
+PASSED tests/test_simple_scores.py::test_simple_scores_show_all_two_tier_instruments_as_pending_without_refresh
+PASSED tests/test_simple_scores.py::test_simple_scores_group_into_required_main_page_sections
+PASSED tests/test_simple_scores.py::test_scoreboard_frame_preserves_needs_verification_isin_status
+PASSED tests/test_simple_scores.py::test_scoreboard_multi_file_write_rolls_back_on_late_template_failure
+PASSED tests/test_simple_scores.py::test_simple_score_tiles_render_instrument_rows
+PASSED tests/test_simple_scores.py::test_simple_score_grouped_sections_render_required_labels_and_sparebanken_isin_status
+PASSED tests/test_flet_startup.py::test_initialise_page_renders_default_route_without_route_change_event
+PASSED tests/test_flet_startup.py::test_activity_entries_persist_to_local_run_log
+PASSED tests/test_flet_startup.py::test_workflow_action_sets_visible_running_state_before_completion
+PASSED tests/test_flet_startup.py::test_main_forecast_workflow_disables_uncached_optional_models
+PASSED tests/test_flet_startup.py::test_initialise_page_preserves_initial_non_default_route
+PASSED tests/test_flet_startup.py::test_direct_navigation_renders_target_route
+PASSED tests/test_flet_startup.py::test_file_picker_uses_current_async_api
+PASSED tests/test_flet_startup.py::test_flet_static_temp_dir_is_writable
+PASSED tests/test_flet_startup.py::test_reuse_existing_web_server_opens_ready_local_app
+PASSED tests/test_flet_startup.py::test_reuse_existing_web_server_allows_start_when_port_free
+PASSED tests/test_flet_startup.py::test_reuse_existing_web_server_allows_fallback_on_busy_non_http_port
+PASSED tests/test_flet_startup.py::test_fallback_port_skips_busy_port
+PASSED tests/test_e2e_workflow.py::test_source_workflow_success_and_failure_have_visible_terminal_states
+PASSED tests/test_e2e_workflow.py::test_navigation_matrix_has_all_declared_trust_routes
+exit_code=0

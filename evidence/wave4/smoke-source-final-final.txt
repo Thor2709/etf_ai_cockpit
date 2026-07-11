@@ -1,0 +1,2 @@
+smoke_port requested=8610 selected=8610 reason=port 8610 is free
+smoke_ok mode=source url=http://127.0.0.1:8610/

@@ -1,0 +1,57 @@
+base_currency: EUR
+broker: manual_research_only
+cost_model:
+  default_commission_eur: 1.00
+  default_spread_bps: 8
+  default_slippage_bps: 5
+  fx_conversion_bps: 0
+  min_edge_multiplier: 2.5
+per_etf:
+  VWCE:
+    spread_bps: 4
+    slippage_bps: 3
+  LYP6:
+    spread_bps: 5
+    slippage_bps: 4
+  SPYK:
+    spread_bps: 6
+    slippage_bps: 5
+  SXRJ_EMU_SMALL:
+    spread_bps: 7
+    slippage_bps: 5
+  EXX1:
+    spread_bps: 7
+    slippage_bps: 5
+  UCG:
+    spread_bps: 8
+    slippage_bps: 5
+  SU:
+    spread_bps: 8
+    slippage_bps: 5
+  LR:
+    spread_bps: 8
+    slippage_bps: 5
+  PRY:
+    spread_bps: 8
+    slippage_bps: 5
+  NEX:
+    spread_bps: 9
+    slippage_bps: 6
+  DB1:
+    spread_bps: 8
+    slippage_bps: 5
+  ENX:
+    spread_bps: 8
+    slippage_bps: 5
+  VIE:
+    spread_bps: 8
+    slippage_bps: 5
+  SGO:
+    spread_bps: 8
+    slippage_bps: 5
+  FLXI:
+    spread_bps: 10
+    slippage_bps: 6
+  H4ZT:
+    spread_bps: 12
+    slippage_bps: 7

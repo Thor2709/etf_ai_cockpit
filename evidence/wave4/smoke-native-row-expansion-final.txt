@@ -1,0 +1,2 @@
+smoke_port requested=8601 selected=8601 reason=port 8601 is free
+smoke_ok mode=native url=http://127.0.0.1:8601/

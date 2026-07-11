@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0",
+  "review_date": "YYYY-MM-DD",
+  "overall_view": "risk_on | neutral | risk_off | unclear",
+  "portfolio_actions": [
+    {
+      "etf_id": "string",
+      "action": "hold | no_trade | add_candidate | trim_candidate | manual_review (legacy import compatibility also accepts buy | add | trim | sell)",
+      "conviction": 0.0,
+      "reason_short": "string",
+      "main_supporting_metrics": ["string"],
+      "main_risks": ["string"],
+      "blocked_by": ["string"],
+      "manual_checks": ["string"]
+    }
+  ],
+  "ignored_signals": [
+    {
+      "etf_id": "string",
+      "reason": "string"
+    }
+  ],
+  "risk_flags": [
+    {
+      "type": "concentration | data_quality | overfitting | model_disagreement | liquidity | cost | thesis_change",
+      "severity": "low | medium | high",
+      "description": "string"
+    }
+  ],
+  "model_audit": {
+    "toto_usefulness": "string",
+    "timesfm_usefulness": "string",
+    "baseline_comparison": "string",
+    "overfitting_concerns": ["string"]
+  },
+  "dashboard_notes": ["string"]
+}

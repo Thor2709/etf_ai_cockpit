@@ -1,0 +1,187 @@
+from __future__ import annotations
+
+import hashlib
+from pathlib import Path
+
+import pandas as pd
+import pytest
+
+from etf_cockpit.core.atomic_io import (
+    atomic_write_bytes,
+    atomic_write_group,
+    backup_paths,
+    verify_backup_manifest,
+    wait_for_atomic_group,
+)
+from etf_cockpit.core.atomic_io import AtomicWriteRequest
+from etf_cockpit.core.exceptions import StoreValidationError
+from etf_cockpit.data import trust_artifacts
+from etf_cockpit.data.import_pipeline import commit_price_import
+from etf_cockpit.data.providers import ProviderResult
+
+
+def test_failed_validator_preserves_previous_destination(tmp_path):
+    destination = tmp_path / "store.json"
+    destination.write_text('{"valid": true}', encoding="utf-8")
+
+    def reject(_: Path) -> None:
+        raise StoreValidationError("invalid replacement")
+
+    with pytest.raises(StoreValidationError, match="invalid replacement"):
+        atomic_write_bytes(destination, b"broken", validator=reject)
+
+    assert destination.read_text(encoding="utf-8") == '{"valid": true}'
+    assert list(tmp_path.glob(f".{destination.name}.*.tmp")) == []
+
+
+def test_failed_replace_preserves_previous_destination(tmp_path, monkeypatch):
+    destination = tmp_path / "store.json"
+    destination.write_text('{"valid": true}', encoding="utf-8")
+
+    def fail_replace(self: Path, target: Path):
+        raise PermissionError("locked destination")
+
+    monkeypatch.setattr(Path, "replace", fail_replace)
+    with pytest.raises(PermissionError, match="locked destination"):
+        atomic_write_bytes(destination, b'{"valid": false}', validator=lambda _: None)
+
+    assert destination.read_text(encoding="utf-8") == '{"valid": true}'
+    assert list(tmp_path.glob(f".{destination.name}.*.tmp")) == []
+
+
+def test_backup_manifest_matches_checksums(tmp_path):
+    first = tmp_path / "data" / "one.json"
+    second = tmp_path / "configs" / "two.yaml"
+    first.parent.mkdir()
+    second.parent.mkdir()
+    first.write_text('{"one": 1}', encoding="utf-8")
+    second.write_text("two: 2", encoding="utf-8")
+
+    manifest = backup_paths((first, second), tmp_path / "backups")
+
+    assert len(manifest.entries) == 2
+    assert verify_backup_manifest(manifest) is True
+    assert manifest.manifest_path.is_file()
+
+    payload = __import__("json").loads(manifest.manifest_path.read_text(encoding="utf-8"))
+    payload["entries"][0]["sha256"] = "0" * 64
+    manifest.manifest_path.write_text(__import__("json").dumps(payload), encoding="utf-8")
+    assert verify_backup_manifest(manifest) is False
+
+
+def test_failed_second_price_store_write_restores_both_previous_stores(tmp_path, monkeypatch):
+    compatibility = tmp_path / "validated" / "prices.parquet"
+    clean = tmp_path / "clean" / "prices.parquet"
+    compatibility.parent.mkdir()
+    clean.parent.mkdir()
+    previous = pd.DataFrame({"date": ["2026-01-01"], "adjusted_close": [100.0]})
+    previous.to_parquet(compatibility, index=False)
+    previous.to_parquet(clean, index=False)
+    replacement = pd.DataFrame({"date": ["2026-01-02"], "adjusted_close": [101.0]})
+    real_replace = Path.replace
+
+    def fail_clean(self, destination):
+        if Path(destination) == clean:
+            raise PermissionError("clean store locked")
+        return real_replace(self, destination)
+
+    monkeypatch.setattr(Path, "replace", fail_clean)
+    with pytest.raises(PermissionError, match="clean store locked"):
+        commit_price_import(
+            ProviderResult("test", "prices", "ok", "replacement", replacement),
+            compatibility_path=compatibility,
+            clean_path=clean,
+            raw_dir=tmp_path / "raw",
+            snapshots_dir=tmp_path / "snapshots",
+        )
+
+    assert pd.read_parquet(compatibility)["adjusted_close"].tolist() == [100.0]
+    assert pd.read_parquet(clean)["adjusted_close"].tolist() == [100.0]
+
+
+def test_failed_trust_csv_write_restores_previous_parquet(tmp_path, monkeypatch):
+    path = tmp_path / "evidence.parquet"
+    previous = pd.DataFrame({"instrument": ["OLD"], "score": [1.0]})
+    previous.to_parquet(path, index=False)
+    previous.to_csv(path.with_suffix(".csv"), index=False)
+    real_replace = Path.replace
+
+    def fail_csv(self, destination):
+        if Path(destination).suffix == ".csv":
+            raise PermissionError("csv locked")
+        return real_replace(self, destination)
+
+    monkeypatch.setattr(Path, "replace", fail_csv)
+    with pytest.raises(PermissionError, match="csv locked"):
+        trust_artifacts._write_dual(
+            pd.DataFrame({"instrument": ["NEW"], "score": [2.0]}),
+            path,
+        )
+
+    assert pd.read_parquet(path).to_dict("records") == previous.to_dict("records")
+    assert pd.read_csv(path.with_suffix(".csv")).to_dict("records") == previous.to_dict("records")
+
+
+def test_stale_group_lock_recovers_prepared_transaction(tmp_path):
+    destination = tmp_path / "data" / "store.bin"
+    destination.parent.mkdir()
+    destination.write_bytes(b"new")
+    transaction_root = tmp_path / ".atomic-transactions" / "stale"
+    transaction_root.mkdir(parents=True)
+    backup = transaction_root / "backup.bin"
+    backup.write_bytes(b"old")
+    journal = transaction_root / "journal.json"
+    journal.write_text(
+        __import__("json").dumps(
+            {
+                "schema_version": 1,
+                "transaction_id": "stale",
+                "owner_pid": 999999,
+                "state": "prepared",
+                "entries": [
+                    {
+                        "destination": str(destination.resolve()),
+                        "backup_path": str(backup.resolve()),
+                        "previous_sha256": hashlib.sha256(b"old").hexdigest(),
+                    }
+                ],
+                "staged_paths": [],
+                "lock_paths": [str((destination.parent / ".atomic-write-group.lock").resolve())],
+            }
+        ),
+        encoding="utf-8",
+    )
+    lock = destination.parent / ".atomic-write-group.lock"
+    lock.write_text(
+        __import__("json").dumps({"owner_pid": 999999, "journal_path": str(journal.resolve())}),
+        encoding="utf-8",
+    )
+
+    wait_for_atomic_group(destination)
+
+    assert destination.read_bytes() == b"old"
+    assert not lock.exists()
+    assert not transaction_root.exists()
+
+
+def test_group_failure_removes_newly_created_first_destination(tmp_path, monkeypatch):
+    first = tmp_path / "first.bin"
+    second = tmp_path / "second.bin"
+    real_replace = Path.replace
+
+    def fail_second(self, destination):
+        if Path(destination) == second:
+            raise PermissionError("second locked")
+        return real_replace(self, destination)
+
+    monkeypatch.setattr(Path, "replace", fail_second)
+    requests = (
+        AtomicWriteRequest(first, b"first", lambda path: None),
+        AtomicWriteRequest(second, b"second", lambda path: None),
+    )
+
+    with pytest.raises(PermissionError, match="second locked"):
+        atomic_write_group(requests)
+
+    assert not first.exists()
+    assert not second.exists()

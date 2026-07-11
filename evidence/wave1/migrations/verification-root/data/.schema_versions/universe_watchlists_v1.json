@@ -1,0 +1,5 @@
+{
+  "schema_version": 3,
+  "name": "universe_watchlists_v1",
+  "migration_policy": "preserve existing values; absent values remain unavailable"
+}

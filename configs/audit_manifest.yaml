@@ -1,0 +1,6 @@
+version: 1
+required:
+  - {path: session.jsonl, allow_unavailable: false}
+  - {path: evidence_export/trust_critical_manifest.json, allow_unavailable: true}
+  - {path: configs/data_providers_redacted.json, allow_unavailable: false}
+  - {path: project_docs/issues/open.md, allow_unavailable: false}

@@ -1,0 +1,7 @@
+session_log_path=C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\build\ETF_AI_Cockpit_Portable_v0.1.0\logs\session.jsonl
+raw_secret_present=
+False
+redacted_marker_present=
+True
+traceback_fingerprint_present=
+True

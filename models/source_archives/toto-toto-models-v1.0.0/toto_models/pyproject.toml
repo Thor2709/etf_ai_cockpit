@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "toto-models"
+version = "1.0.0"
+description = "Umbrella package for Datadog Toto time series models"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "Apache-2.0"}
+authors = [{name = "DataDog, Inc."}]
+dependencies = ["toto-2>=2.0.0"]
+
+[project.optional-dependencies]
+v1 = ["toto-ts>=0.2.0"]
+
+[tool.setuptools.packages.find]
+include = ["toto_models*"]

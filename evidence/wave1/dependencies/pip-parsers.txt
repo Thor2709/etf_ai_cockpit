@@ -1,0 +1,94 @@
+Collecting arelle-release<2.42,>=2.41.4 (from arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1))
+  Downloading arelle_release-2.41.7-py3-none-any.whl.metadata (9.5 kB)
+Collecting pdfplumber<0.12,>=0.11.9 (from -r requirements-parsers.txt (line 2))
+  Downloading pdfplumber-0.11.10-py3-none-any.whl.metadata (43 kB)
+Collecting defusedxml<0.8,>=0.7.1 (from -r requirements-parsers.txt (line 3))
+  Downloading defusedxml-0.7.1-py2.py3-none-any.whl.metadata (32 kB)
+Collecting feedparser<7,>=6.0.11 (from -r requirements-parsers.txt (line 4))
+  Downloading feedparser-6.0.12-py3-none-any.whl.metadata (2.7 kB)
+Collecting bottle<0.14,>=0.13 (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1))
+  Downloading bottle-0.13.4-py2.py3-none-any.whl.metadata (1.6 kB)
+Requirement already satisfied: certifi in .\.venv\Lib\site-packages (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (2026.6.17)
+Requirement already satisfied: filelock in .\.venv\Lib\site-packages (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (3.29.0)
+Collecting isodate<1,>=0 (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1))
+  Using cached isodate-0.7.2-py3-none-any.whl.metadata (11 kB)
+Collecting jaconv<1,>=0 (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1))
+  Downloading jaconv-0.5.0-py3-none-any.whl.metadata (8.9 kB)
+Collecting jsonschema<5,>=4 (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1))
+  Using cached jsonschema-4.26.0-py3-none-any.whl.metadata (7.6 kB)
+Collecting lxml!=6.0.0,<7,>=4 (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1))
+  Downloading lxml-6.1.1-cp313-cp313-win_amd64.whl.metadata (3.6 kB)
+Requirement already satisfied: numpy<3,>=1 in .\.venv\Lib\site-packages (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (2.4.6)
+Collecting openpyxl<4,>=3 (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1))
+  Downloading openpyxl-3.1.5-py2.py3-none-any.whl.metadata (2.5 kB)
+Requirement already satisfied: pillow<13,>=10 in .\.venv\Lib\site-packages (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (12.2.0)
+Requirement already satisfied: pyparsing<4,>=3 in .\.venv\Lib\site-packages (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (3.3.2)
+Requirement already satisfied: python-dateutil<3,>=2 in .\.venv\Lib\site-packages (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (2.9.0.post0)
+Requirement already satisfied: regex in .\.venv\Lib\site-packages (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (2026.6.28)
+Collecting truststore<1,>=0 (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1))
+  Downloading truststore-0.10.4-py3-none-any.whl.metadata (4.4 kB)
+Requirement already satisfied: typing-extensions<5,>=4 in .\.venv\Lib\site-packages (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (4.15.0)
+Collecting pdfminer.six==20260107 (from pdfplumber<0.12,>=0.11.9->-r requirements-parsers.txt (line 2))
+  Downloading pdfminer_six-20260107-py3-none-any.whl.metadata (4.3 kB)
+Collecting pypdfium2>=5.9.0 (from pdfplumber<0.12,>=0.11.9->-r requirements-parsers.txt (line 2))
+  Downloading pypdfium2-5.11.0-py3-none-win_amd64.whl.metadata (71 kB)
+Requirement already satisfied: charset-normalizer>=2.0.0 in .\.venv\Lib\site-packages (from pdfminer.six==20260107->pdfplumber<0.12,>=0.11.9->-r requirements-parsers.txt (line 2)) (3.4.7)
+Collecting cryptography>=36.0.0 (from pdfminer.six==20260107->pdfplumber<0.12,>=0.11.9->-r requirements-parsers.txt (line 2))
+  Using cached cryptography-49.0.0-cp311-abi3-win_amd64.whl.metadata (4.3 kB)
+Collecting sgmllib3k (from feedparser<7,>=6.0.11->-r requirements-parsers.txt (line 4))
+  Downloading sgmllib3k-1.0.0.tar.gz (5.8 kB)
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Collecting tinycss2<2,>=1 (from arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1))
+  Downloading tinycss2-1.5.1-py3-none-any.whl.metadata (3.0 kB)
+Requirement already satisfied: attrs>=22.2.0 in .\.venv\Lib\site-packages (from jsonschema<5,>=4->arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (26.1.0)
+Collecting jsonschema-specifications>=2023.03.6 (from jsonschema<5,>=4->arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1))
+  Using cached jsonschema_specifications-2025.9.1-py3-none-any.whl.metadata (2.9 kB)
+Collecting referencing>=0.28.4 (from jsonschema<5,>=4->arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1))
+  Using cached referencing-0.37.0-py3-none-any.whl.metadata (2.8 kB)
+Collecting rpds-py>=0.25.0 (from jsonschema<5,>=4->arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1))
+  Downloading rpds_py-2026.6.3-cp313-cp313-win_amd64.whl.metadata (4.2 kB)
+Collecting et-xmlfile (from openpyxl<4,>=3->arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1))
+  Downloading et_xmlfile-2.0.0-py3-none-any.whl.metadata (2.7 kB)
+Requirement already satisfied: six>=1.5 in .\.venv\Lib\site-packages (from python-dateutil<3,>=2->arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (1.17.0)
+Collecting webencodings>=0.4 (from tinycss2<2,>=1->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1))
+  Downloading webencodings-0.5.1-py2.py3-none-any.whl.metadata (2.1 kB)
+Requirement already satisfied: cffi>=2.0.0 in .\.venv\Lib\site-packages (from cryptography>=36.0.0->pdfminer.six==20260107->pdfplumber<0.12,>=0.11.9->-r requirements-parsers.txt (line 2)) (2.0.0)
+Requirement already satisfied: pycparser in .\.venv\Lib\site-packages (from cffi>=2.0.0->cryptography>=36.0.0->pdfminer.six==20260107->pdfplumber<0.12,>=0.11.9->-r requirements-parsers.txt (line 2)) (3.0)
+Downloading arelle_release-2.41.7-py3-none-any.whl (6.1 MB)
+   ---------------------------------------- 6.1/6.1 MB 4.7 MB/s  0:00:01
+Downloading pdfplumber-0.11.10-py3-none-any.whl (60 kB)
+Downloading pdfminer_six-20260107-py3-none-any.whl (6.6 MB)
+   ---------------------------------------- 6.6/6.6 MB 41.9 MB/s  0:00:00
+Downloading defusedxml-0.7.1-py2.py3-none-any.whl (25 kB)
+Downloading feedparser-6.0.12-py3-none-any.whl (81 kB)
+Downloading bottle-0.13.4-py2.py3-none-any.whl (103 kB)
+Using cached isodate-0.7.2-py3-none-any.whl (22 kB)
+Downloading jaconv-0.5.0-py3-none-any.whl (16 kB)
+Using cached jsonschema-4.26.0-py3-none-any.whl (90 kB)
+Downloading lxml-6.1.1-cp313-cp313-win_amd64.whl (4.0 MB)
+   ---------------------------------------- 4.0/4.0 MB 47.3 MB/s  0:00:00
+Downloading openpyxl-3.1.5-py2.py3-none-any.whl (250 kB)
+Downloading tinycss2-1.5.1-py3-none-any.whl (28 kB)
+Downloading truststore-0.10.4-py3-none-any.whl (18 kB)
+Using cached cryptography-49.0.0-cp311-abi3-win_amd64.whl (3.8 MB)
+Using cached jsonschema_specifications-2025.9.1-py3-none-any.whl (18 kB)
+Downloading pypdfium2-5.11.0-py3-none-win_amd64.whl (3.8 MB)
+   ---------------------------------------- 3.8/3.8 MB 49.0 MB/s  0:00:00
+Using cached referencing-0.37.0-py3-none-any.whl (26 kB)
+Downloading rpds_py-2026.6.3-cp313-cp313-win_amd64.whl (219 kB)
+Downloading webencodings-0.5.1-py2.py3-none-any.whl (11 kB)
+Downloading et_xmlfile-2.0.0-py3-none-any.whl (18 kB)
+Building wheels for collected packages: sgmllib3k
+  Building wheel for sgmllib3k (pyproject.toml): started
+  Building wheel for sgmllib3k (pyproject.toml): finished with status 'done'
+  Created wheel for sgmllib3k: filename=sgmllib3k-1.0.0-py3-none-any.whl size=6103 sha256=46ed5ea94b367dbf9888b027a2b34d37df0c74df0d3358796f588c372ce6fa74
+  Stored in directory: c:\users\thor2\appdata\local\pip\cache\wheels\3d\4d\ef\37cdccc18d6fd7e0dd7817dcdf9146d4d6789c32a227a28134
+Successfully built sgmllib3k
+Installing collected packages: webencodings, sgmllib3k, jaconv, bottle, truststore, tinycss2, rpds-py, pypdfium2, lxml, isodate, feedparser, et-xmlfile, defusedxml, referencing, openpyxl, cryptography, pdfminer.six, jsonschema-specifications, pdfplumber, jsonschema, arelle-release
+
+Successfully installed arelle-release-2.41.7 bottle-0.13.4 cryptography-49.0.0 defusedxml-0.7.1 et-xmlfile-2.0.0 feedparser-6.0.12 isodate-0.7.2 jaconv-0.5.0 jsonschema-4.26.0 jsonschema-specifications-2025.9.1 lxml-6.1.1 openpyxl-3.1.5 pdfminer.six-20260107 pdfplumber-0.11.10 pypdfium2-5.11.0 referencing-0.37.0 rpds-py-2026.6.3 sgmllib3k-1.0.0 tinycss2-1.5.1 truststore-0.10.4 webencodings-0.5.1

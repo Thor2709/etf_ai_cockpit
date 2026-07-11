@@ -1,0 +1,70 @@
+base_currency: EUR
+cash_min_weight: 0.0
+cash_target_weight: 1.0
+portfolio:
+  analysis_only_context: 1.0
+positions:
+  VWCE:
+    target_weight: 0.0
+    soft_band: 0.05
+    hard_band: 0.10
+  LYP6:
+    target_weight: 0.0
+    soft_band: 0.04
+    hard_band: 0.08
+  SPYK:
+    target_weight: 0.0
+    soft_band: 0.03
+    hard_band: 0.06
+  SXRJ_EMU_SMALL:
+    target_weight: 0.0
+    soft_band: 0.03
+    hard_band: 0.06
+  EXX1:
+    target_weight: 0.0
+    soft_band: 0.03
+    hard_band: 0.06
+  UCG:
+    target_weight: 0.0
+    soft_band: 0.03
+    hard_band: 0.06
+  SU:
+    target_weight: 0.0
+    soft_band: 0.03
+    hard_band: 0.06
+  LR:
+    target_weight: 0.0
+    soft_band: 0.03
+    hard_band: 0.06
+  PRY:
+    target_weight: 0.0
+    soft_band: 0.03
+    hard_band: 0.06
+  NEX:
+    target_weight: 0.0
+    soft_band: 0.03
+    hard_band: 0.06
+  DB1:
+    target_weight: 0.0
+    soft_band: 0.03
+    hard_band: 0.06
+  ENX:
+    target_weight: 0.0
+    soft_band: 0.03
+    hard_band: 0.06
+  VIE:
+    target_weight: 0.0
+    soft_band: 0.03
+    hard_band: 0.06
+  SGO:
+    target_weight: 0.0
+    soft_band: 0.03
+    hard_band: 0.06
+  FLXI:
+    target_weight: 0.0
+    soft_band: 0.03
+    hard_band: 0.06
+  H4ZT:
+    target_weight: 0.0
+    soft_band: 0.03
+    hard_band: 0.06

@@ -1,0 +1,27 @@
+command=.\.venv\Scripts\python.exe -m pytest tests\test_official_fixture_manifest.py tests\test_closure_matrix.py -vv
+============================= test session starts =============================
+platform win32 -- Python 3.13.14, pytest-9.1.1, pluggy-1.6.0 -- C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe
+hypothesis profile 'default'
+rootdir: C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit
+configfile: pyproject.toml
+plugins: anyio-4.14.1, hypothesis-6.156.4, jaxtyping-0.3.11, timeout-2.4.0
+collecting ... collected 15 items
+
+tests/test_official_fixture_manifest.py::test_official_fixture_manifest_files_match_recorded_sha256 PASSED [  6%]
+tests/test_official_fixture_manifest.py::test_esef_package_is_selected_from_retained_api_response PASSED [ 13%]
+tests/test_official_fixture_manifest.py::test_fixture_manifest_rejects_checksum_mismatch PASSED [ 20%]
+tests/test_official_fixture_manifest.py::test_fixture_manifest_rejects_esef_package_not_selected_by_api PASSED [ 26%]
+tests/test_official_fixture_manifest.py::test_fixture_manifest_rejects_null_provenance PASSED [ 33%]
+tests/test_official_fixture_manifest.py::test_fixture_manifest_rejects_symlink_escape SKIPPED [ 40%]
+tests/test_closure_matrix.py::test_closure_matrix_contains_exactly_the_reviewed_41_issue_ids PASSED [ 46%]
+tests/test_closure_matrix.py::test_required_gate_cannot_be_marked_ready_without_evidence_file PASSED [ 53%]
+tests/test_closure_matrix.py::test_issue_is_ready_only_when_every_criterion_gate_has_evidence PASSED [ 60%]
+tests/test_closure_matrix.py::test_missing_or_mismatched_checksum_cannot_satisfy_gate PASSED [ 66%]
+tests/test_closure_matrix.py::test_symlinked_evidence_cannot_escape_root SKIPPED [ 73%]
+tests/test_closure_matrix.py::test_matrix_rejects_unsafe_evidence_paths[../outside.txt] PASSED [ 80%]
+tests/test_closure_matrix.py::test_matrix_rejects_unsafe_evidence_paths[/absolute.txt] PASSED [ 86%]
+tests/test_closure_matrix.py::test_matrix_rejects_unsafe_evidence_paths[C:/absolute.txt] PASSED [ 93%]
+tests/test_closure_matrix.py::test_matrix_rejects_non_positive_wave PASSED [100%]
+
+======================== 13 passed, 2 skipped in 0.57s ========================
+exit_code=0

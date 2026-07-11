@@ -1,0 +1,174 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-07-11T16:45:00+10:00",
+  "active_programme": {
+    "name": "2026-07-11-etf-ai-cockpit-approved-programme",
+    "programme_index": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-programme-index.md",
+    "progress_ledger": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-progress-ledger.md",
+    "phase": "wave0_task2_independently_reviewed_complete_git_baseline_committed_task3_pending",
+    "next_task": "Wave 0, Foundation Task 3: atomic transaction and deterministic recovery (deferred; do not begin in this handoff)",
+    "git_repository": true,
+    "git_branch": "main",
+    "baseline": {
+      "pytest": 0,
+      "ruff": 0,
+      "compileall": 0,
+      "source_snapshot_smoke": 0,
+      "source_smoke": 0,
+      "native_smoke": 0,
+      "portable_native_smoke": 0,
+      "rendered_source_browser_inspection": "passed"
+    },
+    "plan_preflight": {
+      "implementation_plans": 9,
+      "authorised_epics": 60,
+      "still_open_tracker_records_mapped_once": 37,
+      "blocking_contradictions": 0,
+      "implementation_started": true
+    },
+    "task_1_checkpoint": {
+      "matrix_programme_schema_version": 2,
+      "historic_baseline_count": 41,
+      "active_record_count": 42,
+      "data05_status": "still_open",
+      "red_command": ".\\.venv\\Scripts\\python.exe -m pytest tests\\operations\\test_verification_records.py tests\\release\\test_issue_evidence.py -q",
+      "red_exit_code": 1,
+      "green_command": ".\\.venv\\Scripts\\python.exe -m pytest tests\\operations\\test_verification_records.py tests\\release\\test_issue_evidence.py tests\\test_closure_matrix.py -q",
+      "green_exit_code": 0,
+      "full_test_exit_code": 0,
+      "source_checksums_sha256": {
+        "src/etf_cockpit/operations/__init__.py": "8c8ee081d0a4fdc3e72a543702ccca1d863413fdf79ba51ff8f7f29681740e48",
+        "src/etf_cockpit/operations/models.py": "77031736fd073a4c3ad169d2fa9ec9e9c2bfa4b9d745a4adbf7163465d442294",
+        "src/etf_cockpit/core/closure.py": "59a16b3e6b24f70dcb2619f3834d8a55ca095f85c741b691f75b42b1f9cc484e",
+        "configs/closure_matrix.yaml": "c8de2825d7e5ac0be47a752eb6f3c420390f019ebd0f2345e7e995dea936f595"
+      },
+      "review_fix": {
+        "finding": "Round-1 independent review: approved evidence accepted blank actor IDs and whitespace-equivalent builder/reviewer identities.",
+        "red_command": ".\\.venv\\Scripts\\python.exe -m pytest tests\\operations\\test_verification_records.py -q",
+        "red_exit_code": 1,
+        "green_command": ".\\.venv\\Scripts\\python.exe -m pytest tests\\operations\\test_verification_records.py tests\\release\\test_issue_evidence.py tests\\test_closure_matrix.py -q",
+        "green_exit_code": 0,
+        "ruff_command": ".\\.venv\\Scripts\\python.exe -m ruff check src\\etf_cockpit\\operations\\models.py tests\\operations\\test_verification_records.py",
+        "ruff_exit_code": 0,
+        "compile_command": ".\\.venv\\Scripts\\python.exe -m compileall -q src\\etf_cockpit\\operations",
+        "compile_exit_code": 0
+      },
+      "report": ".ai_worklog/task-1-report.md",
+      "final_review_report": ".ai_worklog/task-1-review-4.md",
+      "final_covering_verification": {
+        "command": ".\\.venv\\Scripts\\python.exe -m pytest tests\\operations\\test_verification_records.py tests\\release\\test_issue_evidence.py tests\\test_closure_matrix.py -q",
+        "exit_code": 0,
+        "tests_passed": 18,
+        "ruff_exit_code": 0,
+        "compileall_exit_code": 0,
+        "source_snapshot_smoke_exit_code": 0
+      },
+      "independent_review": "approved_task_review_only_no_issue_closure"
+    },
+    "task_2_checkpoint": {
+      "red_command": ".\\.venv\\Scripts\\python.exe -m pytest tests\\operations\\test_event_store.py -q",
+      "red_exit_code": 1,
+      "green_command": ".\\.venv\\Scripts\\python.exe -m pytest tests\\operations\\test_event_store.py -q",
+      "green_exit_code": 0,
+      "green_tests_passed": 6,
+      "authority_fix_red_command": ".\\.venv\\Scripts\\python.exe -m pytest tests\\test_workflow_runtime.py -q",
+      "authority_fix_red_exit_code": 1,
+      "authority_fix_green_exit_code": 0,
+      "authority_fix_green_tests_passed": 7,
+      "focused_review_command": ".\\.venv\\Scripts\\python.exe -m pytest tests\\test_workflow_runtime.py tests\\operations\\test_operational_events.py tests\\operations\\test_event_store.py tests\\operations\\test_redaction.py tests\\test_trust_critical_artifacts.py -q",
+      "focused_review_exit_code": 0,
+      "focused_review_tests_passed": 28,
+      "full_test_command": ".\\.venv\\Scripts\\python.exe -m pytest tests -q",
+      "full_test_exit_code": 0,
+      "ruff_exit_code": 0,
+      "compileall_exit_code": 0,
+      "fixture_sha256": "ef7a5209f51a197b239b83e1ae117d6676817883d016325c7704dad1c80d806b",
+      "source_checksums_sha256": {
+        "src/etf_cockpit/operations/__init__.py": "9fdf5b5df2f3833d5637438ba47ab6ba9295294a2476cc29b778978a0df87cf5",
+        "src/etf_cockpit/operations/models.py": "01bdbd1549a8e165fbf136b39666d48a8a6ccd83ea060879481f01d656be916c",
+        "src/etf_cockpit/operations/event_store.py": "76e5ff07fd0764d4e9b9c322525ff3eb087ae88086dba69970e5db9e9731652e",
+        "src/etf_cockpit/core/session_log.py": "6bd606aa9e6ae001efba3dfe27450d37645406e382fb185f2902706fca418d12",
+        "src/etf_cockpit/core/workflow.py": "d55dd61c95e765cc5f3f2f3ed3a8cc49251eb3d4984754efb1c4f8109197923b",
+        "src/etf_cockpit/app/state.py": "6fbd7fc0a45958b840179146b28f0d61dfd787e9e29086be476ea6ac0a035bb7",
+        "src/etf_cockpit/app/pages/diagnostics.py": "9922f0163ebc78b80f4275defc082199a4a4683476160c8837c92846187193c4",
+        "src/etf_cockpit/app/pages/dashboard.py": "4d98c07219d5478648d1691b19bc2f95453d1e9813db48c06e81656572d1ce65",
+        "tests/test_workflow_runtime.py": "97e396fdb1b4f6f443c8a8286e2dc3a2e20046df8e7ce00f4ce691f016872730"
+      },
+      "report": ".ai_worklog/task-2-report.md",
+      "authority_fix_report": ".ai_worklog/task-2-authority-fix-report.md",
+      "review_1": ".ai_worklog/task-2-review-1.md",
+      "review_2": ".ai_worklog/task-2-review-2.md",
+      "review_package": ".ai_worklog/task-2-review-package-final.md",
+      "independent_review": "approved_task_review_only_no_issue_closure",
+      "execution_allowed": false,
+      "data05_status": "still_open"
+    }
+  },
+  "plan": "docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md",
+  "execution_mode": "hybrid_subagent_driven",
+  "git_repository": true,
+  "git_branch": "main",
+  "progress_percent": 100,
+  "wave": 8,
+  "task": 25,
+  "step": 5,
+  "completed_tasks": [1, 2, 3, 4, 5],
+  "implementation_foundations": [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
+  "issue_counts": {
+    "reviewed": 41,
+    "ready": 4,
+    "still_open": 37
+  },
+  "last_checkpoint": {
+    "name": "final_package_browser_closure_checkpoint",
+    "result": "Fresh source regression, rebuild, source/native/portable smoke, root and package launcher checks, Chrome rendered route/workflow checks and audit ZIP validation passed. The evaluator reports four ready records: ISSUE-0035, ISSUE-0069, UPDATEV2-0022 and UPDATEV2-0028. The remaining 37 records stay open because their individual evidence gates are incomplete, with strict parser/provider gates explicitly preserved.",
+    "evidence": [
+      "evidence/wave4/focused-trust-policy-after-fix.txt",
+      "evidence/wave4/full-pytest-final-trust-policy.txt",
+      "evidence/wave4/compileall-final-trust-policy.txt",
+      "evidence/wave4/ruff-final-trust-policy-scoped.txt",
+      "tests/test_workflow_runtime.py",
+      "tests/test_trust_critical_artifacts.py"
+    ],
+    "commands": {
+      "all_feature_full_pytest": {"exit_code": 0, "collected": 262},
+      "feature_focused_tests": {"exit_code": 0, "trust_policy_and_audit": 54},
+      "compileall": {"exit_code": 0},
+      "browser_source_and_native": {"exit_code": 0, "chrome_package_visual": true, "computer_use": "stopped URL-confidence policy error; not counted as pass", "in_app_browser": "ERR_CONNECTION_REFUSED fallback recorded"},
+      "migration_evidence_retry": {"exit_code": 0, "applied_versions": [1, 2, 3, 4], "backup_verified": true},
+      "scoped_ruff": {"exit_code": 0, "new_files_clean": true},
+      "mypy_scope": {"exit_code": 1, "reason": "missing third-party stubs and existing typing debt recorded"},
+      "esef_provider_contract": {"exit_code": 0, "tests": 1, "dataframe_result": true},
+      "reviewer_finding_regressions": {"exit_code": 0, "tests": 46, "scope": "launcher provider health trust audit router empty-detail universe atomic-imports"},
+      "source_native_smoke": {"source": 0, "native": 0, "portable_native": 0, "long_running_native": 0},
+      "native_smoke_initial_failure": {"exit_code": 1, "root_cause": "selected native manifest ignored by smoke helper", "fixed": true},
+      "root_launcher_batch": {"exit_code": 0, "ports": [8633], "start_and_reuse": true},
+      "portable_launcher_batch": {"exit_code": 0, "ports": [8634, 8635], "package_cwd": true, "busy_port_fallback": true},
+      "audit_validation": {"valid": true, "holdings_count": 16, "secret_findings": []},
+      "closure_evaluator": {"exit_code": 1, "ready": 4, "still_open": 37, "expected_nonzero": true}
+    }
+  },
+  "first_unpassed_criterion": "37 records still lack one or more issue-specific closure gates; strict parser/provider workflows remain open",
+  "next_command": "Do not begin Wave 0 Task 3 in this handoff; Git baseline is committed on main, report the remaining GitHub authentication/repository-creation action",
+  "notes": [
+    "No Git initialisation or commit occurred before the independently approved Task 2 boundary; the user now authorises local baseline Git setup and optional private GitHub push only.",
+    "Closure status is evaluator-backed: 4/41 ready and 37 still open; do not close remaining issues without their complete dossiers.",
+    "Subagents are limited to bounded, disjoint analysis or implementation tasks.",
+    "Tasks 6-21 now have source/test/UI foundations; only ISSUE-0035 remains evaluator-ready after independent review reopened three earlier checkpoint closures.",
+    "SEC EDGAR, ESEF/iXBRL, PRIIPs KID, index-methodology and provider-backed issues remain open until their strict full evidence gates pass.",
+    "Independent checkpoint review agent 019f4b75-ceec-74b3-936f-e09a1658627a was dispatched; integrate findings before final closure.",
+    "Scoped Ruff is clean for the current feature files; full Ruff remains a 53-finding baseline and mypy remains non-zero due missing stubs/existing typing debt.",
+    "ESEF discovery now normalises successful API rows to a pandas DataFrame; strict parser/provider issue gates remain open until final UI/export/package/browser evidence.",
+    "Reviewer Newton identified 14 reliability findings; the current cycle fixed manifest selection, partial provider safety, provider-status consistency, audit checksum timing, nested redaction, empty detail, route history, canonical universe loading and three atomic import paths.",
+    "The next full regression/build must be fresh because source changes landed after the successful package build.",
+    "Computer-use matrix displayed the packaged main page, grouped rows, expansion, trust pages, Data Health export, Universe ISIN states, workflow controls and controlled unavailable states. Flet semantic locator coverage remains open.",
+    "Chrome screenshot bytes are supplementary because the Chrome extension binding tracked a different tab state during part of the CUA run; the displayed Windows capture is the visual evidence source."
+    ,"Closure evaluator now reports 1/41 ready: ISSUE-0035. ISSUE-0069, UPDATEV2-0022 and UPDATEV2-0028 were reopened after independent review; 40 records remain still_open."
+    ,"Data Health table clipping was found during fallback browser visual inspection and corrected to responsive per-dataset evidence rows; focused data-health tests pass."
+    ,"Computer Use retry stopped because the browser URL could not be determined with enough confidence; browser-smoke evidence must identify this as a fallback limitation."
+    ,"The latest independent review found JSON-string redaction, unknown source prefix, model authority labelling, candle manifest and exact holdings export gaps; all are now covered by focused tests and source fixes, but the package must be rebuilt before closure evidence can be refreshed."
+    ,"Final package evidence is under evidence/wave4: build-followup-final.txt, smoke-source-followup-final.txt, smoke-native-followup-final.txt, smoke-portable-followup-final.txt, launcher-batch-followup-final.txt, launcher-portable-followup-final.txt and final-audit-validation-followup.txt."
+    ,"Final Chrome evidence is under evidence/wave4/browser, with route coverage in followup-route-smoke.txt; rendered content required a 12-second settle wait after HTTP readiness."
+    ,"No Git repository exists; no commit was created and git init was not run."
+  ]
+}

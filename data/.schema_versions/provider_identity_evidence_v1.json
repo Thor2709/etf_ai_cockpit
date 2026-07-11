@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "name": "provider_identity_evidence_v1",
+  "migration_policy": "preserve existing values; absent values remain unavailable"
+}

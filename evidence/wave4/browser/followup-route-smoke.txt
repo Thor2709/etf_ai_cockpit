@@ -1,0 +1,8 @@
+/ | http://127.0.0.1:8634/ | ETF AI Evidence Cockpit
+/providers | http://127.0.0.1:8634/providers | ETF AI Evidence Cockpit
+/evidence | http://127.0.0.1:8634/evidence | ETF AI Evidence Cockpit
+/filings | http://127.0.0.1:8634/filings | ETF AI Evidence Cockpit
+/etf-disclosures | http://127.0.0.1:8634/etf-disclosures | ETF AI Evidence Cockpit
+/news-context | http://127.0.0.1:8634/news-context | ETF AI Evidence Cockpit
+/diagnostics | http://127.0.0.1:8634/diagnostics | ETF AI Evidence Cockpit
+/chatgpt | http://127.0.0.1:8634/chatgpt | ETF AI Evidence Cockpit
