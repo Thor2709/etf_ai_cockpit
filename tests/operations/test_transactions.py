@@ -292,6 +292,108 @@ def test_stale_lock_cannot_recover_a_journal_outside_its_recovery_root(tmp_path:
     assert lock.exists()
 
 
+def test_stale_lock_does_not_recover_unrelated_transaction_under_sibling_root(
+    tmp_path: Path,
+) -> None:
+    destination = tmp_path / "data" / "store.bin"
+    destination.parent.mkdir(parents=True)
+    destination.write_bytes(b"current")
+    victim = tmp_path / "other" / "victim.bin"
+    victim.parent.mkdir(parents=True)
+    victim.write_bytes(b"new")
+    transaction_root = tmp_path / "other" / ".atomic-transactions" / "forged"
+    transaction_root.mkdir(parents=True)
+    backup = transaction_root / "backup.bin"
+    backup.write_bytes(b"old")
+    journal = transaction_root / "journal.json"
+    journal.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "transaction_id": "forged",
+                "owner_pid": 999999,
+                "state": "prepared",
+                "entries": [
+                    {
+                        "destination": str(victim.resolve()),
+                        "backup_path": str(backup.resolve()),
+                        "previous_sha256": hashlib.sha256(b"old").hexdigest(),
+                    }
+                ],
+                "staged_paths": [],
+                "lock_paths": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    lock = destination.parent / ".atomic-write-group.lock"
+    lock.write_text(
+        json.dumps(
+            {
+                "owner_pid": 999999,
+                "journal_path": str(journal.resolve()),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(TimeoutError):
+        atomic_io.wait_for_atomic_group(destination, timeout_seconds=0.01)
+
+    assert victim.read_bytes() == b"new"
+    assert journal.exists()
+    assert lock.exists()
+
+
+def test_activation_rollback_failure_preserves_recovery_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = tmp_path / "data" / "first.bin"
+    second = tmp_path / "configs" / "second.bin"
+    first.parent.mkdir(parents=True)
+    second.parent.mkdir(parents=True)
+    first.write_bytes(b"old-a")
+    second.write_bytes(b"old-b")
+    real_replace = Path.replace
+    first_activated = False
+
+    def fail_activation_and_rollback(source: Path, destination: Path):
+        nonlocal first_activated
+        if Path(destination) == second:
+            raise PermissionError("activation denied for second")
+        if Path(destination) == first:
+            if first_activated:
+                raise PermissionError("rollback denied for first")
+            first_activated = True
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(Path, "replace", fail_activation_and_rollback)
+
+    with pytest.raises(PermissionError):
+        atomic_io.atomic_write_group(
+            (_request(first, b"new-a"), _request(second, b"new-b")),
+        )
+
+    journals = list(tmp_path.rglob(".atomic-transactions/*/journal.json"))
+    assert len(journals) == 1
+    payload = json.loads(journals[0].read_text(encoding="utf-8"))
+    assert payload["state"] == "recovery_required"
+    assert first.read_bytes() == b"new-a"
+    assert second.read_bytes() == b"old-b"
+    assert any(Path(path).exists() for path in payload["staged_paths"])
+    assert all(Path(path).exists() for path in payload["lock_paths"])
+
+    from etf_cockpit.operations.recovery import recover_incomplete_transactions
+
+    result = recover_incomplete_transactions(
+        tmp_path,
+        event_path=tmp_path / "logs" / "session.jsonl",
+    )[0]
+    assert result.state == "recovery_required"
+    assert result.startup_mode == "read_only"
+    assert journals[0].exists()
+
+
 def test_recovery_of_interrupted_second_real_writer_preserves_first_commit(tmp_path: Path) -> None:
     from etf_cockpit.operations.recovery import recover_incomplete_transactions
 

@@ -220,6 +220,137 @@ def test_legacy_v1_prepared_journal_remains_recoverable(tmp_path: Path) -> None:
     assert destination.read_bytes() == b"old"
 
 
+def test_legacy_journal_does_not_cleanup_unowned_lock_path(tmp_path: Path) -> None:
+    destination = tmp_path / "data" / "legacy.bin"
+    destination.parent.mkdir(parents=True)
+    destination.write_bytes(b"new")
+    transaction_root = tmp_path / ".atomic-transactions" / "legacy-lock"
+    transaction_root.mkdir(parents=True)
+    backup = transaction_root / "backup.bin"
+    backup.write_bytes(b"old")
+    important = destination.parent / "important.bin"
+    important.write_bytes(b"keep")
+    journal = transaction_root / "journal.json"
+    journal.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "transaction_id": "legacy-lock",
+                "owner_pid": 999999,
+                "state": "prepared",
+                "entries": [
+                    {
+                        "destination": str(destination.resolve()),
+                        "backup_path": str(backup.resolve()),
+                        "previous_sha256": hashlib.sha256(b"old").hexdigest(),
+                    }
+                ],
+                "staged_paths": [],
+                "lock_paths": [str(important.resolve())],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    outcome = _recover(tmp_path)
+
+    assert outcome[0].state == "recovery_required"
+    assert outcome[0].startup_mode == "read_only"
+    assert destination.read_bytes() == b"new"
+    assert important.read_bytes() == b"keep"
+    assert journal.exists()
+
+
+def test_legacy_journal_does_not_cleanup_unowned_staged_path(tmp_path: Path) -> None:
+    destination = tmp_path / "data" / "legacy-staged.bin"
+    destination.parent.mkdir(parents=True)
+    destination.write_bytes(b"new")
+    transaction_root = tmp_path / ".atomic-transactions" / "legacy-staged"
+    transaction_root.mkdir(parents=True)
+    backup = transaction_root / "backup.bin"
+    backup.write_bytes(b"old")
+    important = destination.parent / "important.bin"
+    important.write_bytes(b"new")
+    journal = transaction_root / "journal.json"
+    journal.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "transaction_id": "legacy-staged",
+                "owner_pid": 999999,
+                "state": "prepared",
+                "entries": [
+                    {
+                        "destination": str(destination.resolve()),
+                        "backup_path": str(backup.resolve()),
+                        "previous_sha256": hashlib.sha256(b"old").hexdigest(),
+                        "staged_path": str(important.resolve()),
+                    }
+                ],
+                "staged_paths": [str(important.resolve())],
+                "lock_paths": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    outcome = _recover(tmp_path)
+
+    assert outcome[0].state == "recovery_required"
+    assert outcome[0].startup_mode == "read_only"
+    assert destination.read_bytes() == b"new"
+    assert important.read_bytes() == b"new"
+    assert journal.exists()
+
+
+def test_v2_journal_does_not_cleanup_unowned_staged_path(tmp_path: Path) -> None:
+    journal, payload = _valid_v2_payload(tmp_path, transaction_id="v2-staged")
+    entry = payload["entries"][0]
+    assert isinstance(entry, dict)
+    destination = Path(str(entry["destination"]))
+    important = destination.parent / "important.bin"
+    important.write_bytes(b"new")
+    entry["staged_path"] = str(important.resolve())
+    payload["staged_paths"] = [str(important.resolve())]
+    journal.write_text(json.dumps(payload), encoding="utf-8")
+
+    outcome = _recover(tmp_path)
+
+    assert outcome[0].state == "recovery_required"
+    assert outcome[0].startup_mode == "read_only"
+    assert destination.read_bytes() == b"new"
+    assert important.read_bytes() == b"new"
+    assert journal.exists()
+
+
+def test_v2_journal_does_not_cleanup_canonical_lock_outside_writer_group(
+    tmp_path: Path,
+) -> None:
+    journal, payload = _valid_v2_payload(tmp_path, transaction_id="v2-lock")
+    unrelated_lock = tmp_path / "other" / ".atomic-write-group.lock"
+    unrelated_lock.parent.mkdir(parents=True)
+    unrelated_lock.write_text(
+        json.dumps(
+            {
+                "owner_pid": 999999,
+                "lock_type": "writer",
+                "journal_path": str(journal.resolve()),
+            }
+        ),
+        encoding="utf-8",
+    )
+    payload["lock_paths"] = [str(unrelated_lock.resolve())]
+    journal.write_text(json.dumps(payload), encoding="utf-8")
+
+    outcome = _recover(tmp_path)
+
+    assert outcome[0].state == "recovery_required"
+    assert outcome[0].startup_mode == "read_only"
+    assert Path(str(payload["entries"][0]["destination"])).read_bytes() == b"new"
+    assert unrelated_lock.exists()
+    assert journal.exists()
+
+
 def test_permission_failure_during_rollback_requires_manual_read_only_recovery(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

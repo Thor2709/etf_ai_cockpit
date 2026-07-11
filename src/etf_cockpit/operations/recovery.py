@@ -321,6 +321,8 @@ def _validate_v2_payload(
         assert destination is not None and staged is not None
         if staged.parent != destination.parent:
             return f"entries[{index}].staged_path must share the destination parent"
+        if not atomic_io._is_writer_staged_path(staged, destination):
+            return f"entries[{index}].staged_path is not a writer-owned staging artefact"
         expected_checksum = entry.get("expected_sha256")
         if not _valid_checksum(expected_checksum):
             return f"entries[{index}].expected_sha256 is invalid"
@@ -366,17 +368,28 @@ def _validate_v2_payload(
         for destination, entry in zip(entry_destinations, entries, strict=True)
     }:
         return "expected_checksums contradict journal entries"
+    destination_paths = [Path(value) for value in entry_destinations]
     for index, value in enumerate(payload["lock_paths"]):
         lock, error = _validated_path(value, recovery_root, f"lock_paths[{index}]")
         if error:
             return error
-        if lock is None or lock.name != ".atomic-write-group.lock":
+        if lock is None or not atomic_io._is_writer_lock_path(lock, destination_paths):
             return f"lock_paths[{index}] is not a canonical group lock"
         if lock.is_file():
             try:
                 lock_payload = json.loads(lock.read_text(encoding="utf-8"))
+                if not isinstance(lock_payload, dict):
+                    return f"lock_paths[{index}] has corrupt ownership evidence"
+                if lock_payload.get("lock_type") == "reader":
+                    return f"lock_paths[{index}] has invalid reader ownership evidence"
                 lock_journal = Path(str(lock_payload["journal_path"])).resolve()
-            except (OSError, json.JSONDecodeError, KeyError, TypeError):
+                if type(lock_payload.get("owner_pid")) is not int:
+                    return f"lock_paths[{index}] has corrupt ownership evidence"
+                if type(payload.get("owner_pid")) is not int:
+                    return f"lock_paths[{index}] has corrupt journal ownership evidence"
+                if lock_payload["owner_pid"] != payload["owner_pid"]:
+                    return f"lock_paths[{index}] has mismatched ownership evidence"
+            except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
                 return f"lock_paths[{index}] has corrupt ownership evidence"
             if lock_journal != journal.resolve():
                 return f"lock_paths[{index}] belongs to another transaction"
@@ -396,24 +409,67 @@ def _validate_legacy_paths(
 ) -> str | None:
     if not _is_contained(journal, recovery_root):
         return f"journal is outside recovery root: {journal}"
-    for index, entry_value in enumerate(payload.get("entries", [])):
+    entries = payload.get("entries", [])
+    if not isinstance(entries, list):
+        return "legacy entries must be a list"
+    destinations: list[Path] = []
+    entry_staged_paths: set[Path] = set()
+    for index, entry_value in enumerate(entries):
         if not isinstance(entry_value, dict):
             return f"legacy entry {index} is not an object"
-        for field in ("destination", "backup_path", "staged_path"):
+        destination_value = entry_value.get("destination")
+        entry_destination: Path | None = None
+        if destination_value is not None:
+            entry_destination, error = _validated_path(
+                destination_value, recovery_root, f"entries[{index}].destination"
+            )
+            if error:
+                return error
+            assert entry_destination is not None
+            destinations.append(entry_destination)
+        for field in ("backup_path", "staged_path"):
             value = entry_value.get(field)
             if value is None:
                 continue
-            _, error = _validated_path(value, recovery_root, f"entries[{index}].{field}")
+            path, error = _validated_path(value, recovery_root, f"entries[{index}].{field}")
             if error:
                 return error
+            assert path is not None
+            if field == "staged_path":
+                if entry_destination is None or not atomic_io._is_writer_staged_path(
+                    path, entry_destination
+                ):
+                    return f"entries[{index}].staged_path is not a writer-owned staging artefact"
+                entry_staged_paths.add(path)
     for field in ("staged_paths", "lock_paths"):
         values = payload.get(field, [])
         if not isinstance(values, list):
             return f"legacy {field} must be a list"
         for index, value in enumerate(values):
-            _, error = _validated_path(value, recovery_root, f"{field}[{index}]")
+            path, error = _validated_path(value, recovery_root, f"{field}[{index}]")
             if error:
                 return error
+            assert path is not None
+            if field == "staged_paths":
+                if path not in entry_staged_paths:
+                    return f"staged_paths[{index}] is not a writer-owned staging artefact"
+            elif not atomic_io._is_writer_lock_path(path, destinations):
+                return f"lock_paths[{index}] is not a canonical group lock"
+            if field == "lock_paths" and path.is_file():
+                try:
+                    lock_payload = json.loads(path.read_text(encoding="utf-8"))
+                    if not isinstance(lock_payload, dict):
+                        return f"lock_paths[{index}] has corrupt ownership evidence"
+                    if lock_payload.get("lock_type") == "reader":
+                        return f"lock_paths[{index}] has invalid reader ownership evidence"
+                    if Path(str(lock_payload["journal_path"])).resolve() != journal.resolve():
+                        return f"lock_paths[{index}] belongs to another transaction"
+                    if type(lock_payload.get("owner_pid")) is not int:
+                        return f"lock_paths[{index}] has corrupt ownership evidence"
+                    if "owner_pid" in payload and lock_payload["owner_pid"] != payload["owner_pid"]:
+                        return f"lock_paths[{index}] has mismatched ownership evidence"
+                except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+                    return f"lock_paths[{index}] has corrupt ownership evidence"
     return None
 
 

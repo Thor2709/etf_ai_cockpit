@@ -164,6 +164,37 @@ def _recovery_root_for_journal(journal_path: Path) -> tuple[Path, Path] | None:
     return resolved.parent.parent.parent, resolved.parent
 
 
+def _is_writer_staged_path(staged_path: Path, destination: Path) -> bool:
+    """Return whether a stage path matches the writer's canonical temp-file shape."""
+    prefix = f".{destination.name}."
+    suffix = ".group.tmp"
+    return (
+        staged_path.parent == destination.parent
+        and staged_path.name.startswith(prefix)
+        and staged_path.name.endswith(suffix)
+        and len(staged_path.name) > len(prefix) + len(suffix)
+    )
+
+
+def _expected_group_lock_parents(destinations: Iterable[Path]) -> set[Path]:
+    resolved = tuple(path.resolve() for path in destinations)
+    if not resolved:
+        return set()
+    parents = tuple(path.parent for path in resolved)
+    try:
+        common_root = Path(os.path.commonpath([str(parent) for parent in parents])).resolve()
+    except (OSError, RuntimeError, ValueError):
+        return set()
+    return {*parents, common_root}
+
+
+def _is_writer_lock_path(lock_path: Path, destinations: Iterable[Path]) -> bool:
+    return (
+        lock_path.name == ".atomic-write-group.lock"
+        and lock_path.parent in _expected_group_lock_parents(destinations)
+    )
+
+
 def _path_is_contained(path_value: object, root: Path, *, transaction_root: Path | None = None) -> bool:
     if not isinstance(path_value, str) or not path_value:
         return False
@@ -188,26 +219,85 @@ def _validate_recovery_payload_paths(payload: dict[str, object], journal_path: P
     entries = payload.get("entries", [])
     if not isinstance(entries, list):
         return False
+    destinations: list[Path] = []
+    entry_staged_paths: set[Path] = set()
     for entry in entries:
         if not isinstance(entry, dict):
             return False
-        if not _path_is_contained(entry.get("destination"), recovery_root):
+        destination_value = entry.get("destination")
+        if not _path_is_contained(destination_value, recovery_root):
             return False
+        destination = Path(str(destination_value)).resolve()
+        destinations.append(destination)
         backup_path = entry.get("backup_path")
         if backup_path is not None and not _path_is_contained(
             backup_path, recovery_root, transaction_root=transaction_root
         ):
             return False
         staged_path = entry.get("staged_path")
-        if staged_path is not None and not _path_is_contained(staged_path, recovery_root):
-            return False
+        if staged_path is not None:
+            if not _path_is_contained(staged_path, recovery_root):
+                return False
+            staged = Path(str(staged_path)).resolve()
+            if not _is_writer_staged_path(staged, destination):
+                return False
+            entry_staged_paths.add(staged)
     for field in ("staged_paths", "final_paths", "lock_paths"):
         values = payload.get(field, [])
         if not isinstance(values, list):
             return False
-        if not all(_path_is_contained(value, recovery_root) for value in values):
-            return False
+        for value in values:
+            if not _path_is_contained(value, recovery_root):
+                return False
+            resolved = Path(str(value)).resolve()
+            if field == "staged_paths" and resolved not in entry_staged_paths:
+                return False
+            if field == "lock_paths":
+                if not _is_writer_lock_path(resolved, destinations):
+                    return False
+                if resolved.is_file():
+                    try:
+                        lock_payload = json.loads(resolved.read_text(encoding="utf-8"))
+                        if not isinstance(lock_payload, dict):
+                            return False
+                        if lock_payload.get("lock_type") == "reader":
+                            return False
+                        lock_journal = lock_payload.get("journal_path")
+                        if not isinstance(lock_journal, str):
+                            return False
+                        if Path(lock_journal).resolve() != journal_path.resolve():
+                            return False
+                        lock_owner = lock_payload.get("owner_pid")
+                        journal_owner = payload.get("owner_pid")
+                        if type(lock_owner) is not int or type(journal_owner) is not int:
+                            return False
+                        if lock_owner != journal_owner:
+                            return False
+                    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                        return False
     return True
+
+
+def _mark_recovery_required(
+    journal_path: Path, reason: BaseException | str
+) -> None:
+    """Persist an unresolved writer failure while leaving all recovery evidence in place."""
+    try:
+        current = json.loads(journal_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return
+    if not isinstance(current, dict):
+        return
+    durable = current
+    durable["state"] = "recovery_required"
+    durable["status"] = "recovery_required"
+    durable["updated_at"] = datetime.now(timezone.utc).isoformat()
+    durable["recovery_error"] = str(reason)
+    try:
+        _write_journal(journal_path, durable)
+    except Exception:
+        # The original journal is still valuable evidence when it cannot be rewritten.
+        return
 
 
 def _recover_journal(journal_path: Path, *, force: bool = False) -> bool:
@@ -250,13 +340,53 @@ def _recover_journal(journal_path: Path, *, force: bool = False) -> bool:
 
 def _recover_lock(lock: Path) -> bool:
     try:
+        resolved_lock = lock.resolve()
+        if resolved_lock.name != ".atomic-write-group.lock":
+            return False
         lock_payload = json.loads(lock.read_text(encoding="utf-8"))
         if not isinstance(lock_payload, dict):
             return False
         if lock_payload.get("lock_type") == "reader":
             return False
-        journal_path = Path(str(lock_payload["journal_path"]))
-    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+        journal_value = lock_payload["journal_path"]
+        if not isinstance(journal_value, str) or not Path(journal_value).is_absolute():
+            return False
+        journal_path = Path(journal_value).resolve()
+        roots = _recovery_root_for_journal(journal_path)
+        if roots is None:
+            return False
+        recovery_root, transaction_root = roots
+        try:
+            resolved_lock.parent.relative_to(recovery_root.resolve())
+        except ValueError:
+            return False
+        journal_payload = json.loads(journal_path.read_text(encoding="utf-8"))
+        if not isinstance(journal_payload, dict):
+            return False
+        if journal_payload.get("transaction_id") != transaction_root.name:
+            return False
+        lock_paths = journal_payload.get("lock_paths")
+        if not isinstance(lock_paths, list):
+            return False
+        if resolved_lock not in {
+            Path(str(value)).resolve() for value in lock_paths if isinstance(value, str)
+        }:
+            return False
+        lock_owner = lock_payload.get("owner_pid")
+        journal_owner = journal_payload.get("owner_pid")
+        if type(lock_owner) is not int or type(journal_owner) is not int:
+            return False
+        if lock_owner != journal_owner:
+            return False
+    except (
+        OSError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        KeyError,
+        TypeError,
+        ValueError,
+        RuntimeError,
+    ):
         return False
     return _recover_journal(journal_path)
 
@@ -393,6 +523,7 @@ def atomic_write_group(
         ],
     }
     interrupted = False
+    recovery_pending = False
 
     def publish_state(state: str) -> None:
         journal_payload["state"] = state
@@ -471,10 +602,21 @@ def atomic_write_group(
         raise
     except Exception:
         if journal_path.is_file():
-            _recover_journal(journal_path, force=True)
+            try:
+                recovered = _recover_journal(journal_path, force=True)
+            except Exception as recovery_error:
+                recovery_pending = True
+                _mark_recovery_required(journal_path, recovery_error)
+                raise
+            if not recovered:
+                recovery_pending = True
+                _mark_recovery_required(
+                    journal_path,
+                    "rollback could not be proven from the durable transaction evidence",
+                )
         raise
     finally:
-        if interrupted:
+        if interrupted or recovery_pending:
             pass
         elif journal_path.is_file():
             _cleanup_transaction(journal_payload, journal_path)
