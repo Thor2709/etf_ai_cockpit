@@ -1,9 +1,9 @@
 # Wave 0 Task 3 - independent review 1
 
-Date: 2026-07-11  
-Reviewer role: fresh independent reviewer; no implementation authorship  
-Range reviewed: `445dd44b5382160d4e93e4cada018beb4ab0f5b5..d48bbbec5d1833eb5fc627d351f32cbe6d6b53c2`  
-Owning plan: Wave 0 foundation/operations/boundary plan, Task 3  
+Date: 2026-07-11
+Reviewer role: fresh independent reviewer; no implementation authorship
+Range reviewed: `445dd44b5382160d4e93e4cada018beb4ab0f5b5..d48bbbec5d1833eb5fc627d351f32cbe6d6b53c2`
+Owning plan: Wave 0 foundation/operations/boundary plan, Task 3
 Acceptance authority: approved Group M / `REL-02`, Task 3 binding brief and `ISSUE-0040-R05/R06`
 
 ## Verdict

@@ -31,7 +31,7 @@ index 86a256c..2638aa2 100644
 --- a/.ai_worklog/task-3-brief.md
 +++ b/.ai_worklog/task-3-brief.md
 @@ -50,13 +50,12 @@ Write the fault matrix, backup manifest checksums and recovery-state screenshots
- 
+
  - Work only in `C:\Users\thor2\Desktop\Trading App\.worktrees\wave0-task3-atomic-recovery` on branch `wave0/task3-atomic-recovery`; do not edit `main`.
  - Correct task base is commit `445dd44b5382160d4e93e4cada018beb4ab0f5b5` plus the committed read-only issue-reconciliation preflight `791aede`. Do not reset, discard or overwrite existing Task 1/2 work.
  - Primary local issue seam is `ISSUE-0040` (atomic data commits and failed-workflow non-corruption). `ISSUE-0038` and `ISSUE-0044` are related later-task seams; do not close them from this task. The local issue ledger and approved specification are authoritative; GitHub Issues are only a synchronised representation.
@@ -50,25 +50,25 @@ index bbd6630..5e7a920 100644
 +++ b/.ai_worklog/task-3-report.md
 @@ -1,71 +1,87 @@
  # Wave 0 Task 3 - Atomic transaction and deterministic recovery
- 
--Date opened: 2026-07-11  
--Branch: `wave0/task3-atomic-recovery`  
--Task base: `445dd44b5382160d4e93e4cada018beb4ab0f5b5` (`origin/main`)  
--Owning local issue: `ISSUE-0040` - Error handling and recovery centre.  
+
+-Date opened: 2026-07-11
+-Branch: `wave0/task3-atomic-recovery`
+-Task base: `445dd44b5382160d4e93e4cada018beb4ab0f5b5` (`origin/main`)
+-Owning local issue: `ISSUE-0040` - Error handling and recovery centre.
 +Date opened: 2026-07-11
 +Branch: `wave0/task3-atomic-recovery`
 +Task base: `445dd44b5382160d4e93e4cada018beb4ab0f5b5` (`origin/main`)
 +Owning local issue: `ISSUE-0040` - Error handling and recovery centre.
  Related later-task issue seams: `ISSUE-0038` (storage migration plan) and `ISSUE-0044` (backup/restore UI and release metadata). These remain open unless their own closure gates pass.
- 
+
  ## Closure decision before implementation
- 
+
  Task 3 is an infrastructure increment for the atomic-commit and recovery portion of `ISSUE-0040`; it cannot close that issue by itself because the local issue requires a user-visible Error/Recovery panel, retry workflow, package rebuild and browser failure smoke. Those are later dependency-valid tasks. The issue therefore remains open with an implementation-complete, closure-pending state until those gates have fresh evidence.
- 
+
  ## Task 3 closure checklist
- 
+
  Each row is updated only after fresh evidence exists.
- 
+
  | Gate | State before implementation | Evidence / reason |
  |---|---|---|
 -| Transaction records and lifecycle | pending | Task 3 implementation |
@@ -110,11 +110,11 @@ index bbd6630..5e7a920 100644
 +| Independent task review | rejected_fix_pending_rereview | Review 1 rejected; all findings received a fix pass; fresh rereview required |
 +| Closure evaluator | pending_later_task | Issue and REL-02 remain open until all later UI/package/browser gates pass |
 +| `execution_allowed` remains `false` | verified_unchanged | No execution-authority source or configuration changed |
- 
+
  ## RED-GREEN-REFACTOR evidence
- 
+
  To be recorded by the implementer and independently checked by the reviewer:
- 
+
  - RED command and non-syntax failure: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe -m pytest tests\operations\test_transactions.py tests\operations\test_recovery.py tests\test_atomic_io.py -q` exited 1 on 2026-07-11 with 11 behavioural failures and 7 passes. Representative failures: the grouped journal exposed only `prepared`/`committed` rather than the required lifecycle; `WriteTransaction` was absent; recovery returned no classification for interrupted and corrupt journals. Collection completed successfully, so this was not an import or syntax failure.
 +- Review-fix RED cycle: the exact model test exited 1 because `base_generation_ids` was absent. The adversarial command covering staged tampering and corrupt journals exited 1: tampering did not raise, and unknown-state, missing-field, cardinality, transaction-identity and outside-root journals all returned `rolled_back` instead of `recovery_required`. The first nested-layout attempt had a test-fixture `NameError`; that fixture error was corrected before its behavioural result was counted. The initial combined concurrency run terminated its Windows test process because the existing POSIX-style `os.kill(pid, 0)` probe is destructive on Windows; the root cause was replaced with a read-only process-handle query, after which the real concurrency test could run normally.
 +- Partial-staging RED cycle: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe -m pytest tests\operations\test_transactions.py::test_real_group_interruption_recovers_the_previous_complete_generation -q` exited 1 with the real `staging` interruption classified `recovery_required` because zero entries contradicted pre-populated top-level path/checksum fields. The writer now publishes those fields with each entry; the same command exited 0 with four passes.
@@ -125,9 +125,9 @@ index bbd6630..5e7a920 100644
 +- Review-fix GREEN/refactor command: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe -m pytest tests\operations\test_transactions.py tests\operations\test_recovery.py tests\operations\test_backups.py tests\test_atomic_io.py tests\test_backup_restore.py tests\test_schema_migrations.py tests\operations\test_operational_events.py -q` exited 0 with 54 passed.
 +- Static checks: scoped Ruff exited 0 (`All checks passed!`); `python -m compileall -q src\etf_cockpit` exited 0; both `git diff --check HEAD` and `git diff --check 445dd44b5382160d4e93e4cada018beb4ab0f5b5` exited 0.
 +- Full applicable verification: `python -m pytest tests -q` collected 322 tests and exited 1 with 315 passed and seven failures. These are exactly the unchanged clean-worktree baseline failures: six `tests/test_simple_scores.py` failures and `tests/test_trust_critical_artifacts.py::test_static_trust_artifacts_cover_providers_and_identity`, caused by ignored trade-candidate/catalogue artefacts absent from the isolated worktree. No Task 3 test failed.
- 
+
  ## Implementation and compatibility record
- 
+
  - The existing `.atomic-transactions` directory, `.atomic-write-group.lock`, journal writer, rollback backups, checksum functions and atomic replace functions remain the only transaction engine. No second lock or journal format was introduced.
 -- Journal schema 2 adds durable transaction identity, approved dataset/timestamp fields, expected payload checksums, recovery instructions and observable `staging`, `validating`, `committing`, `manifest_publish` and `committed` phases. Legacy schema-1 prepared journals remain recoverable.
 -- `WriteTransaction` uses the approved `affected_dataset_ids`, `started_at`, `committed_at` and `ready_to_commit`/rollback/recovery status names. Read-only compatibility properties accept the earlier draft names `affected_datasets` and `created_at`. `begin_write_transaction` and `mark_transaction_ready` keep the plan call shapes by defaulting their optional data root to the project data directory.
@@ -138,16 +138,16 @@ index bbd6630..5e7a920 100644
 -- Recovery outcomes can be emitted through Task 2's authoritative hash-chained session trace via the optional `event_path`; no parallel operational logger exists. The regression asserts event type, status, transaction ID and event hash.
 +- Recovery outcomes use Task 2's authoritative hash-chained session trace by default; migration preflight passes its project-root trace explicitly. No parallel operational logger exists. Regressions assert the default production path, event type, status, transaction ID and event hash.
  - Writer inventory found existing atomic/grouped canonical seams in backup/restore, import/export, FX, manual notes, import pipeline, trust artefacts, universe store, reference data and simple scores. Direct writers in model/feature/report/export paths were not bulk-rewritten because their ownership belongs to later storage/workflow tasks and doing so would exceed Task 3. No mutable writer required a compatibility-breaking edit for this foundation.
- 
+
  ## Evidence and boundary state
- 
+
  - Fault matrix and source checksums: `evidence/wave0/task3/fault-matrix.json`.
 -- Backup checksum evidence is exercised by `tests/operations/test_backups.py`, `tests/test_atomic_io.py` and `tests/test_backup_restore.py`; tampering blocks restore.
 +- Durable synthetic evidence inventory: `evidence/wave0/task3/artefacts/artefact-manifest.json`. It records the concrete backup manifest (`f04e498f217da4546620c003cd7b311d4ed9597b1bf045260e022640b3492631`), verified restore result, preserved interrupted journal, recovery result (`70711c6110c72ae5e6fda384a28d0bad1b7c2fa2aee7d8a199ca5ee73e6fe6b9`) and authoritative event artefact (`5810a49942e0beaa7186adf4855a271a27e43a4ef505168fc15fa5b43b86d017`). The drill contains synthetic text only, with no secrets or generated market data.
  - No UI was changed. Recovery screenshots, Error/Recovery panel, package rebuild and browser smoke remain `pending_later_task` for `ISSUE-0040`; the issue and `REL-02` remain open.
  - No issue files were moved or closed, no remote state was changed, and Task 4 was not started. The implementation adds no execution path and does not change the documented `execution_allowed=false` boundary.
  - Independent task review and closure evaluation remain pending.
- 
+
 +## Independent review 1 disposition
 +
 +- C1 fixed: canonical locks are acquired before old-generation reads/backups and held through activation and manifest publication. A real two-writer interruption proves recovery preserves writer 1's commit.
@@ -163,7 +163,7 @@ index bbd6630..5e7a920 100644
 +Fix implementation commit: `4d02c8076cbdbc1da296d9b39962104a8a2a224f` (`fix: harden atomic transaction recovery`).
 +
  ## Remote issue reconciliation preflight
- 
+
  `issues/github_issue_map.json` is a read-only inventory manifest at this boundary. The local ledger parser found 98 canonical stable IDs (77 open, 21 closed), no remote GitHub Issues, and five documented historical/placement contradictions. No remote issue mutation has been performed. The local ledger and approved specification remain authoritative.
 diff --git a/evidence/wave0/task3/artefacts/artefact-manifest.json b/evidence/wave0/task3/artefacts/artefact-manifest.json
 new file mode 100644
@@ -408,8 +408,8 @@ index f502262..98fd05d 100644
              path.unlink(missing_ok=True)
              raise
      return path
- 
- 
+
+
  def _pid_alive(pid: int) -> bool:
      if pid <= 0:
          return False
@@ -427,8 +427,8 @@ index f502262..98fd05d 100644
          return True
      except OSError:
          return False
- 
- 
+
+
  def _retry_unlink(path: Path) -> None:
      for attempt in range(3):
          try:
@@ -469,7 +469,7 @@ index f502262..98fd05d 100644
 +        ],
      }
      interrupted = False
- 
+
      def publish_state(state: str) -> None:
          journal_payload["state"] = state
          journal_payload["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -478,7 +478,7 @@ index f502262..98fd05d 100644
          _write_journal(journal_path, journal_payload)
          if lifecycle_hook is not None:
              lifecycle_hook(state, journal_path)
- 
+
      try:
          _write_journal(journal_path, journal_payload)
          if lifecycle_hook is not None:
@@ -556,11 +556,11 @@ index 7d537d3..e72bdff 100644
      if not isinstance(payload.get("applied"), list):
          raise ValueError("migration state applied field must be a list")
      return payload
- 
- 
+
+
  def run_migrations(context: MigrationContext) -> MigrationReport:
      from etf_cockpit.operations.recovery import recover_incomplete_transactions
- 
+
 -    recovery_results = recover_incomplete_transactions(context.root)
 +    recovery_results = recover_incomplete_transactions(
 +        context.root,
@@ -575,7 +575,7 @@ index 7d537d3..e72bdff 100644
      pending = tuple(migration for migration in MIGRATIONS if migration.version > current_version)
      if not pending:
          return MigrationReport((), current_version, None, context.state_path)
- 
+
      migration_paths = tuple(context.metadata_root / f"{migration.name}.json" for migration in pending)
      protected_paths = tuple(dict.fromkeys((*context.managed_paths, context.state_path, *migration_paths)))
 diff --git a/src/etf_cockpit/operations/models.py b/src/etf_cockpit/operations/models.py
@@ -584,19 +584,19 @@ index bd35ac4..9a5a658 100644
 +++ b/src/etf_cockpit/operations/models.py
 @@ -1,18 +1,18 @@
  from __future__ import annotations
- 
+
  from datetime import datetime
  from typing import Literal, Self
- 
+
 -from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 +from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
- 
- 
+
+
  class OperationalEvent(BaseModel):
      """Typed projection of one row in the authoritative session trace."""
- 
+
      model_config = ConfigDict(extra="allow")
- 
+
      event_id: str = ""
      session_id: str
      sequence_number: int
@@ -612,8 +612,8 @@ index bd35ac4..9a5a658 100644
              if self.builder == self.independent_reviewer:
                  raise ValueError("independent_reviewer must differ from builder")
          return self
- 
- 
+
+
  WriteTransactionStatus = Literal[
 -    "started",
 +    "planned",
@@ -627,16 +627,16 @@ index bd35ac4..9a5a658 100644
      "recovery_required",
      "quarantined",
  ]
- 
- 
+
+
  class WriteTransaction(BaseModel):
      """Durable projection of the existing atomic grouped-write journal."""
- 
+
      transaction_id: str
      workflow_run_id: str
      transaction_type: str
      model_config = ConfigDict(populate_by_name=True)
- 
+
      affected_dataset_ids: list[str] = Field(
          validation_alias=AliasChoices("affected_dataset_ids", "affected_datasets")
      )
@@ -670,12 +670,12 @@ index bd35ac4..9a5a658 100644
 +        if isinstance(value, str):
 +            return [value]
 +        return value
- 
+
      @property
      def affected_datasets(self) -> list[str]:
          """Compatibility alias for the pre-approval Task 3 draft name."""
          return self.affected_dataset_ids
- 
+
      @property
      def created_at(self) -> datetime:
          """Compatibility alias for the pre-approval Task 3 draft name."""
@@ -690,23 +690,23 @@ index 2926115..bb7c3c3 100644
 --- a/src/etf_cockpit/operations/recovery.py
 +++ b/src/etf_cockpit/operations/recovery.py
 @@ -2,25 +2,25 @@ from __future__ import annotations
- 
+
  from dataclasses import dataclass
  from datetime import datetime, timezone
  import hashlib
  import json
  from pathlib import Path
  import uuid
- 
+
  from pydantic import ValidationError
- 
+
  from etf_cockpit.core import atomic_io
  from etf_cockpit.core.paths import ROOT
 -from etf_cockpit.core.session_log import append_event
 +from etf_cockpit.core.session_log import SESSION_LOG_PATH, append_event
  from etf_cockpit.operations.models import WriteTransaction
- 
- 
+
+
  @dataclass(frozen=True)
  class RecoveryResult:
      transaction_id: str
@@ -715,20 +715,20 @@ index 2926115..bb7c3c3 100644
      reason: str
      journal_path: Path
      evidence_checksums: dict[str, str]
- 
+
 @@ -32,132 +32,381 @@ def _transaction_root(data_root: Path, transaction_id: str) -> Path:
  def _journal_path(data_root: Path, transaction_id: str) -> Path:
      return _transaction_root(data_root, transaction_id) / "journal.json"
- 
- 
+
+
  def _resolved_data_root(data_root: Path | None) -> Path:
      return data_root if data_root is not None else ROOT / "data"
- 
- 
+
+
  def _now() -> datetime:
      return datetime.now(timezone.utc)
- 
- 
+
+
 +def _path_list(value: object) -> list[str]:
 +    if isinstance(value, dict):
 +        return [str(item) for item in value.values()]
@@ -768,8 +768,8 @@ index 2926115..bb7c3c3 100644
 +            "recovery_instructions", ["Manual review required."]
 +        ),
      )
- 
- 
+
+
  def begin_write_transaction(
      *,
      transaction_type: str,
@@ -822,8 +822,8 @@ index 2926115..bb7c3c3 100644
      )
      atomic_io._write_journal(path, payload)
      return record
- 
- 
+
+
  def mark_transaction_ready(
      transaction_id: str,
      checksums: dict[str, str],
@@ -838,8 +838,8 @@ index 2926115..bb7c3c3 100644
      payload["updated_at"] = _now().isoformat()
      atomic_io._write_journal(path, payload)
      return _record_from_payload(payload)
- 
- 
+
+
  def _required_result(journal: Path, transaction_id: str, reason: str) -> RecoveryResult:
 -    return RecoveryResult(transaction_id, "recovery_required", "read_only", reason, journal, {})
 +    checksums = {"journal_sha256": atomic_io.sha256_file(journal)} if journal.is_file() else {}
@@ -886,14 +886,14 @@ index 2926115..bb7c3c3 100644
 +    "recovery_instructions",
 +}
 +
- 
+
 +def _is_contained(path: Path, root: Path) -> bool:
 +    try:
 +        path.resolve().relative_to(root.resolve())
 +    except ValueError:
 +        return False
 +    return True
- 
+
 -def _validate_v2_payload(payload: dict[str, object]) -> str | None:
 -    state = str(payload.get("state", ""))
 -    for entry_value in payload.get("entries", []):
@@ -1119,8 +1119,8 @@ index 2926115..bb7c3c3 100644
 +            if error:
 +                return error
      return None
- 
- 
+
+
  def _emit_recovery_event(result: RecoveryResult, event_path: Path | None) -> None:
      if event_path is None:
          return
@@ -1136,8 +1136,8 @@ index 2926115..bb7c3c3 100644
          },
          path=event_path,
      )
- 
- 
+
+
  def recover_incomplete_transactions(
      data_root: Path,
      *,
@@ -1267,17 +1267,17 @@ index 53d8c86..585a19c 100644
 +++ b/tests/operations/test_recovery.py
 @@ -1,71 +1,82 @@
  from __future__ import annotations
- 
+
  import hashlib
  import json
  from pathlib import Path
- 
+
  import pytest
- 
+
  from etf_cockpit.core import atomic_io
  from etf_cockpit.core.migrations import MigrationContext, run_migrations
- 
- 
+
+
 +def _request(path: Path, payload: bytes) -> atomic_io.AtomicWriteRequest:
 +    return atomic_io.AtomicWriteRequest(path, payload, lambda staged: staged.read_bytes())
 +
@@ -1292,8 +1292,8 @@ index 53d8c86..585a19c 100644
 +        data_root,
 +        event_path=data_root / "logs" / "session.jsonl",
 +    )
- 
- 
+
+
  def _interrupted_transaction(tmp_path: Path, state: str, *, corrupt_payload: bool = False) -> Path:
      destination = tmp_path / "data" / "current.bin"
      destination.parent.mkdir(parents=True)
@@ -1345,8 +1345,8 @@ index 53d8c86..585a19c 100644
          encoding="utf-8",
      )
      return destination
- 
- 
+
+
  @pytest.mark.parametrize("crash_point", ["staging", "validating", "committing", "manifest_publish"])
  def test_recovery_exposes_old_complete_generation_after_every_interruption(
      tmp_path: Path, crash_point: str
@@ -1355,16 +1355,16 @@ index 53d8c86..585a19c 100644
 @@ -167,37 +178,196 @@ def test_recovery_outcome_is_visible_in_the_authoritative_operational_trace(tmp_
      event_path = tmp_path / "logs" / "session.jsonl"
      recovery = __import__("etf_cockpit.operations.recovery", fromlist=["recover_incomplete_transactions"])
- 
+
      recovery.recover_incomplete_transactions(tmp_path, event_path=event_path)
- 
+
      event = json.loads(event_path.read_text(encoding="utf-8").splitlines()[-1])
      assert event["event_type"] == "write_transaction_recovery"
      assert event["status"] == "rolled_back"
      assert event["transaction_id"] == "tx-validating"
      assert event["event_hash"]
- 
- 
+
+
 +def test_recovery_uses_authoritative_session_trace_by_default(
 +    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 +) -> None:
@@ -1383,13 +1383,13 @@ index 53d8c86..585a19c 100644
  def test_migration_recovers_interrupted_atomic_write_before_schema_changes(tmp_path: Path) -> None:
      destination = _interrupted_transaction(tmp_path, "committing")
      context = MigrationContext(tmp_path, tmp_path / "backups")
- 
+
      report = run_migrations(context)
- 
+
      assert report.current_version == 4
      assert destination.read_bytes() == b"old"
- 
- 
+
+
 +def test_migration_recovers_real_nested_writer_and_emits_authoritative_event(tmp_path: Path) -> None:
 +    destination = tmp_path / "data" / "clean" / "canonical.bin"
 +    destination.parent.mkdir(parents=True)
@@ -1542,9 +1542,9 @@ index 53d8c86..585a19c 100644
 +    payload["committed_at"] = "2026-07-11T00:00:02+00:00"
      Path(payload["entries"][0]["staged_path"]).unlink()
      journal.write_text(json.dumps(payload), encoding="utf-8")
- 
+
      outcome = _recover(tmp_path)
- 
+
      assert outcome[0].state == "committed"
      assert outcome[0].startup_mode == "normal"
      assert destination.read_bytes() == b"new"
@@ -1555,28 +1555,28 @@ index 421b9ef..fd429f4 100644
 +++ b/tests/operations/test_transactions.py
 @@ -1,17 +1,19 @@
  from __future__ import annotations
- 
+
  import hashlib
  import json
  from pathlib import Path
 +import threading
 +from typing import get_args, get_origin
- 
+
  import pytest
- 
+
  from etf_cockpit.core import atomic_io
- 
- 
+
+
  def _request(path: Path, payload: bytes) -> atomic_io.AtomicWriteRequest:
      return atomic_io.AtomicWriteRequest(path, payload, lambda staged: staged.read_bytes())
- 
- 
+
+
  def test_grouped_write_journal_exposes_durable_transaction_identity_and_lifecycle(
      tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 @@ -43,86 +45,199 @@ def test_grouped_write_journal_exposes_durable_transaction_identity_and_lifecycl
      assert committed["recovery_instructions"]
- 
- 
+
+
  def test_transaction_model_carries_the_approved_recovery_fields() -> None:
      model = getattr(__import__("etf_cockpit.operations.models", fromlist=["WriteTransaction"]), "WriteTransaction", None)
      assert model is not None
@@ -1605,14 +1605,14 @@ index 421b9ef..fd429f4 100644
 +    assert get_args(model.model_fields["recovery_instructions"].annotation) == (str,)
 +    assert "planned" in get_args(model.model_fields["status"].annotation)
 +    assert "manifest_publish" not in get_args(model.model_fields["status"].annotation)
- 
- 
+
+
  def test_begin_and_ready_lifecycle_is_durable_in_the_atomic_journal(tmp_path: Path) -> None:
      try:
          recovery = __import__("etf_cockpit.operations.recovery", fromlist=["begin_write_transaction"])
      except ModuleNotFoundError:
          pytest.fail("transaction lifecycle API is absent")
- 
+
      transaction = recovery.begin_write_transaction(
          data_root=tmp_path,
          transaction_type="canonical_refresh",
@@ -1629,7 +1629,7 @@ index 421b9ef..fd429f4 100644
      )
      journal = tmp_path / ".atomic-transactions" / transaction.transaction_id / "journal.json"
      durable = json.loads(journal.read_text(encoding="utf-8"))
- 
+
      assert ready.status == "ready_to_commit"
      assert durable["transaction_id"] == transaction.transaction_id
      assert durable["state"] == "ready_to_commit"
@@ -1639,8 +1639,8 @@ index 421b9ef..fd429f4 100644
 +    assert transaction.status == "planned"
 +    assert isinstance(durable["final_paths"], list)
 +    assert isinstance(durable["recovery_instructions"], list)
- 
- 
+
+
  @pytest.mark.parametrize("crash_point", ["staging", "validating", "committing", "manifest_publish"])
  def test_real_group_interruption_leaves_one_existing_journal_for_startup_recovery(
      tmp_path: Path, crash_point: str
@@ -1648,19 +1648,19 @@ index 421b9ef..fd429f4 100644
      destination = tmp_path / "data" / "canonical.bin"
      destination.parent.mkdir(parents=True)
      destination.write_bytes(b"old")
- 
+
      def interrupt(state: str, _journal: Path) -> None:
          if state == crash_point:
              raise atomic_io.AtomicWriteInterrupted(state)
- 
+
      with pytest.raises(atomic_io.AtomicWriteInterrupted):
          atomic_io.atomic_write_group((_request(destination, b"new"),), lifecycle_hook=interrupt)
- 
+
      journals = list(tmp_path.rglob(".atomic-transactions/*/journal.json"))
      assert len(journals) == 1
      assert json.loads(journals[0].read_text(encoding="utf-8"))["state"] == crash_point
- 
- 
+
+
 +@pytest.mark.parametrize("crash_point", ["staging", "validating", "committing", "manifest_publish"])
 +def test_real_group_interruption_recovers_the_previous_complete_generation(
 +    tmp_path: Path, crash_point: str
@@ -1697,10 +1697,10 @@ index 421b9ef..fd429f4 100644
          json.dumps({"owner_pid": __import__("os").getpid(), "journal_path": "active"}),
          encoding="utf-8",
      )
- 
+
      with pytest.raises(TimeoutError):
          atomic_io.wait_for_atomic_group(destination, timeout_seconds=0.01)
- 
+
      assert destination.read_bytes() == b"old"
 +
 +

@@ -107,6 +107,85 @@ def test_begin_and_ready_lifecycle_is_durable_in_the_atomic_journal(tmp_path: Pa
     assert isinstance(durable["recovery_instructions"], list)
 
 
+def test_mark_transaction_ready_rejects_transaction_id_outside_supplied_root(tmp_path: Path) -> None:
+    from etf_cockpit.operations.recovery import mark_transaction_ready
+
+    outside_root = tmp_path.parent / f"outside-{tmp_path.name}"
+    outside_root.mkdir()
+    outside_journal = outside_root / ".atomic-transactions" / "outside" / "journal.json"
+    outside_journal.parent.mkdir(parents=True)
+    outside_journal.write_text("must-not-be-read-or-written", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="transaction id.*root"):
+        mark_transaction_ready(
+            str(outside_journal.parent.parent.resolve()),
+            {"outside": "a" * 64},
+            data_root=tmp_path,
+        )
+
+    assert outside_journal.read_text(encoding="utf-8") == "must-not-be-read-or-written"
+
+
+def test_group_reader_cannot_observe_mixed_generation_during_activation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = tmp_path / "data" / "first.bin"
+    second = tmp_path / "configs" / "second.bin"
+    first.parent.mkdir(parents=True)
+    second.parent.mkdir(parents=True)
+    first.write_bytes(b"old-a")
+    second.write_bytes(b"old-b")
+    first_replaced = threading.Event()
+    release_first = threading.Event()
+    writer_errors: list[BaseException] = []
+    reader_errors: list[BaseException] = []
+    reader_done = threading.Event()
+    observed: list[bytes] = []
+    real_replace = Path.replace
+
+    def pause_first(self: Path, destination: Path):
+        result = real_replace(self, destination)
+        if Path(destination) == first:
+            first_replaced.set()
+            assert release_first.wait(timeout=5)
+        return result
+
+    monkeypatch.setattr(Path, "replace", pause_first)
+
+    def write_group() -> None:
+        try:
+            atomic_io.atomic_write_group(
+                (_request(first, b"new-a"), _request(second, b"new-b")),
+            )
+        except BaseException as exc:  # pragma: no cover - asserted below
+            writer_errors.append(exc)
+
+    def read_group() -> None:
+        try:
+            reader = getattr(atomic_io, "read_atomic_group", None)
+            assert callable(reader), "group reader protocol is missing"
+            observed.extend(reader((first, second), timeout_seconds=5))
+        except BaseException as exc:  # pragma: no cover - asserted below
+            reader_errors.append(exc)
+        finally:
+            reader_done.set()
+
+    writer = threading.Thread(target=write_group)
+    writer.start()
+    assert first_replaced.wait(timeout=5)
+    reader = threading.Thread(target=read_group)
+    reader.start()
+    assert not reader_done.wait(timeout=0.1)
+    release_first.set()
+    writer.join(timeout=5)
+    reader.join(timeout=5)
+
+    assert not writer.is_alive() and not reader.is_alive()
+    assert writer_errors == []
+    assert reader_errors == []
+    assert observed == [b"new-a", b"new-b"]
+
+
 @pytest.mark.parametrize("crash_point", ["staging", "validating", "committing", "manifest_publish"])
 def test_real_group_interruption_leaves_one_existing_journal_for_startup_recovery(
     tmp_path: Path, crash_point: str

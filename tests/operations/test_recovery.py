@@ -101,6 +101,73 @@ def test_corrupt_journal_requires_read_only_manual_recovery(tmp_path: Path) -> N
     assert "journal" in outcome[0].reason.lower()
 
 
+@pytest.mark.parametrize("manual_state", ["recovery_required", "quarantined"])
+def test_explicit_manual_review_state_is_preserved_without_payload_mutation(
+    tmp_path: Path, manual_state: str
+) -> None:
+    journal, payload = _valid_v2_payload(tmp_path, transaction_id=f"manual-{manual_state}")
+    payload["state"] = manual_state
+    journal.write_text(json.dumps(payload), encoding="utf-8")
+    destination = Path(payload["entries"][0]["destination"])
+    before_destination = destination.read_bytes()
+    before_journal = journal.read_bytes()
+
+    outcome = _recover(tmp_path)
+
+    assert outcome[0].state == "recovery_required"
+    assert outcome[0].startup_mode == "read_only"
+    assert "manual" in outcome[0].reason.lower()
+    assert destination.read_bytes() == before_destination
+    assert journal.read_bytes() == before_journal
+    assert journal.parent.exists()
+
+
+def test_unreadable_journal_evidence_returns_explicit_unavailable_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    transaction_root = tmp_path / ".atomic-transactions" / "unreadable"
+    transaction_root.mkdir(parents=True)
+    journal = transaction_root / "journal.json"
+    journal.write_text("not-json", encoding="utf-8")
+    real_sha256_file = atomic_io.sha256_file
+
+    def unreadable(path: Path) -> str:
+        if path == journal:
+            raise PermissionError("journal locked")
+        return real_sha256_file(path)
+
+    monkeypatch.setattr(atomic_io, "sha256_file", unreadable)
+
+    outcome = _recover(tmp_path)
+
+    assert outcome[0].state == "recovery_required"
+    assert outcome[0].startup_mode == "read_only"
+    assert outcome[0].evidence_checksums.get("journal_sha256") == "unavailable"
+    assert journal.exists()
+
+
+def test_unreadable_session_trace_does_not_abort_recovery(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _interrupted_transaction(tmp_path, "validating")
+    event_path = tmp_path / "logs" / "session.jsonl"
+    event_path.parent.mkdir(parents=True)
+    event_path.write_text("existing", encoding="utf-8")
+    real_read_text = Path.read_text
+
+    def unreadable(path: Path, *args, **kwargs) -> str:
+        if path == event_path:
+            raise PermissionError("trace locked")
+        return real_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", unreadable)
+
+    outcome = _recover(tmp_path)
+
+    assert outcome[0].state == "rolled_back"
+    assert outcome[0].startup_mode == "normal"
+
+
 @pytest.mark.parametrize("damage", ["checksum", "missing_payload", "missing_backup"])
 def test_corrupt_or_incomplete_transaction_is_not_promoted(tmp_path: Path, damage: str) -> None:
     state = "staging" if damage == "missing_payload" else "committing"

@@ -96,10 +96,10 @@ index 0000000..bbd6630
 @@ -0,0 +1,71 @@
 +# Wave 0 Task 3 - Atomic transaction and deterministic recovery
 +
-+Date opened: 2026-07-11  
-+Branch: `wave0/task3-atomic-recovery`  
-+Task base: `445dd44b5382160d4e93e4cada018beb4ab0f5b5` (`origin/main`)  
-+Owning local issue: `ISSUE-0040` - Error handling and recovery centre.  
++Date opened: 2026-07-11
++Branch: `wave0/task3-atomic-recovery`
++Task base: `445dd44b5382160d4e93e4cada018beb4ab0f5b5` (`origin/main`)
++Owning local issue: `ISSUE-0040` - Error handling and recovery centre.
 +Related later-task issue seams: `ISSUE-0038` (storage migration plan) and `ISSUE-0044` (backup/restore UI and release metadata). These remain open unless their own closure gates pass.
 +
 +## Closure decision before implementation
@@ -1692,15 +1692,15 @@ index 1e350da..f502262 100644
 +++ b/src/etf_cockpit/core/atomic_io.py
 @@ -38,20 +38,24 @@ class BackupManifest:
      manifest_path: Path
- 
- 
+
+
  @dataclass(frozen=True)
  class AtomicWriteRequest:
      destination: Path
      payload: bytes
      validator: Callable[[Path], None]
- 
- 
+
+
 +class AtomicWriteInterrupted(RuntimeError):
 +    """Fault-injection signal that preserves the durable journal for startup recovery."""
 +
@@ -1711,8 +1711,8 @@ index 1e350da..f502262 100644
          for chunk in iter(lambda: handle.read(1024 * 1024), b""):
              digest.update(chunk)
      return digest.hexdigest()
- 
- 
+
+
  def atomic_write_bytes(
      destination: Path,
 @@ -79,38 +83,39 @@ def atomic_write_bytes(
@@ -1724,8 +1724,8 @@ index 1e350da..f502262 100644
      finally:
          if temp_path is not None:
              temp_path.unlink(missing_ok=True)
- 
- 
+
+
 -def _stage_request(request: AtomicWriteRequest) -> Path:
 +def _stage_request(request: AtomicWriteRequest, *, validate: bool = True) -> Path:
      request.destination.parent.mkdir(parents=True, exist_ok=True)
@@ -1752,8 +1752,8 @@ index 1e350da..f502262 100644
 +            path.unlink(missing_ok=True)
 +            raise
      return path
- 
- 
+
+
  def _pid_alive(pid: int) -> bool:
      if pid <= 0:
          return False
@@ -1770,8 +1770,8 @@ index 1e350da..f502262 100644
          if time.monotonic() >= deadline:
              raise TimeoutError(f"timed out waiting for atomic write transaction: {lock}")
          time.sleep(0.025)
- 
- 
+
+
 -def atomic_write_group(requests: Iterable[AtomicWriteRequest]) -> tuple[AtomicWriteResult, ...]:
 +def atomic_write_group(
 +    requests: Iterable[AtomicWriteRequest],
@@ -1909,8 +1909,8 @@ index 1e350da..f502262 100644
              for lock in locks:
                  lock.unlink(missing_ok=True)
              shutil.rmtree(transaction_root, ignore_errors=True)
- 
- 
+
+
  def atomic_write_json(destination: Path, payload: object) -> AtomicWriteResult:
 diff --git a/src/etf_cockpit/core/migrations.py b/src/etf_cockpit/core/migrations.py
 index c1b3227..7d537d3 100644
@@ -1924,8 +1924,8 @@ index c1b3227..7d537d3 100644
      if not isinstance(payload.get("applied"), list):
          raise ValueError("migration state applied field must be a list")
      return payload
- 
- 
+
+
  def run_migrations(context: MigrationContext) -> MigrationReport:
 +    from etf_cockpit.operations.recovery import recover_incomplete_transactions
 +
@@ -1939,7 +1939,7 @@ index c1b3227..7d537d3 100644
      pending = tuple(migration for migration in MIGRATIONS if migration.version > current_version)
      if not pending:
          return MigrationReport((), current_version, None, context.state_path)
- 
+
      migration_paths = tuple(context.metadata_root / f"{migration.name}.json" for migration in pending)
      protected_paths = tuple(dict.fromkeys((*context.managed_paths, context.state_path, *migration_paths)))
      existing_paths = tuple(path for path in protected_paths if path.is_file())
@@ -1950,19 +1950,19 @@ index 66a9b2c..bd35ac4 100644
 +++ b/src/etf_cockpit/operations/models.py
 @@ -1,16 +1,16 @@
  from __future__ import annotations
- 
+
  from datetime import datetime
  from typing import Literal, Self
- 
+
 -from pydantic import BaseModel, ConfigDict, model_validator
 +from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
- 
- 
+
+
  class OperationalEvent(BaseModel):
      """Typed projection of one row in the authoritative session trace."""
- 
+
      model_config = ConfigDict(extra="allow")
- 
+
      event_id: str = ""
      session_id: str
      sequence_number: int

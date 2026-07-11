@@ -127,7 +127,18 @@ def mark_transaction_ready(
     *,
     data_root: Path | None = None,
 ) -> WriteTransaction:
-    path = _journal_path(_resolved_data_root(data_root), transaction_id)
+    if not isinstance(transaction_id, str) or not transaction_id:
+        raise ValueError("transaction id must stay within supplied recovery root")
+    resolved_root = _resolved_data_root(data_root).resolve()
+    transactions_root = (resolved_root / ".atomic-transactions").resolve()
+    candidate_root = _transaction_root(resolved_root, transaction_id).resolve()
+    try:
+        candidate_root.relative_to(transactions_root)
+    except ValueError as exc:
+        raise ValueError("transaction id must stay within supplied recovery root") from exc
+    if candidate_root.parent != transactions_root or candidate_root.name != transaction_id:
+        raise ValueError("transaction id must stay within supplied recovery root")
+    path = candidate_root / "journal.json"
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload["state"] = "ready_to_commit"
     payload["status"] = "ready_to_commit"
@@ -138,7 +149,12 @@ def mark_transaction_ready(
 
 
 def _required_result(journal: Path, transaction_id: str, reason: str) -> RecoveryResult:
-    checksums = {"journal_sha256": atomic_io.sha256_file(journal)} if journal.is_file() else {}
+    checksums: dict[str, str] = {}
+    if journal.is_file():
+        try:
+            checksums["journal_sha256"] = atomic_io.sha256_file(journal)
+        except OSError:
+            checksums["journal_sha256"] = "unavailable"
     return RecoveryResult(
         transaction_id,
         "recovery_required",
@@ -404,25 +420,29 @@ def _validate_legacy_paths(
 def _emit_recovery_event(result: RecoveryResult, event_path: Path | None) -> None:
     if event_path is None:
         return
-    sequence = 1
-    if event_path.is_file():
-        sequence += len(event_path.read_text(encoding="utf-8", errors="replace").splitlines())
-    append_event(
-        {
-            "session_id": "startup-recovery",
-            "sequence_number": sequence,
-            "timestamp_utc": _now().isoformat(),
-            "event_type": "write_transaction_recovery",
-            "status": result.state,
-            "component": "operations.recovery",
-            "action_id": result.transaction_id,
-            "transaction_id": result.transaction_id,
-            "startup_mode": result.startup_mode,
-            "reason": result.reason,
-            "evidence_checksums": result.evidence_checksums,
-        },
-        path=event_path,
-    )
+    try:
+        sequence = 1
+        if event_path.is_file():
+            sequence += len(event_path.read_text(encoding="utf-8", errors="replace").splitlines())
+        append_event(
+            {
+                "session_id": "startup-recovery",
+                "sequence_number": sequence,
+                "timestamp_utc": _now().isoformat(),
+                "event_type": "write_transaction_recovery",
+                "status": result.state,
+                "component": "operations.recovery",
+                "action_id": result.transaction_id,
+                "transaction_id": result.transaction_id,
+                "startup_mode": result.startup_mode,
+                "reason": result.reason,
+                "evidence_checksums": result.evidence_checksums,
+            },
+            path=event_path,
+        )
+    except Exception:
+        # Recovery state is authoritative even when its optional trace is unavailable.
+        return
 
 
 def recover_incomplete_transactions(
@@ -495,6 +515,15 @@ def recover_incomplete_transactions(
                 journal,
                 transaction_id,
                 f"unsupported or invalid journal schema_version: {schema_version!r}",
+            )
+            results.append(result)
+            _emit_recovery_event(result, resolved_event_path)
+            continue
+        if journal_state in {"recovery_required", "quarantined"}:
+            result = _required_result(
+                journal,
+                transaction_id,
+                f"journal state {journal_state!r} requires manual review",
             )
             results.append(result)
             _emit_recovery_event(result, resolved_event_path)

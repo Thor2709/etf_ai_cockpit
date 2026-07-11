@@ -217,6 +217,8 @@ def _recover_journal(journal_path: Path, *, force: bool = False) -> bool:
         return False
     if not isinstance(payload, dict) or not _validate_recovery_payload_paths(payload, journal_path):
         return False
+    if payload.get("state") in {"recovery_required", "quarantined"}:
+        return False
     try:
         owner_pid = int(payload.get("owner_pid", 0))
     except (TypeError, ValueError):
@@ -249,6 +251,10 @@ def _recover_journal(journal_path: Path, *, force: bool = False) -> bool:
 def _recover_lock(lock: Path) -> bool:
     try:
         lock_payload = json.loads(lock.read_text(encoding="utf-8"))
+        if not isinstance(lock_payload, dict):
+            return False
+        if lock_payload.get("lock_type") == "reader":
+            return False
         journal_path = Path(str(lock_payload["journal_path"]))
     except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
         return False
@@ -257,8 +263,10 @@ def _recover_lock(lock: Path) -> bool:
 
 def _acquire_group_locks(
     parents: tuple[Path, ...],
-    journal_path: Path,
+    journal_path: Path | None,
     timeout_seconds: float = 5.0,
+    *,
+    lock_type: str = "writer",
 ) -> tuple[Path, ...]:
     deadline = time.monotonic() + timeout_seconds
     locks: list[Path] = []
@@ -272,7 +280,15 @@ def _acquire_group_locks(
                     os.write(
                         descriptor,
                         json.dumps(
-                            {"owner_pid": os.getpid(), "journal_path": str(journal_path.resolve())}
+                            {
+                                "owner_pid": os.getpid(),
+                                "lock_type": lock_type,
+                                **(
+                                    {"journal_path": str(journal_path.resolve())}
+                                    if journal_path is not None
+                                    else {}
+                                ),
+                            }
                         ).encode("utf-8"),
                     )
                     os.close(descriptor)
@@ -302,6 +318,36 @@ def wait_for_atomic_group(path: Path, timeout_seconds: float = 5.0) -> None:
         time.sleep(0.025)
 
 
+def read_atomic_group(
+    paths: Iterable[Path], *, timeout_seconds: float = 5.0
+) -> tuple[bytes, ...]:
+    """Read a group under the same lock boundary used for grouped publication.
+
+    A grouped writer holds every destination-parent lock plus the common-root
+    lock through activation and cleanup.  Acquiring those locks as a reader
+    keeps all payload reads within one complete generation boundary.
+    """
+    path_tuple = tuple(path.resolve() for path in paths)
+    if not path_tuple:
+        return ()
+    if len(path_tuple) != len(set(path_tuple)):
+        raise ValueError("atomic group reader paths must be unique")
+    parents = tuple(sorted({path.parent for path in path_tuple}, key=str))
+    common_root = Path(os.path.commonpath([str(parent) for parent in parents]))
+    lock_parents = tuple(sorted({*parents, common_root}, key=str))
+    locks = _acquire_group_locks(
+        lock_parents,
+        None,
+        timeout_seconds,
+        lock_type="reader",
+    )
+    try:
+        return tuple(path.read_bytes() for path in path_tuple)
+    finally:
+        for lock in reversed(locks):
+            lock.unlink(missing_ok=True)
+
+
 def atomic_write_group(
     requests: Iterable[AtomicWriteRequest],
     *,
@@ -315,6 +361,7 @@ def atomic_write_group(
         raise ValueError("atomic write group destinations must be unique")
     parents = tuple(sorted({request.destination.parent.resolve() for request in request_tuple}, key=str))
     common_root = Path(os.path.commonpath([str(parent) for parent in parents]))
+    lock_parents = tuple(sorted({*parents, common_root}, key=str))
     transaction_root = common_root / ".atomic-transactions" / uuid.uuid4().hex
     transaction_root.mkdir(parents=True, exist_ok=False)
     journal_path = transaction_root / "journal.json"
@@ -360,7 +407,7 @@ def atomic_write_group(
         _write_journal(journal_path, journal_payload)
         if lifecycle_hook is not None:
             lifecycle_hook("staging", journal_path)
-        locks = _acquire_group_locks(parents, journal_path)
+        locks = _acquire_group_locks(lock_parents, journal_path)
         journal_payload["lock_paths"] = [str(path.resolve()) for path in locks]
         _write_journal(journal_path, journal_payload)
         for index, request in enumerate(request_tuple):
