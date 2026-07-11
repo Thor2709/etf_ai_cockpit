@@ -33,6 +33,13 @@ class VerificationRun(BaseModel):
     output_paths: list[str]
     output_checksums: list[str]
     issue_ids: list[str]
+    # Task 5 evidence metadata is optional for backwards-compatible records
+    # produced by the earlier finish-check and operations tasks.
+    environment_hash: str | None = None
+    gates: list[str] = Field(default_factory=list)
+    skipped: bool = False
+    informational: bool = False
+    screenshot: dict[str, object] | None = None
 
 
 class ClosureEvidenceRecord(BaseModel):

@@ -1,5 +1,21 @@
 programme_schema_version: 2
 historic_baseline_count: 41
+verification_policy:
+  version: "1.0"
+  requirement_version: "2"
+  max_age_hours: 168
+  # REL-03 keeps closure criteria unchanged while making their evidence
+  # layers explicit and independently reviewable.
+  gate_layers:
+    source: source_integrity
+    schema: source_integrity
+    tests: deterministic_tests
+    ui: user_interface
+    audit: audit_record
+    export: audit_record
+    package: packaged_runtime
+    build: packaged_runtime
+    browser: browser_user
 issues:
 - issue_id: ISSUE-0067
   title: Local score history and per-instrument score evolution mini charts

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 from pathlib import Path, PurePosixPath
 import re
-from typing import Any, Iterator
+from typing import Any, Iterator, Mapping
 
 import yaml
 
@@ -55,6 +55,7 @@ class ClosureMatrix:
     programme_schema_version: int
     historic_baseline_count: int
     records: tuple[IssueClosureRecord, ...]
+    verification_policy: Mapping[str, Any] = field(default_factory=dict)
 
     def __iter__(self) -> Iterator[IssueClosureRecord]:
         return iter(self.records)
@@ -113,6 +114,12 @@ def load_closure_matrix(path: Path) -> ClosureMatrix:
     if isinstance(historic_baseline_count, bool) or not isinstance(historic_baseline_count, int):
         raise ValueError("historic_baseline_count must be an integer")
 
+    policy = raw.get("verification_policy", {})
+    if policy is None:
+        policy = {}
+    if not isinstance(policy, dict):
+        raise ValueError("verification_policy must be a mapping")
+
     records: list[IssueClosureRecord] = []
     seen_issues: set[str] = set()
     seen_criteria: set[str] = set()
@@ -149,6 +156,7 @@ def load_closure_matrix(path: Path) -> ClosureMatrix:
         programme_schema_version=programme_schema_version,
         historic_baseline_count=historic_baseline_count,
         records=tuple(records),
+        verification_policy=policy,
     )
 
 
