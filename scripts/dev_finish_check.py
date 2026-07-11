@@ -11,9 +11,16 @@ from collections.abc import Collection, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+try:
+    from scripts.verify_issue import compute_environment_hash, compute_source_hash
+except ModuleNotFoundError:  # direct ``python scripts/dev_finish_check.py`` execution
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from scripts.verify_issue import compute_environment_hash, compute_source_hash
+
 
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON = Path(sys.executable)
+EVIDENCE_POLICY_VERSION = "1.0"
 BASE_GATES = ("focused", "full")
 PARSER_GATES = ("fixtures", "export", "build", "browser", "computer_use")
 RUNTIME_PATH_PREFIXES = (
@@ -58,6 +65,9 @@ class FinishGateResult:
     stderr: str
     duration_s: float
     status: str
+    source_hash: str = ""
+    environment_hash: str = ""
+    evidence_policy_version: str = EVIDENCE_POLICY_VERSION
 
 
 @dataclass(frozen=True)
@@ -66,6 +76,25 @@ class FinishGateReport:
     results: tuple[FinishGateResult, ...]
     passed: bool
     generated_at: float
+    source_hash: str = ""
+    environment_hash: str = ""
+    evidence_policy_version: str = EVIDENCE_POLICY_VERSION
+
+
+def verification_metadata(
+    *,
+    root: Path = ROOT,
+    issue_ids: Collection[str] = (),
+) -> dict[str, object]:
+    """Return source/environment-bound metadata for a finish-check package."""
+
+    return {
+        "source_hash": compute_source_hash(Path(root)),
+        "environment_hash": compute_environment_hash(Path(root), PYTHON),
+        "verification_policy_version": EVIDENCE_POLICY_VERSION,
+        "issue_ids": tuple(sorted({str(issue).strip() for issue in issue_ids if str(issue).strip()})),
+        "tracker_mutated": False,
+    }
 
 
 def select_gates(changed_paths: Collection[Path], issue_ids: Collection[str]) -> FinishGatePlan:
@@ -105,6 +134,8 @@ def build_cli_plan(
 def run_finish_gates(plan: FinishGatePlan, evidence_dir: Path) -> FinishGateReport:
     """Run executable gates without a shell and capture redacted local evidence."""
     evidence_dir.mkdir(parents=True, exist_ok=True)
+    source_hash = compute_source_hash(ROOT)
+    environment_hash = compute_environment_hash(ROOT, PYTHON)
     results: list[FinishGateResult] = []
     for command in plan.commands:
         started = time.monotonic()
@@ -126,6 +157,8 @@ def run_finish_gates(plan: FinishGatePlan, evidence_dir: Path) -> FinishGateRepo
                 stderr=redact_text(completed.stderr),
                 duration_s=round(duration_s, 3),
                 status="passed" if completed.returncode == 0 else "failed",
+                source_hash=source_hash,
+                environment_hash=environment_hash,
             )
         )
     completed_gates = {result.gate for result in results}
@@ -140,10 +173,19 @@ def run_finish_gates(plan: FinishGatePlan, evidence_dir: Path) -> FinishGateRepo
                     stderr="",
                     duration_s=0.0,
                     status="pending_external_verification",
+                    source_hash=source_hash,
+                    environment_hash=environment_hash,
                 )
             )
     passed = bool(results) and all(result.status == "passed" for result in results)
-    return FinishGateReport(plan, tuple(results), passed, time.time())
+    return FinishGateReport(
+        plan,
+        tuple(results),
+        passed,
+        time.time(),
+        source_hash=source_hash,
+        environment_hash=environment_hash,
+    )
 
 
 def redact_text(value: str) -> str:
@@ -153,6 +195,12 @@ def redact_text(value: str) -> str:
 def write_json_report(report: FinishGateReport, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = asdict(report)
+    payload["verification_policy"] = {
+        "version": report.evidence_policy_version,
+        "tracker_mutated": False,
+        "source_hash": report.source_hash,
+        "environment_hash": report.environment_hash,
+    }
     payload["environment"] = {name: "[REDACTED]" for name in _command_environment() if _is_sensitive_name(name)}
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=_json_default), encoding="utf-8")
 
@@ -177,7 +225,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
     if args.plan_only:
-        report = FinishGateReport(plan, (), False, time.time())
+        report = FinishGateReport(
+            plan,
+            (),
+            False,
+            time.time(),
+            source_hash=compute_source_hash(ROOT),
+            environment_hash=compute_environment_hash(ROOT, PYTHON),
+        )
     else:
         report = run_finish_gates(plan, args.json_report.parent)
     write_json_report(report, args.json_report)
