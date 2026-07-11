@@ -217,3 +217,23 @@ Executing the approved plan at `docs/superpowers/plans/2026-07-09-launcher-spare
 - PR 1 (`https://github.com/Thor2709/etf_ai_cockpit/pull/1`) merged `wave0/task3-atomic-recovery` into `main` at `046e3bbfe9cab41f6cfec59547f540bce85b2c44`; no required GitHub checks were configured for the branch.
 - Post-merge verification on clean `main`: focused Task 3 bundle 71 passed, scoped Ruff passed, compileall passed and `scripts/run_app.py --smoke` returned `snapshot_ok as_of=2026-07-09 signals=16 backtests=5`.
 - `main` is clean and matches `origin/main`. `ISSUE-0040` remains open for later UI/package/browser closure; Wave 0 Task 4 is the next task; `execution_allowed` remains `false`.
+
+## 2026-07-12 Wave 0 Task 4 Integration Checkpoint
+
+- Task 4 implemented the static no-execution/rejection boundary, versioned
+  rejection registry and future-only architecture records. RED/GREEN/fix and
+  independent review evidence is recorded in `.ai_worklog/task-4-report.md`,
+  `.ai_worklog/task-4-fix-pass-2-report.md`,
+  `.ai_worklog/task-4-review-postfix.md` and the post-merge correction reports.
+- PR 2 merged the implementation at `0f2b2cb`. A clean-main verification then
+  reproduced generated `build/` false positives; RED evidence, a minimal
+  top-level `build`/`dist` exclusion and fresh independent approval were
+  recorded in `.ai_worklog/task-4-postmerge-fix-report.md` and
+  `.ai_worklog/task-4-postmerge-review.md`. PR 3 merged the correction at
+  `5b732e4`.
+- Final clean-main verification passed 54 scope/release tests, 75
+  release/operations tests, scoped Ruff, compileall, pip check, diff checks, a
+  deterministic 358-file static scan with zero violations and both authority
+  fields false, and source smoke. No issue state changed; `ISSUE-0040` and
+  later tracker records remain open. Wave 0 Task 5 is next; `execution_allowed`
+  remains `false`.

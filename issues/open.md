@@ -8,6 +8,8 @@ Wave 0 Task 2 checkpoint 2026-07-11: the session-trace operational-authority reg
 
 Wave 0 Task 3 checkpoint 2026-07-12: atomic transaction and deterministic recovery implementation plus five bounded fix passes were independently approved and merged through PR 1 at `046e3bbfe9cab41f6cfec59547f540bce85b2c44`. Post-merge focused tests, source smoke, Ruff and compileall passed. `ISSUE-0040` remains open because its Error/Recovery UI, package and browser gates are later work; Wave 0 Task 4 is the next implementation task.
 
+Wave 0 Task 4 checkpoint 2026-07-12: the no-execution/rejection boundary, auditable rejection registry and future-only architecture records were independently approved and merged through PR 2 at `0f2b2cb`. A post-merge generated-package false-positive was reproduced with RED evidence, corrected by excluding top-level ignored `build/` and `dist/` roots, independently approved and merged through PR 3 at `5b732e4`. Final clean-main scope/release, release/operations, static-scan and source-smoke checks passed. No open issue changed state; `ISSUE-0040` and later tracker records remain open, and Wave 0 Task 5 is next.
+
 ## Tracker Rules
 
 Every issue below is open until all close criteria pass. User-facing issues must be implemented in source, visible in the app UI, tested, included in audit/export where relevant, rebuilt, started from the rebuilt app and smoke-tested from the user's point of view. Backend-only fields do not close UI-facing issues.

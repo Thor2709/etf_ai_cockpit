@@ -1,6 +1,6 @@
 # ETF AI Cockpit Programme Index
 
-> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Task 3 is independently approved, merged through PR 1 and post-merge verified. Wave 0 Task 4 is the next implementation task; later issue closure and remote synchronisation remain evidence-gated.
+> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Task 3 is independently approved, merged through PR 1 and post-merge verified. Wave 0 Task 4 is independently approved and merged through PRs 2 and 3 with post-merge verification. Wave 0 Task 5 is the next implementation task; later issue closure and remote synchronisation remain evidence-gated.
 
 **Binding inputs:**
 
@@ -44,7 +44,7 @@ This programme owns Issue Groups A, C through N in the supplied specification. T
 
 | Wave | Plan | Specification epics owned exactly once | Primary repository seam | Prerequisites | Completion interface for next wave |
 |---:|---|---|---|---|---|
-| 0 | [foundation, operations and boundary plan](2026-07-11-etf-ai-cockpit-foundation-operations-boundary-plan.md) | `REL-01`, `REL-02`, `REL-03`, `REL-04`, `FUTURE-01`, `FUTURE-03` | `core/atomic_io.py`, `core/session_log.py`, `core/closure.py`, `core/migrations.py`, scripts and release paths | Baseline only | Versioned `VerificationRun`, `ClosureEvidenceRecord`, recovery transaction contract, static execution/rejection report |
+| 0 | [foundation, operations and boundary plan](2026-07-11-etf-ai-cockpit-foundation-operations-boundary-plan.md) | `REL-01`, `REL-02`, `REL-03`, `REL-04`, `FUTURE-01`, `FUTURE-03` | `core/atomic_io.py`, `core/session_log.py`, `core/closure.py`, `core/migrations.py`, scripts and release paths | Tasks 1-4 complete and merged | Versioned `VerificationRun`, `ClosureEvidenceRecord`, recovery transaction contract, static execution/rejection report and Task 5 evidence automation |
 | 1 | [governance plan](2026-07-11-etf-ai-cockpit-governance-plan.md) | `GOV-01`, `GOV-02`, `GOV-03`, `GOV-04` | `core/types.py`, `signals/actions.py`, `signals/gates.py`, `signals/simple_scores.py`, `portfolio/proposals.py`, `app/router.py` | Wave 0 evidence interfaces | Typed research/portfolio authority decision, governance config checksums, immutable journal and non-execution boundary |
 | 2 | [registry and universe plan](2026-07-11-etf-ai-cockpit-registry-universe-plan.md) | `DATA-01`, `DATA-02`, `DATA-03`, `DATA-04` | `data/universe_store.py`, `core/config.py`, `data/instrument_identity.py`, `data/trade_candidate_analysis.py`, Universe page | Waves 0-1 | Canonical registry generation, listing-scoped provider mapping, classification/support resolution and collection membership service |
 | 3 | [DATA-05 verified coverage plan](2026-07-11-etf-ai-cockpit-data05-plan.md) | `DATA-05` | canonical registry/compatibility universe migration, instrument detail, Data Health and audit manifest | Wave 2 registry contract; Wave 1 authority contracts | Atomic all-or-nothing 39-exposure seed revision, verification manifest, EU-tech subarea resolver and 8/9/8 audit manifest |
@@ -117,4 +117,4 @@ The next agent must reread this index, the active plan, the progress ledger, the
 - Placeholder scan over all nine implementation plans found no `TBD`, `TODO`, `add tests`, `handle errors`, `similar to above` or `implement later` placeholder.
 - The documentation-only pre-flight change corrected the final plan heading. No implementation code, configuration, tracker status or user data has changed.
 - Fresh baseline evidence recorded before implementation: pytest exit 0, Ruff clean, compileall exit 0, source snapshot smoke exit 0, source/native/portable smoke exit 0, and a rendered in-app-browser inspection of the source Simple Scores route.
-- No blocking product contradiction remains after applying the approved precedence rules. Wave 0, Tasks 1 and 2 are independently reviewed complete. Wave 0, Task 3 is independently approved, merged and post-merge verified with no Critical, Important or Minor findings. Wave 0, Task 4 is the next incomplete task.
+- No blocking product contradiction remains after applying the approved precedence rules. Wave 0, Tasks 1 and 2 are independently reviewed complete. Wave 0, Task 3 is independently approved, merged and post-merge verified with no Critical, Important or Minor findings. Wave 0, Task 4 and its generated-package correction are independently approved, merged through PRs 2 and 3, and post-merge verified. Wave 0, Task 5 is the next incomplete task.

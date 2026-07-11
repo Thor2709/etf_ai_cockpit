@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-12T00:35:00+10:00",
+  "updated_at": "2026-07-12T08:32:10+10:00",
   "active_programme": {
     "name": "2026-07-11-etf-ai-cockpit-approved-programme",
     "programme_index": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-programme-index.md",
     "progress_ledger": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-progress-ledger.md",
-    "phase": "wave0_task3_integrated_task4_ready",
-    "next_task": "Wave 0, Foundation Task 4: enforce the no-execution and rejection boundary",
+    "phase": "wave0_task4_integrated_task5_ready",
+    "next_task": "Wave 0, Foundation Task 5: build evidence automation without automatic issue closure",
     "git_repository": true,
     "git_branch": "main",
     "baseline": {
@@ -177,6 +177,66 @@
         "main_matches_origin": true,
         "working_tree_clean": true
       }
+    },
+    "task_4_checkpoint": {
+      "owning_epics": ["FUTURE-01", "FUTURE-03"],
+      "branch": "wave0/task4-execution-boundary",
+      "task_base": "c5fd053",
+      "implementation_commit": "6028aa0b2076f048fb6614bfaad37a74a4051882",
+      "post_merge_correction_branch": "wave0/task4-postmerge-hardening",
+      "post_merge_correction_commit": "fdf1323",
+      "red": {
+        "initial_exit_code": 1,
+        "initial_behavioural_failures": 7,
+        "fix_pass_exit_code": 1,
+        "fix_pass_behavioural_failures": 2,
+        "post_merge_package_inventory_exit_code": 1,
+        "post_merge_package_inventory_root_cause": "ignored generated build artefacts were scanned as source"
+      },
+      "green": {
+        "focused_command": ".\\.venv\\Scripts\\python.exe -m pytest tests\\scope_boundary tests\\test_release_hardening.py -q --tb=short",
+        "focused_exit_code": 0,
+        "focused_tests_passed": 54,
+        "release_operations_command": ".\\.venv\\Scripts\\python.exe -m pytest tests\\release tests\\operations -q --tb=short",
+        "release_operations_exit_code": 0,
+        "release_operations_tests_passed": 75,
+        "ruff_exit_code": 0,
+        "compileall_exit_code": 0,
+        "pip_check_exit_code": 0,
+        "diff_check_exit_code": 0,
+        "production_scan": {
+          "result": "pass",
+          "scanned_files": 358,
+          "violations": 0,
+          "policy_checksum": "89680ebfdca87827728919e687f50f30cebe014741ce35eb4b3c32daa83452f1",
+          "execution_allowed": false,
+          "executable_authority": false
+        },
+        "source_smoke_exit_code": 0,
+        "source_smoke_output": "snapshot_ok as_of=2026-07-09 signals=16 backtests=5"
+      },
+      "reports": [
+        ".ai_worklog/task-4-brief.md",
+        ".ai_worklog/task-4-report.md",
+        ".ai_worklog/task-4-fix-report.md",
+        ".ai_worklog/task-4-fix-pass-2-report.md",
+        ".ai_worklog/task-4-review-1.md",
+        ".ai_worklog/task-4-review-postfix.md",
+        ".ai_worklog/task-4-postmerge-fix-report.md",
+        ".ai_worklog/task-4-postmerge-review.md"
+      ],
+      "independent_review": "approved_no_critical_important_or_minor_findings",
+      "integration": {
+        "implementation_pull_request": "https://github.com/Thor2709/etf_ai_cockpit/pull/2",
+        "implementation_merge_commit": "0f2b2cbaba869923b6d5751c7cdafc03bc79bedf",
+        "correction_pull_request": "https://github.com/Thor2709/etf_ai_cockpit/pull/3",
+        "correction_merge_commit": "5b732e4e99d3139c3f5e370781c454ecb9718dad",
+        "main_matches_origin": true,
+        "working_tree_clean": true
+      },
+      "issue_state": "open",
+      "execution_allowed": false,
+      "data05_status": "still_open"
     }
   },
   "plan": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-foundation-operations-boundary-plan.md",
@@ -185,9 +245,9 @@
   "git_branch": "main",
   "progress_percent": 100,
   "wave": 0,
-  "task": 4,
+  "task": 5,
   "step": 1,
-  "completed_tasks": [1, 2, 3],
+  "completed_tasks": [1, 2, 3, 4],
   "implementation_foundations": [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
   "issue_counts": {
     "reviewed": 41,
@@ -195,36 +255,30 @@
     "still_open": 37
   },
   "last_checkpoint": {
-    "name": "wave0_task3_integrated_task4_ready",
-    "result": "Task 3 was independently approved, merged through PR 1 at 046e3bbfe9cab41f6cfec59547f540bce85b2c44, and post-merge focused tests, source smoke, Ruff and compileall passed. ISSUE-0040 remains open for later UI/package/browser gates; Task 4 is next.",
+    "name": "wave0_task4_integrated_task5_ready",
+    "result": "Task 4 was independently approved, corrected after post-merge generated-package verification, merged through PR 2 and PR 3 at 5b732e4e99d3139c3f5e370781c454ecb9718dad, and post-merge focused/release/operations tests, static scan and source smoke passed. ISSUE-0040 remains open for later UI/package/browser gates; Task 5 is next.",
     "evidence": [
-      "evidence/wave4/focused-trust-policy-after-fix.txt",
-      "evidence/wave4/full-pytest-final-trust-policy.txt",
-      "evidence/wave4/compileall-final-trust-policy.txt",
-      "evidence/wave4/ruff-final-trust-policy-scoped.txt",
-      "tests/test_workflow_runtime.py",
-      "tests/test_trust_critical_artifacts.py"
+      ".ai_worklog/task-4-report.md",
+      ".ai_worklog/task-4-review-postfix.md",
+      ".ai_worklog/task-4-postmerge-review.md",
+      "configs/rejection_registry.yaml"
     ],
     "commands": {
-      "all_feature_full_pytest": {"exit_code": 0, "collected": 262},
-      "feature_focused_tests": {"exit_code": 0, "trust_policy_and_audit": 54},
+      "task4_focused_tests": {"exit_code": 0, "tests": 54},
+      "release_operations": {"exit_code": 0, "tests": 75},
       "compileall": {"exit_code": 0},
-      "browser_source_and_native": {"exit_code": 0, "chrome_package_visual": true, "computer_use": "stopped URL-confidence policy error; not counted as pass", "in_app_browser": "ERR_CONNECTION_REFUSED fallback recorded"},
-      "migration_evidence_retry": {"exit_code": 0, "applied_versions": [1, 2, 3, 4], "backup_verified": true},
-      "scoped_ruff": {"exit_code": 0, "new_files_clean": true},
-      "mypy_scope": {"exit_code": 1, "reason": "missing third-party stubs and existing typing debt recorded"},
-      "esef_provider_contract": {"exit_code": 0, "tests": 1, "dataframe_result": true},
-      "reviewer_finding_regressions": {"exit_code": 0, "tests": 46, "scope": "launcher provider health trust audit router empty-detail universe atomic-imports"},
-      "source_native_smoke": {"source": 0, "native": 0, "portable_native": 0, "long_running_native": 0},
-      "native_smoke_initial_failure": {"exit_code": 1, "root_cause": "selected native manifest ignored by smoke helper", "fixed": true},
-      "root_launcher_batch": {"exit_code": 0, "ports": [8633], "start_and_reuse": true},
-      "portable_launcher_batch": {"exit_code": 0, "ports": [8634, 8635], "package_cwd": true, "busy_port_fallback": true},
-      "audit_validation": {"valid": true, "holdings_count": 16, "secret_findings": []},
+      "scoped_ruff": {"exit_code": 0},
+      "pip_check": {"exit_code": 0},
+      "production_static_scan": {"exit_code": 0, "result": "pass", "scanned_files": 358, "violations": 0, "policy_checksum": "89680ebfdca87827728919e687f50f30cebe014741ce35eb4b3c32daa83452f1", "execution_allowed": false, "executable_authority": false},
+      "source_smoke": {"exit_code": 0, "output": "snapshot_ok as_of=2026-07-09 signals=16 backtests=5"},
+      "main_matches_origin": true,
+      "working_tree_clean": true,
+      "issue_state": "open",
       "closure_evaluator": {"exit_code": 1, "ready": 4, "still_open": 37, "expected_nonzero": true}
     }
   },
-  "first_unpassed_criterion": "Wave 0 Task 4 RED mutation tests and implementation remain open; later ISSUE-0040 UI/package/browser closure gates also remain open",
-  "next_command": "Create the Wave 0 Task 4 isolated worktree/branch, dispatch a fresh implementer, write and run the specified RED boundary tests, then obtain independent review",
+  "first_unpassed_criterion": "Wave 0 Task 5 evidence-automation implementation remains open; later ISSUE-0040 UI/package/browser closure gates also remain open",
+  "next_command": "Create the Wave 0 Task 5 isolated worktree/branch, dispatch a fresh implementer, write and run the specified stale/missing/falsified evidence RED tests, then obtain independent review",
   "notes": [
     "No Git initialisation or commit occurred before the independently approved Task 2 boundary; the user now authorises local baseline Git setup and optional private GitHub push only.",
     "Closure status is evaluator-backed: 4/41 ready and 37 still open; do not close remaining issues without their complete dossiers.",
@@ -245,5 +299,6 @@
     ,"Final package evidence is under evidence/wave4: build-followup-final.txt, smoke-source-followup-final.txt, smoke-native-followup-final.txt, smoke-portable-followup-final.txt, launcher-batch-followup-final.txt, launcher-portable-followup-final.txt and final-audit-validation-followup.txt."
     ,"Final Chrome evidence is under evidence/wave4/browser, with route coverage in followup-route-smoke.txt; rendered content required a 12-second settle wait after HTTP readiness."
     ,"Git baseline commit 445dd44b5382160d4e93e4cada018beb4ab0f5b5 exists on main; Task 3 final implementation 201ee9e is independently approved on wave0/task3-atomic-recovery and is ready for safe integration."
+    ,"Wave 0 Task 4 is independently approved and integrated through PR 2 (0f2b2cb) and correction PR 3 (5b732e4); no issue state changed and Task 5 is the next dependency-valid task."
   ]
 }

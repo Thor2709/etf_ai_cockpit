@@ -272,7 +272,7 @@ Task 3 implementation, five fix-pass evidence records and the fresh independent 
 
 **Produces:** `ExecutionBoundaryReport` and static rejection checks consumed by governance and release tasks.
 
-- [ ] **Step 1: Write RED mutation tests**
+- [x] **Step 1: Write RED mutation tests**
 
 ```python
 def test_production_place_order_symbol_is_a_boundary_violation(tmp_path: Path) -> None:
@@ -286,13 +286,13 @@ def test_sort_order_is_not_a_false_positive(tmp_path: Path) -> None:
     assert run_static_execution_boundary_check(tmp_path).result == "pass"
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `.\.venv\Scripts\python.exe -m pytest tests\scope_boundary\test_execution_boundary.py tests\scope_boundary\test_rejection_registry.py -q`
 
 Expected: FAIL because the checker and registry do not exist.
 
-- [ ] **Step 3: Implement context-aware AST/config/dependency/resource scans**
+- [x] **Step 3: Implement context-aware AST/config/dependency/resource scans**
 
 ```python
 class ExecutionBoundaryReport(BaseModel):
@@ -306,15 +306,23 @@ class ExecutionBoundaryReport(BaseModel):
 
 Allow future-only documentation and test fixtures by explicit path allow-list. Reject broker SDKs, order-routing symbols, credential/order endpoints, current UI order controls and any schema value with `execution_allowed=True`.
 
-- [ ] **Step 4: Run GREEN and release-hardening regression**
+- [x] **Step 4: Run GREEN and release-hardening regression**
 
 Run: `.\.venv\Scripts\python.exe -m pytest tests\scope_boundary tests\test_release_hardening.py -q`
 
 Expected: PASS; a real production tree produces a machine-readable passing report and the injected violations fail.
 
-- [ ] **Step 5: Create future-only documentation evidence**
+- [x] **Step 5: Create future-only documentation evidence**
 
 Each future architecture document begins with the approved future-only/no-authority banner, has no credentials or runnable order examples, and is linked from System Map only after the governance plan supplies that route.
+
+Task 4 implementation and its post-merge generated-package correction are
+independently approved. The implementation was merged through PR 2 at
+`0f2b2cb`; the post-merge correction was merged through PR 3 at `5b732e4`.
+Final clean-main verification passed the 54-test scope/release bundle, the
+75-test release/operations bundle, the static scan (358 files, zero
+violations), and source smoke. No local issue moved to closed: `ISSUE-0040`
+and later tracker records still require their complete issue-specific gates.
 
 ### Task 5: Build evidence automation without automatic issue closure
 

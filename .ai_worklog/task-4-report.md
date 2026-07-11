@@ -132,7 +132,15 @@ Critical, Important or Minor findings. The reviewer verified 53 focused
 scope/release tests, release regressions, deterministic production scans,
 adversarial fixtures and `execution_allowed=false` / `executable_authority=false`.
 
-The current branch contains the reviewed residual fixes and is ready for its
-final commit and integration. Task 4 does not close a local issue; `ISSUE-0040`
-and all later issue records remain open. No product authority, broker
-capability, credential handling, UI scope or approved coverage changed.
+The reviewed residual fixes were committed as `6028aa0` and merged through PR
+2 at `0f2b2cb`. Post-merge verification exposed generated `build/` artefacts
+being scanned alongside source. The bounded correction is recorded in
+`.ai_worklog/task-4-postmerge-fix-report.md` and independently approved in
+`.ai_worklog/task-4-postmerge-review.md` with no findings. Commit `fdf1323`
+merged through PR 3 at `5b732e4` excludes top-level generated `build/` and
+`dist/` roots while retaining production source-subtree coverage. Final
+post-merge verification on clean `main` passed 54 Task 4/release tests, 75
+release/operations tests, static scan (358 files, zero violations), source
+smoke, and the false-authority invariants. Task 4 does not close a local issue;
+`ISSUE-0040` and all later issue records remain open. No product authority,
+broker capability, credential handling, UI scope or approved coverage changed.
