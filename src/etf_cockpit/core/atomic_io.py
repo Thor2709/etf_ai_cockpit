@@ -49,6 +49,15 @@ class AtomicWriteInterrupted(RuntimeError):
     """Fault-injection signal that preserves the durable journal for startup recovery."""
 
 
+_STAGE_PREFIX_DIGEST_LENGTH = 32
+
+
+def _stage_prefix(destination: Path) -> str:
+    identity = str(destination.resolve()).encode("utf-8")
+    digest = hashlib.sha256(identity).hexdigest()[:_STAGE_PREFIX_DIGEST_LENGTH]
+    return f".atomic-{digest}."
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -95,7 +104,7 @@ def _stage_request(request: AtomicWriteRequest, *, validate: bool = True) -> Pat
     with tempfile.NamedTemporaryFile(
         mode="wb",
         dir=request.destination.parent,
-        prefix=f".{request.destination.name}.",
+        prefix=_stage_prefix(request.destination),
         suffix=".group.tmp",
         delete=False,
     ) as handle:
@@ -166,13 +175,16 @@ def _recovery_root_for_journal(journal_path: Path) -> tuple[Path, Path] | None:
 
 def _is_writer_staged_path(staged_path: Path, destination: Path) -> bool:
     """Return whether a stage path matches the writer's canonical temp-file shape."""
-    prefix = f".{destination.name}."
     suffix = ".group.tmp"
+    prefixes = (f".{destination.name}.", _stage_prefix(destination))
     return (
         staged_path.parent == destination.parent
-        and staged_path.name.startswith(prefix)
         and staged_path.name.endswith(suffix)
-        and len(staged_path.name) > len(prefix) + len(suffix)
+        and any(
+            staged_path.name.startswith(prefix)
+            and len(staged_path.name) > len(prefix) + len(suffix)
+            for prefix in prefixes
+        )
     )
 
 

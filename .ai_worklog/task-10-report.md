@@ -195,3 +195,59 @@ GluonTS warning. The final migration fix and this evidence are recorded in
 The task must not be represented as fully closed while any blocked or pending
 gate remains. `execution_allowed=false` and all approved authority boundaries
 are unchanged.
+
+## Post-closure fix: bounded grouped staging on Windows
+
+The remaining full-suite failure was reproduced in this worktree on the
+Windows path used by pytest. A 128-character source journal ID is stored under
+its 64-character SHA-256 basename; `_stage_request` then passed that basename
+in full as the temporary-file prefix. `NamedTemporaryFile` raised
+`FileNotFoundError` while constructing the resulting overlong path.
+
+RED evidence:
+
+```text
+& 'C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe' -m pytest -q tests/test_decision_journal.py::test_journal_supersede_bounds_long_source_id
+1 failed: FileNotFoundError in core/atomic_io.py::_stage_request NamedTemporaryFile
+
+& 'C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe' -m pytest -q tests/test_atomic_io.py::test_group_write_bounds_stage_name_for_long_destination
+1 failed: FileNotFoundError in core/atomic_io.py::_stage_request NamedTemporaryFile
+```
+
+The regression `test_group_write_bounds_stage_name_for_long_destination`
+stages and publishes a 64-character hashed destination and asserts that no
+`.group.tmp` file remains. The minimal fix adds `_stage_prefix`, using the
+resolved destination path's first 32 SHA-256 hex characters in a bounded
+`.atomic-<digest>.` prefix. Recovery path validation accepts this new shape and
+the existing destination-name shape, retaining destination-parent containment,
+suffix checks and compatibility with already durable journals.
+
+GREEN and regression evidence:
+
+```text
+& 'C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe' -m pytest -q tests/test_atomic_io.py::test_group_write_bounds_stage_name_for_long_destination tests/test_decision_journal.py::test_journal_supersede_bounds_long_source_id
+2 passed
+
+& 'C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe' -m pytest tests/operations/test_recovery.py tests/operations/test_transactions.py tests/test_decision_journal.py tests/test_atomic_io.py -q
+88 passed
+
+& 'C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe' -m pytest tests/test_decision_journal.py tests/test_atomic_io.py -q -rA
+25 passed
+```
+
+Authoritative validation after the fix:
+
+```text
+& 'C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe' -m pytest -q
+exit 0; progress reached [100%]; warnings only (GluonTS, pandas FutureWarning and deprecated trade-proposal helper)
+
+& 'C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe' -m compileall -q src tests
+exit 0
+
+& 'C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe' -m ruff check src/etf_cockpit/core/atomic_io.py tests/test_atomic_io.py --no-cache
+All checks passed; exit 0
+```
+
+Only `src/etf_cockpit/core/atomic_io.py`, `tests/test_atomic_io.py` and this
+report are part of this fix. Existing schema-marker working-tree churn remains
+unstaged and is not included. `execution_allowed=false` is unchanged.
