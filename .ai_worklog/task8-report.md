@@ -184,3 +184,57 @@ closure-matrix record. The issue record is now explicitly `Open, partial` and
 the historical evidence is labelled as a rejected/partial checkpoint; no false
 closure is claimed. Package rebuild and rendered browser evidence remain
 parent-level closure gates.
+
+## Parent package and rendered verification
+
+Fresh package verification was run after the fix-pass review:
+
+```text
+cmd /c "scripts\build_windows.bat"
+EXIT=0
+Portable folder created at build\ETF_AI_Cockpit_Portable_v0.1.0_20260713_012732
+```
+
+PyInstaller was not installed in the runner, so the native Flet executable was
+not produced; native and portable-native executable smoke are explicitly
+not_applicable for this environment. The portable source launcher was started
+from the generated folder and served HTTP 200:
+
+```text
+python build\...\scripts\launcher_core.py launch --mode source --root build\... --preferred-port 8574 --open-browser 0 --timeout 60
+ready url=http://127.0.0.1:8574/
+HTTP=200
+portable_launch=0
+```
+
+Source smoke passed when pointed at the verified repository data root:
+
+```text
+python scripts\smoke_app.py --mode source --port 8573 --timeout 90
+smoke_ok mode=source url=http://127.0.0.1:8573/
+```
+
+The isolated worktree source smoke also reached the app but retained the
+known generated identity fixture limitation (`AURG`/16 rows versus the
+fixture's >=45 assertion); this is the same pre-existing limitation recorded
+by the affected regression bundle and is not a provider-registry failure.
+
+Rendered browser verification used the source app at `http://127.0.0.1:8575/`:
+
+- Provider Status route opened as `/providers` and visibly rendered the
+  capability registry, disabled/unavailable states, source authority,
+  entitlement, rate-limit state, score-eligibility context, and the explicit
+  API-key redaction statement.
+- Default viewport screenshot:
+  `evidence/task8-provider-status.png`
+  SHA-256 `84B81F9774A3DBA208DD0E73B6F4443A4EAE69EC39D0AC9490DC4ED2D3B39D98`
+  (88,309 bytes).
+- Narrow 390x844 viewport screenshot:
+  `evidence/task8-provider-status-mobile.png`
+  SHA-256 `49FD7480D63DA8877ACC61FFBDD0E2AEB799E4453C18473DC5DB1EDFCAA4DBB6`
+  (36,245 bytes). The page remained readable with the existing responsive
+  shell and retained semantic text states; keyboard focus was exercised with
+  a Tab keypress and no credentials were displayed.
+
+The screenshot and package evidence are supplementary release evidence; the
+known identity fixture failure remains the only affected-suite failure.
