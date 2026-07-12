@@ -234,7 +234,8 @@ def _inspect_migrations(root: Path) -> DataHealthRow:
     version = payload.get("schema_version") if isinstance(payload, dict) else None
     if not isinstance(applied, list) or not isinstance(version, int):
         return _make_row("migration_status", DataHealthStatus.SCHEMA_MISMATCH, path, "migration", checksum=checksum, warnings=("missing_columns:schema_version,applied",), history_root=root)
-    expected = max((migration.version for migration in MIGRATIONS), default=0)
+    expected_names = {migration.version: migration.name for migration in MIGRATIONS}
+    expected = max(expected_names, default=0)
     applied_versions = sorted(
         int(item["version"])
         for item in applied
@@ -242,8 +243,16 @@ def _inspect_migrations(root: Path) -> DataHealthRow:
     )
     if len(applied_versions) != len(applied) or applied_versions != list(range(1, min(version, expected) + 1)):
         return _make_row("migration_status", DataHealthStatus.SCHEMA_MISMATCH, path, "migration", row_count=len(applied), checksum=checksum, warnings=("applied_versions_mismatch",), history_root=root)
-    applied_at_values = [str(item.get("applied_at")) for item in applied if isinstance(item, dict) and item.get("applied_at")]
-    as_of = max(applied_at_values) if applied_at_values else None
+    if any(item.get("name") != expected_names.get(item["version"]) for item in applied):
+        return _make_row("migration_status", DataHealthStatus.SCHEMA_MISMATCH, path, "migration", row_count=len(applied), checksum=checksum, warnings=("applied_names_mismatch",), history_root=root)
+    parsed_applied_at = []
+    for item in applied:
+        value = item.get("applied_at")
+        parsed = _parse_timezone_aware_timestamp(value)
+        if parsed is None:
+            return _make_row("migration_status", DataHealthStatus.UNAVAILABLE, path, "migration", row_count=len(applied), checksum=checksum, freshness="unknown", warnings=("applied_at_unavailable",), history_root=root)
+        parsed_applied_at.append((str(value), parsed))
+    as_of = max(parsed_applied_at, key=lambda item: (item[1], item[0]))[0] if parsed_applied_at else None
     if version > expected:
         status = DataHealthStatus.SCHEMA_MISMATCH
         warnings = (f"future_schema_version:{version}",)
@@ -404,6 +413,18 @@ def _parse_timestamp(value: str) -> datetime | None:
         return None
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _parse_timezone_aware_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
     return parsed.astimezone(timezone.utc)
 
 

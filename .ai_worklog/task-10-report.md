@@ -140,3 +140,32 @@ independent checks pass.
 Commit hashes: `d1711628071d2b0959e205792f2fb6d0b87c8f34` (implementation),
 `85b469e` (export schema), `87559ed` (macro sibling visibility fix),
 `ea03216` (timestamp ordering and migration history fix pass).
+
+## Final review-fix cycle: migration-state truthfulness
+
+Independent review found two Important defects: migration `as_of` was still
+selected lexically rather than by UTC instant, and records with wrong names or
+missing timezone-aware `applied_at` values could be reported healthy.
+
+RED (recorded during this fix pass):
+
+```text
+& 'C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe' -m pytest -q tests/test_data_health.py::test_migration_as_of_orders_mixed_offsets_by_utc_instant tests/test_data_health.py::test_migration_wrong_name_is_a_schema_mismatch tests/test_data_health.py::test_migration_missing_applied_at_is_unavailable
+3 failed (expected migration timestamp/name/provenance defects)
+```
+
+The minimal fix parses migration timestamps as timezone-aware UTC instants,
+preserves the original selected string, validates each persisted migration
+name against the expected version/name pair and fails closed when
+`applied_at` is missing, malformed or timezone-naive.
+
+GREEN (recorded during this fix pass):
+
+```text
+& 'C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe' -m pytest -q tests/test_data_health.py::test_migration_as_of_orders_mixed_offsets_by_utc_instant tests/test_data_health.py::test_migration_wrong_name_is_a_schema_mismatch tests/test_data_health.py::test_migration_missing_applied_at_is_unavailable
+3 passed
+```
+
+The corresponding full Data Health suite remains 12 passed and the affected
+six-file UI/start-up/navigation bundle remains 36 passed with one existing
+GluonTS warning. The fix is recorded in the next commit after `ea03216`.

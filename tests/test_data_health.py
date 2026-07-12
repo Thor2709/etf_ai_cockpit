@@ -181,8 +181,8 @@ def test_migration_as_of_is_distinct_from_persisted_success_failure_history(tmp_
             {
                 "schema_version": 4,
                 "applied": [
-                    {"version": version, "name": f"migration_{version}", "applied_at": f"2026-07-0{version}T00:00:00+00:00"}
-                    for version in range(1, 5)
+                    {"version": migration.version, "name": migration.name, "applied_at": f"2026-07-0{migration.version}T00:00:00+00:00"}
+                    for migration in health.MIGRATIONS
                 ],
             }
         ),
@@ -211,6 +211,88 @@ def test_migration_as_of_is_distinct_from_persisted_success_failure_history(tmp_
     assert migration.as_of == "2026-07-04T00:00:00+00:00"
     assert migration.last_success == "2026-07-10T10:00:00+10:00"
     assert migration.last_failure == "2026-07-11T11:00:00+10:00"
+
+
+def test_migration_as_of_orders_mixed_offsets_by_utc_instant(tmp_path: Path) -> None:
+    state_path = tmp_path / "data" / ".migration_state.json"
+    state_path.parent.mkdir(parents=True)
+    applied_at = {
+        1: "2026-07-01T00:00:00+00:00",
+        2: "2026-07-02T00:00:00+00:00",
+        3: "2026-07-04T01:00:00+10:00",
+        4: "2026-07-04T00:00:00+00:00",
+    }
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 4,
+                "applied": [
+                    {"version": migration.version, "name": migration.name, "applied_at": applied_at[migration.version]}
+                    for migration in health.MIGRATIONS
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    migration = build_data_health(load_config(), tmp_path, as_of_date="2026-07-10").migration_status
+
+    assert migration.status is DataHealthStatus.HEALTHY
+    assert migration.as_of == "2026-07-04T00:00:00+00:00"
+
+
+def test_migration_wrong_name_is_a_schema_mismatch(tmp_path: Path) -> None:
+    state_path = tmp_path / "data" / ".migration_state.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 4,
+                "applied": [
+                    {
+                        "version": migration.version,
+                        "name": "wrong_name" if migration.version == 2 else migration.name,
+                        "applied_at": f"2026-07-0{migration.version}T00:00:00+00:00",
+                    }
+                    for migration in health.MIGRATIONS
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    migration = build_data_health(load_config(), tmp_path, as_of_date="2026-07-10").migration_status
+
+    assert migration.status is DataHealthStatus.SCHEMA_MISMATCH
+    assert "applied_names_mismatch" in migration.warnings
+    assert migration.as_of is None
+
+
+def test_migration_missing_applied_at_is_unavailable(tmp_path: Path) -> None:
+    state_path = tmp_path / "data" / ".migration_state.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 4,
+                "applied": [
+                    {
+                        "version": migration.version,
+                        "name": migration.name,
+                        **({} if migration.version == 3 else {"applied_at": f"2026-07-0{migration.version}T00:00:00+00:00"}),
+                    }
+                    for migration in health.MIGRATIONS
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    migration = build_data_health(load_config(), tmp_path, as_of_date="2026-07-10").migration_status
+
+    assert migration.status is DataHealthStatus.UNAVAILABLE
+    assert "applied_at_unavailable" in migration.warnings
+    assert migration.as_of is None
 
 
 def test_macro_inventory_uses_dated_file_content_for_freshness(tmp_path: Path) -> None:
