@@ -46,7 +46,8 @@ changed.
   columns/values and classifies stale, missing, corrupt, schema-mismatch and
   unavailable content from the data itself.
 - Added case-insensitive `filter_data_health_rows` for status/dataset/provider
-  filters. Export serialises warnings and stable links without nested objects.
+  filters. Export preserves the existing health CSV header while links remain
+  stable UI actions.
 - Added regression tests for migration status and non-inference, persisted
   timestamp provenance, macro ageing/schema/corruption, filters and UI links.
 

@@ -131,12 +131,13 @@ def export_data_health(report: DataHealthReport, destination: Path) -> Path:
     destination.parent.mkdir(parents=True, exist_ok=True)
     records = []
     for row in report.rows:
+        payload = asdict(row)
+        payload.pop("links", None)
         records.append(
-            asdict(row)
+            payload
             | {
                 "status": row.status.value,
                 "warnings": "|".join(row.warnings),
-                "links": "|".join(f"{link.label}:{link.route}" for link in row.links),
             }
         )
     pd.DataFrame(records).to_csv(destination, index=False)

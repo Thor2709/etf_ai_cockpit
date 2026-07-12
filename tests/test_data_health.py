@@ -55,6 +55,7 @@ def test_corrupt_store_is_reported_and_exported(tmp_path: Path) -> None:
     export_data_health(report, destination)
     assert destination.exists()
     assert "corrupt" in destination.read_text(encoding="utf-8")
+    assert destination.read_text(encoding="utf-8").splitlines()[0].endswith("warnings")
 
 
 def test_data_health_ui_names_cache_provenance_and_failure_columns() -> None:
