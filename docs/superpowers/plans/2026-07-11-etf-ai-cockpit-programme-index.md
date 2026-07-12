@@ -1,6 +1,6 @@
 # ETF AI Cockpit Programme Index
 
-> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6 and Wave 3 Tasks 7-9 are independently approved, merged and post-merge verified. Task 9 merged through PR 179 and Task 10 through PR 180 with fresh independent approval. Task 10 is closed locally and post-merge verified; GitHub Issue synchronisation is the remaining bookkeeping action before Task 11.
+> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6 and Wave 3 Tasks 7-9 are independently approved, merged and post-merge verified. Task 9 merged through PR 179 and Task 10 through PR 180 with fresh independent approval. Task 10 is closed locally, post-merge verified and synchronised to GitHub Issue #81; Task 11 is the next dependency-valid task.
 
 **Binding inputs:**
 
@@ -236,4 +236,6 @@ failed-completion provenance fixes were independently re-reviewed with SPEC
 PASS and CODE PASS. The authoritative full suite, native/portable package
 smoke, semantic Data Health focus, export, source/package browser and
 post-merge checks pass. `ISSUE-0035` is closed in the local canonical ledger;
-GitHub Issue #81 must be read back as closed before Task 11 starts.
+GitHub Issue #81 was read back as closed before Task 11 starts. The 98-record
+reconciliation reports 77 open and 21 closed mappings, matching states and no
+unresolved duplicates.

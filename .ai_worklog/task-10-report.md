@@ -379,3 +379,11 @@ keep ISSUE-0035 open and `execution_allowed=false` until those gates pass.
 - `.ai_worklog/CHANGES.md`
 - `docs/superpowers/plans/2026-07-11-etf-ai-cockpit-programme-index.md`
 - `docs/superpowers/plans/2026-07-11-etf-ai-cockpit-progress-ledger.md`
+
+## Final closure and GitHub synchronisation
+
+Task 10 was merged through PR 180 at `3eab7a414a54c74553b09ebc4085902af0ffc33e`; post-merge package-inventory, full-suite, source, native and portable checks passed. The local canonical ledger moved `ISSUE-0035` to `issues/closed.md` and the closure evaluator reported ready with all applicable gates satisfied.
+
+GitHub synchronisation was applied with `python scripts/sync_github_issues.py --apply` (exit 0) and verified with the deterministic dry run (exit 0). The 98-record reconciliation contains 77 open and 21 closed mappings, matching states and no unresolved duplicates. GitHub Issue #81 (`ISSUE-0035`) was read back as `CLOSED` at `https://github.com/Thor2709/etf_ai_cockpit/issues/81`. The synchronisation manifest and report were committed in `a1b0cb0553efa9d68aff4134194a85e7fe5a214b` and pushed to `origin/main`.
+
+Task 10 is complete; Task 11 is the next dependency-valid task. `execution_allowed=false` remains unchanged. Generated market-data fixtures and local schema-marker churn remain deliberately excluded from the commit.

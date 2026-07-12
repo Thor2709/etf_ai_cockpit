@@ -5,7 +5,7 @@
     "name": "2026-07-11-etf-ai-cockpit-approved-programme",
     "programme_index": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-programme-index.md",
     "progress_ledger": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-progress-ledger.md",
-    "phase": "wave4_task10_closed_postmerge_github_sync_pending",
+    "phase": "wave4_task10_closed_postmerge_github_synced_task11_starting",
     "next_task": "Wave 4, Task 11: Universe Store, Watchlists, Onboarding and Asset Guardrails",
     "git_repository": true,
     "git_branch": "main",
@@ -551,7 +551,7 @@
       "worktree": null,
       "task_base": "557e923",
       "head": "3eab7a4",
-      "head_note": "Task 10 implementation and closure evidence merged to main; post-merge verification passed; GitHub issue synchronisation remains.",
+      "head_note": "Task 10 implementation and closure evidence merged to main; post-merge verification and GitHub Issue synchronisation passed.",
       "implementation_commits": ["d171162", "85b469e", "87559ed", "ea03216", "d1b7b7a", "8ceafce", "85b7fb9", "9daec50"],
       "red": {
         "initial_exit_code": 1,
@@ -579,7 +579,7 @@
         "specification": "PASS",
         "code_quality": "PASS",
         "ready_for_integration": true,
-        "blocking_closure_findings": ["local/GitHub issue synchronisation gate pending"]
+        "blocking_closure_findings": []
       },
       "package": {
         "build_command": "cmd /c scripts\\build_windows.bat",
@@ -608,12 +608,21 @@
         "command": "python scripts/closure_status.py --json-report evidence/final/closure-status-task10-fresh.json",
         "exit_code": 0,
         "issue_ready": true,
-        "interpretation": "presence/checksum evaluator ready; package-smoke, semantic and post-merge gates pass; GitHub issue read-back remains pending"
+        "interpretation": "presence/checksum evaluator ready; package-smoke, semantic, post-merge and GitHub issue reconciliation gates pass"
       },
-      "issue_state": "closed_merged_github_sync_pending",
+      "issue_state": "closed_merged_github_synchronised",
       "execution_allowed": false,
       "data05_status": "still_open",
-      "next_action": "Synchronise local ISSUE-0035 closure with GitHub Issue #81, confirm reconciliation, then start Task 11."
+      "github_sync": {
+        "manifest": "issues/github_issue_map.json",
+        "report": "issues/github_issue_sync_report.json",
+        "apply_exit_code": 0,
+        "dry_run_exit_code": 0,
+        "reconciliation": {"local_open": 77, "local_closed": 21, "mapped_open": 77, "mapped_closed": 21, "states_agree": true, "unresolved_duplicates": []},
+        "issue_0035": {"number": 81, "state": "CLOSED", "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/81"},
+        "sync_commit": "a1b0cb0553efa9d68aff4134194a85e7fe5a214b"
+      },
+      "next_action": "Create the isolated Task 11 worktree from origin/main and begin the approved RED cycle for ISSUE-0068, ISSUE-0018, ISSUE-0017 and ISSUE-0056."
     }
   },
   "plan": "docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md",
@@ -622,8 +631,8 @@
   "git_branch": "main",
   "progress_percent": 42,
   "wave": 4,
-  "task": 10,
-  "step": 5,
+  "task": 11,
+  "step": 1,
   "completed_tasks": [1, 2, 3, 4, 5, 6, 7, 8, 9],
   "completed_governance_tasks": [1, 2, 3, 4, 5, 6],
   "implementation_foundations": [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
