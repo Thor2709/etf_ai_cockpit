@@ -837,25 +837,33 @@ Run focused tests, import real fixture through UI, export audit ZIP and verify S
 - `parse_esef_package(path: Path) -> ParseResult[StatementFact]` invokes Arelle through a bounded adapter and captures validation messages.
 - `map_ifrs_fact(fact: XbrlFact) -> CanonicalMapping` returns mapped only for explicit configured IFRS concepts; extensions remain unmapped with warnings.
 
-- [ ] **Step 1: Write official report-package tests**
+- [x] **Step 1: Write official report-package tests**
 
 Assert valid package checksum, LEI/entity, reporting period, extracted facts, decimals/unit/context and extension retention. Test ZIP traversal rejection, malformed archive, unsupported report package and Arelle validation failure.
 
-- [ ] **Step 2: Implement safe package validation**
+- [x] **Step 2: Implement safe package validation**
 
 Reject absolute paths, backslashes, `..`, oversized uncompressed totals and unsupported extensions before extraction. Parse from a task-local temporary directory; preserve original package unchanged.
 
-- [ ] **Step 3: Implement Arelle adapter and IFRS mapping**
+- [x] **Step 3: Implement Arelle adapter and IFRS mapping**
 
 Lazy-import Arelle, enforce timeout in a child process, collect facts/messages into serialisable records and map only configured IFRS concepts. No extension heuristic may silently become canonical.
 
-- [ ] **Step 4: Add local import and API discovery UI**
+- [x] **Step 4: Add local import and API discovery UI**
 
 Filings page supports local package picker and public API discovery/download. Show validation severity, extensions, mapping confidence and source authority.
 
 - [ ] **Step 5: Verify all strict gates**
 
 Run parser/property/fuzz tests, UI import, clean store, conflict resolution, audit export, source and packaged browser/computer-use checks. Keep issue open if Arelle cannot parse the official fixture.
+
+**Task 13 implementation checkpoint - 2026-07-13:** Steps 1-4 are implemented and
+independently approved on branch `wave4/task13-esef`, commit `44db2c2`, merged
+through PR 183 at `231f5be1055121e878d614b353a919d0d61d102e`. The focused
+provider/parser/statement bundle and worker-level Arelle serialisation tests
+pass; scoped Ruff, compileall and diff checks pass. `UPDATEV2-0013` remains
+open as implementation-complete/closure-pending for the strict package,
+audit/export, clean-first-run and browser/computer-use gates.
 
 ---
 

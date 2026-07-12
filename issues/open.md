@@ -381,7 +381,7 @@ schema_version
 
 ## UPDATEV2-0013 - European ESEF/iXBRL filing importer (original update ISSUE-0013)
 
-**Status:** Open  
+**Status:** Open - implementation complete; closure pending strict package, audit/export, clean-first-run and browser/computer-use evidence
 **Type:** European Filings  
 **Priority:** P0  
 **Evidence grade:** High  

@@ -1,6 +1,6 @@
 # ETF AI Cockpit Programme Index
 
-> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6 and Wave 3 Tasks 7-9 are independently approved, merged and post-merge verified. Task 9 merged through PR 179, Task 10 through PR 180, and Task 11 through PR 181 with fresh independent approval. Task 10 is closed locally and synchronised to GitHub Issue #81; Task 11 is implementation-complete with its four owning issues still closure-pending final release/browser evidence. The next dependency-valid implementation is Task 12, SEC EDGAR Provider and Official Statement Facts.
+> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6, Wave 3 Tasks 7-9 and Wave 4 Tasks 10-13 are independently approved, merged and post-merge verified. Task 10 is closed locally and synchronised to GitHub Issue #81; Task 11, Task 12 and Task 13 are implementation-complete with their owning issues still closure-pending final release/package/browser/clean-first-run evidence. The next dependency-valid implementation is Task 14, ETF Document Registry and Holdings Normaliser.
 
 **Binding inputs:**
 
@@ -254,3 +254,15 @@ at `dc9765ff97f14cc29e9dd7a4f02d669ce0e5ee7f`; `UPDATEV2-0012` remains open
 pending package/browser, clean-first-run and configured live SEC-network
 evidence. Continue with Task 13, ESEF/iXBRL Provider and IFRS Mapping, in the
 active closure plan.
+
+Wave 4 Task 13, ESEF/iXBRL Provider and IFRS Mapping, is implemented and
+independently approved through PR 183 at
+`231f5be1055121e878d614b353a919d0d61d102e` (implementation commit `44db2c2`).
+The bounded filings.xbrl.org provider, safe package parser, pinned Arelle
+adapter, explicit IFRS mapping, checksum-addressed raw retention, atomic
+statement-facts/inventory publication, manual-review provenance boundary and
+Filings-page controls are present. Focused tests, worker-level Arelle
+serialisation coverage, Ruff, compileall and diff checks pass. `UPDATEV2-0013`
+remains open as implementation-complete/closure-pending because strict release,
+audit/export, clean-first-run and browser/computer-use evidence is not yet
+fresh. Continue with Task 14, ETF Document Registry and Holdings Normaliser.

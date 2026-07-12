@@ -7,7 +7,7 @@
 | Field | Value |
 |---|---|
 | Updated | 2026-07-13 |
-| Active phase | Wave 4 Task 12 implementation complete and merged; `UPDATEV2-0012` closure-pending package/browser/clean-first-run/live-network evidence; Task 13 next |
+| Active phase | Wave 4 Task 13 implementation complete and merged; `UPDATEV2-0013` closure-pending strict release/audit/browser/clean-first-run evidence; Task 14 next |
 | Active plan | `docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md` |
 | Git state | PR 182 merged Task 12 into `main` at `dc9765ff97f14cc29e9dd7a4f02d669ce0e5ee7f`; issue synchronisation and durable docs committed at `b932dc879ec7822b1af14891dfadff337bb86d65`; local `main` matches `origin/main` |
 | Existing closure state | Task 11 issues `ISSUE-0068`, `ISSUE-0018`, `ISSUE-0017` and `ISSUE-0056` are implementation-complete but closure-pending final release/browser/clean-first-run evidence; `ISSUE-0035` is closed locally and on GitHub Issue #81 |
@@ -23,7 +23,7 @@
 | 1 | governance | Tasks 1-6 independently approved and merged; Task 7 integrated | Task 6 WorkflowController/session trace paths plus Task 7 source-linked UI inventory, controlled recovery and timing/cache evidence | continue with Wave 3 Task 8 Canonical Data Contracts and Provider Registry |
 | 2 | registry and universe | Not started | `UniverseRecord`/optimistic revision/atomic save present | registry dry-run and validator RED suite |
 | 3 | DATA-05 | Not started | no live seed verification has been performed in this programme | retrieve current official identity evidence and write failing seed-contract tests |
-| 4 | storage and evidence | Task 10 closed and synchronised; Task 11 implementation complete and merged; Task 12 implementation complete and merged; five issues closure-pending | Task 12 focused 54 passed, scoped Ruff/compileall/diff passed, fresh independent review SPEC/CODE PASS, PR 182 merged; GitHub reconciliation apply passed 98 records (77/21), sync commit `b932dc8`; package/browser/clean-first-run/configured live-network evidence remains open | begin Task 13: ESEF/iXBRL Provider and IFRS Mapping |
+| 4 | storage and evidence | Task 10 closed and synchronised; Tasks 11-13 implementation-complete and merged; six issues closure-pending | Task 13 focused provider/parser/statement/UI bundle passed, pinned-Arelle worker serialisation passed, scoped Ruff/compileall/diff passed, fresh independent review SPEC/CODE PASS, PR 183 merged at `231f5be`; strict package/audit/browser/clean-first-run evidence remains open | begin Task 14: ETF Document Registry and Holdings Normaliser |
 | 5 | domain and scoring | Not started | source-aware deterministic scorer present; first-enabled benchmark and legacy ensemble remain | template/benchmark/champion RED suite |
 | 6 | AI and validation | Not started | optional adapter foundations present; authority/caching/validation seams remain | strict forecast-state and fold/trial RED suite |
 | 7 | portfolio | Not started | static holdings/allocation foundation present | immutable ledger RED suite |
@@ -254,3 +254,20 @@ PR 179 (`https://github.com/Thor2709/etf_ai_cockpit/pull/179`) merged into
 origin and is clean. `UPDATEV2-0011` and `UPDATEV2-0021` remain open/partial
 for full issue-level closure gates; `UPDATEV2-0022` remains closed. Task 10,
 Data Health Centre, is the next dependency-valid task.
+
+### Wave 4 Task 13 integration checkpoint - 2026-07-13
+
+Task 13 was independently re-reviewed after fixes for comparative context
+periods, bounded Arelle validation, provenance authority, raw retention,
+standard IFRS classification, unsupported archive members and validation/mapping
+status display. The final fresh reviewer approved specification compliance and
+code quality with no Critical, Important or Minor findings. Focused provider,
+parser, statement, button, accessibility and official-fixture tests passed;
+the pinned-Arelle worker regression passed; scoped Ruff, compileall and diff
+checks passed. A full-suite attempt still reports the unrelated baseline static
+boundary findings in `src/etf_cockpit/app/pages/universe_manager.py` lines 169
+and 220. PR 183 merged to `main` at
+`231f5be1055121e878d614b353a919d0d61d102e`; `UPDATEV2-0013` remains open as
+implementation-complete/closure-pending strict release, audit/export,
+clean-first-run and browser/computer-use evidence. The next dependency-valid
+task is Wave 4 Task 14, ETF Document Registry and Holdings Normaliser.
