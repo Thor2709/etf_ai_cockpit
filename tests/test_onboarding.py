@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from etf_cockpit.data.universe_store import support_decision
-from etf_cockpit.app.pages.onboarding import OnboardingProfile, complete_onboarding, validate_onboarding
+from etf_cockpit.app.pages.onboarding import OnboardingProfile, complete_onboarding, onboarding_page, validate_onboarding
+import flet as ft
 
 
 def test_supported_and_rejected_asset_decisions_are_explicit() -> None:
@@ -44,3 +45,23 @@ def test_offline_onboarding_keeps_configured_local_ticker_enabled(tmp_path) -> N
     assert result.unresolved_symbols == ("MISSING",)
     assert result.records[0].enabled is True
     assert result.records[1].enabled is False
+
+
+def test_onboarding_ui_exposes_opt_in_online_validator_seam() -> None:
+    control = onboarding_page(None, None, validator=lambda _ticker: True)
+
+    def walk(item):
+        if not isinstance(item, ft.Control):
+            return
+        yield item
+        for attr in ("controls", "actions"):
+            values = getattr(item, attr, None)
+            if values:
+                for child in values:
+                    yield from walk(child)
+        content = getattr(item, "content", None)
+        if content is not None:
+            yield from walk(content)
+
+    toggle = next(item for item in walk(control) if isinstance(item, ft.Checkbox) and item.key == "onboarding.online-validation")
+    assert toggle.value is False

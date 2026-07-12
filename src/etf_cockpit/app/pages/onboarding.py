@@ -182,20 +182,35 @@ def complete_onboarding(
     return OnboardingResult(True, validation.unresolved_symbols, records, revision)
 
 
-def onboarding_page(page: ft.Page, state: AppState) -> ft.Control:
+def onboarding_page(
+    page: ft.Page,
+    state: AppState,
+    *,
+    validator: Callable[[str], bool] | None = None,
+) -> ft.Control:
     base_currency = ft.TextField(label="Base currency", value="EUR", width=180, dense=True)
     region = ft.TextField(label="Region", value="Europe", width=220, dense=True)
     scope = ft.Dropdown(label="Asset scope", value="both", options=[ft.dropdown.Option(item) for item in ("etf", "stock", "both")], width=180, dense=True)
     risk = ft.Dropdown(label="Risk profile", value="balanced", options=[ft.dropdown.Option(item) for item in ("conservative", "balanced", "growth")], width=180, dense=True)
     horizon = ft.Dropdown(label="Target horizon", value="medium", options=[ft.dropdown.Option(item) for item in ("short", "medium", "long")], width=180, dense=True)
     tickers = ft.TextField(label="Initial tickers (comma separated)", hint_text="VWCE.DE, MSFT", expand=True, dense=True)
+    online_validation = ft.Checkbox(
+        label="Validate tickers online (optional)",
+        value=False,
+        key="onboarding.online-validation",
+    )
     status = ft.Text("", color=theme.MUTED, selectable=True)
 
     def submit(_event: ft.ControlEvent) -> None:
         values = tuple(value.strip() for value in (tickers.value or "").split(",") if value.strip())
         profile = OnboardingProfile(base_currency.value or "", region.value or "", (scope.value or "both",), risk.value or "", horizon.value or "", values)
         try:
-            result = complete_onboarding(profile, Path.cwd(), online=False)
+            result = complete_onboarding(
+                profile,
+                Path.cwd(),
+                online=bool(online_validation.value),
+                validator=validator,
+            )
             status.value = f"Saved locally. {len(result.unresolved_symbols)} unresolved ticker(s) remain disabled; no refresh or model run was started."
         except Exception as exc:
             status.value = f"Setup not saved: {exc}"
@@ -203,7 +218,7 @@ def onboarding_page(page: ft.Page, state: AppState) -> ft.Control:
 
     return ft.Column(
         [
-            panel(ft.Column([section_header("First-run setup", "Create a local watchlist without requiring network access."), ft.Text("Local-only evidence is not financial advice. Offline or unresolved tickers remain disabled until validated.", color=theme.MUTED), ft.Row([base_currency, region, scope, risk, horizon], wrap=True), ft.Row([tickers, ft.Button("Save setup", key="onboarding.save", icon=ft.Icons.SAVE, on_click=submit)], wrap=True), status], spacing=10)),
+            panel(ft.Column([section_header("First-run setup", "Create a local watchlist without requiring network access."), ft.Text("Local-only evidence is not financial advice. Offline or unresolved tickers remain disabled until validated. Online validation is opt-in and requires an injected provider callback.", color=theme.MUTED), ft.Row([base_currency, region, scope, risk, horizon], wrap=True), ft.Row([tickers, ft.Button("Save setup", key="onboarding.save", icon=ft.Icons.SAVE, on_click=submit)], wrap=True), online_validation, status], spacing=10)),
             panel(ft.Column([section_header("Authority boundary", "Universe edits only persist configuration. They never trigger yfinance downloads, scoring, forecasts or broker execution."), ft.Text("execution_allowed=false", color=theme.AMBER)])),
         ],
         expand=True,

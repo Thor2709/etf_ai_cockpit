@@ -54,6 +54,8 @@ class CockpitSnapshot:
     backtest: BacktestReport
     model_status: dict[str, bool]
     model_inventory: list[LocalModelStatus]
+    # Revision of the canonical universe used to build cached derived data.
+    universe_revision: str = ""
 
 
 class DataService:

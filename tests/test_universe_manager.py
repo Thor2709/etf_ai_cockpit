@@ -4,9 +4,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import flet as ft
+import pandas as pd
 
 import etf_cockpit.app.pages.universe_manager as manager
 from etf_cockpit.app.pages.universe_manager import universe_manager_page
+from etf_cockpit.app.state import AppState
 from etf_cockpit.core.config import (
     AppConfig,
     CostConfig,
@@ -123,3 +125,40 @@ def test_override_checkbox_rehydrates_from_store_snapshot(monkeypatch) -> None:
     root = universe_manager_page(page, _state())
     checkbox = next(control for control in _walk(root) if isinstance(control, ft.Checkbox) and control.key == "universe.allow-cross-tier-duplicates")
     assert checkbox.value is True
+
+
+def test_save_reloads_active_state_and_marks_universe_cache_revision(monkeypatch) -> None:
+    record = UniverseRecord("A", "Alpha", "NO0000000001", "verified", "A", "stock", "primary", "", True, "daily", "EUR", "NO", "", "", "")
+    monkeypatch.setattr(manager, "load_universe", lambda: UniverseStoreSnapshot((record,), "captured", Path("store.json")))
+    refreshed_config = _state().snapshot.config
+    refreshed_config.universe.etfs[0].enabled = False
+    monkeypatch.setattr(manager, "load_config", lambda: refreshed_config)
+    monkeypatch.setattr(
+        manager,
+        "save_universe",
+        lambda records, expected_revision, **_kwargs: UniverseSaveResult(Path("store.json"), "saved-revision", len(tuple(records))),
+    )
+
+    state = AppState(
+        snapshot=SimpleNamespace(
+            config=_state().snapshot.config,
+            prices=pd.DataFrame({"etf_id": ["A"]}),
+            holdings=pd.DataFrame({"etf_id": ["A"]}),
+            features=pd.DataFrame({"etf_id": ["A"]}),
+            latest_features=pd.DataFrame({"etf_id": ["A"]}),
+            signals=[SimpleNamespace(etf_id="A")],
+            forecasts=pd.DataFrame({"etf_id": ["A"]}),
+            universe_revision="captured",
+        ),
+        selected_etf="A",
+    )
+    state.universe_cache_revision = "captured"
+    state.workflow_calls = 0
+    page = _Page()
+    root = universe_manager_page(page, state)
+    save_button = next(control for control in _walk(root) if isinstance(control, ft.Button) and control.key == "universe.save")
+    save_button.on_click(None)
+    assert state.snapshot.config is refreshed_config
+    assert state.snapshot.config.universe.enabled_ids == []
+    assert state.universe_cache_revision == "saved-revision"
+    assert state.workflow_calls == 0

@@ -7,6 +7,7 @@ import flet as ft
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
+from etf_cockpit.core.config import load_config
 from etf_cockpit.data.universe_store import (
     UniverseRecord,
     add_record,
@@ -108,6 +109,17 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
         status.value = message + " Pending refresh remains visible; no yfinance, scoring, forecast or broker call was started."
         rebuild_tabs()
         page.update()
+
+    def _apply_saved_config(revision: str) -> None:
+        refreshed_config = load_config()
+        apply_method = getattr(state, "apply_universe_config", None)
+        if callable(apply_method):
+            apply_method(refreshed_config, revision)
+            return
+        # Compatibility fallback for lightweight embedding/test state objects.
+        state.snapshot.config = refreshed_config
+        state.snapshot.universe_revision = revision
+        state.universe_cache_revision = revision
 
     def edit_dialog(record: UniverseRecord) -> None:
         controls = {
@@ -261,6 +273,7 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
                 allow_cross_tier_duplicates=bool(allow_duplicates.value),
             )
             expected_revision = result.revision
+            _apply_saved_config(result.revision)
             status.value = f"Saved revision {result.revision[:12]}; pending refresh remains visible and was not started."
         except Exception as exc:
             status.value = f"Save blocked: {exc}"
