@@ -128,3 +128,67 @@ Generated schema-marker files remain unstaged by design.
 Review this diff, run the parent source/package/browser and clean-first-run
 gates with the generated candidate fixture available, then synchronise issue
 evidence without changing the execution authority boundary.
+
+## Fix pass: independent review findings
+
+Date: 2026-07-13  
+Base: `070ec8b` plus the pre-existing unstaged `universe_store.py` validation change  
+Fix commit: `e6a4193` (`fix: close Task 11 universe review findings`)
+
+### Findings addressed
+
+1. Universe manager now has functional add, full-field edit, disable and
+   remove callbacks, reactive query rebuilding, visible Primary/Secondary/
+   Sparebanken tabs, per-row status/`needs_verification` labels and explicit
+   pending-refresh messaging. The save callback uses the revision captured at
+   page snapshot load and never starts a workflow.
+2. `leveraged` and `inverse` are persisted with backwards-compatible false
+   defaults, exported through compatibility YAML/CSV and loaded into
+   `ETFConfig`. Enabled IDs, yfinance symbol mapping and candidate scoring now
+   exclude unsupported cadence/assets and high-risk records; futures/options
+   remain persistable research-only records.
+3. Offline onboarding now requires positive local ticker evidence; online
+   validation can opt in through the validator callback. Clean roots disable
+   regex-valid unknown symbols while configured local VWCE evidence remains
+   enabled, with the explanatory note preserved and no default network call.
+4. Legacy migration removes candidate Sparebanken identities (including
+   secondary NONG) before appending the authoritative 15-row fallback, giving
+   exactly one Sparebanken row per canonical ID.
+5. `allow_cross_tier_duplicates` remains an explicit validation override with
+   warning/accept behaviour; unknown ISIN states remain explicit.
+
+### RED / GREEN evidence
+
+Observed REDs while closing the findings:
+
+- `pytest -q tests/test_universe_store.py tests/test_onboarding.py tests/test_asset_guardrails.py`
+  first reported the clean-root VWCE expectation mismatch after the offline
+  evidence guard was introduced.
+- `pytest -q tests/test_button_contracts.py ...` first reported missing stable
+  acceptance entries for the new `universe.add`, `universe.disable.*` and
+  `universe.remove.*` controls.
+- The new candidate boundary regression first returned no rows because NaN
+  boolean fields were interpreted as true; the guard was corrected before
+  GREEN.
+
+GREEN:
+
+```text
+python -m pytest -q tests/test_universe_store.py tests/test_onboarding.py tests/test_asset_guardrails.py tests/test_universe_manager.py
+21 passed
+
+python -m pytest -q tests/test_flet_startup.py tests/test_accessibility_contracts.py tests/test_button_contracts.py tests/test_feature_registry.py tests/test_data_validation.py
+24 passed
+
+python -m compileall -q src tests
+exit 0
+
+python -m ruff check src/etf_cockpit/data/universe_store.py src/etf_cockpit/app/pages/universe_manager.py src/etf_cockpit/app/pages/onboarding.py src/etf_cockpit/core/config.py src/etf_cockpit/data/yfinance_provider.py src/etf_cockpit/signals/simple_scores.py tests/test_universe_store.py tests/test_onboarding.py tests/test_asset_guardrails.py tests/test_universe_manager.py --no-cache
+All checks passed
+```
+
+The broader simple-score/provider bundle ran with six known baseline failures
+because this isolated worktree has no ignored `data/raw/trade_candidates`
+fixture; those failures are the existing candidate/inventory baseline recorded
+above, not fix-pass regressions. Generated `data/.schema_versions/*` churn and
+the untracked task brief remain unstaged by design.
