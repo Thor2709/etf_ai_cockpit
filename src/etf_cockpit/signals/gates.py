@@ -21,7 +21,7 @@ def evaluate_risk_gates(
     blocked: list[str] = []
     warnings: list[str] = []
 
-    if not data_report.trading_allowed:
+    if not data_report.analysis_allowed:
         blocked.append("portfolio_validation_block")
 
     for issue in data_report.issues:

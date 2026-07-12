@@ -3,9 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Literal
+import warnings
 
 from etf_cockpit.signals.research_states import (
     AnalysisStatus,
+    AuthorityDecision,
     InternalSignalIntent,
     PortfolioReviewState,
     ResearchState,
@@ -130,6 +132,7 @@ class SignalResult:
     gate_policy_version: str = "unavailable"
     gate_policy_checksum: str = "unavailable"
     schema_version: str = "2.0"
+    authority_decision: AuthorityDecision | None = None
 
     def __post_init__(self) -> None:
         try:
@@ -149,10 +152,20 @@ class SignalResult:
         raw_analysis_status = str(self.analysis_status or "").strip().casefold()
         valid_analysis_status = raw_analysis_status in {"complete", "partial", "unavailable"}
         object.__setattr__(self, "analysis_status", normalise_analysis_status(raw_analysis_status))
-        # This compatibility seam cannot grant authority; Task 3's typed
-        # resolver is the only owner of positive promotion/review flags.
-        object.__setattr__(self, "research_promotion_allowed", False)
-        object.__setattr__(self, "portfolio_review_allowed", False)
+        if self.authority_decision is not None:
+            decision = self.authority_decision
+            object.__setattr__(self, "research_state", decision.research_state)
+            object.__setattr__(self, "portfolio_review_state", decision.portfolio_review_state)
+            object.__setattr__(self, "analysis_status", decision.analysis_status)
+            object.__setattr__(self, "research_promotion_allowed", decision.research_promotion_allowed)
+            object.__setattr__(self, "portfolio_review_allowed", decision.portfolio_review_allowed)
+            object.__setattr__(self, "gate_policy_version", decision.gate_policy_version)
+            object.__setattr__(self, "gate_policy_checksum", decision.gate_policy_checksum)
+        else:
+            # Direct compatibility construction cannot grant authority; Task
+            # 3's typed resolver is the only owner of positive flags.
+            object.__setattr__(self, "research_promotion_allowed", False)
+            object.__setattr__(self, "portfolio_review_allowed", False)
         object.__setattr__(self, "execution_allowed", False)
         if valid_analysis_status and self.analysis_status == "unavailable":
             derived: AnalysisStatus = "partial" if self.blocked_by or self.warnings else "complete"
@@ -161,7 +174,7 @@ class SignalResult:
     def to_v2_dict(self) -> dict[str, object]:
         """Return release-facing authority fields without legacy action verbs."""
 
-        return public_authority_payload(
+        payload = public_authority_payload(
             research_state=self.research_state,
             portfolio_review_state=self.portfolio_review_state,
             analysis_status=self.analysis_status,
@@ -171,7 +184,9 @@ class SignalResult:
             migration_version=self.migration_version,
             gate_policy_version=self.gate_policy_version,
             gate_policy_checksum=self.gate_policy_checksum,
+            authority_decision=self.authority_decision,
         )
+        return payload
 
     def to_public_dict(self) -> dict[str, object]:
         return self.to_v2_dict()
@@ -209,5 +224,16 @@ class DataQualityReport:
         return "Clean"
 
     @property
-    def trading_allowed(self) -> bool:
+    def analysis_allowed(self) -> bool:
         return not any(issue.severity == "block" for issue in self.issues)
+
+    @property
+    def trading_allowed(self) -> bool:
+        """Deprecated compatibility property; execution authority is never granted."""
+
+        warnings.warn(
+            "DataQualityReport.trading_allowed is deprecated; use the typed authority resolver.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return False

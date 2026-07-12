@@ -101,9 +101,24 @@ class GateResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
 
     gate_id: str = Field(min_length=1)
+    order: int = Field(default=0, ge=0)
     severity: GateSeverity = GateSeverity.NOTICE
     passed: bool = True
     message: str = ""
+    gate_policy_version: str = "unavailable"
+    gate_policy_checksum: str = "unavailable"
+
+    @property
+    def policy_version(self) -> str:
+        """Compatibility alias for consumers using generic policy metadata."""
+
+        return self.gate_policy_version
+
+    @property
+    def policy_checksum(self) -> str:
+        """Compatibility alias for consumers using generic policy metadata."""
+
+        return self.gate_policy_checksum
 
 
 class AuthorityDecision(BaseModel):
@@ -122,6 +137,21 @@ class AuthorityDecision(BaseModel):
     portfolio_review_allowed: bool = False
     execution_allowed: Literal[False] = False
     gates: tuple[GateResult, ...] = ()
+    gate_policy_version: str = "unavailable"
+    gate_policy_checksum: str = "unavailable"
+    diagnostics: tuple[str, ...] = ()
+
+    @property
+    def policy_version(self) -> str:
+        """Compatibility alias for consumers using generic policy metadata."""
+
+        return self.gate_policy_version
+
+    @property
+    def policy_checksum(self) -> str:
+        """Compatibility alias for consumers using generic policy metadata."""
+
+        return self.gate_policy_checksum
 
 
 # Compatibility import values are deliberately kept out of all public enums.
@@ -288,20 +318,25 @@ def public_authority_payload(
     migration_version: str = "2.0",
     gate_policy_version: str = "unavailable",
     gate_policy_checksum: str = "unavailable",
+    authority_decision: AuthorityDecision | None = None,
 ) -> dict[str, object]:
     """Build the release-facing v2 authority fields in deterministic order."""
 
     state = ResearchState(research_state)
     portfolio_state = PortfolioReviewState(portfolio_review_state)
     status = normalise_analysis_status(analysis_status)
-    return {
+    payload = {
         "research_state": state.value,
         "portfolio_review_state": portfolio_state.value,
         "analysis_status": status,
-        # Positive authority is owned by Task 3's typed resolver.  Dataclass
-        # and compatibility serializers in this task always fail closed.
-        "research_promotion_allowed": False,
-        "portfolio_review_allowed": False,
+        # Positive authority is only accepted from the typed Task 3 resolver;
+        # direct compatibility construction remains fail-closed.
+        "research_promotion_allowed": bool(authority_decision.research_promotion_allowed)
+        if authority_decision is not None
+        else False,
+        "portfolio_review_allowed": bool(authority_decision.portfolio_review_allowed)
+        if authority_decision is not None
+        else False,
         "execution_allowed": False,
         "legacy_action": normalise_legacy_action(legacy_action),
         "migration_version": str(migration_version),
@@ -309,6 +344,10 @@ def public_authority_payload(
         "gate_policy_checksum": str(gate_policy_checksum),
         "schema_version": "2.0",
     }
+    if authority_decision is not None:
+        payload["gates"] = [gate.model_dump(mode="json") for gate in authority_decision.gates]
+        payload["authority_diagnostics"] = list(authority_decision.diagnostics)
+    return payload
 
 
 __all__ = [

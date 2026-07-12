@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, datetime, timezone
+from math import isfinite
 
 import pandas as pd
 
@@ -8,6 +10,7 @@ from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.logging import append_jsonl
 from etf_cockpit.core.scheduler import current_run_id
 from etf_cockpit.core.types import DataQualityReport, SignalResult
+from etf_cockpit.governance.gate_policy import resolve_authority
 from etf_cockpit.portfolio.allocation import allocation_frame
 from etf_cockpit.portfolio.costs import estimated_cost_bps
 from etf_cockpit.portfolio.holdings import portfolio_value
@@ -16,6 +19,7 @@ from etf_cockpit.signals.actions import advisory_action, apply_gate_result, prel
 from etf_cockpit.signals.explanations import explain_signal
 from etf_cockpit.signals.gates import evaluate_risk_gates
 from etf_cockpit.signals.scoring import component_scores, row_components
+from etf_cockpit.signals.research_states import GateResult, research_state_for_legacy_action
 
 
 def generate_signals(
@@ -167,7 +171,7 @@ def generate_signals(
             },
             timestamp=datetime.now(timezone.utc),
         )
-        signals.append(signal)
+        signals.append(_attach_authority(signal, data_report))
 
     append_jsonl("signal_log.jsonl", "signals_generated", {"signals": [_signal_to_json(signal) for signal in signals]}, run_id=run_id)
     return signals
@@ -193,6 +197,79 @@ def _signal_to_json(signal: SignalResult) -> dict[str, object]:
         }
     )
     return data
+
+
+def _attach_authority(signal: SignalResult, data_report: DataQualityReport) -> SignalResult:
+    """Resolve and attach the typed gate decision before release serialisation.
+
+    Signal generation does not have a portfolio-review snapshot, so that
+    dimension remains explicitly not applicable. Missing evidence is recorded
+    as a failed gate rather than being treated as a pass.
+    """
+
+    etf_issues = [issue for issue in data_report.issues if issue.etf_id in {signal.etf_id, "ALL"}]
+    blocked_codes = set(signal.blocked_by)
+    warning_codes = set(signal.warnings)
+    has_dataset_evidence = any(
+        bool(metadata.checksum and metadata.provider_or_manual_source)
+        for metadata in data_report.dataset_metadata
+    )
+    risk_blocks = {
+        "portfolio_validation_block",
+        "expected_drawdown_gate",
+        "cash_minimum_breached",
+        "model_disagreement",
+        "edge_below_cost_threshold",
+    }
+    gates = [
+        GateResult(
+            gate_id="identity",
+            passed=bool(signal.etf_id.strip()),
+            message="ETF identity is present" if signal.etf_id.strip() else "ETF identity is missing",
+        ),
+        GateResult(
+            gate_id="data_quality",
+            passed=not any(issue.severity == "block" for issue in etf_issues),
+            message="No blocking data-quality issue" if not any(issue.severity == "block" for issue in etf_issues) else "Blocking data-quality issue",
+        ),
+        GateResult(
+            gate_id="evidence",
+            passed=has_dataset_evidence,
+            message="Dated provider evidence is available" if has_dataset_evidence else "Dated provider evidence is unavailable",
+        ),
+        GateResult(
+            gate_id="model_validity",
+            passed=isfinite(float(signal.total_score)) and signal.model_versions_used.get("baseline") not in {None, "unavailable"},
+            message="Baseline score and model version are present",
+        ),
+        GateResult(
+            gate_id="risk",
+            passed=not bool(blocked_codes & risk_blocks),
+            message="No blocking risk gate" if not blocked_codes & risk_blocks else "Risk gate blocked",
+        ),
+        GateResult(
+            gate_id="valuation",
+            passed=False,
+            message="Valuation context is unavailable to signal generation",
+        ),
+        GateResult(
+            gate_id="signal",
+            passed=not warning_codes,
+            message="No signal warnings" if not warning_codes else "Signal warnings remain visible",
+        ),
+        GateResult(
+            gate_id="portfolio_fit",
+            passed="portfolio_validation_block" not in blocked_codes,
+            message="Portfolio constraints are available" if "portfolio_validation_block" not in blocked_codes else "Portfolio validation blocked",
+        ),
+        GateResult(
+            gate_id="cost",
+            passed="edge_below_cost_threshold" not in blocked_codes,
+            message="Edge clears configured cost threshold" if "edge_below_cost_threshold" not in blocked_codes else "Edge is below configured cost threshold",
+        ),
+    ]
+    decision = resolve_authority(research_state_for_legacy_action(signal.action), gates, None)
+    return replace(signal, authority_decision=decision)
 
 
 def _cost_stress_metrics(

@@ -221,7 +221,7 @@ def export_review_pack(
     )
     validation_report = {
         "as_of_date": as_of_date.isoformat(),
-        "trading_allowed": data_report.trading_allowed if data_report else None,
+        "trading_allowed": False,
         "status": data_report.status if data_report else "unknown",
         "issues": [asdict(issue) for issue in data_report.issues] if data_report else [],
         "dataset_metadata": [asdict(meta) for meta in data_report.dataset_metadata] if data_report else [],

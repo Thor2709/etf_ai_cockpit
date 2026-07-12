@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from math import isfinite, tanh
 from pathlib import Path
@@ -12,13 +12,17 @@ from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, p
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.paths import BACKTESTS_DIR, DERIVED_DIR, FORECASTS_DIR, RAW_DIR, REPORTS_DIR
 from etf_cockpit.core.types import SignalResult
+from etf_cockpit.governance.gate_policy import resolve_authority
 from etf_cockpit.data.reference_data import load_reference_dataset
 from etf_cockpit.data.yfinance_provider import yfinance_symbol_map_from_config
 from etf_cockpit.features.regime import build_benchmark_attribution_lookup, build_market_regime, build_portfolio_fit_lookup
 from etf_cockpit.models.calibration import calibration_lookup, evaluate_forecast_calibration, load_forecast_history
 from etf_cockpit.models.forecast_scores import forecast_component_maps, forecast_score_details, load_latest_forecasts
 from etf_cockpit.signals.research_states import (
+    ALLOWED_EVIDENCE_SOURCE_IDS,
     AnalysisStatus,
+    AuthorityDecision,
+    GateResult,
     InternalSignalIntent,
     PortfolioReviewState,
     ResearchState,
@@ -232,6 +236,7 @@ class SimpleInstrumentScore:
     gate_policy_version: str = "unavailable"
     gate_policy_checksum: str = "unavailable"
     schema_version: str = "2.0"
+    authority_decision: AuthorityDecision | None = None
 
     def __post_init__(self) -> None:
         try:
@@ -251,10 +256,19 @@ class SimpleInstrumentScore:
         raw_analysis_status = str(self.analysis_status or "").strip().casefold()
         valid_analysis_status = raw_analysis_status in {"complete", "partial", "unavailable"}
         object.__setattr__(self, "analysis_status", normalise_analysis_status(raw_analysis_status))
-        # Public score serialisation remains fail-closed until Task 3's
-        # policy-driven resolver establishes positive authority.
-        object.__setattr__(self, "research_promotion_allowed", False)
-        object.__setattr__(self, "portfolio_review_allowed", False)
+        if self.authority_decision is not None:
+            decision = self.authority_decision
+            object.__setattr__(self, "research_state", decision.research_state)
+            object.__setattr__(self, "portfolio_review_state", decision.portfolio_review_state)
+            object.__setattr__(self, "analysis_status", decision.analysis_status)
+            object.__setattr__(self, "research_promotion_allowed", decision.research_promotion_allowed)
+            object.__setattr__(self, "portfolio_review_allowed", decision.portfolio_review_allowed)
+            object.__setattr__(self, "gate_policy_version", decision.gate_policy_version)
+            object.__setattr__(self, "gate_policy_checksum", decision.gate_policy_checksum)
+        else:
+            # Direct compatibility construction remains fail-closed.
+            object.__setattr__(self, "research_promotion_allowed", False)
+            object.__setattr__(self, "portfolio_review_allowed", False)
         if valid_analysis_status and self.analysis_status == "unavailable":
             if self.final_score_10 is None:
                 derived: AnalysisStatus = "unavailable"
@@ -276,6 +290,7 @@ class SimpleInstrumentScore:
             migration_version=self.migration_version,
             gate_policy_version=self.gate_policy_version,
             gate_policy_checksum=self.gate_policy_checksum,
+            authority_decision=self.authority_decision,
         )
 
     def to_public_dict(self) -> dict[str, object]:
@@ -435,10 +450,67 @@ def build_simple_instrument_scores(
         regime=regime,
         include_latest_input=True,
     )
-    return sorted(
+    scores = sorted(
         [*universe_scores, *candidate_scores],
         key=lambda item: (item.final_score_10 is None, -(item.final_score_10 or -1.0), item.display_id),
     )
+    return [_attach_authority(score) for score in scores]
+
+
+def _attach_authority(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
+    """Publish the same typed authority envelope on scoreboard release rows."""
+
+    evidence_present = any(
+        component.status == "ok"
+        and component.score_10 is not None
+        and component.source_id in ALLOWED_EVIDENCE_SOURCE_IDS
+        for component in score.components
+    )
+    warning_text = " ".join(score.warnings).casefold()
+    gates = [
+        GateResult(gate_id="identity", passed=bool(score.display_id.strip()), message="Instrument identity is present"),
+        GateResult(
+            gate_id="data_quality",
+            passed=not any(token in warning_text for token in ("data", "stale", "missing")),
+            message="Score data has no blocking warning",
+        ),
+        GateResult(
+            gate_id="evidence",
+            passed=evidence_present,
+            message="Source-linked score evidence is available" if evidence_present else "Source-linked score evidence is unavailable",
+        ),
+        GateResult(
+            gate_id="model_validity",
+            passed=score.final_score_10 is not None and score.backtest_validity != "not_evaluated",
+            message="Score and backtest validity are explicit",
+        ),
+        GateResult(
+            gate_id="risk",
+            passed=not any(token in warning_text for token in ("risk", "drawdown", "concentration")),
+            message="No blocking risk warning",
+        ),
+        GateResult(
+            gate_id="valuation",
+            passed=any(
+                component.key in {"stock_value", "etf_exposure"} and component.score_10 is not None
+                for component in score.components
+            ),
+            message="Valuation context is available",
+        ),
+        GateResult(gate_id="signal", passed=not bool(score.warnings), message="No score warnings"),
+        GateResult(
+            gate_id="portfolio_fit",
+            passed=score.portfolio_fit_label != "Portfolio fit not evaluated",
+            message="Portfolio fit is evaluated",
+        ),
+        GateResult(
+            gate_id="cost",
+            passed=score.edge_to_cost_ratio is not None,
+            message="Edge-to-cost context is available",
+        ),
+    ]
+    decision = resolve_authority(research_state_for_legacy_action(score.final_action), gates, None)
+    return replace(score, authority_decision=decision)
 
 
 def simple_scoreboard_frame(
