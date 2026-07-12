@@ -550,9 +550,9 @@
       "branch": "wave4/task10-data-health",
       "worktree": ".worktrees/task10-data-health",
       "task_base": "557e923",
-      "head": "8ceafce",
-      "head_note": "Atomic staging and failed-completion provenance fixes plus closure evidence refresh are committed; final integration/synchronisation remains.",
-      "implementation_commits": ["d171162", "85b469e", "87559ed", "ea03216", "d1b7b7a", "8ceafce"],
+      "head": "85b7fb9",
+      "head_note": "Atomic staging and failed-completion provenance fixes plus final closure evidence refresh are committed; final integration/synchronisation remains.",
+      "implementation_commits": ["d171162", "85b469e", "87559ed", "ea03216", "d1b7b7a", "8ceafce", "85b7fb9"],
       "red": {
         "initial_exit_code": 1,
         "initial_data_health_failures": 5,
