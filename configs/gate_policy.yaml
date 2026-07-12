@@ -1,0 +1,15 @@
+schema_version: "1.0"
+policy_id: gate-policy
+policy_version: "2026-07-12"
+execution_allowed: false
+executable_authority: false
+gates:
+  - {gate_id: identity, order: 1, severity: blocker, description: Instrument identity and source identity must be resolved}
+  - {gate_id: data_quality, order: 2, severity: blocker, description: "Data must be present, valid and fresh enough"}
+  - {gate_id: evidence, order: 3, severity: blocker, description: Required evidence must be source-linked and conflict-aware}
+  - {gate_id: model_validity, order: 4, severity: blocker, description: Model and backtest validity must be explicit}
+  - {gate_id: risk, order: 5, severity: blocker, description: Risk limits and unsupported asset controls must pass}
+  - {gate_id: valuation, order: 6, severity: authority_warning, description: Valuation context is advisory and may downgrade confidence}
+  - {gate_id: signal, order: 7, severity: authority_warning, description: Signal confirmation and data quality warnings remain visible}
+  - {gate_id: portfolio_fit, order: 8, severity: authority_warning, description: Portfolio context may require manual review}
+  - {gate_id: cost, order: 9, severity: authority_warning, description: Friction and edge-to-cost context is advisory}

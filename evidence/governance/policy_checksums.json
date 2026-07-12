@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "generated_at_utc": "2026-07-12T01:11:39Z",
+  "source_commit": "31448c3f96781a7a8c66ba1dc69a3f40577be1b0",
+  "execution_allowed": false,
+  "policies": {
+    "product_governance": {
+      "path": "configs/product_governance.yaml",
+      "sha256": "2b904e26fe3f23dc2179b73d1a525b060587ba76535b4fd344dc295cbf7e4f22"
+    },
+    "feature_registry": {
+      "path": "configs/feature_registry.yaml",
+      "sha256": "df832b1d53a5524a5c47dc48f6beb9dd5fc21f8a924cf02468d92be9bbc0bd2c"
+    },
+    "strategy_scope": {
+      "path": "configs/strategy_scope.yaml",
+      "sha256": "14c58c3d28a0f6ee08429caa45f64b75410534068e8ef1c536653f989f9ed174"
+    },
+    "gate_policy": {
+      "path": "configs/gate_policy.yaml",
+      "sha256": "08417a30155b2e42b540d125f1c12d719a1bec2ac99c703ed5d969d17f619adc"
+    },
+    "glossary": {
+      "path": "configs/glossary.yaml",
+      "sha256": "d8738c75a0d3e95df69528f53f80b42e71828880eb471ef434f9f398652a41ce"
+    }
+  }
+}
