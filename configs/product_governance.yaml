@@ -1,0 +1,33 @@
+schema_version: "1.0"
+policy_id: product-governance
+policy_version: "2026-07-12"
+execution_allowed: false
+executable_authority: false
+product:
+  canonical_name: "ETF AI Cockpit"
+  category: "local investment evidence and portfolio-research cockpit"
+  intended_user: "human private investor"
+  default_horizon: "long_horizon"
+  decision_owner: "user"
+authority:
+  maximum_operational_authority: "manual_research"
+  broker_execution: "forbidden"
+  execution_allowed: false
+  executable_authority: false
+  order_transmission: false
+  external_upload: false
+  credential_access: false
+  autonomous_portfolio_management: false
+  unvalidated_ai_score_authority: false
+default_research_state: research_candidate
+default_portfolio_review_state: not_applicable
+prohibited_claims:
+  - "guaranteed return"
+  - "autonomous financial adviser"
+  - "AI trading bot"
+  - "proven alpha"
+  - "broker execution enabled"
+required_disclosures:
+  - "Outputs are research evidence, not executable orders."
+  - "The user owns the final decision."
+  - "Unavailable or weak evidence can restrict authority."

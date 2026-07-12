@@ -1,0 +1,28 @@
+schema_version: "1.0"
+policy_id: feature-registry
+policy_version: "2026-07-12"
+execution_allowed: false
+executable_authority: false
+features:
+  - {feature_id: dashboard, route: "/", title: Simple Scores, lifecycle: supported, authority: research_state, required_data: [prices, evidence], tests: [test_simple_scores], visible: true}
+  - {feature_id: portfolio, route: "/portfolio", title: Portfolio Context, lifecycle: supported, authority: portfolio_review, required_data: [universe, prices], tests: [test_rebalancing], visible: true}
+  - {feature_id: signals, route: "/signals", title: Scores, lifecycle: supported, authority: research_state, required_data: [prices, evidence], tests: [test_simple_scores], visible: true}
+  - {feature_id: risk, route: "/risk", title: Risk Evidence, lifecycle: supported, authority: evidence_only, required_data: [prices, risk], tests: [test_risk_analytics], visible: true}
+  - {feature_id: etf_detail, route: "/etf", title: Instrument Detail, lifecycle: supported, authority: evidence_only, required_data: [prices, filings], tests: [test_instrument_detail], visible: true}
+  - {feature_id: backtests, route: "/backtests", title: Backtests, lifecycle: supported_with_limitations, authority: evidence_only, required_data: [prices], tests: [test_backtest_costs], visible: true}
+  - {feature_id: chatgpt_audit, route: "/chatgpt", title: Audit Notes, lifecycle: supported_with_limitations, authority: context_only, required_data: [evidence], tests: [test_chatgpt_import], visible: true}
+  - {feature_id: providers, route: "/providers", title: Provider Status, lifecycle: supported, authority: evidence_only, required_data: [provider_status], tests: [test_provider_registry], visible: true}
+  - {feature_id: evidence, route: "/evidence", title: Evidence Ledger, lifecycle: supported, authority: evidence_only, required_data: [evidence], tests: [test_evidence_ledger], visible: true}
+  - {feature_id: filings, route: "/filings", title: Filings and Statements, lifecycle: supported_with_limitations, authority: evidence_only, required_data: [filings], tests: [test_sec_facts_parser], visible: true}
+  - {feature_id: etf_disclosures, route: "/etf-disclosures", title: ETF Disclosures, lifecycle: supported_with_limitations, authority: evidence_only, required_data: [etf_documents], tests: [test_fund_documents], visible: true}
+  - {feature_id: news_context, route: "/news-context", title: News and Context, lifecycle: supported_with_limitations, authority: context_only, required_data: [news], tests: [test_news_context], visible: true}
+  - {feature_id: data_models, route: "/data-models", title: Data and Models, lifecycle: supported_with_limitations, authority: evidence_only, required_data: [models], tests: [test_model_shapes], visible: true}
+  - {feature_id: settings, route: "/settings", title: Settings, lifecycle: supported, authority: user_record, required_data: [configuration], tests: [test_release_hardening], visible: true}
+  - {feature_id: diagnostics, route: "/diagnostics", title: Diagnostics, lifecycle: supported, authority: evidence_only, required_data: [logs], tests: [test_workflow_runtime], visible: true}
+  - {feature_id: errors, route: "/errors", title: Errors and Recovery, lifecycle: supported, authority: evidence_only, required_data: [logs], tests: [test_error_recovery], visible: true}
+  - {feature_id: data_health, route: "/data-health", title: Data Health, lifecycle: supported, authority: evidence_only, required_data: [data_health], tests: [test_data_health], visible: true}
+  - {feature_id: universe, route: "/universe", title: Universe, lifecycle: supported_with_limitations, authority: evidence_only, required_data: [universe], tests: [test_universe_store], visible: true}
+  - {feature_id: onboarding, route: "/onboarding", title: First-run Setup, lifecycle: supported, authority: user_record, required_data: [configuration], tests: [test_onboarding], visible: true}
+  - {feature_id: what_changed, route: "/what-changed", title: What Changed, lifecycle: supported_with_limitations, authority: evidence_only, required_data: [score_history], tests: [test_run_changes], visible: true}
+  - {feature_id: instrument, route: "/instrument", title: Instrument Detail, lifecycle: supported, authority: evidence_only, required_data: [prices, evidence], tests: [test_instrument_detail], visible: true}
+  - {feature_id: import_export, route: "/import-export", title: Import and Export, lifecycle: supported_with_limitations, authority: evidence_only, required_data: [evidence], tests: [test_import_export], visible: true}

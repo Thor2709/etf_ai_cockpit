@@ -1,0 +1,18 @@
+schema_version: "1.0"
+policy_id: governance-glossary
+policy_version: "2026-07-12"
+execution_allowed: false
+executable_authority: false
+glossary:
+  - {term: alpha, definition: Return relative to a selected benchmark over a stated period, authority_note: Context only; it does not bypass gates}
+  - {term: beta, definition: Sensitivity of returns to a benchmark, authority_note: Context only}
+  - {term: drawdown, definition: Decline from a prior peak in a value series, authority_note: Risk evidence}
+  - {term: PBO, definition: Probability of backtest overfitting, authority_note: Model-validity evidence}
+  - {term: deflated Sharpe, definition: Sharpe adjustment for multiple testing and non-normality, authority_note: Model-validity evidence}
+  - {term: MASE, definition: Mean absolute scaled error for forecast evaluation, authority_note: Forecast context}
+  - {term: calibration, definition: Agreement between predicted probabilities and observed outcomes, authority_note: Model-validity evidence}
+  - {term: slippage, definition: Difference between an assumed decision price and an observed fill proxy, authority_note: Cost context only}
+  - {term: edge-to-cost, definition: Estimated gross edge divided by estimated friction, authority_note: Cost gate context}
+  - {term: N/A, definition: A required value is unavailable or not applicable, authority_note: Missing evidence cannot increase authority}
+  - {term: manual_review, definition: A human must inspect evidence before any research promotion or portfolio review, authority_note: Non-executable state}
+  - {term: not_scoreable, definition: Required evidence or policy is unavailable, so no score is authoritative, authority_note: Fail-closed state}
