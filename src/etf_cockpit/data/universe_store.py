@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import re
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Iterable, Mapping
@@ -14,6 +15,7 @@ from etf_cockpit.core.paths import ROOT
 
 
 UNKNOWN_ISIN_VALUES = {"", "unknown", "needs_verification", "n/a", "na", "none"}
+TICKER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._=-]{0,31}$")
 SPAREBANKEN_ROWS: tuple[tuple[str, str, str, str], ...] = (
     ("Aurskog Sparebank", "AURG", "AURG.OL", "needs_verification"),
     ("Helgeland Sparebank", "HELG", "HELG.OL", "NO0010029804"),
@@ -85,6 +87,7 @@ class UniverseStoreSnapshot:
     records: tuple[UniverseRecord, ...]
     revision: str
     path: Path
+    allow_cross_tier_duplicates: bool = False
 
 
 @dataclass(frozen=True)
@@ -174,6 +177,8 @@ def validate_universe(
         ids[record_id] = (record.instrument_id, record.tier)
         if not record.ticker:
             errors.append(f"ticker is required: {record.instrument_id}")
+        elif not TICKER_PATTERN.fullmatch(record.ticker):
+            errors.append(f"malformed ticker: {record.ticker}")
         elif ticker in tickers:
             prior_ticker, prior_tier = tickers[ticker]
             if not (allow_cross_tier_duplicates and prior_tier != record.tier):
@@ -262,10 +267,15 @@ def load_universe(root: Path | None = None) -> UniverseStoreSnapshot:
     root = (root or ROOT).resolve()
     path = _store_path(root)
     if not path.exists():
-        return UniverseStoreSnapshot((), "", path)
+        return UniverseStoreSnapshot((), "", path, False)
     payload = json.loads(path.read_text(encoding="utf-8"))
     records = tuple(_normalise_record(UniverseRecord(**raw)) for raw in payload.get("records", ()))
-    return UniverseStoreSnapshot(records, _text(payload.get("revision")), path)
+    return UniverseStoreSnapshot(
+        records,
+        _text(payload.get("revision")),
+        path,
+        _as_bool(payload.get("allow_cross_tier_duplicates", False)),
+    )
 
 
 def add_record(
@@ -412,21 +422,19 @@ def import_legacy_universe(primary_yaml: Path, candidate_csv: Path | None = None
     if candidate_rows:
         for raw in candidate_rows:
             records.append(_record_from_mapping(raw, default_tier="secondary"))
-        # The legacy feed can be partial and historically mixed Sparebanken
-        # rows into the secondary tier.  Canonical fallback identity always
-        # wins, including when NONG is present as a secondary candidate.
-        canonical_ids = set(fallback_by_id)
-        canonical_tickers = set(fallback_by_ticker)
-        records = [
-            record
-            for record in records
-            if record.instrument_id.casefold() not in canonical_ids
-            and record.ticker.casefold() not in canonical_tickers
-        ]
-        records.extend(fallback)
     else:
         warnings.append("candidate CSV unavailable; retained built-in Sparebanken identity rows")
-        records.extend(fallback)
+    # Both primary YAML and candidate feeds historically mixed Sparebanken
+    # rows into other tiers. Canonical fallback identity always wins.
+    canonical_ids = set(fallback_by_id)
+    canonical_tickers = set(fallback_by_ticker)
+    records = [
+        record
+        for record in records
+        if record.instrument_id.casefold() not in canonical_ids
+        and record.ticker.casefold() not in canonical_tickers
+    ]
+    records.extend(fallback)
     # Preserve one authoritative row per canonical ID even if an unusual
     # legacy source repeats a row under a case variant.
     seen: set[str] = set()

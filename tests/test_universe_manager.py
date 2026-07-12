@@ -110,3 +110,16 @@ def test_real_crud_controls_stage_changes_and_save_captured_revision(monkeypatch
     query.on_change(None)
     tabs = next(control for control in _walk(root) if isinstance(control, ft.TabBar))
     assert [tab.label for tab in tabs.tabs] == ["Primary", "Secondary", "Sparebanken"]
+
+
+def test_override_checkbox_rehydrates_from_store_snapshot(monkeypatch) -> None:
+    record = UniverseRecord("A", "Alpha", "NO0000000001", "verified", "A", "stock", "primary", "", True, "daily", "EUR", "NO", "", "", "")
+    monkeypatch.setattr(
+        manager,
+        "load_universe",
+        lambda: UniverseStoreSnapshot((record,), "revision", Path("store.json"), True),
+    )
+    page = _Page()
+    root = universe_manager_page(page, _state())
+    checkbox = next(control for control in _walk(root) if isinstance(control, ft.Checkbox) and control.key == "universe.allow-cross-tier-duplicates")
+    assert checkbox.value is True

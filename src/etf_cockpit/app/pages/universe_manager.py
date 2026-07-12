@@ -92,7 +92,7 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
     status = ft.Text("No changes pending. needs_verification and pending refresh are shown per row.", color=theme.MUTED, selectable=True)
     allow_duplicates = ft.Checkbox(
         label="Allow cross-tier duplicate IDs/tickers/ISINs (explicit override)",
-        value=False,
+        value=snapshot.allow_cross_tier_duplicates,
         key="universe.allow-cross-tier-duplicates",
     )
 

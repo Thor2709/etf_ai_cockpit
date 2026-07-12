@@ -36,6 +36,14 @@ def test_duplicate_identity_and_unknown_isin_are_explicit(tmp_path: Path) -> Non
     assert report.unknown_isin_ids == ("A", "B")
 
 
+def test_malformed_ticker_is_rejected_without_inventing_isin() -> None:
+    malformed = _record("BAD", isin="needs_verification", ticker="!!!")
+    report = validate_universe([malformed])
+    assert report.valid is False
+    assert any("malformed ticker" in error for error in report.errors)
+    assert report.unknown_isin_ids == ("BAD",)
+
+
 def test_cross_tier_duplicate_override_is_explicit() -> None:
     records = [_record("A", ticker="DUP", tier="primary"), _record("A", ticker="DUP", tier="secondary", isin="NO0000000002")]
     rejected = validate_universe(records)
@@ -110,6 +118,20 @@ def test_legacy_import_keeps_sparebanken_rows_and_unknown_isin_states(tmp_path: 
     assert any(row.instrument_id == "CORE" for row in rows)
 
 
+def test_primary_sparebanken_identity_is_replaced_by_authoritative_fallback(tmp_path: Path) -> None:
+    primary = tmp_path / "universe.yaml"
+    primary.write_text(
+        "etfs:\n  - id: NONG\n    name: Wrong primary\n    ticker: NONG.OL\n    isin: NO0006000801\n    analysis_tier: primary\n",
+        encoding="utf-8",
+    )
+    result = import_legacy_universe(primary)
+    nong = [row for row in result.records if row.instrument_id.casefold() == "nong"]
+    assert len(nong) == 1
+    assert nong[0].tier == "sparebanken"
+    assert nong[0].name == "SpareBank 1 Nord-Norge"
+    assert sum(row.tier == "sparebanken" for row in result.records) == 15
+
+
 def test_secondary_nong_is_replaced_by_authoritative_sparebanken_fallback(tmp_path: Path) -> None:
     primary = tmp_path / "universe.yaml"
     primary.write_text("etfs:\n", encoding="utf-8")
@@ -147,6 +169,18 @@ def test_save_creates_backup_and_compatibility_exports(tmp_path: Path) -> None:
     assert len(loaded.records) == 2
     outputs = export_compatibility(loaded.records, tmp_path / "exports")
     assert outputs.yaml_path.exists() and outputs.csv_path.exists()
+
+
+def test_load_snapshot_preserves_cross_tier_override_state(tmp_path: Path) -> None:
+    saved = save_universe(
+        [_record("A", ticker="A", tier="primary"), _record("A", ticker="A", tier="secondary", isin="NO0000000002")],
+        expected_revision="",
+        root=tmp_path,
+        allow_cross_tier_duplicates=True,
+    )
+    snapshot = load_universe(tmp_path)
+    assert snapshot.revision == saved.revision
+    assert snapshot.allow_cross_tier_duplicates is True
 
 
 def test_universe_filter_is_case_insensitive_and_tier_scoped() -> None:
