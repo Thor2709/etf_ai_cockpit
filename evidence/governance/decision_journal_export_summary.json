@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "policy_version": "2026-07-12",
+  "policy_checksum": "9b06166c05c60cf1dec7214c2aaa2b9b7e59804bdcfcf0b19195c2a09470d6bb",
+  "purpose": "Opt-in Decision Journal export contract; identifiers and checksums only.",
+  "row_count": 0,
+  "ids": [],
+  "checksums": [],
+  "private_notes_exported": false,
+  "execution_allowed": false
+}

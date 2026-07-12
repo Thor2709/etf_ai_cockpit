@@ -15,7 +15,7 @@ from etf_cockpit.data.trust_artifacts import refresh_static_trust_artifacts, wri
 from etf_cockpit.features.regime import build_market_regime, write_market_regime
 from etf_cockpit.models.calibration import evaluate_forecast_calibration, load_forecast_history, write_forecast_calibration
 from etf_cockpit.operations.event_store import current_activity_view, load_events_with_tail_recovery
-from etf_cockpit.portfolio.proposals import create_manual_trade_proposal_report
+from etf_cockpit.portfolio.review_reports import create_portfolio_review_report
 from etf_cockpit.services import ChatGPTBridge, CockpitSnapshot, DataService, build_snapshot
 from etf_cockpit.signals.simple_scores import build_simple_instrument_scores, load_latest_candidate_report, simple_scoreboard_frame, write_simple_scoreboard
 
@@ -366,7 +366,7 @@ class AppState:
         return self.export_audit_packet()
 
     def create_trade_proposal(self) -> Path:
-        report = create_manual_trade_proposal_report(
+        report = create_portfolio_review_report(
             self.snapshot.signals,
             self.snapshot.data_report,
             run_id=self.snapshot.signals[0].run_id if self.snapshot.signals else "manual_trade_proposal",

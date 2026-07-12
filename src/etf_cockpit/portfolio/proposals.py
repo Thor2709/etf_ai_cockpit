@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+import warnings
 
 from etf_cockpit.core.logging import append_jsonl
 from etf_cockpit.core.paths import REPORTS_DIR
 from etf_cockpit.core.types import DataQualityReport, SignalResult
+from etf_cockpit.portfolio.review_reports import create_portfolio_review_report
 
 
 def log_trade_proposals(signals: list[SignalResult], run_id: str) -> list[dict[str, object]]:
@@ -34,7 +36,41 @@ def create_manual_trade_proposal_report(
     run_id: str,
     report_dir: Path = REPORTS_DIR,
 ) -> dict[str, object]:
-    """Create an advisory-only proposal report from already-gated signals."""
+    """Deprecated compatibility adapter for the non-executable review report."""
+
+    warnings.warn(
+        "create_manual_trade_proposal_report is deprecated; use create_portfolio_review_report",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    report = create_portfolio_review_report(signals, data_report, run_id=run_id, report_dir=report_dir)
+    legacy_rows = [
+        _proposal_row(signal)
+        for signal in signals
+        if _is_eligible_proposal_signal(signal) and data_report.analysis_allowed
+    ]
+    append_jsonl(
+        "portfolio_review_adapter.jsonl",
+        "deprecated_portfolio_proposal_adapter",
+        {
+            "report_path": report.get("path"),
+            "legacy_row_count": len(legacy_rows),
+            "execution_allowed": False,
+            "executable_authority": False,
+        },
+        run_id=run_id,
+    )
+    return report | {"proposals": legacy_rows}
+
+
+def _legacy_create_manual_trade_proposal_report(
+    signals: list[SignalResult],
+    data_report: DataQualityReport,
+    *,
+    run_id: str,
+    report_dir: Path = REPORTS_DIR,
+) -> dict[str, object]:
+    """Historical implementation retained only for source-compatible imports."""
 
     timestamp = datetime.now(timezone.utc)
     report_dir.mkdir(parents=True, exist_ok=True)
