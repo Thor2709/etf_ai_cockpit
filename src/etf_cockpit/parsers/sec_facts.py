@@ -50,6 +50,55 @@ class StatementFact:
         return self.canonical_metric
 
 
+def statement_facts_from_esef(
+    records: Iterable[object],
+    *,
+    instrument_id: str,
+    source_sha256: str,
+    source_provider: str = "filings_xbrl_org",
+) -> tuple[StatementFact, ...]:
+    """Adapt parsed ESEF facts to the versioned statement-facts contract."""
+
+    from etf_cockpit.parsers.esef_ixbrl import map_ifrs_fact
+
+    result: list[StatementFact] = []
+    for record in records:
+        concept = str(getattr(record, "concept", "") or "")
+        unit = str(getattr(record, "unit", "") or "")
+        period_end = _record_value(record, "period_end") or None
+        period_start = _record_value(record, "period_start") or None
+        canonical_metric = map_ifrs_fact(concept, _record_value(record, "namespace") or None)
+        source_anchor = f"{concept}:{unit}:{period_start}:{period_end}:{_record_value(record, 'context_id')}"
+        provider_id = str(source_provider or "filings_xbrl_org").strip() or "filings_xbrl_org"
+        source_id = f"{provider_id}:{source_sha256[:16]}:{hashlib.sha256(source_anchor.encode('utf-8')).hexdigest()[:16]}"
+        mapping_status = str(getattr(record, "mapping_status", "") or "")
+        namespace = str(_record_value(record, "namespace") or "")
+        is_extension = mapping_status == "unmapped_extension" or (namespace and "ifrs" not in namespace.lower())
+        result.append(
+            StatementFact(
+                instrument_id=instrument_id,
+                cik="",
+                taxonomy="esef-extension" if is_extension else "ifrs-full",
+                concept=concept,
+                unit=unit,
+                value=getattr(record, "value", ""),
+                start=period_start,
+                end=period_end,
+                instant=period_end if period_start is None else None,
+                filed=None,
+                form="ESEF",
+                accession=None,
+                fiscal_year=int(period_end[:4]) if period_end and period_end[:4].isdigit() else None,
+                fiscal_period=None,
+                source_id=source_id,
+                canonical_metric=canonical_metric,
+                mapping_status="mapped" if canonical_metric else "unmapped_extension" if is_extension else "unmapped",
+                is_custom=is_extension,
+            )
+        )
+    return tuple(result)
+
+
 # Deliberately small and explicit.  A fact not listed here is retained for
 # review but never promoted to a canonical metric.
 _CANONICAL_CONCEPTS = {
@@ -251,7 +300,7 @@ def _statement_facts_write_frame(records: tuple[StatementFact, ...], destination
         frame = frame.drop_duplicates(subset=["source_id"], keep="last")
     authoritative = select_authoritative_facts(frame.to_dict(orient="records"), vendor_records)
     authoritative_ids = {_record_value(record, "source_id") for record in authoritative if _record_value(record, "source_id")}
-    frame["authority_selection"] = frame["source_id"].map(lambda source_id: "canonical_sec" if source_id in authoritative_ids else "retained_sec")
+    frame["authority_selection"] = frame["source_id"].map(lambda source_id: _authority_selection(source_id, source_id in authoritative_ids))
     return frame
 
 
@@ -265,12 +314,12 @@ def _statement_inventory_write_frame(source: RawDocument | Path, records: Iterab
     frame = pd.DataFrame([
         {
             "schema_version": FILINGS_STATEMENTS_SCHEMA_VERSION,
-            "document_id": f"sec:{checksum[:20]}",
+            "document_id": f"{source.provider_id if isinstance(source, RawDocument) else 'local'}:{checksum[:20]}",
             "instrument_id": instrument_id or (rows[0].instrument_id if rows else ""),
-            "document_type": "sec_companyfacts",
+            "document_type": source.document_type if isinstance(source, RawDocument) else "sec_companyfacts",
             "path": str(path),
             "source_url": url,
-            "source_authority": "official_regulator",
+            "source_authority": _statement_source_authority(source),
             "as_of_date": max((record.filed or record.end or record.instant or "" for record in rows), default=""),
             "ingested_at": source.retrieved_at.isoformat() if isinstance(source, RawDocument) else "",
             "checksum": checksum,
@@ -292,6 +341,16 @@ def _statement_inventory_write_frame(source: RawDocument | Path, records: Iterab
             frame["schema_version"] = FILINGS_STATEMENTS_SCHEMA_VERSION
         frame["schema_version"] = frame["schema_version"].fillna(FILINGS_STATEMENTS_SCHEMA_VERSION)
     return frame
+
+
+def _statement_source_authority(source: RawDocument | Path) -> str:
+    if not isinstance(source, RawDocument):
+        return "local_unverified"
+    return {
+        "filings_xbrl_org": "official_filing",
+        "sec_edgar": "official_regulator",
+        "esef_local_import": "manual_review",
+    }.get(source.provider_id, "manual_review")
 
 
 def _existing_parquet(path: Path):
@@ -326,8 +385,10 @@ def select_authoritative_facts(
 
     official = tuple(sec_records)
     vendors = tuple(vendor_records)
+    authoritative = tuple(record for record in official if str(_record_value(record, "source_id")).split(":", 1)[0] in {"sec_edgar", "filings_xbrl_org"})
+    retained_non_authoritative = tuple(record for record in official if record not in authoritative)
     grouped: dict[tuple[str, str, str, str], list[object]] = {}
-    for record in official:
+    for record in authoritative:
         grouped.setdefault(_fact_key(record), []).append(record)
     by_key = {key: _preferred_sec_fact(records) for key, records in grouped.items()}
     selected: list[object] = []
@@ -339,6 +400,7 @@ def select_authoritative_facts(
             selected.append(winner)
     vendor_keys = {_fact_key(item) for item in vendors}
     selected.extend(_preferred_sec_fact(records) for key, records in sorted(grouped.items()) if key not in vendor_keys)
+    selected.extend(retained_non_authoritative)
     return tuple(selected)
 
 
@@ -374,6 +436,15 @@ def _fact_key(record: object) -> tuple[str, str, str, str]:
 def _record_value(record: object, name: str, default: object = "") -> str:
     raw = record.get(name, default) if isinstance(record, dict) else getattr(record, name, default)
     return "" if raw is None else str(raw)
+
+
+def _authority_selection(source_id: object, selected: bool) -> str:
+    prefix = str(source_id or "").split(":", 1)[0]
+    if prefix == "esef_local_import":
+        return "manual_review"
+    if prefix == "filings_xbrl_org":
+        return "canonical_esef" if selected else "retained_esef"
+    return "canonical_sec" if selected else "retained_sec"
 
 
 def _source_id(cik: str, taxonomy: str, concept: str, unit: str, accession: str | None, period: str, entry: dict[str, Any]) -> str:
