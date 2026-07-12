@@ -324,3 +324,47 @@ All checks passed
 ```
 
 Integration fix commit: `6b60fea` (`fix: refresh active universe state after save`).
+
+## Final runtime fix pass: cache invalidation and onboarding session reload
+
+Date: 2026-07-13
+
+### Findings and changes
+
+- Added universe-revision metadata sidecars for configured/candidate forecast
+  outputs and backtest results/equity curves. Cache reuse now requires a
+  matching revision; missing or stale metadata is recorded as invalidation.
+- `_build_snapshot` now initialises `CockpitSnapshot.universe_revision` and
+  loads only forecast caches matching that revision.
+- `AppState.apply_universe_config` clears derived frames and marks the active
+  backtest `stale_universe` with an explanatory quality note.
+- Onboarding save now applies the persisted config to the active state session.
+  The online toggle is disabled and explicitly labelled unavailable when no
+  validator callback is injected; offline/no-network remains the default.
+
+### RED / GREEN evidence
+
+RED:
+
+```text
+python -m pytest -q tests/test_universe_manager.py::test_universe_revision_invalidates_dated_forecast_and_backtest_caches
+TypeError: BacktestService.__init__() got an unexpected keyword argument 'universe_revision'; old implementation had no revision-aware cache boundary.
+
+python -m pytest -q tests/test_onboarding.py::test_onboarding_ui_exposes_opt_in_online_validator_seam
+TypeError: onboarding_page() got an unexpected keyword argument 'validator'.
+```
+
+GREEN:
+
+```text
+python -m pytest -q tests/test_universe_store.py tests/test_onboarding.py tests/test_asset_guardrails.py tests/test_universe_manager.py tests/test_flet_startup.py tests/test_accessibility_contracts.py tests/test_button_contracts.py tests/test_feature_registry.py tests/test_data_validation.py
+56 passed
+
+python -m compileall -q src tests
+exit 0
+
+python -m ruff check src/etf_cockpit/app/state.py src/etf_cockpit/app/pages/universe_manager.py src/etf_cockpit/app/pages/onboarding.py src/etf_cockpit/services.py src/etf_cockpit/data/universe_store.py src/etf_cockpit/models/forecast_scores.py tests/test_universe_manager.py tests/test_universe_store.py tests/test_onboarding.py --no-cache
+All checks passed
+```
+
+Runtime cache fix commit: `20ec2bd` (`fix: invalidate universe-dependent caches`).
