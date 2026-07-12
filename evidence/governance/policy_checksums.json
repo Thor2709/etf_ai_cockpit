@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "generated_at_utc": "2026-07-12T01:11:39Z",
-  "source_commit": "3922afc48fb21ab22465ad890733caa5e0717afc",
+  "source_commit": "31448c3f96781a7a8c66ba1dc69a3f40577be1b0",
   "execution_allowed": false,
   "policies": {
     "product_governance": {
@@ -10,11 +10,11 @@
     },
     "feature_registry": {
       "path": "configs/feature_registry.yaml",
-      "sha256": "1768ed4dc613c2eb9a2a6b0756eed8b6bc600c0ccc4121cbb007fe64326cd63e"
+      "sha256": "df832b1d53a5524a5c47dc48f6beb9dd5fc21f8a924cf02468d92be9bbc0bd2c"
     },
     "strategy_scope": {
       "path": "configs/strategy_scope.yaml",
-      "sha256": "d27e363cb3135271dfe85d7e85a535a39f27cddd613171693443db442f28706d"
+      "sha256": "14c58c3d28a0f6ee08429caa45f64b75410534068e8ef1c536653f989f9ed174"
     },
     "gate_policy": {
       "path": "configs/gate_policy.yaml",
@@ -22,7 +22,7 @@
     },
     "glossary": {
       "path": "configs/glossary.yaml",
-      "sha256": "9798d4c74ef8352a43fc4aca3399104a5e064ad3dd74aae0aa8c0705f43f81d7"
+      "sha256": "d8738c75a0d3e95df69528f53f80b42e71828880eb471ef434f9f398652a41ce"
     }
   }
 }
