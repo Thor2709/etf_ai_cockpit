@@ -14,6 +14,7 @@ from etf_cockpit.core.paths import BACKTESTS_DIR, DERIVED_DIR, FORECASTS_DIR, RA
 from etf_cockpit.core.types import SignalResult
 from etf_cockpit.governance.gate_policy import resolve_authority
 from etf_cockpit.data.reference_data import load_reference_dataset
+from etf_cockpit.data.universe_store import support_decision
 from etf_cockpit.data.yfinance_provider import yfinance_symbol_map_from_config
 from etf_cockpit.features.regime import build_benchmark_attribution_lookup, build_market_regime, build_portfolio_fit_lookup
 from etf_cockpit.models.calibration import calibration_lookup, evaluate_forecast_calibration, load_forecast_history
@@ -902,6 +903,17 @@ def build_candidate_simple_scores(
         if not instrument_id:
             continue
         asset_type = _infer_candidate_asset_type(row)
+        decision = support_decision(
+            str(row.get("instrument_type") or row.get("asset_type") or asset_type).strip().lower(),
+            str(row.get("data_policy") or "yfinance_only").strip().lower(),
+            _as_bool(row.get("leveraged", False)),
+            _as_bool(row.get("inverse", False)),
+        )
+        if not decision.score_eligible:
+            # Keep unsupported/research-only/high-risk candidates out of the
+            # normal scoring output. They remain available in the source
+            # report for explicit manual research.
+            continue
         if _candidate_row_is_pending(row):
             output.append(_pending_candidate_score(row, asset_type))
             continue
@@ -1183,7 +1195,9 @@ def _display_asset_type(identity) -> str:
 
 def _config_extra(identity, key: str, default: object = None) -> object:
     extra = getattr(identity, "model_extra", None) or {}
-    return extra.get(key, default)
+    if key in extra:
+        return extra[key]
+    return getattr(identity, key, default)
 
 
 def _candidate_row_is_pending(row: pd.Series) -> bool:
@@ -2149,6 +2163,14 @@ def _safe_float(value: object) -> float | None:
     except Exception:
         return None
     return number if isfinite(number) else None
+
+
+def _as_bool(value: object) -> bool:
+    if value is None or (not isinstance(value, str) and pd.isna(value)):
+        return False
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on", "enabled"}
+    return bool(value)
 
 
 def _safe_int(value: object) -> int | None:

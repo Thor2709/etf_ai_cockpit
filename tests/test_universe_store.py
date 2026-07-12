@@ -35,6 +35,15 @@ def test_duplicate_identity_and_unknown_isin_are_explicit(tmp_path: Path) -> Non
     assert report.unknown_isin_ids == ("A", "B")
 
 
+def test_cross_tier_duplicate_override_is_explicit() -> None:
+    records = [_record("A", ticker="DUP", tier="primary"), _record("A", ticker="DUP", tier="secondary", isin="NO0000000002")]
+    rejected = validate_universe(records)
+    assert rejected.valid is False
+    accepted = validate_universe(records, allow_cross_tier_duplicates=True)
+    assert accepted.valid is True
+    assert any("override" in warning for warning in accepted.warnings)
+
+
 def test_save_uses_revision_conflict_protection(tmp_path: Path) -> None:
     records = [_record("A")]
     first = save_universe(records, expected_revision="", root=tmp_path)
@@ -79,6 +88,34 @@ def test_legacy_import_keeps_sparebanken_rows_and_unknown_isin_states(tmp_path: 
     assert len([row for row in rows if row.tier == "sparebanken"]) == 15
     assert any(row.ticker == "AURG.OL" and row.isin_status == "needs_verification" for row in rows)
     assert any(row.instrument_id == "CORE" for row in rows)
+
+
+def test_secondary_nong_is_replaced_by_authoritative_sparebanken_fallback(tmp_path: Path) -> None:
+    primary = tmp_path / "universe.yaml"
+    primary.write_text("etfs:\n", encoding="utf-8")
+    candidate = tmp_path / "candidates.csv"
+    candidate.write_text(
+        "instrument_id,name,ticker,isin,analysis_tier,asset_type\n"
+        "NONG,Wrong secondary,NONG.OL,NO0006000801,secondary,stock\n",
+        encoding="utf-8",
+    )
+    result = import_legacy_universe(primary, candidate)
+    nong = [row for row in result.records if row.instrument_id.casefold() == "nong"]
+    assert len(nong) == 1
+    assert nong[0].tier == "sparebanken"
+    assert nong[0].name == "SpareBank 1 Nord-Norge"
+    assert sum(row.tier == "sparebanken" for row in result.records) == 15
+
+
+def test_leveraged_inverse_state_round_trips_and_is_not_score_eligible(tmp_path: Path) -> None:
+    record = _record("LEV", ticker="LEV", isin="NO0000000003")
+    record = UniverseRecord(**{**record.__dict__, "leveraged": True})
+    saved = save_universe([record], expected_revision="", root=tmp_path)
+    loaded = load_universe(tmp_path).records[0]
+    assert loaded.leveraged is True
+    assert validate_universe([loaded]).valid is True
+    assert loaded.enabled is True
+    assert saved.revision
 
 
 def test_save_creates_backup_and_compatibility_exports(tmp_path: Path) -> None:

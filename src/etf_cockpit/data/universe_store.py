@@ -50,6 +50,9 @@ class UniverseRecord:
     sector: str = ""
     theme: str = ""
     notes: str = ""
+    # Added in schema v2.  Missing legacy values are deliberately safe.
+    leveraged: bool = False
+    inverse: bool = False
 
 
 @dataclass(frozen=True)
@@ -107,6 +110,12 @@ def _text(value: object, default: str = "") -> str:
     return str(value).strip()
 
 
+def _as_bool(value: object) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on", "enabled"}
+    return bool(value)
+
+
 def _is_unknown_isin(value: str, status: str) -> bool:
     return status.strip().lower() in {"needs_verification", "unknown", "unresolved"} or value.strip().lower() in UNKNOWN_ISIN_VALUES
 
@@ -133,42 +142,62 @@ def _normalise_record(record: UniverseRecord) -> UniverseRecord:
         sector=_text(record.sector),
         theme=_text(record.theme),
         notes=_text(record.notes),
-        enabled=bool(record.enabled),
+        enabled=_as_bool(record.enabled),
+        leveraged=_as_bool(record.leveraged),
+        inverse=_as_bool(record.inverse),
     )
 
 
-def validate_universe(records: Iterable[UniverseRecord]) -> UniverseValidationReport:
+def validate_universe(
+    records: Iterable[UniverseRecord],
+    *,
+    allow_cross_tier_duplicates: bool = False,
+) -> UniverseValidationReport:
     items = tuple(_normalise_record(record) for record in records)
     errors: list[str] = []
     warnings: list[str] = []
     unknown: list[str] = []
-    ids: dict[str, str] = {}
-    isins: dict[str, str] = {}
-    tickers: dict[str, str] = {}
+    ids: dict[str, tuple[str, str]] = {}
+    isins: dict[str, tuple[str, str]] = {}
+    tickers: dict[str, tuple[str, str]] = {}
     for record in items:
         record_id = record.instrument_id.casefold()
         ticker = record.ticker.casefold()
         if not record.instrument_id:
             errors.append("instrument_id is required")
         elif record_id in ids:
-            errors.append(f"duplicate instrument_id: {record.instrument_id}")
-        ids[record_id] = record.tier
+            prior_id, prior_tier = ids[record_id]
+            if not (allow_cross_tier_duplicates and prior_tier != record.tier):
+                errors.append(f"duplicate instrument_id: {record.instrument_id}")
+            else:
+                warnings.append(f"cross-tier duplicate override: instrument_id {record.instrument_id}")
+        ids[record_id] = (record.instrument_id, record.tier)
         if not record.ticker:
             errors.append(f"ticker is required: {record.instrument_id}")
         elif ticker in tickers:
-            errors.append(f"duplicate ticker: {record.ticker}")
+            prior_ticker, prior_tier = tickers[ticker]
+            if not (allow_cross_tier_duplicates and prior_tier != record.tier):
+                errors.append(f"duplicate ticker: {record.ticker}")
+            else:
+                warnings.append(f"cross-tier duplicate override: ticker {record.ticker}")
         else:
-            tickers[ticker] = record.instrument_id
+            tickers[ticker] = (record.instrument_id, record.tier)
         if _is_unknown_isin(record.isin, record.isin_status):
             unknown.append(record.instrument_id)
         elif record.isin.casefold() in isins:
-            errors.append(f"duplicate isin: {record.isin}")
+            prior_isin, prior_tier = isins[record.isin.casefold()]
+            if not (allow_cross_tier_duplicates and prior_tier != record.tier):
+                errors.append(f"duplicate isin: {record.isin}")
+            else:
+                warnings.append(f"cross-tier duplicate override: ISIN {record.isin}")
         else:
-            isins[record.isin.casefold()] = record.instrument_id
+            isins[record.isin.casefold()] = (record.instrument_id, record.tier)
         if record.tier not in {"primary", "secondary", "sparebanken"}:
             errors.append(f"invalid tier: {record.tier}")
-        decision = support_decision(record.asset_type, record.data_policy, False, False)
-        if not decision.supported:
+        decision = support_decision(record.asset_type, record.data_policy, record.leveraged, record.inverse)
+        if decision.risk_state == "research_only":
+            warnings.append(f"research_only: {record.instrument_id}")
+        elif not decision.supported:
             errors.append(f"unsupported asset type/frequency: {record.asset_type}/{record.data_policy}")
         if not record.enabled:
             warnings.append(f"disabled: {record.instrument_id}")
@@ -277,7 +306,9 @@ def support_decision(asset_type: str, frequency: str, leveraged: bool, inverse: 
         return SupportDecision(False, False, "unsupported", "Crypto is unsupported unless a separately configured proxy is approved; no silent scoring.")
     if normalized not in {"etf", "stock", "equity", "equity_certificate", "certificate"}:
         return SupportDecision(False, False, "unsupported", f"{asset_type} is unsupported and cannot be scored.")
-    if cadence not in {"daily", "daily_close", "yfinance_now_multi_provider_later"}:
+    # ``yfinance_only`` is the historical provider-policy marker, not an
+    # intraday cadence.  Keep it compatible with the daily pipeline.
+    if cadence not in {"daily", "daily_close", "yfinance_now_multi_provider_later", "yfinance_only"}:
         return SupportDecision(False, False, "unsupported_frequency", "Intraday and non-daily frequencies are unsupported for current scoring.")
     if leveraged or inverse:
         return SupportDecision(True, False, "high_risk_manual_review", "Leveraged or inverse instruments require manual review and are not score eligible by default.")
@@ -301,6 +332,8 @@ def _record_from_mapping(raw: Mapping[str, object], *, default_tier: str) -> Uni
     group = _field(raw, "group", "source_group") or ("Sparebanken" if tier == "sparebanken" else "")
     instrument_id = _field(raw, "instrument_id", "id", "symbol", "ticker") or ticker
     asset_type = _field(raw, "asset_type", "instrument_type", "type") or ("equity_certificate" if tier == "sparebanken" else "stock")
+    leveraged = _field(raw, "leveraged", "is_leveraged").lower() in {"true", "1", "yes", "on"}
+    inverse = _field(raw, "inverse", "is_inverse").lower() in {"true", "1", "yes", "on"}
     return _normalise_record(
         UniverseRecord(
             instrument_id=instrument_id,
@@ -318,6 +351,8 @@ def _record_from_mapping(raw: Mapping[str, object], *, default_tier: str) -> Uni
             sector=_field(raw, "sector") or ("Banks" if tier == "sparebanken" else ""),
             theme=_field(raw, "theme"),
             notes=_field(raw, "notes", "comment"),
+            leveraged=leveraged,
+            inverse=inverse,
         )
     )
 
@@ -335,7 +370,7 @@ def _sparebanken_fallback() -> tuple[UniverseRecord, ...]:
 def import_legacy_universe(primary_yaml: Path, candidate_csv: Path | None = None) -> LegacyImportResult:
     primary_yaml = Path(primary_yaml)
     payload = yaml.safe_load(primary_yaml.read_text(encoding="utf-8")) if primary_yaml.exists() else {}
-    primary_rows = payload.get("etfs", ()) if isinstance(payload, dict) else ()
+    primary_rows = (payload.get("etfs", ()) or ()) if isinstance(payload, dict) else ()
     records: list[UniverseRecord] = [_record_from_mapping(raw, default_tier="primary") for raw in primary_rows if isinstance(raw, Mapping)]
     warnings: list[str] = []
     candidate_path = Path(candidate_csv) if candidate_csv else None
@@ -343,17 +378,29 @@ def import_legacy_universe(primary_yaml: Path, candidate_csv: Path | None = None
     if candidate_path and candidate_path.exists():
         with candidate_path.open(newline="", encoding="utf-8-sig") as handle:
             candidate_rows = list(csv.DictReader(handle))
+    fallback = _sparebanken_fallback()
+    fallback_by_id = {record.instrument_id.casefold(): record for record in fallback}
+    fallback_by_ticker = {record.ticker.casefold(): record for record in fallback}
     if candidate_rows:
         for raw in candidate_rows:
             records.append(_record_from_mapping(raw, default_tier="secondary"))
-        # The legacy feed can be partial; append the authoritative named
-        # Sparebanken rows that are absent without inventing unknown ISINs.
-        candidate_ids = {record.instrument_id.casefold() for record in records}
-        records.extend(record for record in _sparebanken_fallback() if record.instrument_id.casefold() not in candidate_ids)
+        # The legacy feed can be partial and historically mixed Sparebanken
+        # rows into the secondary tier.  Canonical fallback identity always
+        # wins, including when NONG is present as a secondary candidate.
+        canonical_ids = set(fallback_by_id)
+        canonical_tickers = set(fallback_by_ticker)
+        records = [
+            record
+            for record in records
+            if record.instrument_id.casefold() not in canonical_ids
+            and record.ticker.casefold() not in canonical_tickers
+        ]
+        records.extend(fallback)
     else:
         warnings.append("candidate CSV unavailable; retained built-in Sparebanken identity rows")
-        records.extend(_sparebanken_fallback())
-    # Candidate feeds historically mixed NONG into secondary; keep it only in Sparebanken.
+        records.extend(fallback)
+    # Preserve one authoritative row per canonical ID even if an unusual
+    # legacy source repeats a row under a case variant.
     seen: set[str] = set()
     deduped: list[UniverseRecord] = []
     for record in records:
@@ -393,14 +440,14 @@ def export_compatibility(records: Iterable[UniverseRecord], export_root: Path) -
     export_root.mkdir(parents=True, exist_ok=True)
     items = tuple(_normalise_record(record) for record in records)
     yaml_path = export_root / "universe.yaml"
-    yaml_payload = {"etfs": [{"id": row.instrument_id, "name": row.name, "isin": row.isin, "ticker": row.ticker, "provider_symbol": row.ticker, "instrument_type": row.asset_type, "analysis_tier": row.tier, "data_policy": row.data_policy, "currency": row.currency, "region": row.region, "sector": row.sector, "theme": row.theme, "enabled": row.enabled, "role": "core" if row.tier == "primary" else "watchlist", "notes": row.notes} for row in items if row.tier == "primary"]}
+    yaml_payload = {"etfs": [{"id": row.instrument_id, "name": row.name, "isin": row.isin, "ticker": row.ticker, "provider_symbol": row.ticker, "instrument_type": row.asset_type, "analysis_tier": row.tier, "data_policy": row.data_policy, "currency": row.currency, "region": row.region, "sector": row.sector, "theme": row.theme, "enabled": row.enabled, "leveraged": row.leveraged, "inverse": row.inverse, "role": "core" if row.tier == "primary" else "watchlist", "notes": row.notes} for row in items if row.tier == "primary"]}
     yaml_path.write_text(yaml.safe_dump(yaml_payload, sort_keys=False, allow_unicode=True), encoding="utf-8")
     csv_path = export_root / "yahoo_trade_candidates.csv"
-    fieldnames = ["instrument_id", "name", "isin", "isin_status", "ticker", "asset_type", "analysis_tier", "group", "enabled", "data_policy", "currency", "region", "sector", "theme", "notes"]
+    fieldnames = ["instrument_id", "name", "isin", "isin_status", "ticker", "asset_type", "analysis_tier", "group", "enabled", "data_policy", "currency", "region", "sector", "theme", "notes", "leveraged", "inverse"]
     with csv_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         for row in items:
             if row.tier != "primary":
-                writer.writerow({"instrument_id": row.instrument_id, "name": row.name, "isin": row.isin, "isin_status": row.isin_status, "ticker": row.ticker, "asset_type": row.asset_type, "analysis_tier": row.tier, "group": row.group, "enabled": row.enabled, "data_policy": row.data_policy, "currency": row.currency, "region": row.region, "sector": row.sector, "theme": row.theme, "notes": row.notes})
+                writer.writerow({"instrument_id": row.instrument_id, "name": row.name, "isin": row.isin, "isin_status": row.isin_status, "ticker": row.ticker, "asset_type": row.asset_type, "analysis_tier": row.tier, "group": row.group, "enabled": row.enabled, "data_policy": row.data_policy, "currency": row.currency, "region": row.region, "sector": row.sector, "theme": row.theme, "notes": row.notes, "leveraged": row.leveraged, "inverse": row.inverse})
     return CompatibilityExport(yaml_path, csv_path)

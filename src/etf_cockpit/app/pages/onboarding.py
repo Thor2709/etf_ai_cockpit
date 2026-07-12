@@ -7,11 +7,12 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 import flet as ft
+import yaml
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
-from etf_cockpit.data.universe_store import UniverseRecord, save_universe
+from etf_cockpit.data.universe_store import UniverseRecord, load_universe, save_universe
 
 
 @dataclass(frozen=True)
@@ -53,7 +54,14 @@ def _profile_tickers(profile: OnboardingProfile) -> tuple[str, ...]:
     return tuple(dict.fromkeys(symbol.strip().upper() for symbol in profile.asset_scope if symbol.strip()))
 
 
-def validate_tickers(tickers: Iterable[str], *, validator: Callable[[str], bool] | None = None, online: bool = False) -> tuple[str, ...]:
+def validate_tickers(
+    tickers: Iterable[str],
+    *,
+    validator: Callable[[str], bool] | None = None,
+    online: bool = False,
+    local_evidence: Iterable[str] = (),
+) -> tuple[str, ...]:
+    evidence = {str(value).strip().upper() for value in local_evidence if str(value).strip()}
     unresolved: list[str] = []
     for raw in tickers:
         symbol = raw.strip().upper()
@@ -65,9 +73,39 @@ def validate_tickers(tickers: Iterable[str], *, validator: Callable[[str], bool]
                 valid = bool(validator(symbol))
             except Exception:
                 valid = False
+        elif valid:
+            # Offline onboarding is local-first: a shape-valid symbol is not
+            # evidence of a real instrument. Existing local universe/config
+            # identity is the only offline positive signal.
+            valid = symbol in evidence
         if not valid or symbol.startswith("UNKNOWN") or symbol.startswith("UNRESOLVED"):
             unresolved.append(symbol)
     return tuple(sorted(set(unresolved)))
+
+
+def _local_ticker_evidence(root: Path) -> tuple[str, ...]:
+    """Read only local identity evidence; never performs provider/network I/O."""
+
+    root = Path(root)
+    symbols: set[str] = set()
+    try:
+        symbols.update(record.ticker.upper() for record in load_universe(root).records if record.ticker)
+    except (OSError, ValueError, TypeError, KeyError):
+        pass
+    yaml_path = root / "configs" / "universe.yaml"
+    if yaml_path.exists():
+        try:
+            payload = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+            for row in payload.get("etfs", ()) if isinstance(payload, dict) else ():
+                if not isinstance(row, dict):
+                    continue
+                for key in ("ticker", "symbol", "provider_symbol", "yahoo_symbol", "yahoo_ticker"):
+                    value = str(row.get(key) or "").strip().upper()
+                    if value:
+                        symbols.add(value)
+        except (OSError, ValueError, TypeError):
+            pass
+    return tuple(sorted(symbols))
 
 
 def validate_onboarding(
@@ -75,6 +113,7 @@ def validate_onboarding(
     *,
     validator: Callable[[str], bool] | None = None,
     online: bool = False,
+    root: Path | None = None,
 ) -> OnboardingValidation:
     errors: list[str] = []
     if not profile.base_currency.strip():
@@ -89,7 +128,12 @@ def validate_onboarding(
         errors.append("risk_profile")
     if not profile.horizon.strip():
         errors.append("horizon")
-    unresolved = validate_tickers(_profile_tickers(profile), validator=validator, online=online)
+    unresolved = validate_tickers(
+        _profile_tickers(profile),
+        validator=validator,
+        online=online,
+        local_evidence=_local_ticker_evidence(root) if root is not None else (),
+    )
     return OnboardingValidation(not errors, tuple(errors), unresolved)
 
 
@@ -124,7 +168,8 @@ def complete_onboarding(
     online: bool = False,
     validator: Callable[[str], bool] | None = None,
 ) -> OnboardingResult:
-    validation = validate_onboarding(profile, validator=validator, online=online)
+    root = Path(root).resolve()
+    validation = validate_onboarding(profile, validator=validator, online=online, root=root)
     if not validation.valid:
         raise ValueError("Onboarding validation failed: " + ", ".join(validation.errors))
     records = _onboarding_records(profile, validation.unresolved_symbols)
@@ -133,7 +178,7 @@ def complete_onboarding(
     path.write_text(json.dumps({"profile": {"base_currency": profile.base_currency, "region": profile.region, "asset_scope": list(profile.asset_scope), "risk_profile": profile.risk_profile, "horizon": profile.horizon, "tickers": list(_profile_tickers(profile))}, "unresolved_symbols": list(validation.unresolved_symbols)}, indent=2) + "\n", encoding="utf-8")
     revision = ""
     if records:
-        revision = save_universe(records, expected_revision="", root=Path(root)).revision
+        revision = save_universe(records, expected_revision="", root=root).revision
     return OnboardingResult(True, validation.unresolved_symbols, records, revision)
 
 

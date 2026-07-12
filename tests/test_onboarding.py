@@ -26,7 +26,21 @@ def test_offline_onboarding_persists_profile_and_disables_unresolved_tickers(tmp
     )
     result = complete_onboarding(profile, tmp_path, online=False)
     assert result.saved is True
-    assert result.unresolved_symbols == ("UNKNOWN",)
-    assert result.records[0].enabled is True
+    assert result.unresolved_symbols == ("UNKNOWN", "VWCE.DE")
+    assert result.records[0].enabled is False
     assert result.records[1].enabled is False
     assert (tmp_path / "configs" / "onboarding.json").exists()
+
+
+def test_offline_onboarding_keeps_configured_local_ticker_enabled(tmp_path) -> None:
+    configs = tmp_path / "configs"
+    configs.mkdir()
+    (configs / "universe.yaml").write_text(
+        "etfs:\n  - id: VWCE\n    name: Vanguard\n    ticker: VWCE.DE\n    role: core\n",
+        encoding="utf-8",
+    )
+    profile = OnboardingProfile("EUR", "Europe", ("etf",), "balanced", "medium", tickers=("VWCE.DE", "MISSING"))
+    result = complete_onboarding(profile, tmp_path, online=False)
+    assert result.unresolved_symbols == ("MISSING",)
+    assert result.records[0].enabled is True
+    assert result.records[1].enabled is False

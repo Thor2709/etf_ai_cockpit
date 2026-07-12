@@ -7,7 +7,16 @@ import flet as ft
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
-from etf_cockpit.data.universe_store import UniverseRecord, edit_record, load_universe, save_universe, validate_universe
+from etf_cockpit.data.universe_store import (
+    UniverseRecord,
+    add_record,
+    disable_record,
+    edit_record,
+    load_universe,
+    remove_record,
+    save_universe,
+    validate_universe,
+)
 
 
 def records_from_config(state: AppState) -> tuple[UniverseRecord, ...]:
@@ -31,6 +40,8 @@ def records_from_config(state: AppState) -> tuple[UniverseRecord, ...]:
                 sector=etf.sector or "",
                 theme=etf.theme or "",
                 notes=str(extra.get("notes", getattr(etf, "notes", ""))),
+                leveraged=bool(extra.get("leveraged", getattr(etf, "leveraged", False))),
+                inverse=bool(extra.get("inverse", getattr(etf, "inverse", False))),
             )
         )
     return tuple(rows)
@@ -72,36 +83,123 @@ def _table(records: Iterable[UniverseRecord], on_edit) -> ft.DataTable:
 
 
 def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
-    records = list(records_from_config(state))
+    # Capture the revision exactly once with the page snapshot. Save callbacks
+    # must fail closed if another writer changes the store meanwhile.
+    snapshot = load_universe()
+    records = list(snapshot.records or records_from_config(state))
+    expected_revision = snapshot.revision
     query = ft.TextField(label="Search universe", hint_text="ID, name, ticker, ISIN, sector or theme", dense=True, expand=True)
-    status = ft.Text("No changes pending.", color=theme.MUTED, selectable=True)
+    status = ft.Text("No changes pending. needs_verification and pending refresh are shown per row.", color=theme.MUTED, selectable=True)
+
+    def _field(label: str, value: object = "", *, multiline: bool = False) -> ft.TextField:
+        return ft.TextField(label=label, value=str(value or ""), multiline=multiline, min_lines=2 if multiline else 1, dense=True)
+
+    def _bool_value(control: ft.Checkbox) -> bool:
+        return bool(control.value)
+
+    def _stage(message: str, changed: tuple[UniverseRecord, ...]) -> None:
+        nonlocal records
+        records = list(changed)
+        status.value = message + " Pending refresh remains visible; no yfinance, scoring, forecast or broker call was started."
+        rebuild_tabs()
+        page.update()
 
     def edit_dialog(record: UniverseRecord) -> None:
-        notes = ft.TextField(label="Notes", value=record.notes, multiline=True, min_lines=2)
-        sector = ft.TextField(label="Sector", value=record.sector)
+        controls = {
+            "instrument_id": _field("ID", record.instrument_id),
+            "name": _field("Name", record.name),
+            "isin": _field("ISIN", record.isin),
+            "isin_status": _field("ISIN status", record.isin_status),
+            "ticker": _field("Yahoo ticker", record.ticker),
+            "asset_type": _field("Asset type", record.asset_type),
+            "tier": _field("Tier", record.tier),
+            "group": _field("Group", record.group),
+            "data_policy": _field("Data policy / frequency", record.data_policy),
+            "currency": _field("Currency", record.currency),
+            "region": _field("Region", record.region),
+            "sector": _field("Sector", record.sector),
+            "theme": _field("Theme", record.theme),
+            "notes": _field("Notes", record.notes, multiline=True),
+        }
+        leveraged = ft.Checkbox(label="Leveraged (manual review)", value=record.leveraged)
+        inverse = ft.Checkbox(label="Inverse (manual review)", value=record.inverse)
 
         def save_edit(_event: ft.ControlEvent) -> None:
-            nonlocal records
             try:
-                records = list(edit_record(records, record.instrument_id, notes=notes.value or "", sector=sector.value or ""))
-                report = validate_universe(records)
-                if not report.valid:
-                    raise ValueError("; ".join(report.errors))
-                status.value = "Validated edit pending save; no refresh or model call was started."
+                changes = {name: control.value or "" for name, control in controls.items()}
+                changes["leveraged"] = _bool_value(leveraged)
+                changes["inverse"] = _bool_value(inverse)
+                _stage("Validated edit pending save.", edit_record(records, record.instrument_id, **changes))
                 dialog.open = False
             except Exception as exc:
                 status.value = f"Edit rejected: {exc}"
-            page.update()
+                page.update()
 
         dialog = ft.AlertDialog(
             modal=True,
             title=ft.Text(f"Edit {record.instrument_id}"),
-            content=ft.Column([sector, notes], tight=True),
+            content=ft.Column([*controls.values(), leveraged, inverse], tight=True, scroll=ft.ScrollMode.AUTO),
             actions=[ft.TextButton("Cancel", key="universe.edit-cancel", on_click=lambda _event: setattr(dialog, "open", False)), ft.Button("Validate and stage", key="universe.edit-save", on_click=save_edit)],
         )
         page.overlay.append(dialog)
         dialog.open = True
         page.update()
+
+    def add_dialog(_event: ft.ControlEvent | None = None) -> None:
+        controls = {
+            "instrument_id": _field("ID"),
+            "name": _field("Name"),
+            "isin": _field("ISIN", "needs_verification"),
+            "isin_status": _field("ISIN status", "needs_verification"),
+            "ticker": _field("Yahoo ticker"),
+            "asset_type": _field("Asset type", "stock"),
+            "tier": _field("Tier", "secondary"),
+            "group": _field("Group"),
+            "data_policy": _field("Data policy / frequency", "daily"),
+            "currency": _field("Currency", "EUR"),
+            "region": _field("Region"),
+            "sector": _field("Sector"),
+            "theme": _field("Theme"),
+            "notes": _field("Notes", multiline=True),
+        }
+        leveraged = ft.Checkbox(label="Leveraged (manual review)", value=False)
+        inverse = ft.Checkbox(label="Inverse (manual review)", value=False)
+
+        def save_add(_save_event: ft.ControlEvent) -> None:
+            try:
+                values = {name: control.value or "" for name, control in controls.items()}
+                values["leveraged"] = _bool_value(leveraged)
+                values["inverse"] = _bool_value(inverse)
+                candidate = UniverseRecord(**values)
+                _stage("Validated add pending save.", add_record(records, candidate))
+                dialog.open = False
+            except Exception as exc:
+                status.value = f"Add rejected: {exc}"
+                page.update()
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Add universe record"),
+            content=ft.Column([*controls.values(), leveraged, inverse], tight=True, scroll=ft.ScrollMode.AUTO),
+            actions=[ft.TextButton("Cancel", key="universe.add-cancel", on_click=lambda _event: setattr(dialog, "open", False)), ft.Button("Validate and add", key="universe.add-save", on_click=save_add)],
+        )
+        page.overlay.append(dialog)
+        dialog.open = True
+        page.update()
+
+    def disable_item(record: UniverseRecord) -> None:
+        try:
+            _stage(f"Disabled {record.instrument_id}.", disable_record(records, record.instrument_id))
+        except Exception as exc:
+            status.value = f"Disable rejected: {exc}"
+            page.update()
+
+    def remove_item(record: UniverseRecord) -> None:
+        try:
+            _stage(f"Removed {record.instrument_id}.", remove_record(records, record.instrument_id))
+        except Exception as exc:
+            status.value = f"Remove rejected: {exc}"
+            page.update()
 
     def save_changes(_event: ft.ControlEvent) -> None:
         report = validate_universe(records)
@@ -110,24 +208,49 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
             page.update()
             return
         try:
-            snapshot = load_universe()
-            result = save_universe(records, expected_revision=snapshot.revision)
+            result = save_universe(records, expected_revision=expected_revision)
             status.value = f"Saved revision {result.revision[:12]}; pending refresh remains visible and was not started."
         except Exception as exc:
             status.value = f"Save blocked: {exc}"
         page.update()
 
-    # Build all three tabs up-front so the tier boundary remains visible even
-    # when one collection is empty in a clean/offline environment.
-    tabs: list[ft.Tab] = []
-    for tier, title in (("primary", "Primary"), ("secondary", "Secondary"), ("sparebanken", "Sparebanken")):
-        tier_rows = filter_records(records, tier=tier)
-        tabs.append(ft.Tab(text=title, content=ft.Container(content=_table(tier_rows, edit_dialog), padding=8)))
+    def _table_with_actions(rows: Iterable[UniverseRecord]) -> ft.DataTable:
+        table = _table(rows, edit_dialog)
+        for row, record in zip(table.rows, rows):
+            row.cells[-1] = ft.DataCell(ft.Row([
+                ft.Button("Edit", key=f"universe.edit.{record.instrument_id}", on_click=lambda _event, item=record: edit_dialog(item)),
+                ft.Button("Disable", key=f"universe.disable.{record.instrument_id}", on_click=lambda _event, item=record: disable_item(item), disabled=not record.enabled),
+                ft.Button("Remove", key=f"universe.remove.{record.instrument_id}", on_click=lambda _event, item=record: remove_item(item)),
+            ], wrap=True))
+        return table
+
+    tab_bar = ft.TabBar(tabs=[])
+    tab_views = ft.TabBarView(controls=[], expand=True)
+    tabs_control = ft.Tabs(
+        length=3,
+        selected_index=0,
+        expand=True,
+        content=ft.Column([tab_bar, tab_views], expand=True),
+    )
+
+    def rebuild_tabs(_event: ft.ControlEvent | None = None) -> None:
+        needle = query.value or ""
+        tiers = (("primary", "Primary"), ("secondary", "Secondary"), ("sparebanken", "Sparebanken"))
+        tab_bar.tabs = [ft.Tab(label=title) for _tier, title in tiers]
+        tab_views.controls = [
+            ft.Container(content=_table_with_actions(filter_records(records, needle, tier=tier)), padding=8)
+            for tier, _title in tiers
+        ]
+        page.update()
+
+    query.on_change = rebuild_tabs
+    add_button = ft.Button("Add record", key="universe.add", icon=ft.Icons.ADD, on_click=add_dialog)
+    rebuild_tabs()
 
     return ft.Column(
         [
-            panel(ft.Column([section_header("Universe and watchlists", "Manage validated local candidates across the Primary, Secondary and Sparebanken tiers."), ft.Row([query, ft.Button("Save validated changes", key="universe.save", icon=ft.Icons.SAVE, on_click=save_changes)], wrap=True), status, ft.Text("Edits persist only after validation. Saving never starts yfinance, scoring, forecasts or broker execution.", color=theme.MUTED)], spacing=8)),
-            panel(ft.Tabs(tabs=tabs, selected_index=0, expand=True)),
+            panel(ft.Column([section_header("Universe and watchlists", "Manage validated local candidates across the Primary, Secondary and Sparebanken tiers."), ft.Row([query, add_button, ft.Button("Save validated changes", key="universe.save", icon=ft.Icons.SAVE, on_click=save_changes)], wrap=True), status, ft.Text("Edits persist only after validation. Saving never starts yfinance, scoring, forecasts or broker execution.", color=theme.MUTED)], spacing=8)),
+            panel(tabs_control),
         ],
         expand=True,
         scroll=ft.ScrollMode.AUTO,

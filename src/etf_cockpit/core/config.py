@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from etf_cockpit.core.constants import ALLOWED_ROLES
 from etf_cockpit.core.exceptions import ConfigError
 from etf_cockpit.core.paths import CONFIG_DIR
-from etf_cockpit.data.universe_store import import_legacy_universe
+from etf_cockpit.data.universe_store import import_legacy_universe, support_decision
 
 
 class ETFConfig(BaseModel):
@@ -43,6 +43,9 @@ class ETFConfig(BaseModel):
     source_group: str = ""
     isin_status: str = "verified"
     notes: str = ""
+    # Compatibility defaults keep older YAML and persisted stores loadable.
+    leveraged: bool = False
+    inverse: bool = False
 
     @field_validator("role")
     @classmethod
@@ -64,6 +67,19 @@ class UniverseConfig(BaseModel):
 
     @property
     def enabled_ids(self) -> list[str]:
+        # The enabled universe is the scoring/provider boundary.  Research-
+        # only, unsupported-frequency and high-risk records remain visible in
+        # configuration but cannot silently enter normal workflows.
+        return [
+            etf.id
+            for etf in self.etfs
+            if etf.enabled
+            and support_decision(etf.instrument_type, etf.data_policy, etf.leveraged, etf.inverse).score_eligible
+        ]
+
+    @property
+    def configured_enabled_ids(self) -> list[str]:
+        """Return enabled IDs including research/manual-review records."""
         return [etf.id for etf in self.etfs if etf.enabled]
 
     def by_id(self) -> dict[str, ETFConfig]:
@@ -281,6 +297,8 @@ def _load_universe_config(config_dir: Path) -> UniverseConfig:
                         source_group=row.group,
                         isin_status=row.isin_status,
                         notes=row.notes,
+                        leveraged=row.leveraged,
+                        inverse=row.inverse,
                     )
                     for row in imported.records
                 ]
@@ -328,6 +346,8 @@ def _load_universe_config(config_dir: Path) -> UniverseConfig:
                     source_group=str(raw.get("group") or ""),
                     isin_status=isin_status,
                     notes=str(raw.get("notes") or ""),
+                    leveraged=_as_bool(raw.get("leveraged", False)),
+                    inverse=_as_bool(raw.get("inverse", False)),
                 )
             )
         return UniverseConfig(etfs=etfs)
@@ -411,3 +431,9 @@ def _write_env_value(env_path: Path, key: str, value: str) -> None:
 
 def _escape_env_value(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"').replace("\r", "").replace("\n", "")
+
+
+def _as_bool(value: object) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on", "enabled"}
+    return bool(value)
