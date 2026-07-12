@@ -234,5 +234,8 @@ python -m ruff check src/etf_cockpit/data/universe_store.py src/etf_cockpit/app/
 All checks passed
 ```
 
-Final fix commit: `f6be9d3` (`fix: close final Task 11 review blockers`).
-Generated schema markers remain unstaged.
+Final fix commits: `f6be9d3` (`fix: close final Task 11 review blockers`) and
+`89e7958` (`fix: carry duplicate override through enable controls`). The latter
+also carries the explicit override through Disable/Enable callbacks so an
+audited duplicate configuration remains operable. Generated schema markers
+remain unstaged.
