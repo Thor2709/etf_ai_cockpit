@@ -156,10 +156,51 @@ class SimpleScoreComponent:
     authority: str = "medium"
     score_role: str = "evidence"
     source_id: str | None = None
+    source_authority: str | None = None
+    as_of_date: str | None = None
+    freshness_status: str | None = None
+    conflict_id: str | None = None
+    evidence_quality: float | str | None = None
 
     def __post_init__(self) -> None:
         if self.source_id is None:
             object.__setattr__(self, "source_id", COMPONENT_SOURCE_IDS.get(self.key))
+        if self.source_authority is None:
+            dataset = str(self.source_id or "").split(":", 1)[0].casefold()
+            authority = {
+                "sec_edgar": "official_regulator",
+                "esef": "official_filing",
+                "issuer_document": "issuer_document",
+                "priips_kid": "issuer_document",
+                "index_methodology": "issuer_document",
+                "etf_disclosures": "issuer_document",
+                "yfinance": "vendor_unofficial",
+                "fmp": "vendor_unofficial",
+                "eodhd": "vendor_unofficial",
+                "model": "model_advisory",
+                "community": "manual_context",
+                "news": "manual_context",
+                "rss": "manual_context",
+                "candle": "manual_context",
+            }.get(dataset, "unknown" if not dataset else "vendor_unofficial")
+            object.__setattr__(self, "source_authority", authority)
+
+    @property
+    def score_eligible(self) -> bool:
+        return _component_is_score_eligible(self)
+
+    @property
+    def provenance(self) -> dict[str, object]:
+        return {
+            "source_id": self.source_id or "",
+            "source_authority": self.source_authority or "unknown",
+            "as_of_date": self.as_of_date,
+            "freshness_status": self.freshness_status or "unknown",
+            "conflict_id": self.conflict_id,
+            "evidence_quality": self.evidence_quality,
+            "score_eligible": self.score_eligible,
+            "executable_authority": False,
+        }
 
 
 @dataclass(frozen=True)
@@ -406,13 +447,31 @@ def _component_is_score_eligible(component: SimpleScoreComponent) -> bool:
     source_id = str(component.source_id or "").strip()
     status = str(component.status or "").strip().lower()
     source_dataset = source_id.split(":", 1)[0].lower() if source_id else ""
+    freshness_status = str(component.freshness_status or "").strip().lower()
+    authority = str(component.source_authority or "").strip().lower()
+    allowed_datasets = {
+        "yfinance",
+        "sec_edgar",
+        "esef",
+        "issuer_document",
+        "priips_kid",
+        "index_methodology",
+        "etf_disclosures",
+        "fmp",
+        "eodhd",
+        "alphavantage",
+        "stooq",
+    }
     return (
         component.raw_score is not None
         and component.score_10 is not None
         and bool(source_id)
-        and source_id in KNOWN_SCORE_SOURCE_IDS
+        and (source_id in KNOWN_SCORE_SOURCE_IDS or source_dataset in allowed_datasets)
         and status == "ok"
-        and source_dataset != "model"
+        and source_dataset not in {"model", "community", "news", "rss", "candle"}
+        and authority not in {"model_advisory", "manual_context", "community", "model"}
+        and freshness_status not in {"stale", "stale_block", "unavailable", "missing", "missing_or_pending", "not_checked"}
+        and not component.conflict_id
     )
 
 

@@ -21,6 +21,8 @@ from etf_cockpit.core.paths import CLEAN_DIR, DERIVED_DIR, RAW_DIR
 from etf_cockpit.core.session_log import log_event
 from etf_cockpit.data.trade_candidate_analysis import latest_candidate_input
 from etf_cockpit.data.contracts import SourceAuthority, redact_text
+from etf_cockpit.data.instrument_identity import IdentityClaim, resolve_identity
+from etf_cockpit.data.evidence_ledger import EvidenceSource, ledger_entry_for_component
 from etf_cockpit.data.provider_registry import PROBE_SCHEMA_VERSION, ProviderRegistry
 from etf_cockpit.data.yfinance_provider import yfinance_symbol_map_from_config
 
@@ -98,6 +100,13 @@ IDENTITY_COLUMNS = [
     "identity_confidence",
     "warnings",
     "provider_symbol_map",
+    "mic",
+    "share_class",
+    "listing",
+    "issuer",
+    "cik",
+    "identity_source_id",
+    "identity_status",
     "executable_authority",
 ]
 
@@ -114,6 +123,8 @@ CONFLICT_COLUMNS = [
     "canonical_value",
     "resolution_status",
     "requires_manual_review",
+    "reason",
+    "selected_source_id",
     "detected_at",
 ]
 
@@ -130,6 +141,10 @@ EVIDENCE_COLUMNS = [
     "as_of_date",
     "freshness_status",
     "conflict_status",
+    "conflict_id",
+    "confidence",
+    "evidence_quality",
+    "provider_id",
     "calculation_method",
     "score_eligible",
     "executable_authority",
@@ -151,6 +166,11 @@ SCORE_COMPONENT_COLUMNS = [
     "as_of_date",
     "freshness_status",
     "conflict_status",
+    "conflict_id",
+    "source_authority",
+    "authority_rank",
+    "evidence_quality",
+    "confidence",
     "calculation_method",
     "score_eligible",
     "driver_text",
@@ -337,9 +357,23 @@ def write_instrument_identity(config: AppConfig) -> Path:
     for etf in config.universe.etfs:
         yahoo_symbol = symbol_map.get(etf.id) or etf.provider_symbol or etf.ticker
         extras = getattr(etf, "__pydantic_extra__", {}) or {}
-        warnings: list[str] = []
-        if not etf.isin:
-            warnings.append("missing_isin")
+        source_id = f"config:universe:{etf.id}"
+        claims = [
+            IdentityClaim(etf.id, "name", etf.name, "universe", SourceAuthority.MANUAL, source_id),
+            IdentityClaim(etf.id, "ticker", etf.ticker, "universe", SourceAuthority.MANUAL, source_id),
+            IdentityClaim(etf.id, "isin", etf.isin or "", "universe", SourceAuthority.MANUAL, source_id),
+            IdentityClaim(etf.id, "exchange", etf.exchange or "", "universe", SourceAuthority.MANUAL, source_id),
+            IdentityClaim(etf.id, "currency", etf.currency or "", "universe", SourceAuthority.MANUAL, source_id),
+            IdentityClaim(etf.id, "asset_type", _instrument_type(etf.asset_class), "universe", SourceAuthority.MANUAL, source_id),
+            IdentityClaim(etf.id, "provider_symbol", yahoo_symbol or "", "yfinance", SourceAuthority.VENDOR, f"yfinance:identity:{etf.id}"),
+        ]
+        for field in ("mic", "share_class", "listing", "issuer", "cik"):
+            extra_value = extras.get(field)
+            if extra_value:
+                claims.append(IdentityClaim(etf.id, field, str(extra_value), "issuer", SourceAuthority.ISSUER, f"issuer:identity:{etf.id}"))
+        resolution = resolve_identity(claims)
+        identity = resolution.identity
+        warnings = list(identity.warnings)
         if not yahoo_symbol:
             warnings.append("missing_yfinance_symbol")
         rows.append(
@@ -350,20 +384,27 @@ def write_instrument_identity(config: AppConfig) -> Path:
                 "data_policy": str(extras.get("data_policy") or "yfinance_now_multi_provider_later"),
                 "instrument_type": str(extras.get("instrument_type") or _instrument_type(etf.asset_class)),
                 "asset_class": etf.asset_class,
-                "isin": etf.isin or "",
-                "isin_status": _isin_status(etf.isin),
-                "yahoo_symbol": yahoo_symbol,
-                "provider_symbol": etf.provider_symbol or yahoo_symbol,
+                "isin": identity.isin or "",
+                "isin_status": identity.isin_status,
+                "yahoo_symbol": identity.provider_symbols.get("yfinance", yahoo_symbol),
+                "provider_symbol": etf.provider_symbol or identity.provider_symbols.get("yfinance", yahoo_symbol),
                 "source_group": "Primary tier",
-                "exchange": etf.exchange or "",
-                "currency": etf.currency,
+                "exchange": identity.exchange or "",
+                "currency": identity.currency or "",
                 "region": etf.region or "",
                 "sector": etf.sector or "",
                 "theme": etf.theme or "",
                 "source": "configs/universe.yaml",
-                "identity_confidence": "high" if etf.isin and yahoo_symbol else "manual_review",
-                "warnings": "|".join(warnings),
-                "provider_symbol_map": json.dumps({"yfinance": yahoo_symbol}, sort_keys=True),
+                "identity_confidence": identity.confidence,
+                "warnings": "|".join(dict.fromkeys(warnings)),
+                "provider_symbol_map": json.dumps(dict(identity.provider_symbols), sort_keys=True),
+                "mic": identity.mic or "",
+                "share_class": identity.share_class or "",
+                "listing": identity.listing or "",
+                "issuer": identity.issuer or "",
+                "cik": identity.cik or "",
+                "identity_source_id": source_id,
+                "identity_status": "manual_review" if resolution.requires_manual_review else "resolved",
                 "executable_authority": False,
             }
         )
@@ -372,10 +413,33 @@ def write_instrument_identity(config: AppConfig) -> Path:
     return _write_dual(frame, IDENTITY_PATH)
 
 
-def write_source_conflicts(identity: pd.DataFrame) -> Path:
+def write_source_conflicts(identity: pd.DataFrame | Any) -> Path:
     rows: list[dict[str, Any]] = []
     now = _utc_now()
-    for field_name in ("isin", "yahoo_symbol"):
+    if not isinstance(identity, pd.DataFrame):
+        for conflict in getattr(identity, "conflicts", ()) or ():
+            source_ids = tuple(getattr(conflict, "source_ids", ()) or ())
+            rows.append(
+                {
+                    "conflict_id": str(getattr(conflict, "conflict_id", "") or ""),
+                    "instrument_id": str(getattr(conflict, "instrument_id", "") or ""),
+                    "field_name": str(getattr(conflict, "field", "") or ""),
+                    "source_a": redact_text(source_ids[0] if source_ids else "unknown"),
+                    "source_b": redact_text(source_ids[1] if len(source_ids) > 1 else "unknown"),
+                    "value_a": redact_text(getattr(conflict, "values", (None,))[0] if getattr(conflict, "values", ()) else ""),
+                    "value_b": redact_text(getattr(conflict, "values", (None,))[1] if len(getattr(conflict, "values", ())) > 1 else ""),
+                    "authority_a": "unknown",
+                    "authority_b": "unknown",
+                    "canonical_value": redact_text(getattr(conflict, "canonical_value", getattr(conflict, "selected_value", ""))),
+                    "resolution_status": str(getattr(conflict, "resolution_status", "manual_review")),
+                    "requires_manual_review": bool(getattr(conflict, "requires_manual_review", True)),
+                    "reason": redact_text(getattr(conflict, "reason", "Conflict retained for manual review.")),
+                    "selected_source_id": redact_text(getattr(conflict, "canonical_source_id", getattr(conflict, "selected_source_id", ""))),
+                    "detected_at": now,
+                }
+            )
+        return _write_dual(pd.DataFrame(rows, columns=CONFLICT_COLUMNS), SOURCE_CONFLICTS_PATH)
+    for field_name in ("isin", "yahoo_symbol", "listing"):
         if identity.empty or field_name not in identity.columns:
             continue
         duplicates = identity[identity[field_name].astype(str).str.strip() != ""].copy()
@@ -383,7 +447,7 @@ def write_source_conflicts(identity: pd.DataFrame) -> Path:
             continue
         duplicate_values = duplicates[duplicates.duplicated(field_name, keep=False)]
         for value, group in duplicate_values.groupby(field_name):
-            ids = list(group["instrument_id"].astype(str))
+            ids = sorted(group["instrument_id"].astype(str))
             if len(ids) < 2:
                 continue
             rows.append(
@@ -391,15 +455,17 @@ def write_source_conflicts(identity: pd.DataFrame) -> Path:
                     "conflict_id": hashlib.sha256(f"{field_name}:{value}:{ids}".encode()).hexdigest()[:16],
                     "instrument_id": "|".join(ids),
                     "field_name": field_name,
-                    "source_a": str(group.iloc[0].get("source") or "unknown"),
-                    "source_b": str(group.iloc[1].get("source") or "unknown"),
-                    "value_a": str(value),
-                    "value_b": str(value),
+                    "source_a": redact_text(group.iloc[0].get("source") or "unknown"),
+                    "source_b": redact_text(group.iloc[1].get("source") or "unknown"),
+                    "value_a": redact_text(value),
+                    "value_b": redact_text(value),
                     "authority_a": "manual_context",
                     "authority_b": "manual_context",
                     "canonical_value": str(value),
                     "resolution_status": "duplicate_identity_requires_manual_review",
                     "requires_manual_review": True,
+                    "reason": f"Duplicate canonical {field_name} value {value!r} is mapped to multiple instruments; identity merge is forbidden without manual review.",
+                    "selected_source_id": "",
                     "detected_at": now,
                 }
             )
@@ -436,7 +502,22 @@ def _source_authority(source_id: str, component_authority: str) -> str:
     return "vendor_unofficial" if component_authority in {"medium", "low"} else "unknown"
 
 
+def _source_authority_enum(label: str) -> SourceAuthority:
+    return {
+        "official_regulator": SourceAuthority.OFFICIAL,
+        "official_filing": SourceAuthority.OFFICIAL,
+        "issuer_document": SourceAuthority.ISSUER,
+        "vendor_verified": SourceAuthority.VENDOR,
+        "vendor_unofficial": SourceAuthority.VENDOR,
+        "manual_context": SourceAuthority.COMMUNITY,
+        "model_advisory": SourceAuthority.MODEL,
+    }.get(label, SourceAuthority.MANUAL)
+
+
 def _component_score_eligible(component: Any) -> bool:
+    typed_eligible = getattr(component, "score_eligible", None)
+    if isinstance(typed_eligible, bool):
+        return typed_eligible
     source_id = _component_source_id(component)
     source_dataset = _source_dataset(source_id).lower()
     status = str(getattr(component, "status", "") or "").strip().lower()
@@ -444,7 +525,9 @@ def _component_score_eligible(component: Any) -> bool:
         getattr(component, "score_10", None) is not None
         and bool(source_id)
         and status == "ok"
-        and source_dataset != "model"
+        and source_dataset not in {"model", "community", "news", "rss", "candle"}
+        and not getattr(component, "conflict_id", None)
+        and str(getattr(component, "freshness_status", "") or "").strip().lower() not in {"stale", "stale_block", "unavailable", "missing", "missing_or_pending", "not_checked"}
     )
 
 
@@ -455,28 +538,50 @@ def write_evidence_ledger(scores: Iterable[Any], *, run_id: str, created_at: str
         latest_date = str(getattr(score, "latest_date", "") or "")
         for component in getattr(score, "components", []) or []:
             source_id = _component_source_id(component)
-            eligible = _component_score_eligible(component)
-            authority = str(getattr(component, "authority", "medium") or "medium")
-            source_authority = _source_authority(source_id, authority)
+            source_authority = str(getattr(component, "source_authority", "") or "") or _source_authority(source_id, str(getattr(component, "authority", "medium") or "medium"))
+            source_freshness = str(getattr(component, "freshness_status", "") or "").strip().lower() or _freshness_from_date(str(getattr(component, "as_of_date", "") or latest_date))
+            source_obj = EvidenceSource(
+                dataset=_source_dataset(source_id),
+                source_id=redact_text(source_id),
+                authority=_source_authority_enum(source_authority),
+                as_of_date=str(getattr(component, "as_of_date", "") or latest_date) or None,
+                freshness_status=source_freshness,
+                confidence=getattr(component, "confidence", None),
+                quality=getattr(component, "evidence_quality", None),
+                provider_id=_source_dataset(source_id) or None,
+                conflict_id=getattr(component, "conflict_id", None),
+            )
+            typed_entry = ledger_entry_for_component(
+                instrument_id,
+                str(getattr(component, "key", "")),
+                getattr(component, "score_10", None),
+                source_obj,
+                conflict_id=getattr(component, "conflict_id", None),
+            )
+            eligible = typed_entry.score_eligible and _component_score_eligible(component)
             rows.append(
                 {
                     "evidence_id": hashlib.sha256(f"{run_id}:{instrument_id}:{getattr(component, 'key', '')}".encode()).hexdigest()[:20],
                     "run_id": run_id,
                     "instrument_id": instrument_id,
                     "component": getattr(component, "key", ""),
-                    "source_id": source_id,
+                    "source_id": redact_text(source_id),
                     "source_dataset": _source_dataset(source_id),
-                    "source_name": source_id or "unavailable",
+                    "source_name": redact_text(source_id) or "unavailable",
                     "source_authority": source_authority,
                     "authority_rank": SOURCE_AUTHORITY.get(source_authority, 0),
-                    "as_of_date": latest_date,
-                    "freshness_status": _freshness_from_date(latest_date),
-                    "conflict_status": "not_checked" if latest_date == "pending refresh" else "no_known_conflict",
-                    "calculation_method": getattr(component, "explanation", ""),
+                    "as_of_date": source_obj.as_of_date,
+                    "freshness_status": source_freshness,
+                    "conflict_status": getattr(component, "conflict_id", None) or ("not_checked" if latest_date == "pending refresh" else "no_known_conflict"),
+                    "conflict_id": getattr(component, "conflict_id", None),
+                    "confidence": getattr(component, "confidence", None),
+                    "evidence_quality": getattr(component, "evidence_quality", None),
+                    "provider_id": source_obj.provider_id,
+                    "calculation_method": redact_text(getattr(component, "explanation", "")),
                     "score_eligible": eligible,
                     "executable_authority": False,
                     "evidence_value": getattr(component, "score_10", None),
-                    "reason": getattr(component, "why", ""),
+                    "reason": redact_text(typed_entry.reason if not eligible else getattr(component, "why", "")),
                     "created_at": created_at,
                 }
             )
@@ -489,23 +594,30 @@ def write_score_components(scores: Iterable[Any], *, run_id: str, created_at: st
         for component in getattr(score, "components", []) or []:
             score_value = getattr(component, "score_10", None)
             source_id = _component_source_id(component)
+            source_authority = str(getattr(component, "source_authority", "") or "") or _source_authority(source_id, str(getattr(component, "authority", "medium") or "medium"))
+            source_freshness = str(getattr(component, "freshness_status", "") or "").strip().lower() or _freshness_from_date(str(getattr(score, "latest_date", "")))
             rows.append(
                 {
                     "run_id": run_id,
                     "instrument_id": getattr(score, "display_id", ""),
                     "component": getattr(component, "key", ""),
-                    "source_id": source_id,
+                    "source_id": redact_text(source_id),
                     "raw_metric": getattr(component, "raw_score", None),
                     "normalised_score_10": score_value,
                     "status": getattr(component, "status", ""),
                     "authority": getattr(component, "authority", ""),
                     "source_dataset": _source_dataset(source_id),
-                    "as_of_date": getattr(score, "latest_date", ""),
-                    "freshness_status": _freshness_from_date(str(getattr(score, "latest_date", ""))),
-                    "conflict_status": "not_checked" if getattr(score, "latest_date", "") == "pending refresh" else "no_known_conflict",
-                    "calculation_method": getattr(component, "explanation", ""),
+                    "as_of_date": getattr(component, "as_of_date", None) or getattr(score, "latest_date", ""),
+                    "freshness_status": source_freshness,
+                    "conflict_status": getattr(component, "conflict_id", None) or ("not_checked" if getattr(score, "latest_date", "") == "pending refresh" else "no_known_conflict"),
+                    "conflict_id": getattr(component, "conflict_id", None),
+                    "source_authority": source_authority,
+                    "authority_rank": SOURCE_AUTHORITY.get(source_authority, 0),
+                    "evidence_quality": getattr(component, "evidence_quality", None),
+                    "confidence": getattr(component, "confidence", None),
+                    "calculation_method": redact_text(getattr(component, "explanation", "")),
                     "score_eligible": _component_score_eligible(component),
-                    "driver_text": getattr(component, "why", ""),
+                    "driver_text": redact_text(getattr(component, "why", "")),
                 }
             )
     return _write_dual(pd.DataFrame(rows, columns=SCORE_COMPONENT_COLUMNS), SCORE_COMPONENTS_PATH)

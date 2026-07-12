@@ -68,8 +68,8 @@ def provider_status_page(_page: ft.Page, state: AppState) -> ft.Control:
         "Provider capabilities, source authority and disabled/unavailable states. API keys are redacted and never exported.",
         [
             ("Provider probes", PROVIDER_PROBE_PATH, ["dataset_type", "provider_name", "status", "source_authority", "enabled", "configured", "entitlement", "rate_limit_note", "last_success_at", "message"]),
-            ("Instrument identity", IDENTITY_PATH, ["instrument_id", "analysis_tier", "instrument_type", "isin", "yahoo_symbol", "identity_confidence", "warnings"]),
-            ("Source conflicts", SOURCE_CONFLICTS_PATH, ["instrument_id", "field_name", "resolution_status", "requires_manual_review"]),
+            ("Instrument identity", IDENTITY_PATH, ["instrument_id", "analysis_tier", "instrument_type", "isin", "yahoo_symbol", "exchange", "mic", "currency", "share_class", "listing", "identity_confidence", "identity_status", "warnings"]),
+            ("Source conflicts", SOURCE_CONFLICTS_PATH, ["instrument_id", "field_name", "canonical_value", "resolution_status", "requires_manual_review", "reason"]),
         ],
         extra=capability_panel,
     )
@@ -80,8 +80,8 @@ def evidence_ledger_page(_page: ft.Page, _state) -> ft.Control:
         "Evidence Ledger",
         "Score components, evidence provenance and source conflicts. Evidence rows are advisory inputs only.",
         [
-            ("Evidence ledger", EVIDENCE_LEDGER_PATH, ["instrument_id", "component", "source_authority", "freshness_status", "score_eligible", "reason"]),
-            ("Score components", SCORE_COMPONENTS_PATH, ["instrument_id", "component", "normalised_score_10", "status", "authority", "driver_text"]),
+            ("Evidence ledger", EVIDENCE_LEDGER_PATH, ["instrument_id", "component", "source_id", "source_authority", "authority_rank", "as_of_date", "freshness_status", "conflict_id", "score_eligible", "reason"]),
+            ("Score components", SCORE_COMPONENTS_PATH, ["instrument_id", "component", "source_id", "source_authority", "normalised_score_10", "status", "authority", "freshness_status", "conflict_id", "driver_text"]),
             ("Feature drivers", FEATURE_DRIVERS_PATH, ["instrument_id", "component", "normalised_score", "direction", "authority", "driver_text"]),
             ("Score history", SCORE_HISTORY_PATH, ["instrument_id", "run_completed_at", "final_combined_score_10", "final_label", "blocked_by"]),
             ("Score metric history", SCORE_METRIC_HISTORY_PATH, ["instrument_id", "component_name", "normalised_score_10", "score_available", "na_reason"]),
@@ -98,7 +98,7 @@ def filings_page(page: ft.Page, state: AppState) -> ft.Control:
         [
             ("Filings inventory", FILINGS_STATEMENTS_PATH, ["instrument_id", "document_type", "source_authority", "coverage_status", "path"]),
             ("Provider probes", PROVIDER_PROBE_PATH, ["dataset_type", "provider_name", "status", "source_authority", "message"]),
-            ("Identity mappings", IDENTITY_PATH, ["instrument_id", "isin", "yahoo_symbol", "exchange", "identity_confidence", "warnings"]),
+            ("Identity mappings", IDENTITY_PATH, ["instrument_id", "isin", "yahoo_symbol", "exchange", "mic", "currency", "share_class", "listing", "identity_confidence", "warnings"]),
         ],
         extra=_filing_import_controls(page, state),
     )
@@ -110,7 +110,7 @@ def etf_disclosures_page(page: ft.Page, state: AppState) -> ft.Control:
         "ETF factsheets, holdings, PRIIPs KIDs, reports and index methodology inventory. Partial coverage is shown explicitly.",
         [
             ("ETF disclosure inventory", ETF_DISCLOSURES_PATH, ["instrument_id", "document_type", "source_authority", "coverage_status", "path"]),
-            ("Source conflicts", SOURCE_CONFLICTS_PATH, ["instrument_id", "field_name", "resolution_status", "requires_manual_review"]),
+            ("Source conflicts", SOURCE_CONFLICTS_PATH, ["instrument_id", "field_name", "canonical_value", "resolution_status", "requires_manual_review", "reason"]),
         ],
         extra=_disclosure_import_controls(page, state),
     )
