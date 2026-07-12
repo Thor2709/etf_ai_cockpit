@@ -132,8 +132,13 @@ def resolve_identity(claims: Iterable[IdentityClaim]) -> IdentityResolution:
         warnings.append("manual_override_requires_review")
     isin = _optional(selected.get("isin"), field="isin")
     isin_status = _isin_status(isin)
+    exchange = _optional(selected.get("exchange"), field="exchange")
     if isin_status != "verified":
         warnings.append("isin_needs_verification")
+    if not exchange:
+        warnings.extend(("missing_exchange", "exchange_needs_verification"))
+    elif exchange.casefold() in {"unknown", "needs_verification", "n/a", "na", "null"}:
+        warnings.append("exchange_needs_verification")
     if not _optional(selected.get("ticker"), field="ticker"):
         warnings.append("missing_ticker")
     for conflict in conflicts:
@@ -156,7 +161,7 @@ def resolve_identity(claims: Iterable[IdentityClaim]) -> IdentityResolution:
         isin=isin,
         isin_status=isin_status,
         ticker=value("ticker"),
-        exchange=_optional(selected.get("exchange"), field="exchange"),
+        exchange=exchange,
         currency=_optional(selected.get("currency"), field="currency"),
         asset_type=value("asset_type", "unknown"),
         provider_symbols=provider_symbols,

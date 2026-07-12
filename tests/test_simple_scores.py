@@ -135,10 +135,10 @@ def test_final_label_demotes_low_quality_high_score() -> None:
 
 def test_model_score_cannot_rescue_weak_deterministic_evidence() -> None:
     components = [
-        SimpleScoreComponent("momentum", "Momentum", 1.0, -0.8, "OK", "", "", ""),
-        SimpleScoreComponent("trend", "Trend", 1.0, -0.8, "OK", "", "", ""),
-        SimpleScoreComponent("risk", "Risk", 2.0, -0.6, "OK", "", "", ""),
-        SimpleScoreComponent("timesfm", "TimesFM", 10.0, 1.0, "OK", "", "", "", authority="low", score_role="model_confirmation"),
+        SimpleScoreComponent("momentum", "Momentum", 1.0, -0.8, "OK", "", "", "", as_of_date="2026-07-10", freshness_status="ok"),
+        SimpleScoreComponent("trend", "Trend", 1.0, -0.8, "OK", "", "", "", as_of_date="2026-07-10", freshness_status="ok"),
+        SimpleScoreComponent("risk", "Risk", 2.0, -0.6, "OK", "", "", "", as_of_date="2026-07-10", freshness_status="ok"),
+        SimpleScoreComponent("timesfm", "TimesFM", 10.0, 1.0, "OK", "", "", "", authority="low", score_role="model_confirmation", as_of_date="2026-07-10", freshness_status="ok"),
     ]
     _raw, evidence_score = combine_component_scores(components, weights={"momentum": 0.3, "trend": 0.3, "risk": 0.3, "timesfm": 0.1})
     label, action, decision = final_label_from_scores(evidence_score, 3.5, 3.5, warnings=[])
@@ -164,8 +164,8 @@ def test_unmapped_score_component_does_not_invent_source_id() -> None:
 
 def test_source_less_component_cannot_influence_score() -> None:
     components = [
-        SimpleScoreComponent("momentum", "Momentum", 10.0, 1.0, "OK", "", "", ""),
-        SimpleScoreComponent("unmapped", "Unmapped", 0.0, -1.0, "OK", "", "", ""),
+        SimpleScoreComponent("momentum", "Momentum", 10.0, 1.0, "OK", "", "", "", as_of_date="2026-07-10", freshness_status="ok"),
+        SimpleScoreComponent("unmapped", "Unmapped", 0.0, -1.0, "OK", "", "", "", as_of_date="2026-07-10", freshness_status="ok"),
     ]
 
     raw, score = combine_component_scores(components, weights={"momentum": 0.5, "unmapped": 0.5})
@@ -174,10 +174,42 @@ def test_source_less_component_cannot_influence_score() -> None:
     assert score == 10.0
 
 
+def test_score_component_requires_as_of_and_freshness_provenance() -> None:
+    missing_provenance = SimpleScoreComponent(
+        "momentum",
+        "Momentum",
+        10.0,
+        1.0,
+        "OK",
+        "",
+        "",
+        "",
+        source_id="yfinance:prices",
+    )
+    assert missing_provenance.score_eligible is False
+    assert combine_component_scores([missing_provenance], weights={"momentum": 1.0}) == (None, None)
+
+    valid_provenance = SimpleScoreComponent(
+        "momentum",
+        "Momentum",
+        10.0,
+        1.0,
+        "OK",
+        "",
+        "",
+        "",
+        source_id="yfinance:prices",
+        as_of_date="2026-07-10",
+        freshness_status="ok",
+    )
+    assert valid_provenance.score_eligible is True
+    assert combine_component_scores([valid_provenance], weights={"momentum": 1.0}) == (1.0, 10.0)
+
+
 def test_model_confirmation_is_visible_but_not_deterministic_score_evidence() -> None:
     components = [
-        SimpleScoreComponent("momentum", "Momentum", 10.0, 1.0, "OK", "", "", ""),
-        SimpleScoreComponent("timesfm", "TimesFM", 0.0, -1.0, "OK", "", "", "", authority="low", score_role="model_confirmation"),
+        SimpleScoreComponent("momentum", "Momentum", 10.0, 1.0, "OK", "", "", "", as_of_date="2026-07-10", freshness_status="ok"),
+        SimpleScoreComponent("timesfm", "TimesFM", 0.0, -1.0, "OK", "", "", "", authority="low", score_role="model_confirmation", as_of_date="2026-07-10", freshness_status="ok"),
     ]
 
     raw, score = combine_component_scores(components, weights={"momentum": 0.5, "timesfm": 0.5})
@@ -188,8 +220,8 @@ def test_model_confirmation_is_visible_but_not_deterministic_score_evidence() ->
 
 def test_non_ok_component_cannot_influence_score() -> None:
     components = [
-        SimpleScoreComponent("momentum", "Momentum", 10.0, 1.0, "OK", "", "", ""),
-        SimpleScoreComponent("trend", "Trend", 0.0, -1.0, "blocked", "", "", ""),
+        SimpleScoreComponent("momentum", "Momentum", 10.0, 1.0, "OK", "", "", "", as_of_date="2026-07-10", freshness_status="ok"),
+        SimpleScoreComponent("trend", "Trend", 0.0, -1.0, "blocked", "", "", "", as_of_date="2026-07-10", freshness_status="ok"),
     ]
 
     raw, score = combine_component_scores(components, weights={"momentum": 0.5, "trend": 0.5})
@@ -219,8 +251,8 @@ def test_unknown_source_prefix_cannot_influence_score() -> None:
 
 def test_final_score_reweights_missing_components() -> None:
     components = [
-        SimpleScoreComponent("momentum", "Momentum", 10.0, 1.0, "OK", "", "", ""),
-        SimpleScoreComponent("timesfm", "TimesFM", None, None, "N/A", "", "", ""),
+        SimpleScoreComponent("momentum", "Momentum", 10.0, 1.0, "OK", "", "", "", as_of_date="2026-07-10", freshness_status="ok"),
+        SimpleScoreComponent("timesfm", "TimesFM", None, None, "N/A", "", "", "", as_of_date="2026-07-10", freshness_status="ok"),
     ]
     raw, score = combine_component_scores(components, weights={"momentum": 0.5, "timesfm": 0.5})
 

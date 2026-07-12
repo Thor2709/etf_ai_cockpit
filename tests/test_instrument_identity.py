@@ -78,8 +78,24 @@ def test_manual_override_is_distinct_from_ordinary_local_config_claim() -> None:
     config_claims = [
         IdentityClaim("X", "ticker", "X", "universe", SourceAuthority.MANUAL, "config:X"),
         IdentityClaim("X", "isin", "US0000000000", "universe", SourceAuthority.MANUAL, "config:X"),
+        IdentityClaim("X", "exchange", "NYSE", "universe", SourceAuthority.MANUAL, "config:X"),
     ]
     assert resolve_identity(config_claims).identity.confidence == "high"
     override = resolve_identity([IdentityClaim("X", "ticker", "Y", "manual_override", SourceAuthority.MANUAL, "override:X", manual_override=True)])
     assert override.identity.confidence == "manual_review"
     assert "manual_override_requires_review" in override.identity.warnings
+
+
+def test_unknown_or_missing_exchange_requires_manual_review() -> None:
+    common_claims = [
+        IdentityClaim("ETF", "ticker", "VWCE", "issuer", SourceAuthority.ISSUER, "issuer:identity"),
+        IdentityClaim("ETF", "isin", "IE00BK5BQT80", "issuer", SourceAuthority.ISSUER, "issuer:identity"),
+    ]
+
+    unknown = resolve_identity(common_claims + [IdentityClaim("ETF", "exchange", "unknown", "vendor", SourceAuthority.VENDOR, "vendor:listing")])
+    missing = resolve_identity(common_claims)
+
+    for result in (unknown, missing):
+        assert "exchange_needs_verification" in result.identity.warnings
+        assert result.identity.confidence == "manual_review"
+        assert result.requires_manual_review is True

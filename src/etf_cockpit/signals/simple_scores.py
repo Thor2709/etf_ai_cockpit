@@ -447,6 +447,7 @@ def _component_is_score_eligible(component: SimpleScoreComponent) -> bool:
     source_id = str(component.source_id or "").strip()
     status = str(component.status or "").strip().lower()
     source_dataset = source_id.split(":", 1)[0].lower() if source_id else ""
+    as_of_date = str(component.as_of_date or "").strip()
     freshness_status = str(component.freshness_status or "").strip().lower()
     authority = str(component.source_authority or "").strip().lower()
     allowed_datasets = {
@@ -470,6 +471,8 @@ def _component_is_score_eligible(component: SimpleScoreComponent) -> bool:
         and status == "ok"
         and source_dataset not in {"model", "community", "news", "rss", "candle"}
         and authority not in {"model_advisory", "manual_context", "community", "model"}
+        and bool(as_of_date)
+        and bool(freshness_status)
         and freshness_status not in {"stale", "stale_block", "unavailable", "missing", "missing_or_pending", "not_checked"}
         and not component.conflict_id
     )

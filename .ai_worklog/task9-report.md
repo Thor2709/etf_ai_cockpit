@@ -88,7 +88,53 @@ was observed in the affected persistence, evidence, provider or scope tests.
 
 ## Review status
 
-Implementation is ready for the parent controller's fresh independent
-specification/code-quality review. Package, rendered browser and issue-level
-closure evidence are intentionally parent-level gates and no local issue
-transition is claimed in this branch.
+The first fresh independent review of commit `83236a5` rejected integration
+with one Critical and one Important finding plus one Minor finding:
+
+- score components with missing `as_of_date` and `freshness_status` were
+  score-eligible;
+- unknown or missing exchange values did not enter manual review;
+- `score_components.parquet` did not persist `executable_authority`.
+
+The findings were reproduced directly against the code. A fix pass added
+three focused tests before implementation. The RED command was:
+
+```text
+..\..\etf_ai_cockpit\.venv\Scripts\python.exe -m pytest -q tests/test_simple_scores.py::test_score_component_requires_as_of_and_freshness_provenance tests/test_instrument_identity.py::test_unknown_or_missing_exchange_requires_manual_review tests/test_trust_critical_artifacts.py::test_score_components_persist_non_executable_authority
+exit 1; 3 genuine assertion failures
+```
+
+The minimal fix now requires non-empty date and freshness provenance for
+score eligibility, emits deterministic exchange verification warnings and
+manual-review state, and writes `executable_authority=false` to score
+component rows. The focused fix command passed 3 tests; the expanded Task 9
+focused command passed 13 tests; the affected regression bundle passed 35
+tests; compileall and scoped Ruff passed. A fresh independent re-review is
+still required before integration.
+
+## Package and rendered evidence
+
+`scripts\build_windows.bat` was attempted twice. The first attempt created
+the portable output directory but the second dependency-install step was
+blocked by a Windows file lock in the worktree virtual environment
+(`WinError 32` on `pandas/io/formats/csvs.py`). PyInstaller is unavailable in
+the environment, so native executable packaging is not applicable. The
+portable source launcher was nevertheless exercised directly with the
+authoritative main virtual environment:
+
+```text
+..\..\etf_ai_cockpit\.venv\Scripts\python.exe scripts\launcher_core.py launch --mode source --root build\ETF_AI_Cockpit_Portable_v0.1.0 --preferred-port 8571 --open-browser 0 --timeout 30
+ready url=http://127.0.0.1:8571/
+```
+
+The rendered `/providers` surface was inspected in the in-app browser at the
+default viewport and at 390x844. Evidence screenshots are:
+
+- `evidence/task9-provider-status.png`, SHA-256
+  `ecb650d796fb380ea2be3f8f715c86f49e4099defa6026f97400acd0a7766393`;
+- `evidence/task9-provider-status-mobile.png`, SHA-256
+  `59f24ab5c13d85e3280831d01a54a54ebbf84b58184f33ad40a8958342766179`.
+
+The mobile capture records the existing fixed-shell navigation and content
+overflow state; no unrelated responsive redesign was introduced. No local
+issue transition is claimed in this branch.

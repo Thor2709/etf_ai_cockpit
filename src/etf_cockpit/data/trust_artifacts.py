@@ -174,6 +174,7 @@ SCORE_COMPONENT_COLUMNS = [
     "calculation_method",
     "score_eligible",
     "driver_text",
+    "executable_authority",
 ]
 
 SCORE_HISTORY_COLUMNS = [
@@ -618,6 +619,7 @@ def write_score_components(scores: Iterable[Any], *, run_id: str, created_at: st
                     "calculation_method": redact_text(getattr(component, "explanation", "")),
                     "score_eligible": _component_score_eligible(component),
                     "driver_text": redact_text(getattr(component, "why", "")),
+                    "executable_authority": False,
                 }
             )
     return _write_dual(pd.DataFrame(rows, columns=SCORE_COMPONENT_COLUMNS), SCORE_COMPONENTS_PATH)
