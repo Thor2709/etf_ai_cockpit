@@ -152,3 +152,18 @@ authoritative ledgers as part of remote synchronisation.
   bind the mirror read-back to source commit
   `d40f1d37ad886b23373af64967a1b8dabc246741`. The local issue ledger remains
   authoritative and `ISSUE-0011`, `ISSUE-0040` and `ISSUE-0039` remain open.
+
+## Ledger refresh after Wave 3 Task 8 - 2026-07-12
+
+- The Task 8 checkpoint and reopened/partial `UPDATEV2-0010` ledger state were
+  synchronised with authenticated `Thor2709/etf_ai_cockpit` after PR 178 was
+  merged. The authorised apply run exited 0 with 98 unchanged actions; no
+  GitHub Issue was created, closed, reopened or deleted during this refresh.
+- Reconciliation passed: 98 unique local IDs, 77 open and 21 closed locally,
+  matching 77/21 mapped GitHub states; all mappings are valid and unresolved
+  duplicates are empty.
+- `issues/github_issue_map.json` and
+  `issues/github_issue_sync_report.json` bind the mirror read-back to source
+  commit `c80cb0d34d81f36f1a2729744c13d5350fae9243`. The local issue ledger
+  remains authoritative; `UPDATEV2-0010` is open/partial pending its complete
+  closure dossier.
