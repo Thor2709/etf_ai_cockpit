@@ -228,3 +228,16 @@ launcher readiness and Provider Status screenshots. `UPDATEV2-0011` and
 `UPDATEV2-0021` remain open/partial pending complete issue-level gates;
 `UPDATEV2-0022` remains closed. The next dependency-valid task is Task 10,
 Data Health Centre.
+
+Wave 4 Task 10 implementation is now complete on branch
+`wave4/task10-data-health` at `34c2eaa` from `557e923`. Fresh RED/GREEN
+evidence covers deterministic inventory, persisted provenance, migration
+timestamp/name validation, filters, actions and export compatibility. The
+independent migration re-review approved implementation/code quality, but
+`ISSUE-0035` is reopened as implementation-complete/closure-pending because
+the authoritative full suite still has eight unrelated baseline failures, the
+optional package smoke is blocked by the existing AURG/Sparebanken fixture,
+and the Flet canvas semantic snapshot exposes only the accessibility toggle.
+Native/portable build, direct packaged HTTP readiness, source/package browser
+renders and 12-row export evidence are recorded under `evidence/final/`.
+Do not begin Task 11 until the Task 10 integration/closure boundary is resolved.

@@ -1,0 +1,13 @@
+dataset,status,path,row_count,checksum,as_of,freshness,provider,last_success,last_failure,warnings
+prices,missing,C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\task10-data-health\data\clean\prices.parquet,0,,,unavailable,price,,,store_missing|history_unavailable
+fx,missing,C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\task10-data-health\data\clean\fx.parquet,0,,,unavailable,fx,,,store_missing|history_unavailable
+holdings,missing,C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\task10-data-health\data\clean\etf_holdings.parquet,0,,,unavailable,holdings,,,store_missing|history_unavailable
+fundamentals,missing,C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\task10-data-health\data\clean\fundamentals.parquet,0,,,unavailable,fundamentals,,,store_missing|history_unavailable
+news,unavailable,C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\task10-data-health\data\clean\news_context.parquet,0,30f82c55ced2a17ffb25ff6828463c16c566db798600c277a3f1d6368a7df027,,unknown,news,2026-07-13T03:43:06.410+10:00,,as_of_unavailable
+filings,unavailable,C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\task10-data-health\data\clean\filings_statements.parquet,0,6367ad65fb6ce00dfd4044896b216faa4535e93eada4b6f8c6b2845ee5d6ac7d,,unknown,official,2026-07-13T03:43:06.410+10:00,,as_of_unavailable
+provider_probes,healthy,C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\task10-data-health\data\clean\provider_probe_results.parquet,13,44058104c51d7649825aae4c5b1525acd0c637f70782a8ce890b0f22d3c63755,2026-07-12,fresh,provider,2026-07-13T03:43:06.410+10:00,,
+score_history,healthy,C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\task10-data-health\data\derived\score_history.parquet,176,bcadc9299dae5f7a80cbbec153f5730c9648a4778271bdf2831297dab291452c,2026-07-12,fresh,derived,,,history_unavailable
+forecasts,missing,C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\task10-data-health\data\forecasts,0,,,unavailable,model,,,store_missing|history_unavailable
+backtest,healthy,C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\task10-data-health\data\backtests\backtest_results.csv,5,89ff8fb9b124c777f4f3f5ec78a9253946ce8262c893b11ef60ede414fddd43c,2026-07-13,fresh,derived,,,history_unavailable
+macro,unavailable,C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\task10-data-health\data\raw\macro,0,,,unknown,macro,,,macro_files_unavailable|history_unavailable
+migration_status,healthy,C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\task10-data-health\data\.migration_state.json,4,a747adf9235e781b86115e705d1a4074b7a3f85e9eaea561526a64bd67143a40,2026-07-12T17:02:11.503557+00:00,fresh,migration,,,history_unavailable

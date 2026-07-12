@@ -1219,6 +1219,29 @@ Required checks for the current implementation sweep:
 - Post-merge focused, compileall, Ruff and source smoke passed on `main` at
   `4c4eb00175237ad49b113adad8be3f8dcbfed618`.
 
+## 2026-07-13 Wave 4 Task 10 Data Health
+
+- RED: initial Data Health focused run had five genuine missing-behaviour
+  failures; the migration review-fix slice had three timestamp/name/provenance
+  failures before implementation.
+- GREEN: `pytest -q tests/test_data_health.py` - 12 passed.
+- Affected UI/start-up/navigation bundle - 39 passed with one existing GluonTS
+  warning.
+- `python -m compileall -q src tests` - exit 0; scoped Ruff - all checks
+  passed; source smoke - `snapshot_ok as_of=2026-07-13 signals=16 backtests=5`.
+- Full authoritative `pytest -q --maxfail=8` - exit 1 with eight unrelated
+  baseline failures in Decision Journal path setup, generated candidate/
+  secondary fixtures and trust-identity fixture cardinality; no Data Health
+  failure occurred.
+- `cmd /c scripts\\build_windows.bat` created native and portable outputs;
+  optional score-group smoke failed on the existing AURG/Sparebanken fixture.
+  Direct packaged-native launcher readiness on port 8565 returned HTTP 200.
+- Source/package `/data-health` browser renders passed visually with only the
+  expected `Flutter app loaded` console message. Flet semantic snapshot exposed
+  only the accessibility toggle; full keyboard/focus semantics are not claimed.
+- Export wrote 12 rows with header compatibility and SHA-256
+  `bd89f6e01ea42e90d05a09675d881143f4584c3055e5dfcd7d9a7f7d124b4996`.
+
 ## 2026-07-12 - Wave 4 Task 9
 
 - RED fix-pass: three genuine failures for missing score provenance, unknown/

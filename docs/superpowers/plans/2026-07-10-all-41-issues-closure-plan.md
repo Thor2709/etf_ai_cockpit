@@ -700,25 +700,34 @@ implementation task is Task 10, Data Health Centre.
 - `build_data_health(config: AppConfig, project_root: Path) -> DataHealthReport`.
 - Report contains prices, FX, holdings, fundamentals, news, macro, forecasts, backtests, provider probes, official documents and migration status with row count, checksum, as-of, freshness, last success, last failure and warnings.
 
-- [ ] **Step 1: Write health aggregation tests**
+- [x] **Step 1: Write health aggregation tests**
 
 Test valid, missing, stale, corrupt and schema-mismatch stores. Corrupt/missing files return status rows and cannot crash the page.
 
-- [ ] **Step 2: Implement deterministic inventory**
+- [x] **Step 2: Implement deterministic inventory**
 
 Use schema registry and provenance metadata; do not infer freshness from filesystem time when an explicit as-of field exists.
 
-- [ ] **Step 3: Build Data Health UI**
+- [x] **Step 3: Build Data Health UI**
 
 Add `/data-health`, dashboard summary, filters by status/dataset/provider and links to related Provider, Filings, ETF and Error pages.
 
-- [ ] **Step 4: Browser and export verification**
+- [x] **Step 4: Browser and export verification**
 
 Render mixed healthy/stale/missing fixtures in source and packaged UI, capture screenshots and export the health table to CSV with visible output path.
 
-- [ ] **Step 5: Wave 4 gate**
+- [ ] **Step 5: Wave 4 gate (closure blocked)**
 
 Run focused plus full tests, package build, Provider/Evidence/Data Health browser matrix, secret scan and audit-export interim check. Mark five Wave 4 dossiers ready only after independent review.
+
+Task 10 implementation is independently approved and its focused, affected,
+compile, lint, source-smoke, export, native-build, direct packaged-readiness
+and source/package browser evidence is recorded in `.ai_worklog/task-10-report.md`
+and `evidence/final/`. The Wave 4 closure gate remains blocked by eight
+pre-existing full-suite failures, the fixture-dependent package smoke failure,
+and incomplete Flet canvas semantic accessibility evidence. `ISSUE-0035`
+remains open/implementation-complete; do not start Task 11 until the gate is
+resolved or the closure rules explicitly accept the recorded limitations.
 
 ---
 

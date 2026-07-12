@@ -1,13 +1,13 @@
 {
   "issue_id": "ISSUE-0035",
   "title": "Data health centre",
-  "status": "closed",
-  "decision": "The Data Health route now inventories price, FX, holdings, fundamentals, news, macro, forecast and backtest stores with explicit missing, stale, corrupt, schema-mismatch and unavailable states. Responsive evidence rows expose path, row count, as-of date, freshness, provider, checksum, last success, last failure and warnings; the Dashboard shows the deterministic data-health summary; focused tests, CSV export, final package smoke and Playwright visual checks passed.",
+  "status": "open",
+  "decision": "Implementation is complete on the Task 10 branch and independently approved for code quality, but closure remains pending. Fresh Data Health, affected regression, compileall, Ruff, export, source browser and packaged HTTP readiness evidence passed. The authoritative full suite still has eight unrelated baseline failures, the package smoke is blocked by the existing AURG/Sparebanken fixture, and the canvas semantic snapshot exposes only the accessibility toggle; the issue must not move to closed until the applicable closure gates are satisfied.",
   "source": ["src/etf_cockpit/data/health.py", "src/etf_cockpit/app/pages/data_health.py", "src/etf_cockpit/app/pages/dashboard.py"],
   "tests": ["tests/test_data_health.py", "tests/test_flet_startup.py", "tests/test_simple_scores.py", "tests/test_e2e_workflow.py"],
   "ui": ["/data-health", "Dashboard summary card"],
   "export": "data/derived/data_health.csv",
-  "build": "evidence/wave4/build-responsive-data-health.txt",
-  "browser": "evidence/final/browser/ISSUE-0035-data-health-desktop.png",
-  "limitations": ["Flet semantic DOM snapshots expose only the accessibility toggle; Playwright visual and local HTTP fallback evidence is used for this canvas-rendered page.", "The Computer Use retry stopped before input because it could not determine Chrome's current URL with enough confidence; this is recorded as a limitation, not a pass.", "Data Health reports current local-store state and never invents missing provider or model data."]
+  "build": "evidence/final/build/ISSUE-0035.md",
+  "browser": "evidence/final/browser/ISSUE-0035-packaged.png",
+  "limitations": ["Full authoritative pytest remains blocked by eight pre-existing failures outside Task 10 ownership; no Data Health test failed.", "The optional package smoke remains blocked by the existing Sparebanken/AURG fixture; direct packaged-native HTTP readiness returned 200.", "Flet semantic DOM snapshots expose only the accessibility toggle; visual browser evidence is recorded but full keyboard/focus semantics are not claimed.", "Data Health reports current local-store state and never invents missing provider or model data."]
 }

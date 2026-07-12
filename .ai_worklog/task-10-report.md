@@ -1,7 +1,7 @@
 # Wave 4 Task 10 implementation report
 
-Date: 2026-07-13  
-Branch: `wave4/task10-data-health`  
+Date: 2026-07-13
+Branch: `wave4/task10-data-health`
 Owner: `ISSUE-0035` / Data Health Centre
 
 ## Task completed
@@ -167,5 +167,31 @@ GREEN (recorded during this fix pass):
 ```
 
 The corresponding full Data Health suite remains 12 passed and the affected
-six-file UI/start-up/navigation bundle remains 36 passed with one existing
-GluonTS warning. The fix is recorded in the next commit after `ea03216`.
+six-file UI/start-up/navigation bundle remains 39 passed with one existing
+GluonTS warning. The final migration fix and this evidence are recorded in
+`34c2eaa` after `ea03216`.
+
+## Task 10 closure checklist
+
+| Gate | State | Evidence or reason |
+|---|---|---|
+| Required Data Health functionality | passed | `src/etf_cockpit/data/health.py`, `src/etf_cockpit/app/pages/data_health.py` |
+| Acceptance criteria and migration truthfulness | passed | focused 12-test suite, including mixed-offset/name/missing-timestamp regressions |
+| Persistence/provenance and export schema | passed | persisted history tests and 12-row CSV export checksum |
+| Source and affected regression tests | passed | 12 focused; 39 affected |
+| Compile and scoped lint | passed | compileall exit 0; Ruff all checks passed |
+| Source smoke | passed | `snapshot_ok as_of=2026-07-13 signals=16 backtests=5` |
+| Full authoritative suite | blocked | exit 1 with eight pre-existing unrelated failures; no Data Health failure |
+| Package build | passed | PyInstaller/native and portable outputs created |
+| Package smoke | blocked | existing AURG/Sparebanken fixture assertion |
+| Direct packaged launch/readiness | passed | port 8565 HTTP 200 |
+| Browser visual source/package parity | passed | source desktop/mobile and packaged screenshots; console only `Flutter app loaded` |
+| Keyboard/focus/semantic accessibility | pending | Flet canvas snapshot exposed only the accessibility-toggle control |
+| Audit/manifest/issue synchronisation | pending | local ledger/map changes await integration and remote read-back |
+| Independent task review | passed for implementation | `task10_migration_reviewer`: code quality approved; closure rejected until gates above pass |
+| Closure evaluator | machine-ready only | evaluator reports `ISSUE-0035 ready=true` from presence/checksum files; manual gates above remain binding |
+| Issue transition | blocked | leave `ISSUE-0035` open and retain the historical closed record as rejected checkpoint |
+
+The task must not be represented as fully closed while any blocked or pending
+gate remains. `execution_allowed=false` and all approved authority boundaries
+are unchanged.
