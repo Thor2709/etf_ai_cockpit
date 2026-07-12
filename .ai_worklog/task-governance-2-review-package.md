@@ -1,5 +1,8 @@
+Historical initial implementation review package.
 BASE: 7735afd46b96c4d327754709c8040f98f7bd88fa
 HEAD: 09ce88521ac2fd3e09b2893e35ff2247970ea9fc
+This package is retained as the pre-fix review snapshot. The final reviewed
+package is `.ai_worklog/task-governance-2-review-package-final.md`.
 
 COMMITS
 09ce885 (HEAD -> wave1/governance-task2) feat: split research state and migrate legacy signals
