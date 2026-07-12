@@ -1,13 +1,13 @@
 {
   "issue_id": "ISSUE-0035",
   "title": "Data health centre",
-  "status": "closed",
-  "decision": "The Data Health route now inventories price, FX, holdings, fundamentals, news, macro, forecast and backtest stores with explicit missing, stale, corrupt, schema-mismatch and unavailable states. Responsive evidence rows expose path, row count, as-of date, freshness, provider, checksum, last success, last failure and warnings; the Dashboard shows the deterministic data-health summary; focused tests, CSV export, final package smoke and Playwright visual checks passed.",
+  "status": "open",
+  "decision": "Implementation is complete on the Task 10 branch and independently approved for specification and code quality. Fresh Data Health, affected regression, compileall, Ruff, export, source browser, package smoke and authoritative full-suite evidence passed after the atomic staging and provenance fixes. Final integration/synchronisation remains pending; the issue must not move to closed until the applicable closure gates are satisfied.",
   "source": ["src/etf_cockpit/data/health.py", "src/etf_cockpit/app/pages/data_health.py", "src/etf_cockpit/app/pages/dashboard.py"],
   "tests": ["tests/test_data_health.py", "tests/test_flet_startup.py", "tests/test_simple_scores.py", "tests/test_e2e_workflow.py"],
   "ui": ["/data-health", "Dashboard summary card"],
   "export": "data/derived/data_health.csv",
-  "build": "evidence/wave4/build-responsive-data-health.txt",
-  "browser": "evidence/final/browser/ISSUE-0035-data-health-desktop.png",
-  "limitations": ["Flet semantic DOM snapshots expose only the accessibility toggle; Playwright visual and local HTTP fallback evidence is used for this canvas-rendered page.", "The Computer Use retry stopped before input because it could not determine Chrome's current URL with enough confidence; this is recorded as a limitation, not a pass.", "Data Health reports current local-store state and never invents missing provider or model data."]
+  "build": "evidence/final/build/ISSUE-0035.md",
+  "browser": "evidence/final/browser/ISSUE-0035-packaged.png",
+  "limitations": ["Authoritative pytest passes at 100% after the atomic staging fix; no Data Health test failed.", "The fresh native and portable-native smoke used local ignored trade-candidate fixtures for the existing AURG/Sparebanken score-group contract; those generated market files remain excluded from Git.", "The isolated rebuild venv did not contain PyInstaller, so the existing native output was retained while the portable package was rebuilt.", "Final integration and local/GitHub synchronisation gates remain pending.", "Data Health reports current local-store state and never invents missing provider or model data."]
 }

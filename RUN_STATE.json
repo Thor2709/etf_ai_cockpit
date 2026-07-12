@@ -5,8 +5,8 @@
     "name": "2026-07-11-etf-ai-cockpit-approved-programme",
     "programme_index": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-programme-index.md",
     "progress_ledger": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-progress-ledger.md",
-    "phase": "wave4_task9_merged_task10_ready",
-    "next_task": "Wave 4, Task 10: Data Health Centre",
+    "phase": "wave4_task10_implementation_complete_closure_pending",
+    "next_task": "Wave 4, Task 10: Data Health Centre closure and integration",
     "git_repository": true,
     "git_branch": "main",
     "baseline": {
@@ -544,23 +544,93 @@
       "execution_allowed": false,
       "data05_status": "still_open",
       "next_task": "Wave 4 Task 10: Data Health Centre"
+    },
+    "task_10_checkpoint": {
+      "owning_issue_ids": ["ISSUE-0035"],
+      "branch": "wave4/task10-data-health",
+      "worktree": ".worktrees/task10-data-health",
+      "task_base": "557e923",
+      "head": "85b7fb9",
+      "head_note": "Atomic staging and failed-completion provenance fixes plus final closure evidence refresh are committed; final integration/synchronisation remains.",
+      "implementation_commits": ["d171162", "85b469e", "87559ed", "ea03216", "d1b7b7a", "8ceafce", "85b7fb9"],
+      "red": {
+        "initial_exit_code": 1,
+        "initial_data_health_failures": 5,
+        "migration_fix_exit_code": 1,
+        "migration_fix_failures": 3,
+        "failed_completion_precedence_exit_code": 1,
+        "failed_completion_precedence_failure": "explicit status=failed completion event was classified as last_success"
+      },
+      "green": {
+        "focused_command": "python -m pytest -q tests/test_data_health.py",
+        "focused_exit_code": 0,
+        "focused_tests_passed": 16,
+        "affected_exit_code": 0,
+        "affected_tests_passed": 40,
+        "compileall_exit_code": 0,
+        "ruff_exit_code": 0,
+        "source_smoke": "snapshot_ok as_of=2026-07-13 signals=16 backtests=5",
+        "authoritative_full_suite_command": "python -m pytest -q",
+        "authoritative_full_suite_exit_code": 0,
+        "authoritative_full_suite_result": "100%; warnings only"
+      },
+      "independent_review": {
+        "reviewer": "task10_final_rereview",
+        "specification": "PASS",
+        "code_quality": "PASS",
+        "ready_for_integration": false,
+        "blocking_closure_findings": ["final integration gate pending", "local/GitHub issue synchronisation gate pending"]
+      },
+      "package": {
+        "build_command": "cmd /c scripts\\build_windows.bat",
+        "pyinstaller_exit_code": null,
+        "pyinstaller_note": "PyInstaller unavailable in the isolated rebuild venv; existing native output retained",
+        "portable_output_created": true,
+        "package_smoke_exit_code": 0,
+        "package_smoke_modes": ["native:8601", "portable-native:8600"],
+        "direct_packaged_http_exit_code": 0,
+        "direct_packaged_http_status": 200,
+        "direct_packaged_url": "http://127.0.0.1:8601/"
+      },
+      "browser": {
+        "source_url": "http://127.0.0.1:8602/data-health",
+        "packaged_url": "http://127.0.0.1:8600/data-health",
+        "screenshots": ["evidence/final/browser/ISSUE-0035-desktop.png", "evidence/final/browser/ISSUE-0035-mobile.png", "evidence/final/browser/ISSUE-0035-packaged.png"],
+        "console": "Flutter app loaded only",
+        "semantic_snapshot": "accessibility semantics enabled; Data Health labels, filters, export, row actions and migration controls exposed; Tab focus traversal observed"
+      },
+      "export": {
+        "path": "evidence/final/export/ISSUE-0035-data-health.csv",
+        "rows": 12,
+        "sha256": "bd89f6e01ea42e90d05a09675d881143f4584c3055e5dfcd7d9a7f7d124b4996"
+      },
+      "closure_evaluator": {
+        "command": "python scripts/closure_status.py --json-report evidence/final/closure-status-task10-fresh.json",
+        "exit_code": 0,
+        "issue_ready": true,
+        "interpretation": "presence/checksum evaluator ready; package-smoke and semantic gates pass; final integration/synchronisation gates remain pending"
+      },
+      "issue_state": "open_implementation_complete_closure_pending",
+      "execution_allowed": false,
+      "data05_status": "still_open",
+      "next_action": "Integrate Task 10, run post-merge verification, synchronise local/GitHub issue state, then continue to Task 11."
     }
   },
   "plan": "docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md",
   "execution_mode": "subagent_driven_with_independent_review",
   "git_repository": true,
   "git_branch": "main",
-  "progress_percent": 40,
+  "progress_percent": 42,
   "wave": 4,
-  "task": 9,
-  "step": 1,
+  "task": 10,
+  "step": 5,
   "completed_tasks": [1, 2, 3, 4, 5, 6, 7, 8, 9],
   "completed_governance_tasks": [1, 2, 3, 4, 5, 6],
   "implementation_foundations": [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
   "issue_counts": {
     "reviewed": 42,
-    "ready": 4,
-    "still_open": 38
+    "ready": 3,
+    "still_open": 39
   },
   "last_checkpoint": {
     "name": "wave3_task8_merged_wave4_task9_ready",

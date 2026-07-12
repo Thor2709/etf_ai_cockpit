@@ -1219,6 +1219,33 @@ Required checks for the current implementation sweep:
 - Post-merge focused, compileall, Ruff and source smoke passed on `main` at
   `4c4eb00175237ad49b113adad8be3f8dcbfed618`.
 
+## 2026-07-13 Wave 4 Task 10 Data Health
+
+- RED: initial Data Health focused run had five genuine missing-behaviour
+  failures; the migration review-fix slice had three timestamp/name/provenance
+  failures before implementation.
+- RED: failed-completion provenance regression initially classified an explicit
+  `status=failed` completion event as `last_success`; the focused test then
+  passed after status precedence was fixed.
+- GREEN: `pytest -q tests/test_data_health.py` - 16 passed.
+- Affected UI/start-up/navigation bundle - 40 passed with one existing GluonTS
+  warning.
+- `python -m compileall -q src tests` - exit 0; scoped Ruff - all checks
+  passed; source smoke - `snapshot_ok as_of=2026-07-13 signals=16 backtests=5`.
+- Full authoritative `pytest -q` - exit 0 at 100%, warnings only; no Data Health
+  failure occurred after the atomic staging fix.
+- `cmd /c scripts\\build_windows.bat` exited 0 and recreated the portable
+  output; PyInstaller was unavailable in the isolated build venv, so the
+  existing native output was retained. Fresh `native` port 8601 and
+  `portable-native` port 8600 smoke both returned `smoke_ok` using the local
+  ignored candidate fixtures for the AURG/Sparebanken contract.
+- Source/package `/data-health` browser renders passed visually with only the
+  expected `Flutter app loaded` console message. Enabling Flet accessibility
+  semantics exposed labelled Data Health filters, export, actions and migration
+  controls; Tab advanced through the semantic focus tree.
+- Export wrote 12 rows with header compatibility and SHA-256
+  `bd89f6e01ea42e90d05a09675d881143f4584c3055e5dfcd7d9a7f7d124b4996`.
+
 ## 2026-07-12 - Wave 4 Task 9
 
 - RED fix-pass: three genuine failures for missing score provenance, unknown/

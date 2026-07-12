@@ -1438,3 +1438,29 @@ verified. `UPDATEV2-0011` and `UPDATEV2-0021` remain open/partial pending full
 issue-level package, audit/export, closure-matrix and browser gates.
 `UPDATEV2-0022` remains closed. `execution_allowed` remains false. Task 10 is
 the next dependency-valid task.
+
+## 2026-07-13 - Wave 4 Task 10
+
+Task 10 Data Health implementation is complete on isolated branch
+`wave4/task10-data-health`, with the bounded atomic staging fix now included.
+RED/GREEN cycles added deterministic
+inventory, persisted provenance, macro invalid-sibling visibility, migration
+state validation by expected name/version, UTC-instant timestamp ordering,
+filters, related routes and compatible CSV export, plus failure-status precedence
+for completion-looking events. Focused Data Health tests passed 16; the affected
+UI/start-up/navigation bundle passed 40; compileall,
+Ruff and source smoke passed. Native/portable build output was created and
+direct packaged HTTP readiness returned 200 on port 8565. Fresh source,
+packaged and responsive browser screenshots and a 12-row export checksum are
+recorded under `evidence/final/`.
+
+Fresh independent final re-review at `8ceafce` approved specification
+compliance and code quality. The authoritative full suite now passes at 100%
+after the atomic staging and provenance fixes. Fresh native and portable-native
+package smoke passed using local ignored candidate fixtures, and enabling Flet
+accessibility semantics exposed the labelled Data Health controls with Tab
+focus traversal. `ISSUE-0035` remains implementation-complete/closure-pending;
+its historical closed record is retained as a rejected checkpoint. Only final
+integration and local/GitHub synchronisation remain. `execution_allowed=false`;
+Task 11 must not start before the Task 10 integration/closure boundary is
+resolved.

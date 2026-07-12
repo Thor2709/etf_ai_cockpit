@@ -49,6 +49,23 @@ def test_failed_replace_preserves_previous_destination(tmp_path, monkeypatch):
     assert list(tmp_path.glob(f".{destination.name}.*.tmp")) == []
 
 
+def test_group_write_bounds_stage_name_for_long_destination(tmp_path):
+    destination = tmp_path / "decision_journal" / "entries" / ("a" * 64 + ".json")
+
+    def validate(staged: Path) -> None:
+        if staged.read_bytes() != b"new":
+            raise AssertionError("staged payload mismatch")
+
+    atomic_write_group(
+        (
+            AtomicWriteRequest(destination, b"new", validate),
+        )
+    )
+
+    assert destination.read_bytes() == b"new"
+    assert not list(destination.parent.glob("*.group.tmp"))
+
+
 def test_backup_manifest_matches_checksums(tmp_path):
     first = tmp_path / "data" / "one.json"
     second = tmp_path / "configs" / "two.yaml"

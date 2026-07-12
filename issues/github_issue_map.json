@@ -464,19 +464,19 @@
       "source_location": "issues/open.md:1150",
       "title": "What changed since last run page"
     },
-    {
-      "action": "unchanged",
-      "github_issue_number": 81,
-      "github_state": "closed",
-      "github_url": "https://github.com/Thor2709/etf_ai_cockpit/issues/81",
-      "last_synchronised_commit": "b48098edf8cd1783e24484774b6deb39f96cb44c",
-      "local_issue_id": "ISSUE-0035",
-      "local_state": "closed",
-      "source_checksum": "f5d755e7539578b9950a85b547f2bf74612007b7a80645ee6f57528c408ab338",
-      "source_file": "issues/closed.md",
-      "source_location": "issues/closed.md:604",
-      "title": "Data health centre"
-    },
+      {
+        "action": "unchanged",
+        "github_issue_number": 81,
+        "github_state": "closed",
+        "github_url": "https://github.com/Thor2709/etf_ai_cockpit/issues/81",
+        "last_synchronised_commit": "b48098edf8cd1783e24484774b6deb39f96cb44c",
+        "local_issue_id": "ISSUE-0035",
+        "local_state": "open",
+        "source_checksum": "1b66fae49d9d8c9f92d2670d1ab607b161e446eaf57861c270ae4d0d77f6545e",
+        "source_file": "issues/open.md",
+        "source_location": "issues/open.md:1167",
+        "title": "Data health centre"
+      },
     {
       "action": "unchanged",
       "github_issue_number": 83,

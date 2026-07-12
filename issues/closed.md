@@ -603,11 +603,16 @@ The audit packet includes the expanded canonical and unavailable artefacts, vali
 
 ### ISSUE-0035 - Data health centre
 
-**Status:** Closed 2026-07-10  
+**Status:** Reopened 2026-07-13 after independent review; retained as a rejected closure checkpoint.
 **Dossier:** `evidence/final/issues/ISSUE-0035.json`  
 **Evidence:** `evidence/final/source/ISSUE-0035.md`, `tests/ISSUE-0035.md`, `ui/ISSUE-0035.md`, `export/ISSUE-0035.md`, `build/ISSUE-0035.md`, `browser/ISSUE-0035.md`.
 
-The Data Health route inventories price, FX, ETF holdings, fundamentals, news, macro, forecast and backtest stores. It shows explicit missing/stale/corrupt/schema-mismatch/unavailable states, checksums, provenance, freshness, last success/failure and warnings in responsive per-dataset rows. The Dashboard summary and CSV export were verified after the final package rebuild. Playwright visual/browser evidence passed at desktop and 1040px widths; the failed Computer Use retry is recorded as a limitation rather than counted as a pass.
+The historical closure was not accepted for the current Task 10 contract. The
+implementation now inventories the required stores and migration/provenance
+states; the authoritative full suite, native/portable package smoke and
+semantic Data Health controls pass after the current fix cycle. This rejected
+checkpoint remains historical only; do not treat it as the canonical closed
+record while final integration and local/GitHub synchronisation are pending.
 
 ## 2026-07-11 Final Follow-Up Closures
 

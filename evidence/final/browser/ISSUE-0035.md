@@ -1,5 +1,14 @@
 # ISSUE-0035 browser gate
 
-Playwright loaded the rebuilt packaged native app at `http://127.0.0.1:8593/data-health`, waited for the Flet title and captured desktop and 1040px screenshots. It then loaded `/` and captured the Dashboard `Data health` summary. Local HTTP readiness passed, and the browser console returned zero errors for the route checks.
+Source app readiness on `http://127.0.0.1:8595/` returned HTTP 200 and the
+route `/data-health` rendered in the in-app browser. Packaged-native readiness
+on `http://127.0.0.1:8565/` also returned HTTP 200 and `/data-health` rendered
+with the same dark shell and inventory content.
 
-Visual evidence is preserved in `ISSUE-0035-data-health-desktop.png`, `ISSUE-0035-data-health-1040px.png`, `ISSUE-0035-dashboard-summary.png` and `ISSUE-0035-console.log`. The Flet semantic snapshot was limited to the accessibility toggle. A Computer Use retry stopped before input with a URL-confidence policy error; no Computer Use pass is claimed.
+Visual evidence is preserved in `ISSUE-0035-desktop.png`,
+`ISSUE-0035-mobile.png` and `ISSUE-0035-packaged.png`. A fresh source run on
+`http://127.0.0.1:8602/data-health` enabled Flet accessibility semantics and
+exposed labelled Data Health navigation, filters, export, row actions and
+migration controls; Tab advanced through the semantic focus tree. Source and
+packaged console logs contained only `Flutter app loaded`; no browser error was
+seen. Final integration and synchronisation remain pending.

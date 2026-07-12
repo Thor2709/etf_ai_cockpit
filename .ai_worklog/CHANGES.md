@@ -1041,3 +1041,21 @@
   `ec5d166ee32235367f58d31f3835854a14e11ba8`; UPDATEV2-0011 and UPDATEV2-0021
   remain open/partial pending complete issue-level gates; UPDATEV2-0022 was
   not reopened.
+
+## 2026-07-13 Wave 4 Task 10 Data Health
+
+- Added deterministic Data Health inventory rows for configured stores,
+  forecasts, backtests, macro content and migration state, with explicit
+  missing/stale/corrupt/schema-mismatch/unavailable outcomes, checksums,
+  freshness and persisted success/failure provenance.
+- Added migration name/version validation, timezone-aware UTC ordering and
+  fail-closed missing/malformed/timezone-naive `applied_at` handling.
+- Added status/dataset/provider filters, stable local action links and visible
+  CSV export while preserving the existing export schema and
+  `execution_allowed=false`.
+- Added focused regressions and fresh source/package browser/export evidence.
+- Reopened `ISSUE-0035` after current independent review rejected historical
+  closure evidence; the atomic staging fix and failed-completion provenance
+  regression now have a passing authoritative suite. Fresh native/portable
+  package smoke and semantic Data Health focus evidence also pass. Closure
+  remains pending final integration and local/GitHub synchronisation gates.

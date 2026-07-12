@@ -1,0 +1,597 @@
+{
+  "matrix": "configs\\closure_matrix.yaml",
+  "evidence_root": "evidence\\final",
+  "issue_count": 42,
+  "ready_count": 1,
+  "issues": [
+    {
+      "issue_id": "ISSUE-0067",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "ISSUE-0069",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": [
+        "source/ISSUE-0069-wave4.md",
+        "tests/ISSUE-0069-wave4.md",
+        "ui/ISSUE-0069-wave4.md",
+        "export/ISSUE-0069-wave4.md",
+        "build/ISSUE-0069-wave4.md",
+        "browser/ISSUE-0069-wave4.md"
+      ]
+    },
+    {
+      "issue_id": "UPDATEV2-0010",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "UPDATEV2-0011",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": [
+        ".ai_worklog/task9-report.md",
+        "src/etf_cockpit/data/instrument_identity.py",
+        "src/etf_cockpit/data/source_conflicts.py",
+        "src/etf_cockpit/data/evidence_ledger.py",
+        "src/etf_cockpit/app/pages/trust_evidence.py",
+        "evidence/task9-provider-status.png",
+        "evidence/task9-provider-status-mobile.png",
+        "tests/test_instrument_identity.py",
+        "tests/test_simple_scores.py",
+        "tests/test_trust_critical_artifacts.py"
+      ]
+    },
+    {
+      "issue_id": "UPDATEV2-0012",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "UPDATEV2-0013",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "UPDATEV2-0015",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "UPDATEV2-0016",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "UPDATEV2-0017",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "UPDATEV2-0019",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "UPDATEV2-0021",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": [
+        ".ai_worklog/task9-report.md",
+        "src/etf_cockpit/data/source_conflicts.py",
+        "src/etf_cockpit/data/evidence_ledger.py",
+        "src/etf_cockpit/app/pages/trust_evidence.py",
+        "evidence/task9-provider-status.png",
+        "evidence/task9-provider-status-mobile.png",
+        "tests/test_source_conflicts.py",
+        "tests/test_evidence_ledger.py",
+        "tests/test_simple_scores.py"
+      ]
+    },
+    {
+      "issue_id": "UPDATEV2-0022",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": [
+        "source/UPDATEV2-0022-wave4.md",
+        "tests/UPDATEV2-0022-wave4.md",
+        "ui/UPDATEV2-0022-wave4.md",
+        "export/UPDATEV2-0022-wave4.md",
+        "build/UPDATEV2-0022-wave4.md",
+        "browser/UPDATEV2-0022-wave4.md"
+      ]
+    },
+    {
+      "issue_id": "UPDATEV2-0027",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "UPDATEV2-0028",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": [
+        "source/UPDATEV2-0028-wave4.md",
+        "tests/UPDATEV2-0028-wave4.md",
+        "ui/UPDATEV2-0028-wave4.md",
+        "export/UPDATEV2-0028-wave4.md",
+        "build/UPDATEV2-0028-wave4.md",
+        "browser/UPDATEV2-0028-wave4.md"
+      ]
+    },
+    {
+      "issue_id": "UPDATEV2-0029",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "ISSUE-0011",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "ISSUE-0012",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "ISSUE-0013",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "ISSUE-0014",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "ISSUE-0017",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "ISSUE-0018",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "ISSUE-0019",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "ISSUE-0023",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "ISSUE-0025",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "ISSUE-0034",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "ISSUE-0035",
+      "ready": true,
+      "missing_gates": [],
+      "evidence_paths": [
+        "source/ISSUE-0035.md",
+        "tests/ISSUE-0035.md",
+        "ui/ISSUE-0035.md",
+        "export/ISSUE-0035.md",
+        "build/ISSUE-0035.md",
+        "browser/ISSUE-0035.md"
+      ]
+    },
+    {
+      "issue_id": "ISSUE-0036",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "ISSUE-0039",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "ISSUE-0040",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "ISSUE-0041",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "ISSUE-0042",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "ISSUE-0044",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "ISSUE-0045",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "ISSUE-0047",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "ISSUE-0052",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "ISSUE-0054",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "ISSUE-0055",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "ISSUE-0056",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "ISSUE-0059",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "ISSUE-0064",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "ISSUE-0068",
+      "ready": false,
+      "missing_gates": [
+        "browser",
+        "build",
+        "export",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "issue_id": "DATA-05",
+      "ready": false,
+      "missing_gates": [
+        "audit",
+        "browser",
+        "package",
+        "schema",
+        "source",
+        "tests",
+        "ui"
+      ],
+      "evidence_paths": []
+    }
+  ]
+}

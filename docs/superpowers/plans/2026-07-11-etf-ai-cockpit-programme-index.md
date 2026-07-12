@@ -228,3 +228,17 @@ launcher readiness and Provider Status screenshots. `UPDATEV2-0011` and
 `UPDATEV2-0021` remain open/partial pending complete issue-level gates;
 `UPDATEV2-0022` remains closed. The next dependency-valid task is Task 10,
 Data Health Centre.
+
+Wave 4 Task 10 implementation is now complete on branch
+`wave4/task10-data-health`, with bounded atomic staging and failed-completion
+provenance fixes applied on top of the earlier implementation. Fresh RED/GREEN
+evidence covers deterministic inventory, persisted provenance, migration
+timestamp/name validation, filters, actions and export compatibility. Final
+independent re-review at `8ceafce` approved specification compliance and code
+quality. The authoritative full suite, native/portable package smoke and
+semantic Data Health focus evidence pass; `ISSUE-0035` remains
+implementation-complete/closure-pending only for final integration and
+local/GitHub synchronisation. Native/portable build, direct packaged HTTP
+readiness, source/package browser renders and 12-row export evidence are
+recorded under `evidence/final/`.
+Do not begin Task 11 until the Task 10 integration/closure boundary is resolved.

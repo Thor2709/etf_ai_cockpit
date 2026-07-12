@@ -1,9 +1,25 @@
 # ISSUE-0035 tests gate
 
-- `pytest tests/test_data_health.py -q -rA`: 3 passed after the responsive-row correction.
-- Focused cross-feature run over Data Health, Simple Scores, Flet startup and workflow navigation: 39 passed.
-- `pytest -q -rA`: 244 passed, exit code 0; the final output is in `evidence/wave4/full-pytest-responsive-final.txt`.
-- `compileall -q scripts src tests`: exit code 0.
-- Scoped Ruff over the changed health, page, dashboard and test files: exit code 0.
+- RED before the Task 10 implementation: Data Health focused run reported 5
+  genuine missing-behaviour failures.
+- Migration review-fix RED: the three new migration timestamp/name/provenance
+  tests failed before implementation.
+- Status-precedence RED: `python -m pytest tests/test_data_health.py::test_failed_completion_event_is_failure_not_success -q` exited 1 because the failed completion was recorded as `last_success`.
+- Status-precedence GREEN: the same focused regression exited 0 after failure status was given precedence.
+- `& 'C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe' -m pytest -q tests/test_data_health.py`: **16 passed**.
+- Affected UI/start-up/navigation bundle over six test files: **40 passed**, one
+  existing GluonTS warning.
+- `...python.exe -m compileall -q src tests`: exit 0.
+- Scoped Ruff over `health.py`, `data_health.py` and `test_data_health.py`:
+  `All checks passed!`.
+- Full authoritative `...python.exe -m pytest -q`: exit 0 at 100%, warnings only;
+  no Data Health failure occurred after the atomic staging fix.
 
-The tests cover healthy, stale, missing and corrupt stores, forecast/backtest/macro inventory, CSV export and Flet control-tree labels for the visible provenance and failure fields.
+The focused tests cover healthy, stale, missing, corrupt, schema-mismatch and
+unavailable stores; persisted provenance; mixed-offset migration ordering;
+wrong migration names; missing `applied_at`; macro invalid siblings; filters;
+UI links; and compatible CSV export columns.
+
+Fresh package smoke passed for native and portable-native modes on ports 8601
+and 8600. Semantic accessibility was separately verified on the running source
+surface; final integration and local/GitHub synchronisation remain pending.
