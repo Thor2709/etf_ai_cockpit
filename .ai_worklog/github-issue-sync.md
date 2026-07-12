@@ -90,5 +90,11 @@ authoritative ledgers as part of remote synchronisation.
 - No GitHub Issue was created, closed, reopened or deleted by this refresh.
   The local issue ledger remains authoritative and Task 2 does not close any
   governance issue.
-- The next sync is required after the next local issue-ledger transition or
-  closure-evidence update.
+- Apply command exit 0: 70 canonical records were unchanged and 28 managed
+  bodies were refreshed against the new source checksum. The read-only dry
+  run then exited 0 with 98 unchanged actions. Reconciliation passed with 77
+  open and 21 closed records, states agreeing and no unresolved duplicates.
+  The map/report source commit is `6df20ef1f56306dc49e4b520f1905056e98634d6`.
+- No GitHub Issue was created, closed, reopened or deleted. The next sync is
+  required after the next local issue-ledger transition or closure-evidence
+  update.
