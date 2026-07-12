@@ -156,10 +156,51 @@ class SimpleScoreComponent:
     authority: str = "medium"
     score_role: str = "evidence"
     source_id: str | None = None
+    source_authority: str | None = None
+    as_of_date: str | None = None
+    freshness_status: str | None = None
+    conflict_id: str | None = None
+    evidence_quality: float | str | None = None
 
     def __post_init__(self) -> None:
         if self.source_id is None:
             object.__setattr__(self, "source_id", COMPONENT_SOURCE_IDS.get(self.key))
+        if self.source_authority is None:
+            dataset = str(self.source_id or "").split(":", 1)[0].casefold()
+            authority = {
+                "sec_edgar": "official_regulator",
+                "esef": "official_filing",
+                "issuer_document": "issuer_document",
+                "priips_kid": "issuer_document",
+                "index_methodology": "issuer_document",
+                "etf_disclosures": "issuer_document",
+                "yfinance": "vendor_unofficial",
+                "fmp": "vendor_unofficial",
+                "eodhd": "vendor_unofficial",
+                "model": "model_advisory",
+                "community": "manual_context",
+                "news": "manual_context",
+                "rss": "manual_context",
+                "candle": "manual_context",
+            }.get(dataset, "unknown" if not dataset else "vendor_unofficial")
+            object.__setattr__(self, "source_authority", authority)
+
+    @property
+    def score_eligible(self) -> bool:
+        return _component_is_score_eligible(self)
+
+    @property
+    def provenance(self) -> dict[str, object]:
+        return {
+            "source_id": self.source_id or "",
+            "source_authority": self.source_authority or "unknown",
+            "as_of_date": self.as_of_date,
+            "freshness_status": self.freshness_status or "unknown",
+            "conflict_id": self.conflict_id,
+            "evidence_quality": self.evidence_quality,
+            "score_eligible": self.score_eligible,
+            "executable_authority": False,
+        }
 
 
 @dataclass(frozen=True)
@@ -406,13 +447,34 @@ def _component_is_score_eligible(component: SimpleScoreComponent) -> bool:
     source_id = str(component.source_id or "").strip()
     status = str(component.status or "").strip().lower()
     source_dataset = source_id.split(":", 1)[0].lower() if source_id else ""
+    as_of_date = str(component.as_of_date or "").strip()
+    freshness_status = str(component.freshness_status or "").strip().lower()
+    authority = str(component.source_authority or "").strip().lower()
+    allowed_datasets = {
+        "yfinance",
+        "sec_edgar",
+        "esef",
+        "issuer_document",
+        "priips_kid",
+        "index_methodology",
+        "etf_disclosures",
+        "fmp",
+        "eodhd",
+        "alphavantage",
+        "stooq",
+    }
     return (
         component.raw_score is not None
         and component.score_10 is not None
         and bool(source_id)
-        and source_id in KNOWN_SCORE_SOURCE_IDS
+        and (source_id in KNOWN_SCORE_SOURCE_IDS or source_dataset in allowed_datasets)
         and status == "ok"
-        and source_dataset != "model"
+        and source_dataset not in {"model", "community", "news", "rss", "candle"}
+        and authority not in {"model_advisory", "manual_context", "community", "model"}
+        and bool(as_of_date)
+        and bool(freshness_status)
+        and freshness_status not in {"stale", "stale_block", "unavailable", "missing", "missing_or_pending", "not_checked"}
+        and not component.conflict_id
     )
 
 
@@ -663,7 +725,9 @@ def build_universe_simple_scores(
         quality_info = price_quality.get(signal.etf_id, {})
         liquidity_info = liquidity.get(signal.etf_id, {})
         exposure_info = etf_exposure.get(signal.etf_id)
-        components = [
+        as_of_date = _noneable_str(price_info.get("date")) or _noneable_str(signal.signal_date)
+        components = _attach_component_provenance(
+            [
             _data_quality_component(quality_info, [*signal.blocked_by, *signal.warnings]),
             _component(
                 "momentum",
@@ -695,7 +759,9 @@ def build_universe_simple_scores(
             _forecast_component(signal.etf_id, "baseline", raw_forecast_scores, forecast_details, forecasts),
             _forecast_component(signal.etf_id, "timesfm", raw_forecast_scores, forecast_details, forecasts),
             _forecast_component(signal.etf_id, "toto", raw_forecast_scores, forecast_details, forecasts),
-        ]
+            ],
+            as_of_date,
+        )
         _raw_final, evidence_score = combine_component_scores(components, ETF_EVIDENCE_WEIGHTS)
         quality_score = _evidence_quality_score(components, warnings=[*signal.blocked_by, *signal.warnings], asset_type="ETF")
         risk_friction = _risk_friction_score(components, warnings=[*signal.blocked_by, *signal.warnings])
@@ -840,7 +906,8 @@ def build_candidate_simple_scores(
             output.append(_pending_candidate_score(row, asset_type))
             continue
         blocked = _split_flags(row.get("blocked_by"))
-        components = [
+        as_of_date = _noneable_str(row.get("latest_date"))
+        component_rows = [
             _candidate_data_quality_component(row, blocked),
             _component("momentum", _candidate_momentum_raw(row), _candidate_momentum_why(row), authority="high"),
             _component("trend", _candidate_trend_raw(row), _candidate_trend_why(row), authority="high"),
@@ -854,9 +921,9 @@ def build_candidate_simple_scores(
             _candidate_liquidity_component(row),
         ]
         if asset_type == "ETF":
-            components.append(_etf_exposure_component(etf_exposure.get(instrument_id)))
+            component_rows.append(_etf_exposure_component(etf_exposure.get(instrument_id)))
         else:
-            components.extend(
+            component_rows.extend(
                 [
                     _optional_score_component(
                         "stock_value",
@@ -878,13 +945,14 @@ def build_candidate_simple_scores(
                     ),
                 ]
             )
-        components.extend(
+        component_rows.extend(
             [
                 _forecast_component(instrument_id, "baseline", raw_forecast_scores, forecast_details, forecasts),
                 _forecast_component(instrument_id, "timesfm", raw_forecast_scores, forecast_details, forecasts),
                 _forecast_component(instrument_id, "toto", raw_forecast_scores, forecast_details, forecasts),
             ]
         )
+        components = _attach_component_provenance(component_rows, as_of_date)
         weight_map = ETF_EVIDENCE_WEIGHTS if asset_type == "ETF" else STOCK_EVIDENCE_WEIGHTS
         _raw_final, evidence_score = combine_component_scores(components, weight_map)
         quality_score = _evidence_quality_score(components, warnings=blocked, asset_type=asset_type)
@@ -1148,6 +1216,29 @@ def _component(
         authority=authority,
         score_role=role,
     )
+
+
+def _component_freshness_status(as_of_date: str | None) -> str | None:
+    parsed = _parse_date(as_of_date)
+    if parsed is None:
+        return None
+    return "stale" if _business_days_between(parsed, date.today()) > 10 else "ok"
+
+
+def _attach_component_provenance(
+    components: list[SimpleScoreComponent],
+    as_of_date: str | None,
+) -> list[SimpleScoreComponent]:
+    clean_date = _noneable_str(as_of_date)
+    freshness = _component_freshness_status(clean_date)
+    return [
+        replace(
+            component,
+            as_of_date=component.as_of_date or clean_date,
+            freshness_status=component.freshness_status or freshness,
+        )
+        for component in components
+    ]
 
 
 def _forecast_component(

@@ -14,7 +14,7 @@ from etf_cockpit.core.config import load_config
 from etf_cockpit.core import session_log
 from etf_cockpit.data import trust_artifacts as trust
 from etf_cockpit.services import build_snapshot
-from etf_cockpit.signals.simple_scores import build_simple_instrument_scores, simple_scoreboard_frame
+from etf_cockpit.signals.simple_scores import SimpleScoreComponent, build_simple_instrument_scores, simple_scoreboard_frame
 
 
 def test_session_log_clears_records_start_and_redacts_secrets(tmp_path, monkeypatch) -> None:
@@ -173,6 +173,29 @@ def test_score_artifacts_write_history_components_and_drivers() -> None:
     assert ledger["executable_authority"].eq(False).all()
     assert {"direction", "driver_text", "freshness_status"} <= set(drivers.columns)
     assert "VWCE" in set(history["instrument_id"])
+
+
+def test_score_components_persist_non_executable_authority(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(trust, "SCORE_COMPONENTS_PATH", tmp_path / "score_components.parquet")
+    component = SimpleScoreComponent(
+        "momentum",
+        "Momentum",
+        7.0,
+        0.4,
+        "OK",
+        "",
+        "",
+        "",
+        source_id="yfinance:prices",
+        as_of_date="2026-07-10",
+        freshness_status="ok",
+    )
+    score = SimpleNamespace(display_id="VWCE", latest_date="2026-07-10", components=[component])
+
+    frame = pd.read_parquet(trust.write_score_components([score], run_id="run-authority", created_at="2026-07-10T00:00:00Z"))
+
+    assert "executable_authority" in frame.columns
+    assert frame["executable_authority"].eq(False).all()
 
 
 def test_score_evidence_distinguishes_official_and_missing_sources(tmp_path, monkeypatch) -> None:
