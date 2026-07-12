@@ -1214,3 +1214,27 @@ Required checks for the current implementation sweep:
 - Rendered source dashboard screenshot: `evidence/task6-dashboard-source-main-data.png`, SHA-256 `80964F9BFB05989BEF37CC9E054621451F65FE8C4A7C4464BCE65BF9562F1DF6`.
 - Standard `scripts/smoke_app.py` source/native/portable fixture check remains explicitly unavailable in the isolated worktree because the generated Sparebanken/AURG fixture is absent; this is not attributed to the Task 6 button change.
 - Fresh independent review `/root/task6_workflow_reviewer_final`: SPEC PASS, CODE PASS, READY YES, no Critical/Important/Minor findings. PR 176 merged at `16205d259380421d7041ffb46d61acce84ec1993`; no issue state changed and `execution_allowed=false`.
+
+## 2026-07-12 - Wave 3 Governance Task 7
+
+- RED: initial focused inventory/error/performance tests failed before the
+  Task 7 implementation; the source-linked omission regression now fails
+  closed when `dashboard.export-audit` is removed.
+- Post-merge focused bundle - exit 0: 15 passed.
+- Post-merge affected bundle (`workflow_runtime`, `e2e_workflow`, optional
+  providers, atomic I/O, backtest costs, Flet startup, release hardening and
+  scope boundary) - exit 0; 72 passed with one existing warning.
+- `compileall -q src tests` - exit 0; scoped Ruff - exit 0 (`All checks
+  passed!`); `scripts/run_app.py --smoke` - exit 0 (`snapshot_ok as_of=2026-07-09 signals=16 backtests=5`).
+- `cmd /c scripts\\build_windows.bat` - exit 0; native executable SHA-256
+  `CA1BC8CE0D3C521D14323F4577867CDAD84FA0AFF00C2EC36B5CA59C90E6D018`;
+  portable output created.
+- Native, portable-native and launcher smoke against the verified data root
+  returned `smoke_ok`; browser screenshots `evidence/task7-dashboard.png`,
+  `evidence/task7-diagnostics.png` and `evidence/task7-errors.png` are
+  checksum-recorded in `.ai_worklog/task7-report.md`.
+- Full isolated pytest retains eight documented generated-data/trust-fixture
+  and order-dependent transaction baseline failures; the transaction test
+  passes in isolation and no Task 7 failure was attributed.
+- Fresh independent re-review: SPEC PASS, CODE PASS, READY YES; no
+  Critical/Important findings and two non-blocking Minor recommendations.

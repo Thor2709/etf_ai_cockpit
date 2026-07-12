@@ -1801,3 +1801,15 @@ Wave 1 Governance Task 3 checkpoint 2026-07-12: severity-aware authority resolut
 Wave 1 Governance Task 4 checkpoint 2026-07-12: neutral non-executable review reports and the checksum-protected append-only Decision Journal are independently approved and merged through PR 174 at `c61531841a753ce1e3f862f8beb498c629b9cbb5`. Grouped atomic publication/reads, safe IDs, identity/schema/checksum validation, deterministic bounded supersedes, private-note-safe operation/export records and owner-token journal locking are covered. Post-merge focused Task 4 tests (23), affected authority/release/atomic/transaction tests, compileall, scoped Ruff, source smoke and the full suite passed. No issue moved to closed because the owning governance and tracker records still require later UI/package/browser and complete closure evidence; Wave 1 Governance Task 5 is next.
 
 Wave 1 Governance Task 5 checkpoint 2026-07-12: System Map, Help/Glossary and user-owned Decision Journal surfaces are independently approved and merged through PR 175 at `6689e8c9c6a52a1b1ef1300c3c2356b006c449fa`. The feature registry now covers all 25 router routes with explicit limitations; System Map shows per-dependency readiness and data-health validation; glossary anchors and keyboard navigation are wired from scores/gates; journal success, partial, unavailable and error states remain local and non-executable. Post-merge focused UI/startup/accessibility/registry/scope tests (50), compileall, scoped Ruff, static boundary scan (425 files/0 violations), source smoke, native/portable-native package smoke and rendered browser evidence passed. No issue moved to closed because complete governance and closure-matrix evidence remains outstanding; Wave 1 Governance Task 6 is next.
+
+Wave 3 Task 7 checkpoint 2026-07-12: the source-linked AST UI inventory,
+controlled Error/Recovery centre, atomic output preservation and timing/cache
+diagnostics were independently re-reviewed and integrated through PR 177 at
+`f6e0c9ca2105af2e4f176d4c0253339161fbe235`. Focused Task 7 tests (15), the
+affected regression bundle (72 with one existing warning), compileall, scoped
+Ruff and source smoke passed. The Windows build exited 0; native,
+portable-native and launcher smoke returned `smoke_ok`; rendered Errors &
+Recovery and Diagnostics routes are recorded with screenshot checksums in
+`.ai_worklog/task7-report.md`. `ISSUE-0011`, `ISSUE-0040` and `ISSUE-0039`
+remain open because their complete issue closure gates and later programme
+evidence are not yet complete. Wave 3 Task 8 is next.

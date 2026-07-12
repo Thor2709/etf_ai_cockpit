@@ -1383,3 +1383,21 @@ source snapshot smoke. A native package was rebuilt (SHA-256
 HTTP readiness passed and dashboard screenshots were captured. The standard
 generated-data fixture smoke limitation is explicitly recorded; no issue state
 changed and `execution_allowed` remains `false`. Wave 3 Task 7 is next.
+
+## 2026-07-12 - Wave 3 Task 7
+
+Task 7 was implemented on `wave3/task7-error-recovery`, independently
+re-reviewed after two Important findings were fixed, and merged through PR
+177 at `f6e0c9ca2105af2e4f176d4c0253339161fbe235`. The source-linked AST
+inventory now covers 63 acceptance records across all 25 routes and has a
+negative omission regression. Error classification/recovery, atomic forecast
+and backtest publication, timing/cache diagnostics, lazy imports and the
+scrollable navigation rail are integrated without changing authority.
+Focused verification passed 15 tests; the affected bundle passed 72 with one
+existing warning; compileall, Ruff and source smoke passed. The Windows build
+exited 0 and native/portable/launcher smoke returned `smoke_ok`; checksum-backed
+browser evidence covers dashboard, Diagnostics and Errors & Recovery. The full
+isolated pytest run retains documented generated-data/trust-fixture and
+order-dependent transaction baseline failures; no Task 7 failure was
+attributed. `ISSUE-0011`, `ISSUE-0040` and `ISSUE-0039` remain open for full
+closure evidence. `execution_allowed` remains `false`; Wave 3 Task 8 is next.

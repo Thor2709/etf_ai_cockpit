@@ -1,6 +1,6 @@
 # ETF AI Cockpit Programme Index
 
-> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5 and Wave 1 Governance Tasks 1-6 are independently approved, merged and post-merge verified. Governance Task 6 merged through PR 176 with fresh independent approval. The authoritative local issue ledger is synchronised to GitHub through the versioned map and reconciliation report; later issue closure remains evidence-gated. Wave 3 Task 7 is next.
+> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6 and Wave 3 Task 7 are independently approved, merged and post-merge verified. Task 7 merged through PR 177 with fresh independent approval. The authoritative local issue ledger is synchronised to GitHub through the versioned map and reconciliation report; later issue closure remains evidence-gated. Wave 3 Task 8 is next.
 
 **Binding inputs:**
 
@@ -97,6 +97,7 @@ No blocking authorised-requirement contradiction was found. The following preced
 3. The canonical registry is the preferred DATA-05 path; the schema-versioned `UniverseRecord` compatibility migration is permitted only while it remains revision-protected and auditable.
 4. DATA-05 requires real-time official/source verification. The specification seeds are expected values, not facts to copy without a discrepancy manifest.
 5. The local baseline Git setup is complete at `445dd44b5382160d4e93e4cada018beb4ab0f5b5`. Wave 0 Task 3's five fix passes and fresh independent approval are recorded through `201ee9e`; PR 1 merged it into `main` at `046e3bbfe9cab41f6cfec59547f540bce85b2c44`, with post-merge focused/source verification passed. `ISSUE-0040` is still open for its later UI/package/browser gates.
+6. Wave 3 Task 7 was independently re-reviewed after source-linked UI inventory and rendered-route evidence fixes. PR 177 merged it into `main` at `f6e0c9ca2105af2e4f176d4c0253339161fbe235`; focused/affected tests, compileall, Ruff, source smoke, Windows build, native/portable/launcher smoke and Errors/Diagnostics browser evidence are recorded in `.ai_worklog/task7-report.md`. `ISSUE-0011`, `ISSUE-0040` and `ISSUE-0039` remain open for complete closure dossiers.
 
 ## Durable checkpoint protocol
 
@@ -117,7 +118,7 @@ The next agent must reread this index, the active plan, the progress ledger, the
 - Placeholder scan over all nine implementation plans found no `TBD`, `TODO`, `add tests`, `handle errors`, `similar to above` or `implement later` placeholder.
 - The documentation-only pre-flight change corrected the final plan heading. No implementation code, configuration, tracker status or user data has changed.
 - Fresh baseline evidence recorded before implementation: pytest exit 0, Ruff clean, compileall exit 0, source snapshot smoke exit 0, source/native/portable smoke exit 0, and a rendered in-app-browser inspection of the source Simple Scores route.
-- No blocking product contradiction remains after applying the approved precedence rules. Wave 0, Tasks 1 and 2 are independently reviewed complete. Wave 0, Task 3 is independently approved, merged and post-merge verified with no Critical, Important or Minor findings. Wave 0, Task 4 and its generated-package correction are independently approved, merged through PRs 2 and 3, and post-merge verified. Wave 0, Task 5 and Wave 1 governance Tasks 1-6 are independently approved, merged and post-merge verified; Wave 1 Governance Task 6 is now independently approved through PR 176; Wave 3 Task 7 is next.
+- No blocking product contradiction remains after applying the approved precedence rules. Wave 0, Tasks 1 and 2 are independently reviewed complete. Wave 0, Task 3 is independently approved, merged and post-merge verified with no Critical, Important or Minor findings. Wave 0, Task 4 and its generated-package correction are independently approved, merged through PRs 2 and 3, and post-merge verified. Wave 0, Task 5, Wave 1 governance Tasks 1-6 and Wave 3 Task 7 are independently approved, merged and post-merge verified; Wave 3 Task 7 has no Critical or Important findings and two non-blocking Minor recommendations; Wave 3 Task 8 is next.
 
 ## GitHub issue synchronisation checkpoint - 2026-07-12
 

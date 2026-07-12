@@ -503,19 +503,19 @@ Record action IDs, screenshots, session-log assertions and any timing regression
 - `ErrorStore.append()`, `recent(limit)`, `retry_request(error_id)`.
 - `timed_step(action_id, step_name)` emits duration to session log and timing store.
 
-- [ ] **Step 1: Generate and validate the full button inventory**
+- [x] **Step 1: Generate and validate the full button inventory**
 
 Inventory every `on_click`, file picker, navigation control and expandable row. The test fails if a control lacks key, callback, expected result/error signal or acceptance test reference.
 
-- [ ] **Step 2: Implement controlled error classification**
+- [x] **Step 2: Implement controlled error classification**
 
 Classify network timeout/rate limit as retryable; authentication, entitlement, invalid input, identity conflict and parser/schema failures as non-retryable until input/config changes. Store redacted messages and expose stack traces only when `ETF_COCKPIT_DEVELOPER_MODE=1`.
 
-- [ ] **Step 3: Add recovery UI and timing/cache diagnostics**
+- [x] **Step 3: Add recovery UI and timing/cache diagnostics**
 
 The route `/errors` shows last errors, action ID, readable message, timestamp and enabled Retry only when retryable. Diagnostics shows startup and workflow-step timings, cache hit/miss/invalidation and slow-step warnings. Heavy model/parser imports remain inside their workflow methods.
 
-- [ ] **Step 4: Run failure injection and performance tests**
+- [x] **Step 4: Run failure injection and performance tests**
 
 Run:
 
@@ -526,9 +526,26 @@ Run:
 
 Inject timeout, permission, locked-file, malformed response and cache corruption failures; assert previous clean state survives and UI shows recovery guidance.
 
-- [ ] **Step 5: Wave 3 package and review gate**
+- [x] **Step 5: Wave 3 package and review gate**
 
-Run full pytest, `scripts/build_windows.bat`, source/native/portable smoke, browser route/button matrix and Windows computer-use launcher test. Request independent code review; resolve verified findings before marking six Wave 3 issue dossiers ready.
+Task 7 checkpoint (2026-07-12): all five steps passed on the isolated
+`wave3/task7-error-recovery` branch and were integrated through PR 177
+(`https://github.com/Thor2709/etf_ai_cockpit/pull/177`) at merge commit
+`f6e0c9ca2105af2e4f176d4c0253339161fbe235`. The source-linked AST inventory
+validator and negative omission regression cover all 25 routes and 63
+contract records. Controlled error/recovery, atomic output preservation,
+timing/cache diagnostics and lazy imports are covered by the focused tests.
+Post-merge focused and affected suites, compileall, scoped Ruff and source
+smoke passed. Windows build exited 0; native, portable-native and launcher
+smoke passed against the verified data root; rendered Errors & Recovery and
+Diagnostics browser evidence is checksum-recorded in
+`.ai_worklog/task7-report.md`. Fresh independent re-review passed both
+specification compliance and code quality with no Critical or Important
+findings. The full isolated pytest run retains the documented generated-data /
+trust-fixture and order-dependent transaction baseline failures; no Task 7
+failure was attributed. `ISSUE-0011`, `ISSUE-0040` and `ISSUE-0039` remain open
+because their complete closure dossiers and later programme gates are not yet
+complete. Wave 3 Task 8 is next.
 
 ---
 

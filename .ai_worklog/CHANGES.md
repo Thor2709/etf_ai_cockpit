@@ -999,3 +999,16 @@
 - Integrated through PR 176 at merge commit
   `16205d259380421d7041ffb46d61acce84ec1993`; no issue state changed and
   `execution_allowed` remains `false`.
+
+## 2026-07-12 - Wave 3 Task 7
+
+- Added source-linked fail-closed UI acceptance inventory validation for all
+  actionable application controls, including a negative missing-contract test.
+- Added controlled error classification/redaction/retry states, atomic forecast
+  and backtest publication, parsed timing/cache diagnostics and lazy optional
+  model/parser imports.
+- Added checksum-backed dashboard, Diagnostics and Errors & Recovery browser
+  evidence plus a scrollable desktop navigation rail.
+- Integrated through PR 177 at merge commit
+  `f6e0c9ca2105af2e4f176d4c0253339161fbe235`; no issue state changed and
+  `execution_allowed` remains `false`.
