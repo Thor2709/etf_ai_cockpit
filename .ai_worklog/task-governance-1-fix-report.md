@@ -27,6 +27,11 @@ This fix pass addresses the independent review of Task 1 (`.ai_worklog/task-gove
 - Command: `$env:PYTHONPATH='src'; & 'C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe' -m pytest tests\test_governance_review_regressions.py::test_audit_manifest_includes_governance_checksums_version_and_diagnostic_marker -q`
 - Result: exit status 0; audit-manifest governance visibility passed.
 
+- Command: `$env:PYTHONPATH='src'; & 'C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe' -m pytest -q`
+- Result: exit status 1 with 316 passed and 7 pre-existing failures, matching the recorded baseline. The seven failures are the generated-data/identity gaps in `tests/test_simple_scores.py` and `tests/test_trust_critical_artifacts.py`; no new failure was introduced by this task.
+- Command: `$env:PYTHONPATH='src'; & 'C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe' -m ruff check src/etf_cockpit/governance src/etf_cockpit/chatgpt_bridge/export_pack.py tests/test_governance_review_regressions.py; & 'C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe' -m compileall -q src/etf_cockpit/governance src/etf_cockpit/chatgpt_bridge/export_pack.py`
+- Result: exit status 0; Ruff and compilation checks passed after the lint-only correction.
+
 The checksum-source-revision check is intentionally pending the fix commit: the manifest must name the real commit that contains the final policy YAML files and their final hashes. It will be updated and verified immediately after the implementation commit.
 
 ## Review status
