@@ -111,3 +111,17 @@ authoritative ledgers as part of remote synchronisation.
   bind the mirror read-back to source commit
   `5fde19639da9caa6cdb01eef852dc34698b53482`. The local issue ledger remains
   authoritative and no issue state changed.
+
+## Ledger refresh after Wave 1 Governance Task 4 - 2026-07-12
+
+- The Task 4 checkpoint updated the authoritative local source checksum. The
+  authorised apply run completed with exit 0 and refreshed managed GitHub
+  bodies; local counts remain 77 open and 21 closed, matching mapped counts.
+- The read-only dry run completed with exit 0 and 98 unchanged actions;
+  reconciliation passed with all local IDs unique, every mapping valid, states
+  agreeing and no unresolved duplicates. No GitHub Issue was created, closed,
+  reopened or deleted.
+- `issues/github_issue_map.json` and `issues/github_issue_sync_report.json` bind
+  the mirror read-back to source commit
+  `f962072fe22797e29f64ae37e9696c7de0a4b56e`. The local issue ledger remains
+  authoritative and no issue state changed.
