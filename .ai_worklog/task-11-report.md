@@ -281,3 +281,46 @@ All checks passed
 ```
 
 Fix commit: `d8313b7` (`fix: harden Task 11 migration and snapshot state`).
+
+## Final integration fix pass: active state/cache refresh and online onboarding seam
+
+Date: 2026-07-13
+
+### Findings and changes
+
+- Successful universe saves now reload the canonical config into the active
+  `AppState`, update the universe cache revision marker, and filter affected
+  local prices, holdings, features, signals and forecast frames. No provider,
+  model, forecast or broker workflow is started.
+- Added `CockpitSnapshot.universe_revision` and
+  `AppState.apply_universe_config` as the explicit safe reload/invalidation
+  seam. `execution_allowed=false` remains unchanged.
+- The first-run wizard now exposes a keyed opt-in online-validation toggle and
+  injectable validator callback. Offline/no-network remains the default.
+
+### RED / GREEN evidence
+
+RED:
+
+```text
+python -m pytest -q tests/test_universe_manager.py::test_save_reloads_active_state_and_marks_universe_cache_revision
+Initial callback regression failed because universe_manager had no load_config seam and did not update active state/cache revision.
+
+python -m pytest -q tests/test_onboarding.py::test_onboarding_ui_exposes_opt_in_online_validator_seam
+TypeError: onboarding_page() got an unexpected keyword argument 'validator'
+```
+
+GREEN:
+
+```text
+python -m pytest -q tests/test_universe_store.py tests/test_onboarding.py tests/test_asset_guardrails.py tests/test_universe_manager.py tests/test_flet_startup.py tests/test_accessibility_contracts.py tests/test_button_contracts.py tests/test_feature_registry.py tests/test_data_validation.py
+52 passed
+
+python -m compileall -q src tests
+exit 0
+
+python -m ruff check src/etf_cockpit/app/state.py src/etf_cockpit/app/pages/universe_manager.py src/etf_cockpit/app/pages/onboarding.py src/etf_cockpit/services.py src/etf_cockpit/data/universe_store.py tests/test_universe_manager.py tests/test_universe_store.py tests/test_onboarding.py --no-cache
+All checks passed
+```
+
+Integration fix commit: `6b60fea` (`fix: refresh active universe state after save`).
