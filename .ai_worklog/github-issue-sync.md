@@ -37,7 +37,8 @@ was deleted and no identity was inferred from vague title similarity.
 ## Durable artefacts
 
 - `issues/github_issue_map.json` - schema 1.1, generated from source commit
-  `15e30329c54f2cbc92d3e79e7d92ffc6d6c5da2f`.
+  `6fb38b7e39ba3e82f25755d5c8c35f068c355f5d` after the ledger checkpoint was
+  recorded.
 - `issues/github_issue_sync_report.json` - final apply and reconciliation
   result.
 - `scripts/sync_github_issues.py` - deterministic read-only inventory and
@@ -62,6 +63,7 @@ authoritative ledgers as part of remote synchronisation.
 - `.venv\\Scripts\\python.exe -m ruff check scripts/sync_github_issues.py tests/release/test_github_issue_sync.py`
   -> passed.
 - `.venv\\Scripts\\python.exe scripts/sync_github_issues.py --apply`
-  -> exit 0; 98 records reconciled; 77/21 state counts agree.
+  -> exit 0; final ledger-refresh pass updated 79 open records, reconciled all
+  98 records and kept the 77/21 state counts in agreement.
 - `.venv\\Scripts\\python.exe scripts/sync_github_issues.py`
   -> exit 0; 98 unchanged actions; reconciliation passes.
