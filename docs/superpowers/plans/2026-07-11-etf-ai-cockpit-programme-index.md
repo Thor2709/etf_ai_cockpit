@@ -1,6 +1,6 @@
 # ETF AI Cockpit Programme Index
 
-> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6 and Wave 3 Tasks 7-9 are independently approved, merged and post-merge verified. Task 9 merged through PR 179 and Task 10 through PR 180 with fresh independent approval. Task 10 is closed locally, post-merge verified and synchronised to GitHub Issue #81; Task 11 is the next dependency-valid task.
+> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6 and Wave 3 Tasks 7-9 are independently approved, merged and post-merge verified. Task 9 merged through PR 179, Task 10 through PR 180, and Task 11 through PR 181 with fresh independent approval. Task 10 is closed locally and synchronised to GitHub Issue #81; Task 11 is implementation-complete with its four owning issues still closure-pending final release/browser evidence. The next dependency-valid implementation is Task 12, SEC EDGAR Provider and Official Statement Facts.
 
 **Binding inputs:**
 
@@ -239,3 +239,14 @@ post-merge checks pass. `ISSUE-0035` is closed in the local canonical ledger;
 GitHub Issue #81 was read back as closed before Task 11 starts. The 98-record
 reconciliation reports 77 open and 21 closed mappings, matching states and no
 unresolved duplicates.
+
+Wave 4 Task 11 implementation is complete and merged through PR 181 at
+`2eae5dea8dd1d789dd000383901e591ee4645d83`. The fresh independent review
+approved specification compliance and code quality with no Critical or
+Important findings. The focused universe/onboarding/guardrail/UI bundle passed
+57 tests; compileall, scoped Ruff, the governance static boundary check and
+source smoke passed. `ISSUE-0068`, `ISSUE-0018`, `ISSUE-0017` and `ISSUE-0056`
+remain in the local open ledger because their issue records still require
+fresh full-release/package/browser/clean-first-run evidence and closure-matrix
+evaluation. `execution_allowed=false` remains unchanged. Continue with Task 12,
+SEC EDGAR Provider and Official Statement Facts, in the active closure plan.

@@ -728,8 +728,9 @@ authoritative full suite passes after the atomic staging and provenance fixes.
 PR 180 merged the reviewed branch into `main` at
 `3eab7a414a54c74553b09ebc4085902af0ffc33e`; post-merge focused/full/smoke
 verification passed and `ISSUE-0035` moved to the canonical closed ledger.
-GitHub Issue synchronisation is the only remaining bookkeeping action before
-Task 11.
+GitHub Issue synchronisation is complete. Task 11 is implementation-complete
+and merged; its four issues remain open for their required final release,
+package, browser and clean-first-run closure evidence.
 
 ---
 
@@ -749,25 +750,33 @@ Task 11.
 - `save_universe(records, expected_revision: str) -> UniverseSaveResult` uses backup, atomic write and revision conflict protection.
 - `support_decision(asset_type, frequency, leveraged, inverse) -> SupportDecision`.
 
-- [ ] **Step 1: Write CRUD, duplicate and guardrail tests**
+- [x] **Step 1: Write CRUD, duplicate and guardrail tests**
 
 Cover add/edit/disable/remove; duplicate ID/ISIN/ticker across tiers; explicit `needs_verification`; no workflow auto-run after save; daily ETF/stock support; intraday/futures/options/crypto unsupported; leveraged/inverse high-risk.
 
-- [ ] **Step 2: Implement migrated universe persistence**
+- [x] **Step 2: Implement migrated universe persistence**
 
 Import current primary YAML and candidate CSV into one versioned store while retaining export back to existing formats for compatibility. Preserve all 15 Sparebanken rows and unknown ISIN states.
 
-- [ ] **Step 3: Build Universe/Watchlist UI**
+- [x] **Step 3: Build Universe/Watchlist UI**
 
 Use Primary, Secondary and Sparebanken tabs, search/filter, validated edit dialog and status column. Save only after validation; show pending-refresh without triggering refresh.
 
-- [ ] **Step 4: Build first-run wizard**
+- [x] **Step 4: Build first-run wizard**
 
 Collect base currency, region, asset scope, risk profile, horizon and initial tickers; validate locally/yfinance when online; explain local-only evidence and non-advice; support offline completion with unresolved tickers disabled.
 
 - [ ] **Step 5: Test clean first run and package**
 
 Run with temporary empty root, complete wizard using computer use, restart, verify persisted universe, then run source/full tests and Wave 5 package/browser gate.
+
+Task 11 Steps 1-4 are complete and independently reviewed. The focused
+post-merge bundle passed 57 tests; compileall, scoped Ruff, the governance
+static boundary and source smoke passed. Step 5 remains open because the
+issue-specific clean-first-run, package and browser evidence has not yet been
+freshly captured. PR 181 merged the implementation into `main` at
+`2eae5dea8dd1d789dd000383901e591ee4645d83`; the next dependency-valid
+implementation is Task 12, SEC EDGAR Provider and Official Statement Facts.
 
 ---
 

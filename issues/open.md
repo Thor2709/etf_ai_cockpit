@@ -860,7 +860,7 @@ schema_version
 
 ## ISSUE-0017 - First-run onboarding and setup wizard
 
-**Status:** Open  
+**Status:** Open - implementation complete; closure pending final release and clean-first-run evidence
 **Type:** UX / Data  
 **Priority:** P1  
 **Evidence grade:** Moderate  
@@ -877,7 +877,7 @@ schema_version
 
 ## ISSUE-0018 - Watchlist and universe manager
 
-**Status:** Open  
+**Status:** Open - implementation complete; closure pending final release and browser CRUD evidence
 **Type:** Core Product / Data  
 **Priority:** P0/P1  
 **Evidence grade:** High  
@@ -1507,7 +1507,7 @@ schema_version
 
 ## ISSUE-0056 - Data-frequency suitability and unsupported-asset guardrails
 
-**Status:** Open  
+**Status:** Open - implementation complete; closure pending final release and UI warning evidence
 **Type:** Data Quality / Scope Governance  
 **Priority:** P2  
 **Evidence grade:** Moderate  
@@ -1694,7 +1694,7 @@ schema_version
 
 ## ISSUE-0068 - Two-tier universe manager and provider policy editor
 
-**Status:** Open  
+**Status:** Open - implementation complete; closure pending final release and browser tier-editor evidence
 **Type:** Universe / Data Providers / UI  
 **Priority:** P0/P1  
 **Evidence grade:** User requested  
@@ -1724,17 +1724,17 @@ This section records the hands-off run against `docs\superpowers\plans\2026-07-0
 | `ISSUE-0013` | Still open, run gate passed | This run rebuilt and smoke-tested successfully; the issue remains as a continuing release discipline requirement. |
 | `ISSUE-0014` | Still open, partial | Added launcher/source/native smoke helpers; full end-to-end workflow test across data refresh, algorithms, forecasts and export remains open. |
 | `ISSUE-0045` | Still open, partial | Browser screenshots passed. Flet semantic DOM locators remain weak and need dedicated accessibility/test hooks. |
-| `ISSUE-0068` | Still open, partial | Grouping and settings copy now distinguish primary/secondary/Sparebanken, but the full universe manager/provider policy editor is not built. |
-| `ISSUE-0018` | Still open, deferred | No watchlist/universe manager UI was implemented beyond grouped display. |
+| `ISSUE-0068` | Implementation complete, closure pending | Task 11 added the validated tier editor, CRUD, revision protection, duplicate override, active-state reload and cache invalidation; final release/browser closure evidence remains pending. |
+| `ISSUE-0018` | Implementation complete, closure pending | Task 11 added watchlist/universe CRUD, search, tier tabs, persistence and downstream cache/score integration; final release/browser closure evidence remains pending. |
 | `ISSUE-0040` | Still open, partial | Launcher errors are clearer, but a full error handling and recovery centre was not implemented. |
 | `ISSUE-0039` | Still open, partial | Port/cache/rebuild reliability improved; no full performance and caching audit was completed. |
 | `ISSUE-0036` | Still open, deferred | Import/export centre was not implemented in this run. |
 | `ISSUE-0044` | Still open, partial | Versioned alternate portable output helps rebuild reproducibility; backup/restore/changelog UI remains open. |
 | `ISSUE-0041` | Still open, partial | Visual layout was browser-checked; semantic accessibility and responsive table work remain open. |
-| `ISSUE-0017` | Still open, deferred | First-run onboarding/setup wizard was not implemented. |
+| `ISSUE-0017` | Implementation complete, closure pending | Task 11 added local-first onboarding, validated ticker handling and active-state reload; clean first-run/package/browser closure evidence remains pending. |
 | `ISSUE-0019` | Still open, partial | Row expansion works; proper instrument detail page scope remains open. |
 | `ISSUE-0042` | Still open, deferred | Charts/tables/CSV export improvements were not implemented. |
-| `ISSUE-0056` | Still open, partial | yfinance symbol validation and unsupported/unknown states improved; full data-frequency guardrail scope remains open. |
+| `ISSUE-0056` | Implementation complete, closure pending | Task 11 added explicit support decisions, unsupported/high-risk score/provider boundaries and warnings; final UI/package closure evidence remains pending. |
 | `ISSUE-0034` | Still open, deferred | What-changed-since-last-run page was not implemented. |
 
 ### Previous 21 Trust-Critical Issues
@@ -1825,3 +1825,24 @@ The complete issue-level package, audit/export, closure-matrix and final
 browser gates remain pending, so no active issue was moved to `issues/closed.md`.
 `UPDATEV2-0022` remains the already-closed local dossier and was not reopened.
 Task 10, Data Health Centre, is the next dependency-valid task.
+
+### Wave 4 Task 11 checkpoint - 2026-07-13
+
+`ISSUE-0068`, `ISSUE-0018`, `ISSUE-0017` and `ISSUE-0056` are now
+**implementation complete, closure pending**. Task 11 was independently
+reviewed and merged through PR 181 at `2eae5dea8dd1d789dd000383901e591ee4645d83`.
+The implementation includes canonical universe CRUD and optimistic revision
+protection, persisted duplicate overrides, primary/secondary/Sparebanken
+views, local-first onboarding with unresolved ticker disablement, explicit
+unsupported/high-risk asset routing, and revision-aware forecast/backtest
+cache consumers. The final focused bundle passed 57 tests; compileall, scoped
+Ruff, the governance static boundary check and source smoke passed. The fresh
+review approved specification compliance and code quality with no Critical or
+Important findings; one non-blocking fail-closed API recommendation is
+recorded in the task report.
+
+The issues remain in `issues/open.md` because their records require fresh
+full-release/package/browser/clean-first-run evidence and final closure-matrix
+evaluation. No false closure is claimed. `execution_allowed=false` remains
+unchanged. The next dependency-valid implementation is the first incomplete
+canonical registry task in the approved registry/universe plan.

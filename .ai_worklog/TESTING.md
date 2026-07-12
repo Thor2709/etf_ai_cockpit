@@ -1323,3 +1323,13 @@ Post-merge Task 10 verification on `main`:
   screenshot checksums are recorded in `.ai_worklog/task8-report.md`.
 - Post-merge focused, compileall, Ruff and source smoke passed on `main` at
   `4c4eb00175237ad49b113adad8be3f8dcbfed618`.
+# 2026-07-13 - Wave 4 Task 11 post-merge
+
+- Pass: `pytest -q tests/test_universe_store.py tests/test_onboarding.py tests/test_asset_guardrails.py tests/test_universe_manager.py tests/test_flet_startup.py tests/test_accessibility_contracts.py tests/test_button_contracts.py tests/test_feature_registry.py tests/test_data_validation.py` (57 tests; quiet output rendered as dots).
+- Pass: `python -m compileall -q src tests`.
+- Pass: scoped Ruff over Task 11 source and tests.
+- Pass: `PYTHONPATH=src python -m etf_cockpit.governance.static_checks --root .`.
+- Pass: `PYTHONPATH=src python scripts/run_app.py --smoke` -> `snapshot_ok as_of=2026-07-09 signals=16 backtests=5`.
+- Known baseline: `tests/test_simple_scores.py` remains blocked when the ignored generated `data/raw/trade_candidates/yahoo_trade_candidates_*.csv` fixture is absent; this is pre-existing and not a Task 11 regression.
+- Review: fresh independent review of `b864184..b7a0f5c` approved specification compliance and code quality; no Critical or Important findings. One Minor fail-closed API recommendation is recorded in `.ai_worklog/task-11-report.md`.
+- Integration: PR 181 merged into `main` at `2eae5dea8dd1d789dd000383901e591ee4645d83`; post-merge focused checks and source smoke passed.
