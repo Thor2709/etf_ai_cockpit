@@ -4,7 +4,7 @@
 ........................................................................ [ 59%]
 ........................................................................ [ 74%]
 ........................................................................ [ 89%]
-...FFFF.F.F.............F........................                        [100%]
+....FFFF.F.F.............F........................                       [100%]
 ================================== FAILURES ===================================
 _ test_two_tier_universe_config_contains_requested_primary_and_secondary_without_duplicates _
 tests\test_simple_scores.py:432: in test_two_tier_universe_config_contains_requested_primary_and_secondary_without_duplicates
@@ -15,14 +15,14 @@ _ test_simple_scores_show_all_two_tier_instruments_as_pending_without_refresh _
 tests\test_simple_scores.py:456: in test_simple_scores_show_all_two_tier_instruments_as_pending_without_refresh
     assert SECONDARY_IDS <= set(by_id)
 E   AssertionError: assert {'AIR', 'AM',..., 'EUDF', ...} <= {'DB1', 'ENX'...T', 'LR', ...}
-E
+E     
 E     Extra items in the left set:
-E     'KOG'
-E     'VFEM'
-E     'TKA'
-E     'EXUS'
-E     'BA'...
-E
+E     'AM'
+E     'TKMS'
+E     'XDWU'
+E     'JEDI'
+E     'KMAR'...
+E     
 E     ...Full output truncated (23 lines hidden), use '-vv' to show
 __________ test_simple_scores_group_into_required_main_page_sections __________
 tests\test_simple_scores.py:486: in test_simple_scores_group_into_required_main_page_sections
@@ -86,3 +86,4 @@ FAILED tests/test_simple_scores.py::test_scoreboard_frame_preserves_needs_verifi
 FAILED tests/test_simple_scores.py::test_simple_score_tiles_render_instrument_rows
 FAILED tests/test_simple_scores.py::test_simple_score_grouped_sections_render_required_labels_and_sparebanken_isin_status
 FAILED tests/test_trust_critical_artifacts.py::test_static_trust_artifacts_cover_providers_and_identity
+EXIT_CODE=1
