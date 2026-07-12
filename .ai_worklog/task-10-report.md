@@ -122,4 +122,5 @@ Review this focused diff and run the parent Wave 4 package/browser evidence
 gates. Keep `execution_allowed=false` and do not close `ISSUE-0035` until those
 independent checks pass.
 
-Commit hash: `d1711628071d2b0959e205792f2fb6d0b87c8f34` (implementation commit)
+Commit hashes: `d1711628071d2b0959e205792f2fb6d0b87c8f34` (implementation),
+`85b469e` (export schema), `87559ed` (macro sibling visibility fix).
