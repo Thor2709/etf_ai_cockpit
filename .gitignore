@@ -70,6 +70,7 @@ htmlcov/
 *.swo
 *.pid
 .superpowers/
+.worktrees/
 .vscode/
 .idea/
 Thumbs.db
