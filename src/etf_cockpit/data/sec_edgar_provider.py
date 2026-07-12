@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
+import re
 import time
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -63,8 +64,8 @@ class SecEdgarProvider:
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         cleaned_agent = str(user_agent or "").strip()
-        if len(cleaned_agent) < 8 or "@" not in cleaned_agent:
-            raise ValueError("SEC provider requires a descriptive User-Agent with contact email")
+        if not _valid_user_agent(cleaned_agent):
+            raise ValueError("SEC provider requires an organisation name and a non-placeholder contact email")
         if timeout <= 0:
             raise ValueError("SEC provider timeout must be positive")
         if rate_limit_seconds < 0:
@@ -124,8 +125,10 @@ class SecEdgarProvider:
                     if expected_sha and cached_sha != expected_sha:
                         raise ValueError("SEC cached payload checksum mismatch")
                     _validate_identity(_parse_json(cached_payload), expected_cik)
+                    immutable_path = _immutable_cache_path(cache_path, cached_sha)
+                    _ensure_immutable_payload(immutable_path, cached_payload, expected_cik)
                     return RawDocument(
-                        cache_path,
+                        immutable_path,
                         url,
                         _retrieved_at(metadata),
                         cached_sha,
@@ -141,6 +144,9 @@ class SecEdgarProvider:
                 payload = response.payload
                 parsed = _parse_json(payload)
                 _validate_identity(parsed, expected_cik)
+                payload_sha = _sha256(payload)
+                immutable_path = _immutable_cache_path(cache_path, payload_sha)
+                _ensure_immutable_payload(immutable_path, payload, expected_cik)
                 # Validation happens before replacement, so malformed/wrong-entity
                 # responses cannot corrupt an already-good local cache.
                 atomic_write_bytes(cache_path, payload, lambda candidate: _validate_json_file(candidate, expected_cik))
@@ -148,13 +154,14 @@ class SecEdgarProvider:
                     "schema_version": 1,
                     "source_url": url,
                     "retrieved_at": datetime.now(timezone.utc).isoformat(),
-                    "sha256": _sha256(payload),
+                    "sha256": payload_sha,
+                    "raw_path": str(immutable_path),
                     "etag": response.headers.get("ETag", ""),
                     "last_modified": response.headers.get("Last-Modified", ""),
                 }
                 atomic_write_json(metadata_path, next_metadata)
                 return RawDocument(
-                    cache_path,
+                    immutable_path,
                     url,
                     datetime.now(timezone.utc),
                     next_metadata["sha256"],
@@ -203,6 +210,32 @@ def _normalise_cik(value: object) -> str:
     if number <= 0:
         raise ValueError("SEC CIK must be positive")
     return text.zfill(10)
+
+
+def _valid_user_agent(value: str) -> bool:
+    match = re.search(r"(?P<email>[^\s@]+@[^\s@]+\.[^\s@]+)$", value)
+    if match is None:
+        return False
+    organisation = value[: match.start()].strip()
+    email = match.group("email")
+    local, domain = email.rsplit("@", 1)
+    domain = domain.lower()
+    if len(organisation) < 3 or not re.search(r"[A-Za-z]", organisation):
+        return False
+    reserved_domains = {"example.com", "example.net", "example.org"}
+    if domain in reserved_domains or domain.endswith((".invalid", ".example", ".test", ".localhost")):
+        return False
+    reserved_domains = ("example.com", "example.net", "example.org")
+    if domain in reserved_domains or any(domain.endswith(f".{reserved}") for reserved in reserved_domains):
+        return False
+    if local.startswith(".") or local.endswith(".") or ".." in local:
+        return False
+    labels = domain.split(".")
+    if len(labels) < 2 or not all(re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", label) for label in labels):
+        return False
+    if not re.fullmatch(r"[A-Za-z]{2,63}", labels[-1]):
+        return False
+    return True
 
 
 def _normalise_response(value: Any) -> _Response:
@@ -255,6 +288,20 @@ def _read_metadata(path: Path) -> dict[str, Any]:
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _immutable_cache_path(cache_path: Path, payload_sha: str) -> Path:
+    return cache_path.with_name(f"{cache_path.stem}_{payload_sha[:16]}{cache_path.suffix}")
+
+
+def _ensure_immutable_payload(path: Path, payload: bytes, expected_cik: str) -> None:
+    if path.is_file():
+        existing = path.read_bytes()
+        if _sha256(existing) != _sha256(payload):
+            raise ValueError("SEC immutable raw payload checksum mismatch")
+        _validate_identity(_parse_json(existing), expected_cik)
+        return
+    atomic_write_bytes(path, payload, lambda candidate: _validate_json_file(candidate, expected_cik))
 
 
 def _retrieved_at(metadata: Mapping[str, Any]) -> datetime:

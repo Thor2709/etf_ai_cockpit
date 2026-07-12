@@ -8,10 +8,14 @@ import json
 from pathlib import Path
 from typing import Any, Iterable
 
-from etf_cockpit.core.atomic_io import atomic_write_bytes, parquet_payload, validate_parquet_file
+from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_bytes, atomic_write_group, parquet_payload, validate_parquet_file
 from etf_cockpit.core.paths import FILINGS_STATEMENTS_PATH
 from etf_cockpit.data.instrument_identity import CanonicalIdentity
 from etf_cockpit.parsers.contracts import ParseResult, ParseWarning, RawDocument, _sha256_file
+
+
+STATEMENT_FACTS_SCHEMA_VERSION = "statement_facts.v1"
+FILINGS_STATEMENTS_SCHEMA_VERSION = "filings_statements.v1"
 
 
 @dataclass(frozen=True)
@@ -146,6 +150,9 @@ def parse_companyfacts(path: Path, identity: CanonicalIdentity) -> ParseResult[S
                 seen.add(key)
                 accession = _string(entry.get("accn"))
                 period = _string(entry.get("end") or entry.get("instant") or entry.get("filed")) or "undated"
+                start_value = _string(entry.get("start"))
+                end_value = _string(entry.get("end"))
+                instant_value = _string(entry.get("instant")) or (end_value if start_value is None else None)
                 source_id = _source_id(cik, taxonomy, concept, str(unit), accession, period, entry)
                 records.append(
                     StatementFact(
@@ -155,9 +162,9 @@ def parse_companyfacts(path: Path, identity: CanonicalIdentity) -> ParseResult[S
                         concept=concept,
                         unit=str(unit),
                         value=value,
-                        start=_string(entry.get("start")),
-                        end=_string(entry.get("end")),
-                        instant=_string(entry.get("instant")),
+                        start=start_value,
+                        end=end_value,
+                        instant=instant_value,
                         filed=_string(entry.get("filed")),
                         form=_string(entry.get("form")),
                         accession=accession,
@@ -177,21 +184,17 @@ def statement_facts_frame(records: Iterable[StatementFact]):
     import pandas as pd
 
     rows = [asdict(record) for record in records]
-    columns = list(StatementFact.__dataclass_fields__)
-    return pd.DataFrame(rows, columns=columns)
+    columns = list(StatementFact.__dataclass_fields__) + ["schema_version"]
+    frame = pd.DataFrame(rows, columns=list(StatementFact.__dataclass_fields__))
+    frame["schema_version"] = STATEMENT_FACTS_SCHEMA_VERSION
+    return frame.reindex(columns=columns)
 
 
-def write_statement_facts(records: Iterable[StatementFact], destination: Path) -> Path:
+def write_statement_facts(records: Iterable[StatementFact], destination: Path, *, vendor_records: Iterable[object] = ()) -> Path:
     """Persist clean statement facts as a durable, de-duplicated store."""
 
-    import pandas as pd
-
-    frame = statement_facts_frame(records)
-    existing = _existing_parquet(destination)
-    if not existing.empty:
-        frame = pd.concat([existing, frame], ignore_index=True, sort=False)
-    if "source_id" in frame.columns and not frame.empty:
-        frame = frame.drop_duplicates(subset=["source_id"], keep="last")
+    records_tuple = tuple(records)
+    frame = _statement_facts_write_frame(records_tuple, destination, vendor_records)
     frame = _ordered_statement_facts(frame)
     atomic_write_bytes(destination, parquet_payload(frame), validate_parquet_file)
     return destination
@@ -207,47 +210,88 @@ def write_statement_inventory(
 ) -> Path:
     """Publish a one-row filing inventory entry with fact/source IDs."""
 
+    output = destination or FILINGS_STATEMENTS_PATH
+    frame = _statement_inventory_write_frame(source, records, output, instrument_id=instrument_id, source_url=source_url)
+    atomic_write_bytes(output, parquet_payload(frame), validate_parquet_file)
+    return output
+
+
+def write_statement_evidence(
+    source: RawDocument | Path,
+    records: Iterable[StatementFact],
+    facts_destination: Path,
+    inventory_destination: Path,
+    *,
+    instrument_id: str = "",
+    source_url: str = "",
+    vendor_records: Iterable[object] = (),
+) -> tuple[Path, Path]:
+    """Publish facts and inventory in one recoverable atomic transaction."""
+
+    rows = tuple(records)
+    facts_frame = _statement_facts_write_frame(rows, facts_destination, vendor_records)
+    inventory_frame = _statement_inventory_write_frame(source, rows, inventory_destination, instrument_id=instrument_id, source_url=source_url)
+    atomic_write_group(
+        (
+            AtomicWriteRequest(facts_destination, parquet_payload(_ordered_statement_facts(facts_frame)), validate_parquet_file),
+            AtomicWriteRequest(inventory_destination, parquet_payload(inventory_frame), validate_parquet_file),
+        )
+    )
+    return facts_destination, inventory_destination
+
+
+def _statement_facts_write_frame(records: tuple[StatementFact, ...], destination: Path, vendor_records: Iterable[object]):
+    import pandas as pd
+
+    frame = statement_facts_frame(records)
+    existing = _existing_parquet(destination)
+    if not existing.empty:
+        frame = pd.concat([existing, frame], ignore_index=True, sort=False)
+    if "source_id" in frame.columns and not frame.empty:
+        frame = frame.drop_duplicates(subset=["source_id"], keep="last")
+    authoritative = select_authoritative_facts(frame.to_dict(orient="records"), vendor_records)
+    authoritative_ids = {_record_value(record, "source_id") for record in authoritative if _record_value(record, "source_id")}
+    frame["authority_selection"] = frame["source_id"].map(lambda source_id: "canonical_sec" if source_id in authoritative_ids else "retained_sec")
+    return frame
+
+
+def _statement_inventory_write_frame(source: RawDocument | Path, records: Iterable[StatementFact], destination: Path, *, instrument_id: str, source_url: str):
     import pandas as pd
 
     path = source.path if isinstance(source, RawDocument) else Path(source)
     checksum = source.sha256 if isinstance(source, RawDocument) else _safe_sha(path)
     url = source.source_url if isinstance(source, RawDocument) else source_url
     rows = tuple(records)
-    frame = pd.DataFrame(
-        [
-            {
-                "document_id": f"sec:{checksum[:20]}",
-                "instrument_id": instrument_id or (rows[0].instrument_id if rows else ""),
-                "document_type": "sec_companyfacts",
-                "path": str(path),
-                "source_url": url,
-                "source_authority": "official_regulator",
-                "as_of_date": max((record.filed or record.end or record.instant or "" for record in rows), default=""),
-                "ingested_at": source.retrieved_at.isoformat() if isinstance(source, RawDocument) else "",
-                "checksum": checksum,
-                "coverage_status": "imported" if rows else "unavailable",
-                "fact_count": len(rows),
-                "source_ids": tuple(record.source_id for record in rows),
-                "mapping_warnings": tuple(sorted({record.concept for record in rows if record.canonical_metric is None})),
-                "executable_authority": False,
-            }
-        ],
-        columns=[
-            "document_id", "instrument_id", "document_type", "path", "source_url", "source_authority",
-            "as_of_date", "ingested_at", "checksum", "coverage_status", "fact_count", "source_ids",
-            "mapping_warnings", "executable_authority",
-        ],
-    )
-    output = destination or FILINGS_STATEMENTS_PATH
-    existing = _existing_parquet(output)
+    frame = pd.DataFrame([
+        {
+            "schema_version": FILINGS_STATEMENTS_SCHEMA_VERSION,
+            "document_id": f"sec:{checksum[:20]}",
+            "instrument_id": instrument_id or (rows[0].instrument_id if rows else ""),
+            "document_type": "sec_companyfacts",
+            "path": str(path),
+            "source_url": url,
+            "source_authority": "official_regulator",
+            "as_of_date": max((record.filed or record.end or record.instant or "" for record in rows), default=""),
+            "ingested_at": source.retrieved_at.isoformat() if isinstance(source, RawDocument) else "",
+            "checksum": checksum,
+            "coverage_status": "imported" if rows else "unavailable",
+            "fact_count": len(rows),
+            "source_ids": tuple(record.source_id for record in rows),
+            "mapping_warnings": tuple(sorted({record.concept for record in rows if record.canonical_metric is None})),
+            "executable_authority": False,
+        }
+    ], columns=["schema_version", "document_id", "instrument_id", "document_type", "path", "source_url", "source_authority", "as_of_date", "ingested_at", "checksum", "coverage_status", "fact_count", "source_ids", "mapping_warnings", "executable_authority"])
+    existing = _existing_parquet(destination)
     if not existing.empty:
         frame = pd.concat([existing, frame], ignore_index=True, sort=False)
     if not frame.empty:
         dedupe_columns = [column for column in ("document_id", "checksum") if column in frame.columns]
         if dedupe_columns:
             frame = frame.drop_duplicates(subset=dedupe_columns, keep="last")
-    atomic_write_bytes(output, parquet_payload(frame), validate_parquet_file)
-    return output
+        if "schema_version" not in frame.columns:
+            frame["schema_version"] = FILINGS_STATEMENTS_SCHEMA_VERSION
+        frame["schema_version"] = frame["schema_version"].fillna(FILINGS_STATEMENTS_SCHEMA_VERSION)
+    return frame
 
 
 def _existing_parquet(path: Path):
@@ -266,9 +310,70 @@ def _existing_parquet(path: Path):
 def _ordered_statement_facts(frame):
     """Keep the public fact schema stable while retaining existing columns."""
 
-    columns = list(StatementFact.__dataclass_fields__)
+    if "schema_version" not in frame.columns:
+        frame["schema_version"] = STATEMENT_FACTS_SCHEMA_VERSION
+    frame["schema_version"] = frame["schema_version"].fillna(STATEMENT_FACTS_SCHEMA_VERSION)
+    columns = list(StatementFact.__dataclass_fields__) + ["schema_version"]
     extras = [column for column in frame.columns if column not in columns]
     return frame.reindex(columns=columns + extras)
+
+
+def select_authoritative_facts(
+    sec_records: Iterable[StatementFact],
+    vendor_records: Iterable[object],
+) -> tuple[object, ...]:
+    """Prefer SEC only for exact entity/concept/unit/period matches."""
+
+    official = tuple(sec_records)
+    vendors = tuple(vendor_records)
+    grouped: dict[tuple[str, str, str, str], list[object]] = {}
+    for record in official:
+        grouped.setdefault(_fact_key(record), []).append(record)
+    by_key = {key: _preferred_sec_fact(records) for key, records in grouped.items()}
+    selected: list[object] = []
+    for vendor in vendors:
+        winner = by_key.get(_fact_key(vendor))
+        if winner is None:
+            selected.append(vendor)
+        else:
+            selected.append(winner)
+    vendor_keys = {_fact_key(item) for item in vendors}
+    selected.extend(_preferred_sec_fact(records) for key, records in sorted(grouped.items()) if key not in vendor_keys)
+    return tuple(selected)
+
+
+def _preferred_sec_fact(records: Iterable[object]) -> object:
+    """Choose one exact-key SEC fact deterministically, preferring latest filing."""
+
+    return max(
+        tuple(records),
+        key=lambda record: (
+            _record_value(record, "filed"),
+            1 if str(_record_value(record, "form")).upper().endswith("/A") else 0,
+            _record_value(record, "accession"),
+            _record_value(record, "source_id"),
+        ),
+    )
+
+
+def _fact_key(record: object) -> tuple[str, str, str, str]:
+    concept = _record_value(record, "canonical_metric") or _record_value(record, "concept")
+    start = _record_value(record, "start")
+    end = _record_value(record, "end")
+    instant = _record_value(record, "instant")
+    fiscal_period = _record_value(record, "fiscal_period")
+    if instant or (end and not start):
+        period = f"instant:{instant or end}"
+    elif start or end:
+        period = f"duration:{start}:{end}:{fiscal_period}"
+    else:
+        period = f"period:{_record_value(record, 'period') or _record_value(record, 'as_of_date')}"
+    return _record_value(record, "instrument_id"), concept, _record_value(record, "unit"), period
+
+
+def _record_value(record: object, name: str, default: object = "") -> str:
+    raw = record.get(name, default) if isinstance(record, dict) else getattr(record, name, default)
+    return "" if raw is None else str(raw)
 
 
 def _source_id(cik: str, taxonomy: str, concept: str, unit: str, accession: str | None, period: str, entry: dict[str, Any]) -> str:
