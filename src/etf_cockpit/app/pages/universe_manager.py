@@ -213,14 +213,29 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
 
     def disable_item(record: UniverseRecord) -> None:
         try:
-            _stage(f"Disabled {record.instrument_id}.", disable_record(records, record.instrument_id))
+            _stage(
+                f"Disabled {record.instrument_id}.",
+                disable_record(
+                    records,
+                    record.instrument_id,
+                    allow_cross_tier_duplicates=bool(allow_duplicates.value),
+                ),
+            )
         except Exception as exc:
             status.value = f"Disable rejected: {exc}"
             page.update()
 
     def enable_item(record: UniverseRecord) -> None:
         try:
-            _stage(f"Enabled {record.instrument_id}.", edit_record(records, record.instrument_id, enabled=True))
+            _stage(
+                f"Enabled {record.instrument_id}.",
+                edit_record(
+                    records,
+                    record.instrument_id,
+                    enabled=True,
+                    allow_cross_tier_duplicates=bool(allow_duplicates.value),
+                ),
+            )
         except Exception as exc:
             status.value = f"Enable rejected: {exc}"
             page.update()

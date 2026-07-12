@@ -304,8 +304,18 @@ def edit_record(
     raise KeyError(f"Unknown instrument_id: {instrument_id}")
 
 
-def disable_record(records: Iterable[UniverseRecord], instrument_id: str) -> tuple[UniverseRecord, ...]:
-    return edit_record(records, instrument_id, enabled=False)
+def disable_record(
+    records: Iterable[UniverseRecord],
+    instrument_id: str,
+    *,
+    allow_cross_tier_duplicates: bool = False,
+) -> tuple[UniverseRecord, ...]:
+    return edit_record(
+        records,
+        instrument_id,
+        enabled=False,
+        allow_cross_tier_duplicates=allow_cross_tier_duplicates,
+    )
 
 
 def remove_record(records: Iterable[UniverseRecord], instrument_id: str) -> tuple[UniverseRecord, ...]:
