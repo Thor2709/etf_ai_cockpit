@@ -1,7 +1,7 @@
 # Wave 1 Governance Task 3 review package
 
 - Base: `2a26619bdbf26f11e8a77dbdefc3ab22d93d213b`
-- Head: `ec67b6e` (`feat: centralise severity-aware authority resolution`)
+- Head: `8b6d3ab` (`fix: harden authority gate completeness`)
 - Branch: `wave1/governance-task3`
 - Scope: severity-aware authority resolution, ordered typed gate evidence and
   permanent `trading_allowed=False` compatibility boundary.
@@ -18,7 +18,9 @@ Required independent verdicts are separate specification compliance and code
 quality/correctness assessments. The reviewer must actively try to disprove
 readiness, including blocker monotonicity, warning downgrade, notice
 visibility, malformed/unknown policy input, portfolio-context separation,
-policy checksum metadata, `execution_allowed=False`, and no Task 4/5 scope.
+policy checksum metadata, `execution_allowed=False`, policy-authoritative
+severity, complete required gate sets, portfolio evidence completeness and no
+Task 4/5 scope.
 
 Verification commands already recorded by the implementer/controller:
 
