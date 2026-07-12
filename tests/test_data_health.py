@@ -145,6 +145,33 @@ def test_health_provenance_comes_from_persisted_session_history(tmp_path: Path) 
     assert "history_unavailable" in rows["news"].warnings
 
 
+def test_failed_completion_event_is_failure_not_success(tmp_path: Path) -> None:
+    clean = tmp_path / "data" / "clean"
+    clean.mkdir(parents=True)
+    prices_path = clean / "prices.parquet"
+    pd.DataFrame({"date": ["2026-07-09"], "value": [1]}).to_parquet(prices_path)
+    log_path = tmp_path / "logs" / "session.jsonl"
+    log_path.parent.mkdir(parents=True)
+    log_path.write_text(
+        json.dumps(
+            {
+                "event_type": "activity_complete",
+                "status": "failed",
+                "timestamp_local": "2026-07-10T11:00:00+10:00",
+                "file_paths": [str(prices_path)],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    report = build_data_health(load_config(), tmp_path, as_of_date="2026-07-10")
+    row = next(item for item in report.rows if item.dataset == "prices")
+
+    assert row.last_success is None
+    assert row.last_failure == "2026-07-10T11:00:00+10:00"
+
+
 def test_health_provenance_orders_timestamp_offsets_by_instant(tmp_path: Path) -> None:
     clean = tmp_path / "data" / "clean"
     clean.mkdir(parents=True)

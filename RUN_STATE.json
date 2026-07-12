@@ -550,30 +550,36 @@
       "branch": "wave4/task10-data-health",
       "worktree": ".worktrees/task10-data-health",
       "task_base": "557e923",
-      "head": "34c2eaa",
-      "implementation_commits": ["d171162", "85b469e", "87559ed", "ea03216", "34c2eaa"],
+      "head": "d1b7b7a",
+      "head_note": "Atomic staging baseline; status-precedence fix and closure refresh are committed in the current hand-off.",
+      "implementation_commits": ["d171162", "85b469e", "87559ed", "ea03216", "d1b7b7a"],
       "red": {
         "initial_exit_code": 1,
         "initial_data_health_failures": 5,
         "migration_fix_exit_code": 1,
-        "migration_fix_failures": 3
+        "migration_fix_failures": 3,
+        "failed_completion_precedence_exit_code": 1,
+        "failed_completion_precedence_failure": "explicit status=failed completion event was classified as last_success"
       },
       "green": {
         "focused_command": "python -m pytest -q tests/test_data_health.py",
         "focused_exit_code": 0,
-        "focused_tests_passed": 12,
+        "focused_tests_passed": 16,
         "affected_exit_code": 0,
-        "affected_tests_passed": 39,
+        "affected_tests_passed": 40,
         "compileall_exit_code": 0,
         "ruff_exit_code": 0,
-        "source_smoke": "snapshot_ok as_of=2026-07-13 signals=16 backtests=5"
+        "source_smoke": "snapshot_ok as_of=2026-07-13 signals=16 backtests=5",
+        "authoritative_full_suite_command": "python -m pytest -q",
+        "authoritative_full_suite_exit_code": 0,
+        "authoritative_full_suite_result": "100%; warnings only"
       },
       "independent_review": {
         "reviewer": "task10_migration_reviewer",
         "specification": "implementation approved; closure pending",
         "code_quality": "approved",
         "ready_for_integration": false,
-        "blocking_closure_findings": ["full authoritative suite has 8 baseline failures", "package smoke fixture failure", "canvas semantic snapshot only exposes accessibility toggle"]
+        "blocking_closure_findings": ["package smoke fixture failure", "canvas semantic snapshot only exposes accessibility toggle", "final integration and synchronisation gates pending"]
       },
       "package": {
         "build_command": "cmd /c scripts\\build_windows.bat",
@@ -601,12 +607,12 @@
         "command": "python scripts/closure_status.py --json-report evidence/final/closure-status-task10-fresh.json",
         "exit_code": 0,
         "issue_ready": true,
-        "interpretation": "presence/checksum evaluator ready; mandatory full-suite, package-smoke and semantic UI gates remain blocked"
+        "interpretation": "presence/checksum evaluator ready; package-smoke, semantic UI and integration/synchronisation gates remain pending"
       },
       "issue_state": "open_implementation_complete_closure_pending",
       "execution_allowed": false,
       "data05_status": "still_open",
-      "next_action": "Resolve or explicitly gate the recorded full-suite/package/semantic blockers, then integrate Task 10; do not begin Task 11 yet."
+      "next_action": "Complete independent re-review and final package-smoke/semantic/integration-synchronisation gates, then integrate Task 10; do not begin Task 11 yet."
     }
   },
   "plan": "docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md",

@@ -1055,5 +1055,7 @@
   `execution_allowed=false`.
 - Added focused regressions and fresh source/package browser/export evidence.
 - Reopened `ISSUE-0035` after current independent review rejected historical
-  closure evidence; closure remains pending full-suite, package-smoke and
-  semantic accessibility gates.
+  closure evidence; the atomic staging fix and failed-completion provenance
+  regression now have a passing authoritative suite. Closure remains pending
+  package-smoke, semantic accessibility, independent re-review and final
+  integration/synchronisation gates.

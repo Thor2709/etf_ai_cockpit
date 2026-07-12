@@ -1224,15 +1224,16 @@ Required checks for the current implementation sweep:
 - RED: initial Data Health focused run had five genuine missing-behaviour
   failures; the migration review-fix slice had three timestamp/name/provenance
   failures before implementation.
-- GREEN: `pytest -q tests/test_data_health.py` - 12 passed.
-- Affected UI/start-up/navigation bundle - 39 passed with one existing GluonTS
+- RED: failed-completion provenance regression initially classified an explicit
+  `status=failed` completion event as `last_success`; the focused test then
+  passed after status precedence was fixed.
+- GREEN: `pytest -q tests/test_data_health.py` - 16 passed.
+- Affected UI/start-up/navigation bundle - 40 passed with one existing GluonTS
   warning.
 - `python -m compileall -q src tests` - exit 0; scoped Ruff - all checks
   passed; source smoke - `snapshot_ok as_of=2026-07-13 signals=16 backtests=5`.
-- Full authoritative `pytest -q --maxfail=8` - exit 1 with eight unrelated
-  baseline failures in Decision Journal path setup, generated candidate/
-  secondary fixtures and trust-identity fixture cardinality; no Data Health
-  failure occurred.
+- Full authoritative `pytest -q` - exit 0 at 100%, warnings only; no Data Health
+  failure occurred after the atomic staging fix.
 - `cmd /c scripts\\build_windows.bat` created native and portable outputs;
   optional score-group smoke failed on the existing AURG/Sparebanken fixture.
   Direct packaged-native launcher readiness on port 8565 returned HTTP 200.

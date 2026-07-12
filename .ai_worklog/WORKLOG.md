@@ -1442,21 +1442,23 @@ the next dependency-valid task.
 ## 2026-07-13 - Wave 4 Task 10
 
 Task 10 Data Health implementation is complete on isolated branch
-`wave4/task10-data-health` at `34c2eaa`. RED/GREEN cycles added deterministic
+`wave4/task10-data-health`, with the bounded atomic staging fix now included.
+RED/GREEN cycles added deterministic
 inventory, persisted provenance, macro invalid-sibling visibility, migration
 state validation by expected name/version, UTC-instant timestamp ordering,
-filters, related routes and compatible CSV export. Focused Data Health tests
-passed 12; the affected UI/start-up/navigation bundle passed 39; compileall,
+filters, related routes and compatible CSV export, plus failure-status precedence
+for completion-looking events. Focused Data Health tests passed 16; the affected
+UI/start-up/navigation bundle passed 40; compileall,
 Ruff and source smoke passed. Native/portable build output was created and
 direct packaged HTTP readiness returned 200 on port 8565. Fresh source,
 packaged and responsive browser screenshots and a 12-row export checksum are
 recorded under `evidence/final/`.
 
 Fresh independent migration review approved implementation/code quality but
-rejected issue closure. The authoritative full suite exited 1 with eight
-pre-existing failures outside Data Health, the optional package smoke is
-blocked by the existing AURG/Sparebanken fixture and the Flet semantic
-snapshot exposes only the accessibility toggle. `ISSUE-0035` was reopened as
+rejected issue closure. The authoritative full suite now passes at 100% after
+the atomic staging fix; the optional package smoke is blocked by the existing
+AURG/Sparebanken fixture and the Flet semantic snapshot exposes only the
+accessibility toggle. `ISSUE-0035` remains
 implementation-complete/closure-pending; its historical closed record is
 retained as a rejected checkpoint. `execution_allowed=false`; Task 11 must
 not start before the Task 10 integration/closure boundary is resolved.

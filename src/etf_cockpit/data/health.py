@@ -346,10 +346,10 @@ def _history_provenance(root: Path, target: Path) -> tuple[str | None, str | Non
             continue
         status = str(event.get("status") or "").strip().lower()
         event_type = str(event.get("event_type") or event.get("event") or "").strip().lower()
-        if status in {"success", "ok", "complete", "completed"} or "complete" in event_type or event_type.endswith("_finish"):
-            successes.append(timestamp)
-        elif status in {"failed", "failure", "error"} or "fail" in event_type or "error" in event_type:
+        if status in {"failed", "failure", "error"} or "fail" in event_type or "error" in event_type:
             failures.append(timestamp)
+        elif status in {"success", "ok", "complete", "completed"} or "complete" in event_type or event_type.endswith("_finish"):
+            successes.append(timestamp)
     return (_latest_timestamp(successes), _latest_timestamp(failures))
 
 

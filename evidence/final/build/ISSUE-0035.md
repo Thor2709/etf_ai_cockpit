@@ -19,3 +19,9 @@ packaged-native launcher verification succeeded on port 8565:
 `Invoke-WebRequest http://127.0.0.1:8565/` returned HTTP 200. The temporary
 `.venv` junction was removed after the build and generated build outputs remain
 ignored.
+
+After the bounded atomic staging fix, the authoritative repository suite was
+rerun independently and reached 100% with exit 0 (warnings only). This does
+not alter the existing package-smoke blocker or add any new package/browser
+claim; independent review and final integration/synchronisation remain
+pending.

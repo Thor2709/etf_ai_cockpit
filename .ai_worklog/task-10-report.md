@@ -116,20 +116,18 @@ Affected UI/startup/navigation result:
 - `...python.exe -m compileall -q src tests` - pass.
 - Scoped `...python.exe -m ruff check src/etf_cockpit/data/health.py src/etf_cockpit/app/pages/data_health.py tests/test_data_health.py --no-cache` - pass.
 - `...python.exe scripts/run_app.py --smoke` - `snapshot_ok as_of=2026-07-13 signals=16 backtests=5`.
-- Full `...python.exe -m pytest -q` - 8 unrelated pre-existing failures in
-  decision-journal path creation, generated candidate/secondary fixtures and
-  trust identity fixture cardinality; no Data Health failure observed.
+- Full `...python.exe -m pytest -q` - exit 0 at 100% after the bounded atomic
+  staging fix; warnings only and no Data Health failure observed.
 
 Skipped checks: no browser screenshot/package build or external write was run
 in this implementer slice. Router/dashboard were inspected but unchanged.
 
 ## Remaining uncertainty and risk
 
-The full-suite failures above remain outside Task 10 ownership. Browser and
-packaged UI evidence, export checksum capture and final issue-closure matrix
-gates remain for the parent integration/review phase. Generated schema-marker
-line-ending churn from local smoke/startup runs is intentionally unstaged and
-excluded from this commit.
+Browser and packaged UI evidence, export checksum capture and final
+issue-closure matrix gates remain for the parent integration/review phase.
+Generated schema-marker line-ending churn from local smoke/startup runs is
+intentionally unstaged and excluded from this commit.
 
 ## Recommended next action
 
@@ -166,22 +164,23 @@ GREEN (recorded during this fix pass):
 3 passed
 ```
 
-The corresponding full Data Health suite remains 12 passed and the affected
-six-file UI/start-up/navigation bundle remains 39 passed with one existing
-GluonTS warning. The final migration fix and this evidence are recorded in
-`34c2eaa` after `ea03216`.
+The corresponding full Data Health suite now has 16 passed and the affected
+six-file UI/start-up/navigation bundle has 40 passed with one existing
+GluonTS warning. The bounded atomic staging fix then allowed the authoritative
+suite to complete successfully; this closure evidence is refreshed on top of
+that fix.
 
 ## Task 10 closure checklist
 
 | Gate | State | Evidence or reason |
 |---|---|---|
 | Required Data Health functionality | passed | `src/etf_cockpit/data/health.py`, `src/etf_cockpit/app/pages/data_health.py` |
-| Acceptance criteria and migration truthfulness | passed | focused 12-test suite, including mixed-offset/name/missing-timestamp regressions |
+| Acceptance criteria and migration truthfulness | passed | focused 16-test suite, including mixed-offset/name/missing-timestamp and failed-completion provenance regressions |
 | Persistence/provenance and export schema | passed | persisted history tests and 12-row CSV export checksum |
-| Source and affected regression tests | passed | 12 focused; 39 affected |
+| Source and affected regression tests | passed | 16 focused; 40 affected |
 | Compile and scoped lint | passed | compileall exit 0; Ruff all checks passed |
 | Source smoke | passed | `snapshot_ok as_of=2026-07-13 signals=16 backtests=5` |
-| Full authoritative suite | blocked | exit 1 with eight pre-existing unrelated failures; no Data Health failure |
+| Full authoritative suite | passed | exit 0 at 100%; warnings only and no Data Health failure |
 | Package build | passed | PyInstaller/native and portable outputs created |
 | Package smoke | blocked | existing AURG/Sparebanken fixture assertion |
 | Direct packaged launch/readiness | passed | port 8565 HTTP 200 |
@@ -189,7 +188,7 @@ GluonTS warning. The final migration fix and this evidence are recorded in
 | Keyboard/focus/semantic accessibility | pending | Flet canvas snapshot exposed only the accessibility-toggle control |
 | Audit/manifest/issue synchronisation | pending | local ledger/map changes await integration and remote read-back |
 | Independent task review | passed for implementation | `task10_migration_reviewer`: code quality approved; closure rejected until gates above pass |
-| Closure evaluator | machine-ready only | evaluator reports `ISSUE-0035 ready=true` from presence/checksum files; manual gates above remain binding |
+| Closure evaluator | machine-ready only | evaluator reports `ISSUE-0035 ready=true` from presence/checksum files; semantic, package-smoke and integration/synchronisation gates remain binding |
 | Issue transition | blocked | leave `ISSUE-0035` open and retain the historical closed record as rejected checkpoint |
 
 The task must not be represented as fully closed while any blocked or pending
@@ -251,3 +250,67 @@ All checks passed; exit 0
 Only `src/etf_cockpit/core/atomic_io.py`, `tests/test_atomic_io.py` and this
 report are part of this fix. Existing schema-marker working-tree churn remains
 unstaged and is not included. `execution_allowed=false` is unchanged.
+
+## Status-precedence closure fix
+
+### Task completed
+
+Fixed `_history_provenance` so explicit failure statuses take precedence over
+completion-looking event types. Added a regression proving a persisted
+`status=failed` completion event contributes only to `last_failure`.
+
+### Files and symbols examined
+
+- `src/etf_cockpit/data/health.py`: `_history_provenance` event classification.
+- `tests/test_data_health.py`: persisted provenance regression coverage.
+- Task10 closure records listed below; generated schema markers and local
+  candidate CSV fixtures were not edited.
+
+### Findings or changes
+
+- RED: `python -m pytest tests/test_data_health.py::test_failed_completion_event_is_failure_not_success -q` exited 1 with `row.last_success` incorrectly equal to `2026-07-10T11:00:00+10:00`.
+- GREEN: failure classification now runs before success classification.
+- Refreshed stale full-suite and head evidence while keeping ISSUE-0035
+  implementation-complete/closure-pending.
+
+### Evidence
+
+- Focused regression: exit 0.
+- Data Health suite: 16 passed.
+- Affected six-file bundle: 40 passed with one existing GluonTS warning.
+- Authoritative suite using the repository Python 3.13 environment: exit 0 at
+  100%, warnings only.
+
+### Commands or tests run
+
+- `python -m pytest tests/test_data_health.py::test_failed_completion_event_is_failure_not_success -q` (RED exit 1, then GREEN exit 0).
+- `& 'C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe' -m pytest tests/test_data_health.py -q` (exit 0).
+- `& 'C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe' -m pytest tests/test_data_health.py tests/test_flet_startup.py tests/test_e2e_workflow.py tests/test_accessibility_contracts.py tests/test_button_contracts.py tests/test_feature_registry.py -q` (exit 0, 40 passed).
+- `& 'C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe' -m pytest -q` (exit 0 at 100%).
+
+### Remaining uncertainty and risk
+
+Package-smoke AURG/Sparebanken fixture, semantic accessibility focus
+evidence, independent re-review and final integration/synchronisation remain
+pending. No package or browser claim was changed by this fix.
+
+### Recommended next action
+
+Run the independent re-review and parent integration/synchronisation gates;
+keep ISSUE-0035 open and `execution_allowed=false` until those gates pass.
+
+### Authored file list
+
+- `src/etf_cockpit/data/health.py`
+- `tests/test_data_health.py`
+- `.ai_worklog/task-10-report.md`
+- `RUN_STATE.json`
+- `evidence/final/tests/ISSUE-0035.md` and sidecar
+- `evidence/final/build/ISSUE-0035.md` and sidecar
+- `evidence/final/issues/ISSUE-0035.json` and sidecar
+- `issues/open.md`
+- `.ai_worklog/WORKLOG.md`
+- `.ai_worklog/TESTING.md`
+- `.ai_worklog/CHANGES.md`
+- `docs/superpowers/plans/2026-07-11-etf-ai-cockpit-programme-index.md`
+- `docs/superpowers/plans/2026-07-11-etf-ai-cockpit-progress-ledger.md`
