@@ -232,3 +232,41 @@ controller's recorded baseline remains seven generated-data/identity fixture
 failures, documented in `evidence/governance/task3-full-suite.txt`; no Task 3
 authority or migration regression is attributed here. Fresh independent review
 and controller integration bookkeeping remain pending.
+
+## Production release-path integration fix - 2026-07-12
+
+The fresh independent re-review identified one blocking omission: the Task 3
+resolver had no production caller. The bounded fix now attaches a typed
+`AuthorityDecision` to signal-generation and simple-score release rows. The
+existing v2 serializers publish the resolved policy metadata, ordered nine-gate
+table and diagnostics while keeping `execution_allowed` literal `false`.
+Gate evidence is derived only from existing signal, score and data-report
+fields; unavailable evidence fails closed.
+
+### RED
+
+```powershell
+$env:PYTHONPATH='src'; & '..\..\etf_ai_cockpit\.venv\Scripts\python.exe' -m pytest tests\test_authority_resolution.py::test_production_signal_release_path_publishes_resolved_gate_table -q --tb=short
+```
+
+Exit **1** with the intended behavioural contract failure:
+`TypeError: SignalResult.__init__() got an unexpected keyword argument
+'authority_decision'`. The test collected and executed; this was not a syntax
+or import failure.
+
+### GREEN and regression evidence
+
+- Focused authority/release command: exit **0**, 47 passed.
+- Affected governance/migration/proposal/export command: exit **0**, 101 passed; two existing pandas `FutureWarning`s only.
+- Simple-score/trust-artifact command: exit **1** with exactly the seven documented generated-data/identity baseline failures and no Task 3 failure.
+- `compileall` for `src` and `tests`: exit **0**.
+- Scoped Ruff for all changed source and tests: exit **0** (`All checks passed!`).
+- `git diff --check`: exit **0**.
+- Full-suite evidence is in `evidence/governance/task3-full-suite-integration.txt`; it retains exactly the seven pre-existing generated-data/identity failures (six in `tests/test_simple_scores.py`, one in `tests/test_trust_critical_artifacts.py`).
+
+Changed files for this fix are `src/etf_cockpit/core/types.py`,
+`src/etf_cockpit/signals/research_states.py`,
+`src/etf_cockpit/signals/signal_pipeline.py`,
+`src/etf_cockpit/signals/simple_scores.py` and
+`tests/test_authority_resolution.py`. No Task 4 journal/review-report, Task 5
+UI, broker, credential or execution capability was added.

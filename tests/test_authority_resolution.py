@@ -6,7 +6,9 @@ import pytest
 
 from etf_cockpit.core.types import DataQualityIssue, DataQualityReport
 from etf_cockpit.governance.gate_policy import PortfolioContext, resolve_authority
+from etf_cockpit.signals.signal_pipeline import _attach_authority
 from etf_cockpit.signals.research_states import GateResult, GateSeverity, PortfolioReviewState, ResearchState
+from etf_cockpit.core.types import ComponentScores, SignalResult
 
 
 def _gate(gate_id: str, *, passed: bool = True, severity: GateSeverity = GateSeverity.NOTICE) -> GateResult:
@@ -184,3 +186,53 @@ def test_portfolio_context_without_date_or_checksum_cannot_grant_review() -> Non
 
     assert decision.portfolio_review_state is PortfolioReviewState.NOT_APPLICABLE
     assert decision.portfolio_review_allowed is False
+
+
+def test_production_signal_release_path_publishes_resolved_gate_table() -> None:
+    signal = SignalResult(
+        run_id="run-1",
+        signal_date=date(2026, 7, 12),
+        etf_id="ETF1",
+        action="hold",
+        confidence=0.7,
+        total_score=0.4,
+        components=ComponentScores(
+            momentum=0.4,
+            trend=0.3,
+            risk=0.2,
+            rebalance=0.1,
+            relative_strength=0.2,
+            toto=0.0,
+            timesfm=0.0,
+            baseline_ml=0.4,
+            chatgpt_thesis=0.0,
+            cost_penalty=0.0,
+            turnover_penalty=0.0,
+            concentration_penalty=0.0,
+        ),
+        blocked_by=[],
+        warnings=[],
+        reason_short="hold",
+        reason_long="hold",
+        horizon_primary="1-3 months",
+        model_versions_used={"baseline": "momentum_shrunk_v1"},
+    )
+    report = DataQualityReport(as_of_date=date(2026, 7, 12), issues=[])
+
+    resolved = _attach_authority(signal, report)
+    payload = resolved.to_v2_dict()
+
+    assert payload["gate_policy_version"] != "unavailable"
+    assert len(payload["gates"]) == 9
+    assert [gate["gate_id"] for gate in payload["gates"]] == [
+        "identity",
+        "data_quality",
+        "evidence",
+        "model_validity",
+        "risk",
+        "valuation",
+        "signal",
+        "portfolio_fit",
+        "cost",
+    ]
+    assert payload["execution_allowed"] is False
