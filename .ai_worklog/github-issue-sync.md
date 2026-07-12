@@ -174,6 +174,18 @@ authoritative ledgers as part of remote synchronisation.
   `b48098e`, the authenticated apply run exited 0 with 98 unchanged actions;
   no GitHub Issue was created, closed, reopened or deleted.
 - The read-only reconciliation run also exited 0 with 98 unchanged actions.
+
+## Task 13 synchronisation - 2026-07-13
+
+- Applied `python scripts/sync_github_issues.py --apply` after the Task 13
+  integration checkpoint; the final run reported 98 canonical records, local
+  open/closed counts 77/21, mapped counts 77/21, agreeing states and no
+  unresolved duplicates.
+- `UPDATEV2-0013` remains mapped to GitHub Issue #153, OPEN, with its local
+  implementation-complete/closure-pending status and current source checksum.
+- No issue was closed because strict package, audit/export, clean-first-run
+  and browser/computer-use evidence remains outstanding. The local ledger and
+  approved specification remain authoritative.
   It proves 98 unique local IDs, 77 open and 21 closed records locally,
   matching 77/21 mapped GitHub states; all mappings are valid, states agree,
   and unresolved duplicates are empty.
