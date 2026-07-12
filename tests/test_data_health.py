@@ -171,6 +171,19 @@ def test_macro_schema_mismatch_and_corrupt_states_are_explicit(tmp_path: Path) -
     assert next(item for item in report.rows if item.dataset == "macro").status is DataHealthStatus.CORRUPT
 
 
+def test_macro_invalid_sibling_remains_visible_with_valid_file(tmp_path: Path) -> None:
+    macro_dir = tmp_path / "data" / "raw" / "macro"
+    macro_dir.mkdir(parents=True)
+    pd.DataFrame({"date": ["2026-07-09"], "value": [100]}).to_csv(macro_dir / "valid.csv", index=False)
+    (macro_dir / "broken.parquet").write_bytes(b"not-a-parquet")
+
+    report = build_data_health(load_config(), tmp_path, as_of_date="2026-07-10")
+    row = next(item for item in report.rows if item.dataset == "macro")
+
+    assert row.status is DataHealthStatus.CORRUPT
+    assert "invalid_file:broken.parquet:corrupt" in row.warnings
+
+
 def test_health_filters_are_case_insensitive_and_support_all_values(tmp_path: Path) -> None:
     clean = tmp_path / "data" / "clean"
     clean.mkdir(parents=True)

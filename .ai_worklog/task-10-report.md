@@ -65,18 +65,34 @@ provenance, macro always reported healthy, and missing filter API (the macro
 fixture was then corrected to use an invalid Parquet payload for the corrupt
 case).
 
+The fresh review fix pass added a valid macro CSV beside a corrupt Parquet
+file. Its RED result was one failure because the valid sibling was reported
+healthy and the corrupt file was reduced to `ignored_files:1`. The minimal fix
+promotes the highest-severity invalid sibling to the macro row status and adds
+an `invalid_file:<name>:<status>` warning for each invalid sibling.
+
+Fix-pass RED/GREEN commands:
+
+```text
+& 'C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe' -m pytest -q tests/test_data_health.py::test_macro_invalid_sibling_remains_visible_with_valid_file
+1 failed (expected healthy-vs-corrupt masking)
+
+& 'C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe' -m pytest -q tests/test_data_health.py
+10 passed
+```
+
 GREEN focused result:
 
 ```text
 & 'C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe' -m pytest -q tests/test_data_health.py
-9 passed
+10 passed
 ```
 
 Affected UI/startup/navigation result:
 
 ```text
 & 'C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe' -m pytest -q tests/test_data_health.py tests/test_flet_startup.py tests/test_e2e_workflow.py tests/test_accessibility_contracts.py tests/test_button_contracts.py tests/test_feature_registry.py
-33 passed (one existing gluonts warning)
+34 passed (one existing gluonts warning)
 ```
 
 ## Commands or tests run

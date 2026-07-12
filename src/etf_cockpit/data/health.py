@@ -210,7 +210,14 @@ def _inspect_macro(path: Path, as_of: date, stale_after_days: int) -> DataHealth
     freshness = "fresh" if status is DataHealthStatus.HEALTHY else "stale"
     warnings = (() if status is DataHealthStatus.HEALTHY else (f"as_of_older_than_{stale_after_days}_days",)) + (f"latest_file:{latest.name}",)
     if failures:
-        warnings += (f"ignored_files:{len(failures)}",)
+        severity = {
+            DataHealthStatus.UNAVAILABLE: 1,
+            DataHealthStatus.SCHEMA_MISMATCH: 2,
+            DataHealthStatus.CORRUPT: 3,
+        }
+        failure_status = max((failure.status for failure in failures), key=lambda item: severity.get(item, 0))
+        warnings += tuple(f"invalid_file:{Path(failure.path).name}:{failure.status.value}" for failure in failures)
+        return _make_row("macro", failure_status, latest, "macro", row_count=len(frame), checksum=_sha256(latest), as_of=dated.isoformat(), freshness="unavailable", warnings=warnings, history_root=_history_root(latest))
     return _make_row("macro", status, latest, "macro", row_count=len(frame), checksum=_sha256(latest), as_of=dated.isoformat(), freshness=freshness, warnings=warnings, history_root=_history_root(latest))
 
 
