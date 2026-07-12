@@ -167,3 +167,18 @@ authoritative ledgers as part of remote synchronisation.
   commit `c80cb0d34d81f36f1a2729744c13d5350fae9243`. The local issue ledger
   remains authoritative; `UPDATEV2-0010` is open/partial pending its complete
   closure dossier.
+
+## Ledger refresh after Wave 4 Task 9 - 2026-07-12
+
+- Following the Task 9 merge and the durable local checkpoint commit
+  `b48098e`, the authenticated apply run exited 0 with 98 unchanged actions;
+  no GitHub Issue was created, closed, reopened or deleted.
+- The read-only reconciliation run also exited 0 with 98 unchanged actions.
+  It proves 98 unique local IDs, 77 open and 21 closed records locally,
+  matching 77/21 mapped GitHub states; all mappings are valid, states agree,
+  and unresolved duplicates are empty.
+- `issues/github_issue_map.json` and
+  `issues/github_issue_sync_report.json` bind the mirror read-back to source
+  commit `b48098e`. The local ledger remains authoritative: `ISSUE-0011` and
+  `ISSUE-0021` are open/partial pending their remaining closure gates, while
+  `UPDATEV2-0022` remains closed and was not reopened.
