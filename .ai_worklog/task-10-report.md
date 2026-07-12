@@ -100,7 +100,7 @@ GREEN focused result:
 
 ```text
 & 'C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe' -m pytest -q tests/test_data_health.py
-10 passed
+12 passed
 ```
 
 Affected UI/startup/navigation result:
@@ -138,4 +138,5 @@ gates. Keep `execution_allowed=false` and do not close `ISSUE-0035` until those
 independent checks pass.
 
 Commit hashes: `d1711628071d2b0959e205792f2fb6d0b87c8f34` (implementation),
-`85b469e` (export schema), `87559ed` (macro sibling visibility fix).
+`85b469e` (export schema), `87559ed` (macro sibling visibility fix),
+`ea03216` (timestamp ordering and migration history fix pass).
