@@ -523,7 +523,7 @@
       "task4_production_static_scan": {"exit_code": 0, "result": "pass", "scanned_files": 358, "violations": 0, "policy_checksum": "89680ebfdca87827728919e687f50f30cebe014741ce35eb4b3c32daa83452f1", "execution_allowed": false, "executable_authority": false},
       "source_smoke": {"exit_code": 0, "output": "snapshot_ok as_of=2026-07-09 signals=16 backtests=5"},
       "github_issue_sync": {"exit_code": 0, "canonical_records": 98, "local_open": 77, "local_closed": 21, "mapped_open": 77, "mapped_closed": 21, "unresolved_duplicates": 0, "dry_run_unchanged": 98},
-      "current_commit": "eb5ece66b4ff02ef5554ee5dd1b7308594e9288c",
+      "current_commit": "11333ddd30b45e90343d6bd56975b516ac04421e",
       "origin_main_matches": true,
       "main_matches_origin": true,
       "working_tree_clean": true,
