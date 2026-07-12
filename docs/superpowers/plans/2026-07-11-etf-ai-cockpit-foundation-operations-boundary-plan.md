@@ -388,3 +388,16 @@ explicitly blocked and tested. No issue moved between the local ledgers;
 their complete later release/UI/browser closure gates. The independent
 re-review is `.ai_worklog/task-5-review-rereview.md` with no Critical or
 Important findings. `execution_allowed` remains `false`.
+
+### GitHub issue synchronisation checkpoint - 2026-07-12
+
+The authoritative local issue inventory was synchronised to
+`Thor2709/etf_ai_cockpit` after Wave 0 Task 5 integration. The versioned
+manifest `issues/github_issue_map.json` contains 98 unique stable IDs (77
+selected open and 21 selected closed), each mapped to one canonical GitHub
+issue with a source checksum. The final apply and read-back reconciliation
+passed with matching 77/21 state counts and no unresolved duplicates. Exact
+stable-ID duplicate records were retained and closed as duplicates; no GitHub
+issue was deleted. The synchroniser's seven-test release slice and Ruff check
+passed. No local issue moved between `issues/open.md` and `issues/closed.md`.
+The next dependency-valid implementation remains Wave 1 Governance Task 1.

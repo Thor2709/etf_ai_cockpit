@@ -1,6 +1,6 @@
 # ETF AI Cockpit Programme Index
 
-> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 3 and 4 are independently approved, merged and post-merge verified. Wave 0 Task 5 is independently approved and merged through PR 4 with post-merge verification. Later issue closure and remote synchronisation remain evidence-gated.
+> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 3 and 4 are independently approved, merged and post-merge verified. Wave 0 Task 5 is independently approved and merged through PR 4 with post-merge verification. The authoritative local issue ledger is synchronised to GitHub through the versioned map and reconciliation report; later issue closure remains evidence-gated.
 
 **Binding inputs:**
 
@@ -118,3 +118,15 @@ The next agent must reread this index, the active plan, the progress ledger, the
 - The documentation-only pre-flight change corrected the final plan heading. No implementation code, configuration, tracker status or user data has changed.
 - Fresh baseline evidence recorded before implementation: pytest exit 0, Ruff clean, compileall exit 0, source snapshot smoke exit 0, source/native/portable smoke exit 0, and a rendered in-app-browser inspection of the source Simple Scores route.
 - No blocking product contradiction remains after applying the approved precedence rules. Wave 0, Tasks 1 and 2 are independently reviewed complete. Wave 0, Task 3 is independently approved, merged and post-merge verified with no Critical, Important or Minor findings. Wave 0, Task 4 and its generated-package correction are independently approved, merged through PRs 2 and 3, and post-merge verified. Wave 0, Task 5 is independently approved, merged through PR 4 and post-merge verified; Wave 1 governance Task 1 is the next dependency-valid task.
+
+## GitHub issue synchronisation checkpoint - 2026-07-12
+
+The local issue ledgers were inventoried and synchronised to the authenticated
+`Thor2709/etf_ai_cockpit` mirror. The deterministic map contains 98 unique
+records (77 selected open and 21 selected closed), with stable markers,
+canonical numbers, source checksums and read-back state. The final apply and
+idempotence dry run passed; no unresolved duplicate remains. Exact-marker
+duplicates were retained and closed as duplicates, without deleting any GitHub
+Issue or changing local issue state. The durable map, report and evidence are
+`issues/github_issue_map.json`, `issues/github_issue_sync_report.json` and
+`.ai_worklog/github-issue-sync.md`.

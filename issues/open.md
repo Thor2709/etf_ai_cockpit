@@ -21,6 +21,14 @@ changed state; `UPDATEV2-0029`, `ISSUE-0013`, `ISSUE-0014`, `ISSUE-0045`,
 `ISSUE-0040` and later tracker records remain open for their complete closure
 gates. Wave 1 governance Task 1 is next.
 
+GitHub mirror checkpoint 2026-07-12: the deterministic synchroniser mapped 98
+selected local records (77 open and 21 closed) to canonical GitHub Issues and
+reconciled the remote state successfully. Exact stable-ID duplicate records
+were retained and closed as duplicates; no local issue changed state and no
+GitHub issue was deleted. See `issues/github_issue_map.json`,
+`issues/github_issue_sync_report.json` and
+`.ai_worklog/github-issue-sync.md`.
+
 ## Tracker Rules
 
 Every issue below is open until all close criteria pass. User-facing issues must be implemented in source, visible in the app UI, tested, included in audit/export where relevant, rebuilt, started from the rebuilt app and smoke-tested from the user's point of view. Backend-only fields do not close UI-facing issues.

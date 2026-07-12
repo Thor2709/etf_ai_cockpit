@@ -140,8 +140,8 @@ def local_records(map_payload: dict[str, Any]) -> tuple[list[dict[str, Any]], li
         issue_id = str(raw.get("local_issue_id", "")).strip()
         title = str(raw.get("title", "")).strip()
         state = str(raw.get("local_state", "")).strip().lower()
-        if not issue_id or not title:
-            raise SyncError("local issue record lacks stable ID or title")
+        if not issue_id:
+            raise SyncError("local issue record lacks stable ID")
         if issue_id in seen:
             raise SyncError(f"duplicate local issue ID: {issue_id}")
         if state not in {"open", "closed"}:
@@ -163,6 +163,11 @@ def local_records(map_payload: dict[str, Any]) -> tuple[list[dict[str, Any]], li
         if location is None and selected_source != source_path:
             selected_source = source_path
             location, section = section_for(selected_source, issue_id, title=title)
+        if not title:
+            heading_match = re.match(r"^#{2,3}\s+[^\s]+\s+-\s+(.+?)\s*$", section.splitlines()[0] if section else "")
+            title = heading_match.group(1).strip() if heading_match else ""
+        if not title:
+            raise SyncError(f"local issue record lacks stable ID or title: {issue_id}")
         row = dict(raw)
         row.update(
             {
@@ -226,8 +231,12 @@ def managed_body(record: dict[str, Any]) -> str:
 
 def merge_managed_body(existing: str, managed: str) -> str:
     if MANAGED_START in existing and MANAGED_END in existing:
-        prefix = existing.split(MANAGED_START, 1)[0].rstrip()
-        suffix = existing.split(MANAGED_END, 1)[1].lstrip()
+        # The stable marker is part of the managed block.  Remove stale
+        # copies that an earlier synchronisation may have left outside it so
+        # repeated runs converge to one byte-stable body while preserving
+        # unrelated human discussion.
+        prefix = MARKER_RE.sub("", existing.split(MANAGED_START, 1)[0]).strip()
+        suffix = MARKER_RE.sub("", existing.split(MANAGED_END, 1)[1]).strip()
         return "\n\n".join(part for part in (prefix, managed, suffix) if part)
     return f"{existing.rstrip()}\n\n{managed}" if existing.strip() else managed
 
@@ -235,6 +244,12 @@ def merge_managed_body(existing: str, managed: str) -> str:
 def marker_ids(issue: dict[str, Any]) -> set[str]:
     body = issue.get("body") or ""
     return {match.group(1).strip() for match in MARKER_RE.finditer(str(body))}
+
+
+def normalise_body(body: str) -> str:
+    """Compare GitHub Markdown independent of transport newline normalisation."""
+
+    return body.replace("\r\n", "\n").replace("\r", "\n").rstrip()
 
 
 def remote_matches(remote: Iterable[dict[str, Any]]) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
@@ -246,7 +261,22 @@ def remote_matches(remote: Iterable[dict[str, Any]]) -> tuple[dict[str, dict[str
         ids.update(re.findall(r"^\[([A-Z]+-[0-9]+)\]", title))
         for issue_id in ids:
             if issue_id in by_id:
-                duplicates.append({"local_issue_id": issue_id, "issue_number": issue.get("number"), "reason": "duplicate_remote_match"})
+                canonical = by_id[issue_id]
+                # A stable local-ID marker is sufficient to establish identity.
+                # Once the non-canonical match is closed, GitHub keeps the
+                # closure comment outside the issue body returned by `issue
+                # list`; treat the closed match as resolved regardless of
+                # whether that comment is available in the inventory.
+                if str(issue.get("state", "")).lower() == "closed":
+                    continue
+                duplicates.append(
+                    {
+                        "local_issue_id": issue_id,
+                        "issue_number": issue.get("number"),
+                        "canonical_issue_number": canonical.get("number"),
+                        "reason": "duplicate_remote_match",
+                    }
+                )
             else:
                 by_id[issue_id] = issue
     return by_id, duplicates
@@ -264,6 +294,26 @@ def ensure_labels(apply: bool) -> None:
         return
     run_gh(["label", "create", "source:local-ledger", "--repo", REPOSITORY, "--color", "1d76db", "--description", "Mirrored from the authoritative local issue ledger", "--force"])
     run_gh(["label", "create", "closure-pending", "--repo", REPOSITORY, "--color", "fbca04", "--description", "Local issue remains open pending closure evidence", "--force"])
+
+
+def close_certain_duplicates(duplicates: Iterable[dict[str, Any]], *, apply: bool) -> list[dict[str, Any]]:
+    actions: list[dict[str, Any]] = []
+    for duplicate in duplicates:
+        action = "close_duplicate" if apply else "would_close_duplicate"
+        if apply:
+            run_gh(
+                [
+                    "issue",
+                    "close",
+                    str(duplicate["issue_number"]),
+                    "--repo",
+                    REPOSITORY,
+                    "--comment",
+                    f"Duplicate of #{duplicate['canonical_issue_number']}; the issue with the clearest existing history is canonical for local issue ID {duplicate['local_issue_id']}. The local ledger remains authoritative.",
+                ]
+            )
+        actions.append({**duplicate, "action": action})
+    return actions
 
 
 def gh_body_file(body: str) -> Path:
@@ -311,10 +361,11 @@ def sync_record(record: dict[str, Any], remote: dict[str, Any] | None, *, apply:
                 current["state"] = "CLOSED"
     else:
         number = int(current["number"])
-        if current.get("title") != desired_title or body != str(current.get("body") or ""):
+        existing_body = str(current.get("body") or "")
+        if current.get("title") != desired_title or normalise_body(body) != normalise_body(existing_body):
             action = "update" if apply else "would_update"
             if apply:
-                body_path = gh_body_file(merge_managed_body(str(current.get("body") or ""), body))
+                body_path = gh_body_file(merge_managed_body(existing_body, body))
                 try:
                     run_gh(["issue", "edit", str(number), "--repo", REPOSITORY, "--title", desired_title, "--body-file", str(body_path)])
                 finally:
@@ -330,9 +381,17 @@ def sync_record(record: dict[str, Any], remote: dict[str, Any] | None, *, apply:
             if apply:
                 run_gh(["issue", "close", str(number), "--repo", REPOSITORY, "--comment", "Closed to match the authoritative local ledger; do not close independently of repository evidence."])
         if apply:
-            current = next(item for item in load_remote_issues() if int(item["number"]) == number)
+            # The initial inventory is authoritative for identity.  Avoid a
+            # second repository-wide API read for every record; update the
+            # in-memory state after each successful mutation and perform one
+            # complete read-back reconciliation in ``main``.
+            current = dict(current)
+            current["title"] = desired_title
+            current["body"] = merge_managed_body(existing_body, body)
+            current["state"] = "OPEN" if desired_state == "open" else "CLOSED"
     return {
         "local_issue_id": issue_id,
+        "title": record["title"],
         "github_issue_number": current.get("number") if current else None,
         "github_url": current.get("url") if current else None,
         "local_state": record["local_state"],
@@ -346,8 +405,6 @@ def sync_record(record: dict[str, Any], remote: dict[str, Any] | None, *, apply:
 
 
 def reconcile(records: list[dict[str, Any]], mapped: list[dict[str, Any]], duplicates: list[dict[str, Any]], *, apply: bool) -> dict[str, Any]:
-    if duplicates:
-        raise SyncError(f"unresolved duplicate GitHub matches: {duplicates}")
     local_counts = {state: sum(record["local_state"] == state for record in records) for state in ("open", "closed")}
     mapped_counts = {state: sum(item.get("github_state") == state for item in mapped) for state in ("open", "closed")}
     unresolved = [item for item in mapped if item.get("github_issue_number") is None]
@@ -366,7 +423,7 @@ def reconcile(records: list[dict[str, Any]], mapped: list[dict[str, Any]], dupli
     }
 
 
-def build_payload(*, records: list[dict[str, Any]], mapped: list[dict[str, Any]], contradictions: list[dict[str, Any]], remote_count: int, reconciliation: dict[str, Any], apply: bool) -> tuple[dict[str, Any], dict[str, Any]]:
+def build_payload(*, records: list[dict[str, Any]], mapped: list[dict[str, Any]], contradictions: list[dict[str, Any]], remote_count: int, reconciliation: dict[str, Any], duplicate_actions: list[dict[str, Any]], apply: bool) -> tuple[dict[str, Any], dict[str, Any]]:
     commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
     generated = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     for item in mapped:
@@ -382,6 +439,7 @@ def build_payload(*, records: list[dict[str, Any]], mapped: list[dict[str, Any]]
         "unresolved_contradictions": contradictions,
         "records": mapped,
         "reconciliation": reconciliation,
+        "duplicate_actions": duplicate_actions,
         "apply_mode": apply,
     }
     report = {
@@ -393,6 +451,7 @@ def build_payload(*, records: list[dict[str, Any]], mapped: list[dict[str, Any]]
         "actions": [item["action"] for item in mapped],
         "unresolved_contradictions": contradictions,
         "reconciliation": reconciliation,
+        "duplicate_actions": duplicate_actions,
     }
     return map_payload, report
 
@@ -405,16 +464,31 @@ def main(argv: list[str] | None = None) -> int:
     records, contradictions = local_records(map_source)
     remote = load_remote_issues()
     by_id, duplicates = remote_matches(remote)
-    if duplicates:
-        raise SyncError(f"unresolved duplicate GitHub matches: {duplicates}")
     ensure_labels(args.apply)
+    duplicate_actions = close_certain_duplicates(duplicates, apply=args.apply)
     mapped = [sync_record(record, by_id.get(record["local_issue_id"]), apply=args.apply) for record in records]
+    if args.apply:
+        # Reconcile against one fresh post-write inventory so the durable map
+        # records observed GitHub state rather than only requested actions.
+        remote_after = load_remote_issues()
+        by_id_after, duplicates_after = remote_matches(remote_after)
+        for item in mapped:
+            observed = by_id_after.get(item["local_issue_id"])
+            if observed is None:
+                item["github_issue_number"] = None
+                item["github_url"] = None
+                item["github_state"] = None
+            else:
+                item["github_issue_number"] = observed.get("number")
+                item["github_url"] = observed.get("url")
+                item["github_state"] = str(observed.get("state", "")).lower()
+        duplicates = duplicates_after
     reconciliation = reconcile(records, mapped, duplicates, apply=args.apply)
-    map_payload, report = build_payload(records=records, mapped=mapped, contradictions=contradictions, remote_count=len(remote), reconciliation=reconciliation, apply=args.apply)
+    map_payload, report = build_payload(records=records, mapped=mapped, contradictions=contradictions, remote_count=len(remote), reconciliation=reconciliation, duplicate_actions=duplicate_actions, apply=args.apply)
     if args.apply:
         MAP_PATH.write_text(json.dumps(map_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         REPORT_PATH.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(json.dumps({"apply": args.apply, "record_count": len(records), "remote_count_before": len(remote), "reconciliation": reconciliation, "actions": {action: sum(item["action"] == action for item in mapped) for action in sorted({item["action"] for item in mapped})}}, indent=2, sort_keys=True))
+    print(json.dumps({"apply": args.apply, "record_count": len(records), "remote_count_before": len(remote), "reconciliation": reconciliation, "duplicate_actions": duplicate_actions, "actions": {action: sum(item["action"] == action for item in mapped) for action in sorted({item["action"] for item in mapped})}}, indent=2, sort_keys=True))
     return 0 if (not args.apply or reconciliation["passes"]) else 2
 
 

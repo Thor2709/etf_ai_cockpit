@@ -260,3 +260,22 @@ Executing the approved plan at `docs/superpowers/plans/2026-07-09-launcher-spare
   fail-closed and covered by focused tests. No issue moved between local ledgers
   and no GitHub Issue state was changed. Task 5 owning issues remain open for
   complete UI/package/browser closure evidence; Wave 1 governance Task 1 is next.
+
+## 2026-07-12 GitHub Issue Synchronisation Checkpoint
+
+- The local ledgers were deterministically inventoried as 98 selected records:
+  77 open and 21 closed. The authenticated remote inventory had 166 records
+  after the earlier serial apply; exact stable-ID matches were used to select
+  one canonical issue per local ID.
+- Duplicate handling retained every historical GitHub Issue and closed exact
+  stable-ID duplicates only. The final remote inventory has no unresolved open
+  duplicate; the local ledger was not edited and no GitHub Issue was deleted.
+- `issues/github_issue_map.json` (schema 1.1) and
+  `issues/github_issue_sync_report.json` record canonical numbers, URLs, local
+  states, source checksums and reconciliation. Final counts agree at 77/21.
+- Verification passed: `.venv\\Scripts\\python.exe -m pytest
+  tests/release/test_github_issue_sync.py -q` (7 passed), scoped Ruff (clean),
+  `scripts/sync_github_issues.py --apply` (exit 0) and the final dry run (exit
+  0, 98 unchanged, no unresolved duplicates).
+- The next dependency-valid implementation is Wave 1 Governance Task 1;
+  `execution_allowed` remains `false`.

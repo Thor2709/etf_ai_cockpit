@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-12T10:20:00+10:00",
+  "updated_at": "2026-07-12T10:25:12+10:00",
   "active_programme": {
     "name": "2026-07-11-etf-ai-cockpit-approved-programme",
     "programme_index": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-programme-index.md",
     "progress_ledger": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-progress-ledger.md",
-    "phase": "wave0_task5_integrated_wave1_governance_ready",
+    "phase": "github_issue_sync_complete_wave1_governance_ready",
     "next_task": "Wave 1, Governance Task 1: typed authority and non-execution contract",
     "git_repository": true,
     "git_branch": "main",
@@ -234,6 +234,27 @@
         "main_matches_origin": true,
         "working_tree_clean": true
       },
+      "github_sync": {
+        "manifest": "issues/github_issue_map.json",
+        "report": "issues/github_issue_sync_report.json",
+        "worklog": ".ai_worklog/github-issue-sync.md",
+        "repository": "Thor2709/etf_ai_cockpit",
+        "initial_remote_issue_count": 0,
+        "final_remote_issue_count": 166,
+        "canonical_mapped_records": 98,
+        "local_open_count": 77,
+        "local_closed_count": 21,
+        "mapped_open_count": 77,
+        "mapped_closed_count": 21,
+        "duplicate_records_retained_and_closed": 68,
+        "unresolved_duplicates": 0,
+        "apply_exit_code": 0,
+        "idempotence_dry_run_exit_code": 0,
+        "idempotence_action_counts": {"unchanged": 98},
+        "issues_deleted": 0,
+        "local_issue_state_changed": false,
+        "reconciliation_passed": true
+      },
       "issue_state": "open",
       "execution_allowed": false,
       "data05_status": "still_open"
@@ -303,8 +324,8 @@
     "still_open": 37
   },
   "last_checkpoint": {
-    "name": "wave0_task5_integrated_wave1_governance_ready",
-    "result": "Task 5 was independently approved after an Important-finding fix pass, merged through PR 4 at fc4d61cfc6e77da9a91aeb5afe0341b1d7658f55, and post-merge focused/release/operations tests, Ruff, compileall, pip check, PowerShell AST parsing and source smoke passed. Task 5 owning issues remain open for complete UI/package/browser closure gates; Wave 1 governance Task 1 is next.",
+    "name": "github_issue_sync_complete_wave1_governance_ready",
+    "result": "The authoritative local issue ledger was synchronised to GitHub with 98 canonical mappings, matching 77/21 open/closed state counts and no unresolved duplicates; exact-marker historical duplicates were retained and closed without deletion. Task 5 owning issues remain open for complete UI/package/browser closure gates; Wave 1 governance Task 1 is next.",
     "evidence": [
       ".ai_worklog/task-5-report.md",
       ".ai_worklog/task-5-review-rereview.md",
@@ -323,6 +344,7 @@
       "pip_check": {"exit_code": 0},
       "task4_production_static_scan": {"exit_code": 0, "result": "pass", "scanned_files": 358, "violations": 0, "policy_checksum": "89680ebfdca87827728919e687f50f30cebe014741ce35eb4b3c32daa83452f1", "execution_allowed": false, "executable_authority": false},
       "source_smoke": {"exit_code": 0, "output": "snapshot_ok as_of=2026-07-09 signals=16 backtests=5"},
+      "github_issue_sync": {"exit_code": 0, "canonical_records": 98, "local_open": 77, "local_closed": 21, "mapped_open": 77, "mapped_closed": 21, "unresolved_duplicates": 0, "dry_run_unchanged": 98},
       "main_matches_origin": true,
       "working_tree_clean": true,
       "issue_state": "open",
