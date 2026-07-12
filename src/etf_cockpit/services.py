@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from collections import Counter
 from datetime import date
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -32,6 +33,7 @@ from etf_cockpit.data.sample_data import ensure_sample_files
 from etf_cockpit.data.trade_candidate_analysis import fetch_candidate_prices, refresh_candidate_analysis
 from etf_cockpit.data.validation import validate_holdings, validate_prices
 from etf_cockpit.data.yfinance_provider import YFinanceProvider
+from etf_cockpit.data.universe_store import load_universe
 from etf_cockpit.features.feature_pipeline import compute_features, latest_features
 from etf_cockpit.models.baseline_models import baseline_forecast
 from etf_cockpit.models.forecast_scores import forecast_component_maps, load_latest_forecasts
@@ -39,6 +41,34 @@ from etf_cockpit.models.local_weights import LocalModelStatus
 from etf_cockpit.models.registry import model_availability, model_diagnostics
 from etf_cockpit.portfolio.risk import target_policy_issues
 from etf_cockpit.signals.signal_pipeline import generate_signals
+
+
+def _universe_cache_meta_path(path: Path) -> Path:
+    return Path(f"{path}.meta.json")
+
+
+def _current_universe_revision() -> str:
+    try:
+        return load_universe().revision
+    except (OSError, ValueError, TypeError, KeyError):
+        return ""
+
+
+def _cache_matches_universe(path: Path, revision: str) -> bool:
+    metadata_path = _universe_cache_meta_path(path)
+    if not metadata_path.exists():
+        return False
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return False
+    return isinstance(payload, dict) and str(payload.get("universe_revision") or "") == revision
+
+
+def _write_universe_cache_metadata(path: Path, revision: str) -> None:
+    metadata_path = _universe_cache_meta_path(path)
+    payload = json.dumps({"schema_version": 1, "universe_revision": revision}, sort_keys=True).encode("utf-8")
+    atomic_write_bytes(metadata_path, payload, lambda candidate: json.loads(candidate.read_text(encoding="utf-8")))
 
 
 @dataclass
@@ -54,6 +84,8 @@ class CockpitSnapshot:
     backtest: BacktestReport
     model_status: dict[str, bool]
     model_inventory: list[LocalModelStatus]
+    # Revision of the canonical universe used to build cached derived data.
+    universe_revision: str = ""
 
 
 class DataService:
@@ -222,8 +254,9 @@ class DataService:
         effective_as_of = prices["date"].max().date()
         forecast_config = self.config if live_optional_models else _config_with_optional_models_disabled(self.config)
         forecast_service = ForecastService(forecast_config)
+        universe_revision = _current_universe_revision()
         output = FORECASTS_DIR / f"forecast_results_yfinance_{effective_as_of:%Y%m%d}.csv"
-        if use_cache and output.exists():
+        if use_cache and output.exists() and _cache_matches_universe(output, universe_revision):
             try:
                 universe_forecast_frame = pd.read_csv(output)
             except Exception:
@@ -245,6 +278,8 @@ class DataService:
                 universe_summary = _forecast_status_summary(universe_forecasts)
                 universe_mode = "refreshed"
         else:
+            if use_cache and output.exists():
+                record_cache_event("forecast", "invalidation", action_id="forecasts", detail="universe revision changed or metadata missing")
             record_cache_event("forecast", "miss", action_id="forecasts")
             universe_forecasts = forecast_service.run_forecasts(
                 effective_as_of,
@@ -255,6 +290,8 @@ class DataService:
             )
             universe_summary = _forecast_status_summary(universe_forecasts)
             universe_mode = "refreshed"
+        if universe_mode == "refreshed" and output.exists():
+            _write_universe_cache_metadata(output, universe_revision)
         messages = [
             (
                 f"Configured ETF forecasts {universe_mode} "
@@ -263,7 +300,7 @@ class DataService:
         ]
         if include_candidates:
             candidate_output = FORECASTS_DIR / f"yfinance_candidate_forecasts_{effective_as_of:%Y%m%d}.csv"
-            if use_cache and candidate_output.exists():
+            if use_cache and candidate_output.exists() and _cache_matches_universe(candidate_output, universe_revision):
                 try:
                     candidate_frame = pd.read_csv(candidate_output)
                 except Exception:
@@ -290,11 +327,13 @@ class DataService:
                     candidate_as_of = candidate_data.effective_as_of
                     candidate_mode = "refreshed"
             else:
+                if use_cache and candidate_output.exists() and not _cache_matches_universe(candidate_output, universe_revision):
+                    record_cache_event("candidate_forecast", "invalidation", action_id="forecasts", detail="universe revision changed or metadata missing")
                 record_cache_event("candidate_forecast", "miss", action_id="forecasts")
                 candidate_data = fetch_candidate_prices(self.config, years=years)
                 candidate_ids = list(candidate_data.candidates["instrument_id"].astype(str))
                 candidate_output = FORECASTS_DIR / f"yfinance_candidate_forecasts_{candidate_data.effective_as_of:%Y%m%d}.csv"
-                if use_cache and candidate_output.exists():
+                if use_cache and candidate_output.exists() and _cache_matches_universe(candidate_output, universe_revision):
                     record_cache_event("candidate_forecast", "hit", action_id="forecasts")
                     candidate_summary = _forecast_frame_status_summary(pd.read_csv(candidate_output))
                     candidate_as_of = candidate_data.effective_as_of
@@ -310,6 +349,8 @@ class DataService:
                     candidate_summary = _forecast_status_summary(candidate_forecasts)
                     candidate_as_of = candidate_data.effective_as_of
                     candidate_mode = "refreshed"
+            if candidate_mode == "refreshed" and candidate_output.exists():
+                _write_universe_cache_metadata(candidate_output, universe_revision)
             messages.append(
                 (
                     f"Candidate forecasts {candidate_mode} as of {candidate_as_of}: "
@@ -636,7 +677,7 @@ class SignalService:
         holdings = load_holdings()
         report = DataService(self.config).validate_prices(prices, as_of_date=effective_date, holdings=holdings)
         status = model_availability(self.config)
-        forecasts = load_latest_forecasts()
+        forecasts = load_latest_forecasts(universe_revision=_current_universe_revision())
         return generate_signals(
             self.config,
             latest,
@@ -699,8 +740,9 @@ class BacktestService:
         "payoff_asymmetry_warning",
     }
 
-    def __init__(self, config: AppConfig):
+    def __init__(self, config: AppConfig, *, universe_revision: str | None = None):
         self.config = config
+        self.universe_revision = _current_universe_revision() if universe_revision is None else universe_revision
 
     def load_or_run_backtest(self, as_of_date: date | None = None) -> BacktestReport:
         cache_present = (BACKTESTS_DIR / "backtest_results.csv").exists() or (BACKTESTS_DIR / "equity_curves.csv").exists()
@@ -725,6 +767,12 @@ class BacktestService:
         )
         with timed_step("backtest", "write_outputs"):
             atomic_write_group(requests)
+        for output in (
+            BACKTESTS_DIR / "backtest_results.csv",
+            BACKTESTS_DIR / "equity_curves.csv",
+            BACKTESTS_DIR / "signal_log.csv",
+        ):
+            _write_universe_cache_metadata(output, self.universe_revision)
         append_jsonl("model_runs.jsonl", "backtest_completed", {"ai_added_value": report.ai_added_value})
         return report
 
@@ -734,6 +782,8 @@ class BacktestService:
         trade_path = BACKTESTS_DIR / "trade_log.csv"
         signal_path = BACKTESTS_DIR / "signal_log.csv"
         if not results_path.exists() or not equity_path.exists():
+            return None
+        if not _cache_matches_universe(results_path, self.universe_revision) or not _cache_matches_universe(equity_path, self.universe_revision):
             return None
         try:
             results = pd.read_csv(results_path)
@@ -799,6 +849,7 @@ def _build_snapshot(force_sample: bool = False) -> CockpitSnapshot:
     configure_logging()
     ensure_project_dirs()
     config = load_config()
+    universe_revision = _current_universe_revision()
     data_service = DataService(config)
     data_service.update_prices(force_sample=force_sample)
     current_ids = set(config.universe.enabled_ids)
@@ -819,7 +870,7 @@ def _build_snapshot(force_sample: bool = False) -> CockpitSnapshot:
         latest = latest_features(features, data_report.as_of_date)
     status = model_availability(config)
     inventory = model_diagnostics(config)
-    forecasts = load_latest_forecasts()
+    forecasts = load_latest_forecasts(universe_revision=universe_revision)
     signals = (
         []
         if latest.empty
@@ -834,7 +885,7 @@ def _build_snapshot(force_sample: bool = False) -> CockpitSnapshot:
             forecast_scores=forecast_component_maps(forecasts),
         )
     )
-    backtest = _empty_backtest_report("Backtest skipped because no clean prices exist for the current two-tier universe yet.") if prices.empty else BacktestService(config).load_or_run_backtest(data_report.as_of_date)
+    backtest = _empty_backtest_report("Backtest skipped because no clean prices exist for the current two-tier universe yet.") if prices.empty else BacktestService(config, universe_revision=universe_revision).load_or_run_backtest(data_report.as_of_date)
     return CockpitSnapshot(
         config=config,
         prices=prices,
@@ -847,6 +898,7 @@ def _build_snapshot(force_sample: bool = False) -> CockpitSnapshot:
         backtest=backtest,
         model_status=status,
         model_inventory=inventory,
+        universe_revision=universe_revision,
     )
 
 

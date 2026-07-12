@@ -10,6 +10,7 @@ import pandas as pd
 from etf_cockpit.core.config import AppConfig, ETFConfig, ProviderSection
 from etf_cockpit.data.providers import DataProvider, PriceProvider, ProviderResult
 from etf_cockpit.data.provenance import metadata_from_frame
+from etf_cockpit.data.universe_store import support_decision
 
 
 YAHOO_SUFFIX_BY_EXCHANGE = {
@@ -69,6 +70,8 @@ class YFinanceProvider(DataProvider, PriceProvider):
                 "theme": etf.theme or "",
                 "role": etf.role,
                 "configured_ter": etf.ter,
+                "leveraged": etf.leveraged,
+                "inverse": etf.inverse,
             }
             for etf in config.universe.etfs
         }
@@ -368,7 +371,8 @@ def yfinance_symbol_map_from_config(config: AppConfig) -> dict[str, str]:
     }
     output: dict[str, str] = {}
     for etf in config.universe.etfs:
-        if not etf.enabled:
+        decision = support_decision(etf.instrument_type, etf.data_policy, etf.leveraged, etf.inverse)
+        if not etf.enabled or not decision.score_eligible:
             continue
         output[etf.id] = configured.get(etf.id) or yfinance_symbol_for_etf(etf)
     return {etf_id: symbol for etf_id, symbol in output.items() if symbol}

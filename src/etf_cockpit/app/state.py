@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from etf_cockpit.core.config import save_provider_settings
+from etf_cockpit.core.config import AppConfig, save_provider_settings
 from etf_cockpit.core.migrations import run_startup_migrations
 from etf_cockpit.core.paths import RAW_DIR
 from etf_cockpit.core.session_log import SESSION_LOG_PATH, log_event, log_exception
@@ -118,6 +118,7 @@ class AppState:
     recent_activity: list[ActivityEntry] = field(default_factory=list)
     workflow_controller: WorkflowController = field(default_factory=WorkflowController, repr=False)
     error_store: ErrorStore = field(default_factory=ErrorStore, repr=False)
+    universe_cache_revision: str = ""
 
     @classmethod
     def load(cls) -> "AppState":
@@ -130,6 +131,41 @@ class AppState:
         except Exception:
             pass
         return cls(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf, recent_activity=_read_recent_activity())
+
+    def apply_universe_config(self, config: AppConfig, revision: str) -> None:
+        """Apply a saved local universe and invalidate derived cache views.
+
+        This only changes in-memory configuration and filters cached local
+        frames; it never starts a provider, model, forecast or broker workflow.
+        """
+
+        self.snapshot.config = config
+        self.snapshot.universe_revision = revision
+        self.universe_cache_revision = revision
+        enabled = set(config.universe.enabled_ids)
+        for attribute in ("prices", "holdings", "features", "latest_features"):
+            frame = getattr(self.snapshot, attribute, None)
+            if frame is not None and hasattr(frame, "columns") and "etf_id" in frame.columns:
+                setattr(self.snapshot, attribute, frame[frame["etf_id"].astype(str).isin(enabled)].copy())
+        self.snapshot.signals = [signal for signal in self.snapshot.signals if signal.etf_id in enabled]
+        forecasts = self.snapshot.forecasts
+        if forecasts is not None and hasattr(forecasts, "columns") and "etf_id" in forecasts.columns:
+            self.snapshot.forecasts = forecasts[forecasts["etf_id"].astype(str).isin(enabled)].copy()
+        backtest = getattr(self.snapshot, "backtest", None)
+        if backtest is not None:
+            try:
+                self.snapshot.backtest = replace(
+                    backtest,
+                    results=backtest.results.iloc[0:0].copy(),
+                    equity_curves=backtest.equity_curves.iloc[0:0].copy(),
+                    trade_log=backtest.trade_log.iloc[0:0].copy(),
+                    signal_log=backtest.signal_log.iloc[0:0].copy(),
+                    quality_label="stale_universe",
+                    quality_notes=["Cached backtest invalidated because the configured universe revision changed."],
+                )
+            except (AttributeError, TypeError):
+                # Lightweight embedding snapshots may not carry a full report.
+                self.snapshot.backtest = None
 
     def begin_activity(self, label: str, step: str | None = None) -> ActivityEntry:
         if self.current_activity is not None:
