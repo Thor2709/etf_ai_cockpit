@@ -182,3 +182,19 @@ authoritative ledgers as part of remote synchronisation.
   commit `b48098e`. The local ledger remains authoritative: `ISSUE-0011` and
   `ISSUE-0021` are open/partial pending their remaining closure gates, while
   `UPDATEV2-0022` remains closed and was not reopened.
+
+## Ledger refresh after Wave 4 Task 12 - 2026-07-13
+
+- After PR 182 merged Task 12 and the local checkpoint was committed, the
+  authenticated `python scripts/sync_github_issues.py --apply` run exited 0.
+  Five managed bodies were refreshed, with no duplicate actions, issue
+  creation, deletion or state transition.
+- Reconciliation passed: 98 unique local IDs, 77 open and 21 closed locally,
+  matching 77/21 mapped GitHub states; all mappings have valid issue numbers
+  and URLs, states agree and unresolved duplicates are empty.
+- The synchronisation manifest and report bind the read-back to commit
+  `1bf453cc3d6a3dc244b7a6cf9760cb195f1771dd`; the subsequent sync artefact
+  commit is `b932dc879ec7822b1af14891dfadff337bb86d65`.
+- `UPDATEV2-0012` remains open/implementation-complete pending package,
+  browser, clean-first-run and configured live SEC-network evidence. The local
+  issue ledger and approved specification remain authoritative.
