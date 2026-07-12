@@ -364,7 +364,7 @@ schema_version
 
 ## UPDATEV2-0012 - SEC EDGAR official statement importer (original update ISSUE-0012)
 
-**Status:** Open  
+**Status:** Open - implementation complete; closure pending package/browser, clean-first-run and configured live SEC-network evidence
 **Type:** US Filings / Statements  
 **Priority:** P0  
 **Evidence grade:** High  

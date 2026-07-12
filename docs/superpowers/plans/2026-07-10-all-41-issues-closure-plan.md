@@ -794,23 +794,30 @@ implementation is Task 12, SEC EDGAR Provider and Official Statement Facts.
 - `parse_companyfacts(path: Path, identity: CanonicalIdentity) -> ParseResult[StatementFact]`.
 - Statement facts retain taxonomy, concept, unit, value, start/end/instant, filed date, form, accession, fiscal year/period and source ID.
 
-- [ ] **Step 1: Write real-fixture parser tests**
+- [x] **Step 1: Write real-fixture parser tests**
 
 Assert Microsoft fixture identity, at least one recognised official fact, exact accession/form/unit retention and no invented value. Add malformed JSON, wrong CIK and ambiguous-unit tests.
 
-- [ ] **Step 2: Implement immutable fetch and parser**
+- [x] **Step 2: Implement immutable fetch and parser**
 
 Use conditional requests where supported, checksum raw JSON and refuse identity mismatch. Parser maps a small explicit canonical concept table while retaining all original concepts separately.
 
-- [ ] **Step 3: Commit clean facts atomically**
+- [x] **Step 3: Commit clean facts atomically**
 
 Write `data/clean/statement_facts.parquet` and filing inventory with schema version and source IDs. Official SEC facts outrank vendor claims only for matching entity, concept, unit and period.
 
-- [ ] **Step 4: Add Filings UI workflow**
+- [x] **Step 4: Add Filings UI workflow**
 
 Add CIK-resolved import button, progress, filings/facts table, source URL and mapping warnings. Missing network must show controlled unavailable while local fixture import remains functional.
 
 - [ ] **Step 5: Verify parser, export and packaged UI**
+
+**Task 12 implementation checkpoint (2026-07-13):** Steps 1-4 are implemented,
+independently reviewed and merged through PR 182 at `dc9765ff97f14cc29e9dd7a4f02d669ce0e5ee7f`.
+Focused SEC/trust/UI/accessibility verification passed 54 tests; scoped Ruff,
+compileall and diff checks passed. The issue remains open with implementation
+complete but closure pending fresh package/browser, clean-first-run and
+configured live SEC-network evidence. `execution_allowed=false` is unchanged.
 
 Run focused tests, import real fixture through UI, export audit ZIP and verify SEC raw checksum/fact mappings. Rebuild and capture packaged Filings page plus computer-use import interaction.
 

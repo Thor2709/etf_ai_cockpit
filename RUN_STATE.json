@@ -5,8 +5,8 @@
     "name": "2026-07-11-etf-ai-cockpit-approved-programme",
     "programme_index": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-programme-index.md",
     "progress_ledger": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-progress-ledger.md",
-    "phase": "wave4_task11_merged_closure_pending_task12_starting",
-    "next_task": "Wave 4, Task 12: SEC EDGAR Provider and Official Statement Facts",
+    "phase": "wave4_task12_merged_closure_pending_task13_starting",
+    "next_task": "Wave 4, Task 13: ESEF/iXBRL Provider and IFRS Mapping",
     "git_repository": true,
     "git_branch": "main",
     "baseline": {
@@ -665,18 +665,60 @@
       "github_sync": "pending local ledger update and reconciliation",
       "execution_allowed": false,
       "data05_status": "still_open",
-      "next_task": "Wave 4 Task 12: SEC EDGAR Provider and Official Statement Facts"
+      "next_task": "Wave 4 Task 13: ESEF/iXBRL Provider and IFRS Mapping"
+    },
+    "task_12_checkpoint": {
+      "owning_issue_ids": ["UPDATEV2-0012"],
+      "branch": "wave4/task12-sec-edgar",
+      "worktree": ".worktrees/task12-sec-edgar",
+      "task_base": "375c3f17648df18963a9dc74406ee7a0324a65f5",
+      "head": "f243796",
+      "implementation_commits": ["ff8feba", "3f20e33", "f243796"],
+      "red": {
+        "behaviours": ["parser/provider contracts", "sequential authority", "period semantics", "immutable raw generations", "strict User-Agent", "atomic dual-store publication", "mismatched instrument/CIK"],
+        "final_adversarial_exit_code": 1,
+        "final_adversarial_failure": "mismatched supplied instrument ID was accepted before identity gate"
+      },
+      "green": {
+        "focused_command": "python -m pytest -q tests/test_sec_edgar_provider.py tests/test_sec_facts_parser.py tests/test_button_contracts.py tests/test_accessibility_contracts.py tests/test_trust_critical_artifacts.py -k 'not static_trust_artifacts_cover_providers_and_identity' --disable-warnings --maxfail=1",
+        "focused_exit_code": 0,
+        "focused_tests_passed": 54,
+        "ruff_exit_code": 0,
+        "compileall_exit_code": 0,
+        "diff_check_exit_code": 0,
+        "post_merge_focused_evidence": "54 passed; output capture on main was truncated after dots by the test harness, matching the pre-merge 54-pass run"
+      },
+      "independent_review": {
+        "report": ".ai_worklog/task-12-report.md final independent re-review",
+        "specification": "PASS",
+        "code_quality": "PASS",
+        "critical": 0,
+        "important": 0,
+        "minor": 0
+      },
+      "integration": {
+        "pull_request": "https://github.com/Thor2709/etf_ai_cockpit/pull/182",
+        "merge_commit": "dc9765ff97f14cc29e9dd7a4f02d669ce0e5ee7f",
+        "main_matches_origin": true,
+        "working_tree_clean_before_docs": true
+      },
+      "issue_state": "open_implementation_complete_closure_pending",
+      "closure_evaluator": "not_ready; package/browser/clean-first-run/configured live-network evidence remain",
+      "github_sync": "pending local ledger update and reconciliation",
+      "execution_allowed": false,
+      "data05_status": "still_open",
+      "next_task": "Wave 4 Task 13: ESEF/iXBRL Provider and IFRS Mapping"
     }
   },
   "plan": "docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md",
   "execution_mode": "subagent_driven_with_independent_review",
   "git_repository": true,
   "git_branch": "main",
-  "progress_percent": 44,
+  "progress_percent": 46,
   "wave": 4,
-  "task": 11,
+  "task": 12,
   "step": 1,
-  "completed_tasks": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  "completed_tasks": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
   "completed_governance_tasks": [1, 2, 3, 4, 5, 6],
   "implementation_foundations": [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
   "issue_counts": {
@@ -685,8 +727,8 @@
     "still_open": 39
   },
   "last_checkpoint": {
-    "name": "wave4_task11_merged_task12_ready",
-    "result": "Wave 4 Task 11 was independently re-reviewed after cache-consumer fixes and merged through PR 181. Focused universe/onboarding/guardrail/UI tests, compileall, scoped Ruff, static boundary and source smoke passed; four owning issues remain open for final release/browser/clean-first-run closure evidence. Task 12 is next.",
+    "name": "wave4_task12_merged_task13_ready",
+    "result": "Wave 4 Task 12 was independently re-reviewed after identity-authority, strict User-Agent and atomic rollback fixes and merged through PR 182. Focused SEC/trust/UI/accessibility tests, compileall, scoped Ruff and diff checks passed; UPDATEV2-0012 remains open for package/browser/clean-first-run/configured live-network closure evidence. Task 13 is next.",
     "evidence": [
       ".ai_worklog/task8-brief.md",
       ".ai_worklog/task8-report.md",
@@ -703,7 +745,7 @@
       "windows_build": {"exit_code": 0, "native": "not_applicable: PyInstaller unavailable", "portable_outdir": "build/ETF_AI_Cockpit_Portable_v0.1.0_20260713_012732"},
       "package_smoke": {"exit_code": 0, "modes": ["portable-source-launcher"], "native": "not_applicable: PyInstaller unavailable"},
       "browser": {"exit_code": 0, "route": "/providers", "default_sha256": "84B81F9774A3DBA208DD0E73B6F4443A4EAE69EC39D0AC9490DC4ED2D3B39D98", "mobile_sha256": "49FD7480D63DA8877ACC61FFBDD0E2AEB799E4453C18473DC5DB1EDFCAA4DBB6"},
-      "current_commit": "2eae5dea8dd1d789dd000383901e591ee4645d83",
+      "current_commit": "dc9765ff97f14cc29e9dd7a4f02d669ce0e5ee7f",
       "origin_main_matches": true,
       "main_matches_origin": true,
       "working_tree_clean": true,
@@ -711,8 +753,8 @@
       "closure_evaluator": {"exit_code": 1, "ready": 4, "still_open": 38, "issue_count": 42, "expected_nonzero": true}
     }
   },
-  "first_unpassed_criterion": "Task 11 issue records still require fresh full-release/package/browser/clean-first-run evidence and final closure-matrix evaluation",
-  "next_command": "Create the isolated Wave 4 Task 12 worktree/branch from origin/main and dispatch a fresh implementer and independent reviewer for the SEC EDGAR Provider and Official Statement Facts",
+  "first_unpassed_criterion": "Task 12 issue UPDATEV2-0012 still requires fresh package/browser/clean-first-run/configured live-network evidence and final closure-matrix evaluation",
+  "next_command": "Create the isolated Wave 4 Task 13 worktree/branch from origin/main and dispatch a fresh implementer and independent reviewer for the ESEF/iXBRL Provider and IFRS Mapping",
   "notes": [
     "No Git initialisation or commit occurred before the independently approved Task 2 boundary; the user now authorises local baseline Git setup and optional private GitHub push only.",
     "Closure status is evaluator-backed: 4/42 ready and 38 still open; do not close remaining issues without their complete dossiers.",
@@ -738,6 +780,7 @@
     ,"Wave 1 Governance Task 2 is independently approved and integrated through PR 172 (ab4772c36701507da444ebd73243ff827b5403af); no issue state changed, execution_allowed remains false and Governance Task 3 is next."
     ,"Wave 4 Task 11 is independently approved and integrated through PR 181 (2eae5dea8dd1d789dd000383901e591ee4645d83); ISSUE-0068, ISSUE-0018, ISSUE-0017 and ISSUE-0056 remain open/closure-pending because final release, browser and clean-first-run evidence is not yet fresh."
     ,"Task 11 review Minor recommendation: make filter_forecasts_for_universe fail closed for caller-supplied forecast frames lacking source_file; record for final triage without changing current scope."
-    ,"The next dependency-valid implementation is Wave 4 Task 12, SEC EDGAR Provider and Official Statement Facts."
+    ,"Wave 4 Task 12 is independently approved and integrated through PR 182 (dc9765ff97f14cc29e9dd7a4f02d669ce0e5ee7f); UPDATEV2-0012 remains open/closure-pending package, browser, clean-first-run and configured live-network evidence."
+    ,"The next dependency-valid implementation is Wave 4 Task 13, ESEF/iXBRL Provider and IFRS Mapping."
   ]
 }

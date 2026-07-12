@@ -248,5 +248,9 @@ Important findings. The focused universe/onboarding/guardrail/UI bundle passed
 source smoke passed. `ISSUE-0068`, `ISSUE-0018`, `ISSUE-0017` and `ISSUE-0056`
 remain in the local open ledger because their issue records still require
 fresh full-release/package/browser/clean-first-run evidence and closure-matrix
-evaluation. `execution_allowed=false` remains unchanged. Continue with Task 12,
-SEC EDGAR Provider and Official Statement Facts, in the active closure plan.
+evaluation. `execution_allowed=false` remains unchanged. Task 12, SEC EDGAR
+Provider and Official Statement Facts, is implemented and merged through PR 182
+at `dc9765ff97f14cc29e9dd7a4f02d669ce0e5ee7f`; `UPDATEV2-0012` remains open
+pending package/browser, clean-first-run and configured live SEC-network
+evidence. Continue with Task 13, ESEF/iXBRL Provider and IFRS Mapping, in the
+active closure plan.
