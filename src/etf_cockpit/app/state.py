@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from etf_cockpit.core.config import AppConfig, save_provider_settings
+from etf_cockpit.core.atomic_io import atomic_write_bytes, sha256_file
 from etf_cockpit.core.migrations import run_startup_migrations
 from etf_cockpit.core.paths import CLEAN_DIR, FILINGS_STATEMENTS_PATH, RAW_DIR, STATEMENT_FACTS_PATH
 from etf_cockpit.core.session_log import SESSION_LOG_PATH, log_event, log_exception
@@ -16,9 +17,11 @@ from etf_cockpit.core.timing import timed_step
 from etf_cockpit.core.workflow import WorkflowController, WorkflowStatus, WorkflowStep
 from etf_cockpit.data.trust_artifacts import IDENTITY_PATH, refresh_static_trust_artifacts, write_trust_artifacts_for_scores
 from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
+from etf_cockpit.data.esef_provider import EsefProviderUnavailable, FilingsXbrlOrgProvider
 from etf_cockpit.data.instrument_identity import CanonicalIdentity
-from etf_cockpit.parsers.contracts import RawDocument
-from etf_cockpit.parsers.sec_facts import parse_companyfacts, write_statement_evidence
+from etf_cockpit.parsers.contracts import RawDocument, load_fixture_manifest
+from etf_cockpit.parsers.esef_ixbrl import parse_esef_package
+from etf_cockpit.parsers.sec_facts import parse_companyfacts, statement_facts_from_esef, write_statement_evidence
 from etf_cockpit.features.regime import build_market_regime, write_market_regime
 from etf_cockpit.models.calibration import evaluate_forecast_calibration, load_forecast_history, write_forecast_calibration
 from etf_cockpit.operations.event_store import current_activity_view, load_events_with_tail_recovery
@@ -457,6 +460,83 @@ class AppState:
         except Exception as exc:
             self.last_message = f"SEC import unavailable: {type(exc).__name__}. Local data was not changed."
             return self.last_message
+
+    def import_esef_package(self, path: Path, *, instrument_id: str | None = None) -> str:
+        """Import a local ESEF report package into the shared facts/inventory stores."""
+
+        try:
+            package_path = Path(path)
+            raw_path, source_sha256 = _preserve_esef_raw(package_path)
+            parsed = parse_esef_package(package_path)
+            if not parsed.success or not parsed.records:
+                warning_codes = ", ".join(warning.code for warning in parsed.warnings)
+                self.last_message = f"ESEF import unavailable: {warning_codes or 'validation failed'}. Raw filing retained at {raw_path}; no clean data changed."
+                return self.last_message
+            if parsed.source_sha256 != source_sha256:
+                raise ValueError("ESEF source checksum changed during parsing")
+            lei = next((record.entity_lei for record in parsed.records if record.entity_lei and record.entity_lei != "unknown"), "unknown")
+            resolved_instrument_id = str(instrument_id or f"esef_unresolved_{lei}").strip()
+            if not resolved_instrument_id:
+                raise ValueError("ESEF import requires a non-empty instrument ID when supplied")
+            provider_id, source_url = _esef_source_provenance(package_path)
+            records = statement_facts_from_esef(
+                parsed.records,
+                instrument_id=resolved_instrument_id,
+                source_sha256=parsed.source_sha256,
+                source_provider=provider_id,
+            )
+            source = RawDocument(raw_path, source_url, datetime.now(timezone.utc), parsed.source_sha256, provider_id, "esef_report_package", "application/octet-stream", 200)
+            write_statement_evidence(
+                source,
+                records,
+                STATEMENT_FACTS_PATH,
+                FILINGS_STATEMENTS_PATH,
+                instrument_id=resolved_instrument_id,
+                vendor_records=_load_vendor_statement_claims(resolved_instrument_id),
+            )
+            warning_codes = ", ".join(sorted({f"{warning.code}:{warning.severity}" for warning in parsed.warnings})) or "none"
+            mapping_counts = {
+                "mapped": sum(record.mapping_status == "mapped" for record in parsed.records),
+                "extensions": sum(record.mapping_status == "unmapped_extension" for record in parsed.records),
+                "unmapped": sum(record.mapping_status == "unmapped" for record in parsed.records),
+            }
+            review_note = " manual identity review required." if instrument_id is None else ""
+            authority = "official_filing" if provider_id == "filings_xbrl_org" else "manual_review"
+            self.last_message = f"ESEF import complete: {len(records)} facts, warnings={warning_codes}, mapping={mapping_counts}; source_authority={authority}.{review_note}"
+            return self.last_message
+        except Exception as exc:
+            self.last_message = f"ESEF import unavailable: {type(exc).__name__}. No data changed; scoring and execution were not started."
+            return self.last_message
+
+    def discover_esef_filings(self, country: str = "NL", limit: int = 10, *, cache_dir: Path | None = None) -> str:
+        """Discover official ESEF filings with an explicit unavailable state."""
+
+        try:
+            provider = FilingsXbrlOrgProvider(cache_dir=cache_dir or (RAW_DIR / "esef"))
+            result = provider.list_filings(country, limit)
+            if result.status != "ok":
+                self.last_message = f"ESEF discovery unavailable: {result.message}"
+                return self.last_message
+            self._esef_provider = provider
+            self._esef_filings = result.data
+            filing_count = len(result.data) if result.data is not None else 0
+            self.last_message = f"ESEF discovery complete: {filing_count} official filings."
+            return self.last_message
+        except Exception as exc:
+            self.last_message = f"ESEF discovery unavailable: {type(exc).__name__}. Local data was not changed."
+            return self.last_message
+
+    def download_esef_package(self, filing_id: str, *, package_url: str | None = None, cache_dir: Path | None = None) -> str:
+        """Download one discovered official package while retaining immutable raw bytes."""
+
+        try:
+            provider = getattr(self, "_esef_provider", None) or FilingsXbrlOrgProvider(cache_dir=cache_dir or (RAW_DIR / "esef"))
+            document = provider.download_report_package(filing_id, package_url)
+            self.last_message = f"ESEF package downloaded: {document.path.name} ({document.sha256[:12]}...)."
+            return self.last_message
+        except (EsefProviderUnavailable, OSError, ValueError) as exc:
+            self.last_message = f"ESEF download unavailable: {type(exc).__name__}. Local data was not changed."
+            return self.last_message
     def _import_and_refresh(self, path: Path, dataset_type: str = "prices") -> str:
         result = DataService(self.snapshot.config).import_local_file(Path(path), dataset_type, commit=True)
         self.last_message = result.message
@@ -531,6 +611,43 @@ class AppState:
         except Exception:
             pass
         return path
+
+
+MAX_LOCAL_ESEF_BYTES = 300 * 1024 * 1024
+
+
+def _preserve_esef_raw(package_path: Path) -> tuple[Path, str]:
+    if not package_path.is_file():
+        raise FileNotFoundError(f"ESEF package is not a readable file: {package_path}")
+    if package_path.stat().st_size > MAX_LOCAL_ESEF_BYTES:
+        raise ValueError("ESEF local package exceeds the size limit")
+    source_sha256 = sha256_file(package_path)
+    raw_path = RAW_DIR / "filings" / "eu_esef" / f"{source_sha256}.xbri"
+    payload = package_path.read_bytes()
+    if raw_path.exists():
+        _validate_esef_raw_checksum(raw_path, source_sha256)
+    else:
+        atomic_write_bytes(raw_path, payload, lambda candidate: _validate_esef_raw_checksum(candidate, source_sha256))
+    return raw_path, source_sha256
+
+
+def _esef_source_provenance(package_path: Path) -> tuple[str, str]:
+    resolved = package_path.resolve()
+    immutable_root = (RAW_DIR / "esef" / "immutable").resolve()
+    if resolved == immutable_root or immutable_root in resolved.parents:
+        return "filings_xbrl_org", "https://filings.xbrl.org"
+    try:
+        for fixture in load_fixture_manifest():
+            if fixture.document_type == "esef_report_package" and fixture.path.resolve() == resolved:
+                return "filings_xbrl_org", fixture.source_url
+    except (OSError, ValueError):
+        pass
+    return "esef_local_import", resolved.as_uri()
+
+
+def _validate_esef_raw_checksum(path: Path, expected: str) -> None:
+    if sha256_file(path) != expected:
+        raise ValueError("ESEF raw filing checksum mismatch")
 
 
 def _resolve_sec_instrument(cik: str) -> str | None:

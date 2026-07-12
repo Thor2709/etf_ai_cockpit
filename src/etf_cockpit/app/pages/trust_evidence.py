@@ -96,8 +96,8 @@ def filings_page(page: ft.Page, state: AppState) -> ft.Control:
         "Filings & Statements",
         "Official SEC/ESEF/local filing evidence. Missing filings remain missing; vendor fundamentals cannot outrank official matched filings.",
         [
-            ("Filings inventory", FILINGS_STATEMENTS_PATH, ["instrument_id", "document_type", "source_authority", "coverage_status", "path"]),
-            ("SEC statement facts", STATEMENT_FACTS_PATH, ["instrument_id", "taxonomy", "concept", "canonical_metric", "unit", "end", "filed", "form", "accession", "source_id"]),
+            ("Filings inventory", FILINGS_STATEMENTS_PATH, ["instrument_id", "document_type", "source_authority", "coverage_status", "fact_count", "mapping_warnings", "checksum", "executable_authority", "path"]),
+            ("SEC statement facts", STATEMENT_FACTS_PATH, ["instrument_id", "taxonomy", "concept", "canonical_metric", "mapping_status", "is_custom", "unit", "end", "filed", "form", "accession", "source_id"]),
             ("Provider probes", PROVIDER_PROBE_PATH, ["dataset_type", "provider_name", "status", "source_authority", "message"]),
             ("Identity mappings", IDENTITY_PATH, ["instrument_id", "isin", "yahoo_symbol", "exchange", "mic", "currency", "share_class", "listing", "identity_confidence", "warnings"]),
         ],
@@ -163,6 +163,8 @@ def _status_page(title: str, subtitle: str, tables: list[tuple[str, Path, list[s
 def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
     result = ft.Text("SEC import status: unavailable until a local fixture is selected or a CIK fetch is requested.", color=theme.MUTED, selectable=True)
     cik_field = ft.TextField(label="SEC CIK", value="789019", width=180)
+    country_field = ft.TextField(label="ESEF country", value="NL", width=120)
+    filing_id_field = ft.TextField(label="ESEF filing ID", width=250)
     picker = _attach_picker(page, "filings.import.file-picker")
 
     async def import_sec(_event: ft.ControlEvent) -> None:
@@ -187,8 +189,6 @@ def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
         page.update()
 
     async def import_esef(_event: ft.ControlEvent) -> None:
-        from etf_cockpit.parsers.esef_ixbrl import parse_esef_package
-
         files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["xbri", "zip"], with_data=True)
         if not files:
             result.value = "ESEF import cancelled; no data changed."
@@ -196,15 +196,24 @@ def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             selected = files[0]
             path = Path(selected.path) if selected.path else None
             try:
-                parsed = parse_esef_package(path) if path and path.exists() else None
-                result.value = "ESEF import requires a readable local package." if parsed is None else f"ESEF parser {parsed.parser_name}: {len(parsed.records)} facts, {len(parsed.warnings)} warnings, success={parsed.success}."
-                state.last_message = result.value
+                result.value = state.import_esef_package(path) if path and path.exists() else "ESEF import requires a readable local package."
             except Exception as exc:
                 state.fail_activity("Import ESEF package", exc)
                 result.value = f"ESEF import failed safely: {state.last_message}"
         page.update()
 
-    return panel(ft.Column([section_header("Official filing import", "SEC EDGAR is a no-key official source. Local fixtures remain functional offline; network failures are explicit unavailable states and never start scoring or broker workflows."), ft.Row([cik_field, ft.OutlinedButton("Fetch SEC companyfacts", key="filings.fetch-sec", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=fetch_sec), ft.OutlinedButton("Import SEC companyfacts", key="filings.import-sec", icon=ft.Icons.UPLOAD_FILE, on_click=import_sec), ft.OutlinedButton("Import ESEF package", key="filings.import-esef", icon=ft.Icons.UPLOAD_FILE, on_click=import_esef)], wrap=True), result], spacing=8))
+    async def discover_esef(_event: ft.ControlEvent) -> None:
+        result.value = "ESEF discovery status: querying official filings.xbrl.org with a bounded request..."
+        page.update()
+        result.value = state.discover_esef_filings(str(country_field.value or "NL").strip(), 10)
+        page.update()
+
+    async def download_esef(_event: ft.ControlEvent) -> None:
+        filing_id = str(filing_id_field.value or "").strip()
+        result.value = state.download_esef_package(filing_id) if filing_id else "ESEF download requires a discovered filing ID."
+        page.update()
+
+    return panel(ft.Column([section_header("Official filing import", "SEC EDGAR and filings.xbrl.org ESEF evidence. Local fixtures remain functional offline; network failures and mapping warnings are explicit and never start scoring or broker workflows."), ft.Row([cik_field, ft.OutlinedButton("Fetch SEC companyfacts", key="filings.fetch-sec", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=fetch_sec), ft.OutlinedButton("Import SEC companyfacts", key="filings.import-sec", icon=ft.Icons.UPLOAD_FILE, on_click=import_sec)], wrap=True), ft.Row([country_field, filing_id_field, ft.OutlinedButton("Discover ESEF filings", key="filings.discover-esef", icon=ft.Icons.SEARCH, on_click=discover_esef), ft.OutlinedButton("Download ESEF package", key="filings.download-esef", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=download_esef), ft.OutlinedButton("Import ESEF package", key="filings.import-esef", icon=ft.Icons.UPLOAD_FILE, on_click=import_esef)], wrap=True), result], spacing=8))
 
 
 def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:

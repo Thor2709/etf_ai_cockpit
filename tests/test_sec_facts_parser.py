@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 from etf_cockpit.data.instrument_identity import CanonicalIdentity
 from etf_cockpit.parsers.contracts import RawDocument
+from etf_cockpit.parsers.esef_ixbrl import XbrlFact
 from etf_cockpit.parsers.sec_facts import StatementFact, parse_companyfacts, select_authoritative_facts, write_statement_facts, write_statement_inventory
 
 
@@ -95,6 +96,30 @@ def test_statement_inventory_persists_official_source_and_mapping_ids(tmp_path: 
     assert row["coverage_status"] == "imported"
     assert int(row["fact_count"]) == len(result.records)
     assert "sec_edgar:" in str(row["source_ids"])
+
+
+def test_unmapped_standard_ifrs_fact_is_not_misclassified_as_custom() -> None:
+    from etf_cockpit.parsers.sec_facts import statement_facts_from_esef
+
+    fact = XbrlFact(
+        "7245003GZ2696Y0W1X57",
+        "SomeStandardConcept",
+        "1",
+        "EUR",
+        "0",
+        "ctx",
+        None,
+        "2025-12-31",
+        "report.xhtml",
+        "unmapped",
+        (),
+        "https://xbrl.ifrs.org/taxonomy/ifrs-full",
+    )
+    result = statement_facts_from_esef((fact,), instrument_id="NL_ENTITY", source_sha256="a" * 64)
+
+    assert result[0].taxonomy == "ifrs-full"
+    assert result[0].mapping_status == "unmapped"
+    assert result[0].is_custom is False
 
 
 def test_statement_fact_and_inventory_writes_merge_prior_ciks_without_duplicates(tmp_path: Path) -> None:
