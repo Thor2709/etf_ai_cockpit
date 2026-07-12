@@ -1171,3 +1171,12 @@ Required checks for the current implementation sweep:
 - Source smoke: `.\.venv\Scripts\python.exe scripts\run_app.py --smoke` - exit 0, `snapshot_ok as_of=2026-07-09 signals=16 backtests=5`.
 - Fresh independent review and re-review: specification compliance and code quality approved; no Critical, Important or Minor findings.
 - Integration: PR 172 merged at `ab4772c36701507da444ebd73243ff827b5403af`; local `main` clean and matching `origin/main`; no issue state transition; `execution_allowed=false`.
+
+## 2026-07-12 Wave 1 Governance Task 3 post-merge verification
+
+- Focused authority/release bundle: `.venv\Scripts\python.exe -m pytest tests\test_authority_resolution.py tests\test_signal_gates.py tests\test_release_hardening.py -q --tb=short` - exit 0, 48 passed; four non-failing trust-artifact `DtypeWarning`s.
+- Affected governance/migration/proposal/export bundle: exit 0, 88 passed; two non-failing pandas `FutureWarning`s.
+- Full suite: `.venv\Scripts\python.exe -m pytest tests -q --tb=short` - exit 0; all collected tests passed. Capture: `evidence/governance/task3-full-suite-postmerge.txt`.
+- Compileall, scoped Ruff, source import smoke and `git diff --check` each exited 0.
+- Fresh independent review `.ai_worklog/task-governance-3-review-final.md` approved specification compliance and code quality with `READY: YES`; the two evidence-log whitespace lines were fixed and rechecked.
+- Integration: PR 173 merged at `5fde19639da9caa6cdb01eef852dc34698b53482`; local `main` is clean and matches `origin/main`; no issue state transition; `execution_allowed=false`.

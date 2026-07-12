@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-12T18:12:00+10:00",
+  "updated_at": "2026-07-12T19:24:00+10:00",
   "active_programme": {
     "name": "2026-07-11-etf-ai-cockpit-approved-programme",
     "programme_index": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-programme-index.md",
     "progress_ledger": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-progress-ledger.md",
-    "phase": "wave1_governance_task2_merged_wave1_governance_task3_ready",
-    "next_task": "Wave 1, Governance Task 3: centralise severity-aware authority resolution and permanently neutralise trading_allowed",
+    "phase": "wave1_governance_task3_merged_wave1_governance_task4_ready",
+    "next_task": "Wave 1, Governance Task 4: replace portfolio proposals with non-executable review reports and create the Decision Journal",
     "git_repository": true,
     "git_branch": "main",
     "baseline": {
@@ -377,18 +377,78 @@
       "execution_allowed": false,
       "data05_status": "still_open",
       "next_task": "Wave 1 Governance Task 3"
+    },
+    "governance_task_3_checkpoint": {
+      "owning_issue_ids": ["ISSUE-0008", "ISSUE-0010", "ISSUE-0030", "ISSUE-0043", "ISSUE-0047", "ISSUE-0060", "ISSUE-0066"],
+      "branch": "wave1/governance-task3",
+      "task_base": "2a26619bdbf26f11e8a77dbdefc3ab22d93d213b",
+      "implementation_commits": ["ec67b6e", "8b6d3ab", "99e89c5", "ca39ecc", "4c49288"],
+      "red": {
+        "production_release_path_exit_code": 1,
+        "production_release_path_failure": "SignalResult.__init__() got an unexpected keyword argument 'authority_decision'",
+        "prior_resolver_red_and_fix_evidence": ".ai_worklog/task-governance-3-report.md"
+      },
+      "green": {
+        "focused_command": "$env:PYTHONPATH='src'; .venv\\Scripts\\python.exe -m pytest tests\\test_authority_resolution.py tests\\test_signal_gates.py tests\\test_release_hardening.py -q --tb=short",
+        "focused_exit_code": 0,
+        "focused_tests_passed": 48,
+        "affected_command": "$env:PYTHONPATH='src'; .venv\\Scripts\\python.exe -m pytest tests\\test_research_state_migration.py tests\\test_score_history.py tests\\test_chatgpt_import.py tests\\test_trade_proposals.py tests\\test_product_governance.py tests\\test_feature_registry.py tests\\test_strategy_scope.py tests\\test_gate_policy.py tests\\test_governance_review_regressions.py tests\\test_signal_gates.py tests\\test_import_export.py -q --tb=short",
+        "affected_exit_code": 0,
+        "affected_tests_passed": 88,
+        "full_test_command": ".venv\\Scripts\\python.exe -m pytest tests -q --tb=short",
+        "full_test_exit_code": 0,
+        "compileall_exit_code": 0,
+        "ruff_exit_code": 0,
+        "source_import_smoke_exit_code": 0,
+        "diff_check_exit_code": 0,
+        "post_merge_evidence": "evidence/governance/task3-full-suite-postmerge.txt"
+      },
+      "reports": [
+        ".ai_worklog/task-governance-3-brief.md",
+        ".ai_worklog/task-governance-3-report.md",
+        ".ai_worklog/task-governance-3-review-rereview.md",
+        ".ai_worklog/task-governance-3-review-final.md",
+        ".ai_worklog/task-governance-3-review-package.md",
+        "evidence/governance/gate_resolution_samples/representative_gate_table.json",
+        "evidence/governance/gate_resolution_samples/policy_checksum.json",
+        "evidence/governance/task3-full-suite-final.txt",
+        "evidence/governance/task3-full-suite-postmerge.txt"
+      ],
+      "independent_review": {
+        "report": ".ai_worklog/task-governance-3-review-final.md",
+        "specification": "approved",
+        "code_quality": "approved",
+        "ready": true,
+        "critical": 0,
+        "important": 0,
+        "minor": 1,
+        "minor_disposition": "evidence-log trailing whitespace fixed and diff rechecked"
+      },
+      "integration": {
+        "pull_request": "https://github.com/Thor2709/etf_ai_cockpit/pull/173",
+        "merge_commit": "5fde19639da9caa6cdb01eef852dc34698b53482",
+        "main_matches_origin": true,
+        "working_tree_clean": true,
+        "post_merge_focused_tests": 48,
+        "post_merge_affected_tests": 88
+      },
+      "issue_state": "open",
+      "github_sync": "not required; local issue ledger unchanged",
+      "execution_allowed": false,
+      "data05_status": "still_open",
+      "next_task": "Wave 1 Governance Task 4"
     }
   },
   "plan": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-governance-plan.md",
   "execution_mode": "subagent_driven_with_independent_review",
   "git_repository": true,
   "git_branch": "main",
-  "progress_percent": 23,
+  "progress_percent": 24,
   "wave": 1,
-  "task": 3,
+  "task": 4,
   "step": 1,
   "completed_tasks": [1, 2, 3, 4, 5],
-  "completed_governance_tasks": [1, 2],
+  "completed_governance_tasks": [1, 2, 3],
   "implementation_foundations": [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
   "issue_counts": {
     "reviewed": 41,
@@ -396,8 +456,8 @@
     "still_open": 37
   },
   "last_checkpoint": {
-    "name": "wave1_governance_task2_merged_wave1_governance_task3_ready",
-    "result": "Wave 1 Governance Task 2 was independently reviewed and merged through PR 172. Its v1.x-to-v2.0 research-state migration, snapshot/checksum provenance, fail-closed authority models and compatibility serializers are integrated; owning issues remain open for later authority, journal and UI gates. Wave 1 Governance Task 3 is next.",
+    "name": "wave1_governance_task3_merged_wave1_governance_task4_ready",
+    "result": "Wave 1 Governance Task 3 was independently reviewed and merged through PR 173. Its severity-aware resolver, complete ordered gate evidence, policy metadata and signal/simple-score release propagation are integrated; owning issues remain open for later journal, UI and complete closure gates. Wave 1 Governance Task 4 is next.",
     "evidence": [
       ".ai_worklog/task-5-report.md",
       ".ai_worklog/task-5-review-rereview.md",
@@ -417,7 +477,7 @@
       "task4_production_static_scan": {"exit_code": 0, "result": "pass", "scanned_files": 358, "violations": 0, "policy_checksum": "89680ebfdca87827728919e687f50f30cebe014741ce35eb4b3c32daa83452f1", "execution_allowed": false, "executable_authority": false},
       "source_smoke": {"exit_code": 0, "output": "snapshot_ok as_of=2026-07-09 signals=16 backtests=5"},
       "github_issue_sync": {"exit_code": 0, "canonical_records": 98, "local_open": 77, "local_closed": 21, "mapped_open": 77, "mapped_closed": 21, "unresolved_duplicates": 0, "dry_run_unchanged": 98},
-      "current_commit": "4a47d89",
+      "current_commit": "5fde19639da9caa6cdb01eef852dc34698b53482",
       "origin_main_matches": true,
       "main_matches_origin": true,
       "working_tree_clean": true,
@@ -425,8 +485,8 @@
       "closure_evaluator": {"exit_code": 1, "ready": 4, "still_open": 37, "expected_nonzero": true}
     }
   },
-  "first_unpassed_criterion": "Wave 1 Governance Task 3 remains incomplete; governance owning issues and Wave 0 tracker records remain open for complete closure evidence",
-  "next_command": "Create the Wave 1 Governance Task 3 isolated worktree/branch from origin/main, dispatch a fresh implementer, write and run the severity-aware authority-resolution RED tests, then obtain independent review",
+  "first_unpassed_criterion": "Wave 1 Governance Task 4 remains incomplete; governance owning issues and Wave 0 tracker records remain open for complete closure evidence",
+  "next_command": "Create the Wave 1 Governance Task 4 isolated worktree/branch from origin/main, dispatch a fresh implementer, write and run the portfolio review report and Decision Journal RED tests, then obtain independent review",
   "notes": [
     "No Git initialisation or commit occurred before the independently approved Task 2 boundary; the user now authorises local baseline Git setup and optional private GitHub push only.",
     "Closure status is evaluator-backed: 4/41 ready and 37 still open; do not close remaining issues without their complete dossiers.",

@@ -158,3 +158,13 @@ source smoke passed. The full suite still has the seven documented
 pre-existing generated-data/identity fixture failures. No owning issue is
 closed by this foundation task. The next dependency-valid task is Wave 1
 Governance Task 3, the central severity-aware authority resolver.
+
+Wave 1 Governance Task 3 is now independently approved and integrated through
+PR 173 (`https://github.com/Thor2709/etf_ai_cockpit/pull/173`) at merge commit
+`5fde19639da9caa6cdb01eef852dc34698b53482`. The resolver is consumed by both
+signal and simple-score release paths; ordered nine-gate tables, policy
+metadata and diagnostics are serialised, incomplete evidence fails closed and
+`execution_allowed` remains `false`. Post-merge focused authority tests (48),
+affected governance/migration/proposal/export tests (88), compileall, Ruff,
+source import smoke, diff checks and the full suite (exit 0) passed. No issue
+state changed. Wave 1 Governance Task 4 is the next dependency-valid task.

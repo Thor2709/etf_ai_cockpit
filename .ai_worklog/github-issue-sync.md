@@ -98,3 +98,16 @@ authoritative ledgers as part of remote synchronisation.
 - No GitHub Issue was created, closed, reopened or deleted. The next sync is
   required after the next local issue-ledger transition or closure-evidence
   update.
+
+## Ledger refresh after Wave 1 Governance Task 3 - 2026-07-12
+
+- The Task 3 checkpoint updated the authoritative local source checksum. The
+  authorised apply run completed with exit 0 and refreshed managed GitHub
+  bodies; local counts remain 77 open and 21 closed, matching mapped counts.
+- The read-only dry run completed with exit 0; reconciliation passed with all
+  98 local IDs unique, every mapping valid, states agreeing and no unresolved
+  duplicates. No GitHub Issue was created, closed, reopened or deleted.
+- `issues/github_issue_map.json` and `issues/github_issue_sync_report.json`
+  bind the mirror read-back to source commit
+  `5fde19639da9caa6cdb01eef852dc34698b53482`. The local issue ledger remains
+  authoritative and no issue state changed.

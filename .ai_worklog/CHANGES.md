@@ -880,6 +880,13 @@
 
 - No Git commit was created because the app root is not a Git repository.
 
+## 2026-07-12 Wave 1 Governance Task 3
+
+- Added the central severity-aware `resolve_authority` contract with policy-authoritative severity, complete ordered gate validation, strict portfolio evidence checks and deterministic policy checksum metadata.
+- Propagated typed authority decisions and ordered gate tables through signal and simple-score release serializers; unavailable valuation/evidence remains fail-closed and `execution_allowed` remains `false`.
+- Added RED/GREEN regression, full-suite and independent-review evidence in `.ai_worklog/task-governance-3-report.md`, `.ai_worklog/task-governance-3-review-final.md` and `evidence/governance/`.
+- PR 173 merged to `main` at `5fde19639da9caa6cdb01eef852dc34698b53482`; no local issue state changed. Wave 1 Governance Task 4 is next.
+
 ## 2026-07-11 Wave 0 Task 2 Changes
 
 - Added typed operational-event models and event-store loading/projection over the existing `logs/session.jsonl` trace.

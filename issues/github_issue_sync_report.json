@@ -101,7 +101,7 @@
   ],
   "apply_mode": true,
   "duplicate_actions": [],
-  "generated_at_utc": "2026-07-12T08:15:34Z",
+  "generated_at_utc": "2026-07-12T09:28:39Z",
   "reconciliation": {
     "all_local_ids_unique": true,
     "all_mappings_have_github_issue": true,
@@ -115,7 +115,7 @@
   },
   "repository": "Thor2709/etf_ai_cockpit",
   "schema_version": "1.0",
-  "source_commit": "6df20ef1f56306dc49e4b520f1905056e98634d6",
+  "source_commit": "5fde19639da9caa6cdb01eef852dc34698b53482",
   "unresolved_contradictions": [
     {
       "local_issue_id": "ISSUE-0067",

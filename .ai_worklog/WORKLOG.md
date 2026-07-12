@@ -1335,3 +1335,10 @@
 - Strengthened `.gitignore` for credentials, `.env` variants, virtual environments, caches, generated market data, Parquet/DuckDB/database files, model weights, temporary logs, packaged binaries and machine artefacts while preserving source, tests, specifications, plans, issues, evidence and `.ai_worklog`.
 - Staged-file checks covered 1,051 paths: no high-confidence secret matches; no staged credentials; no generated build/log/data/model artefacts. The sole file over 10 MB is the intentionally required official ESEF parser fixture `tests/fixtures/official/esef_report_package/7245003GZ2696Y0W1X57-2026-03-31.xbri` (17.23 MB).
 - Created the first local commit with `chore: establish version-controlled implementation baseline` on `main`. No remote was configured because `gh` is not installed; no push or GitHub repository creation was attempted.
+
+## 2026-07-12 Wave 1 Governance Task 3 Complete
+
+- Implemented and integrated the deterministic severity-aware authority resolver and permanently fail-closed `trading_allowed` compatibility property.
+- Added production propagation for typed authority decisions, ordered nine-gate tables, policy version/checksum metadata and diagnostics in signal and simple-score release paths.
+- RED/GREEN evidence, failure-path coverage, independent approval and full-suite capture are recorded in `.ai_worklog/task-governance-3-report.md`, `.ai_worklog/task-governance-3-review-final.md` and `evidence/governance/`.
+- PR 173 was independently approved and merged at `5fde19639da9caa6cdb01eef852dc34698b53482`; post-merge focused/affected/full verification passed, `execution_allowed` remains `false`, and no issue state changed. Governance Task 4 is next.

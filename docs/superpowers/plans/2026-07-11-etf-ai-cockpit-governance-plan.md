@@ -192,7 +192,7 @@ ledgers. Wave 1 Governance Task 3 is next.
 
 **Produces:** deterministic `AuthorityDecision` and typed `GateResult` tables consumed by all release paths.
 
-- [ ] **Step 1: Write RED monotonicity tests**
+- [x] **Step 1: Write RED monotonicity tests**
 
 ```python
 def test_failed_blocker_cannot_be_erased_by_later_pass() -> None:
@@ -205,23 +205,36 @@ def test_deprecated_trading_allowed_warns_and_returns_false() -> None:
         assert DataQualityReport(findings=[]).trading_allowed is False
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `.\.venv\Scripts\python.exe -m pytest tests\test_authority_resolution.py tests\test_signal_gates.py tests\test_release_hardening.py -q`
 
 Expected: FAIL because warning-compatible `trading_allowed` remains permissive and no typed resolver exists.
 
-- [ ] **Step 3: Implement policy-driven resolver**
+- [x] **Step 3: Implement policy-driven resolver**
 
 `resolve_authority()` processes identity, data, evidence, model validity, risk, valuation, signal, portfolio fit and cost in that order. A blocker always blocks both promotion dimensions; authority warnings downgrade positive state; notices remain visible without increasing authority.
 
-- [ ] **Step 4: Run GREEN and Hypothesis invariants**
+- [x] **Step 4: Run GREEN and Hypothesis invariants**
 
 Run: `.\.venv\Scripts\python.exe -m pytest tests\test_authority_resolution.py tests\test_signal_gates.py tests\test_release_hardening.py -q`
 
 Expected: PASS; adding a failed blocker or authority warning never increases authority and all decisions carry policy checksum/version.
 
-- [ ] **Step 5: Publish gate audit evidence**
+- [x] **Step 5: Publish gate audit evidence**
+
+### Task 3 completion checkpoint (2026-07-12)
+
+Task 3 is independently approved and integrated through PR 173 at merge
+commit `5fde19639da9caa6cdb01eef852dc34698b53482`. The severity-aware resolver
+requires all nine policy gates, applies policy-authoritative severity, rejects
+incomplete or malformed portfolio evidence and propagates typed decisions,
+policy metadata and ordered gate tables through signal and simple-score release
+paths. `execution_allowed` remains `false`. Fresh post-merge focused authority
+tests passed 48, the affected governance/migration/proposal/export bundle passed
+88, compileall/Ruff/source import smoke/diff checks passed, and the full suite
+passed with exit 0. No issue moved to closed; the next dependency-valid task is
+Wave 1 Governance Task 4.
 
 Export a representative typed gate table and policy checksum in `evidence/governance/gate_resolution_samples/`.
 
