@@ -9,7 +9,7 @@
 | Updated | 2026-07-12 |
 | Active phase | Wave 0 Task 5 independently approved, corrected after re-review, merged and post-merge verified; Wave 1 governance Task 1 is next |
 | Active plan | `docs/superpowers/plans/2026-07-11-etf-ai-cockpit-foundation-operations-boundary-plan.md` |
-| Git state | `main` is clean and matches `origin/main` at merge commit `fc4d61cfc6e77da9a91aeb5afe0341b1d7658f55`; Task 5 PR 4 is integrated |
+| Git state | `main` is clean and matches `origin/main` at `bc9ed5152ef279e06939348aa1b397ac15bac8bf`; Task 5 PR 4 and the GitHub issue mirror checkpoints are integrated |
 | Existing closure state | 4 ready / 37 tracker records still open; DATA-05 is a new separate requirement |
 | Fresh baseline | pytest exit 0, Ruff clean, compileall exit 0, source snapshot smoke exit 0, source/native/portable smoke exit 0 and rendered in-app-browser source-route inspection |
 | Pre-existing type state | recorded mypy failure caused by external stubs and existing typing debt; no new failure attributed |
