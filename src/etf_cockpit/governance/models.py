@@ -12,6 +12,16 @@ from typing import Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator, model_validator
 
+from etf_cockpit.signals.research_states import (
+    AuthorityDecision,
+    GateResult,
+    GateSeverity as GateSeverityEnum,
+    InternalSignalIntent,
+    PortfolioReviewState,
+    ResearchState as PublicResearchState,
+    ScoreComponent,
+)
+
 
 SCHEMA_VERSION = "1.0"
 SUPPORTED_SCHEMA_VERSIONS = frozenset({SCHEMA_VERSION})
@@ -32,8 +42,10 @@ Authority = Literal[
     "user_record",
     "none",
 ]
-ResearchState = Literal["research_candidate", "manual_review", "not_scoreable"]
-GateSeverity = Literal["blocker", "authority_warning", "notice"]
+# Compatibility aliases for Task 1 policy callers.  The public values now
+# come from the dedicated v2 state module and remain string-compatible.
+ResearchState = PublicResearchState
+GateSeverity = GateSeverityEnum
 
 # These are the policy terms and gate identifiers required by GOV-01.4-GOV-01.7.
 # Keeping the lists in the typed contract makes completeness checks deterministic
@@ -423,6 +435,13 @@ __all__ = [
     "GovernanceLoadResult",
     "ImmutableModel",
     "Authority",
+    "AuthorityDecision",
+    "GateResult",
+    "GateSeverity",
+    "InternalSignalIntent",
+    "PortfolioReviewState",
+    "ResearchState",
+    "ScoreComponent",
     "ProductDefinition",
     "PolicyModel",
     "ProductGovernancePolicy",

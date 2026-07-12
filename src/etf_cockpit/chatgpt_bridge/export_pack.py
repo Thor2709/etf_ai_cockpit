@@ -53,10 +53,19 @@ GOVERNANCE_CHECKSUMS_PATH = ROOT / "evidence" / "governance" / "policy_checksums
 SIGNAL_TABLE_COLUMNS = [
     "etf_id",
     "name",
-    "action",
+    "research_state",
+    "portfolio_review_state",
+    "analysis_status",
+    "research_promotion_allowed",
+    "portfolio_review_allowed",
+    "execution_allowed",
+    "legacy_action",
+    "migration_version",
+    "gate_policy_version",
+    "gate_policy_checksum",
+    "schema_version",
     "confidence",
     "total_score",
-    "final_action",
     "reason_full",
     "score_1w",
     "score_1m",
@@ -84,14 +93,14 @@ def _signal_rows(signals: Iterable[SignalResult], config: AppConfig) -> list[dic
     names = {etf.id: etf.name for etf in config.universe.etfs}
     rows = []
     for signal in signals:
+        authority = signal.to_v2_dict()
         rows.append(
             {
                 "etf_id": signal.etf_id,
                 "name": names.get(signal.etf_id, signal.etf_id),
-                "action": signal.action,
+                **authority,
                 "confidence": signal.confidence,
                 "total_score": signal.total_score,
-                "final_action": signal.supporting_metrics.get("final_action", signal.action),
                 "reason_full": signal.supporting_metrics.get("reason_full", signal.reason_long),
                 "score_1w": signal.components.momentum,
                 "score_1m": signal.components.trend,
@@ -223,7 +232,7 @@ def export_review_pack(
         "signals": [
             {
                 "etf_id": signal.etf_id,
-                "final_action": signal.action,
+                **signal.to_v2_dict(),
                 "blocked_by": signal.blocked_by,
                 "warnings": signal.warnings,
                 "reason_full": signal.supporting_metrics.get("reason_full", signal.reason_long),

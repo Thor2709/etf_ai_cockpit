@@ -1,7 +1,26 @@
 from __future__ import annotations
 
 from etf_cockpit.core.config import AppConfig
-from etf_cockpit.core.types import Action
+from etf_cockpit.governance.migrations import LegacyAction
+from etf_cockpit.signals.research_states import (
+    InternalSignalIntent,
+    ResearchState,
+    internal_intent_for_legacy_action,
+    research_state_for_legacy_action,
+)
+
+
+_MANUAL_REVIEW_CODES = {
+    "portfolio_validation_block",
+    "target_total_invalid",
+    "empty_prices",
+    "missing_columns",
+    "missing_adjusted_close",
+    "missing_currency",
+    "stale_data",
+    "invalid_ohlc",
+    "model_disagreement",
+}
 
 
 def preliminary_action(
@@ -13,7 +32,7 @@ def preliminary_action(
     drift: float,
     hard_band: float,
     trend_200: float,
-) -> Action:
+) -> LegacyAction:
     limits = config.risks.signal_limits
     if drift > hard_band and total_score <= 0.35 and confidence >= limits.min_confidence_for_trim:
         return "trim"
@@ -30,19 +49,8 @@ def preliminary_action(
     return "hold"
 
 
-def apply_gate_result(candidate: Action, blocked_by: list[str]) -> Action:
-    manual_review_codes = {
-        "portfolio_validation_block",
-        "target_total_invalid",
-        "empty_prices",
-        "missing_columns",
-        "missing_adjusted_close",
-        "missing_currency",
-        "stale_data",
-        "invalid_ohlc",
-        "model_disagreement",
-    }
-    if any(code in manual_review_codes for code in blocked_by):
+def apply_gate_result(candidate: LegacyAction, blocked_by: list[str]) -> LegacyAction:
+    if any(code in _MANUAL_REVIEW_CODES for code in blocked_by):
         return "manual_review"
     if "model_disagreement" in blocked_by:
         return "manual_review"
@@ -51,9 +59,67 @@ def apply_gate_result(candidate: Action, blocked_by: list[str]) -> Action:
     return candidate
 
 
-def advisory_action(action: Action) -> Action:
+def advisory_action(action: LegacyAction) -> LegacyAction:
     if action in {"buy", "add"}:
         return "add_candidate"
     if action in {"trim", "sell"}:
         return "trim_candidate"
     return action
+
+
+def preliminary_intent(
+    config: AppConfig,
+    *,
+    total_score: float,
+    confidence: float,
+    current_weight: float,
+    drift: float,
+    hard_band: float,
+    trend_200: float,
+) -> InternalSignalIntent:
+    """Return analytical intent; legacy text stays at the compatibility seam."""
+
+    return internal_intent_for_legacy_action(
+        preliminary_action(
+            config,
+            total_score=total_score,
+            confidence=confidence,
+            current_weight=current_weight,
+            drift=drift,
+            hard_band=hard_band,
+            trend_200=trend_200,
+        )
+    )
+
+
+def apply_gate_intent(candidate: InternalSignalIntent, blocked_by: list[str]) -> InternalSignalIntent:
+    """Apply compatibility gate outcomes without returning public action text."""
+
+    if any(code in _MANUAL_REVIEW_CODES for code in blocked_by):
+        return InternalSignalIntent.NONE
+    if blocked_by and candidate in {InternalSignalIntent.INCREASE, InternalSignalIntent.DECREASE, InternalSignalIntent.EXIT}:
+        return InternalSignalIntent.NONE
+    return candidate
+
+
+def internal_signal_intent(action: object) -> InternalSignalIntent:
+    """Compatibility adapter from v1 action text to analytical intent."""
+
+    return internal_intent_for_legacy_action(action)
+
+
+def public_research_state(action: object) -> ResearchState:
+    """Compatibility adapter that fails closed on unknown action text."""
+
+    return research_state_for_legacy_action(action)
+
+
+__all__ = [
+    "advisory_action",
+    "apply_gate_intent",
+    "apply_gate_result",
+    "internal_signal_intent",
+    "preliminary_intent",
+    "preliminary_action",
+    "public_research_state",
+]

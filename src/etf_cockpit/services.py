@@ -10,7 +10,7 @@ import pandas as pd
 from etf_cockpit.backtest.engine import BacktestReport, run_backtest
 from etf_cockpit.chatgpt_bridge.export_pack import export_review_pack
 from etf_cockpit.chatgpt_bridge.import_audit import import_audit_json
-from etf_cockpit.chatgpt_bridge.schemas import ChatGPTAudit
+from etf_cockpit.chatgpt_bridge.schemas import ChatGPTAudit, ChatGPTAuditV2
 from etf_cockpit.core.config import AppConfig, load_config
 from etf_cockpit.core.logging import append_jsonl, configure_logging
 from etf_cockpit.core.paths import BACKTESTS_DIR, FORECASTS_DIR, ensure_project_dirs
@@ -719,7 +719,7 @@ class ChatGPTBridge:
     ) -> Path:
         return export_review_pack(self.config, holdings, features, signals, backtest, as_of_date=as_of_date, data_report=data_report)
 
-    def import_audit_json(self, path: Path) -> ChatGPTAudit:
+    def import_audit_json(self, path: Path) -> ChatGPTAudit | ChatGPTAuditV2:
         return import_audit_json(path, self.config)
 
 

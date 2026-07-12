@@ -4,14 +4,14 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from etf_cockpit.chatgpt_bridge.schemas import ChatGPTAudit
+from etf_cockpit.chatgpt_bridge.schemas import ChatGPTAudit, ChatGPTAuditV2
 from etf_cockpit.chatgpt_bridge.validation import validate_audit_file
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.logging import append_jsonl
 from etf_cockpit.core.paths import CHATGPT_IMPORTS_DIR
 
 
-def import_audit_json(path: Path, config: AppConfig) -> ChatGPTAudit:
+def import_audit_json(path: Path, config: AppConfig) -> ChatGPTAudit | ChatGPTAuditV2:
     audit = validate_audit_file(path, set(config.universe.enabled_ids))
     CHATGPT_IMPORTS_DIR.mkdir(parents=True, exist_ok=True)
     out = CHATGPT_IMPORTS_DIR / f"chatgpt_audit_{audit.review_date}.json"
