@@ -2,17 +2,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 from typing import Any
 
 from etf_cockpit.core.config import AppConfig, save_provider_settings
 from etf_cockpit.core.migrations import run_startup_migrations
-from etf_cockpit.core.paths import RAW_DIR
+from etf_cockpit.core.paths import FILINGS_STATEMENTS_PATH, RAW_DIR, STATEMENT_FACTS_PATH
 from etf_cockpit.core.session_log import SESSION_LOG_PATH, log_event, log_exception
 from etf_cockpit.core.errors import ErrorStore, classify_exception
 from etf_cockpit.core.timing import timed_step
 from etf_cockpit.core.workflow import WorkflowController, WorkflowStatus, WorkflowStep
 from etf_cockpit.data.trust_artifacts import refresh_static_trust_artifacts, write_trust_artifacts_for_scores
+from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
+from etf_cockpit.data.instrument_identity import CanonicalIdentity
+from etf_cockpit.parsers.contracts import RawDocument
+from etf_cockpit.parsers.sec_facts import parse_companyfacts, write_statement_facts, write_statement_inventory
 from etf_cockpit.features.regime import build_market_regime, write_market_regime
 from etf_cockpit.models.calibration import evaluate_forecast_calibration, load_forecast_history, write_forecast_calibration
 from etf_cockpit.operations.event_store import current_activity_view, load_events_with_tail_recovery
@@ -380,6 +385,56 @@ class AppState:
         upload_path = upload_dir / f"{timestamp}_{safe_name}"
         upload_path.write_bytes(content)
         return self._import_and_refresh(upload_path, dataset_type)
+
+    def import_sec_companyfacts(self, path: Path, *, instrument_id: str | None = None) -> str:
+        """Import an offline SEC companyfacts JSON and publish clean facts/inventory."""
+
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            cik = str(payload.get("cik") or payload.get("cik_str") or "").strip()
+            if not cik:
+                raise ValueError("SEC companyfacts is missing a CIK")
+            identity = CanonicalIdentity(
+                instrument_id or self.selected_etf or "sec_imported",
+                "Imported SEC entity",
+                None,
+                "needs_verification",
+                "",
+                None,
+                None,
+                "stock",
+                {},
+                "manual_review",
+                (),
+                cik,
+            )
+            parsed = parse_companyfacts(path, identity)
+            if not parsed.success:
+                warning_codes = ", ".join(warning.code for warning in parsed.warnings)
+                self.last_message = f"SEC import unavailable: {warning_codes or 'validation failed'}. No data changed."
+                return self.last_message
+            source = RawDocument(path, path.resolve().as_uri(), datetime.now(timezone.utc), parsed.source_sha256, "sec_edgar", "sec_companyfacts", "application/json", 200)
+            write_statement_facts(parsed.records, STATEMENT_FACTS_PATH)
+            write_statement_inventory(source, parsed.records, FILINGS_STATEMENTS_PATH, instrument_id=identity.instrument_id)
+            self.last_message = f"SEC import complete: {len(parsed.records)} facts, {len(parsed.warnings)} mapping warnings."
+            return self.last_message
+        except Exception as exc:
+            self.last_message = f"SEC import unavailable: {type(exc).__name__}. No data changed."
+            return self.last_message
+
+    def fetch_sec_companyfacts(self, cik: str, *, cache_dir: Path | None = None) -> str:
+        """Fetch keyless SEC facts with controlled unavailable state."""
+
+        try:
+            provider = SecEdgarProvider(
+                "ETF AI Cockpit local research contact@example.invalid",
+                cache_dir=cache_dir or (RAW_DIR / "sec_edgar"),
+            )
+            document = provider.fetch_companyfacts(cik)
+            return self.import_sec_companyfacts(document.path)
+        except Exception as exc:
+            self.last_message = f"SEC import unavailable: {type(exc).__name__}. Local data was not changed."
+            return self.last_message
 
     def _import_and_refresh(self, path: Path, dataset_type: str = "prices") -> str:
         result = DataService(self.snapshot.config).import_local_file(Path(path), dataset_type, commit=True)
