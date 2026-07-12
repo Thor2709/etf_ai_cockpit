@@ -217,10 +217,16 @@ def _payload_revision(payload: Mapping[str, object]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def save_universe(records: Iterable[UniverseRecord], expected_revision: str, *, root: Path | None = None) -> UniverseSaveResult:
+def save_universe(
+    records: Iterable[UniverseRecord],
+    expected_revision: str,
+    *,
+    root: Path | None = None,
+    allow_cross_tier_duplicates: bool = False,
+) -> UniverseSaveResult:
     root = (root or ROOT).resolve()
     items = tuple(_normalise_record(record) for record in records)
-    report = validate_universe(items)
+    report = validate_universe(items, allow_cross_tier_duplicates=allow_cross_tier_duplicates)
     if not report.valid:
         raise ValueError("Universe validation failed: " + "; ".join(report.errors))
     path = _store_path(root)
@@ -240,6 +246,7 @@ def save_universe(records: Iterable[UniverseRecord], expected_revision: str, *, 
     payload: dict[str, object] = {
         "schema_version": 2,
         "revision": "pending",
+        "allow_cross_tier_duplicates": bool(allow_cross_tier_duplicates),
         "records": [asdict(item) for item in items],
     }
     revision = _payload_revision(payload)
@@ -261,15 +268,26 @@ def load_universe(root: Path | None = None) -> UniverseStoreSnapshot:
     return UniverseStoreSnapshot(records, _text(payload.get("revision")), path)
 
 
-def add_record(records: Iterable[UniverseRecord], record: UniverseRecord) -> tuple[UniverseRecord, ...]:
+def add_record(
+    records: Iterable[UniverseRecord],
+    record: UniverseRecord,
+    *,
+    allow_cross_tier_duplicates: bool = False,
+) -> tuple[UniverseRecord, ...]:
     items = tuple(records) + (_normalise_record(record),)
-    report = validate_universe(items)
+    report = validate_universe(items, allow_cross_tier_duplicates=allow_cross_tier_duplicates)
     if not report.valid:
         raise ValueError("Universe validation failed: " + "; ".join(report.errors))
     return items
 
 
-def edit_record(records: Iterable[UniverseRecord], instrument_id: str, **changes: object) -> tuple[UniverseRecord, ...]:
+def edit_record(
+    records: Iterable[UniverseRecord],
+    instrument_id: str,
+    *,
+    allow_cross_tier_duplicates: bool = False,
+    **changes: object,
+) -> tuple[UniverseRecord, ...]:
     items = tuple(records)
     for index, record in enumerate(items):
         if record.instrument_id == instrument_id:
@@ -279,7 +297,7 @@ def edit_record(records: Iterable[UniverseRecord], instrument_id: str, **changes
                 raise ValueError(f"Unknown universe fields: {', '.join(unknown)}")
             updated = _normalise_record(replace(record, **changes))
             candidate = items[:index] + (updated,) + items[index + 1 :]
-            report = validate_universe(candidate)
+            report = validate_universe(candidate, allow_cross_tier_duplicates=allow_cross_tier_duplicates)
             if not report.valid:
                 raise ValueError("Universe validation failed: " + "; ".join(report.errors))
             return candidate

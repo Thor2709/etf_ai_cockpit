@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import json
 from pathlib import Path
 
 import pytest
@@ -42,6 +43,25 @@ def test_cross_tier_duplicate_override_is_explicit() -> None:
     accepted = validate_universe(records, allow_cross_tier_duplicates=True)
     assert accepted.valid is True
     assert any("override" in warning for warning in accepted.warnings)
+
+
+def test_crud_and_save_thread_cross_tier_override(tmp_path: Path) -> None:
+    primary = _record("A", ticker="DUP", tier="primary")
+    secondary = _record("A", ticker="DUP", tier="secondary", isin="NO0000000002")
+    with pytest.raises(ValueError):
+        add_record([primary], secondary)
+    added = add_record([primary], secondary, allow_cross_tier_duplicates=True)
+    assert len(added) == 2
+    other = _record("B", ticker="B", tier="secondary", isin="NO0000000003")
+    with pytest.raises(ValueError):
+        edit_record([primary, other], "B", ticker="DUP")
+    edited = edit_record([primary, other], "B", ticker="DUP", allow_cross_tier_duplicates=True)
+    assert edited[1].ticker == "DUP"
+    with pytest.raises(ValueError):
+        save_universe(added, expected_revision="", root=tmp_path)
+    saved = save_universe(added, expected_revision="", root=tmp_path, allow_cross_tier_duplicates=True)
+    assert saved.record_count == 2
+    assert json.loads(saved.path.read_text(encoding="utf-8"))["allow_cross_tier_duplicates"] is True
 
 
 def test_save_uses_revision_conflict_protection(tmp_path: Path) -> None:

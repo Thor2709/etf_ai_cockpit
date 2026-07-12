@@ -90,6 +90,11 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
     expected_revision = snapshot.revision
     query = ft.TextField(label="Search universe", hint_text="ID, name, ticker, ISIN, sector or theme", dense=True, expand=True)
     status = ft.Text("No changes pending. needs_verification and pending refresh are shown per row.", color=theme.MUTED, selectable=True)
+    allow_duplicates = ft.Checkbox(
+        label="Allow cross-tier duplicate IDs/tickers/ISINs (explicit override)",
+        value=False,
+        key="universe.allow-cross-tier-duplicates",
+    )
 
     def _field(label: str, value: object = "", *, multiline: bool = False) -> ft.TextField:
         return ft.TextField(label=label, value=str(value or ""), multiline=multiline, min_lines=2 if multiline else 1, dense=True)
@@ -121,15 +126,25 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
             "theme": _field("Theme", record.theme),
             "notes": _field("Notes", record.notes, multiline=True),
         }
+        enabled = ft.Checkbox(label="Enabled for normal workflows", value=record.enabled)
         leveraged = ft.Checkbox(label="Leveraged (manual review)", value=record.leveraged)
         inverse = ft.Checkbox(label="Inverse (manual review)", value=record.inverse)
 
         def save_edit(_event: ft.ControlEvent) -> None:
             try:
                 changes = {name: control.value or "" for name, control in controls.items()}
+                changes["enabled"] = _bool_value(enabled)
                 changes["leveraged"] = _bool_value(leveraged)
                 changes["inverse"] = _bool_value(inverse)
-                _stage("Validated edit pending save.", edit_record(records, record.instrument_id, **changes))
+                _stage(
+                    "Validated edit pending save.",
+                    edit_record(
+                        records,
+                        record.instrument_id,
+                        allow_cross_tier_duplicates=bool(allow_duplicates.value),
+                        **changes,
+                    ),
+                )
                 dialog.open = False
             except Exception as exc:
                 status.value = f"Edit rejected: {exc}"
@@ -138,7 +153,7 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
         dialog = ft.AlertDialog(
             modal=True,
             title=ft.Text(f"Edit {record.instrument_id}"),
-            content=ft.Column([*controls.values(), leveraged, inverse], tight=True, scroll=ft.ScrollMode.AUTO),
+            content=ft.Column([*controls.values(), enabled, leveraged, inverse], tight=True, scroll=ft.ScrollMode.AUTO),
             actions=[ft.TextButton("Cancel", key="universe.edit-cancel", on_click=lambda _event: setattr(dialog, "open", False)), ft.Button("Validate and stage", key="universe.edit-save", on_click=save_edit)],
         )
         page.overlay.append(dialog)
@@ -162,16 +177,25 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
             "theme": _field("Theme"),
             "notes": _field("Notes", multiline=True),
         }
+        enabled = ft.Checkbox(label="Enabled for normal workflows", value=True)
         leveraged = ft.Checkbox(label="Leveraged (manual review)", value=False)
         inverse = ft.Checkbox(label="Inverse (manual review)", value=False)
 
         def save_add(_save_event: ft.ControlEvent) -> None:
             try:
                 values = {name: control.value or "" for name, control in controls.items()}
+                values["enabled"] = _bool_value(enabled)
                 values["leveraged"] = _bool_value(leveraged)
                 values["inverse"] = _bool_value(inverse)
                 candidate = UniverseRecord(**values)
-                _stage("Validated add pending save.", add_record(records, candidate))
+                _stage(
+                    "Validated add pending save.",
+                    add_record(
+                        records,
+                        candidate,
+                        allow_cross_tier_duplicates=bool(allow_duplicates.value),
+                    ),
+                )
                 dialog.open = False
             except Exception as exc:
                 status.value = f"Add rejected: {exc}"
@@ -180,7 +204,7 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
         dialog = ft.AlertDialog(
             modal=True,
             title=ft.Text("Add universe record"),
-            content=ft.Column([*controls.values(), leveraged, inverse], tight=True, scroll=ft.ScrollMode.AUTO),
+            content=ft.Column([*controls.values(), enabled, leveraged, inverse], tight=True, scroll=ft.ScrollMode.AUTO),
             actions=[ft.TextButton("Cancel", key="universe.add-cancel", on_click=lambda _event: setattr(dialog, "open", False)), ft.Button("Validate and add", key="universe.add-save", on_click=save_add)],
         )
         page.overlay.append(dialog)
@@ -194,6 +218,13 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
             status.value = f"Disable rejected: {exc}"
             page.update()
 
+    def enable_item(record: UniverseRecord) -> None:
+        try:
+            _stage(f"Enabled {record.instrument_id}.", edit_record(records, record.instrument_id, enabled=True))
+        except Exception as exc:
+            status.value = f"Enable rejected: {exc}"
+            page.update()
+
     def remove_item(record: UniverseRecord) -> None:
         try:
             _stage(f"Removed {record.instrument_id}.", remove_record(records, record.instrument_id))
@@ -202,13 +233,19 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
             page.update()
 
     def save_changes(_event: ft.ControlEvent) -> None:
-        report = validate_universe(records)
+        nonlocal expected_revision
+        report = validate_universe(records, allow_cross_tier_duplicates=bool(allow_duplicates.value))
         if not report.valid:
             status.value = "Save blocked: " + "; ".join(report.errors)
             page.update()
             return
         try:
-            result = save_universe(records, expected_revision=expected_revision)
+            result = save_universe(
+                records,
+                expected_revision=expected_revision,
+                allow_cross_tier_duplicates=bool(allow_duplicates.value),
+            )
+            expected_revision = result.revision
             status.value = f"Saved revision {result.revision[:12]}; pending refresh remains visible and was not started."
         except Exception as exc:
             status.value = f"Save blocked: {exc}"
@@ -217,9 +254,21 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
     def _table_with_actions(rows: Iterable[UniverseRecord]) -> ft.DataTable:
         table = _table(rows, edit_dialog)
         for row, record in zip(table.rows, rows):
+            if record.enabled:
+                action_button = ft.Button(
+                    "Disable",
+                    key=f"universe.disable.{record.instrument_id}",
+                    on_click=lambda _event, item=record: disable_item(item),
+                )
+            else:
+                action_button = ft.Button(
+                    "Enable",
+                    key=f"universe.enable.{record.instrument_id}",
+                    on_click=lambda _event, item=record: enable_item(item),
+                )
             row.cells[-1] = ft.DataCell(ft.Row([
                 ft.Button("Edit", key=f"universe.edit.{record.instrument_id}", on_click=lambda _event, item=record: edit_dialog(item)),
-                ft.Button("Disable", key=f"universe.disable.{record.instrument_id}", on_click=lambda _event, item=record: disable_item(item), disabled=not record.enabled),
+                action_button,
                 ft.Button("Remove", key=f"universe.remove.{record.instrument_id}", on_click=lambda _event, item=record: remove_item(item)),
             ], wrap=True))
         return table
@@ -249,7 +298,7 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
 
     return ft.Column(
         [
-            panel(ft.Column([section_header("Universe and watchlists", "Manage validated local candidates across the Primary, Secondary and Sparebanken tiers."), ft.Row([query, add_button, ft.Button("Save validated changes", key="universe.save", icon=ft.Icons.SAVE, on_click=save_changes)], wrap=True), status, ft.Text("Edits persist only after validation. Saving never starts yfinance, scoring, forecasts or broker execution.", color=theme.MUTED)], spacing=8)),
+            panel(ft.Column([section_header("Universe and watchlists", "Manage validated local candidates across the Primary, Secondary and Sparebanken tiers."), ft.Row([query, add_button, ft.Button("Save validated changes", key="universe.save", icon=ft.Icons.SAVE, on_click=save_changes)], wrap=True), allow_duplicates, status, ft.Text("Edits persist only after validation. Saving never starts yfinance, scoring, forecasts or broker execution.", color=theme.MUTED)], spacing=8)),
             panel(tabs_control),
         ],
         expand=True,

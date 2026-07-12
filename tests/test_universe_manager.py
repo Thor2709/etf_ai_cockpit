@@ -43,6 +43,8 @@ def _state() -> SimpleNamespace:
 
 
 def _walk(control: ft.Control):
+    if not isinstance(control, ft.Control):
+        return
     yield control
     for attr in ("controls", "rows", "cells", "actions"):
         values = getattr(control, attr, None)
@@ -62,18 +64,25 @@ def test_real_crud_controls_stage_changes_and_save_captured_revision(monkeypatch
     def fake_save(records, expected_revision, **_kwargs):
         rows = tuple(records)
         saved.append((rows, expected_revision))
-        return UniverseSaveResult(Path("store.json"), "new-revision", len(rows))
+        revision = f"revision-{len(saved)}"
+        return UniverseSaveResult(Path("store.json"), revision, len(rows))
 
     monkeypatch.setattr(manager, "save_universe", fake_save)
     page = _Page()
     root = universe_manager_page(page, _state())
-    buttons = {str(control.key): control for control in _walk(root) if isinstance(control, ft.Button) and control.key}
+    controls = {str(control.key): control for control in _walk(root) if control.key}
+    buttons = {key: control for key, control in controls.items() if isinstance(control, ft.Button)}
     assert {"universe.add", "universe.save", "universe.edit.A", "universe.disable.A", "universe.remove.A"} <= set(buttons)
+    assert "universe.allow-cross-tier-duplicates" in controls
 
     # Disable and add use the real callbacks, and neither callback invokes a
     # workflow service. The newly added record proves full add control wiring.
     buttons["universe.disable.A"].on_click(None)
     buttons = {str(control.key): control for control in _walk(root) if isinstance(control, ft.Button) and control.key}
+    assert "universe.enable.A" in buttons
+    buttons["universe.enable.A"].on_click(None)
+    buttons = {str(control.key): control for control in _walk(root) if isinstance(control, ft.Button) and control.key}
+    assert "universe.disable.A" in buttons
     buttons["universe.add"].on_click(None)
     assert page.overlay
     dialog = page.overlay[-1]
@@ -83,12 +92,17 @@ def test_real_crud_controls_stage_changes_and_save_captured_revision(monkeypatch
     fields["Yahoo ticker"].value = "B"
     fields["ISIN"].value = "NO0000000002"
     fields["ISIN status"].value = "verified"
+    enabled_checkbox = next(control for control in _walk(dialog) if isinstance(control, ft.Checkbox) and control.label == "Enabled for normal workflows")
+    enabled_checkbox.value = False
     next(control for control in _walk(dialog) if isinstance(control, ft.Button) and control.key == "universe.add-save").on_click(None)
 
     buttons = {str(control.key): control for control in _walk(root) if isinstance(control, ft.Button) and control.key}
     buttons["universe.save"].on_click(None)
-    assert saved and saved[-1][1] == "captured-revision"
+    buttons = {str(control.key): control for control in _walk(root) if isinstance(control, ft.Button) and control.key}
+    buttons["universe.save"].on_click(None)
+    assert [revision for _rows, revision in saved] == ["captured-revision", "revision-1"]
     assert {row.instrument_id for row in saved[-1][0]} == {"A", "B"}
+    assert next(row for row in saved[-1][0] if row.instrument_id == "B").enabled is False
 
     # Search is wired to a callback that rebuilds the three visible tier tabs.
     query = next(control for control in _walk(root) if isinstance(control, ft.TextField) and control.label == "Search universe")
