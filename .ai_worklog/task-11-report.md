@@ -120,7 +120,7 @@ failure summary above. No destructive command or external write was run.
 
 ## Commit hashes
 
-Implementation commit: `cb0a5e6` (`feat: add universe store onboarding and guardrails`).
+Implementation commit: `9c8073a` (`feat: add universe store onboarding and guardrails`).
 Generated schema-marker files remain unstaged by design.
 
 ## Recommended next action
