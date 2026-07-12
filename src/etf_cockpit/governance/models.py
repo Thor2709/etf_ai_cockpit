@@ -186,6 +186,7 @@ class FeatureRegistryEntry(ImmutableModel):
     tests: tuple[str, ...] = ()
     export_contracts: tuple[str, ...] = ()
     package_gate: str = ""
+    limitations: tuple[str, ...] = ()
     visible: bool = True
     score_authority: bool = False
     research_promotion_allowed: bool = False

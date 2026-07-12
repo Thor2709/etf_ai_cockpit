@@ -17,6 +17,9 @@ from etf_cockpit.app.pages.what_changed import what_changed_page
 from etf_cockpit.app.pages.etf_detail import etf_detail_page
 from etf_cockpit.app.pages.instrument_detail import instrument_detail_page
 from etf_cockpit.app.pages.import_export import import_export_page
+from etf_cockpit.app.pages.system_map import system_map_page
+from etf_cockpit.app.pages.help_glossary import help_glossary_page
+from etf_cockpit.app.pages.decision_journal import decision_journal_page
 from etf_cockpit.app.pages.portfolio import portfolio_page
 from etf_cockpit.app.pages.risk import risk_page
 from etf_cockpit.app.pages.settings import settings_page
@@ -54,7 +57,16 @@ PAGES = {
     "/what-changed": ("What Changed", what_changed_page),
     "/instrument": ("Instrument Detail", instrument_detail_page),
     "/import-export": ("Import & Export", import_export_page),
+    "/system-map": ("System Map", system_map_page),
+    "/help": ("Help & Glossary", help_glossary_page),
+    "/decision-journal": ("Decision Journal", decision_journal_page),
 }
+
+
+def _page_route(route: str) -> str:
+    """Return the registered route while preserving query/hash targets for pages."""
+
+    return str(route or "/").split("?", 1)[0].split("#", 1)[0] or "/"
 
 
 def navigate_to(page: ft.Page, state: AppState, route: str) -> None:
@@ -68,7 +80,7 @@ def navigate_to(page: ft.Page, state: AppState, route: str) -> None:
         severity="info",
         route=route,
         component="navigation",
-        button_label=PAGES.get(route, ("Unknown", None))[0],
+        button_label=PAGES.get(_page_route(route), ("Unknown", None))[0],
         operation="navigate_to",
         status="started",
     )
@@ -76,20 +88,25 @@ def navigate_to(page: ft.Page, state: AppState, route: str) -> None:
 
 
 def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
-    title, builder = PAGES.get(route, PAGES["/"])
+    canonical_route = _page_route(route)
+    title, builder = PAGES.get(canonical_route, PAGES["/"])
     page_width = float(getattr(page, "width", 0) or state.snapshot.config.ui.window_width)
     narrow = page_width < 760
 
     def nav_button(path: str, label: str) -> ft.Container:
-        selected = path == route
-        return ft.Container(
+        selected = path == canonical_route
+        button = ft.TextButton(
+            label,
             key=f"navigation.{path.strip('/').replace('/', '-') or 'home'}",
             tooltip=label,
-            content=ft.Text(label, color=theme.TEXT if selected else theme.MUTED, size=13, weight=ft.FontWeight.BOLD if selected else None),
+            on_click=lambda _e, p=path: navigate_to(page, state, p),
+        )
+        return ft.Container(
+            tooltip=label,
+            content=button,
             bgcolor=theme.SURFACE_2 if selected else None,
             border_radius=6,
             padding=padding_symmetric(horizontal=12, vertical=10),
-            on_click=lambda _e, p=path: navigate_to(page, state, p),
         )
 
     nav_items = [nav_button(path, page_title) for path, (page_title, _) in PAGES.items()]

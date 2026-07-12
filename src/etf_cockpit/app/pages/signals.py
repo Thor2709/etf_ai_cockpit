@@ -7,6 +7,7 @@ import flet as ft
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import metric_card, panel, section_header
 from etf_cockpit.app.components.simple_scores import simple_score_grouped_sections, simple_score_legend
+from etf_cockpit.app.components.governance_badges import build_gate_summary
 from etf_cockpit.app.state import AppState
 from etf_cockpit.signals.simple_scores import build_simple_instrument_scores
 
@@ -35,23 +36,42 @@ def signals_page(_page: ft.Page, state: AppState) -> ft.Control:
         metric_card("Forecast source", forecast_source, "latest local model CSV", theme.PURPLE),
     ]
 
+    gate_summary = None
+    if scores and scores[0].authority_decision is not None:
+        def open_help(_event: ft.ControlEvent) -> None:
+            go = getattr(_page, "go", None)
+            if callable(go):
+                go("/help#manual_review")
+            else:
+                _page.route = "/help#manual_review"
+
+        gate_summary = build_gate_summary(
+            scores[0].authority_decision,
+            on_view_all=open_help,
+        )
+
+    controls: list[ft.Control] = [
+        ft.Column(card_controls, spacing=8) if narrow else ft.Row(card_controls, spacing=12),
+        simple_score_legend(),
+    ]
+    if gate_summary is not None:
+        controls.append(gate_summary)
+    controls.append(
+        panel(
+            ft.Column(
+                [
+                    section_header(
+                        "All stock and ETF scores",
+                        "Rows include primary tier instruments, yfinance-only secondary tier instruments and Sparebanken equity certificates. Expand a row for evidence quality, risk/friction, algorithms and model authority.",
+                    ),
+                    simple_score_grouped_sections(scores),
+                ],
+                spacing=12,
+            )
+        )
+    )
     return ft.Column(
-        [
-            ft.Column(card_controls, spacing=8) if narrow else ft.Row(card_controls, spacing=12),
-            simple_score_legend(),
-            panel(
-                ft.Column(
-                    [
-                        section_header(
-                            "All stock and ETF scores",
-                            "Rows include primary tier instruments, yfinance-only secondary tier instruments and Sparebanken equity certificates. Expand a row for evidence quality, risk/friction, algorithms and model authority.",
-                        ),
-                        simple_score_grouped_sections(scores),
-                    ],
-                    spacing=12,
-                ),
-            ),
-        ],
+        controls,
         expand=True,
         spacing=14,
         scroll=ft.ScrollMode.AUTO,
