@@ -35,3 +35,51 @@ providers:
     api_key: ""
     base_url: ""
     symbols_map: {}
+  # Canonical provider registry entries.  Optional providers stay disabled
+  # until explicitly configured; credentials are supplied only through the
+  # local environment overlay and are never persisted in probe results.
+  yfinance:
+    active_provider: none
+    api_key: ""
+    base_url: ""
+    symbols_map: {}
+  sec_edgar:
+    active_provider: none
+    api_key: ""
+    base_url: ""
+    symbols_map: {}
+  filings_xbrl_org:
+    active_provider: none
+    api_key: ""
+    base_url: ""
+    symbols_map: {}
+  fred:
+    active_provider: none
+    api_key: ""
+    base_url: ""
+    symbols_map: {}
+  stooq:
+    active_provider: none
+    api_key: ""
+    base_url: ""
+    symbols_map: {}
+  rss:
+    active_provider: none
+    api_key: ""
+    base_url: ""
+    symbols_map: {}
+  manual_local:
+    active_provider: none
+    api_key: ""
+    base_url: ""
+    symbols_map: {}
+  issuer_document:
+    active_provider: none
+    api_key: ""
+    base_url: ""
+    symbols_map: {}
+  index_provider:
+    active_provider: none
+    api_key: ""
+    base_url: ""
+    symbols_map: {}

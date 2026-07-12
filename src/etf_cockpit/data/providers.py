@@ -11,6 +11,7 @@ import pandas as pd
 from etf_cockpit.core.config import ProviderSection
 from etf_cockpit.core.types import DatasetMetadata
 from etf_cockpit.data.provenance import metadata_from_frame, sha256_file
+from etf_cockpit.data.contracts import ProviderCapability, SourceAuthority, redact_text
 
 ProviderStatus = Literal["ok", "unavailable", "error"]
 
@@ -45,6 +46,49 @@ class PriceProvider(ABC):
 
 class DataProvider(ABC):
     name: str
+
+    def probe_capabilities(self) -> tuple[ProviderCapability, ...]:
+        """Return a bounded, non-network capability snapshot for this adapter.
+
+        Concrete adapters may override this when they have local entitlement
+        metadata.  The default deliberately does not call a remote endpoint;
+        the registry owns explicit probing and disabled-provider gating.
+        """
+
+        section = getattr(self, "section", None)
+        active = str(getattr(section, "active_provider", "none") or "none").strip().lower()
+        configured = active not in {"", "none"}
+        provider_id = str(getattr(self, "name", self.__class__.__name__.lower()))
+        authority = {
+            "sec_edgar": SourceAuthority.OFFICIAL,
+            "filings_xbrl_org": SourceAuthority.OFFICIAL,
+            "issuer_document": SourceAuthority.ISSUER,
+            "rss": SourceAuthority.COMMUNITY,
+            "manual_local_file": SourceAuthority.COMMUNITY,
+        }.get(provider_id, SourceAuthority.VENDOR)
+        if not configured:
+            status = "unavailable"
+            entitlement = "disabled"
+            message = "Provider disabled by configuration; probe skipped."
+        else:
+            status = "unavailable"
+            entitlement = "configured"
+            message = "Adapter registered; no network request was made by the bounded probe."
+        return (
+            ProviderCapability(
+                provider_id=provider_id,
+                dataset_type=provider_id,
+                status=status,
+                authority=authority,
+                configured=configured,
+                entitlement=entitlement,
+                rate_limit_note="probe not run",
+                last_success_at=None,
+                error_fingerprint=None,
+                secret_present=bool(getattr(section, "api_key", "")),
+                message=redact_text(message),
+            ),
+        )
 
     @abstractmethod
     def fetch_prices(self, symbols: list[str], start_date: date, end_date: date) -> ProviderResult:
