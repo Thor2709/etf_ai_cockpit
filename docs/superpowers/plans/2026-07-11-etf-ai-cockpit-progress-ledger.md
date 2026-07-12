@@ -7,7 +7,7 @@
 | Field | Value |
 |---|---|
 | Updated | 2026-07-13 |
-| Active phase | Wave 4 Task 10 closed, post-merge verified and GitHub-synchronised; Wave 4 Task 11 starting |
+| Active phase | Wave 4 Task 11 implementation in progress on `wave4/task11-universe` |
 | Active plan | `docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md` |
 | Git state | PR 180 merged Task 10 into `main` at `3eab7a414a54c74553b09ebc4085902af0ffc33e`; local `main` matches `origin/main` after post-merge verification |
 | Existing closure state | 4 evaluator-ready / 36 tracker records still open, including DATA-05; `ISSUE-0035` is closed locally and on GitHub Issue #81 |
@@ -23,7 +23,7 @@
 | 1 | governance | Tasks 1-6 independently approved and merged; Task 7 integrated | Task 6 WorkflowController/session trace paths plus Task 7 source-linked UI inventory, controlled recovery and timing/cache evidence | continue with Wave 3 Task 8 Canonical Data Contracts and Provider Registry |
 | 2 | registry and universe | Not started | `UniverseRecord`/optimistic revision/atomic save present | registry dry-run and validator RED suite |
 | 3 | DATA-05 | Not started | no live seed verification has been performed in this programme | retrieve current official identity evidence and write failing seed-contract tests |
-| 4 | storage and evidence | Task 10 implementation complete, closed, post-merge verified and GitHub-synchronised; Task 11 starting | Task 10 migration/provenance and atomic-staging fixes independently reviewed; fresh Data Health/export/browser/package-smoke/semantic evidence, post-merge full-suite/smoke evidence and 98-record GitHub reconciliation are recorded under `.ai_worklog/task-10-report.md`, `evidence/final/` and `issues/github_issue_sync_report.json` | begin Task 11: Universe Store, Watchlists, Onboarding and Asset Guardrails |
+| 4 | storage and evidence | Task 10 implementation complete, closed, post-merge verified and GitHub-synchronised; Task 11 implementation in progress | Task 10 migration/provenance and atomic-staging fixes independently reviewed; fresh Data Health/export/browser/package-smoke/semantic evidence, post-merge full-suite/smoke evidence and 98-record GitHub reconciliation are recorded under `.ai_worklog/task-10-report.md`, `evidence/final/` and `issues/github_issue_sync_report.json` | complete Task 11 RED–GREEN–REFACTOR and independent review |
 | 5 | domain and scoring | Not started | source-aware deterministic scorer present; first-enabled benchmark and legacy ensemble remain | template/benchmark/champion RED suite |
 | 6 | AI and validation | Not started | optional adapter foundations present; authority/caching/validation seams remain | strict forecast-state and fold/trial RED suite |
 | 7 | portfolio | Not started | static holdings/allocation foundation present | immutable ledger RED suite |

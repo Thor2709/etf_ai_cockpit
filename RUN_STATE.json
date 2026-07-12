@@ -5,7 +5,7 @@
     "name": "2026-07-11-etf-ai-cockpit-approved-programme",
     "programme_index": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-programme-index.md",
     "progress_ledger": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-progress-ledger.md",
-    "phase": "wave4_task10_closed_postmerge_github_synced_task11_starting",
+    "phase": "wave4_task11_implementation",
     "next_task": "Wave 4, Task 11: Universe Store, Watchlists, Onboarding and Asset Guardrails",
     "git_repository": true,
     "git_branch": "main",
@@ -622,7 +622,7 @@
         "issue_0035": {"number": 81, "state": "CLOSED", "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/81"},
         "sync_commit": "a1b0cb0553efa9d68aff4134194a85e7fe5a214b"
       },
-      "next_action": "Create the isolated Task 11 worktree from origin/main and begin the approved RED cycle for ISSUE-0068, ISSUE-0018, ISSUE-0017 and ISSUE-0056."
+      "next_action": "Complete Task 11 RED–GREEN–REFACTOR in wave4/task11-universe, then obtain fresh independent specification and code-quality review."
     }
   },
   "plan": "docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md",
