@@ -272,3 +272,20 @@ Changed files for this fix are `src/etf_cockpit/core/types.py`,
 `src/etf_cockpit/signals/simple_scores.py` and
 `tests/test_authority_resolution.py`. No Task 4 journal/review-report, Task 5
 UI, broker, credential or execution capability was added.
+
+## Final independent review and integration gate - 2026-07-12
+
+Fresh independent reviewer `.ai_worklog/task-governance-3-review-final.md`
+approved both specification/acceptance compliance and code quality/correctness
+with `READY: YES`. The only non-blocking recommendation was two trailing
+whitespace lines in the captured full-suite evidence; those lines were
+normalised and `git diff --check` now exits **0**.
+
+Final focused authority/release verification exited **0** with 48 passed.
+The affected governance/migration/proposal/export verification exited **0**
+with 88 passed and two existing pandas warnings. The simple-score/trust
+verification reproduced only the seven documented generated-data/identity
+baseline failures. Compileall, scoped Ruff, source import smoke and whitespace
+checks all exited **0**. The authoritative final-suite capture is
+`evidence/governance/task3-full-suite-final.txt` with `EXIT_CODE=1` and exactly
+those seven baseline failures.
