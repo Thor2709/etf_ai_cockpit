@@ -155,3 +155,80 @@ proposal, serializer or migration regression failed.
 The implementation remains ready for fresh independent review. Any issue
 closure, plan update and integration bookkeeping are controller-owned and
 remain pending until that review passes.
+
+## Review-fix pass: three blocking findings (2026-07-12T18:46:53.5128792+10:00)
+
+Status: **DONE_WITH_CONCERNS**. The three blocking findings from
+`.ai_worklog/task-governance-3-review.md` were fixed locally with focused RED
+tests first. No issue, plan, Task 4/5, execution or external-write scope was
+changed.
+
+### Changed files and symbols
+
+- `src/etf_cockpit/governance/gate_policy.py`: `PortfolioContext` now rejects
+  unsupported fields and only treats validated contexts with a review state,
+  `as_of_date`, and a 64-character hexadecimal holdings checksum as usable;
+  `resolve_authority` binds each caller gate severity to the loaded policy and
+  rejects incomplete required gate sets.
+- `tests/test_authority_resolution.py`: added regressions for policy-severity
+  spoofing, partial gate input and incomplete portfolio evidence; updated
+  existing positive-path fixtures to provide all nine configured rows.
+- `.ai_worklog/task-governance-3-report.md`: this review-fix evidence section.
+
+### Required RED
+
+Command (PowerShell equivalent with the requested interpreter and
+`PYTHONPATH=src`):
+
+```powershell
+$env:PYTHONPATH='src'; & '..\\..\\etf_ai_cockpit\\.venv\\Scripts\\python.exe' -m pytest tests\\test_authority_resolution.py tests\\test_signal_gates.py tests\\test_release_hardening.py -q --tb=short
+```
+
+Review-fix evidence timestamp recorded at **2026-07-12T18:46:53.5128792+10:00**;
+the RED command was run before the production edit. Exit code: **1**;
+the three new regressions failed as intended:
+
+```text
+test_policy_severity_is_authoritative_for_failed_identity
+  AssertionError: research_candidate is not_scoreable
+test_partial_gate_set_fails_closed_before_promotion
+  AssertionError: 'complete' == 'unavailable'
+test_portfolio_context_without_date_or_checksum_cannot_grant_review
+  AssertionError: reduce_exposure_review is not_applicable
+3 failed, 43 passed
+```
+
+### GREEN
+
+The same focused command after the fix exited **0** with **46 passed**.
+
+The affected governance/Task 2/proposal/export bundle exited **0** with
+**82 passed** and the two existing pandas `FutureWarning`s only:
+
+```powershell
+$env:PYTHONPATH='src'; & '..\\..\\etf_ai_cockpit\\.venv\\Scripts\\python.exe' -m pytest tests\\test_research_state_migration.py tests\\test_score_history.py tests\\test_chatgpt_import.py tests\\test_trade_proposals.py tests\\test_product_governance.py tests\\test_feature_registry.py tests\\test_strategy_scope.py tests\\test_gate_policy.py tests\\test_governance_review_regressions.py tests\\test_signal_gates.py tests\\test_import_export.py -q --tb=short
+```
+
+### Acceptance evidence and checks
+
+- The loaded `configs/gate_policy.yaml` severity is authoritative in every
+  returned row; a failed identity gate cannot be relabelled as a notice to
+  promote. Missing any configured row (`identity`, `data_quality`, `evidence`,
+  `model_validity`, `risk`, `valuation`, `signal`, `portfolio_fit`, `cost`) now
+  returns an unavailable diagnostic decision before authority is calculated.
+- Portfolio review remains separate and non-executable; missing date,
+  unavailable/non-64-character checksum, invalid context or unsupported extra
+  fields cannot set `portfolio_review_allowed=True`.
+- Representative gate evidence already contains all nine policy rows and the
+  same deterministic policy version/checksum, so no evidence JSON changed.
+- Scoped `compileall` exited **0**, scoped Ruff exited **0** (`All checks
+  passed!`), and `git diff --check` exited **0**. Line-ending notices for
+  existing working-copy files were non-failing.
+
+### Remaining uncertainty and risk
+
+The authoritative full `tests` suite was not rerun in this fix pass. The
+controller's recorded baseline remains seven generated-data/identity fixture
+failures, documented in `evidence/governance/task3-full-suite.txt`; no Task 3
+authority or migration regression is attributed here. Fresh independent review
+and controller integration bookkeeping remain pending.

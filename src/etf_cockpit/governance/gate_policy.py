@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import date
+from string import hexdigits
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, StrictBool, ValidationError
@@ -26,7 +27,7 @@ from etf_cockpit.signals.research_states import (
 class PortfolioContext(BaseModel):
     """Validated portfolio snapshot context for a separate review dimension."""
 
-    model_config = ConfigDict(extra="allow", frozen=True, str_strip_whitespace=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
 
     validated: StrictBool = False
     portfolio_review_state: PortfolioReviewState = PortfolioReviewState.NOT_APPLICABLE
@@ -35,7 +36,14 @@ class PortfolioContext(BaseModel):
 
     @property
     def usable(self) -> bool:
-        return bool(self.validated and self.portfolio_review_state is not PortfolioReviewState.NOT_APPLICABLE)
+        checksum = self.holdings_checksum
+        has_checksum = len(checksum) == 64 and all(character in hexdigits for character in checksum)
+        return bool(
+            self.validated
+            and self.portfolio_review_state is not PortfolioReviewState.NOT_APPLICABLE
+            and self.as_of_date is not None
+            and has_checksum
+        )
 
 
 _UNAVAILABLE = "unavailable"
@@ -127,15 +135,20 @@ def resolve_authority(
             if gate.gate_id in seen:
                 raise ValueError(f"duplicate gate id: {gate.gate_id}")
             seen.add(gate.gate_id)
+            policy_entry = policy_entries[gate.gate_id]
             normalised.append(
                 gate.model_copy(
                     update={
-                        "order": policy_entries[gate.gate_id].order,
+                        "order": policy_entry.order,
+                        "severity": policy_entry.severity,
                         "gate_policy_version": policy_version,
                         "gate_policy_checksum": policy_checksum,
                     }
                 )
             )
+        missing_gate_ids = sorted(set(policy_entries) - seen)
+        if missing_gate_ids:
+            raise ValueError(f"gate results incomplete; missing: {', '.join(missing_gate_ids)}")
         ordered_gates = tuple(sorted(normalised, key=lambda gate: (gate.order, gate.gate_id)))
         context = _coerce_context(portfolio_context)
     except (TypeError, ValueError, ValidationError) as exc:
