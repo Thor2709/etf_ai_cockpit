@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Literal
+import warnings
 
 from etf_cockpit.signals.research_states import (
     AnalysisStatus,
@@ -209,5 +210,16 @@ class DataQualityReport:
         return "Clean"
 
     @property
-    def trading_allowed(self) -> bool:
+    def analysis_allowed(self) -> bool:
         return not any(issue.severity == "block" for issue in self.issues)
+
+    @property
+    def trading_allowed(self) -> bool:
+        """Deprecated compatibility property; execution authority is never granted."""
+
+        warnings.warn(
+            "DataQualityReport.trading_allowed is deprecated; use the typed authority resolver.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return False

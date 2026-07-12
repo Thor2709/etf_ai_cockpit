@@ -101,9 +101,24 @@ class GateResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
 
     gate_id: str = Field(min_length=1)
+    order: int = Field(default=0, ge=0)
     severity: GateSeverity = GateSeverity.NOTICE
     passed: bool = True
     message: str = ""
+    gate_policy_version: str = "unavailable"
+    gate_policy_checksum: str = "unavailable"
+
+    @property
+    def policy_version(self) -> str:
+        """Compatibility alias for consumers using generic policy metadata."""
+
+        return self.gate_policy_version
+
+    @property
+    def policy_checksum(self) -> str:
+        """Compatibility alias for consumers using generic policy metadata."""
+
+        return self.gate_policy_checksum
 
 
 class AuthorityDecision(BaseModel):
@@ -122,6 +137,21 @@ class AuthorityDecision(BaseModel):
     portfolio_review_allowed: bool = False
     execution_allowed: Literal[False] = False
     gates: tuple[GateResult, ...] = ()
+    gate_policy_version: str = "unavailable"
+    gate_policy_checksum: str = "unavailable"
+    diagnostics: tuple[str, ...] = ()
+
+    @property
+    def policy_version(self) -> str:
+        """Compatibility alias for consumers using generic policy metadata."""
+
+        return self.gate_policy_version
+
+    @property
+    def policy_checksum(self) -> str:
+        """Compatibility alias for consumers using generic policy metadata."""
+
+        return self.gate_policy_checksum
 
 
 # Compatibility import values are deliberately kept out of all public enums.

@@ -133,7 +133,7 @@ class DataService:
         return "\n".join(
             [
                 "Dry run completed. Current local data was validated; no files were replaced.",
-                f"Analysis hard block: {not report.trading_allowed}",
+                f"Analysis hard block: {not report.analysis_allowed}",
                 *(meta_lines or ["No dataset metadata available."]),
                 *(issue_lines or ["No validation issues found."]),
             ]

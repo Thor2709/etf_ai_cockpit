@@ -105,7 +105,7 @@ def build_local_audit_context(snapshot: CockpitSnapshot) -> dict[str, Any]:
     return {
         "as_of_date": snapshot.data_report.as_of_date.isoformat(),
         "data_status": snapshot.data_report.status,
-        "trading_allowed": snapshot.data_report.trading_allowed,
+        "trading_allowed": False,
         "validation_issues": [
             {"severity": issue.severity, "code": issue.code, "message": issue.message}
             for issue in snapshot.data_report.issues

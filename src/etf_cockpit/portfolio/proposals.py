@@ -39,7 +39,7 @@ def create_manual_trade_proposal_report(
     timestamp = datetime.now(timezone.utc)
     report_dir.mkdir(parents=True, exist_ok=True)
     eligible = [_proposal_row(signal) for signal in signals if _is_eligible_proposal_signal(signal)]
-    if not data_report.trading_allowed:
+    if not data_report.analysis_allowed:
         status = "blocked"
         message = "No manual trade proposal created because current data or risk gates require manual review."
         eligible = []

@@ -468,7 +468,7 @@ def test_non_eur_holding_requires_dated_fx_rate() -> None:
     report = validate_holdings(config, holdings, as_of_date=pd.Timestamp("2026-06-26").date(), fx_rates=pd.DataFrame())
 
     assert "missing_fx_rate" in {issue.code for issue in report.issues if issue.severity == "block"}
-    assert not report.trading_allowed
+    assert not report.analysis_allowed
 
 
 def test_non_eur_holding_reconciles_with_explicit_dated_fx_rate() -> None:
@@ -506,7 +506,7 @@ def test_non_eur_holding_reconciles_with_explicit_dated_fx_rate() -> None:
     issue_codes = {issue.code for issue in report.issues}
     assert "missing_fx_rate" not in issue_codes
     assert "holding_fx_value_mismatch" not in issue_codes
-    assert report.trading_allowed
+    assert report.analysis_allowed
 
 
 def test_stale_fx_rate_blocks_non_eur_holding_reconciliation() -> None:
@@ -542,7 +542,7 @@ def test_stale_fx_rate_blocks_non_eur_holding_reconciliation() -> None:
     report = validate_holdings(config, holdings, as_of_date=pd.Timestamp("2026-06-26").date(), fx_rates=fx_rates)
 
     assert "stale_fx_rate" in {issue.code for issue in report.issues if issue.severity == "block"}
-    assert not report.trading_allowed
+    assert not report.analysis_allowed
 
 
 def test_price_rollback_without_snapshot_returns_safe_message(tmp_path, monkeypatch) -> None:
@@ -577,7 +577,7 @@ def test_target_policy_violation_is_visible_context_not_analysis_block() -> None
     )
     target_issues = [issue for issue in report.issues if issue.code == "target_policy_violation"]
 
-    assert report.trading_allowed
+    assert report.analysis_allowed
     assert target_issues
     assert {issue.severity for issue in target_issues} == {"warning"}
 
@@ -593,7 +593,7 @@ def test_current_holdings_concentration_violation_is_visible_context() -> None:
     assert issues
     assert {issue.severity for issue in issues} == {"warning"}
     assert "portfolio_holdings" in metadata_types
-    assert report.trading_allowed
+    assert report.analysis_allowed
 
 
 def test_holdings_cash_minimum_breach_is_visible_context() -> None:
@@ -610,7 +610,7 @@ def test_holdings_cash_minimum_breach_is_visible_context() -> None:
     cash_issues = [issue for issue in report.issues if issue.code == "cash_minimum_breached"]
     assert cash_issues
     assert {issue.severity for issue in cash_issues} == {"warning"}
-    assert report.trading_allowed
+    assert report.analysis_allowed
 
 
 def test_unavailable_models_are_not_allowed_in_score() -> None:
