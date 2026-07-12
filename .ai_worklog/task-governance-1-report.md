@@ -4,6 +4,7 @@
 
 Task: Wave 1 Governance Task 1 - define and load governance policies fail
 closed. Branch: `wave1/governance-task1`. Base: `3922afc48fb21ab22465ad890733caa5e0717afc`.
+Implementation commit: `9081909c9c2e5b679fcf11b8f7203560d17e3d51`.
 This task establishes policy contracts only. It does not migrate legacy action
 types, add the governance routes, create the Decision Journal, change issue
 ledgers or close `ISSUE-0008`, `ISSUE-0015`, `ISSUE-0030`, `ISSUE-0043` or
