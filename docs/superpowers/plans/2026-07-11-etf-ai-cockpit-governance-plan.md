@@ -310,7 +310,7 @@ evidence. Wave 1 Governance Task 5 is next.
 
 **Produces:** explicit lifecycle/authority/help/journal UI and no broker/action controls in source/package resources.
 
-- [ ] **Step 1: Write RED UI and wording tests**
+- [x] **Step 1: Write RED UI and wording tests**
 
 ```python
 def test_system_map_shows_future_execution_as_non_interactive() -> None:
@@ -322,22 +322,22 @@ def test_gate_drawer_is_keyboard_addressable() -> None:
     assert semantics_of(build_gate_summary(authority_decision)).button("View all gates").focusable
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `.\.venv\Scripts\python.exe -m pytest tests\ui\test_system_map_ui.py tests\ui\test_help_glossary_ui.py tests\ui\test_decision_journal_ui.py tests\ui\test_authority_gate_ui.py -q`
 
 Expected: FAIL because routes, page builders and semantic controls do not exist.
 
-- [ ] **Step 3: Implement reusable Flet components and routes**
+- [x] **Step 3: Implement reusable Flet components and routes**
 
 Use semantic labels, text and icon for lifecycle/severity. System Map cards show lifecycle, authority, data/validation status, direct route and limitation. Help links from gates/scores resolve glossary anchors. Decision Journal forms present a single clear primary action and state user ownership/no execution.
 
-- [ ] **Step 4: Run GREEN and boundary report**
+- [x] **Step 4: Run GREEN and boundary report**
 
 Run: `.\.venv\Scripts\python.exe -m pytest tests\ui\test_system_map_ui.py tests\ui\test_help_glossary_ui.py tests\ui\test_decision_journal_ui.py tests\ui\test_authority_gate_ui.py tests\scope_boundary -q`
 
 Expected: PASS. Then run ` .\.venv\Scripts\python.exe -m etf_cockpit.governance.static_checks --root . --output evidence\governance\execution_boundary_report.json` and expect `result=pass`.
 
-- [ ] **Step 5: Conduct task review and wave evidence capture**
+- [x] **Step 5: Conduct task review and wave evidence capture**
 
 Render source and packaged builds at 1366×768, 1920×1080 and 150% zoom; verify focus, unavailable, partial, error and future-only states. A separate reviewer must check specification compliance and code quality before any governance tracker record changes.

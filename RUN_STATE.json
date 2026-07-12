@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-12T20:33:16+10:00",
+  "updated_at": "2026-07-12T21:13:32+10:00",
   "active_programme": {
     "name": "2026-07-11-etf-ai-cockpit-approved-programme",
     "programme_index": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-programme-index.md",
     "progress_ledger": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-progress-ledger.md",
-    "phase": "wave1_governance_task4_merged_wave1_governance_task5_ready",
-    "next_task": "Wave 1, Governance Task 5: deliver governance surfaces and the static release boundary",
+    "phase": "wave1_governance_task5_merged_wave1_governance_task6_ready",
+    "next_task": "Wave 1, Governance Task 6: continue the next dependency-valid governance implementation task",
     "git_repository": true,
     "git_branch": "main",
     "baseline": {
@@ -487,12 +487,12 @@
   "execution_mode": "subagent_driven_with_independent_review",
   "git_repository": true,
   "git_branch": "main",
-  "progress_percent": 28,
+  "progress_percent": 32,
   "wave": 1,
-  "task": 5,
+  "task": 6,
   "step": 1,
   "completed_tasks": [1, 2, 3, 4, 5],
-  "completed_governance_tasks": [1, 2, 3, 4],
+  "completed_governance_tasks": [1, 2, 3, 4, 5],
   "implementation_foundations": [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
   "issue_counts": {
     "reviewed": 41,
@@ -500,13 +500,14 @@
     "still_open": 37
   },
   "last_checkpoint": {
-    "name": "wave1_governance_task4_merged_wave1_governance_task5_ready",
-    "result": "Wave 1 Governance Task 4 was independently reviewed and merged through PR 174. Neutral review reports, the atomic checksum-protected Decision Journal, deterministic supersedes, grouped reads and owner-token locking are integrated; owning issues remain open for later UI/package/browser and complete closure gates. Wave 1 Governance Task 5 is next.",
+    "name": "wave1_governance_task5_merged_wave1_governance_task6_ready",
+    "result": "Wave 1 Governance Task 5 was independently reviewed and merged through PR 175. System Map, Help/Glossary and user-owned Decision Journal surfaces, per-dependency readiness, hash-targeted glossary navigation and keyboard-operable navigation are integrated; owning issues remain open for complete UI/package/browser and closure evidence. Wave 1 Governance Task 6 is next.",
     "evidence": [
-      ".ai_worklog/task-governance-4-brief.md",
-      ".ai_worklog/task-governance-4-report.md",
-      ".ai_worklog/task-governance-4-review-final.md",
-      "evidence/governance/decision_journal_export_summary.json",
+      ".ai_worklog/task-governance-5-brief.md",
+      ".ai_worklog/task-governance-5-report.md",
+      "evidence/governance/task5-system-map.png",
+      "evidence/governance/task5-help-glossary.png",
+      "evidence/governance/execution_boundary_report.json",
       "issues/github_issue_sync_report.json"
     ],
     "commands": {
@@ -523,7 +524,7 @@
       "task4_production_static_scan": {"exit_code": 0, "result": "pass", "scanned_files": 358, "violations": 0, "policy_checksum": "89680ebfdca87827728919e687f50f30cebe014741ce35eb4b3c32daa83452f1", "execution_allowed": false, "executable_authority": false},
       "source_smoke": {"exit_code": 0, "output": "snapshot_ok as_of=2026-07-09 signals=16 backtests=5"},
       "github_issue_sync": {"exit_code": 0, "canonical_records": 98, "local_open": 77, "local_closed": 21, "mapped_open": 77, "mapped_closed": 21, "unresolved_duplicates": 0, "dry_run_unchanged": 98},
-      "current_commit": "11333ddd30b45e90343d6bd56975b516ac04421e",
+      "current_commit": "6689e8c9c6a52a1b1ef1300c3c2356b006c449fa",
       "origin_main_matches": true,
       "main_matches_origin": true,
       "working_tree_clean": true,
@@ -531,8 +532,8 @@
       "closure_evaluator": {"exit_code": 1, "ready": 4, "still_open": 37, "expected_nonzero": true}
     }
   },
-  "first_unpassed_criterion": "Wave 1 Governance Task 5 remains incomplete; governance owning issues and Wave 0 tracker records remain open for complete closure evidence",
-  "next_command": "Create the Wave 1 Governance Task 5 isolated worktree/branch from origin/main, dispatch a fresh implementer, write and run the governance-surface and static-release-boundary RED tests, then obtain independent review",
+  "first_unpassed_criterion": "Wave 1 Governance Task 6 remains incomplete; governance owning issues and Wave 0 tracker records remain open for complete closure evidence",
+  "next_command": "Read the governance plan and select Wave 1 Governance Task 6, then create its isolated worktree/branch from origin/main and dispatch a fresh implementer and independent reviewer",
   "notes": [
     "No Git initialisation or commit occurred before the independently approved Task 2 boundary; the user now authorises local baseline Git setup and optional private GitHub push only.",
     "Closure status is evaluator-backed: 4/41 ready and 37 still open; do not close remaining issues without their complete dossiers.",

@@ -1189,3 +1189,12 @@ Required checks for the current implementation sweep:
 - Compileall, scoped Ruff, source smoke and `git diff --check` passed with exit 0.
 - Fresh independent review `.ai_worklog/task-governance-4-review-final.md`: specification and code approved with non-blocking recommendations; READY YES; no Critical/Important/Minor findings.
 - Integration: PR 174 merged at `c61531841a753ce1e3f862f8beb498c629b9cbb5`; `main` matches `origin/main`; no issue state transition; `execution_allowed=false`.
+## 2026-07-12 - Wave 1 Governance Task 5
+
+- RED: new governance UI suite collected four genuine missing-module failures.
+- GREEN/post-merge: `pytest -q tests/ui tests/test_accessibility_contracts.py tests/test_flet_startup.py tests/test_feature_registry.py tests/scope_boundary` - 50 passed.
+- `compileall -q src tests` and scoped Ruff - exit 0.
+- `scripts/run_app.py --smoke` - exit 0; source snapshot smoke passed.
+- Static boundary report - 425 files scanned, zero violations; `execution_allowed=false`.
+- Browser/source screenshots: `evidence/governance/task5-system-map.png` and `evidence/governance/task5-help-glossary.png`.
+- Worktree full suite retained seven ignored candidate/identity-fixture failures; the affected post-merge bundle passed and no new Task 5 failure was observed.

@@ -981,3 +981,9 @@
 - `tests\test_simple_scores.py`: isolated persisted candidate loaders in the no-refresh pending-state test.
 - Added final browser evidence `browser-final-launch-latest.png` and `browser-final-launch-latest-locked-folders.png`.
 - No Git commit was created because the app root is not a Git repository.
+## 2026-07-12 - Wave 1 Governance Task 5
+
+- Added System Map, Help/Glossary and user-owned Decision Journal Flet surfaces with `/system-map`, `/help` and `/decision-journal` routes.
+- Added explicit feature-registry entries/limitations, per-dependency readiness, hash-targeted glossary navigation, keyboard-operable shell navigation and score gate-summary navigation.
+- Preserved `execution_allowed=false`; no broker, credentials, order routing or execution controls were introduced.
+- Integrated via PR 175, merge commit `6689e8c9c6a52a1b1ef1300c3c2356b006c449fa`.

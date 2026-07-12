@@ -1,6 +1,6 @@
 # ETF AI Cockpit Programme Index
 
-> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5 and Wave 1 Governance Tasks 1-2 are independently approved, merged and post-merge verified. Governance Task 2 merged through PR 172 with fresh re-review. The authoritative local issue ledger is synchronised to GitHub through the versioned map and reconciliation report; later issue closure remains evidence-gated.
+> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5 and Wave 1 Governance Tasks 1-5 are independently approved, merged and post-merge verified. Governance Task 5 merged through PR 175 with fresh independent approval. The authoritative local issue ledger is synchronised to GitHub through the versioned map and reconciliation report; later issue closure remains evidence-gated.
 
 **Binding inputs:**
 
@@ -117,7 +117,7 @@ The next agent must reread this index, the active plan, the progress ledger, the
 - Placeholder scan over all nine implementation plans found no `TBD`, `TODO`, `add tests`, `handle errors`, `similar to above` or `implement later` placeholder.
 - The documentation-only pre-flight change corrected the final plan heading. No implementation code, configuration, tracker status or user data has changed.
 - Fresh baseline evidence recorded before implementation: pytest exit 0, Ruff clean, compileall exit 0, source snapshot smoke exit 0, source/native/portable smoke exit 0, and a rendered in-app-browser inspection of the source Simple Scores route.
-- No blocking product contradiction remains after applying the approved precedence rules. Wave 0, Tasks 1 and 2 are independently reviewed complete. Wave 0, Task 3 is independently approved, merged and post-merge verified with no Critical, Important or Minor findings. Wave 0, Task 4 and its generated-package correction are independently approved, merged through PRs 2 and 3, and post-merge verified. Wave 0, Task 5 and Wave 1 governance Tasks 1-3 are independently approved, merged and post-merge verified; Wave 1 governance Task 4 is now independently approved, merged and post-merge verified; Wave 1 governance Task 5 is next.
+- No blocking product contradiction remains after applying the approved precedence rules. Wave 0, Tasks 1 and 2 are independently reviewed complete. Wave 0, Task 3 is independently approved, merged and post-merge verified with no Critical, Important or Minor findings. Wave 0, Task 4 and its generated-package correction are independently approved, merged through PRs 2 and 3, and post-merge verified. Wave 0, Task 5 and Wave 1 governance Tasks 1-5 are independently approved, merged and post-merge verified; Wave 1 Governance Task 5 is now independently approved through PR 175; Wave 1 Governance Task 6 is next.
 
 ## GitHub issue synchronisation checkpoint - 2026-07-12
 
@@ -178,3 +178,12 @@ filesystem locking. Focused Task 4 tests (23), affected authority/release/
 atomic/transaction tests, compileall, Ruff, source smoke and the post-merge
 full suite passed. No issue state changed; Wave 1 Governance Task 5 is the next
 dependency-valid task.
+
+Wave 1 Governance Task 5 is independently approved and integrated through PR
+175 (`https://github.com/Thor2709/etf_ai_cockpit/pull/175`) at merge commit
+`6689e8c9c6a52a1b1ef1300c3c2356b006c449fa`. System Map, Help/Glossary and
+user-owned Decision Journal surfaces, per-dependency readiness, hash-targeted
+glossary navigation and keyboard-operable navigation are now integrated.
+Focused post-merge tests (50), static boundary, source smoke and rendered
+browser evidence passed; no issue moved to closed. Wave 1 Governance Task 6
+is the next dependency-valid task.
