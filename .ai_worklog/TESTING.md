@@ -1198,3 +1198,7 @@ Required checks for the current implementation sweep:
 - Static boundary report - 425 files scanned, zero violations; `execution_allowed=false`.
 - Browser/source screenshots: `evidence/governance/task5-system-map.png` and `evidence/governance/task5-help-glossary.png`.
 - Worktree full suite retained seven ignored candidate/identity-fixture failures; the affected post-merge bundle passed and no new Task 5 failure was observed.
+- `cmd /c scripts\\build_windows.bat` - completed; native package is at `build/flet_dist/ETF_AI_Cockpit/ETF_AI_Cockpit.exe` (SHA-256 `79F72D0030D62167EE38DC5AA00D7B879B80071C55BB747B383EDFC8D6850F8D`) and portable output is at `build/ETF_AI_Cockpit_Portable_v0.1.0`.
+- `scripts/smoke_app.py --mode native --port 8575 --timeout 90` - `smoke_ok`.
+- `scripts/smoke_app.py --mode portable-native --port 8576 --timeout 90` - `smoke_ok`.
+- Fresh full-suite run reached 100% but reported one intermittent pre-existing `PermissionError` in `tests/operations/test_transactions.py::test_recovery_of_interrupted_second_real_writer_preserves_first_commit`; the exact test rerun passed. Task 5 touched no transaction code and its affected bundle remained green.

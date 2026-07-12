@@ -1362,3 +1362,10 @@ SPEC PASS, CODE PASS and READY YES with no Critical, Important or Minor
 findings. PR 175 was merged to `main` at
 `6689e8c9c6a52a1b1ef1300c3c2356b006c449fa`. Local issue records remain open;
 Task 6 is the next dependency-valid task. `execution_allowed` remains false.
+
+Post-merge package verification completed: `scripts/build_windows.bat` exited
+successfully, and native plus portable-native smoke passed on ports 8575 and
+8576. The native executable checksum is
+`79F72D0030D62167EE38DC5AA00D7B879B80071C55BB747B383EDFC8D6850F8D`. A fresh
+full-suite run exposed one intermittent pre-existing transaction-lock failure;
+the exact test rerun passed and no Task 5-specific failure was observed.

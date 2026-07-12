@@ -1,0 +1,38 @@
+........................................................................ [ 14%]
+........................................................................ [ 28%]
+........................................................................ [ 42%]
+........................................................................ [ 56%]
+........................................................................ [ 70%]
+........................................................................ [ 84%]
+........................................................................ [ 98%]
+.......                                                                  [100%]
+============================== warnings summary ===============================
+tests/test_e2e_workflow.py::test_navigation_matrix_has_all_declared_trust_routes
+  C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Lib\site-packages\gluonts\json.py:102: UserWarning: Using `json`-module for json-handling. Consider installing one of `orjson`, `ujson` to speed up serialization and deserialization.
+    warnings.warn(
+
+tests/test_release_hardening.py::test_audit_export_contains_validation_and_risk_gate_reports
+tests/test_release_hardening.py::test_audit_export_contains_validation_and_risk_gate_reports
+tests/test_release_hardening.py::test_audit_export_includes_imported_manual_news_notes
+tests/test_release_hardening.py::test_audit_export_includes_imported_manual_news_notes
+tests/test_trust_critical_artifacts.py::test_score_artifacts_write_history_components_and_drivers
+tests/test_trust_critical_artifacts.py::test_score_artifacts_write_history_components_and_drivers
+tests/test_trust_critical_artifacts.py::test_audit_export_includes_trust_critical_evidence_and_session_log
+tests/test_trust_critical_artifacts.py::test_audit_export_includes_trust_critical_evidence_and_session_log
+  C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\src\etf_cockpit\data\trust_artifacts.py:932: DtypeWarning: Columns (12) have mixed types. Specify dtype option on import or set low_memory=False.
+    pd.read_csv(path)
+
+tests/test_score_history.py::test_score_history_append_is_idempotent_by_run_and_snapshot
+tests/test_score_history.py::test_invalid_history_rows_are_dropped_without_crashing
+  C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\src\etf_cockpit\data\score_history.py:96: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.
+    combined = pd.concat([existing, frame], ignore_index=True).reindex(columns=_COLUMNS).drop_duplicates(subset=["run_id", "instrument_id"], keep="last")
+
+tests/test_trade_proposals.py::test_trade_proposal_report_blocks_when_data_quality_blocks
+  C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\tests\test_trade_proposals.py:50: DeprecationWarning: create_manual_trade_proposal_report is deprecated; use create_portfolio_review_report
+    report = create_manual_trade_proposal_report(
+
+tests/test_trade_proposals.py::test_trade_proposal_report_includes_only_surviving_candidate_signals
+  C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\tests\test_trade_proposals.py:68: DeprecationWarning: create_manual_trade_proposal_report is deprecated; use create_portfolio_review_report
+    report = create_manual_trade_proposal_report(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html

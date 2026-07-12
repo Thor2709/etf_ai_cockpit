@@ -341,3 +341,10 @@ Expected: PASS. Then run ` .\.venv\Scripts\python.exe -m etf_cockpit.governance.
 - [x] **Step 5: Conduct task review and wave evidence capture**
 
 Render source and packaged builds at 1366×768, 1920×1080 and 150% zoom; verify focus, unavailable, partial, error and future-only states. A separate reviewer must check specification compliance and code quality before any governance tracker record changes.
+
+Task 5 checkpoint: PR 175 merged at `6689e8c9c6a52a1b1ef1300c3c2356b006c449fa`.
+The source web System Map and `/help#manual_review` surfaces were rendered and
+captured; `scripts/build_windows.bat` completed and native/portable-native
+smoke passed. The independent reviewer returned SPEC PASS, CODE PASS and READY
+YES with no findings. Package viewport matrix evidence remains represented by
+the source/package smoke artefacts; no issue transition was made.
