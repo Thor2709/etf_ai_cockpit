@@ -1246,6 +1246,16 @@ Required checks for the current implementation sweep:
 - Export wrote 12 rows with header compatibility and SHA-256
   `bd89f6e01ea42e90d05a09675d881143f4584c3055e5dfcd7d9a7f7d124b4996`.
 
+Post-merge Task 10 verification on `main`:
+
+- focused Data Health/atomic/recovery/transaction bundle: 72 passed;
+- the first full-suite attempt exposed only the nested-worktree package scan;
+  after removing the merged Task 10 worktree, package-inventory passed and a
+  fresh `pytest -q` completed at 100% with warnings only;
+- `compileall -q src tests` exit 0 and scoped Ruff all passed;
+- source smoke port 8610, native smoke port 8611 and portable-native smoke port
+  8612 each returned `smoke_ok`.
+
 ## 2026-07-12 - Wave 4 Task 9
 
 - RED fix-pass: three genuine failures for missing score provenance, unknown/

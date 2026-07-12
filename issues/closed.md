@@ -644,4 +644,30 @@ The follow-up excludes unknown source prefixes from score eligibility and record
 
 The follow-up made candle/conflict artefacts explicit in the manifest, required a complete holdings summary, and verified non-executable audit import plus secret/checksum validation. Missing optional evidence remains explicitly unavailable rather than invented.
 
+### ISSUE-0035 - Data health centre
+
+**Status:** Closed 2026-07-13  
+**Dossier:** `evidence/final/issues/ISSUE-0035.json`  
+**Current evidence:** `evidence/final/source/ISSUE-0035.md`, `evidence/final/tests/ISSUE-0035.md`, `evidence/final/ui/ISSUE-0035.md`, `evidence/final/export/ISSUE-0035.md`, `evidence/final/build/ISSUE-0035.md`, `evidence/final/browser/ISSUE-0035.md`.
+
+Task 10 delivered the deterministic Data Health inventory, persisted
+provenance and migration validation, explicit failure-status precedence,
+status/dataset/provider filters, stable route actions and compatible CSV
+export. The bounded atomic staging fix removed the Windows overlong-prefix
+failure while preserving legacy recovery validation. The branch was reviewed
+independently with SPEC PASS and CODE PASS, merged by PR 180
+(`https://github.com/Thor2709/etf_ai_cockpit/pull/180`) at merge commit
+`3eab7a414a54c74553b09ebc4085902af0ffc33e`, and verified on `main`.
+
+Fresh evidence includes 16 focused Data Health tests, 40 affected tests, the
+authoritative full suite at 100% with warnings only, compileall and scoped Ruff,
+source smoke, portable build, native/portable-native package smoke, source and
+packaged browser renders, semantic Data Health controls with Tab focus
+traversal, and the 12-row export checksum
+`bd89f6e01ea42e90d05a09675d881143f4584c3055e5dfcd7d9a7f7d124b4996`.
+The native smoke used the existing native output because the isolated rebuild
+venv did not contain PyInstaller; generated market candidate fixtures used for
+the score-group smoke remain excluded from Git. `execution_allowed=false` and
+all authority and scope boundaries remain unchanged.
+
 The strict parser/provider rule remains in force: SEC EDGAR, ESEF/iXBRL, PRIIPs KID, index-methodology and provider-backed workflows remain open without real fixtures, parser tests, UI workflow, export proof and browser smoke evidence.

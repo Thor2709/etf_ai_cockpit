@@ -2,7 +2,7 @@
   "matrix": "configs\\closure_matrix.yaml",
   "evidence_root": "evidence\\final",
   "issue_count": 42,
-  "ready_count": 1,
+  "ready_count": 4,
   "issues": [
     {
       "issue_id": "ISSUE-0067",
@@ -19,15 +19,8 @@
     },
     {
       "issue_id": "ISSUE-0069",
-      "ready": false,
-      "missing_gates": [
-        "browser",
-        "build",
-        "export",
-        "source",
-        "tests",
-        "ui"
-      ],
+      "ready": true,
+      "missing_gates": [],
       "evidence_paths": [
         "source/ISSUE-0069-wave4.md",
         "tests/ISSUE-0069-wave4.md",
@@ -177,15 +170,8 @@
     },
     {
       "issue_id": "UPDATEV2-0022",
-      "ready": false,
-      "missing_gates": [
-        "browser",
-        "build",
-        "export",
-        "source",
-        "tests",
-        "ui"
-      ],
+      "ready": true,
+      "missing_gates": [],
       "evidence_paths": [
         "source/UPDATEV2-0022-wave4.md",
         "tests/UPDATEV2-0022-wave4.md",
@@ -210,15 +196,8 @@
     },
     {
       "issue_id": "UPDATEV2-0028",
-      "ready": false,
-      "missing_gates": [
-        "browser",
-        "build",
-        "export",
-        "source",
-        "tests",
-        "ui"
-      ],
+      "ready": true,
+      "missing_gates": [],
       "evidence_paths": [
         "source/UPDATEV2-0028-wave4.md",
         "tests/UPDATEV2-0028-wave4.md",

@@ -716,7 +716,7 @@ Add `/data-health`, dashboard summary, filters by status/dataset/provider and li
 
 Render mixed healthy/stale/missing fixtures in source and packaged UI, capture screenshots and export the health table to CSV with visible output path.
 
-- [ ] **Step 5: Wave 4 gate (closure blocked)**
+- [x] **Step 5: Wave 4 gate and integration**
 
 Run focused plus full tests, package build, Provider/Evidence/Data Health browser matrix, secret scan and audit-export interim check. Mark five Wave 4 dossiers ready only after independent review.
 
@@ -725,9 +725,11 @@ compile, lint, source-smoke, export, portable-build, native/portable-smoke,
 direct packaged-readiness, semantic focus and source/package browser evidence
 is recorded in `.ai_worklog/task-10-report.md` and `evidence/final/`. The
 authoritative full suite passes after the atomic staging and provenance fixes.
-`ISSUE-0035` remains open/implementation-complete only until final integration
-and local/GitHub synchronisation; do not start Task 11 before that boundary is
-resolved.
+PR 180 merged the reviewed branch into `main` at
+`3eab7a414a54c74553b09ebc4085902af0ffc33e`; post-merge focused/full/smoke
+verification passed and `ISSUE-0035` moved to the canonical closed ledger.
+GitHub Issue synchronisation is the only remaining bookkeeping action before
+Task 11.
 
 ---
 

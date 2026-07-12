@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-12T22:35:00+10:00",
+  "updated_at": "2026-07-13T05:11:43+10:00",
   "active_programme": {
     "name": "2026-07-11-etf-ai-cockpit-approved-programme",
     "programme_index": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-programme-index.md",
     "progress_ledger": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-progress-ledger.md",
-    "phase": "wave4_task10_implementation_complete_closure_pending",
-    "next_task": "Wave 4, Task 10: Data Health Centre closure and integration",
+    "phase": "wave4_task10_closed_postmerge_github_sync_pending",
+    "next_task": "Wave 4, Task 11: Universe Store, Watchlists, Onboarding and Asset Guardrails",
     "git_repository": true,
     "git_branch": "main",
     "baseline": {
@@ -22,7 +22,7 @@
     "plan_preflight": {
       "implementation_plans": 9,
       "authorised_epics": 60,
-      "still_open_tracker_records_mapped_once": 37,
+      "still_open_tracker_records_mapped_once": 36,
       "blocking_contradictions": 0,
       "implementation_started": true
     },
@@ -543,16 +543,16 @@
       "closure_evaluator": "not_ready; package, audit/export, final browser and complete issue-level gates remain",
       "execution_allowed": false,
       "data05_status": "still_open",
-      "next_task": "Wave 4 Task 10: Data Health Centre"
+      "next_task": "Wave 4 Task 11: Universe Store, Watchlists, Onboarding and Asset Guardrails"
     },
     "task_10_checkpoint": {
       "owning_issue_ids": ["ISSUE-0035"],
       "branch": "wave4/task10-data-health",
-      "worktree": ".worktrees/task10-data-health",
+      "worktree": null,
       "task_base": "557e923",
-      "head": "85b7fb9",
-      "head_note": "Atomic staging and failed-completion provenance fixes plus final closure evidence refresh are committed; final integration/synchronisation remains.",
-      "implementation_commits": ["d171162", "85b469e", "87559ed", "ea03216", "d1b7b7a", "8ceafce", "85b7fb9"],
+      "head": "3eab7a4",
+      "head_note": "Task 10 implementation and closure evidence merged to main; post-merge verification passed; GitHub issue synchronisation remains.",
+      "implementation_commits": ["d171162", "85b469e", "87559ed", "ea03216", "d1b7b7a", "8ceafce", "85b7fb9", "9daec50"],
       "red": {
         "initial_exit_code": 1,
         "initial_data_health_failures": 5,
@@ -578,8 +578,8 @@
         "reviewer": "task10_final_rereview",
         "specification": "PASS",
         "code_quality": "PASS",
-        "ready_for_integration": false,
-        "blocking_closure_findings": ["final integration gate pending", "local/GitHub issue synchronisation gate pending"]
+        "ready_for_integration": true,
+        "blocking_closure_findings": ["local/GitHub issue synchronisation gate pending"]
       },
       "package": {
         "build_command": "cmd /c scripts\\build_windows.bat",
@@ -608,12 +608,12 @@
         "command": "python scripts/closure_status.py --json-report evidence/final/closure-status-task10-fresh.json",
         "exit_code": 0,
         "issue_ready": true,
-        "interpretation": "presence/checksum evaluator ready; package-smoke and semantic gates pass; final integration/synchronisation gates remain pending"
+        "interpretation": "presence/checksum evaluator ready; package-smoke, semantic and post-merge gates pass; GitHub issue read-back remains pending"
       },
-      "issue_state": "open_implementation_complete_closure_pending",
+      "issue_state": "closed_merged_github_sync_pending",
       "execution_allowed": false,
       "data05_status": "still_open",
-      "next_action": "Integrate Task 10, run post-merge verification, synchronise local/GitHub issue state, then continue to Task 11."
+      "next_action": "Synchronise local ISSUE-0035 closure with GitHub Issue #81, confirm reconciliation, then start Task 11."
     }
   },
   "plan": "docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md",

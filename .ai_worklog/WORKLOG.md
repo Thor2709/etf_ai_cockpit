@@ -1464,3 +1464,11 @@ its historical closed record is retained as a rejected checkpoint. Only final
 integration and local/GitHub synchronisation remain. `execution_allowed=false`;
 Task 11 must not start before the Task 10 integration/closure boundary is
 resolved.
+
+Task 10 integration checkpoint: PR 180 merged the reviewed branch into `main`
+at `3eab7a414a54c74553b09ebc4085902af0ffc33e`. The local canonical
+`ISSUE-0035` record is now closed after post-merge focused/full-suite, compile,
+Ruff, source, native and portable smoke checks. The nested Task 10 worktree
+was removed so the production package-inventory scan no longer traverses it.
+GitHub Issue #81 remains to be read back as closed before Task 11 begins;
+`execution_allowed=false` remains unchanged.

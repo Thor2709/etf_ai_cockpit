@@ -2728,7 +2728,7 @@ issues:
 - issue_id: ISSUE-0035
   title: Data health centre
   wave: 4
-  status: still_open
+  status: closed
   criteria:
   - criterion_id: ISSUE-0035-R01
     text: 'Acceptance criteria: Show price, FX, ETF holdings, fundamentals, news, macro, forecast and backtest cache status.'

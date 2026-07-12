@@ -1059,3 +1059,13 @@
   regression now have a passing authoritative suite. Fresh native/portable
   package smoke and semantic Data Health focus evidence also pass. Closure
   remains pending final integration and local/GitHub synchronisation gates.
+
+## 2026-07-13 Wave 4 Task 10 integration
+
+- Merged PR 180 at `3eab7a414a54c74553b09ebc4085902af0ffc33e`.
+- Moved the canonical `ISSUE-0035` record from `issues/open.md` to
+  `issues/closed.md` after post-merge focused/full-suite, compile, lint, source,
+  native, portable, browser, export and semantic-focus evidence.
+- Removed the merged Task 10 worktree so the package-inventory boundary check
+  scans only the production repository; generated market data and schema-marker
+  artefacts remain excluded from Git.

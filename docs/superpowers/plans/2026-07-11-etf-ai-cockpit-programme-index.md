@@ -1,6 +1,6 @@
 # ETF AI Cockpit Programme Index
 
-> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6 and Wave 3 Tasks 7-9 are independently approved, merged and post-merge verified. Task 9 merged through PR 179 with fresh independent approval. The authoritative local issue ledger is synchronised to GitHub through the versioned map and reconciliation report; later issue closure remains evidence-gated. Task 10 is next.
+> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6 and Wave 3 Tasks 7-9 are independently approved, merged and post-merge verified. Task 9 merged through PR 179 and Task 10 through PR 180 with fresh independent approval. Task 10 is closed locally and post-merge verified; GitHub Issue synchronisation is the remaining bookkeeping action before Task 11.
 
 **Binding inputs:**
 
@@ -19,7 +19,7 @@
 | Source snapshot | `.\.venv\Scripts\python.exe scripts\run_app.py --smoke` | `snapshot_ok as_of=2026-07-09 signals=16 backtests=5` | Fresh source smoke baseline |
 | Existing type check | recorded `mypy_scope` in `RUN_STATE.json` | exit 1 from missing third-party stubs and existing typing debt | Pre-existing baseline failure; no new work may claim to fix it without focused evidence |
 
-The repository-recorded 262-pass run, package smoke and Chrome evidence remain historical broad evidence. They are not closure evidence for any new implementation task. The closure evaluator currently records four ready items (`ISSUE-0035`, `ISSUE-0069`, `UPDATEV2-0022`, `UPDATEV2-0028`) and 37 open records. This programme adds DATA-05 as a distinct record without rewriting the historic 41-record baseline.
+The repository-recorded 262-pass run, package smoke and Chrome evidence remain historical broad evidence. They are not closure evidence for any new implementation task. The closure evaluator currently records four ready items (`ISSUE-0035`, `ISSUE-0069`, `UPDATEV2-0022`, `UPDATEV2-0028`) and 36 tracker records remain open. This programme adds DATA-05 as a distinct record without rewriting the historic 41-record baseline.
 
 ## Programme-wide constraints copied into every plan
 
@@ -226,19 +226,14 @@ affected persistence/evidence/scope tests passed 35, and the report records
 bytecode-disabled compilation, forced compileall, Ruff, source smoke, portable
 launcher readiness and Provider Status screenshots. `UPDATEV2-0011` and
 `UPDATEV2-0021` remain open/partial pending complete issue-level gates;
-`UPDATEV2-0022` remains closed. The next dependency-valid task is Task 10,
-Data Health Centre.
+`UPDATEV2-0022` remains closed. Task 10 Data Health Centre is closed and
+post-merge verified through PR 180; the next dependency-valid task is Task 11,
+Universe Store, Watchlists, Onboarding and Asset Guardrails.
 
-Wave 4 Task 10 implementation is now complete on branch
-`wave4/task10-data-health`, with bounded atomic staging and failed-completion
-provenance fixes applied on top of the earlier implementation. Fresh RED/GREEN
-evidence covers deterministic inventory, persisted provenance, migration
-timestamp/name validation, filters, actions and export compatibility. Final
-independent re-review at `8ceafce` approved specification compliance and code
-quality. The authoritative full suite, native/portable package smoke and
-semantic Data Health focus evidence pass; `ISSUE-0035` remains
-implementation-complete/closure-pending only for final integration and
-local/GitHub synchronisation. Native/portable build, direct packaged HTTP
-readiness, source/package browser renders and 12-row export evidence are
-recorded under `evidence/final/`.
-Do not begin Task 11 until the Task 10 integration/closure boundary is resolved.
+Wave 4 Task 10 implementation is complete and merged through PR 180 at
+`3eab7a414a54c74553b09ebc4085902af0ffc33e`. Bounded atomic staging and
+failed-completion provenance fixes were independently re-reviewed with SPEC
+PASS and CODE PASS. The authoritative full suite, native/portable package
+smoke, semantic Data Health focus, export, source/package browser and
+post-merge checks pass. `ISSUE-0035` is closed in the local canonical ledger;
+GitHub Issue #81 must be read back as closed before Task 11 starts.

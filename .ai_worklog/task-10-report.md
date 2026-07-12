@@ -186,10 +186,10 @@ that fix.
 | Direct packaged launch/readiness | passed | fresh native and portable-native smoke returned HTTP-ready URLs on ports 8601 and 8600 |
 | Browser visual source/package parity | passed | source desktop/mobile and packaged screenshots; console only `Flutter app loaded` |
 | Keyboard/focus/semantic accessibility | passed | accessibility semantics enabled in the running source app; Data Health exposed labelled navigation, filters, export, status and action buttons; Tab moved focus through the semantic tree |
-| Audit/manifest/issue synchronisation | pending | local ledger/map changes await integration and remote read-back |
+| Audit/manifest/issue synchronisation | pending | local issue transition is recorded; GitHub issue read-back is the remaining synchronisation action |
 | Independent task review | passed for implementation | final fresh re-review at `8ceafce`: SPEC PASS, CODE PASS; implementation ready, issue closure still pending integration/synchronisation; report `.ai_worklog/task10-final-rereview.md` |
-| Closure evaluator | machine-ready only | evaluator reports `ISSUE-0035 ready=true` from presence/checksum files; integration/synchronisation and the final issue transition remain binding |
-| Issue transition | blocked | leave `ISSUE-0035` open and retain the historical closed record as rejected checkpoint |
+| Closure evaluator | passed | `scripts/closure_status.py` reports `ISSUE-0035 ready=true` with checksum-verified source/tests/UI/export/build/browser evidence |
+| Issue transition | passed locally | canonical record moved to `issues/closed.md` after merge; GitHub issue closure and reconciliation remain pending |
 
 The task must not be represented as fully closed while any blocked or pending
 gate remains. `execution_allowed=false` and all approved authority boundaries
@@ -221,6 +221,44 @@ smoke_ok mode=native url=http://127.0.0.1:8601/
 The first affected-bundle flake is recorded as a pre-existing
 concurrency-test instability; the immediate rerun passed. No Data Health
 failure occurred and no authority boundary changed.
+
+## Post-merge integration and verification
+
+PR 180 (`https://github.com/Thor2709/etf_ai_cockpit/pull/180`) merged into
+`main` at `3eab7a414a54c74553b09ebc4085902af0ffc33e`. The Task 10 worktree was
+removed after the clean merge; generated schema-marker churn was preserved
+outside Git.
+
+Fresh post-merge checks on `main`:
+
+```text
+pytest -q tests/test_data_health.py tests/test_atomic_io.py tests/operations/test_recovery.py tests/operations/test_transactions.py
+72 passed
+
+pytest -q
+exit 0 at 100%; warnings only
+
+compileall -q src tests
+exit 0
+
+ruff check src/etf_cockpit/data/health.py src/etf_cockpit/app/pages/data_health.py src/etf_cockpit/core/atomic_io.py tests/test_data_health.py tests/test_atomic_io.py --no-cache
+All checks passed
+
+scripts/smoke_app.py --mode source --port 8610 --timeout 60
+smoke_ok mode=source url=http://127.0.0.1:8610/
+
+scripts/smoke_app.py --mode native --port 8611 --timeout 60
+smoke_ok mode=native url=http://127.0.0.1:8611/
+
+scripts/smoke_app.py --mode portable-native --port 8612 --timeout 60
+smoke_ok mode=portable-native url=http://127.0.0.1:8612/
+```
+
+The first post-merge full-suite attempt failed only because the nested Task 10
+worktree was still scanned by the production package-inventory boundary check;
+removing that merged worktree made the targeted package-inventory test and the
+fresh full suite pass. This was repository workspace state, not a product or
+authority defect.
 
 ## Post-closure fix: bounded grouped staging on Windows
 
