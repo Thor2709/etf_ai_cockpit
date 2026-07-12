@@ -138,3 +138,31 @@ default viewport and at 390x844. Evidence screenshots are:
 The mobile capture records the existing fixed-shell navigation and content
 overflow state; no unrelated responsive redesign was introduced. No local
 issue transition is claimed in this branch.
+
+## Regression correction after review fix pass
+
+The first post-fix full Task 9 bundle exposed three compatibility regressions
+in candidate score construction: date-backed candidate rows still produced
+components without provenance, so their evidence score became unavailable.
+The root cause was the builder's component assembly, not the fail-closed
+eligibility predicate. Existing candidate tests reproduced the defect before
+the correction. The builder now attaches the row or latest-price date and a
+deterministic freshness state to every assembled component while preserving
+explicit component provenance. The three candidate regressions now pass.
+
+Fresh post-correction evidence:
+
+```text
+candidate regression tests: 3 passed
+Task 9 focused tests: 13 passed
+affected regression bundle: 35 passed
+compileall -q src tests: exit 0
+scoped Ruff: All checks passed!
+scripts\run_app.py --smoke: snapshot_ok as_of=2026-07-13 signals=16 backtests=5
+```
+
+The remaining failures in the complete simple-score/trust-artifact bundle
+are the previously recorded generated-data limitations (absent candidate
+files, absent secondary universe rows, missing AURG and 16 identity rows
+versus the fixture's `>=45` assertion). A fresh independent re-review of the
+combined implementation and correction is required before integration.

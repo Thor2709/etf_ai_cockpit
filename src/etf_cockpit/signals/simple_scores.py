@@ -725,7 +725,9 @@ def build_universe_simple_scores(
         quality_info = price_quality.get(signal.etf_id, {})
         liquidity_info = liquidity.get(signal.etf_id, {})
         exposure_info = etf_exposure.get(signal.etf_id)
-        components = [
+        as_of_date = _noneable_str(price_info.get("date")) or _noneable_str(signal.signal_date)
+        components = _attach_component_provenance(
+            [
             _data_quality_component(quality_info, [*signal.blocked_by, *signal.warnings]),
             _component(
                 "momentum",
@@ -757,7 +759,9 @@ def build_universe_simple_scores(
             _forecast_component(signal.etf_id, "baseline", raw_forecast_scores, forecast_details, forecasts),
             _forecast_component(signal.etf_id, "timesfm", raw_forecast_scores, forecast_details, forecasts),
             _forecast_component(signal.etf_id, "toto", raw_forecast_scores, forecast_details, forecasts),
-        ]
+            ],
+            as_of_date,
+        )
         _raw_final, evidence_score = combine_component_scores(components, ETF_EVIDENCE_WEIGHTS)
         quality_score = _evidence_quality_score(components, warnings=[*signal.blocked_by, *signal.warnings], asset_type="ETF")
         risk_friction = _risk_friction_score(components, warnings=[*signal.blocked_by, *signal.warnings])
@@ -902,7 +906,8 @@ def build_candidate_simple_scores(
             output.append(_pending_candidate_score(row, asset_type))
             continue
         blocked = _split_flags(row.get("blocked_by"))
-        components = [
+        as_of_date = _noneable_str(row.get("latest_date"))
+        component_rows = [
             _candidate_data_quality_component(row, blocked),
             _component("momentum", _candidate_momentum_raw(row), _candidate_momentum_why(row), authority="high"),
             _component("trend", _candidate_trend_raw(row), _candidate_trend_why(row), authority="high"),
@@ -916,9 +921,9 @@ def build_candidate_simple_scores(
             _candidate_liquidity_component(row),
         ]
         if asset_type == "ETF":
-            components.append(_etf_exposure_component(etf_exposure.get(instrument_id)))
+            component_rows.append(_etf_exposure_component(etf_exposure.get(instrument_id)))
         else:
-            components.extend(
+            component_rows.extend(
                 [
                     _optional_score_component(
                         "stock_value",
@@ -940,13 +945,14 @@ def build_candidate_simple_scores(
                     ),
                 ]
             )
-        components.extend(
+        component_rows.extend(
             [
                 _forecast_component(instrument_id, "baseline", raw_forecast_scores, forecast_details, forecasts),
                 _forecast_component(instrument_id, "timesfm", raw_forecast_scores, forecast_details, forecasts),
                 _forecast_component(instrument_id, "toto", raw_forecast_scores, forecast_details, forecasts),
             ]
         )
+        components = _attach_component_provenance(component_rows, as_of_date)
         weight_map = ETF_EVIDENCE_WEIGHTS if asset_type == "ETF" else STOCK_EVIDENCE_WEIGHTS
         _raw_final, evidence_score = combine_component_scores(components, weight_map)
         quality_score = _evidence_quality_score(components, warnings=blocked, asset_type=asset_type)
@@ -1210,6 +1216,29 @@ def _component(
         authority=authority,
         score_role=role,
     )
+
+
+def _component_freshness_status(as_of_date: str | None) -> str | None:
+    parsed = _parse_date(as_of_date)
+    if parsed is None:
+        return None
+    return "stale" if _business_days_between(parsed, date.today()) > 10 else "ok"
+
+
+def _attach_component_provenance(
+    components: list[SimpleScoreComponent],
+    as_of_date: str | None,
+) -> list[SimpleScoreComponent]:
+    clean_date = _noneable_str(as_of_date)
+    freshness = _component_freshness_status(clean_date)
+    return [
+        replace(
+            component,
+            as_of_date=component.as_of_date or clean_date,
+            freshness_status=component.freshness_status or freshness,
+        )
+        for component in components
+    ]
 
 
 def _forecast_component(
