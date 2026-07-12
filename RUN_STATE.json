@@ -5,8 +5,8 @@
     "name": "2026-07-11-etf-ai-cockpit-approved-programme",
     "programme_index": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-programme-index.md",
     "progress_ledger": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-progress-ledger.md",
-    "phase": "wave1_governance_task3_merged_wave1_governance_task4_ready",
-    "next_task": "Wave 1, Governance Task 4: replace portfolio proposals with non-executable review reports and create the Decision Journal",
+    "phase": "wave1_governance_task4_merged_wave1_governance_task5_ready",
+    "next_task": "Wave 1, Governance Task 5: deliver governance surfaces and the static release boundary",
     "git_repository": true,
     "git_branch": "main",
     "baseline": {
@@ -436,19 +436,62 @@
       "github_sync": "not required; local issue ledger unchanged",
       "execution_allowed": false,
       "data05_status": "still_open",
-      "next_task": "Wave 1 Governance Task 4"
+      "next_task": "Wave 1 Governance Task 5"
+    },
+    "governance_task_4_checkpoint": {
+      "owning_issue_ids": ["ISSUE-0008", "ISSUE-0010", "ISSUE-0030", "ISSUE-0043", "ISSUE-0047", "ISSUE-0060", "ISSUE-0066"],
+      "branch": "wave1/governance-task4",
+      "task_base": "7e9a0eceeef826dd373510e9e1c78269817a2a3d",
+      "implementation_commits": ["92abae9"],
+      "red": {
+        "initial_collection_exit_code": 1,
+        "initial_collection_failure": "Task 4 production modules were absent",
+        "fix_review_probes": "path traversal, malformed persistence, grouped reads, operation semantics, identity/schema, deterministic supersedes, report vocabulary, policy evidence and lock ownership"
+      },
+      "green": {
+        "focused_tests": 23,
+        "focused_exit_code": 0,
+        "affected_exit_code": 0,
+        "compileall_exit_code": 0,
+        "ruff_exit_code": 0,
+        "source_smoke_exit_code": 0,
+        "full_test_command": ".venv\\Scripts\\python.exe -m pytest -q",
+        "full_test_exit_code": 0
+      },
+      "independent_review": {
+        "report": ".ai_worklog/task-governance-4-review-final.md",
+        "specification": "approved_with_non_blocking_recommendations",
+        "code_quality": "approved_with_non_blocking_recommendations",
+        "ready": true,
+        "critical": 0,
+        "important": 0,
+        "minor": 0
+      },
+      "integration": {
+        "pull_request": "https://github.com/Thor2709/etf_ai_cockpit/pull/174",
+        "merge_commit": "c61531841a753ce1e3f862f8beb498c629b9cbb5",
+        "main_matches_origin": true,
+        "working_tree_clean_before_docs": true,
+        "post_merge_focused_tests": 23,
+        "post_merge_full_suite_exit_code": 0
+      },
+      "issue_state": "open",
+      "github_sync": "ledger unchanged; reconciliation remains 77 open/21 closed",
+      "execution_allowed": false,
+      "data05_status": "still_open",
+      "next_task": "Wave 1 Governance Task 5"
     }
   },
   "plan": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-governance-plan.md",
   "execution_mode": "subagent_driven_with_independent_review",
   "git_repository": true,
   "git_branch": "main",
-  "progress_percent": 24,
+  "progress_percent": 28,
   "wave": 1,
-  "task": 4,
+  "task": 5,
   "step": 1,
   "completed_tasks": [1, 2, 3, 4, 5],
-  "completed_governance_tasks": [1, 2, 3],
+  "completed_governance_tasks": [1, 2, 3, 4],
   "implementation_foundations": [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
   "issue_counts": {
     "reviewed": 41,
@@ -456,8 +499,8 @@
     "still_open": 37
   },
   "last_checkpoint": {
-    "name": "wave1_governance_task3_merged_wave1_governance_task4_ready",
-    "result": "Wave 1 Governance Task 3 was independently reviewed and merged through PR 173. Its severity-aware resolver, complete ordered gate evidence, policy metadata and signal/simple-score release propagation are integrated; owning issues remain open for later journal, UI and complete closure gates. Wave 1 Governance Task 4 is next.",
+    "name": "wave1_governance_task4_merged_wave1_governance_task5_ready",
+    "result": "Wave 1 Governance Task 4 was independently reviewed and merged through PR 174. Neutral review reports, the atomic checksum-protected Decision Journal, deterministic supersedes, grouped reads and owner-token locking are integrated; owning issues remain open for later UI/package/browser and complete closure gates. Wave 1 Governance Task 5 is next.",
     "evidence": [
       ".ai_worklog/task-5-report.md",
       ".ai_worklog/task-5-review-rereview.md",
@@ -485,8 +528,8 @@
       "closure_evaluator": {"exit_code": 1, "ready": 4, "still_open": 37, "expected_nonzero": true}
     }
   },
-  "first_unpassed_criterion": "Wave 1 Governance Task 4 remains incomplete; governance owning issues and Wave 0 tracker records remain open for complete closure evidence",
-  "next_command": "Create the Wave 1 Governance Task 4 isolated worktree/branch from origin/main, dispatch a fresh implementer, write and run the portfolio review report and Decision Journal RED tests, then obtain independent review",
+  "first_unpassed_criterion": "Wave 1 Governance Task 5 remains incomplete; governance owning issues and Wave 0 tracker records remain open for complete closure evidence",
+  "next_command": "Create the Wave 1 Governance Task 5 isolated worktree/branch from origin/main, dispatch a fresh implementer, write and run the governance-surface and static-release-boundary RED tests, then obtain independent review",
   "notes": [
     "No Git initialisation or commit occurred before the independently approved Task 2 boundary; the user now authorises local baseline Git setup and optional private GitHub push only.",
     "Closure status is evaluator-backed: 4/41 ready and 37 still open; do not close remaining issues without their complete dossiers.",

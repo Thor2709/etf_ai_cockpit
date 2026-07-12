@@ -249,7 +249,7 @@ Export a representative typed gate table and policy checksum in `evidence/govern
 
 **Produces:** non-executable review report and immutable user-owned journal/outcome records.
 
-- [ ] **Step 1: Write RED persistence and authority tests**
+- [x] **Step 1: Write RED persistence and authority tests**
 
 ```python
 def test_portfolio_review_report_is_never_executable() -> None:
@@ -264,25 +264,40 @@ def test_journal_correction_appends_without_mutating_original(tmp_path: Path) ->
     assert corrected.supersedes_entry_id == original.journal_entry_id
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `.\.venv\Scripts\python.exe -m pytest tests\test_portfolio_review_reports.py tests\test_decision_journal.py tests\test_trade_proposals.py -q`
 
 Expected: FAIL because transaction-shaped proposal output and mutable/no journal store remain.
 
-- [ ] **Step 3: Implement compatibility alias and atomic append-only journal**
+- [x] **Step 3: Implement compatibility alias and atomic append-only journal**
 
 The deprecated `create_trade_proposal()` delegates to `create_portfolio_review_report()`, emits a deprecation event and is absent from Flet controls. Journal entries and outcomes use atomic grouped JSON/Parquet index commits; logs keep IDs/checksums but never raw thesis or notes.
 
-- [ ] **Step 4: Run GREEN**
+- [x] **Step 4: Run GREEN**
 
 Run: `.\.venv\Scripts\python.exe -m pytest tests\test_portfolio_review_reports.py tests\test_decision_journal.py tests\test_atomic_io.py -q`
 
 Expected: PASS, including interrupted-index-write, duplicate-ID and private-log fixtures.
 
-- [ ] **Step 5: Record artifact contracts**
+- [x] **Step 5: Record artifact contracts**
 
 Include an opt-in journal export sample with no raw private notes in `evidence/governance/decision_journal_export_summary.json`.
+
+### Task 4 completion checkpoint - 2026-07-12
+
+Task 4 is independently approved and integrated through PR 174 at merge commit
+`c61531841a753ce1e3f862f8beb498c629b9cbb5`. The neutral review report is now
+the release-facing AppState path; the legacy proposal function remains a
+deprecation-warning/event compatibility adapter. Decision Journal payload,
+index and operation log generations publish through one atomic group, reads use
+the grouped reader boundary, IDs/checksums/schema/identity fail closed,
+supersedes are bounded and deterministic, and filesystem journal writes are
+serialised with owner-token locks. Focused Task 4 tests passed 23, the affected
+authority/release/atomic/transaction bundle passed, compileall/Ruff/source smoke
+passed, and the post-merge full suite passed. No issue moved to closed because
+the owning issues still require later UI/package/browser and complete closure
+evidence. Wave 1 Governance Task 5 is next.
 
 ### Task 5: Deliver governance surfaces and static release boundary
 

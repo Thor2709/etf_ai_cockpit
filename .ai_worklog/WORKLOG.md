@@ -1342,3 +1342,16 @@
 - Added production propagation for typed authority decisions, ordered nine-gate tables, policy version/checksum metadata and diagnostics in signal and simple-score release paths.
 - RED/GREEN evidence, failure-path coverage, independent approval and full-suite capture are recorded in `.ai_worklog/task-governance-3-report.md`, `.ai_worklog/task-governance-3-review-final.md` and `evidence/governance/`.
 - PR 173 was independently approved and merged at `5fde19639da9caa6cdb01eef852dc34698b53482`; post-merge focused/affected/full verification passed, `execution_allowed` remains `false`, and no issue state changed. Governance Task 4 is next.
+
+## 2026-07-12 Wave 1 Governance Task 4 Complete
+
+- Implemented and reviewed neutral portfolio review reports and the atomic,
+  checksum-protected Decision Journal.
+- Fixed reviewer findings across path containment, fail-closed persistence,
+  grouped reads, operation semantics, identity/schema checks, deterministic
+  supersedes, policy provenance, and owner-token journal locking.
+- Fresh independent review approved specification compliance and code quality
+  with READY YES and no Critical/Important/Minor findings.
+- PR 174 merged at `c61531841a753ce1e3f862f8beb498c629b9cbb5`; focused 23,
+  affected and full post-merge tests passed; no issue state changed and
+  `execution_allowed` remains `false`. Governance Task 5 is next.

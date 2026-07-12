@@ -1180,3 +1180,12 @@ Required checks for the current implementation sweep:
 - Compileall, scoped Ruff, source import smoke and `git diff --check` each exited 0.
 - Fresh independent review `.ai_worklog/task-governance-3-review-final.md` approved specification compliance and code quality with `READY: YES`; the two evidence-log whitespace lines were fixed and rechecked.
 - Integration: PR 173 merged at `5fde19639da9caa6cdb01eef852dc34698b53482`; local `main` is clean and matches `origin/main`; no issue state transition; `execution_allowed=false`.
+
+## 2026-07-12 Wave 1 Governance Task 4 post-merge verification
+
+- Focused Task 4 bundle: `.venv\Scripts\python.exe -m pytest -q tests/test_decision_journal.py tests/test_portfolio_review_reports.py tests/test_trade_proposals.py` - exit 0, **23 passed**; two expected deprecation warnings.
+- Affected authority/release/atomic/transaction bundle: `.venv\Scripts\python.exe -m pytest -q tests/test_authority_resolution.py tests/test_signal_gates.py tests/test_release_hardening.py tests/test_trade_proposals.py tests/test_portfolio_review_reports.py tests/test_decision_journal.py tests/test_atomic_io.py tests/operations/test_transactions.py` - exit 0.
+- Full suite: `.venv\Scripts\python.exe -m pytest -q` - exit 0; all collected tests passed.
+- Compileall, scoped Ruff, source smoke and `git diff --check` passed with exit 0.
+- Fresh independent review `.ai_worklog/task-governance-4-review-final.md`: specification and code approved with non-blocking recommendations; READY YES; no Critical/Important/Minor findings.
+- Integration: PR 174 merged at `c61531841a753ce1e3f862f8beb498c629b9cbb5`; `main` matches `origin/main`; no issue state transition; `execution_allowed=false`.

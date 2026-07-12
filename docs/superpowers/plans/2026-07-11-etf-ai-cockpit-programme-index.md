@@ -117,7 +117,7 @@ The next agent must reread this index, the active plan, the progress ledger, the
 - Placeholder scan over all nine implementation plans found no `TBD`, `TODO`, `add tests`, `handle errors`, `similar to above` or `implement later` placeholder.
 - The documentation-only pre-flight change corrected the final plan heading. No implementation code, configuration, tracker status or user data has changed.
 - Fresh baseline evidence recorded before implementation: pytest exit 0, Ruff clean, compileall exit 0, source snapshot smoke exit 0, source/native/portable smoke exit 0, and a rendered in-app-browser inspection of the source Simple Scores route.
-- No blocking product contradiction remains after applying the approved precedence rules. Wave 0, Tasks 1 and 2 are independently reviewed complete. Wave 0, Task 3 is independently approved, merged and post-merge verified with no Critical, Important or Minor findings. Wave 0, Task 4 and its generated-package correction are independently approved, merged through PRs 2 and 3, and post-merge verified. Wave 0, Task 5 and Wave 1 governance Tasks 1-2 are independently approved, merged and post-merge verified; Wave 1 governance Task 3 is the next dependency-valid task.
+- No blocking product contradiction remains after applying the approved precedence rules. Wave 0, Tasks 1 and 2 are independently reviewed complete. Wave 0, Task 3 is independently approved, merged and post-merge verified with no Critical, Important or Minor findings. Wave 0, Task 4 and its generated-package correction are independently approved, merged through PRs 2 and 3, and post-merge verified. Wave 0, Task 5 and Wave 1 governance Tasks 1-3 are independently approved, merged and post-merge verified; Wave 1 governance Task 4 is now independently approved, merged and post-merge verified; Wave 1 governance Task 5 is next.
 
 ## GitHub issue synchronisation checkpoint - 2026-07-12
 
@@ -168,3 +168,13 @@ metadata and diagnostics are serialised, incomplete evidence fails closed and
 affected governance/migration/proposal/export tests (88), compileall, Ruff,
 source import smoke, diff checks and the full suite (exit 0) passed. No issue
 state changed. Wave 1 Governance Task 4 is the next dependency-valid task.
+
+Wave 1 Governance Task 4 is independently approved and integrated through PR
+174 (`https://github.com/Thor2709/etf_ai_cockpit/pull/174`) at merge commit
+`c61531841a753ce1e3f862f8beb498c629b9cbb5`. It adds neutral non-executable
+review reports, a checksum-protected append-only Decision Journal with grouped
+atomic publication/reads, deterministic bounded supersedes and owner-token
+filesystem locking. Focused Task 4 tests (23), affected authority/release/
+atomic/transaction tests, compileall, Ruff, source smoke and the post-merge
+full suite passed. No issue state changed; Wave 1 Governance Task 5 is the next
+dependency-valid task.

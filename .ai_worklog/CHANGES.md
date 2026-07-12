@@ -880,6 +880,21 @@
 
 - No Git commit was created because the app root is not a Git repository.
 
+## 2026-07-12 Wave 1 Governance Task 4 Complete
+
+- Added neutral portfolio review reports with typed state/gate/policy evidence,
+  hard-coded non-executable authority and atomic persistence.
+- Routed AppState to the neutral report and retained the old proposal function
+  only as a deprecation-warning/event compatibility adapter.
+- Added the append-only Decision Journal with checksum-protected payload/index/
+  operation generations, grouped atomic reads, safe IDs, identity/schema
+  validation, deterministic bounded supersedes, private-note-safe export and
+  owner-token filesystem locking.
+- Focused Task 4 tests (23), affected regressions, compileall, Ruff, source
+  smoke and the post-merge full suite passed. PR 174 merged at
+  `c61531841a753ce1e3f862f8beb498c629b9cbb5`; no issue state changed and
+  `execution_allowed` remains `false`. Governance Task 5 is next.
+
 ## 2026-07-12 Wave 1 Governance Task 3
 
 - Added the central severity-aware `resolve_authority` contract with policy-authoritative severity, complete ordered gate validation, strict portfolio evidence checks and deterministic policy checksum metadata.
