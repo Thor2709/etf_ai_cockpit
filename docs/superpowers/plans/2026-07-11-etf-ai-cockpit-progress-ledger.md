@@ -9,7 +9,7 @@
 | Updated | 2026-07-12 |
 | Active phase | Wave 1 Governance Task 4 independently approved, merged through PR 174 and post-merge verified; Wave 1 Governance Task 5 is next |
 | Active plan | `docs/superpowers/plans/2026-07-11-etf-ai-cockpit-governance-plan.md` |
-| Git state | `main` is clean and matches `origin/main` at `c61531841a753ce1e3f862f8beb498c629b9cbb5`; Task 4 PR 174 is integrated and the GitHub issue mirror remains synchronised |
+| Git state | `main` is clean and matches `origin/main` at `eb5ece66b4ff02ef5554ee5dd1b7308594e9288c`; Task 4 PR 174 and its issue-mirror refresh are integrated |
 | Existing closure state | 4 ready / 37 tracker records still open; DATA-05 is a new separate requirement |
 | Fresh baseline | pytest exit 0, Ruff clean, compileall exit 0, source snapshot smoke exit 0, source/native/portable smoke exit 0 and rendered in-app-browser source-route inspection |
 | Pre-existing type state | recorded mypy failure caused by external stubs and existing typing debt; no new failure attributed |
