@@ -279,3 +279,22 @@ Executing the approved plan at `docs/superpowers/plans/2026-07-09-launcher-spare
   0, 98 unchanged, no unresolved duplicates).
 - The next dependency-valid implementation is Wave 1 Governance Task 1;
   `execution_allowed` remains `false`.
+
+## 2026-07-12 Wave 1 Governance Task 1 Integration Checkpoint
+
+- Implemented the approved fail-closed governance policy foundation on
+  `wave1/governance-task1`: immutable checksum-bearing Pydantic models,
+  complete product/feature/strategy/gate/glossary policy files, diagnostic
+  loading for incomplete or unsupported policy input, and audit-export
+  governance checksum visibility.
+- RED evidence recorded 21 regression failures and two passes before the fix;
+  the focused governance suite then passed 43 tests. The full suite produced
+  316 passes and the same seven pre-existing generated-data/identity fixture
+  failures as baseline. Scoped Ruff and compileall passed.
+- Fresh independent re-review approved specification compliance and code
+  quality with no Critical, Important or Minor findings. PR 171
+  (`https://github.com/Thor2709/etf_ai_cockpit/pull/171`) merged into `main` at
+  `a54aed9c8157ff361eb7782252a88a471b835499`; no local issue moved between
+  ledgers and `execution_allowed` remains `false`.
+- The next dependency-valid task is Wave 1 Governance Task 2: split public
+  research state from internal signal intent and migrate historical records.

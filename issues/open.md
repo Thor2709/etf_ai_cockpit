@@ -29,6 +29,17 @@ GitHub issue was deleted. See `issues/github_issue_map.json`,
 `issues/github_issue_sync_report.json` and
 `.ai_worklog/github-issue-sync.md`.
 
+Wave 1 Governance Task 1 checkpoint 2026-07-12: the fail-closed policy
+foundation was independently approved and merged through PR 171 at
+`a54aed9c8157ff361eb7782252a88a471b835499`. Five immutable checksum-bearing
+policy contracts, complete route/strategy/gate/glossary inventories and audit
+governance markers are now present. Focused governance verification passed 43
+tests; the full suite reproduced the seven recorded generated-data/identity
+baseline failures and introduced no new failure. This checkpoint does not
+close `ISSUE-0008`, `ISSUE-0010`, `ISSUE-0030`, `ISSUE-0043`, `ISSUE-0047`,
+`ISSUE-0060` or `ISSUE-0066`; their migration, authority-resolution, journal,
+UI and complete evidence gates remain open. Wave 1 Governance Task 2 is next.
+
 ## Tracker Rules
 
 Every issue below is open until all close criteria pass. User-facing issues must be implemented in source, visible in the app UI, tested, included in audit/export where relevant, rebuilt, started from the rebuilt app and smoke-tested from the user's point of view. Backend-only fields do not close UI-facing issues.

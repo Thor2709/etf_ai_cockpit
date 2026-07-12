@@ -1,6 +1,6 @@
 # ETF AI Cockpit Programme Index
 
-> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 3 and 4 are independently approved, merged and post-merge verified. Wave 0 Task 5 is independently approved and merged through PR 4 with post-merge verification. The authoritative local issue ledger is synchronised to GitHub through the versioned map and reconciliation report; later issue closure remains evidence-gated.
+> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5 and Wave 1 Governance Task 1 are independently approved, merged and post-merge verified. Governance Task 1 merged through PR 171 with fresh re-review. The authoritative local issue ledger is synchronised to GitHub through the versioned map and reconciliation report; later issue closure remains evidence-gated.
 
 **Binding inputs:**
 
@@ -130,3 +130,14 @@ duplicates were retained and closed as duplicates, without deleting any GitHub
 Issue or changing local issue state. The durable map, report and evidence are
 `issues/github_issue_map.json`, `issues/github_issue_sync_report.json` and
 `.ai_worklog/github-issue-sync.md`.
+
+## Wave 1 Governance Task 1 integration checkpoint - 2026-07-12
+
+Task 1 is complete at the task boundary and integrated into `origin/main`.
+PR 171 (`https://github.com/Thor2709/etf_ai_cockpit/pull/171`) merged at
+`a54aed9c8157ff361eb7782252a88a471b835499`. The independent re-review passed
+specification compliance and code quality with no findings. Focused governance
+verification passed 43 tests; the full suite reproduced 316 passes and seven
+pre-existing generated-data/identity fixture failures; scoped Ruff and
+compileall passed. No owning issue is closed by this foundation task. The next
+dependency-valid task is Wave 1 Governance Task 2, research-state migration.

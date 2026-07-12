@@ -71,7 +71,7 @@ def resolve_authority(base_state: ResearchState, gates: list[GateResult], portfo
 
 **Produces:** validated, checksum-bearing policy objects and diagnostic fail-closed loading mode.
 
-- [ ] **Step 1: Create failing policy tests**
+- [x] **Step 1: Create failing policy tests**
 
 ```python
 def test_execution_enabled_governance_configuration_is_rejected(tmp_path: Path) -> None:
@@ -84,25 +84,36 @@ def test_experimental_strategy_cannot_have_positive_score_authority() -> None:
         StrategyScopeEntry(lifecycle="experimental", score_authority=True)
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `.\.venv\Scripts\python.exe -m pytest tests\test_product_governance.py tests\test_feature_registry.py tests\test_strategy_scope.py tests\test_gate_policy.py -q`
 
 Expected: FAIL because governance policy models and files are absent.
 
-- [ ] **Step 3: Implement immutable policy models and checksum loading**
+- [x] **Step 3: Implement immutable policy models and checksum loading**
 
 All loaders return a Pydantic object, schema version and SHA-256 checksum. An invalid or absent policy yields `GovernanceLoadResult(diagnostic_mode=True)` with `manual_review`/`not_scoreable`, no research promotion and no portfolio review.
 
-- [ ] **Step 4: Run GREEN**
+- [x] **Step 4: Run GREEN**
 
 Run: `.\.venv\Scripts\python.exe -m pytest tests\test_product_governance.py tests\test_feature_registry.py tests\test_strategy_scope.py tests\test_gate_policy.py -q`
 
 Expected: PASS; every production route and user-visible subsystem has one feature registry entry, and prohibited authority combinations fail validation.
 
-- [ ] **Step 5: Checkpoint policy provenance**
+- [x] **Step 5: Checkpoint policy provenance**
 
 Generate `evidence/governance/policy_checksums.json` with no secret values and attach it to the wave ledger.
+
+**Task 1 completion checkpoint (2026-07-12):** The policy contract and loader
+were implemented, fixed after the independent review, and merged through PR
+171 at `a54aed9c8157ff361eb7782252a88a471b835499`. The focused governance
+bundle passed 43 tests; the full suite reproduced 316 passes and seven
+pre-existing generated-data/identity failures; scoped Ruff and compileall
+passed. Fresh independent re-review approved specification compliance and code
+quality with no Critical, Important or Minor findings. Task 1 does not close
+the owning issues: Task 2 owns research-state migration, and later tasks own
+authority resolution, the journal and governance UI. `execution_allowed`
+remains `false`.
 
 ### Task 2: Split public research state from internal signal intent and migrate historical records
 

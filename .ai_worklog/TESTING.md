@@ -1153,3 +1153,12 @@ Required checks for the current implementation sweep:
 - Scoped Ruff over all Task 2 implementation and regression files - exit 0, `All checks passed!`.
 - Scoped compilation over all Task 2 implementation and regression files - exit 0.
 - Fresh independent review 2 approved with no findings. No issue status changed and Task 3 was not started.
+
+## 2026-07-12 Wave 1 Governance Task 1 Verification
+
+- RED: `$env:PYTHONPATH='src'; .\.venv\Scripts\python.exe -m pytest tests\test_governance_review_regressions.py -q` - exit 1 with 21 review-regression failures and 2 passes before the fix.
+- GREEN: `$env:PYTHONPATH='src'; .\.venv\Scripts\python.exe -m pytest tests\test_product_governance.py tests\test_feature_registry.py tests\test_strategy_scope.py tests\test_gate_policy.py tests\test_governance_review_regressions.py -q` - exit 0, 43 passed.
+- Full regression: `$env:PYTHONPATH='src'; .\.venv\Scripts\python.exe -m pytest -q` - exit 1 with 316 passed and the seven recorded generated-data/identity baseline fixture failures; no new failure was introduced.
+- Scoped Ruff and compilation: governance, audit-export and Task 1 regression paths passed with exit 0.
+- Independent re-review: `.ai_worklog/task-governance-1-review-rereview.md` approved specification compliance and code quality with no Critical, Important or Minor findings.
+- Integration: PR 171 merged into `main` at `a54aed9c8157ff361eb7782252a88a471b835499`; no issue state changed and `execution_allowed` remains `false`. Wave 1 Governance Task 2 is next.

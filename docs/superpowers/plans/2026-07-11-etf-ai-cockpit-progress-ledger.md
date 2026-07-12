@@ -7,9 +7,9 @@
 | Field | Value |
 |---|---|
 | Updated | 2026-07-12 |
-| Active phase | Wave 0 Task 5 independently approved, corrected after re-review, merged and post-merge verified; Wave 1 governance Task 1 is next |
-| Active plan | `docs/superpowers/plans/2026-07-11-etf-ai-cockpit-foundation-operations-boundary-plan.md` |
-| Git state | `main` is clean and matches `origin/main` at `bc9ed5152ef279e06939348aa1b397ac15bac8bf`; Task 5 PR 4 and the GitHub issue mirror checkpoints are integrated |
+| Active phase | Wave 1 Governance Task 1 independently approved, merged through PR 171 and post-merge verified; Wave 1 Governance Task 2 is next |
+| Active plan | `docs/superpowers/plans/2026-07-11-etf-ai-cockpit-governance-plan.md` |
+| Git state | `main` is clean and matches `origin/main` at `a54aed9c8157ff361eb7782252a88a471b835499`; Task 1 PR 171 and the GitHub issue mirror checkpoints are integrated |
 | Existing closure state | 4 ready / 37 tracker records still open; DATA-05 is a new separate requirement |
 | Fresh baseline | pytest exit 0, Ruff clean, compileall exit 0, source snapshot smoke exit 0, source/native/portable smoke exit 0 and rendered in-app-browser source-route inspection |
 | Pre-existing type state | recorded mypy failure caused by external stubs and existing typing debt; no new failure attributed |
@@ -20,7 +20,7 @@
 | Wave | Owning plan | State | Last verified evidence | Next gate |
 |---:|---|---|---|---|
 | 0 | foundation, operations and boundary | Tasks 1-5 independently approved, merged and post-merge verified; local issue mirror synchronised | Task 5: focused 31 passed, release 26 passed, operations 81 passed, fresh independent re-review approved with no Critical/Important findings, Ruff/compileall/pip/PowerShell AST clean and source smoke; GitHub reconciliation 98 records, 77/21 state counts, no unresolved duplicates | Start Wave 1 governance Task 1; `UPDATEV2-0029`, `ISSUE-0013`, `ISSUE-0014`, `ISSUE-0045` and later tracker issues remain open |
-| 1 | governance | Not started | occurrence map identifies legacy action, `trading_allowed`, proposal and model-weight seams | establish typed governance RED suite |
+| 1 | governance | Task 1 independently approved and merged; Task 2 next | five immutable checksum-bearing policies, fail-closed diagnostics, complete route/strategy/gate/glossary inventories and audit governance marker | write the research-state migration RED suite |
 | 2 | registry and universe | Not started | `UniverseRecord`/optimistic revision/atomic save present | registry dry-run and validator RED suite |
 | 3 | DATA-05 | Not started | no live seed verification has been performed in this programme | retrieve current official identity evidence and write failing seed-contract tests |
 | 4 | storage and evidence | Not started | DuckDB helper, atomic I/O, Data Health and parser scaffolds present | catalogue/evidence contract RED suite |
@@ -44,6 +44,7 @@
 | 2026-07-12 | Wave 0 Task 4 - no-execution/rejection boundary and generated-package correction | fresh implementer plus bounded parent fix pass after independent findings | fresh independent reviewers `.ai_worklog/task-4-review-postfix.md` and `.ai_worklog/task-4-postmerge-review.md` | initial RED collected 7 behavioural failures; fix-pass RED collected 2 bypass failures; post-merge regression RED reproduced generated `build/` false positives | final scope/release bundle 54 passed; release/operations 75 passed; Ruff/compile/pip/diff clean; deterministic production scan 358 files, zero violations; source smoke passed | **Approved and integrated**; no Critical, Important or Minor findings; no issue closure because Task 4 does not satisfy complete `ISSUE-0040` or later tracker gates | `.ai_worklog/task-4-brief.md`, `.ai_worklog/task-4-report.md`, `.ai_worklog/task-4-fix-report.md`, `.ai_worklog/task-4-fix-pass-2-report.md`, `.ai_worklog/task-4-review-1.md`, `.ai_worklog/task-4-review-postfix.md`, `.ai_worklog/task-4-postmerge-fix-report.md`, `.ai_worklog/task-4-postmerge-review.md` | PR 2 merged at `0f2b2cb`; correction PR 3 merged at `5b732e4`; `execution_allowed=false`; Task 5 is next |
 | 2026-07-12 | Wave 0 Task 5 - deterministic evidence automation and fail-closed clean environment | fresh implementer plus fresh fix implementer | fresh independent reviewer and re-review `.ai_worklog/task-5-review-rereview.md` | initial RED exit 1 with three missing-artifact failures; fix-pass RED covered five Important fail-open paths with 8 failures | focused 31 passed; release 26 passed; operations 81 passed; Ruff/compileall/pip/PowerShell AST clean; source smoke passed; clean-environment execution intentionally unrun because it creates venv/package/browser artefacts | **Approved and integrated**; no Critical or Important findings remain; no issue closure because owning release/UI/browser gates remain open | `.ai_worklog/task-5-report.md`, `.ai_worklog/task-5-review.md`, `.ai_worklog/task-5-fix-pass-1-report.md`, `.ai_worklog/task-5-review-rereview.md` | PR 4 merged at `fc4d61cfc6e77da9a91aeb5afe0341b1d7658f55`; `execution_allowed=false`; Wave 1 governance Task 1 is next |
 | 2026-07-12 | GitHub issue synchronisation | primary controller using deterministic sync tool; no product issue transition | focused release tests and deterministic read-back | RED/fix cycles covered duplicate identity and newline/idempotence handling; final apply exit 0; final dry-run exit 0 | 7 sync tests passed; Ruff clean; 98 canonical records mapped (77 open/21 closed), remote state counts agree and unresolved duplicates empty | **Synchronisation approved**; local ledgers remain authoritative and no issue state changed | `issues/github_issue_map.json`, `issues/github_issue_sync_report.json`, `.ai_worklog/github-issue-sync.md`, `scripts/sync_github_issues.py` | 166 remote records retained, including 68 closed exact-marker historical duplicates; no GitHub issue deleted; next task is Wave 1 Governance Task 1 |
+| 2026-07-12 | Wave 1 Governance Task 1 - fail-closed policy contracts | fresh fix implementer after independent findings | fresh independent reviewer `governance_task1_review_fast` | governance regression RED exit 1 with 21 failures and 2 passes before fixes | focused governance bundle exit 0 with 43 passed; full suite 316 passed and 7 recorded baseline fixture failures; scoped Ruff/compileall exit 0 | **Approved and integrated**; SPECIFICATION PASS and CODE QUALITY PASS; no Critical, Important or Minor findings; owning issues remain open for later governance tasks | `.ai_worklog/task-governance-1-report.md`, `.ai_worklog/task-governance-1-fix-report.md`, `.ai_worklog/task-governance-1-review-rereview.md`, `evidence/governance/policy_checksums.json` | PR 171 `https://github.com/Thor2709/etf_ai_cockpit/pull/171` merged at `a54aed9c8157ff361eb7782252a88a471b835499`; five policy loaders, 22 routes, 27 strategies, 9 ordered gates and 27 glossary terms validated; no issue state changed; Task 2 is next |
 
 ## Open review findings
 
@@ -58,7 +59,7 @@
 
 1. Read the attached specification, the programme index, this ledger and the active plan.
 2. Check `RUN_STATE.json`, `.ai_worklog/TESTING.md`, the latest task review and current file state.
-3. Continue only the first unchecked task whose prerequisites are verified; Tasks 1-5 are merged and post-merge verified. Start Wave 1 governance Task 1 with a fresh implementer and independent reviewer; do not close `UPDATEV2-0029`, `ISSUE-0013`, `ISSUE-0014`, `ISSUE-0045` or `ISSUE-0040` until their complete UI/package/browser gates pass.
+3. Continue only the first unchecked task whose prerequisites are verified; Wave 0 Tasks 1-5 and Wave 1 Governance Task 1 are merged and post-merge verified. Start Wave 1 Governance Task 2 with a fresh implementer and independent reviewer; do not close `UPDATEV2-0029`, `ISSUE-0013`, `ISSUE-0014`, `ISSUE-0045`, `ISSUE-0040` or the governance issues until their complete UI/package/browser and authority gates pass.
 4. Use a fresh implementer and a fresh reviewer for every substantive task; record their reports here.
 5. Do not update issue state to closed until the closure-matrix evidence is fresh and independently reviewed.
 
@@ -118,3 +119,23 @@ passed; mapped state counts are 77/21 and there are no unresolved duplicate
 matches. Exact stable-ID duplicate issues were retained and closed as
 duplicates, with the complete history recorded in
 `.ai_worklog/github-issue-sync.md`. No local issue moved between ledgers.
+
+### Wave 1 Governance Task 1 integration checkpoint - 2026-07-12
+
+Task 1's fail-closed governance policy foundation was implemented on the
+isolated `wave1/governance-task1` branch, independently re-reviewed and merged
+through PR 171 at `a54aed9c8157ff361eb7782252a88a471b835499`. The five policy
+loaders now return immutable checksum-bearing Pydantic contracts or diagnostic
+`manual_review`/`not_scoreable` results; unsupported, empty and incomplete
+policies cannot load as valid. The feature registry covers all 22 production
+routes with required metadata, the strategy scope contains 27 typed entries,
+the gate policy contains nine ordered non-granting gates and the glossary
+contains 27 required terms. Audit exports include the governance checksum
+manifest, version and valid/diagnostic marker.
+
+RED evidence recorded 21 failing regression cases and two passes before the
+fix. The focused governance bundle passed 43 tests. The full suite reproduced
+316 passes and the seven recorded generated-data/identity baseline failures;
+scoped Ruff and compileall passed. Fresh independent re-review approved both
+specification compliance and code quality with no findings. No issue moved
+between local ledgers; `execution_allowed` remains `false`; Task 2 is next.
