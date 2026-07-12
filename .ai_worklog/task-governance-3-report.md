@@ -242,6 +242,8 @@ existing v2 serializers publish the resolved policy metadata, ordered nine-gate
 table and diagnostics while keeping `execution_allowed` literal `false`.
 Gate evidence is derived only from existing signal, score and data-report
 fields; unavailable evidence fails closed.
+The signal path also marks valuation as failed when no valuation context is
+available, so an unevaluated advisory gate cannot increase authority.
 
 ### RED
 

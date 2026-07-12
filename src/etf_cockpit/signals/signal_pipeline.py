@@ -249,8 +249,8 @@ def _attach_authority(signal: SignalResult, data_report: DataQualityReport) -> S
         ),
         GateResult(
             gate_id="valuation",
-            passed=True,
-            message="Valuation gate not independently evaluated by signal generation",
+            passed=False,
+            message="Valuation context is unavailable to signal generation",
         ),
         GateResult(
             gate_id="signal",
