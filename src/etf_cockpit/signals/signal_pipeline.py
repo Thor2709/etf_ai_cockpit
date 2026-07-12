@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import asdict
 from datetime import date, datetime, timezone
 
 import pandas as pd
@@ -175,8 +174,24 @@ def generate_signals(
 
 
 def _signal_to_json(signal: SignalResult) -> dict[str, object]:
-    data = asdict(signal)
-    data["timestamp"] = signal.timestamp.isoformat() if signal.timestamp else None
+    # Operational signal traces use the v2 authority seam.  The legacy
+    # ``action``/``final_action`` values remain available on the in-memory
+    # object for compatibility callers but are not published here.
+    data = signal.to_v2_dict()
+    data.update(
+        {
+            "run_id": signal.run_id,
+            "signal_date": signal.signal_date.isoformat(),
+            "etf_id": signal.etf_id,
+            "confidence": signal.confidence,
+            "total_score": signal.total_score,
+            "blocked_by": signal.blocked_by,
+            "warnings": signal.warnings,
+            "reason_short": signal.reason_short,
+            "reason_long": signal.reason_long,
+            "timestamp": signal.timestamp.isoformat() if signal.timestamp else None,
+        }
+    )
     return data
 
 

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import date
 from math import isfinite, tanh
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Literal
 
 import pandas as pd
 
@@ -17,6 +17,15 @@ from etf_cockpit.data.yfinance_provider import yfinance_symbol_map_from_config
 from etf_cockpit.features.regime import build_benchmark_attribution_lookup, build_market_regime, build_portfolio_fit_lookup
 from etf_cockpit.models.calibration import calibration_lookup, evaluate_forecast_calibration, load_forecast_history
 from etf_cockpit.models.forecast_scores import forecast_component_maps, forecast_score_details, load_latest_forecasts
+from etf_cockpit.signals.research_states import (
+    AnalysisStatus,
+    InternalSignalIntent,
+    PortfolioReviewState,
+    ResearchState,
+    internal_intent_for_legacy_action,
+    public_authority_payload,
+    research_state_for_legacy_action,
+)
 from etf_cockpit.signals.strategy_templates import strategy_template_frame, strategy_template_labels, template_description
 
 
@@ -208,6 +217,63 @@ class SimpleInstrumentScore:
     net_expected_edge_bps: float | None = None
     edge_to_cost_ratio: float | None = None
     cost_stress_scenario: str = "not_evaluated"
+    # v2 public authority fields.  ``final_action`` is retained solely as an
+    # internal compatibility seam and is omitted by ``to_v2_dict``.
+    research_state: ResearchState = ResearchState.MANUAL_REVIEW
+    portfolio_review_state: PortfolioReviewState = PortfolioReviewState.NOT_APPLICABLE
+    analysis_status: AnalysisStatus = "unavailable"
+    research_promotion_allowed: bool = False
+    portfolio_review_allowed: bool = False
+    execution_allowed: Literal[False] = False
+    legacy_action: str | None = None
+    internal_intent: InternalSignalIntent = InternalSignalIntent.NONE
+    migration_version: str = "2.0"
+    gate_policy_version: str = "unavailable"
+    gate_policy_checksum: str = "unavailable"
+    schema_version: str = "2.0"
+
+    def __post_init__(self) -> None:
+        try:
+            object.__setattr__(self, "research_state", ResearchState(str(self.research_state)))
+        except ValueError:
+            object.__setattr__(self, "research_state", ResearchState.MANUAL_REVIEW)
+        try:
+            object.__setattr__(self, "portfolio_review_state", PortfolioReviewState(str(self.portfolio_review_state)))
+        except ValueError:
+            object.__setattr__(self, "portfolio_review_state", PortfolioReviewState.NOT_APPLICABLE)
+        if self.legacy_action is None:
+            object.__setattr__(self, "legacy_action", str(self.final_action).strip() or None)
+        if self.research_state is ResearchState.MANUAL_REVIEW:
+            object.__setattr__(self, "research_state", research_state_for_legacy_action(self.final_action))
+        if self.internal_intent is InternalSignalIntent.NONE:
+            object.__setattr__(self, "internal_intent", internal_intent_for_legacy_action(self.final_action))
+        if self.analysis_status == "unavailable":
+            if self.final_score_10 is None:
+                derived: AnalysisStatus = "unavailable"
+            elif self.warnings:
+                derived = "partial"
+            else:
+                derived = "complete"
+            object.__setattr__(self, "analysis_status", derived)
+        # This task only defines the compatibility seam.  Promotion remains
+        # disabled until the policy-driven gate resolver in Task 3.
+        object.__setattr__(self, "execution_allowed", False)
+
+    def to_v2_dict(self) -> dict[str, object]:
+        return public_authority_payload(
+            research_state=self.research_state,
+            portfolio_review_state=self.portfolio_review_state,
+            analysis_status=self.analysis_status,
+            research_promotion_allowed=self.research_promotion_allowed,
+            portfolio_review_allowed=self.portfolio_review_allowed,
+            legacy_action=self.legacy_action,
+            migration_version=self.migration_version,
+            gate_policy_version=self.gate_policy_version,
+            gate_policy_checksum=self.gate_policy_checksum,
+        )
+
+    def to_public_dict(self) -> dict[str, object]:
+        return self.to_v2_dict()
 
     @property
     def valid_component_count(self) -> int:
@@ -369,7 +435,17 @@ def build_simple_instrument_scores(
     )
 
 
-def simple_scoreboard_frame(scores: list[SimpleInstrumentScore]) -> pd.DataFrame:
+def simple_scoreboard_frame(
+    scores: list[SimpleInstrumentScore],
+    *,
+    include_legacy: bool = False,
+) -> pd.DataFrame:
+    """Build the v2 scoreboard frame.
+
+    Legacy ``final_action`` can be requested by diagnostic/compatibility
+    callers, but is not part of the release-facing default frame.
+    """
+
     rows: list[dict[str, object]] = []
     for score in scores:
         row: dict[str, object] = {
@@ -388,7 +464,17 @@ def simple_scoreboard_frame(scores: list[SimpleInstrumentScore]) -> pd.DataFrame
             "evidence_quality_10": score.evidence_quality_10,
             "risk_friction_10": score.risk_friction_10,
             "final_label": score.final_label,
-            "final_action": score.final_action,
+            "research_state": score.research_state.value,
+            "portfolio_review_state": score.portfolio_review_state.value,
+            "analysis_status": score.analysis_status,
+            "research_promotion_allowed": score.research_promotion_allowed,
+            "portfolio_review_allowed": score.portfolio_review_allowed,
+            "execution_allowed": False,
+            "legacy_action": score.legacy_action,
+            "migration_version": score.migration_version,
+            "gate_policy_version": score.gate_policy_version,
+            "gate_policy_checksum": score.gate_policy_checksum,
+            "schema_version": "2.0",
             "decision": score.decision,
             "blocked_by": ", ".join(score.warnings),
             "reason_short": score.one_line_reason,
@@ -432,6 +518,8 @@ def simple_scoreboard_frame(scores: list[SimpleInstrumentScore]) -> pd.DataFrame
             "total_components": score.total_component_count,
             "source_quality": "research_grade_yfinance",
         }
+        if include_legacy:
+            row["final_action"] = score.final_action
         for component in score.components:
             row[f"{component.key}_score_10"] = component.score_10
             row[f"{component.key}_status"] = component.status

@@ -2,6 +2,12 @@ from __future__ import annotations
 
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.types import Action
+from etf_cockpit.signals.research_states import (
+    InternalSignalIntent,
+    ResearchState,
+    internal_intent_for_legacy_action,
+    research_state_for_legacy_action,
+)
 
 
 def preliminary_action(
@@ -57,3 +63,24 @@ def advisory_action(action: Action) -> Action:
     if action in {"trim", "sell"}:
         return "trim_candidate"
     return action
+
+
+def internal_signal_intent(action: object) -> InternalSignalIntent:
+    """Compatibility adapter from v1 action text to analytical intent."""
+
+    return internal_intent_for_legacy_action(action)
+
+
+def public_research_state(action: object) -> ResearchState:
+    """Compatibility adapter that fails closed on unknown action text."""
+
+    return research_state_for_legacy_action(action)
+
+
+__all__ = [
+    "advisory_action",
+    "apply_gate_result",
+    "internal_signal_intent",
+    "preliminary_action",
+    "public_research_state",
+]
