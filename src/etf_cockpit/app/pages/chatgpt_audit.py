@@ -31,7 +31,7 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
             state.finish_activity(f"Exported audit packet: {path}", output_path=path)
             output.value = f"Exported: {path}"
         except Exception as exc:
-            state.fail_activity("Export audit packet", exc)
+            state.fail_activity("Export audit packet", exc, retry_callback=state.export_audit_packet)
             output.value = state.last_message
         page.update()
 
@@ -88,7 +88,7 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
                 ft.Column(
                     [
                         section_header("External audit packet", "Export local evidence for review; imported responses are commentary only."),
-                        ft.Row([ft.Button("Export audit packet", on_click=export_pack), ft.Text(str(state.last_export_path or ""), color=theme.MUTED, selectable=True)]),
+                        ft.Row([ft.Button("Export audit packet", key="chatgpt.export-audit", on_click=export_pack), ft.Text(str(state.last_export_path or ""), color=theme.MUTED, selectable=True)]),
                     ],
                     spacing=10,
                 )
@@ -97,7 +97,7 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
                 ft.Column(
                     [
                         section_header("Local LLM commentary", "Optional LM Studio review. Output is schema-validated and cannot alter scores."),
-                        ft.Row([ft.Button("Check LM Studio", on_click=check_llm), ft.Button("Generate commentary", on_click=run_local_llm_audit)], spacing=10),
+                        ft.Row([ft.Button("Check LM Studio", key="chatgpt.check-llm", on_click=check_llm), ft.Button("Generate commentary", key="chatgpt.generate-commentary", on_click=run_local_llm_audit)], spacing=10),
                         llm_output,
                     ],
                     spacing=10,
@@ -107,7 +107,7 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
                 ft.Column(
                     [
                         section_header("Import audit commentary", "Strict JSON only; it is saved as a dated non-executable note."),
-                        ft.Row([path_field, ft.Button("Validate and import", on_click=import_audit)]),
+                        ft.Row([path_field, ft.Button("Validate and import", key="chatgpt.import-audit", on_click=import_audit)]),
                         output,
                     ],
                     spacing=10,

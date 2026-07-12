@@ -205,6 +205,7 @@ def _score_tile(item: SimpleInstrumentScore, history_rows: list[dict[str, object
             page.update()
 
     arrow_button = ft.IconButton(
+        key=f"dashboard.score-row-expand.{item.display_id}",
         icon=ft.Icons.KEYBOARD_ARROW_DOWN,
         icon_color=theme.MUTED,
         icon_size=20,

@@ -122,6 +122,8 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
             ]
             + nav_items,
             spacing=8,
+            scroll=ft.ScrollMode.AUTO,
+            expand=True,
         ),
     )
     mobile_nav = ft.Container(

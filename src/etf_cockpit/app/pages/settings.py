@@ -41,7 +41,7 @@ def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
                             provider_input,
                             base_url_input,
                             api_key_input,
-                            ft.Button("Save", icon=ft.Icons.SAVE, on_click=save_provider),
+                            ft.Button("Save", key=f"settings.save-provider.{name}", icon=ft.Icons.SAVE, on_click=save_provider),
                         ],
                         wrap=True,
                         spacing=10,
