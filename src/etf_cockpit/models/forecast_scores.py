@@ -49,6 +49,17 @@ def load_latest_forecasts(
     return frame
 
 
+def filter_forecasts_for_universe(forecasts: pd.DataFrame, universe_revision: str | None) -> pd.DataFrame:
+    """Drop configured forecast rows whose source cache is not for this universe revision."""
+
+    if forecasts.empty or not universe_revision or "source_file" not in forecasts.columns:
+        return forecasts
+    valid = forecasts["source_file"].map(
+        lambda value: _forecast_cache_matches(Path(str(value)), universe_revision)
+    )
+    return forecasts.loc[valid].copy()
+
+
 def forecast_component_maps(forecasts: pd.DataFrame) -> dict[str, dict[str, float]]:
     """Return per-model score maps from validated forecast rows."""
     output: dict[str, dict[str, float]] = {"toto": {}, "timesfm": {}, "baseline": {}}

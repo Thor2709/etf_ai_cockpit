@@ -677,7 +677,7 @@ class SignalService:
         holdings = load_holdings()
         report = DataService(self.config).validate_prices(prices, as_of_date=effective_date, holdings=holdings)
         status = model_availability(self.config)
-        forecasts = load_latest_forecasts()
+        forecasts = load_latest_forecasts(universe_revision=_current_universe_revision())
         return generate_signals(
             self.config,
             latest,
@@ -767,7 +767,11 @@ class BacktestService:
         )
         with timed_step("backtest", "write_outputs"):
             atomic_write_group(requests)
-        for output in (BACKTESTS_DIR / "backtest_results.csv", BACKTESTS_DIR / "equity_curves.csv"):
+        for output in (
+            BACKTESTS_DIR / "backtest_results.csv",
+            BACKTESTS_DIR / "equity_curves.csv",
+            BACKTESTS_DIR / "signal_log.csv",
+        ):
             _write_universe_cache_metadata(output, self.universe_revision)
         append_jsonl("model_runs.jsonl", "backtest_completed", {"ai_added_value": report.ai_added_value})
         return report

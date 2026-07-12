@@ -12,7 +12,7 @@ from etf_cockpit.app.components.cards import evidence_chip, metric_card, panel, 
 from etf_cockpit.app.components.simple_scores import score_colour, simple_score_grouped_sections, simple_score_legend
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import FORECASTS_DIR
-from etf_cockpit.models.forecast_scores import load_latest_forecasts
+from etf_cockpit.models.forecast_scores import filter_forecasts_for_universe, load_latest_forecasts
 from etf_cockpit.signals.simple_scores import SimpleInstrumentScore, build_simple_instrument_scores
 
 
@@ -35,6 +35,10 @@ def dashboard_page(page: ft.Page, state: AppState) -> ft.Control:
         state.snapshot.signals,
         state.snapshot.forecasts,
         state.snapshot.prices,
+        universe_revision=str(
+            getattr(state.snapshot, "universe_revision", "")
+            or getattr(state, "universe_cache_revision", "")
+        ),
     )
     best = scores[0] if scores else None
     configured_count = sum(1 for score in scores if score.source_group == "Primary tier")
@@ -318,8 +322,17 @@ def _export_pack(page: ft.Page, state: AppState) -> None:
 
 
 def _valid_model_pairs(state: AppState) -> int:
-    candidate_forecasts = load_latest_forecasts("yfinance_candidate_forecasts_*.csv", FORECASTS_DIR)
-    forecasts = pd.concat([state.snapshot.forecasts, candidate_forecasts], ignore_index=True)
+    universe_revision = str(
+        getattr(state.snapshot, "universe_revision", "")
+        or getattr(state, "universe_cache_revision", "")
+    )
+    candidate_forecasts = load_latest_forecasts(
+        "yfinance_candidate_forecasts_*.csv",
+        FORECASTS_DIR,
+        universe_revision=universe_revision,
+    )
+    configured_forecasts = filter_forecasts_for_universe(state.snapshot.forecasts, universe_revision)
+    forecasts = pd.concat([configured_forecasts, candidate_forecasts], ignore_index=True)
     if forecasts.empty or not {"status", "model_allowed_in_score", "model_name", "etf_id"}.issubset(forecasts.columns):
         return 0
     allowed = forecasts["model_allowed_in_score"].astype(str).str.lower().isin({"true", "1", "yes"})

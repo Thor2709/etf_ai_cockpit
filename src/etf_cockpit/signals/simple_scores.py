@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import date
+import json
 from math import isfinite, tanh
 from pathlib import Path
 from typing import Iterable, Literal
@@ -16,9 +17,15 @@ from etf_cockpit.governance.gate_policy import resolve_authority
 from etf_cockpit.data.reference_data import load_reference_dataset
 from etf_cockpit.data.universe_store import support_decision
 from etf_cockpit.data.yfinance_provider import yfinance_symbol_map_from_config
+from etf_cockpit.data.universe_store import load_universe
 from etf_cockpit.features.regime import build_benchmark_attribution_lookup, build_market_regime, build_portfolio_fit_lookup
 from etf_cockpit.models.calibration import calibration_lookup, evaluate_forecast_calibration, load_forecast_history
-from etf_cockpit.models.forecast_scores import forecast_component_maps, forecast_score_details, load_latest_forecasts
+from etf_cockpit.models.forecast_scores import (
+    filter_forecasts_for_universe,
+    forecast_component_maps,
+    forecast_score_details,
+    load_latest_forecasts,
+)
 from etf_cockpit.signals.research_states import (
     ALLOWED_EVIDENCE_SOURCE_IDS,
     AnalysisStatus,
@@ -484,9 +491,18 @@ def build_simple_instrument_scores(
     signals: list[SignalResult],
     forecasts: pd.DataFrame,
     prices: pd.DataFrame,
+    *,
+    universe_revision: str | None = None,
 ) -> list[SimpleInstrumentScore]:
+    if universe_revision is None:
+        universe_revision = load_universe().revision
+    forecasts = filter_forecasts_for_universe(forecasts, universe_revision)
     candidate_report, _candidate_report_path = load_latest_candidate_report()
-    candidate_forecasts = load_latest_forecasts("yfinance_candidate_forecasts_*.csv", FORECASTS_DIR)
+    candidate_forecasts = load_latest_forecasts(
+        "yfinance_candidate_forecasts_*.csv",
+        FORECASTS_DIR,
+        universe_revision=universe_revision,
+    )
     forecast_history = load_forecast_history()
     calibration = evaluate_forecast_calibration(forecast_history, prices)
     calibration_by_id = calibration_lookup(calibration)
@@ -494,7 +510,7 @@ def build_simple_instrument_scores(
     portfolio_fit = build_portfolio_fit_lookup(prices)
     benchmark_id = config.universe.enabled_ids[0] if config.universe.enabled_ids else None
     benchmark_attribution = build_benchmark_attribution_lookup(prices, benchmark_id=benchmark_id)
-    backtest_trust = _backtest_trust_lookup()
+    backtest_trust = _backtest_trust_lookup(universe_revision=universe_revision)
     universe_scores = build_universe_simple_scores(
         config,
         signals,
@@ -1730,10 +1746,29 @@ def _benchmark_attribution_info(lookup: dict[str, dict[str, object]], instrument
     return info
 
 
-def _backtest_trust_lookup(directory: Path = BACKTESTS_DIR) -> dict[str, dict[str, object]]:
+def _cache_revision_matches(path: Path, universe_revision: str) -> bool:
+    metadata_path = Path(f"{path}.meta.json")
+    if not metadata_path.exists():
+        return False
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return False
+    return isinstance(payload, dict) and str(payload.get("universe_revision") or "") == universe_revision
+
+
+def _backtest_trust_lookup(
+    directory: Path = BACKTESTS_DIR,
+    *,
+    universe_revision: str | None = None,
+) -> dict[str, dict[str, object]]:
+    if universe_revision is None:
+        universe_revision = load_universe().revision
     results_path = directory / "backtest_results.csv"
     signal_path = directory / "signal_log.csv"
     if not results_path.exists():
+        return {}
+    if not _cache_revision_matches(results_path, universe_revision):
         return {}
     try:
         results = pd.read_csv(results_path)
@@ -1751,7 +1786,7 @@ def _backtest_trust_lookup(directory: Path = BACKTESTS_DIR) -> dict[str, dict[st
     sensitivity = str(row.get("parameter_sensitivity_status") or "unknown")
     base_score = _backtest_quality_score(quality, wf_periods, pbo, sensitivity)
     signal_counts: dict[str, int] = {}
-    if signal_path.exists():
+    if signal_path.exists() and _cache_revision_matches(signal_path, universe_revision):
         try:
             signal_log = pd.read_csv(signal_path)
             if "etf_id" in signal_log:

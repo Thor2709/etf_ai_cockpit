@@ -8,11 +8,13 @@ import flet as ft
 import pandas as pd
 
 import etf_cockpit.app.pages.universe_manager as manager
+import etf_cockpit.app.pages.dashboard as dashboard
 from etf_cockpit.app.pages.universe_manager import universe_manager_page
 from etf_cockpit.app.state import AppState
 from etf_cockpit.backtest.engine import BacktestReport
 from etf_cockpit.models.forecast_scores import load_latest_forecasts
 import etf_cockpit.services as services
+from etf_cockpit.signals.simple_scores import _backtest_trust_lookup
 from etf_cockpit.core.config import (
     AppConfig,
     CostConfig,
@@ -214,3 +216,39 @@ def test_apply_universe_config_marks_backtest_stale() -> None:
     state.apply_universe_config(config, "new")
     assert state.snapshot.backtest.results.empty
     assert state.snapshot.backtest.quality_label == "stale_universe"
+
+
+def test_downstream_consumers_reject_stale_candidate_and_signal_log_cache(tmp_path, monkeypatch) -> None:
+    old_revision = "old-universe"
+    new_revision = "new-universe"
+    candidate = tmp_path / "yfinance_candidate_forecasts_20260713.csv"
+    candidate.write_text(
+        "etf_id,model_name,status,model_allowed_in_score\nA,baseline,ok,true\n",
+        encoding="utf-8",
+    )
+    (tmp_path / f"{candidate.name}.meta.json").write_text(
+        json.dumps({"schema_version": 1, "universe_revision": old_revision}), encoding="utf-8"
+    )
+    monkeypatch.setattr(dashboard, "FORECASTS_DIR", tmp_path)
+    state = SimpleNamespace(
+        snapshot=SimpleNamespace(universe_revision=new_revision, forecasts=pd.DataFrame()),
+        universe_cache_revision=new_revision,
+    )
+    assert dashboard._valid_model_pairs(state) == 0
+
+    results = tmp_path / "backtest_results.csv"
+    results.write_text(
+        "strategy_name,backtest_quality,n_walk_forward_periods\nsignal_strategy,high,3\n",
+        encoding="utf-8",
+    )
+    (tmp_path / f"{results.name}.meta.json").write_text(
+        json.dumps({"schema_version": 1, "universe_revision": new_revision}), encoding="utf-8"
+    )
+    signal_log = tmp_path / "signal_log.csv"
+    signal_log.write_text("etf_id\nA\n", encoding="utf-8")
+    (tmp_path / f"{signal_log.name}.meta.json").write_text(
+        json.dumps({"schema_version": 1, "universe_revision": old_revision}), encoding="utf-8"
+    )
+    lookup = _backtest_trust_lookup(tmp_path, universe_revision=new_revision)
+    assert "A" not in lookup
+    assert "__strategy__" in lookup

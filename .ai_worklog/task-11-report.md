@@ -368,3 +368,27 @@ All checks passed
 ```
 
 Runtime cache fix commit: `20ec2bd` (`fix: invalidate universe-dependent caches`).
+
+## Final consumer-boundary review fix pass - 2026-07-13
+
+The fresh independent review of `b47b4a1` found that downstream forecast and
+backtest-trust consumers could bypass the new universe-revision cache checks.
+The review fix threads the active revision through candidate scoring,
+`SignalService`, and dashboard model-pair counting; validates result and
+signal-log sidecars in `_backtest_trust_lookup`; and writes a signal-log
+sidecar whenever a backtest is published.
+
+RED: the reviewer reproduced stale candidate forecast and signal-log trust
+data being accepted by downstream consumers when only the producing cache
+loader was revision-aware.
+
+GREEN: the focused universe/onboarding/guardrail/UI bundle passed, including
+the added consumer regression for stale candidate model-pair data and stale
+signal-log trust. `python -m compileall -q src tests`, scoped Ruff, the
+governance static boundary check and `python scripts/run_app.py --smoke` all
+passed.
+
+The broad `tests/test_simple_scores.py` bundle remains blocked by the known
+missing ignored `data/raw/trade_candidates/yahoo_trade_candidates_*.csv`
+fixture; this is the pre-existing candidate-fixture baseline documented above,
+not a Task 11 regression.
