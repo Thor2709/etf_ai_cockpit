@@ -446,19 +446,19 @@ class WorkflowResult:
     retryable: bool
 ```
 
-- [ ] **Step 1: Write state-transition, redaction and logging-failure tests**
+- [x] **Step 1: Write state-transition, redaction and logging-failure tests**
 
 Test valid transitions, reject success after failure, log start before backend invocation, swallow a simulated log write error, redact tokens and preserve traceback fingerprint without raw secrets.
 
-- [ ] **Step 2: Implement `WorkflowController`**
+- [x] **Step 2: Implement `WorkflowController`**
 
 Provide `start(workflow: str, label: str) -> str`, `step(action_id: str, step: WorkflowStep) -> None`, `finish(action_id: str, status: WorkflowStatus, message: str, output_paths: Iterable[Path]) -> WorkflowResult` and `fail(action_id: str, exc: Exception, retryable: bool) -> WorkflowResult`. Persist append-only activity entries and session events using the same action ID. Keep `ActivityEntry` compatibility conversion until all pages migrate.
 
-- [ ] **Step 3: Migrate current dashboard workflows**
+- [x] **Step 3: Migrate current dashboard workflows**
 
 Refresh yfinance, Run algorithms, Run forecasting models, Show scores, Renew data and Export audit packet must use `WorkflowController`. Disable duplicate clicks while an action is running and render step label, elapsed time and determinate progress when total units are known.
 
-- [ ] **Step 4: Verify runtime and browser behaviour**
+- [x] **Step 4: Verify runtime and browser behaviour**
 
 Run:
 
@@ -469,7 +469,20 @@ Run:
 
 Use browser/computer use to click each dashboard workflow once against deterministic providers and capture running plus final states.
 
-- [ ] **Step 5: Checkpoint Wave 3 progress**
+- [x] **Step 5: Checkpoint Wave 3 progress**
+
+Task 6 checkpoint (2026-07-12): the typed workflow/session runtime and
+dashboard action paths were already present and were independently revalidated;
+the task added the missing keyboard-operable `OutlinedButton` contract for all
+four primary dashboard workflows. RED/GREEN evidence, focused 29-test
+post-merge verification, compileall/Ruff, native package rebuild and direct
+HTTP readiness, plus rendered source screenshots are recorded in
+`.ai_worklog/task6-report.md` and `evidence/task6-dashboard-source*.png`.
+The standard `smoke_app.py` source/native/portable fixture check remains
+explicitly unavailable in the isolated worktree because the generated
+Sparebanken/AURG trade-candidate fixture is absent; this is not attributed to
+the dashboard change and no issue is closed by Task 6. PR 176 merged at
+`16205d259380421d7041ffb46d61acce84ec1993`.
 
 Record action IDs, screenshots, session-log assertions and any timing regression in `evidence/wave3/workflows/` and `RUN_STATE.json`.
 

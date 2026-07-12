@@ -1369,3 +1369,17 @@ successfully, and native plus portable-native smoke passed on ports 8575 and
 `79F72D0030D62167EE38DC5AA00D7B879B80071C55BB747B383EDFC8D6850F8D`. A fresh
 full-suite run exposed one intermittent pre-existing transaction-lock failure;
 the exact test rerun passed and no Task 5-specific failure was observed.
+
+## 2026-07-12 - Wave 1 Governance Task 6
+
+Task 6 was independently reviewed with SPEC PASS, CODE PASS and READY YES and
+merged through PR 176 at `16205d259380421d7041ffb46d61acce84ec1993`. The
+existing WorkflowController/session trace and Activity Log contracts remain
+authoritative; the four primary dashboard workflow controls are now genuine
+keyboard-operable outlined buttons with stable keys, tooltips and callbacks.
+Post-merge focused verification passed 29 tests, compileall, scoped Ruff and
+source snapshot smoke. A native package was rebuilt (SHA-256
+`E8874C460953E32D485162A92AF034E44EA0E9985AC7A90DD5BD84E287E2BA42`), direct
+HTTP readiness passed and dashboard screenshots were captured. The standard
+generated-data fixture smoke limitation is explicitly recorded; no issue state
+changed and `execution_allowed` remains `false`. Wave 3 Task 7 is next.

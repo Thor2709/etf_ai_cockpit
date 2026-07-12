@@ -987,3 +987,15 @@
 - Added explicit feature-registry entries/limitations, per-dependency readiness, hash-targeted glossary navigation, keyboard-operable shell navigation and score gate-summary navigation.
 - Preserved `execution_allowed=false`; no broker, credentials, order routing or execution controls were introduced.
 - Integrated via PR 175, merge commit `6689e8c9c6a52a1b1ef1300c3c2356b006c449fa`.
+
+## 2026-07-12 - Wave 1 Governance Task 6
+
+- Made the four primary dashboard workflow controls genuine keyboard-operable
+  `ft.OutlinedButton` controls while preserving stable keys, tooltips, icons,
+  callbacks, duplicate-click guards and the existing workflow/session trace.
+- Added the focused RED/GREEN contract and checksum-backed source/recovery
+  screenshots plus package/native readiness evidence in `.ai_worklog/task6-*`
+  and `evidence/task6-dashboard-source*.png`.
+- Integrated through PR 176 at merge commit
+  `16205d259380421d7041ffb46d61acce84ec1993`; no issue state changed and
+  `execution_allowed` remains `false`.

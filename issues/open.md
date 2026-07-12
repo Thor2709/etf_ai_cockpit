@@ -1783,6 +1783,19 @@ Post-review launcher evidence was completed on 2026-07-10. The narrow launcher r
 The following canonical issue sections are superseded by the evidence-backed closure records in `issues\\closed.md`:
 
 - `ISSUE-0035` - data health centre and Dashboard summary.
+
+### Wave 3 Task 6 checkpoint - 2026-07-12
+
+`ISSUE-0069`, `UPDATEV2-0027` and `ISSUE-0012` remain open. Task 6 was
+independently approved and merged through PR 176 at
+`16205d259380421d7041ffb46d61acce84ec1993`. The existing typed workflow and
+session trace runtime remains authoritative; the four primary dashboard
+workflow controls are now keyboard-operable outlined buttons with stable keys,
+tooltips and callbacks. Focused/post-merge tests (29), compileall, scoped Ruff,
+source snapshot smoke, native package rebuild/direct HTTP readiness and
+rendered dashboard evidence passed. The standard generated-data fixture smoke
+limitation is recorded in `.ai_worklog/task6-report.md`; complete issue UI,
+package, browser, audit and closure-matrix gates remain open.
 Wave 1 Governance Task 3 checkpoint 2026-07-12: severity-aware authority resolution is independently approved and merged through PR 173 at `5fde19639da9caa6cdb01eef852dc34698b53482`. Ordered nine-gate decisions, policy metadata and diagnostics now reach signal and simple-score release paths; incomplete evidence fails closed and `execution_allowed` remains `false`. Post-merge focused authority tests (48), affected governance/migration/proposal/export tests (88), compileall, scoped Ruff, source import smoke, diff checks and the full suite passed. No issue moved to closed because the owning governance and tracker issues still require their complete UI, package, browser and closure-matrix evidence; Wave 1 Governance Task 4 is next.
 
 Wave 1 Governance Task 4 checkpoint 2026-07-12: neutral non-executable review reports and the checksum-protected append-only Decision Journal are independently approved and merged through PR 174 at `c61531841a753ce1e3f862f8beb498c629b9cbb5`. Grouped atomic publication/reads, safe IDs, identity/schema/checksum validation, deterministic bounded supersedes, private-note-safe operation/export records and owner-token journal locking are covered. Post-merge focused Task 4 tests (23), affected authority/release/atomic/transaction tests, compileall, scoped Ruff, source smoke and the full suite passed. No issue moved to closed because the owning governance and tracker records still require later UI/package/browser and complete closure evidence; Wave 1 Governance Task 5 is next.
