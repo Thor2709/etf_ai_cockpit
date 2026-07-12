@@ -131,8 +131,8 @@ evidence without changing the execution authority boundary.
 
 ## Fix pass: independent review findings
 
-Date: 2026-07-13  
-Base: `070ec8b` plus the pre-existing unstaged `universe_store.py` validation change  
+Date: 2026-07-13
+Base: `070ec8b` plus the pre-existing unstaged `universe_store.py` validation change
 Fix commit: `e6a4193` (`fix: close Task 11 universe review findings`)
 
 ### Findings addressed
@@ -192,3 +192,47 @@ because this isolated worktree has no ignored `data/raw/trade_candidates`
 fixture; those failures are the existing candidate/inventory baseline recorded
 above, not fix-pass regressions. Generated `data/.schema_versions/*` churn and
 the untracked task brief remain unstaged by design.
+
+## Final review fix pass: important findings
+
+Date: 2026-07-13
+
+### Findings and changes
+
+- Threaded the explicit `allow_cross_tier_duplicates=False` default through
+  `add_record`, `edit_record` and `save_universe`; the UI now exposes a keyed,
+  auditable override checkbox and persists the selected flag in the canonical
+  store payload. Default validation still rejects cross-tier duplicates.
+- Added editable enabled state to add/edit dialogs and an Enable action for
+  disabled rows, retaining Disable for enabled rows.
+- Updated the save callback's captured revision after each successful save so
+  subsequent edits in the same page session use the new revision.
+- Removed trailing whitespace from this report section.
+
+### RED / GREEN evidence
+
+RED:
+
+```text
+python -m pytest -q tests/test_universe_store.py::test_crud_and_save_thread_cross_tier_override
+TypeError: add_record() got an unexpected keyword argument 'allow_cross_tier_duplicates'
+
+python -m pytest -q tests/test_button_contracts.py
+ValueError: source controls missing stable keys (conditional enable/disable action)
+```
+
+GREEN:
+
+```text
+python -m pytest -q tests/test_universe_store.py tests/test_onboarding.py tests/test_asset_guardrails.py tests/test_universe_manager.py tests/test_flet_startup.py tests/test_accessibility_contracts.py tests/test_button_contracts.py tests/test_feature_registry.py tests/test_data_validation.py
+46 passed
+
+python -m compileall -q src tests
+exit 0
+
+python -m ruff check src/etf_cockpit/data/universe_store.py src/etf_cockpit/app/pages/universe_manager.py src/etf_cockpit/app/pages/onboarding.py src/etf_cockpit/core/config.py src/etf_cockpit/data/yfinance_provider.py src/etf_cockpit/signals/simple_scores.py tests/test_universe_store.py tests/test_onboarding.py tests/test_asset_guardrails.py tests/test_universe_manager.py --no-cache
+All checks passed
+```
+
+Final fix commit: `f6be9d3` (`fix: close final Task 11 review blockers`).
+Generated schema markers remain unstaged.
