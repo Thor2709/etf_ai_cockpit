@@ -1,7 +1,7 @@
 # Wave 1 Governance Task 3 review package
 
 - Base: `2a26619bdbf26f11e8a77dbdefc3ab22d93d213b`
-- Head: `ca39ecc` (`fix: fail closed when signal valuation is unavailable`)
+- Head: `4c49288` (`test: cover simple-score authority release path`)
 - Branch: `wave1/governance-task3`
 - Scope: severity-aware authority resolution, ordered typed gate evidence,
   production release-path propagation and permanent `trading_allowed=False`
@@ -38,5 +38,5 @@ $env:PYTHONPATH='src'; & '..\\..\\etf_ai_cockpit\\.venv\\Scripts\\python.exe' -m
 $env:PYTHONPATH='src'; & '..\\..\\etf_ai_cockpit\\.venv\\Scripts\\python.exe' -m pytest tests\\test_simple_scores.py tests\\test_trust_critical_artifacts.py -q --tb=short
 $env:PYTHONPATH='src'; & '..\\..\\etf_ai_cockpit\\.venv\\Scripts\\python.exe' -m compileall -q src tests
 & '..\\..\\etf_ai_cockpit\\.venv\\Scripts\\ruff.exe' check src/etf_cockpit/core/types.py src/etf_cockpit/signals/research_states.py src/etf_cockpit/signals/signal_pipeline.py src/etf_cockpit/signals/simple_scores.py tests/test_authority_resolution.py
-git diff --check 2a26619bdbf26f11e8a77dbdefc3ab22d93d213b..ca39ecc54b1afad70a770fff55f53c850d307653
+git diff --check 2a26619bdbf26f11e8a77dbdefc3ab22d93d213b..4c49288a4927f9854ed340f4154a28f8661961ab
 ```
