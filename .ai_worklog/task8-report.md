@@ -173,3 +173,14 @@ fixture failure (`identity.shape[0] == 16`, expected `>=45`) in the isolated
 worktree. No Task 8 provider or trust-artifact failure remains in the affected
 tests. Package/browser evidence and the final independent re-review remain
 parent-level gates.
+
+## Final independent review
+
+Fresh re-review of `4324b05` plus `44f9dab` against `ebc7927` passed
+specification compliance and code quality with no Critical or Important
+findings; READY_FOR_INTEGRATION was yes. The reviewer’s only Minor observation
+was the historical `UPDATEV2-0010` status text disagreeing with the open
+closure-matrix record. The issue record is now explicitly `Open, partial` and
+the historical evidence is labelled as a rejected/partial checkpoint; no false
+closure is claimed. Package rebuild and rendered browser evidence remain
+parent-level closure gates.
