@@ -609,11 +609,10 @@ The audit packet includes the expanded canonical and unavailable artefacts, vali
 
 The historical closure was not accepted for the current Task 10 contract. The
 implementation now inventories the required stores and migration/provenance
-states, but the current full suite has eight unrelated baseline failures, the
-optional package smoke is blocked by the existing AURG/Sparebanken fixture and
-the canvas semantic snapshot exposes only the accessibility toggle. The fresh
-evidence is retained under `evidence/final/`; do not treat the historical
-record as closed until all applicable gates pass.
+states; the authoritative full suite, native/portable package smoke and
+semantic Data Health controls pass after the current fix cycle. This rejected
+checkpoint remains historical only; do not treat it as the canonical closed
+record while final integration and local/GitHub synchronisation are pending.
 
 ## 2026-07-11 Final Follow-Up Closures
 

@@ -1056,6 +1056,6 @@
 - Added focused regressions and fresh source/package browser/export evidence.
 - Reopened `ISSUE-0035` after current independent review rejected historical
   closure evidence; the atomic staging fix and failed-completion provenance
-  regression now have a passing authoritative suite. Closure remains pending
-  package-smoke, semantic accessibility, independent re-review and final
-  integration/synchronisation gates.
+  regression now have a passing authoritative suite. Fresh native/portable
+  package smoke and semantic Data Health focus evidence also pass. Closure
+  remains pending final integration and local/GitHub synchronisation gates.

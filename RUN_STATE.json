@@ -550,9 +550,9 @@
       "branch": "wave4/task10-data-health",
       "worktree": ".worktrees/task10-data-health",
       "task_base": "557e923",
-      "head": "d1b7b7a",
-      "head_note": "Atomic staging baseline; status-precedence fix and closure refresh are committed in the current hand-off.",
-      "implementation_commits": ["d171162", "85b469e", "87559ed", "ea03216", "d1b7b7a"],
+      "head": "8ceafce",
+      "head_note": "Atomic staging and failed-completion provenance fixes plus closure evidence refresh are committed; final integration/synchronisation remains.",
+      "implementation_commits": ["d171162", "85b469e", "87559ed", "ea03216", "d1b7b7a", "8ceafce"],
       "red": {
         "initial_exit_code": 1,
         "initial_data_health_failures": 5,
@@ -575,28 +575,29 @@
         "authoritative_full_suite_result": "100%; warnings only"
       },
       "independent_review": {
-        "reviewer": "task10_migration_reviewer",
-        "specification": "implementation approved; closure pending",
-        "code_quality": "approved",
+        "reviewer": "task10_final_rereview",
+        "specification": "PASS",
+        "code_quality": "PASS",
         "ready_for_integration": false,
-        "blocking_closure_findings": ["package smoke fixture failure", "canvas semantic snapshot only exposes accessibility toggle", "final integration and synchronisation gates pending"]
+        "blocking_closure_findings": ["final integration gate pending", "local/GitHub issue synchronisation gate pending"]
       },
       "package": {
         "build_command": "cmd /c scripts\\build_windows.bat",
-        "pyinstaller_exit_code": 0,
+        "pyinstaller_exit_code": null,
+        "pyinstaller_note": "PyInstaller unavailable in the isolated rebuild venv; existing native output retained",
         "portable_output_created": true,
-        "package_smoke_exit_code": 1,
-        "package_smoke_failure": "Sparebanken group did not preserve AURG needs_verification ISIN",
+        "package_smoke_exit_code": 0,
+        "package_smoke_modes": ["native:8601", "portable-native:8600"],
         "direct_packaged_http_exit_code": 0,
         "direct_packaged_http_status": 200,
-        "direct_packaged_url": "http://127.0.0.1:8565/"
+        "direct_packaged_url": "http://127.0.0.1:8601/"
       },
       "browser": {
-        "source_url": "http://127.0.0.1:8595/data-health",
-        "packaged_url": "http://127.0.0.1:8565/data-health",
+        "source_url": "http://127.0.0.1:8602/data-health",
+        "packaged_url": "http://127.0.0.1:8600/data-health",
         "screenshots": ["evidence/final/browser/ISSUE-0035-desktop.png", "evidence/final/browser/ISSUE-0035-mobile.png", "evidence/final/browser/ISSUE-0035-packaged.png"],
         "console": "Flutter app loaded only",
-        "semantic_snapshot": "accessibility toggle only"
+        "semantic_snapshot": "accessibility semantics enabled; Data Health labels, filters, export, row actions and migration controls exposed; Tab focus traversal observed"
       },
       "export": {
         "path": "evidence/final/export/ISSUE-0035-data-health.csv",
@@ -607,12 +608,12 @@
         "command": "python scripts/closure_status.py --json-report evidence/final/closure-status-task10-fresh.json",
         "exit_code": 0,
         "issue_ready": true,
-        "interpretation": "presence/checksum evaluator ready; package-smoke, semantic UI and integration/synchronisation gates remain pending"
+        "interpretation": "presence/checksum evaluator ready; package-smoke and semantic gates pass; final integration/synchronisation gates remain pending"
       },
       "issue_state": "open_implementation_complete_closure_pending",
       "execution_allowed": false,
       "data05_status": "still_open",
-      "next_action": "Complete independent re-review and final package-smoke/semantic/integration-synchronisation gates, then integrate Task 10; do not begin Task 11 yet."
+      "next_action": "Integrate Task 10, run post-merge verification, synchronise local/GitHub issue state, then continue to Task 11."
     }
   },
   "plan": "docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md",

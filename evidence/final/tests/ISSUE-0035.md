@@ -20,5 +20,6 @@ unavailable stores; persisted provenance; mixed-offset migration ordering;
 wrong migration names; missing `applied_at`; macro invalid siblings; filters;
 UI links; and compatible CSV export columns.
 
-Package-smoke, semantic accessibility and final integration/synchronisation
-gates remain pending; this record does not claim those gates.
+Fresh package smoke passed for native and portable-native modes on ports 8601
+and 8600. Semantic accessibility was separately verified on the running source
+surface; final integration and local/GitHub synchronisation remain pending.

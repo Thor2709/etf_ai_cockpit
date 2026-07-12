@@ -1,27 +1,18 @@
 # ISSUE-0035 build gate
 
-`cmd /c scripts\\build_windows.bat` ran with the worktree `.venv` junctioned
-temporarily to the repository Python 3.13 environment. PyInstaller/Flet native
-build completed successfully and produced
-`build/flet_dist/ETF_AI_Cockpit/ETF_AI_Cockpit.exe`; the portable output folder
-was also created.
+Fresh `cmd /c scripts\\build_windows.bat` completed with exit 0 and recreated
+`build/ETF_AI_Cockpit_Portable_v0.1.0`. The isolated build venv did not contain
+PyInstaller, so the existing native output was retained rather than claiming a
+new native rebuild. Generated build outputs remain ignored.
 
-The optional `ETF_COCKPIT_BUILD_SMOKE=1` step failed in the existing
-fixture-dependent score-group smoke with:
+Fresh package smoke passed for both launch modes:
 
-`RuntimeError: Sparebanken group did not preserve AURG needs_verification ISIN.`
+- `scripts/smoke_app.py --mode portable-native --port 8600 --timeout 60` ->
+  `smoke_ok mode=portable-native url=http://127.0.0.1:8600/`.
+- `scripts/smoke_app.py --mode native --port 8601 --timeout 60` ->
+  `smoke_ok mode=native url=http://127.0.0.1:8601/`.
 
-This is unrelated to Data Health and is recorded as a closure blocker. Direct
-packaged-native launcher verification succeeded on port 8565:
-
-`started mode=portable-native ... ready url=http://127.0.0.1:8565/`
-
-`Invoke-WebRequest http://127.0.0.1:8565/` returned HTTP 200. The temporary
-`.venv` junction was removed after the build and generated build outputs remain
-ignored.
-
-After the bounded atomic staging fix, the authoritative repository suite was
-rerun independently and reached 100% with exit 0 (warnings only). This does
-not alter the existing package-smoke blocker or add any new package/browser
-claim; independent review and final integration/synchronisation remain
-pending.
+The smoke used the local ignored trade-candidate fixtures required by the
+existing AURG/Sparebanken score-group contract; those generated market files
+are deliberately excluded from Git. No package-smoke failure occurred in this
+fresh run. Final integration and local/GitHub synchronisation remain pending.

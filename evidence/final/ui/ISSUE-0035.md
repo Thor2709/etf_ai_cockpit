@@ -9,8 +9,11 @@ same surface and content. Evidence files are:
 - `evidence/final/browser/ISSUE-0035-mobile.png`
 - `evidence/final/browser/ISSUE-0035-packaged.png`
 
-The Flet semantic snapshot exposed only the accessibility-toggle control;
-canvas semantics were not available for deeper assertions. The source and
-packaged browser logs contained only the expected `Flutter app loaded` message.
-Keyboard/focus semantics therefore remain closure-pending rather than claimed
-as a pass.
+The source app was loaded at `http://127.0.0.1:8602/data-health`; enabling the
+Flet accessibility semantics exposed labelled navigation, `Data Health`,
+`Export health CSV`, status/dataset/provider filters, per-row provider/status/
+filings/ETF/errors actions, and migration status controls. Pressing `Tab`
+advanced through the semantic tree and the page exposed the expected
+focusable controls. The source and packaged browser logs contained only the
+expected `Flutter app loaded` message. Final integration and synchronisation
+remain pending.

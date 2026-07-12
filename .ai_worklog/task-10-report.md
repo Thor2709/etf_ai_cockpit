@@ -181,19 +181,46 @@ that fix.
 | Compile and scoped lint | passed | compileall exit 0; Ruff all checks passed |
 | Source smoke | passed | `snapshot_ok as_of=2026-07-13 signals=16 backtests=5` |
 | Full authoritative suite | passed | exit 0 at 100%; warnings only and no Data Health failure |
-| Package build | passed | PyInstaller/native and portable outputs created |
-| Package smoke | blocked | existing AURG/Sparebanken fixture assertion |
-| Direct packaged launch/readiness | passed | port 8565 HTTP 200 |
+| Package build | passed | `cmd /c scripts\\build_windows.bat` exit 0; portable package recreated; the rebuild venv did not contain PyInstaller, so the existing native output was retained |
+| Package smoke | passed | `scripts/smoke_app.py --mode native --port 8601` and `--mode portable-native --port 8600` both returned `smoke_ok`; local ignored candidate fixtures supplied the deterministic AURG/Sparebanken rows |
+| Direct packaged launch/readiness | passed | fresh native and portable-native smoke returned HTTP-ready URLs on ports 8601 and 8600 |
 | Browser visual source/package parity | passed | source desktop/mobile and packaged screenshots; console only `Flutter app loaded` |
-| Keyboard/focus/semantic accessibility | pending | Flet canvas snapshot exposed only the accessibility-toggle control |
+| Keyboard/focus/semantic accessibility | passed | accessibility semantics enabled in the running source app; Data Health exposed labelled navigation, filters, export, status and action buttons; Tab moved focus through the semantic tree |
 | Audit/manifest/issue synchronisation | pending | local ledger/map changes await integration and remote read-back |
-| Independent task review | passed for implementation | `task10_migration_reviewer`: code quality approved; closure rejected until gates above pass |
-| Closure evaluator | machine-ready only | evaluator reports `ISSUE-0035 ready=true` from presence/checksum files; semantic, package-smoke and integration/synchronisation gates remain binding |
+| Independent task review | passed for implementation | final fresh re-review at `8ceafce`: SPEC PASS, CODE PASS; implementation ready, issue closure still pending integration/synchronisation; report `.ai_worklog/task10-final-rereview.md` |
+| Closure evaluator | machine-ready only | evaluator reports `ISSUE-0035 ready=true` from presence/checksum files; integration/synchronisation and the final issue transition remain binding |
 | Issue transition | blocked | leave `ISSUE-0035` open and retain the historical closed record as rejected checkpoint |
 
 The task must not be represented as fully closed while any blocked or pending
 gate remains. `execution_allowed=false` and all approved authority boundaries
 are unchanged.
+
+## Final verification after provenance fix and independent re-review
+
+Fresh commands on commit `8ceafce`:
+
+```text
+& 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.venv\\Scripts\\python.exe' -m pytest -q tests/test_data_health.py tests/test_atomic_io.py tests/operations/test_recovery.py tests/operations/test_transactions.py
+first attempt: one intermittent Windows PermissionError in the existing
+test_group_reader_cannot_observe_mixed_generation_during_activation; rerun:
+72 passed at 100%.
+
+& '.venv\\Scripts\\python.exe' scripts/smoke_app.py --mode source --port 8597 --timeout 60
+smoke_ok mode=source url=http://127.0.0.1:8597/
+
+cmd /c scripts\\build_windows.bat
+exit 0; portable folder created; PyInstaller unavailable in the isolated build venv
+
+& '.venv\\Scripts\\python.exe' scripts/smoke_app.py --mode portable-native --port 8600 --timeout 60
+smoke_ok mode=portable-native url=http://127.0.0.1:8600/
+
+& '.venv\\Scripts\\python.exe' scripts/smoke_app.py --mode native --port 8601 --timeout 60
+smoke_ok mode=native url=http://127.0.0.1:8601/
+```
+
+The first affected-bundle flake is recorded as a pre-existing
+concurrency-test instability; the immediate rerun passed. No Data Health
+failure occurred and no authority boundary changed.
 
 ## Post-closure fix: bounded grouped staging on Windows
 

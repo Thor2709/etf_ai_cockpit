@@ -1179,7 +1179,7 @@ schema_version
 **Tests required:** Inventory aggregation, missing/stale states and UI smoke.  
 **Rebuild requirement:** Full release gate before close.  
 **Plan.md update requirement:** Record as Phase C priority.  
-**Close criteria:** Common close criteria plus data health browser smoke. Current implementation is independently approved on `wave4/task10-data-health`; the authoritative full suite now passes after the atomic staging fix, while the optional package smoke remains blocked by the existing AURG/Sparebanken fixture and the canvas semantic snapshot exposes only the accessibility toggle. Keep open pending independent re-review and final integration/synchronisation gates.
+**Close criteria:** Common close criteria plus data health browser smoke. Current implementation is independently approved on `wave4/task10-data-health`; the authoritative full suite, native/portable package smoke and semantic Data Health controls now pass after the atomic staging and provenance fixes. Keep open pending final integration and local/GitHub synchronisation gates.
 
 ## ISSUE-0036 - Import/export centre
 
@@ -1743,7 +1743,7 @@ This section records the hands-off run against `docs\superpowers\plans\2026-07-0
 | `ISSUE-0045` | Still open, partial | Browser screenshots passed. Flet semantic DOM locators remain weak and need dedicated accessibility/test hooks. |
 | `ISSUE-0068` | Still open, partial | Grouping and settings copy now distinguish primary/secondary/Sparebanken, but the full universe manager/provider policy editor is not built. |
 | `ISSUE-0018` | Still open, deferred | No watchlist/universe manager UI was implemented beyond grouped display. |
-| `ISSUE-0035` | Open, implementation complete; closure pending | Task 10 implementation and fresh Data Health/browser/export evidence are recorded; the authoritative full suite now passes after the atomic staging fix, package smoke is blocked by the existing AURG/Sparebanken fixture and canvas semantic coverage is incomplete. |
+| `ISSUE-0035` | Open, implementation complete; closure pending | Task 10 implementation and fresh Data Health/browser/export evidence are recorded; the authoritative full suite, native/portable package smoke and semantic controls pass after the atomic/provenance fixes. Final integration and local/GitHub synchronisation remain. |
 | `ISSUE-0040` | Still open, partial | Launcher errors are clearer, but a full error handling and recovery centre was not implemented. |
 | `ISSUE-0039` | Still open, partial | Port/cache/rebuild reliability improved; no full performance and caching audit was completed. |
 | `ISSUE-0036` | Still open, deferred | Import/export centre was not implemented in this run. |

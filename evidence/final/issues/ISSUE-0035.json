@@ -2,12 +2,12 @@
   "issue_id": "ISSUE-0035",
   "title": "Data health centre",
   "status": "open",
-  "decision": "Implementation is complete on the Task 10 branch and independently approved for code quality, but closure remains pending. Fresh Data Health, affected regression, compileall, Ruff, export, source browser, packaged HTTP readiness and authoritative full-suite evidence passed after the atomic staging fix. The package smoke remains blocked by the existing AURG/Sparebanken fixture, the canvas semantic snapshot exposes only the accessibility toggle, and final integration/synchronisation remains pending; the issue must not move to closed until the applicable closure gates are satisfied.",
+  "decision": "Implementation is complete on the Task 10 branch and independently approved for specification and code quality. Fresh Data Health, affected regression, compileall, Ruff, export, source browser, package smoke and authoritative full-suite evidence passed after the atomic staging and provenance fixes. Final integration/synchronisation remains pending; the issue must not move to closed until the applicable closure gates are satisfied.",
   "source": ["src/etf_cockpit/data/health.py", "src/etf_cockpit/app/pages/data_health.py", "src/etf_cockpit/app/pages/dashboard.py"],
   "tests": ["tests/test_data_health.py", "tests/test_flet_startup.py", "tests/test_simple_scores.py", "tests/test_e2e_workflow.py"],
   "ui": ["/data-health", "Dashboard summary card"],
   "export": "data/derived/data_health.csv",
   "build": "evidence/final/build/ISSUE-0035.md",
   "browser": "evidence/final/browser/ISSUE-0035-packaged.png",
-  "limitations": ["Authoritative pytest now passes at 100% after the atomic staging fix; no Data Health test failed.", "The optional package smoke remains blocked by the existing Sparebanken/AURG fixture; direct packaged-native HTTP readiness returned 200.", "Flet semantic DOM snapshots expose only the accessibility toggle; visual browser evidence is recorded but full keyboard/focus semantics are not claimed.", "Final independent re-review and integration/synchronisation gates remain pending.", "Data Health reports current local-store state and never invents missing provider or model data."]
+  "limitations": ["Authoritative pytest passes at 100% after the atomic staging fix; no Data Health test failed.", "The fresh native and portable-native smoke used local ignored trade-candidate fixtures for the existing AURG/Sparebanken score-group contract; those generated market files remain excluded from Git.", "The isolated rebuild venv did not contain PyInstaller, so the existing native output was retained while the portable package was rebuilt.", "Final integration and local/GitHub synchronisation gates remain pending.", "Data Health reports current local-store state and never invents missing provider or model data."]
 }

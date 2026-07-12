@@ -1234,12 +1234,15 @@ Required checks for the current implementation sweep:
   passed; source smoke - `snapshot_ok as_of=2026-07-13 signals=16 backtests=5`.
 - Full authoritative `pytest -q` - exit 0 at 100%, warnings only; no Data Health
   failure occurred after the atomic staging fix.
-- `cmd /c scripts\\build_windows.bat` created native and portable outputs;
-  optional score-group smoke failed on the existing AURG/Sparebanken fixture.
-  Direct packaged-native launcher readiness on port 8565 returned HTTP 200.
+- `cmd /c scripts\\build_windows.bat` exited 0 and recreated the portable
+  output; PyInstaller was unavailable in the isolated build venv, so the
+  existing native output was retained. Fresh `native` port 8601 and
+  `portable-native` port 8600 smoke both returned `smoke_ok` using the local
+  ignored candidate fixtures for the AURG/Sparebanken contract.
 - Source/package `/data-health` browser renders passed visually with only the
-  expected `Flutter app loaded` console message. Flet semantic snapshot exposed
-  only the accessibility toggle; full keyboard/focus semantics are not claimed.
+  expected `Flutter app loaded` console message. Enabling Flet accessibility
+  semantics exposed labelled Data Health filters, export, actions and migration
+  controls; Tab advanced through the semantic focus tree.
 - Export wrote 12 rows with header compatibility and SHA-256
   `bd89f6e01ea42e90d05a09675d881143f4584c3055e5dfcd7d9a7f7d124b4996`.
 

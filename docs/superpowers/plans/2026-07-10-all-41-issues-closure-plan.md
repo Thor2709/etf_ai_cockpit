@@ -721,13 +721,13 @@ Render mixed healthy/stale/missing fixtures in source and packaged UI, capture s
 Run focused plus full tests, package build, Provider/Evidence/Data Health browser matrix, secret scan and audit-export interim check. Mark five Wave 4 dossiers ready only after independent review.
 
 Task 10 implementation is independently approved and its focused, affected,
-compile, lint, source-smoke, export, native-build, direct packaged-readiness
-and source/package browser evidence is recorded in `.ai_worklog/task-10-report.md`
-and `evidence/final/`. The Wave 4 closure gate remains blocked by eight
-pre-existing full-suite failures, the fixture-dependent package smoke failure,
-and incomplete Flet canvas semantic accessibility evidence. `ISSUE-0035`
-remains open/implementation-complete; do not start Task 11 until the gate is
-resolved or the closure rules explicitly accept the recorded limitations.
+compile, lint, source-smoke, export, portable-build, native/portable-smoke,
+direct packaged-readiness, semantic focus and source/package browser evidence
+is recorded in `.ai_worklog/task-10-report.md` and `evidence/final/`. The
+authoritative full suite passes after the atomic staging and provenance fixes.
+`ISSUE-0035` remains open/implementation-complete only until final integration
+and local/GitHub synchronisation; do not start Task 11 before that boundary is
+resolved.
 
 ---
 
