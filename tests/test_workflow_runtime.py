@@ -5,7 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from etf_cockpit.app.pages.dashboard import _activity_panel
+from etf_cockpit.app.pages.dashboard import _action_bar, _activity_panel
+from etf_cockpit.app.state import AppState
+from etf_cockpit.services import build_snapshot
 from etf_cockpit.core import session_log
 from etf_cockpit.core import workflow as workflow_module
 from etf_cockpit.core.workflow import (
@@ -27,6 +29,15 @@ def _control_texts(control: object) -> list[str]:
         for item in children:
             texts.extend(_control_texts(item))
     return texts
+
+
+def _walk_controls(control: object):
+    yield control
+    for child in getattr(control, "controls", []) or []:
+        yield from _walk_controls(child)
+    content = getattr(control, "content", None)
+    if content is not None:
+        yield from _walk_controls(content)
 
 
 def test_workflow_logs_start_before_steps_and_persists_result(tmp_path: Path) -> None:
@@ -125,3 +136,20 @@ def test_manual_review_and_retryable_failure_are_explicit(tmp_path: Path) -> Non
     assert manual.status is WorkflowStatus.MANUAL_REVIEW
     assert retry.status is WorkflowStatus.FAILED
     assert retry.retryable is True
+
+
+def test_primary_dashboard_workflows_are_keyboard_operable_buttons() -> None:
+    snapshot = build_snapshot()
+    state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
+    page = type("Page", (), {"route": "/", "width": 1400, "update": lambda _self: None})()
+    controls = list(_walk_controls(_action_bar(page, state)))
+    required = {
+        "dashboard.refresh-yfinance",
+        "dashboard.run-algorithms",
+        "dashboard.run-forecasting-models",
+        "dashboard.show-scores",
+    }
+    matched = {str(getattr(control, "key", "")): control for control in controls if getattr(control, "key", None)}
+    assert required <= matched.keys()
+    assert all(type(matched[key]).__name__ in {"FilledButton", "OutlinedButton", "TextButton", "ElevatedButton"} for key in required)
+    assert all(callable(matched[key].on_click) for key in required)
