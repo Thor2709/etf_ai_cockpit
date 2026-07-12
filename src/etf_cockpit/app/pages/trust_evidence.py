@@ -204,7 +204,7 @@ def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
                 result.value = f"ESEF import failed safely: {state.last_message}"
         page.update()
 
-    return panel(ft.Column([section_header("Official filing import", "SEC EDGAR is a no-key official source. Local fixtures remain functional offline; network failures are explicit unavailable states and never start scoring or broker workflows."), ft.Row([cik_field, ft.OutlinedButton("Fetch SEC companyfacts", key="filings.import-sec", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=fetch_sec), ft.OutlinedButton("Import SEC companyfacts", key="filings.import-sec", icon=ft.Icons.UPLOAD_FILE, on_click=import_sec), ft.OutlinedButton("Import ESEF package", key="filings.import-esef", icon=ft.Icons.UPLOAD_FILE, on_click=import_esef)], wrap=True), result], spacing=8))
+    return panel(ft.Column([section_header("Official filing import", "SEC EDGAR is a no-key official source. Local fixtures remain functional offline; network failures are explicit unavailable states and never start scoring or broker workflows."), ft.Row([cik_field, ft.OutlinedButton("Fetch SEC companyfacts", key="filings.fetch-sec", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=fetch_sec), ft.OutlinedButton("Import SEC companyfacts", key="filings.import-sec", icon=ft.Icons.UPLOAD_FILE, on_click=import_sec), ft.OutlinedButton("Import ESEF package", key="filings.import-esef", icon=ft.Icons.UPLOAD_FILE, on_click=import_esef)], wrap=True), result], spacing=8))
 
 
 def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:

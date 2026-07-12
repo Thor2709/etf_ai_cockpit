@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 from etf_cockpit.data.instrument_identity import CanonicalIdentity
 from etf_cockpit.parsers.contracts import RawDocument
@@ -92,3 +93,52 @@ def test_statement_inventory_persists_official_source_and_mapping_ids(tmp_path: 
     assert row["coverage_status"] == "imported"
     assert int(row["fact_count"]) == len(result.records)
     assert "sec_edgar:" in str(row["source_ids"])
+
+
+def test_statement_fact_and_inventory_writes_merge_prior_ciks_without_duplicates(tmp_path: Path) -> None:
+    first_path = tmp_path / "first.json"
+    first_path.write_text(json.dumps({"cik": 1, "facts": {"us-gaap": {"Assets": {"units": {"USD": [{"val": 1, "end": "2024-12-31", "accn": "a"}]}}}}}), encoding="utf-8")
+    second_path = tmp_path / "second.json"
+    second_path.write_text(json.dumps({"cik": 2, "facts": {"us-gaap": {"Assets": {"units": {"USD": [{"val": 2, "end": "2024-12-31", "accn": "b"}]}}}}}), encoding="utf-8")
+    first = parse_companyfacts(first_path, _identity("1"))
+    second = parse_companyfacts(second_path, _identity("2"))
+    facts_destination = tmp_path / "statement_facts.parquet"
+    inventory_destination = tmp_path / "filings_statements.parquet"
+    write_statement_facts(first.records, facts_destination)
+    write_statement_facts(second.records, facts_destination)
+    write_statement_inventory(RawDocument(first_path, "https://data.sec.gov/first", datetime.now(timezone.utc), first.source_sha256, "sec_edgar", "sec_companyfacts", "application/json", 200), first.records, inventory_destination)
+    write_statement_inventory(RawDocument(second_path, "https://data.sec.gov/second", datetime.now(timezone.utc), second.source_sha256, "sec_edgar", "sec_companyfacts", "application/json", 200), second.records, inventory_destination)
+    import pandas as pd
+
+    facts = pd.read_parquet(facts_destination)
+    inventory = pd.read_parquet(inventory_destination)
+    assert set(facts["cik"].astype(str)) == {"1", "2"}
+    assert len(facts) == 2
+    assert set(inventory["checksum"].astype(str)) == {first.source_sha256, second.source_sha256}
+    assert len(inventory) == 2
+
+
+def test_sec_import_does_not_attribute_unresolved_cik_to_selected_etf(tmp_path: Path, monkeypatch) -> None:
+    from etf_cockpit.app import state as state_module
+
+    payload_path = tmp_path / "facts.json"
+    payload_path.write_text(
+        json.dumps({"cik": 3, "facts": {"us-gaap": {"Assets": {"units": {"USD": [{"val": 3, "end": "2024-12-31"}]}}}}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(state_module, "STATEMENT_FACTS_PATH", tmp_path / "statement_facts.parquet")
+    monkeypatch.setattr(state_module, "FILINGS_STATEMENTS_PATH", tmp_path / "filings_statements.parquet")
+    state = state_module.AppState.__new__(state_module.AppState)
+    state.selected_etf = "SELECTED_ETF"
+    state.snapshot = SimpleNamespace(config=SimpleNamespace(universe=SimpleNamespace(etfs=[])))
+    state.last_message = "Ready"
+
+    message = state.import_sec_companyfacts(payload_path)
+
+    assert "complete" in message
+    import pandas as pd
+
+    facts = pd.read_parquet(tmp_path / "statement_facts.parquet")
+    assert facts["instrument_id"].iat[0] != "SELECTED_ETF"
+    assert str(facts["instrument_id"].iat[0]).startswith("sec_unresolved_")
+    assert str(facts["cik"].iat[0]) == "3"

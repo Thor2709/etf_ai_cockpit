@@ -394,9 +394,11 @@ class AppState:
             cik = str(payload.get("cik") or payload.get("cik_str") or "").strip()
             if not cik:
                 raise ValueError("SEC companyfacts is missing a CIK")
+            normalised_cik = str(cik).strip().upper().removeprefix("CIK").zfill(10)
+            resolved_instrument_id = instrument_id or f"sec_unresolved_{normalised_cik}"
             identity = CanonicalIdentity(
-                instrument_id or self.selected_etf or "sec_imported",
-                "Imported SEC entity",
+                resolved_instrument_id,
+                f"Unresolved SEC CIK {normalised_cik}" if instrument_id is None else "Imported SEC entity",
                 None,
                 "needs_verification",
                 "",
@@ -405,7 +407,7 @@ class AppState:
                 "stock",
                 {},
                 "manual_review",
-                (),
+                () if instrument_id is not None else ("cik_not_resolved_to_instrument",),
                 cik,
             )
             parsed = parse_companyfacts(path, identity)
@@ -416,13 +418,14 @@ class AppState:
             source = RawDocument(path, path.resolve().as_uri(), datetime.now(timezone.utc), parsed.source_sha256, "sec_edgar", "sec_companyfacts", "application/json", 200)
             write_statement_facts(parsed.records, STATEMENT_FACTS_PATH)
             write_statement_inventory(source, parsed.records, FILINGS_STATEMENTS_PATH, instrument_id=identity.instrument_id)
-            self.last_message = f"SEC import complete: {len(parsed.records)} facts, {len(parsed.warnings)} mapping warnings."
+            review_note = " manual identity review required." if instrument_id is None else ""
+            self.last_message = f"SEC import complete: {len(parsed.records)} facts, {len(parsed.warnings)} mapping warnings.{review_note}"
             return self.last_message
         except Exception as exc:
             self.last_message = f"SEC import unavailable: {type(exc).__name__}. No data changed."
             return self.last_message
 
-    def fetch_sec_companyfacts(self, cik: str, *, cache_dir: Path | None = None) -> str:
+    def fetch_sec_companyfacts(self, cik: str, *, cache_dir: Path | None = None, instrument_id: str | None = None) -> str:
         """Fetch keyless SEC facts with controlled unavailable state."""
 
         try:
@@ -431,7 +434,7 @@ class AppState:
                 cache_dir=cache_dir or (RAW_DIR / "sec_edgar"),
             )
             document = provider.fetch_companyfacts(cik)
-            return self.import_sec_companyfacts(document.path)
+            return self.import_sec_companyfacts(document.path, instrument_id=instrument_id)
         except Exception as exc:
             self.last_message = f"SEC import unavailable: {type(exc).__name__}. Local data was not changed."
             return self.last_message

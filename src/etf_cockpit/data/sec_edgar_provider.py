@@ -118,7 +118,12 @@ class SecEdgarProvider:
                 if response.status == 304:
                     if not cache_path.is_file():
                         raise ValueError("SEC returned 304 but no cached document exists")
-                    cached_sha = _sha256(cache_path.read_bytes())
+                    cached_payload = cache_path.read_bytes()
+                    cached_sha = _sha256(cached_payload)
+                    expected_sha = str(metadata.get("sha256") or "").strip().lower()
+                    if expected_sha and cached_sha != expected_sha:
+                        raise ValueError("SEC cached payload checksum mismatch")
+                    _validate_identity(_parse_json(cached_payload), expected_cik)
                     return RawDocument(
                         cache_path,
                         url,

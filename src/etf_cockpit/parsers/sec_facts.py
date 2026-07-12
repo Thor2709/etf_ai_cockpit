@@ -182,9 +182,17 @@ def statement_facts_frame(records: Iterable[StatementFact]):
 
 
 def write_statement_facts(records: Iterable[StatementFact], destination: Path) -> Path:
-    """Persist clean statement facts with an atomic parquet replacement."""
+    """Persist clean statement facts as a durable, de-duplicated store."""
+
+    import pandas as pd
 
     frame = statement_facts_frame(records)
+    existing = _existing_parquet(destination)
+    if not existing.empty:
+        frame = pd.concat([existing, frame], ignore_index=True, sort=False)
+    if "source_id" in frame.columns and not frame.empty:
+        frame = frame.drop_duplicates(subset=["source_id"], keep="last")
+    frame = _ordered_statement_facts(frame)
     atomic_write_bytes(destination, parquet_payload(frame), validate_parquet_file)
     return destination
 
@@ -231,8 +239,36 @@ def write_statement_inventory(
         ],
     )
     output = destination or FILINGS_STATEMENTS_PATH
+    existing = _existing_parquet(output)
+    if not existing.empty:
+        frame = pd.concat([existing, frame], ignore_index=True, sort=False)
+    if not frame.empty:
+        dedupe_columns = [column for column in ("document_id", "checksum") if column in frame.columns]
+        if dedupe_columns:
+            frame = frame.drop_duplicates(subset=dedupe_columns, keep="last")
     atomic_write_bytes(output, parquet_payload(frame), validate_parquet_file)
     return output
+
+
+def _existing_parquet(path: Path):
+    """Read an existing store without silently replacing a corrupt one."""
+
+    import pandas as pd
+
+    if not path.exists():
+        return pd.DataFrame()
+    try:
+        return pd.read_parquet(path)
+    except Exception as exc:
+        raise ValueError(f"Existing SEC evidence store is unreadable: {path}") from exc
+
+
+def _ordered_statement_facts(frame):
+    """Keep the public fact schema stable while retaining existing columns."""
+
+    columns = list(StatementFact.__dataclass_fields__)
+    extras = [column for column in frame.columns if column not in columns]
+    return frame.reindex(columns=columns + extras)
 
 
 def _source_id(cik: str, taxonomy: str, concept: str, unit: str, accession: str | None, period: str, entry: dict[str, Any]) -> str:

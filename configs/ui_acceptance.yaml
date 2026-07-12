@@ -82,6 +82,7 @@ controls:
 
   # Official parser file pickers and controlled parser callbacks.
   - {key: filings.import-sec, route: /filings, control_label: Import SEC companyfacts, callback: import_sec, success_signal: parser_result_visible, controlled_error_signal: controlled_recovery_state, acceptance_test: tests/test_button_contracts.py, control_type: button}
+  - {key: filings.fetch-sec, route: /filings, control_label: Fetch SEC companyfacts, callback: fetch_sec, success_signal: parser_result_visible, controlled_error_signal: controlled_recovery_state, acceptance_test: tests/test_button_contracts.py, control_type: button}
   - {key: filings.import.file-picker, route: /filings, control_label: Official filing file picker, callback: pick_files, success_signal: file_selected_or_cancelled, controlled_error_signal: controlled_recovery_state, acceptance_test: tests/test_button_contracts.py, control_type: file_picker}
   - {key: filings.import-esef, route: /filings, control_label: Import ESEF package, callback: import_esef, success_signal: parser_result_visible, controlled_error_signal: controlled_recovery_state, acceptance_test: tests/test_button_contracts.py, control_type: button}
   - {key: etf-disclosures.import-kid, route: /etf-disclosures, control_label: Import PRIIPs KID, callback: import_kid, success_signal: parser_result_visible, controlled_error_signal: controlled_recovery_state, acceptance_test: tests/test_button_contracts.py, control_type: button}

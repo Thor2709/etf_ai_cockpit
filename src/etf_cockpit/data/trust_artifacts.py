@@ -774,7 +774,15 @@ def write_benchmark_attribution(scoreboard: pd.DataFrame) -> Path:
 
 def write_optional_source_inventories(config: AppConfig, identity: pd.DataFrame) -> dict[str, Path]:
     return {
-        "filings_statements": _write_dual(_local_document_inventory("filings", RAW_DIR / "filings", identity), FILINGS_STATEMENTS_PATH),
+        # Keep imported SEC statement rows when the normal trust refresh runs.
+        # The refresh discovers local filing documents, but it is not allowed
+        # to replace evidence imported through another official provider.
+        "filings_statements": _append_parquet(
+            FILINGS_STATEMENTS_PATH,
+            _local_document_inventory("filings", RAW_DIR / "filings", identity),
+            [],
+            id_columns=["document_id", "checksum"],
+        ),
         "etf_disclosures": _write_dual(_etf_disclosure_inventory(identity), ETF_DISCLOSURES_PATH),
         "news_context": _write_dual(_news_context_inventory(identity), NEWS_CONTEXT_PATH),
         "news_timestamp_validation": _write_dual(_news_timestamp_validation(), NEWS_TIMESTAMP_VALIDATION_PATH),

@@ -75,3 +75,22 @@ def test_sec_provider_rejects_wrong_identity_payload(tmp_path: Path) -> None:
     provider = SecEdgarProvider("ETF Cockpit test contact@example.invalid", cache_dir=tmp_path, transport=transport)
     with pytest.raises(ValueError, match="CIK"):
         provider.fetch_companyfacts("789019")
+
+
+def test_sec_provider_rejects_corrupt_cached_304_payload(tmp_path: Path) -> None:
+    payload = json.dumps({"cik": "0000789019", "facts": {}}).encode()
+
+    def transport(_url: str, _headers: dict[str, str]):
+        return payload, 200, {"ETag": '"facts-v1"'}
+
+    provider = SecEdgarProvider("ETF Cockpit test contact@example.invalid", cache_dir=tmp_path, transport=transport)
+    provider.fetch_companyfacts("789019")
+    cached = tmp_path / "companyfacts_0000789019.json"
+    cached.write_text(json.dumps({"cik": "0000000001", "facts": {}}), encoding="utf-8")
+
+    def not_modified(_url: str, _headers: dict[str, str]):
+        return b"", 304, {"ETag": '"facts-v1"'}
+
+    provider.transport = not_modified
+    with pytest.raises(ValueError, match="cache|CIK|checksum"):
+        provider.fetch_companyfacts("789019")
