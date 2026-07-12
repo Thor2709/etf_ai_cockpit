@@ -67,3 +67,16 @@ authoritative ledgers as part of remote synchronisation.
   98 records and kept the 77/21 state counts in agreement.
 - `.venv\\Scripts\\python.exe scripts/sync_github_issues.py`
   -> exit 0; 98 unchanged actions; reconciliation passes.
+
+## Ledger refresh after Wave 1 Governance Task 1 - 2026-07-12
+
+- The Task 1 checkpoint in `issues/open.md` changed the authoritative local
+  source checksum. The authorised apply run completed with exit 0, 98 records
+  unchanged, local counts 77 open/21 closed, matching mapped counts and no
+  unresolved duplicates.
+- `issues/github_issue_map.json` and
+  `issues/github_issue_sync_report.json` now bind the mirror read-back to
+  source commit `83cefead67c5e2d834848a4e84fa375a8827d8e3`.
+- The final read-only reconciliation completed with exit 0 and 98 unchanged
+  actions. No GitHub Issue was created, closed, reopened, deleted or otherwise
+  changed by this refresh; the local issue state remains authoritative.
