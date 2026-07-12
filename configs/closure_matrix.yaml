@@ -521,17 +521,27 @@ issues:
     text: Implemented in source or explicitly documented as architecture/research-only.
     required_gates:
     - source
-    evidence_paths: []
+    evidence_paths:
+    - .ai_worklog/task9-report.md
+    - src/etf_cockpit/data/instrument_identity.py
+    - src/etf_cockpit/data/source_conflicts.py
+    - src/etf_cockpit/data/evidence_ledger.py
   - criterion_id: UPDATEV2-0011-C-UI
     text: Visible in the app UI where user-facing.
     required_gates:
     - ui
-    evidence_paths: []
+    evidence_paths:
+    - src/etf_cockpit/app/pages/trust_evidence.py
+    - evidence/task9-provider-status.png
+    - evidence/task9-provider-status-mobile.png
   - criterion_id: UPDATEV2-0011-C-TESTS
     text: Relevant tests added or updated.
     required_gates:
     - tests
-    evidence_paths: []
+    evidence_paths:
+    - tests/test_instrument_identity.py
+    - tests/test_simple_scores.py
+    - tests/test_trust_critical_artifacts.py
   - criterion_id: UPDATEV2-0011-C-EXPORT
     text: Audit/export output updated where relevant.
     required_gates:
@@ -556,7 +566,8 @@ issues:
     text: Remaining limitations recorded.
     required_gates:
     - source
-    evidence_paths: []
+    evidence_paths:
+    - .ai_worklog/task9-report.md
 - issue_id: UPDATEV2-0012
   title: SEC EDGAR official statement importer (original update ISSUE-0012)
   wave: 6
@@ -1256,17 +1267,26 @@ issues:
     text: Implemented in source or explicitly documented as architecture/research-only.
     required_gates:
     - source
-    evidence_paths: []
+    evidence_paths:
+    - .ai_worklog/task9-report.md
+    - src/etf_cockpit/data/source_conflicts.py
+    - src/etf_cockpit/data/evidence_ledger.py
   - criterion_id: UPDATEV2-0021-C-UI
     text: Visible in the app UI where user-facing.
     required_gates:
     - ui
-    evidence_paths: []
+    evidence_paths:
+    - src/etf_cockpit/app/pages/trust_evidence.py
+    - evidence/task9-provider-status.png
+    - evidence/task9-provider-status-mobile.png
   - criterion_id: UPDATEV2-0021-C-TESTS
     text: Relevant tests added or updated.
     required_gates:
     - tests
-    evidence_paths: []
+    evidence_paths:
+    - tests/test_source_conflicts.py
+    - tests/test_evidence_ledger.py
+    - tests/test_simple_scores.py
   - criterion_id: UPDATEV2-0021-C-EXPORT
     text: Audit/export output updated where relevant.
     required_gates:
@@ -1291,7 +1311,8 @@ issues:
     text: Remaining limitations recorded.
     required_gates:
     - source
-    evidence_paths: []
+    evidence_paths:
+    - .ai_worklog/task9-report.md
 - issue_id: UPDATEV2-0022
   title: Evidence ledger and score component audit trail (original update ISSUE-0022)
   wave: 4

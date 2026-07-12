@@ -621,7 +621,7 @@ not yet satisfied. Wave 4 Task 9 is next.
 
 ### Task 9: Instrument Identity, Source Conflicts and Evidence Ledger
 
-**Issues:** `UPDATEV2-0011`, `UPDATEV2-0021`, `UPDATEV2-0022`.
+**Issues:** `UPDATEV2-0011`, `UPDATEV2-0021`, `UPDATEV2-0022` (the latter remains the already-closed local dossier and was not reopened).
 
 **Files:**
 - Create: `src/etf_cockpit/data/instrument_identity.py`, `source_conflicts.py`, `evidence_ledger.py`
@@ -651,27 +651,42 @@ resolve_conflicts: Callable[[Iterable[MetricClaim]], ConflictResolution]
 ledger_entry_for_component: Callable[[SimpleScoreComponent, EvidenceSource], EvidenceLedgerEntry]
 ```
 
-- [ ] **Step 1: Write mismatch and authority tests**
+- [x] **Step 1: Write mismatch and authority tests**
 
 Cover ticker/ISIN mismatch, exchange/currency variants, ETF share-class separation, unknown ISIN, official-vendor material conflict and missing source ID. Missing source must make a component score-ineligible.
 
-- [ ] **Step 2: Extract existing trust-artifact logic**
+- [x] **Step 2: Extract existing trust-artifact logic**
 
 Move generation into typed modules while retaining wrappers named `write_instrument_identity`, `write_source_conflicts`, `write_evidence_ledger` and `write_score_components` so current callers remain stable.
 
-- [ ] **Step 3: Enforce provenance in scoring**
+- [x] **Step 3: Enforce provenance in scoring**
 
 Every component records `source_id`, authority, as-of date, freshness and conflict ID. Conflicted material official/vendor values lower evidence quality or produce manual review; no claim is silently overwritten.
 
-- [ ] **Step 4: Add UI conflict and provenance detail**
+- [x] **Step 4: Add UI conflict and provenance detail**
 
 Evidence Ledger, Filings, ETF Disclosures and Instrument Detail display canonical selection, rejected claims and human-readable conflict reason.
 
-- [ ] **Step 5: Run focused and regression tests**
+- [ ] **Step 5: Run focused and regression tests and complete the Wave 4 closure gate**
 
 Run: `.\.venv\Scripts\python.exe -m pytest tests\test_instrument_identity.py tests\test_source_conflicts.py tests\test_evidence_ledger.py tests\test_simple_scores.py tests\test_trust_critical_artifacts.py -q`.
 
 ---
+
+**Task 9 integration checkpoint - 2026-07-12:** The implementation and fix
+passes were independently re-reviewed at `262946e` with specification,
+code-quality and READY_FOR_INTEGRATION approval and no Critical, Important or
+Minor findings. PR 179 (`https://github.com/Thor2709/etf_ai_cockpit/pull/179`)
+merged into `main` at `ec5d166ee32235367f58d31f3835854a14e11ba8`. The focused
+Task 9 slice passed 13 tests, the candidate compatibility regressions passed
+3 tests, and the affected persistence/evidence/scope bundle passed 35 tests;
+bytecode-disabled compilation, forced compileall, scoped Ruff, source smoke,
+portable source-launcher readiness and rendered Provider Status evidence are
+recorded in `.ai_worklog/task9-report.md`.
+`UPDATEV2-0011` and `UPDATEV2-0021` remain open/partial because the complete
+issue-level closure matrix, package, audit/export and final browser gates are
+not yet satisfied. `UPDATEV2-0022` remains closed. The next dependency-valid
+implementation task is Task 10, Data Health Centre.
 
 ### Task 10: Data Health Centre
 

@@ -347,7 +347,7 @@ schema_version
 
 ## UPDATEV2-0011 - Symbol/ISIN/exchange identity resolver (original update ISSUE-0011)
 
-**Status:** Open  
+**Status:** Open, partial  
 **Type:** Data Integrity  
 **Priority:** P0  
 **Evidence grade:** High  
@@ -517,7 +517,7 @@ schema_version
 
 ## UPDATEV2-0021 - Source conflict resolver and canonical metric selector (original update ISSUE-0021)
 
-**Status:** Open  
+**Status:** Open, partial  
 **Type:** Evidence Integrity  
 **Priority:** P0  
 **Evidence grade:** High  
@@ -1830,3 +1830,16 @@ screenshots and their checksums are recorded in `.ai_worklog/task8-report.md`.
 The issue remains open because its complete audit-manifest, closure-matrix,
 issue-level evidence and later storage/evidence integration gates are not yet
 satisfied. Wave 4 Task 9 is next.
+
+### Wave 4 Task 9 checkpoint - 2026-07-12
+
+`UPDATEV2-0011` and `UPDATEV2-0021` remain **Open, partial** after the
+independently approved Task 9 implementation was merged through PR 179 at
+`ec5d166ee32235367f58d31f3835854a14e11ba8`. Identity resolution, source
+conflict selection, typed evidence provenance, fail-closed score eligibility,
+trust-artifact exports and visible Provider Status/Evidence Ledger provenance
+are implemented and covered by the evidence in `.ai_worklog/task9-report.md`.
+The complete issue-level package, audit/export, closure-matrix and final
+browser gates remain pending, so no active issue was moved to `issues/closed.md`.
+`UPDATEV2-0022` remains the already-closed local dossier and was not reopened.
+Task 10, Data Health Centre, is the next dependency-valid task.

@@ -1219,6 +1219,22 @@ Required checks for the current implementation sweep:
 - Post-merge focused, compileall, Ruff and source smoke passed on `main` at
   `4c4eb00175237ad49b113adad8be3f8dcbfed618`.
 
+## 2026-07-12 - Wave 4 Task 9
+
+- RED fix-pass: three genuine failures for missing score provenance, unknown/
+  missing exchange review state and missing score-component authority column.
+- Focused Task 9 slice: 13 passed; candidate compatibility regressions: 3
+  passed; affected persistence/evidence/scope bundle: 35 passed.
+- `python -B -m py_compile src/etf_cockpit/signals/simple_scores.py`: exit 0;
+  forced `compileall -f -q src tests`: exit 0; scoped Ruff `--no-cache`: all
+  checks passed; source smoke passed.
+- Portable source launcher reached HTTP readiness on port 8571. Native
+  executable packaging is not_applicable because PyInstaller is unavailable;
+  dependency installation also encountered a Windows file lock, recorded in
+  `.ai_worklog/task9-report.md`.
+- `/providers` default and 390x844 screenshots are checksum-recorded in
+  `.ai_worklog/task9-report.md`; PR 179 merged at `ec5d166e`.
+
 ## 2026-07-12 - Wave 1 Governance Task 6
 
 - RED: `pytest -q tests/test_workflow_runtime.py::test_primary_dashboard_workflows_are_keyboard_operable_buttons` - exit 1 because the four keyed controls were mouse-only `Container` objects.

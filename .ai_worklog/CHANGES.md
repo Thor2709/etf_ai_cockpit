@@ -1027,3 +1027,17 @@
 - Integrated through PR 178 at merge commit
   `4c4eb00175237ad49b113adad8be3f8dcbfed618`; `UPDATEV2-0010` remains
   open/partial pending full closure evidence and Wave 4 storage integration.
+
+## 2026-07-12 - Wave 4 Task 9
+
+- Added deterministic canonical identity and source-conflict resolution with
+  MIC, listing, share-class, issuer, CIK and provider-symbol provenance.
+- Added typed evidence ledger contracts, fail-closed missing/stale/conflicted
+  score eligibility and explicit `executable_authority=false` in score
+  component exports.
+- Added conflict/provenance visibility to trust surfaces and checksum-backed
+  Provider Status screenshots; preserved existing authority and scoring rules.
+- Integrated through PR 179 at merge commit
+  `ec5d166ee32235367f58d31f3835854a14e11ba8`; UPDATEV2-0011 and UPDATEV2-0021
+  remain open/partial pending complete issue-level gates; UPDATEV2-0022 was
+  not reopened.

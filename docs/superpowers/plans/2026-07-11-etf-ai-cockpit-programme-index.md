@@ -1,6 +1,6 @@
 # ETF AI Cockpit Programme Index
 
-> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6 and Wave 3 Tasks 7-8 are independently approved, merged and post-merge verified. Task 8 merged through PR 178 with fresh independent approval. The authoritative local issue ledger is synchronised to GitHub through the versioned map and reconciliation report; later issue closure remains evidence-gated. Wave 4 Task 9 is next.
+> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6 and Wave 3 Tasks 7-9 are independently approved, merged and post-merge verified. Task 9 merged through PR 179 with fresh independent approval. The authoritative local issue ledger is synchronised to GitHub through the versioned map and reconciliation report; later issue closure remains evidence-gated. Task 10 is next.
 
 **Binding inputs:**
 
@@ -214,3 +214,17 @@ default plus 390x844 Provider Status screenshots are checksum-recorded in
 because PyInstaller is unavailable. `UPDATEV2-0010` remains open/partial
 pending complete issue-level closure evidence. The next dependency-valid task
 is Wave 4 Task 9, Instrument Identity, Source Conflicts and Evidence Ledger.
+
+Wave 4 Task 9 was independently re-reviewed after the fail-closed provenance
+and candidate-score compatibility fixes. Current head `262946e` received
+SPECIFICATION, CODE-QUALITY and READY_FOR_INTEGRATION approval with zero
+Critical, Important or Minor findings. PR 179
+(`https://github.com/Thor2709/etf_ai_cockpit/pull/179`) merged into `main` at
+`ec5d166ee32235367f58d31f3835854a14e11ba8`; post-merge main is clean and
+matches origin. Focused Task 9 tests passed 13, candidate regressions passed 3,
+affected persistence/evidence/scope tests passed 35, and the report records
+bytecode-disabled compilation, forced compileall, Ruff, source smoke, portable
+launcher readiness and Provider Status screenshots. `UPDATEV2-0011` and
+`UPDATEV2-0021` remain open/partial pending complete issue-level gates;
+`UPDATEV2-0022` remains closed. The next dependency-valid task is Task 10,
+Data Health Centre.

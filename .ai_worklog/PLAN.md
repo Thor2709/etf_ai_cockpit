@@ -1121,3 +1121,18 @@ Still open by close-rule:
 - Focused final review bundle passed 28 tests, full `tests` passed, scoped Ruff and compilation passed. Full-suite warnings remained pre-existing GluonTS/pandas warnings.
 - Evidence: `.ai_worklog/task-2-report.md`, `.ai_worklog/task-2-authority-fix-report.md`, `.ai_worklog/task-2-review-1.md`, `.ai_worklog/task-2-review-2.md`, `.ai_worklog/task-2-review-package-final.md`.
 - No issue status changed, DATA-05 remains `still_open`, `execution_allowed` remains `false`, and Task 3 is the next incomplete task but was not started.
+
+## 2026-07-12 Wave 4 Task 9 Integrated
+
+- Task 9 added deterministic instrument identity, source-conflict and typed
+  evidence-ledger contracts, with fail-closed score eligibility and explicit
+  non-executable provenance in score component exports.
+- Independent current-head review approved specification compliance and code
+  quality with READY_FOR_INTEGRATION and zero Critical/Important/Minor
+  findings. PR 179 merged at `ec5d166ee32235367f58d31f3835854a14e11ba8`.
+- Focused 13, candidate compatibility 3 and affected 35 tests passed; compile,
+  Ruff, source smoke, portable launcher and Provider Status evidence are
+  recorded in `.ai_worklog/task9-report.md`.
+- `UPDATEV2-0011` and `UPDATEV2-0021` remain open/partial; `UPDATEV2-0022`
+  remains closed; `execution_allowed=false`; Task 10 Data Health Centre is
+  next.

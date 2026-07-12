@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-12T21:40:00+10:00",
+  "updated_at": "2026-07-12T22:35:00+10:00",
   "active_programme": {
     "name": "2026-07-11-etf-ai-cockpit-approved-programme",
     "programme_index": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-programme-index.md",
     "progress_ledger": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-progress-ledger.md",
-    "phase": "wave1_governance_task5_merged_wave1_governance_task6_ready",
-    "next_task": "Wave 1, Governance Task 6: continue the next dependency-valid governance implementation task",
+    "phase": "wave4_task9_merged_task10_ready",
+    "next_task": "Wave 4, Task 10: Data Health Centre",
     "git_repository": true,
     "git_branch": "main",
     "baseline": {
@@ -481,17 +481,80 @@
       "execution_allowed": false,
       "data05_status": "still_open",
       "next_task": "Wave 1 Governance Task 5"
+    },
+    "task_9_checkpoint": {
+      "owning_issue_ids": ["UPDATEV2-0011", "UPDATEV2-0021"],
+      "preserved_closed_issue_ids": ["UPDATEV2-0022"],
+      "branch": "wave4/task9-identity-evidence",
+      "task_base": "2bb2e6e4c16b4df93410ba263b11356d12ee15df",
+      "implementation_commits": ["83236a554e52c248573bdd776feca1eb4693443b", "7f07598006bc2460e131359d68701fc23239af3d", "262946e20c8064f0565f0a70fc34e0af92b136da"],
+      "documentation_commit": "eb40142cce1480d23d85eb7754fece7fe8f7c601",
+      "red": {
+        "initial_exit_code": 1,
+        "initial_behavioural_failures": 5,
+        "fix_pass_exit_code": 1,
+        "fix_pass_behavioural_failures": 3,
+        "compatibility_regression_exit_code": 1,
+        "compatibility_regression_failures": 3
+      },
+      "green": {
+        "focused_command": "python -B -m pytest tests/test_instrument_identity.py tests/test_source_conflicts.py tests/test_evidence_ledger.py tests/test_simple_scores.py::test_score_component_requires_as_of_and_freshness_provenance tests/test_trust_critical_artifacts.py::test_score_components_persist_non_executable_authority tests/test_simple_scores.py::test_candidate_without_portfolio_fields_gets_algorithm_scores tests/test_simple_scores.py::test_unavailable_model_forecast_is_na_and_excluded tests/test_simple_scores.py::test_scoreboard_frame_contains_quality_and_authority_columns",
+        "focused_exit_code": 0,
+        "focused_tests_passed": 16,
+        "affected_command": "python -B -m pytest tests/test_atomic_io.py tests/test_source_conflicts.py tests/test_evidence_ledger.py tests/test_data_health.py tests/test_optional_providers.py tests/test_strategy_scope.py tests/scope_boundary/test_execution_boundary.py --disable-warnings",
+        "affected_exit_code": 0,
+        "affected_tests_passed": 35,
+        "compile_exit_code": 0,
+        "ruff_exit_code": 0,
+        "source_smoke_exit_code": 0,
+        "source_smoke_output": "snapshot_ok as_of=2026-07-13 signals=16 backtests=5"
+      },
+      "independent_review": {
+        "report": ".ai_worklog/task9-report.md",
+        "reviewer": "task9_reviewer3",
+        "specification": "approved",
+        "code_quality": "approved",
+        "ready": true,
+        "critical": 0,
+        "important": 0,
+        "minor": 0
+      },
+      "package": {
+        "build_command": "cmd /c scripts\\build_windows.bat",
+        "build_exit_code": 1,
+        "build_limitation": "worktree virtual-environment dependency installation hit WinError 32; PyInstaller unavailable",
+        "portable_launcher_exit_code": 0,
+        "portable_launcher_url": "http://127.0.0.1:8571/"
+      },
+      "browser": {
+        "route": "/providers",
+        "default_screenshot": "evidence/task9-provider-status.png",
+        "default_sha256": "ecb650d796fb380ea2be3f8f715c86f49e4099defa6026f97400acd0a7766393",
+        "mobile_screenshot": "evidence/task9-provider-status-mobile.png",
+        "mobile_sha256": "59f24ab5c13d85e3280831d01a54a54ebbf84b58184f33ad40a8958342766179"
+      },
+      "integration": {
+        "pull_request": "https://github.com/Thor2709/etf_ai_cockpit/pull/179",
+        "merge_commit": "ec5d166ee32235367f58d31f3835854a14e11ba8",
+        "main_matches_origin": true,
+        "working_tree_clean": true
+      },
+      "issue_state": "open_partial",
+      "closure_evaluator": "not_ready; package, audit/export, final browser and complete issue-level gates remain",
+      "execution_allowed": false,
+      "data05_status": "still_open",
+      "next_task": "Wave 4 Task 10: Data Health Centre"
     }
   },
   "plan": "docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md",
   "execution_mode": "subagent_driven_with_independent_review",
   "git_repository": true,
   "git_branch": "main",
-  "progress_percent": 38,
+  "progress_percent": 40,
   "wave": 4,
   "task": 9,
   "step": 1,
-  "completed_tasks": [1, 2, 3, 4, 5, 6, 7, 8],
+  "completed_tasks": [1, 2, 3, 4, 5, 6, 7, 8, 9],
   "completed_governance_tasks": [1, 2, 3, 4, 5, 6],
   "implementation_foundations": [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
   "issue_counts": {
@@ -526,8 +589,8 @@
       "closure_evaluator": {"exit_code": 1, "ready": 4, "still_open": 38, "issue_count": 42, "expected_nonzero": true}
     }
   },
-  "first_unpassed_criterion": "Wave 4 Task 9 and later tasks remain incomplete; UPDATEV2-0010 and all other non-ready records remain open for their complete closure dossiers",
-  "next_command": "Create the isolated Wave 4 Task 9 worktree/branch from origin/main and dispatch a fresh implementer and independent reviewer for instrument identity, source conflicts and evidence ledger",
+  "first_unpassed_criterion": "Wave 4 Task 10 and later tasks remain incomplete; UPDATEV2-0010, UPDATEV2-0011 and UPDATEV2-0021 and all other non-ready records remain open for their complete closure dossiers",
+  "next_command": "Create the isolated Wave 4 Task 10 worktree/branch from origin/main and dispatch a fresh implementer and independent reviewer for the Data Health Centre",
   "notes": [
     "No Git initialisation or commit occurred before the independently approved Task 2 boundary; the user now authorises local baseline Git setup and optional private GitHub push only.",
     "Closure status is evaluator-backed: 4/42 ready and 38 still open; do not close remaining issues without their complete dossiers.",

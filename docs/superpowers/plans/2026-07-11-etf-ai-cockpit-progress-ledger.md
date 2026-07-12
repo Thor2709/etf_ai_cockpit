@@ -7,11 +7,11 @@
 | Field | Value |
 |---|---|
 | Updated | 2026-07-12 |
-| Active phase | Wave 3 Task 8 independently approved, merged through PR 178 and post-merge verified; Wave 4 Task 9 is next |
+| Active phase | Wave 4 Task 9 independently approved, merged through PR 179 and post-merge verified; Task 10 is next |
 | Active plan | `docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md` |
-| Git state | `main` is clean and matches `origin/main` at `4c4eb00175237ad49b113adad8be3f8dcbfed618`; Task 8 PR 178 is integrated |
+| Git state | `main` is clean and matches `origin/main` at `ec5d166ee32235367f58d31f3835854a14e11ba8`; Task 9 PR 179 is integrated |
 | Existing closure state | 4 ready / 38 tracker records still open, including DATA-05 |
-| Fresh baseline | Task 8 post-merge focused 14 passed, compileall/Ruff/source smoke passed; affected provider/trust/execution evidence is 42 passed with the documented identity fixture limitation; portable bundle/launcher and Provider Status browser evidence are checksum-recorded; native executable is not_applicable because PyInstaller is unavailable |
+| Fresh baseline | Task 9 post-merge focused 13 plus candidate compatibility 3 and affected 35 passed; bytecode-disabled compile, forced compileall, scoped Ruff, source smoke, portable launcher readiness and Provider Status browser evidence are recorded; package dependency installation hit a Windows file lock and native executable is not_applicable because PyInstaller is unavailable |
 | Pre-existing type state | recorded mypy failure caused by external stubs and existing typing debt; no new failure attributed |
 | Known historical evidence limitation | Existing package/browser evidence predates this programme and cannot close new work |
 
@@ -23,7 +23,7 @@
 | 1 | governance | Tasks 1-6 independently approved and merged; Task 7 integrated | Task 6 WorkflowController/session trace paths plus Task 7 source-linked UI inventory, controlled recovery and timing/cache evidence | continue with Wave 3 Task 8 Canonical Data Contracts and Provider Registry |
 | 2 | registry and universe | Not started | `UniverseRecord`/optimistic revision/atomic save present | registry dry-run and validator RED suite |
 | 3 | DATA-05 | Not started | no live seed verification has been performed in this programme | retrieve current official identity evidence and write failing seed-contract tests |
-| 4 | storage and evidence | Not started | DuckDB helper, atomic I/O, Data Health and parser scaffolds present | catalogue/evidence contract RED suite |
+| 4 | storage and evidence | Task 9 integrated; Task 10 next | Task 9 identity/conflict/evidence contracts, provenance eligibility and trust artefacts are independently approved and merged; UPDATEV2-0011/0021 remain open/partial for complete closure dossiers | implement Task 10 Data Health Centre |
 | 5 | domain and scoring | Not started | source-aware deterministic scorer present; first-enabled benchmark and legacy ensemble remain | template/benchmark/champion RED suite |
 | 6 | AI and validation | Not started | optional adapter foundations present; authority/caching/validation seams remain | strict forecast-state and fold/trial RED suite |
 | 7 | portfolio | Not started | static holdings/allocation foundation present | immutable ledger RED suite |
@@ -52,6 +52,7 @@
 | 2026-07-12 | Wave 1 Governance Task 5 - governance surfaces and static release boundary | parent implementation after two stalled implementers, then three fresh independent reviews and fix passes | final fresh independent reviewer `governance_task5_review_approval` | initial RED exit 1 for four missing governance modules; fix passes covered route registry, per-dependency readiness, glossary hash targets, keyboard navigation, journal read failure and refresh states | focused UI/startup/accessibility/registry/scope bundle exit 0 with 50 passed; compileall/Ruff exit 0; static boundary 425 files/0 violations; source smoke exit 0; native/portable-native package smoke exit 0; browser System Map and `/help#manual_review` screenshots captured with checksums; fresh full suite retained one intermittent pre-existing transaction-lock failure, exact test rerun passed | **Approved and integrated**; SPECIFICATION PASS and CODE QUALITY PASS; no Critical, Important or Minor findings; no issue state changed because complete owning issue closure evidence remains later | `.ai_worklog/task-governance-5-brief.md`, `.ai_worklog/task-governance-5-report.md`, `evidence/governance/task5-full-suite.txt`, `evidence/governance/task5-system-map.png`, `evidence/governance/task5-help-glossary.png`, `evidence/governance/execution_boundary_report.json` | PR 175 `https://github.com/Thor2709/etf_ai_cockpit/pull/175` merged at `6689e8c9c6a52a1b1ef1300c3c2356b006c449fa`; `execution_allowed=false`; next task is Governance Task 6 |
 | 2026-07-12 | Wave 1 Governance Task 6 - structured workflow runtime and session trace | existing runtime reconciled by parent; fresh RED/GREEN implementer change for keyboard-operable dashboard workflow controls | fresh independent reviewers `/root/task6_workflow_reviewer_final` | RED: focused dashboard-button test exit 1 because four keyed controls were mouse-only `Container` objects | focused/post-merge workflow, startup, e2e, button, scope and accessibility bundle exit 0 with 29 passed; compileall/Ruff/diff clean; source snapshot smoke exit 0; native package rebuilt (SHA-256 `E8874C460953E32D485162A92AF034E44EA0E9985AC7A90DD5BD84E287E2BA42`) and direct HTTP readiness passed; rendered source screenshots checksum-backed | **Approved and integrated**; SPECIFICATION PASS and CODE QUALITY PASS; no Critical/Important/Minor findings; no issue state change because complete owning issue closure evidence remains later | `.ai_worklog/task6-brief.md`, `.ai_worklog/task6-report.md`, `evidence/task6-dashboard-source-main-data.png`, `evidence/task6-dashboard-source.png` | PR 176 `https://github.com/Thor2709/etf_ai_cockpit/pull/176` merged at `16205d259380421d7041ffb46d61acce84ec1993`; `execution_allowed=false`; standard `smoke_app.py` fixture limitation is explicitly documented; next task is Wave 3 Task 7 |
 | 2026-07-12 | Wave 3 Task 7 - button audit, error/recovery centre and performance evidence | fresh integration implementer plus source-linked inventory fix | fresh independent reviewer re-review (SPEC PASS, CODE PASS) | RED: focused inventory/category/recovery/performance tests failed before implementation; source-linked negative omission test failed closed after fix | focused 15 passed; affected 72 passed with one existing warning; compileall/Ruff/source smoke exit 0; full isolated pytest retains eight documented generated-data/trust-fixture/order-dependent baseline failures; Windows build exit 0; native/portable-native/launcher smoke `smoke_ok`; browser Errors/Diagnostics screenshots checksum-backed | **Approved and integrated**; no Critical/Important findings; two Minor validator-hardening recommendations recorded; no issue state change because complete closure dossiers remain later | `.ai_worklog/task7-brief.md`, `.ai_worklog/task7-report.md`, `evidence/task7-dashboard.png`, `evidence/task7-diagnostics.png`, `evidence/task7-errors.png` | PR 177 `https://github.com/Thor2709/etf_ai_cockpit/pull/177` merged at `f6e0c9ca2105af2e4f176d4c0253339161fbe235`; `execution_allowed=false`; Task 8 is next |
+| 2026-07-12 | Wave 4 Task 9 - instrument identity, source conflicts and evidence ledger | fresh implementer plus parent fix pass after independent findings | fresh independent reviewer `task9_reviewer3` re-review of current head | initial RED: five identity/conflict/ledger contract failures; fix-pass RED: three genuine failures for missing score provenance, exchange review state and persisted authority column; candidate compatibility RED reproduced three score regressions | final Task 9 focused 13 passed; candidate compatibility 3 passed; affected 35 passed; bytecode-disabled py_compile, forced compileall, scoped Ruff `--no-cache`, source smoke and portable launcher readiness passed; rendered Provider Status evidence checksum-backed | **Approved and integrated**; SPECIFICATION/CODE/READY approved with zero Critical/Important/Minor findings; no issue closure because complete package/audit/export/closure-matrix gates remain open | `.ai_worklog/task9-brief.md`, `.ai_worklog/task9-report.md`, `evidence/task9-provider-status.png`, `evidence/task9-provider-status-mobile.png` | PR 179 `https://github.com/Thor2709/etf_ai_cockpit/pull/179` merged at `ec5d166ee32235367f58d31f3835854a14e11ba8`; UPDATEV2-0011/0021 remain open/partial; UPDATEV2-0022 remains closed; `execution_allowed=false`; Task 10 is next |
 
 ### Wave 1 Governance Task 6 integration checkpoint - 2026-07-12
 
@@ -234,3 +235,19 @@ rendered `/providers` route and a 390x844 viewport are checksum-recorded in
 Ruff and source smoke passed. `UPDATEV2-0010` remains open/partial pending its
 complete closure dossier and closure-matrix gates. Wave 4 Task 9 is the next
 dependency-valid task.
+
+### Wave 4 Task 9 integration checkpoint - 2026-07-12
+
+Task 9 was independently re-reviewed after the fail-closed provenance fix and
+the candidate-score compatibility correction. The current head `262946e`
+received SPECIFICATION, CODE-QUALITY and READY_FOR_INTEGRATION approval with
+zero Critical, Important or Minor findings. Focused Task 9 tests passed 13;
+the three candidate compatibility regressions passed; the affected bundle
+passed 35; bytecode-disabled compilation, forced compileall, scoped Ruff,
+source smoke, portable source-launcher readiness and rendered `/providers`
+evidence passed or are explicitly qualified in `.ai_worklog/task9-report.md`.
+PR 179 (`https://github.com/Thor2709/etf_ai_cockpit/pull/179`) merged into
+`main` at `ec5d166ee32235367f58d31f3835854a14e11ba8`; post-merge main matches
+origin and is clean. `UPDATEV2-0011` and `UPDATEV2-0021` remain open/partial
+for full issue-level closure gates; `UPDATEV2-0022` remains closed. Task 10,
+Data Health Centre, is the next dependency-valid task.
