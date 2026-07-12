@@ -1,6 +1,6 @@
 # ETF AI Cockpit Programme Index
 
-> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6 and Wave 3 Task 7 are independently approved, merged and post-merge verified. Task 7 merged through PR 177 with fresh independent approval. The authoritative local issue ledger is synchronised to GitHub through the versioned map and reconciliation report; later issue closure remains evidence-gated. Wave 3 Task 8 is next.
+> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6 and Wave 3 Tasks 7-8 are independently approved, merged and post-merge verified. Task 8 merged through PR 178 with fresh independent approval. The authoritative local issue ledger is synchronised to GitHub through the versioned map and reconciliation report; later issue closure remains evidence-gated. Wave 4 Task 9 is next.
 
 **Binding inputs:**
 
@@ -198,3 +198,19 @@ HTTP readiness and rendered dashboard evidence passed. The generated-data
 fixture smoke limitation is explicitly recorded in `.ai_worklog/task6-report.md`;
 no issue moved to closed. Wave 3 Task 7 (Button Audit, Error/Recovery Centre
 and Performance Evidence) is the next dependency-valid task.
+
+Wave 3 Task 7 was then independently re-reviewed and integrated through PR
+177 at merge commit `f6e0c9ca2105af2e4f176d4c0253339161fbe235`; its source-linked
+inventory, recovery states, timing/cache diagnostics and rendered evidence are
+recorded in `.ai_worklog/task7-report.md`. No issue moved to closed. Wave 3
+Task 8 (Canonical Data Contracts and Provider Registry) is independently
+approved and integrated through PR 178 at merge commit
+`4c4eb00175237ad49b113adad8be3f8dcbfed618`. Focused tests passed 14; the
+affected provider/trust/execution bundle passed 42 with the documented
+unrelated identity fixture failure; compileall, scoped Ruff and source smoke
+passed. The portable package build and launcher HTTP readiness passed, and
+default plus 390x844 Provider Status screenshots are checksum-recorded in
+`.ai_worklog/task8-report.md`. Native executable smoke is not_applicable
+because PyInstaller is unavailable. `UPDATEV2-0010` remains open/partial
+pending complete issue-level closure evidence. The next dependency-valid task
+is Wave 4 Task 9, Instrument Identity, Source Conflicts and Evidence Ledger.

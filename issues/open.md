@@ -1813,3 +1813,20 @@ Recovery and Diagnostics routes are recorded with screenshot checksums in
 `.ai_worklog/task7-report.md`. `ISSUE-0011`, `ISSUE-0040` and `ISSUE-0039`
 remain open because their complete issue closure gates and later programme
 evidence are not yet complete. Wave 3 Task 8 is next.
+
+### Wave 3 Task 8 checkpoint - 2026-07-12
+
+`UPDATEV2-0010` remains **Open, partial**. Task 8 was independently reviewed
+and merged through PR 178 at `4c4eb00175237ad49b113adad8be3f8dcbfed618`.
+Canonical provider contracts, nine-provider capability registry, disabled and
+missing-key unavailable states, forbidden/rate/malformed handling, complete
+secret redaction, atomic versioned probe publication and the Provider Status
+surface are implemented. Focused tests passed 14; affected provider/trust/
+execution tests passed 42 with the documented unrelated identity fixture
+failure; compileall, scoped Ruff, source smoke, portable package build and
+portable launcher HTTP readiness passed. Native executable smoke is
+not_applicable because PyInstaller was unavailable. Rendered Provider Status
+screenshots and their checksums are recorded in `.ai_worklog/task8-report.md`.
+The issue remains open because its complete audit-manifest, closure-matrix,
+issue-level evidence and later storage/evidence integration gates are not yet
+satisfied. Wave 4 Task 9 is next.

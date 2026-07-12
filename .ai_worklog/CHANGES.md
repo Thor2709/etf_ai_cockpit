@@ -1012,3 +1012,18 @@
 - Integrated through PR 177 at merge commit
   `f6e0c9ca2105af2e4f176d4c0253339161fbe235`; no issue state changed and
   `execution_allowed` remains `false`.
+
+## 2026-07-12 - Wave 3 Task 8
+
+- Added canonical provider capability contracts and a nine-provider registry,
+  including source-authority precedence, disabled/missing-key/unavailable,
+  timeout, rate-limit, malformed and forbidden states.
+- Added complete secret redaction for serialised capability/configuration
+  values and atomically published versioned provider probe results retaining
+  canonical and compatibility columns.
+- Added the redacted Provider Status route and focused provider/contract
+  regressions; no credentials, external probes or execution authority were
+  introduced.
+- Integrated through PR 178 at merge commit
+  `4c4eb00175237ad49b113adad8be3f8dcbfed618`; `UPDATEV2-0010` remains
+  open/partial pending full closure evidence and Wave 4 storage integration.

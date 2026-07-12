@@ -1203,6 +1203,22 @@ Required checks for the current implementation sweep:
 - `scripts/smoke_app.py --mode portable-native --port 8576 --timeout 90` - `smoke_ok`.
 - Fresh full-suite run reached 100% but reported one intermittent pre-existing `PermissionError` in `tests/operations/test_transactions.py::test_recovery_of_interrupted_second_real_writer_preserves_first_commit`; the exact test rerun passed. Task 5 touched no transaction code and its affected bundle remained green.
 
+## 2026-07-12 - Wave 3 Task 8
+
+- RED/GREEN focused provider and contract tests: final `14 passed`.
+- Affected provider/trust/execution bundle: `42 passed` and one documented
+  pre-existing identity fixture failure (`16` rows versus `>=45`).
+- `python -m compileall -q src tests`: exit 0; scoped Ruff: all checks passed.
+- `scripts/run_app.py --smoke`: exit 0; source snapshot smoke passed.
+- `cmd /c scripts\\build_windows.bat`: exit 0; portable bundle created.
+- Portable source launcher on port 8574: ready and HTTP 200. Native and
+  portable-native executable smoke are not_applicable because PyInstaller was
+  unavailable.
+- Rendered `/providers` browser checks passed at default and 390x844 viewports;
+  screenshot checksums are recorded in `.ai_worklog/task8-report.md`.
+- Post-merge focused, compileall, Ruff and source smoke passed on `main` at
+  `4c4eb00175237ad49b113adad8be3f8dcbfed618`.
+
 ## 2026-07-12 - Wave 1 Governance Task 6
 
 - RED: `pytest -q tests/test_workflow_runtime.py::test_primary_dashboard_workflows_are_keyboard_operable_buttons` - exit 1 because the four keyed controls were mouse-only `Container` objects.
@@ -1238,3 +1254,19 @@ Required checks for the current implementation sweep:
   passes in isolation and no Task 7 failure was attributed.
 - Fresh independent re-review: SPEC PASS, CODE PASS, READY YES; no
   Critical/Important findings and two non-blocking Minor recommendations.
+
+## 2026-07-12 - Wave 3 Task 8
+
+- RED/GREEN focused provider and contract tests: final `14 passed`.
+- Affected provider/trust/execution bundle: `42 passed` and one documented
+  pre-existing identity fixture failure (`16` rows versus `>=45`).
+- `python -m compileall -q src tests`: exit 0; scoped Ruff: all checks passed.
+- `scripts/run_app.py --smoke`: exit 0; source snapshot smoke passed.
+- `cmd /c scripts\\build_windows.bat`: exit 0; portable bundle created.
+- Portable source launcher on port 8574: ready and HTTP 200. Native and
+  portable-native executable smoke are not_applicable because PyInstaller was
+  unavailable.
+- Rendered `/providers` browser checks passed at default and 390x844 viewports;
+  screenshot checksums are recorded in `.ai_worklog/task8-report.md`.
+- Post-merge focused, compileall, Ruff and source smoke passed on `main` at
+  `4c4eb00175237ad49b113adad8be3f8dcbfed618`.

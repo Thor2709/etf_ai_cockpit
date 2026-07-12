@@ -7,11 +7,11 @@
 | Field | Value |
 |---|---|
 | Updated | 2026-07-12 |
-| Active phase | Wave 3 Task 7 independently approved, merged through PR 177 and post-merge verified; Wave 3 Task 8 is next |
+| Active phase | Wave 3 Task 8 independently approved, merged through PR 178 and post-merge verified; Wave 4 Task 9 is next |
 | Active plan | `docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md` |
-| Git state | `main` is clean and matches `origin/main` at `f6e0c9ca2105af2e4f176d4c0253339161fbe235`; Task 7 PR 177 is integrated |
-| Existing closure state | 4 ready / 37 tracker records still open; DATA-05 is a new separate requirement |
-| Fresh baseline | Task 7 post-merge focused and affected suites passed, compileall/Ruff/source smoke passed; native package rebuilt, native/portable/launcher smoke passed and Errors/Diagnostics browser evidence is checksum-recorded; full isolated pytest retains documented generated-data/trust-fixture baseline failures |
+| Git state | `main` is clean and matches `origin/main` at `4c4eb00175237ad49b113adad8be3f8dcbfed618`; Task 8 PR 178 is integrated |
+| Existing closure state | 4 ready / 38 tracker records still open, including DATA-05 |
+| Fresh baseline | Task 8 post-merge focused 14 passed, compileall/Ruff/source smoke passed; affected provider/trust/execution evidence is 42 passed with the documented identity fixture limitation; portable bundle/launcher and Provider Status browser evidence are checksum-recorded; native executable is not_applicable because PyInstaller is unavailable |
 | Pre-existing type state | recorded mypy failure caused by external stubs and existing typing debt; no new failure attributed |
 | Known historical evidence limitation | Existing package/browser evidence predates this programme and cannot close new work |
 
@@ -214,3 +214,23 @@ attributed. No issue moved between local ledgers; `ISSUE-0011`, `ISSUE-0040`
 and `ISSUE-0039` remain open for their complete closure gates. The next
 dependency-valid task is Wave 3 Task 8, Canonical Data Contracts and Provider
 Registry.
+
+### Wave 3 Task 8 integration checkpoint - 2026-07-12
+
+Task 8 was independently re-reviewed after the bearer-redaction and canonical
+artifact fix pass. Specification compliance and code quality both passed with
+no Critical or Important findings. Focused provider/contract tests passed 14;
+the affected provider/trust/execution bundle passed 42 with one pre-existing
+identity fixture failure (`16` rows versus the fixture's `>=45` assertion).
+Compileall, scoped Ruff and source smoke passed. `scripts\\build_windows.bat`
+exited 0 and produced the portable bundle
+`build/ETF_AI_Cockpit_Portable_v0.1.0_20260713_012732`; the portable source
+launcher served HTTP 200. Native and portable-native executable smoke are
+not_applicable because PyInstaller was unavailable on this runner. The
+rendered `/providers` route and a 390x844 viewport are checksum-recorded in
+`.ai_worklog/task8-report.md`. PR 178
+(`https://github.com/Thor2709/etf_ai_cockpit/pull/178`) merged to `main` at
+`4c4eb00175237ad49b113adad8be3f8dcbfed618`; post-merge focused, compileall,
+Ruff and source smoke passed. `UPDATEV2-0010` remains open/partial pending its
+complete closure dossier and closure-matrix gates. Wave 4 Task 9 is the next
+dependency-valid task.

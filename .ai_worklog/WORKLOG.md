@@ -1401,3 +1401,23 @@ isolated pytest run retains documented generated-data/trust-fixture and
 order-dependent transaction baseline failures; no Task 7 failure was
 attributed. `ISSUE-0011`, `ISSUE-0040` and `ISSUE-0039` remain open for full
 closure evidence. `execution_allowed` remains `false`; Wave 3 Task 8 is next.
+
+## 2026-07-12 - Wave 3 Task 8
+
+Task 8 was independently reviewed after the bearer/header redaction and
+canonical probe-artifact fix pass, then merged through PR 178 at
+`4c4eb00175237ad49b113adad8be3f8dcbfed618`. Canonical provider contracts and
+the nine-provider registry now expose disabled, missing-key, forbidden,
+timeout, rate-limit and malformed states without network probing or execution
+authority. Versioned provider probe results retain canonical and legacy fields
+and are atomically published; Provider Status renders redacted authority,
+entitlement, rate-limit and score-eligibility context.
+
+Focused tests passed 14; the affected provider/trust/execution bundle passed
+42 with the pre-existing 16-versus-45 identity fixture failure. Compileall,
+scoped Ruff and source smoke passed. The portable package build exited 0 and
+the portable source launcher served HTTP 200; native executable smoke is
+not_applicable because PyInstaller is unavailable. Default and 390x844
+Provider Status screenshots are checksum-recorded in
+`.ai_worklog/task8-report.md`. `UPDATEV2-0010` remains open/partial pending
+complete issue-level closure evidence; Wave 4 Task 9 is next.

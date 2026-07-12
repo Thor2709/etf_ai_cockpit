@@ -581,25 +581,41 @@ class ProviderCapability:
     error_fingerprint: str | None
 ```
 
-- [ ] **Step 1: Write provider capability and secret-redaction tests**
+- [x] **Step 1: Write provider capability and secret-redaction tests**
 
 Assert disabled providers never probe, missing keys produce unavailable rather than exception, only `ok` capabilities can feed scoring, official authority outranks vendor, and serialised/redacted objects contain no key value.
 
-- [ ] **Step 2: Implement registry and provider adapters**
+- [x] **Step 2: Implement registry and provider adapters**
 
 Registry keys: `yfinance`, `sec_edgar`, `filings_xbrl_org`, `fred`, `stooq`, `rss`, `manual_local`, `issuer_document`, `index_provider`. Every adapter implements `probe_capabilities() -> tuple[ProviderCapability, ...]` and lazy data methods.
 
-- [ ] **Step 3: Persist and render probes**
+- [x] **Step 3: Persist and render probes**
 
 Write versioned `provider_probe_results.parquet` atomically. Provider Status displays enabled/configured/status, redacted configuration, authority, capabilities, entitlement/rate note and last success.
 
-- [ ] **Step 4: Run provider matrix**
+- [x] **Step 4: Run provider matrix**
 
 Run live-safe no-key probes plus injected `ok`, timeout, 429, malformed and disabled tests. Inspect logs/exports for secrets with regexes covering `api_key`, `token`, `password`, bearer headers and `.env` values.
 
-- [ ] **Step 5: Checkpoint provider evidence**
+- [x] **Step 5: Checkpoint provider evidence**
 
 Store provider matrix in `evidence/wave4/providers.json`, browser screenshot and redaction scan results.
+
+**Task 8 checkpoint - 2026-07-12:** The canonical provider contracts, nine-provider
+registry, disabled/no-key/timeout/rate/malformed/forbidden states, redaction
+rules, atomic canonical-plus-legacy probe artefact and Provider Status route are
+implemented on `wave3/task8-provider-registry`. Focused tests passed 14;
+affected provider/trust/execution tests passed 42 with the documented unrelated
+16-versus-45 identity fixture failure; compileall, scoped Ruff and source
+smoke passed. PR 178 merged to `main` at `4c4eb00175237ad49b113adad8be3f8dcbfed618`.
+The Windows build exited 0 and produced a portable bundle; native executable
+smoke is not_applicable because PyInstaller was unavailable. Portable source
+launcher HTTP readiness passed, and rendered `/providers` evidence is recorded
+in `evidence/task8-provider-status.png` and
+`evidence/task8-provider-status-mobile.png` with checksums in
+`.ai_worklog/task8-report.md`. `UPDATEV2-0010` remains open/partial because its
+complete audit-manifest, closure-matrix and independent issue-closure gates are
+not yet satisfied. Wave 4 Task 9 is next.
 
 ---
 

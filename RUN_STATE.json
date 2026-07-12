@@ -487,51 +487,50 @@
   "execution_mode": "subagent_driven_with_independent_review",
   "git_repository": true,
   "git_branch": "main",
-  "progress_percent": 36,
-  "wave": 3,
-   "task": 8,
+  "progress_percent": 38,
+  "wave": 4,
+  "task": 9,
   "step": 1,
-   "completed_tasks": [1, 2, 3, 4, 5, 6, 7],
+  "completed_tasks": [1, 2, 3, 4, 5, 6, 7, 8],
   "completed_governance_tasks": [1, 2, 3, 4, 5, 6],
   "implementation_foundations": [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
   "issue_counts": {
-    "reviewed": 41,
+    "reviewed": 42,
     "ready": 4,
-    "still_open": 37
+    "still_open": 38
   },
   "last_checkpoint": {
-    "name": "wave3_task7_merged_wave3_task8_ready",
-    "result": "Wave 3 Task 7 was independently re-reviewed after source-linked inventory and rendered-route evidence fixes and merged through PR 177. Focused/affected verification, package smoke and browser evidence passed; ISSUE-0011, ISSUE-0040 and ISSUE-0039 remain open for complete closure dossiers. Wave 3 Task 8 is next.",
+    "name": "wave3_task8_merged_wave4_task9_ready",
+    "result": "Wave 3 Task 8 was independently re-reviewed after bearer/header redaction and canonical probe-artifact fixes and merged through PR 178. Focused tests, compileall, scoped Ruff, source smoke, portable package/launcher and rendered Provider Status evidence passed; UPDATEV2-0010 remains open/partial for complete issue-level closure evidence. Wave 4 Task 9 is next.",
     "evidence": [
-      ".ai_worklog/task7-brief.md",
-      ".ai_worklog/task7-report.md",
-      "evidence/task7-dashboard.png",
-      "evidence/task7-diagnostics.png",
-      "evidence/task7-errors.png",
+      ".ai_worklog/task8-brief.md",
+      ".ai_worklog/task8-report.md",
+      "evidence/task8-provider-status.png",
+      "evidence/task8-provider-status-mobile.png",
       "issues/github_issue_sync_report.json"
     ],
     "commands": {
-      "task7_focused_tests": {"exit_code": 0, "tests": 15},
-      "task7_affected_tests": {"exit_code": 0, "tests": 72, "warnings": 1},
+      "task8_focused_tests": {"exit_code": 0, "tests": 14},
+      "task8_affected_tests": {"exit_code": 1, "tests": 42, "failures": 1, "classification": "pre-existing identity fixture: 16 rows versus >=45"},
       "compileall": {"exit_code": 0},
       "scoped_ruff": {"exit_code": 0},
       "source_smoke": {"exit_code": 0, "output": "snapshot_ok as_of=2026-07-09 signals=16 backtests=5"},
-      "windows_build": {"exit_code": 0, "native_sha256": "CA1BC8CE0D3C521D14323F4577867CDAD84FA0AFF00C2EC36B5CA59C90E6D018"},
-      "package_smoke": {"exit_code": 0, "modes": ["native", "portable-native", "launcher"]},
-      "full_isolated_pytest": {"exit_code": 1, "failures": 8, "classification": "pre-existing generated-data/trust-fixture and order-dependent transaction baseline; no Task 7 failure attributed"},
-      "current_commit": "f6e0c9ca2105af2e4f176d4c0253339161fbe235",
+      "windows_build": {"exit_code": 0, "native": "not_applicable: PyInstaller unavailable", "portable_outdir": "build/ETF_AI_Cockpit_Portable_v0.1.0_20260713_012732"},
+      "package_smoke": {"exit_code": 0, "modes": ["portable-source-launcher"], "native": "not_applicable: PyInstaller unavailable"},
+      "browser": {"exit_code": 0, "route": "/providers", "default_sha256": "84B81F9774A3DBA208DD0E73B6F4443A4EAE69EC39D0AC9490DC4ED2D3B39D98", "mobile_sha256": "49FD7480D63DA8877ACC61FFBDD0E2AEB799E4453C18473DC5DB1EDFCAA4DBB6"},
+      "current_commit": "4c4eb00175237ad49b113adad8be3f8dcbfed618",
       "origin_main_matches": true,
       "main_matches_origin": true,
       "working_tree_clean": true,
       "issue_state": "open",
-      "closure_evaluator": {"exit_code": 1, "ready": 4, "still_open": 37, "expected_nonzero": true}
+      "closure_evaluator": {"exit_code": 1, "ready": 4, "still_open": 38, "issue_count": 42, "expected_nonzero": true}
     }
   },
-  "first_unpassed_criterion": "Wave 3 Task 8 and later tasks remain incomplete; Task 7 owning issues remain open for their complete closure dossiers",
-  "next_command": "Read Task 8 in the all-41 issue-closure plan, create its isolated worktree/branch from origin/main and dispatch a fresh implementer and independent reviewer",
+  "first_unpassed_criterion": "Wave 4 Task 9 and later tasks remain incomplete; UPDATEV2-0010 and all other non-ready records remain open for their complete closure dossiers",
+  "next_command": "Create the isolated Wave 4 Task 9 worktree/branch from origin/main and dispatch a fresh implementer and independent reviewer for instrument identity, source conflicts and evidence ledger",
   "notes": [
     "No Git initialisation or commit occurred before the independently approved Task 2 boundary; the user now authorises local baseline Git setup and optional private GitHub push only.",
-    "Closure status is evaluator-backed: 4/41 ready and 37 still open; do not close remaining issues without their complete dossiers.",
+    "Closure status is evaluator-backed: 4/42 ready and 38 still open; do not close remaining issues without their complete dossiers.",
     "Subagents are limited to bounded, disjoint analysis or implementation tasks.",
     "Tasks 6-21 now have source/test/UI foundations; only ISSUE-0035 remains evaluator-ready after independent review reopened three earlier checkpoint closures.",
     "SEC EDGAR, ESEF/iXBRL, PRIIPs KID, index-methodology and provider-backed issues remain open until their strict full evidence gates pass.",
@@ -542,7 +541,7 @@
     "The next full regression/build must be fresh because source changes landed after the successful package build.",
     "Computer-use matrix displayed the packaged main page, grouped rows, expansion, trust pages, Data Health export, Universe ISIN states, workflow controls and controlled unavailable states. Flet semantic locator coverage remains open.",
     "Chrome screenshot bytes are supplementary because the Chrome extension binding tracked a different tab state during part of the CUA run; the displayed Windows capture is the visual evidence source."
-    ,"Closure evaluator now reports 1/41 ready: ISSUE-0035. ISSUE-0069, UPDATEV2-0022 and UPDATEV2-0028 were reopened after independent review; 40 records remain still_open."
+    ,"Closure evaluator now reports 4/42 ready and 38 still_open after the Task 8 provider record was reopened to Open, partial; all remaining records require complete closure dossiers."
     ,"Data Health table clipping was found during fallback browser visual inspection and corrected to responsive per-dataset evidence rows; focused data-health tests pass."
     ,"Computer Use retry stopped because the browser URL could not be determined with enough confidence; browser-smoke evidence must identify this as a fallback limitation."
     ,"The latest independent review found JSON-string redaction, unknown source prefix, model authority labelling, candle manifest and exact holdings export gaps; all are now covered by focused tests and source fixes, but the package must be rebuilt before closure evidence can be refreshed."
