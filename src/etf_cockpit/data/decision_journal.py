@@ -108,7 +108,13 @@ class DecisionJournal:
 
     def list_entries(self, *, root: Path) -> list[JournalEntry]:
         index = self._read_index(Path(root))
-        return [self.get(str(row["journal_entry_id"]), root=Path(root)) for row in index]
+        entries: list[JournalEntry] = []
+        for row in index:
+            entry = self.get(str(row["journal_entry_id"]), root=Path(root))
+            if row.get("checksum") != entry.checksum:
+                raise JournalIntegrityError(f"journal index checksum mismatch: {entry.journal_entry_id}")
+            entries.append(entry)
+        return entries
 
     def supersede(self, journal_entry_id: str, replacement: JournalEntry, *, root: Path) -> JournalEntry:
         self.get(journal_entry_id, root=Path(root))
