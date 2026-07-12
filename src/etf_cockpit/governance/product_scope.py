@@ -324,7 +324,6 @@ def _contract_error(model_class: type[PolicyClassT], payload: Mapping[str, Any],
         return None
 
     if model_class is GatePolicy:
-        gates = payload.get("gates", ())
         identifiers = tuple(gate.gate_id for gate in policy.gates)
         orders = tuple(gate.order for gate in policy.gates)
         if identifiers != REQUIRED_GATE_IDS or orders != tuple(range(1, len(REQUIRED_GATE_IDS) + 1)):
