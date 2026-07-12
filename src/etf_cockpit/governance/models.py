@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator,
 
 
 SCHEMA_VERSION = "1.0"
+SUPPORTED_SCHEMA_VERSIONS = frozenset({SCHEMA_VERSION})
 Checksum = str
 Lifecycle = Literal[
     "supported",
@@ -33,6 +34,50 @@ Authority = Literal[
 ]
 ResearchState = Literal["research_candidate", "manual_review", "not_scoreable"]
 GateSeverity = Literal["blocker", "authority_warning", "notice"]
+
+# These are the policy terms and gate identifiers required by GOV-01.4-GOV-01.7.
+# Keeping the lists in the typed contract makes completeness checks deterministic
+# and gives loaders a single source of truth.
+REQUIRED_GATE_IDS = (
+    "identity",
+    "data_quality",
+    "evidence",
+    "model_validity",
+    "risk",
+    "valuation",
+    "signal",
+    "portfolio_fit",
+    "cost",
+)
+REQUIRED_GLOSSARY_TERMS = frozenset(
+    {
+        "alpha",
+        "beta",
+        "drawdown",
+        "calibration",
+        "pbo",
+        "dsr",
+        "mase",
+        "slippage",
+        "edge-to-cost",
+        "evidence authority",
+        "freshness",
+        "research state",
+        "portfolio-review state",
+        "blocker",
+        "authority-warning",
+        "notice",
+        "volatility",
+        "liquidity/spread proxy",
+        "confidence interval/quantile",
+        "walk-forward",
+        "purging/embargo",
+        "model promotion",
+        "forecast-error measures",
+        "n/a versus zero",
+        "source conflict",
+    }
+)
 
 
 class ImmutableModel(BaseModel):
@@ -71,7 +116,7 @@ class ProductDefinition(ImmutableModel):
 class PolicyModel(ImmutableModel):
     """Common metadata and immutable execution boundary for a policy."""
 
-    schema_version: str = Field(default=SCHEMA_VERSION, min_length=1)
+    schema_version: Literal[SCHEMA_VERSION] = SCHEMA_VERSION
     policy_id: str = Field(min_length=1)
     policy_version: str = Field(min_length=1)
     execution_allowed: Literal[False] = False
@@ -91,15 +136,8 @@ class PolicyModel(ImmutableModel):
 class ProductGovernancePolicy(PolicyModel):
     """Top-level product authority and fail-closed defaults."""
 
-    product: ProductDefinition = Field(
-        default_factory=lambda: ProductDefinition(
-            canonical_name="ETF AI Cockpit",
-            category="local investment evidence and portfolio-research cockpit",
-            intended_user="human private investor",
-            default_horizon="long_horizon",
-        )
-    )
-    authority: AuthorityPolicy = Field(default_factory=AuthorityPolicy)
+    product: ProductDefinition
+    authority: AuthorityPolicy
     prohibited_claims: tuple[str, ...] = ()
     required_disclosures: tuple[str, ...] = ()
     default_research_state: str = "research_candidate"
@@ -120,12 +158,22 @@ class FeatureRegistryEntry(ImmutableModel):
     """One user-visible feature or production route."""
 
     feature_id: str = Field(default="unnamed", min_length=1)
-    route: str = Field(min_length=1)
+    # ``route``/``required_data``/``title`` are retained as typed compatibility
+    # aliases for the first Task 1 implementation. New policy files use the
+    # plural/more explicit contract fields below.
+    route: str = ""
+    routes: tuple[str, ...] = ()
+    name: str = ""
+    category: str = ""
     title: str = ""
     lifecycle: Lifecycle = "supported"
     authority: Authority = "none"
+    data_dependencies: tuple[str, ...] = ()
     required_data: tuple[str, ...] = ()
+    issue_ids: tuple[str, ...] = ()
     tests: tuple[str, ...] = ()
+    export_contracts: tuple[str, ...] = ()
+    package_gate: str = ""
     visible: bool = True
     score_authority: bool = False
     research_promotion_allowed: bool = False
@@ -135,9 +183,22 @@ class FeatureRegistryEntry(ImmutableModel):
     @field_validator("route")
     @classmethod
     def validate_route(cls, value: str) -> str:
-        if not value.startswith("/"):
+        if value and not value.startswith("/"):
             raise ValueError("route must start with '/'")
         return value
+
+    @field_validator("routes")
+    @classmethod
+    def validate_routes(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not route.startswith("/") for route in value):
+            raise ValueError("routes must start with '/'")
+        return value
+
+    @property
+    def canonical_routes(self) -> tuple[str, ...]:
+        """Return routes using the plural contract with legacy fallback."""
+
+        return self.routes or ((self.route,) if self.route else ())
 
     @model_validator(mode="after")
     def validate_lifecycle_authority(self) -> FeatureRegistryEntry:
@@ -145,6 +206,19 @@ class FeatureRegistryEntry(ImmutableModel):
             self.score_authority or self.research_promotion_allowed or self.portfolio_review_allowed
         ):
             raise ValueError("lifecycle does not permit positive authority")
+        if self.authority == "none" and (
+            self.score_authority or self.research_promotion_allowed or self.portfolio_review_allowed
+        ):
+            raise ValueError("authority 'none' cannot carry positive authority flags")
+        if self.portfolio_review_allowed and self.authority != "portfolio_review":
+            raise ValueError("portfolio_review authority is required for portfolio_review_allowed")
+        if (self.score_authority or self.research_promotion_allowed) and self.authority not in {
+            "research_state",
+            "portfolio_review",
+        }:
+            raise ValueError("research_state or portfolio_review authority is required for score/promotion flags")
+        if self.route and self.routes and self.route not in self.routes:
+            raise ValueError("route must be present in routes")
         return self
 
 
@@ -156,7 +230,7 @@ class FeatureRegistryPolicy(PolicyModel):
     @model_validator(mode="after")
     def validate_unique_features_and_routes(self) -> FeatureRegistryPolicy:
         feature_ids = [entry.feature_id for entry in self.entries]
-        routes = [entry.route for entry in self.entries]
+        routes = [route for entry in self.entries for route in entry.canonical_routes]
         if len(feature_ids) != len(set(feature_ids)):
             raise ValueError("feature_id values must be unique")
         if len(routes) != len(set(routes)):
@@ -172,6 +246,9 @@ class StrategyScopeEntry(ImmutableModel):
     lifecycle: Lifecycle = "supported"
     asset_scope: Literal["etf", "stock", "mixed", "general"] = "general"
     authority: Authority = "none"
+    intended_use: str = ""
+    permitted_authority: Authority | None = None
+    execution_authority: Literal["none"] = "none"
     score_authority: bool = False
     research_promotion_allowed: bool = False
     portfolio_review_allowed: bool = False
@@ -186,18 +263,41 @@ class StrategyScopeEntry(ImmutableModel):
 
     @model_validator(mode="after")
     def validate_strategy_authority(self) -> StrategyScopeEntry:
-        if self.lifecycle == "rejected" and (
-            self.score_authority or self.research_promotion_allowed or self.portfolio_review_allowed
-        ):
-            raise ValueError("rejected strategies cannot have positive authority")
+        if self.permitted_authority is not None and self.authority != "none" and self.authority != self.permitted_authority:
+            raise ValueError("authority and permitted_authority must agree")
+        effective_authority = self.permitted_authority or self.authority
+        if self.lifecycle in {"rejected", "future_only"}:
+            lifecycle_label = "rejected" if self.lifecycle == "rejected" else "future-only"
+            if self.paper_authority:
+                raise ValueError(f"{lifecycle_label} strategies cannot have paper_authority")
+            if self.score_authority:
+                detail = "score_authority or authority" if self.lifecycle == "rejected" else "score_authority"
+                raise ValueError(f"{lifecycle_label} strategies cannot have {detail}")
+            if self.research_promotion_allowed:
+                detail = "research_promotion_allowed or authority" if self.lifecycle == "rejected" else "research_promotion_allowed"
+                raise ValueError(f"{lifecycle_label} strategies cannot have {detail}")
+            if self.portfolio_review_allowed:
+                detail = "portfolio_review_allowed or authority" if self.lifecycle == "rejected" else "portfolio_review_allowed"
+                raise ValueError(f"{lifecycle_label} strategies cannot have {detail}")
+            if effective_authority != "none":
+                raise ValueError(f"{lifecycle_label} strategies cannot have authority")
         if self.lifecycle in {"experimental", "research_only", "future_only"} and self.score_authority:
             raise ValueError("score_authority is not permitted for this lifecycle")
         if self.lifecycle in {"experimental", "research_only", "future_only"} and self.research_promotion_allowed:
             raise ValueError("research_promotion_allowed is not permitted for this lifecycle")
         if self.lifecycle in {"experimental", "research_only", "future_only"} and self.portfolio_review_allowed:
             raise ValueError("portfolio_review_allowed is not permitted for this lifecycle")
-        if self.lifecycle in {"future_only", "rejected"} and self.authority != "none":
-            raise ValueError("future-only and rejected strategies cannot have authority")
+        if self.authority == "none" and self.permitted_authority not in {None, "none"}:
+            raise ValueError("authority 'none' cannot disagree with permitted_authority")
+        if self.portfolio_review_allowed and effective_authority != "portfolio_review":
+            raise ValueError("portfolio_review authority is required for portfolio_review_allowed")
+        if (self.score_authority or self.research_promotion_allowed) and effective_authority not in {
+            "research_state",
+            "portfolio_review",
+        }:
+            raise ValueError("research_state or portfolio_review authority is required for score/promotion flags")
+        if self.execution_authority != "none":
+            raise ValueError("execution_authority must remain none")
         return self
 
 
@@ -227,10 +327,10 @@ class GatePolicyEntry(ImmutableModel):
 
     @model_validator(mode="after")
     def validate_gate_authority(self) -> GatePolicyEntry:
-        if self.severity == "blocker" and (
+        if self.severity in {"blocker", "authority_warning", "notice"} and (
             self.research_promotion_allowed or self.portfolio_review_allowed
         ):
-            raise ValueError("blocker gates cannot allow research_promotion_allowed or portfolio_review_allowed")
+            raise ValueError("gate severity cannot allow research_promotion_allowed or portfolio_review_allowed")
         return self
 
 
@@ -310,6 +410,9 @@ class GovernanceLoadResult(ImmutableModel, Generic[PolicyT]):
 
 __all__ = [
     "SCHEMA_VERSION",
+    "SUPPORTED_SCHEMA_VERSIONS",
+    "REQUIRED_GATE_IDS",
+    "REQUIRED_GLOSSARY_TERMS",
     "AuthorityPolicy",
     "FeatureRegistryEntry",
     "FeatureRegistryPolicy",

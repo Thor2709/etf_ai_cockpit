@@ -4,15 +4,84 @@ policy_version: "2026-07-12"
 execution_allowed: false
 executable_authority: false
 glossary:
-  - {term: alpha, definition: Return relative to a selected benchmark over a stated period, authority_note: Context only; it does not bypass gates}
-  - {term: beta, definition: Sensitivity of returns to a benchmark, authority_note: Context only}
-  - {term: drawdown, definition: Decline from a prior peak in a value series, authority_note: Risk evidence}
-  - {term: PBO, definition: Probability of backtest overfitting, authority_note: Model-validity evidence}
-  - {term: deflated Sharpe, definition: Sharpe adjustment for multiple testing and non-normality, authority_note: Model-validity evidence}
-  - {term: MASE, definition: Mean absolute scaled error for forecast evaluation, authority_note: Forecast context}
-  - {term: calibration, definition: Agreement between predicted probabilities and observed outcomes, authority_note: Model-validity evidence}
-  - {term: slippage, definition: Difference between an assumed decision price and an observed fill proxy, authority_note: Cost context only}
-  - {term: edge-to-cost, definition: Estimated gross edge divided by estimated friction, authority_note: Cost gate context}
-  - {term: N/A, definition: A required value is unavailable or not applicable, authority_note: Missing evidence cannot increase authority}
-  - {term: manual_review, definition: A human must inspect evidence before any research promotion or portfolio review, authority_note: Non-executable state}
-  - {term: not_scoreable, definition: Required evidence or policy is unavailable, so no score is authoritative, authority_note: Fail-closed state}
+  - term: alpha
+    definition: "Return relative to a selected benchmark over a stated period"
+    authority_note: "Context only; it does not bypass gates"
+  - term: beta
+    definition: "Sensitivity of returns to a benchmark"
+    authority_note: "Context only"
+  - term: drawdown
+    definition: "Decline from a prior peak in a value series"
+    authority_note: "Risk evidence"
+  - term: calibration
+    definition: "Agreement between predicted probabilities and observed outcomes"
+    authority_note: "Model-validity evidence"
+  - term: pbo
+    definition: "Probability of backtest overfitting"
+    authority_note: "Model-validity evidence"
+  - term: dsr
+    definition: "Deflated Sharpe ratio adjusted for multiple testing and non-normality"
+    authority_note: "Model-validity evidence"
+  - term: mase
+    definition: "Mean absolute scaled error for forecast evaluation"
+    authority_note: "Forecast context"
+  - term: slippage
+    definition: "Difference between an assumed decision price and an observed fill proxy"
+    authority_note: "Cost context only"
+  - term: edge-to-cost
+    definition: "Estimated gross edge divided by estimated friction"
+    authority_note: "Cost gate context"
+  - term: evidence authority
+    definition: "The authority granted to source-linked evidence"
+    authority_note: "Evidence never becomes an executable order"
+  - term: freshness
+    definition: "How recently a source was retrieved relative to the required observation date"
+    authority_note: "Stale evidence can block promotion"
+  - term: research state
+    definition: "A state describing whether evidence is eligible for research use"
+    authority_note: "Research state is not execution authority"
+  - term: portfolio-review state
+    definition: "A human-reviewed state for portfolio context"
+    authority_note: "User decision remains authoritative"
+  - term: blocker
+    definition: "A failed gate that prevents the next authority transition"
+    authority_note: "Blockers fail closed"
+  - term: authority-warning
+    definition: "A visible warning that may require manual review"
+    authority_note: "Warnings never grant authority"
+  - term: notice
+    definition: "A non-blocking informational gate result"
+    authority_note: "Notices never grant authority"
+  - term: volatility
+    definition: "Dispersion of returns over a stated observation window"
+    authority_note: "Risk context"
+  - term: liquidity/spread proxy
+    definition: "A documented proxy for trading liquidity and spread friction"
+    authority_note: "Cost and risk context"
+  - term: confidence interval/quantile
+    definition: "An uncertainty interval or distribution quantile around an estimate"
+    authority_note: "Uncertainty must remain visible"
+  - term: walk-forward
+    definition: "Time-ordered train and evaluation procedure"
+    authority_note: "Required for credible model evidence"
+  - term: purging/embargo
+    definition: "Separation controls preventing label leakage across validation folds"
+    authority_note: "Required where labels overlap"
+  - term: model promotion
+    definition: "The controlled transition of a model from research to a permitted state"
+    authority_note: "Promotion requires all applicable gates"
+  - term: forecast-error measures
+    definition: "Metrics used to evaluate forecast errors"
+    authority_note: "Forecast metrics do not create score authority"
+  - term: n/a versus zero
+    definition: "N/A denotes unavailable or inapplicable data whereas zero is an observed numeric value"
+    authority_note: "They must not be conflated"
+  - term: source conflict
+    definition: "A disagreement between source observations for the same fact"
+    authority_note: "Conflicts remain visible and can block authority"
+  - term: manual_review
+    definition: "A human must inspect evidence before any research promotion or portfolio review"
+    authority_note: "Non-executable state"
+  - term: not_scoreable
+    definition: "Required evidence or policy is unavailable, so no score is authoritative"
+    authority_note: "Fail-closed state"

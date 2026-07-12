@@ -35,12 +35,20 @@ from etf_cockpit.data.trust_artifacts import (
     SCORE_METRIC_HISTORY_PATH,
     SOURCE_CONFLICTS_PATH,
 )
+from etf_cockpit.governance.product_scope import (
+    load_feature_registry,
+    load_gate_policy,
+    load_glossary,
+    load_product_governance,
+    load_strategy_scope,
+)
 from etf_cockpit.portfolio.allocation import allocation_frame
 
 
 # Backwards-compatible name for older scripts/tests; new exports default to data/audit_packets.
 CHATGPT_EXPORTS_DIR = AUDIT_PACKETS_DIR
 CANDLE_CONTEXT_PATH = DERIVED_DIR / "candle_context.parquet"
+GOVERNANCE_CHECKSUMS_PATH = ROOT / "evidence" / "governance" / "policy_checksums.json"
 
 SIGNAL_TABLE_COLUMNS = [
     "etf_id",
@@ -280,6 +288,41 @@ def export_review_pack(
 
 
 def _write_audit_manifest(export_dir: Path, derived_manifest: dict[str, object], evidence_manifest: dict[str, object]) -> None:
+    governance_path = export_dir / "evidence_export" / "governance" / "policy_checksums.json"
+    governance_path.parent.mkdir(parents=True, exist_ok=True)
+    governance_payload: dict[str, object] = {}
+    diagnostic_mode = False
+    try:
+        governance_payload = json.loads(GOVERNANCE_CHECKSUMS_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        diagnostic_mode = True
+
+    policy_loaders = {
+        "product_governance": load_product_governance,
+        "feature_registry": load_feature_registry,
+        "strategy_scope": load_strategy_scope,
+        "gate_policy": load_gate_policy,
+        "glossary": load_glossary,
+    }
+    policy_checksums: dict[str, str] = {}
+    for policy_name, loader in policy_loaders.items():
+        result = loader()
+        diagnostic_mode = diagnostic_mode or result.diagnostic_mode or result.policy is None
+        if result.checksum != "unavailable":
+            policy_checksums[policy_name] = result.checksum
+    manifest_records = governance_payload.get("policies")
+    if isinstance(manifest_records, dict):
+        for policy_name, record in manifest_records.items():
+            if isinstance(record, dict) and isinstance(record.get("sha256"), str):
+                policy_checksums.setdefault(policy_name, record["sha256"])
+    if len(policy_checksums) != 5:
+        diagnostic_mode = True
+    governance_payload.setdefault("schema_version", "1.0")
+    governance_payload["diagnostic_mode"] = diagnostic_mode
+    governance_payload["diagnostic_marker"] = "governance_diagnostic" if diagnostic_mode else "governance_valid"
+    governance_payload["policy_checksums"] = policy_checksums
+    governance_path.write_text(json.dumps(governance_payload, indent=2, sort_keys=True), encoding="utf-8")
+
     required = [
         {
             "path": "evidence_export/session.jsonl",
@@ -304,6 +347,7 @@ def _write_audit_manifest(export_dir: Path, derived_manifest: dict[str, object],
             "unavailable_marker": "evidence_export/source_conflicts_unavailable.txt",
         },
         {"path": "01_portfolio_summary.json", "allow_unavailable": False},
+        {"path": "evidence_export/governance/policy_checksums.json", "allow_unavailable": False},
     ]
     checksums: dict[str, str] = {}
     for path in export_dir.rglob("*"):
@@ -311,7 +355,23 @@ def _write_audit_manifest(export_dir: Path, derived_manifest: dict[str, object],
             digest = hashlib.sha256(path.read_bytes()).hexdigest()
             checksums[str(path.relative_to(export_dir)).replace("\\", "/")] = digest
     (export_dir / "audit_manifest.json").write_text(
-        json.dumps({"schema_version": 1, "required": required, "checksums": checksums, "derived": derived_manifest, "evidence": evidence_manifest}, indent=2, sort_keys=True),
+        json.dumps(
+            {
+                "schema_version": 1,
+                "required": required,
+                "checksums": checksums,
+                "derived": derived_manifest,
+                "evidence": evidence_manifest,
+                "governance": {
+                    "schema_version": str(governance_payload.get("schema_version", "1.0")),
+                    "diagnostic_mode": diagnostic_mode,
+                    "diagnostic_marker": governance_payload["diagnostic_marker"],
+                    "policy_checksums": policy_checksums,
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        ),
         encoding="utf-8",
     )
 
