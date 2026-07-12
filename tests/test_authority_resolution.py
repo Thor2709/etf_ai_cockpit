@@ -7,6 +7,7 @@ import pytest
 from etf_cockpit.core.types import DataQualityIssue, DataQualityReport
 from etf_cockpit.governance.gate_policy import PortfolioContext, resolve_authority
 from etf_cockpit.signals.signal_pipeline import _attach_authority
+from etf_cockpit.signals.simple_scores import SimpleInstrumentScore, SimpleScoreComponent, _attach_authority as _attach_score_authority
 from etf_cockpit.signals.research_states import GateResult, GateSeverity, PortfolioReviewState, ResearchState
 from etf_cockpit.core.types import ComponentScores, SignalResult
 
@@ -235,4 +236,41 @@ def test_production_signal_release_path_publishes_resolved_gate_table() -> None:
         "portfolio_fit",
         "cost",
     ]
+    assert payload["execution_allowed"] is False
+
+
+def test_production_simple_score_release_path_publishes_resolved_gate_table() -> None:
+    score = SimpleInstrumentScore(
+        instrument_key="ETF1",
+        display_id="ETF1",
+        source_group="primary",
+        asset_type="etf",
+        name="Example ETF",
+        yahoo_symbol="ETF1.DE",
+        latest_date="2026-07-12",
+        latest_price=100.0,
+        final_score_10=6.0,
+        decision="watchlist",
+        one_line_reason="review",
+        components=[
+            SimpleScoreComponent(
+                key="momentum",
+                label="Momentum",
+                score_10=6.0,
+                raw_score=0.6,
+                status="ok",
+                explanation="source-linked",
+                good_score="positive",
+                why="source-linked",
+                source_id="yfinance:prices",
+            )
+        ],
+        warnings=[],
+    )
+
+    resolved = _attach_score_authority(score)
+    payload = resolved.to_v2_dict()
+
+    assert payload["gate_policy_version"] != "unavailable"
+    assert len(payload["gates"]) == 9
     assert payload["execution_allowed"] is False
