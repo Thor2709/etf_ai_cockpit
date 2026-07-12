@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import asdict, dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from enum import StrEnum
 from pathlib import Path
 from typing import Iterable
@@ -253,7 +253,7 @@ def _inspect_migrations(root: Path) -> DataHealthRow:
     else:
         status = DataHealthStatus.HEALTHY
         warnings = ()
-    return _make_row("migration_status", status, path, "migration", row_count=len(applied), checksum=checksum, as_of=as_of, freshness="fresh" if status is DataHealthStatus.HEALTHY else "stale", warnings=warnings, history_root=root, last_success=as_of)
+    return _make_row("migration_status", status, path, "migration", row_count=len(applied), checksum=checksum, as_of=as_of, freshness="fresh" if status is DataHealthStatus.HEALTHY else "stale", warnings=warnings, history_root=root)
 
 
 def _make_row(
@@ -341,7 +341,7 @@ def _history_provenance(root: Path, target: Path) -> tuple[str | None, str | Non
             successes.append(timestamp)
         elif status in {"failed", "failure", "error"} or "fail" in event_type or "error" in event_type:
             failures.append(timestamp)
-    return (max(successes) if successes else None, max(failures) if failures else None)
+    return (_latest_timestamp(successes), _latest_timestamp(failures))
 
 
 def _event_matches_path(event: dict[str, object], root: Path, target: Path) -> bool:
@@ -384,6 +384,27 @@ def _event_timestamp(event: dict[str, object]) -> str | None:
         if value:
             return str(value)
     return None
+
+
+def _latest_timestamp(values: Iterable[str]) -> str | None:
+    candidates = tuple(str(value) for value in values if value)
+    if not candidates:
+        return None
+    parsed = tuple((value, _parse_timestamp(value)) for value in candidates)
+    valid = tuple(item for item in parsed if item[1] is not None)
+    if valid:
+        return max(valid, key=lambda item: (item[1], item[0]))[0]
+    return max(candidates)
+
+
+def _parse_timestamp(value: str) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _latest_date(frame: pd.DataFrame, columns: tuple[str, ...]) -> date | None:

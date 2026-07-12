@@ -81,6 +81,21 @@ Fix-pass RED/GREEN commands:
 10 passed
 ```
 
+The final provenance fix pass added offset-aware ordering and migration
+history tests. RED was two failures: lexical ordering selected the earlier
+instant with the larger local hour, and migration `last_success` incorrectly
+reused its applied `as_of` marker. The fix compares parsed UTC instants while
+returning the original persisted timestamp, and lets migration history load
+independently from its applied marker.
+
+```text
+& 'C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe' -m pytest -q tests/test_data_health.py::test_health_provenance_orders_timestamp_offsets_by_instant tests/test_data_health.py::test_migration_as_of_is_distinct_from_persisted_success_failure_history
+2 failed (expected provenance defects)
+
+& 'C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe' -m pytest -q tests/test_data_health.py
+12 passed
+```
+
 GREEN focused result:
 
 ```text
@@ -92,7 +107,7 @@ Affected UI/startup/navigation result:
 
 ```text
 & 'C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.venv\Scripts\python.exe' -m pytest -q tests/test_data_health.py tests/test_flet_startup.py tests/test_e2e_workflow.py tests/test_accessibility_contracts.py tests/test_button_contracts.py tests/test_feature_registry.py
-34 passed (one existing gluonts warning)
+36 passed (one existing gluonts warning)
 ```
 
 ## Commands or tests run

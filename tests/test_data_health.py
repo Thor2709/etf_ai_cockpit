@@ -145,6 +145,74 @@ def test_health_provenance_comes_from_persisted_session_history(tmp_path: Path) 
     assert "history_unavailable" in rows["news"].warnings
 
 
+def test_health_provenance_orders_timestamp_offsets_by_instant(tmp_path: Path) -> None:
+    clean = tmp_path / "data" / "clean"
+    clean.mkdir(parents=True)
+    prices_path = clean / "prices.parquet"
+    pd.DataFrame({"date": ["2026-07-09"], "value": [1]}).to_parquet(prices_path)
+    log_path = tmp_path / "logs" / "session.jsonl"
+    log_path.parent.mkdir(parents=True)
+    events = [
+        {
+            "event_type": "activity_complete",
+            "status": "success",
+            "timestamp_local": "2026-07-09T09:00:00+10:00",
+            "file_paths": [str(prices_path)],
+        },
+        {
+            "event_type": "activity_complete",
+            "status": "success",
+            "timestamp_local": "2026-07-09T01:00:00+00:00",
+            "file_paths": [str(prices_path)],
+        },
+    ]
+    log_path.write_text("\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8")
+
+    report = build_data_health(load_config(), tmp_path, as_of_date="2026-07-10")
+
+    assert next(item for item in report.rows if item.dataset == "prices").last_success == "2026-07-09T01:00:00+00:00"
+
+
+def test_migration_as_of_is_distinct_from_persisted_success_failure_history(tmp_path: Path) -> None:
+    state_path = tmp_path / "data" / ".migration_state.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 4,
+                "applied": [
+                    {"version": version, "name": f"migration_{version}", "applied_at": f"2026-07-0{version}T00:00:00+00:00"}
+                    for version in range(1, 5)
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    log_path = tmp_path / "logs" / "session.jsonl"
+    log_path.parent.mkdir(parents=True)
+    events = [
+        {
+            "event_type": "activity_complete",
+            "status": "success",
+            "timestamp_local": "2026-07-10T10:00:00+10:00",
+            "file_paths": [str(state_path)],
+        },
+        {
+            "event_type": "activity_failed",
+            "status": "failed",
+            "timestamp_local": "2026-07-11T11:00:00+10:00",
+            "file_paths": [str(state_path)],
+        },
+    ]
+    log_path.write_text("\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8")
+
+    migration = build_data_health(load_config(), tmp_path, as_of_date="2026-07-12").migration_status
+
+    assert migration.as_of == "2026-07-04T00:00:00+00:00"
+    assert migration.last_success == "2026-07-10T10:00:00+10:00"
+    assert migration.last_failure == "2026-07-11T11:00:00+10:00"
+
+
 def test_macro_inventory_uses_dated_file_content_for_freshness(tmp_path: Path) -> None:
     macro_dir = tmp_path / "data" / "raw" / "macro"
     macro_dir.mkdir(parents=True)
