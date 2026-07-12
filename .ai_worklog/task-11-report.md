@@ -239,3 +239,45 @@ Final fix commits: `f6be9d3` (`fix: close final Task 11 review blockers`) and
 also carries the explicit override through Disable/Enable callbacks so an
 audited duplicate configuration remains operable. Generated schema markers
 remain unstaged.
+
+## Final re-review fix pass: migration, snapshot and ticker validation
+
+Date: 2026-07-13
+
+### Findings and changes
+
+- `import_legacy_universe` now filters canonical Sparebanken IDs and Yahoo
+  tickers from both primary YAML and candidate CSV before appending exactly one
+  authoritative set of all 15 fallback rows, including when no candidate CSV
+  exists.
+- `UniverseStoreSnapshot` now exposes the persisted
+  `allow_cross_tier_duplicates` flag, with false compatibility defaults;
+  `universe_manager_page` rehydrates its auditable override checkbox from that
+  snapshot.
+- Universe validation and CRUD now reject malformed local ticker syntax using
+  the same bounded Yahoo-symbol shape check, while preserving explicit
+  `needs_verification` ISIN states and offline/no-network behaviour.
+
+### RED / GREEN evidence
+
+RED:
+
+```text
+python -m pytest -q tests/test_universe_store.py::test_malformed_ticker_is_rejected_without_inventing_isin tests/test_universe_store.py::test_primary_sparebanken_identity_is_replaced_by_authoritative_fallback tests/test_universe_store.py::test_load_snapshot_preserves_cross_tier_override_state
+3 failed: malformed ticker accepted; primary NONG remained primary; snapshot had no persisted override attribute.
+```
+
+GREEN:
+
+```text
+python -m pytest -q tests/test_universe_store.py tests/test_onboarding.py tests/test_asset_guardrails.py tests/test_universe_manager.py tests/test_flet_startup.py tests/test_accessibility_contracts.py tests/test_button_contracts.py tests/test_feature_registry.py tests/test_data_validation.py
+50 passed
+
+python -m compileall -q src tests
+exit 0
+
+python -m ruff check src/etf_cockpit/data/universe_store.py src/etf_cockpit/app/pages/universe_manager.py src/etf_cockpit/app/pages/onboarding.py src/etf_cockpit/core/config.py src/etf_cockpit/data/yfinance_provider.py src/etf_cockpit/signals/simple_scores.py tests/test_universe_store.py tests/test_onboarding.py tests/test_asset_guardrails.py tests/test_universe_manager.py --no-cache
+All checks passed
+```
+
+Fix commit: `d8313b7` (`fix: harden Task 11 migration and snapshot state`).
