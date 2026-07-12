@@ -2,17 +2,23 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
+import json
+import os
 from pathlib import Path
 from typing import Any
 
 from etf_cockpit.core.config import AppConfig, save_provider_settings
 from etf_cockpit.core.migrations import run_startup_migrations
-from etf_cockpit.core.paths import RAW_DIR
+from etf_cockpit.core.paths import CLEAN_DIR, FILINGS_STATEMENTS_PATH, RAW_DIR, STATEMENT_FACTS_PATH
 from etf_cockpit.core.session_log import SESSION_LOG_PATH, log_event, log_exception
 from etf_cockpit.core.errors import ErrorStore, classify_exception
 from etf_cockpit.core.timing import timed_step
 from etf_cockpit.core.workflow import WorkflowController, WorkflowStatus, WorkflowStep
-from etf_cockpit.data.trust_artifacts import refresh_static_trust_artifacts, write_trust_artifacts_for_scores
+from etf_cockpit.data.trust_artifacts import IDENTITY_PATH, refresh_static_trust_artifacts, write_trust_artifacts_for_scores
+from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
+from etf_cockpit.data.instrument_identity import CanonicalIdentity
+from etf_cockpit.parsers.contracts import RawDocument
+from etf_cockpit.parsers.sec_facts import parse_companyfacts, write_statement_evidence
 from etf_cockpit.features.regime import build_market_regime, write_market_regime
 from etf_cockpit.models.calibration import evaluate_forecast_calibration, load_forecast_history, write_forecast_calibration
 from etf_cockpit.operations.event_store import current_activity_view, load_events_with_tail_recovery
@@ -381,6 +387,76 @@ class AppState:
         upload_path.write_bytes(content)
         return self._import_and_refresh(upload_path, dataset_type)
 
+    def import_sec_companyfacts(self, path: Path, *, instrument_id: str | None = None) -> str:
+        """Import an offline SEC companyfacts JSON and publish clean facts/inventory."""
+
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            cik = str(payload.get("cik") or payload.get("cik_str") or "").strip()
+            if not cik:
+                raise ValueError("SEC companyfacts is missing a CIK")
+            normalised_cik = str(cik).strip().upper().removeprefix("CIK").zfill(10)
+            if instrument_id is not None:
+                requested_instrument_id = str(instrument_id).strip()
+                if not requested_instrument_id or not _sec_identity_matches(normalised_cik, requested_instrument_id):
+                    raise ValueError("supplied instrument ID does not match a unique persisted SEC CIK identity")
+                resolved_instrument_id = requested_instrument_id
+                resolved_from_identity = True
+            else:
+                resolved_instrument_id = _resolve_sec_instrument(normalised_cik) or f"sec_unresolved_{normalised_cik}"
+                resolved_from_identity = not resolved_instrument_id.startswith("sec_unresolved_")
+            identity = CanonicalIdentity(
+                resolved_instrument_id,
+                f"Unresolved SEC CIK {normalised_cik}" if not resolved_from_identity else "Imported SEC entity",
+                None,
+                "needs_verification",
+                "",
+                None,
+                None,
+                "stock",
+                {},
+                "manual_review",
+                () if resolved_from_identity else ("cik_not_resolved_to_instrument",),
+                cik,
+            )
+            parsed = parse_companyfacts(path, identity)
+            if not parsed.success:
+                warning_codes = ", ".join(warning.code for warning in parsed.warnings)
+                self.last_message = f"SEC import unavailable: {warning_codes or 'validation failed'}. No data changed."
+                return self.last_message
+            source = RawDocument(path, path.resolve().as_uri(), datetime.now(timezone.utc), parsed.source_sha256, "sec_edgar", "sec_companyfacts", "application/json", 200)
+            write_statement_evidence(
+                source,
+                parsed.records,
+                STATEMENT_FACTS_PATH,
+                FILINGS_STATEMENTS_PATH,
+                instrument_id=identity.instrument_id,
+                vendor_records=_load_vendor_statement_claims(identity.instrument_id),
+            )
+            review_note = " manual identity review required." if not resolved_from_identity else ""
+            self.last_message = f"SEC import complete: {len(parsed.records)} facts, {len(parsed.warnings)} mapping warnings.{review_note}"
+            return self.last_message
+        except Exception as exc:
+            self.last_message = f"SEC import unavailable: {type(exc).__name__}. No data changed; scoring and execution were not started."
+            return self.last_message
+
+    def fetch_sec_companyfacts(self, cik: str, *, cache_dir: Path | None = None, instrument_id: str | None = None, user_agent: str | None = None) -> str:
+        """Fetch keyless SEC facts with controlled unavailable state."""
+
+        try:
+            configured_agent = str(user_agent or os.getenv("ETF_COCKPIT_SEC_EDGAR_USER_AGENT") or "").strip()
+            if not configured_agent:
+                self.last_message = "SEC import unavailable: configure ETF_COCKPIT_SEC_EDGAR_USER_AGENT with organisation and contact email. Local data was not changed."
+                return self.last_message
+            provider = SecEdgarProvider(
+                configured_agent,
+                cache_dir=cache_dir or (RAW_DIR / "sec_edgar"),
+            )
+            document = provider.fetch_companyfacts(cik)
+            return self.import_sec_companyfacts(document.path, instrument_id=instrument_id)
+        except Exception as exc:
+            self.last_message = f"SEC import unavailable: {type(exc).__name__}. Local data was not changed."
+            return self.last_message
     def _import_and_refresh(self, path: Path, dataset_type: str = "prices") -> str:
         result = DataService(self.snapshot.config).import_local_file(Path(path), dataset_type, commit=True)
         self.last_message = result.message
@@ -455,3 +531,56 @@ class AppState:
         except Exception:
             pass
         return path
+
+
+def _resolve_sec_instrument(cik: str) -> str | None:
+    """Resolve a unique persisted CIK mapping before falling back to review."""
+
+    try:
+        import pandas as pd
+
+        frame = pd.read_parquet(IDENTITY_PATH)
+        if "cik" not in frame.columns or "instrument_id" not in frame.columns:
+            return None
+        values = frame["cik"].map(lambda value: str(value).strip().upper().removeprefix("CIK").zfill(10))
+        matches = sorted({str(value) for value in frame.loc[values == cik, "instrument_id"] if str(value).strip()})
+        return matches[0] if len(matches) == 1 else None
+    except (OSError, ValueError, TypeError, ImportError):
+        return None
+
+
+def _sec_identity_matches(cik: str, instrument_id: str) -> bool:
+    """Accept an explicit instrument only when the persisted CIK mapping is unique."""
+
+    try:
+        import pandas as pd
+
+        frame = pd.read_parquet(IDENTITY_PATH)
+        if "cik" not in frame.columns or "instrument_id" not in frame.columns:
+            return False
+        values = frame["cik"].map(lambda value: str(value).strip().upper().removeprefix("CIK").zfill(10))
+        candidates = sorted({str(value).strip() for value in frame.loc[values == cik, "instrument_id"] if str(value).strip()})
+        return len(candidates) == 1 and candidates[0] == instrument_id
+    except (OSError, ValueError, TypeError, ImportError):
+        return False
+
+
+def _load_vendor_statement_claims(instrument_id: str) -> tuple[dict[str, object], ...]:
+    """Load optional vendor statement claims for exact-match authority checks."""
+
+    try:
+        import pandas as pd
+
+        path = CLEAN_DIR / "fundamentals.parquet"
+        if not path.exists():
+            return ()
+        frame = pd.read_parquet(path)
+        if "instrument_id" in frame.columns:
+            frame = frame[frame["instrument_id"].astype(str) == instrument_id]
+        concept_columns = {"concept", "canonical_metric"} & set(frame.columns)
+        period_columns = {"period", "end", "instant", "as_of_date"} & set(frame.columns)
+        if not concept_columns or "unit" not in frame.columns or not period_columns:
+            return ()
+        return tuple(frame.to_dict(orient="records"))
+    except (OSError, ValueError, TypeError, ImportError):
+        return ()

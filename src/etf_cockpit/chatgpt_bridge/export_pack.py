@@ -13,7 +13,7 @@ import pandas as pd
 from etf_cockpit.backtest.engine import BacktestReport
 from etf_cockpit.chatgpt_bridge.prompts import CHATGPT_REVIEW_PROMPT
 from etf_cockpit.core.config import AppConfig
-from etf_cockpit.core.paths import AUDIT_PACKETS_DIR, CONFIG_DIR, DERIVED_DIR, ROOT
+from etf_cockpit.core.paths import AUDIT_PACKETS_DIR, CONFIG_DIR, DERIVED_DIR, ROOT, STATEMENT_FACTS_PATH
 from etf_cockpit.core.session_log import SESSION_LOG_PATH, copy_session_log_to
 from etf_cockpit.core.types import DataQualityReport, SignalResult
 from etf_cockpit.data.fx_data import fx_data_inventory
@@ -439,6 +439,7 @@ def _export_trust_critical_evidence(export_dir: Path, config: AppConfig) -> dict
         CORRELATION_CLUSTERS_PATH,
         BENCHMARK_ATTRIBUTION_PATH,
         FILINGS_STATEMENTS_PATH,
+        STATEMENT_FACTS_PATH,
         ETF_DISCLOSURES_PATH,
         NEWS_CONTEXT_PATH,
         NEWS_TIMESTAMP_VALIDATION_PATH,

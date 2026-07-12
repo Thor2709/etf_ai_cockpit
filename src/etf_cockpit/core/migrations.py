@@ -160,6 +160,7 @@ def default_migration_context(root: Path = ROOT) -> MigrationContext:
     dual_store_stems = (
         root / "data" / "clean" / "instrument_identity",
         root / "data" / "clean" / "source_conflicts",
+        root / "data" / "clean" / "statement_facts",
         root / "data" / "clean" / "filings_statements",
         root / "data" / "clean" / "etf_disclosures",
         root / "data" / "clean" / "news_context",

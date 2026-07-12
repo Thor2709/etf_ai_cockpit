@@ -8,7 +8,7 @@ import pandas as pd
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
 from etf_cockpit.app.state import AppState
-from etf_cockpit.data.instrument_identity import CanonicalIdentity
+from etf_cockpit.core.paths import STATEMENT_FACTS_PATH
 from etf_cockpit.data.provider_registry import ProviderRegistry
 from etf_cockpit.data.trust_artifacts import (
     BENCHMARK_ATTRIBUTION_PATH,
@@ -97,6 +97,7 @@ def filings_page(page: ft.Page, state: AppState) -> ft.Control:
         "Official SEC/ESEF/local filing evidence. Missing filings remain missing; vendor fundamentals cannot outrank official matched filings.",
         [
             ("Filings inventory", FILINGS_STATEMENTS_PATH, ["instrument_id", "document_type", "source_authority", "coverage_status", "path"]),
+            ("SEC statement facts", STATEMENT_FACTS_PATH, ["instrument_id", "taxonomy", "concept", "canonical_metric", "unit", "end", "filed", "form", "accession", "source_id"]),
             ("Provider probes", PROVIDER_PROBE_PATH, ["dataset_type", "provider_name", "status", "source_authority", "message"]),
             ("Identity mappings", IDENTITY_PATH, ["instrument_id", "isin", "yahoo_symbol", "exchange", "mic", "currency", "share_class", "listing", "identity_confidence", "warnings"]),
         ],
@@ -160,12 +161,11 @@ def _status_page(title: str, subtitle: str, tables: list[tuple[str, Path, list[s
 
 
 def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
-    result = ft.Text("No official filing imported in this view.", color=theme.MUTED, selectable=True)
+    result = ft.Text("SEC import status: unavailable until a local fixture is selected or a CIK fetch is requested.", color=theme.MUTED, selectable=True)
+    cik_field = ft.TextField(label="SEC CIK", value="789019", width=180)
     picker = _attach_picker(page, "filings.import.file-picker")
 
     async def import_sec(_event: ft.ControlEvent) -> None:
-        from etf_cockpit.parsers.sec_facts import parse_companyfacts
-
         files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["json"], with_data=True)
         if not files:
             result.value = "SEC import cancelled; no data changed."
@@ -176,14 +176,14 @@ def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
         if path is None or not path.exists():
             result.value = "SEC import requires a readable local JSON path."
         else:
-            identity = CanonicalIdentity("imported_sec", "Imported SEC entity", None, "needs_verification", "", None, None, "stock", {}, "manual_review", (), None)
-            try:
-                parsed = parse_companyfacts(path, identity)
-                result.value = f"SEC parser {parsed.parser_name}: {len(parsed.records)} facts, {len(parsed.warnings)} warnings, success={parsed.success}."
-                state.last_message = result.value
-            except Exception as exc:
-                state.fail_activity("Import SEC companyfacts", exc)
-                result.value = f"SEC import failed safely: {state.last_message}"
+            result.value = state.import_sec_companyfacts(path)
+        page.update()
+
+    async def fetch_sec(_event: ft.ControlEvent) -> None:
+        cik = str(cik_field.value or "").strip()
+        result.value = "SEC import status: fetching official companyfacts with bounded requests..."
+        page.update()
+        result.value = state.fetch_sec_companyfacts(cik)
         page.update()
 
     async def import_esef(_event: ft.ControlEvent) -> None:
@@ -204,7 +204,7 @@ def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
                 result.value = f"ESEF import failed safely: {state.last_message}"
         page.update()
 
-    return panel(ft.Column([section_header("Official filing import", "Local SEC companyfacts JSON and ESEF report packages are parsed with checksum/provenance warnings; unavailable network remains controlled."), ft.Row([ft.OutlinedButton("Import SEC companyfacts", key="filings.import-sec", icon=ft.Icons.UPLOAD_FILE, on_click=import_sec), ft.OutlinedButton("Import ESEF package", key="filings.import-esef", icon=ft.Icons.UPLOAD_FILE, on_click=import_esef)], wrap=True), result], spacing=8))
+    return panel(ft.Column([section_header("Official filing import", "SEC EDGAR is a no-key official source. Local fixtures remain functional offline; network failures are explicit unavailable states and never start scoring or broker workflows."), ft.Row([cik_field, ft.OutlinedButton("Fetch SEC companyfacts", key="filings.fetch-sec", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=fetch_sec), ft.OutlinedButton("Import SEC companyfacts", key="filings.import-sec", icon=ft.Icons.UPLOAD_FILE, on_click=import_sec), ft.OutlinedButton("Import ESEF package", key="filings.import-esef", icon=ft.Icons.UPLOAD_FILE, on_click=import_esef)], wrap=True), result], spacing=8))
 
 
 def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:

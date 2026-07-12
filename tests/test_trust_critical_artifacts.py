@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import zipfile
 from types import SimpleNamespace
@@ -262,6 +263,9 @@ def test_audit_export_includes_trust_critical_evidence_and_session_log(tmp_path,
     session_log.init_session_log(clear=True, port=8550, route="/")
     session_log.log_event(event_type="button_click", button_label="Export audit packet", input_summary={"api_key": "SHOULD_NOT_APPEAR"})
     monkeypatch.setattr(export_module, "CHATGPT_EXPORTS_DIR", tmp_path / "audit_packets")
+    statement_facts = tmp_path / "statement_facts.parquet"
+    pd.DataFrame([{"instrument_id": "SEC_UNRESOLVED_3", "cik": "3", "source_id": "sec_edgar:3:assets"}]).to_parquet(statement_facts, index=False)
+    monkeypatch.setattr(export_module, "STATEMENT_FACTS_PATH", statement_facts)
 
     state = AppState.load()
     zip_path = state.export_audit_packet()
@@ -279,6 +283,7 @@ def test_audit_export_includes_trust_critical_evidence_and_session_log(tmp_path,
     assert "evidence_export/score_history.csv" in names
     assert "evidence_export/source_conflicts.csv" in names
     assert "evidence_export/source_conflicts.json" in names
+    assert "evidence_export/statement_facts.csv" in names
     expected_ids = set(state.snapshot.config.universe.enabled_ids)
     actual_ids = [str(item["etf_id"]) for item in portfolio_summary["holdings"]]
     assert set(actual_ids) == expected_ids
@@ -299,8 +304,12 @@ def test_audit_export_includes_trust_critical_evidence_and_session_log(tmp_path,
     assert report.valid is True
     with zipfile.ZipFile(zip_path) as archive:
         manifest = json.loads(archive.read("audit_manifest.json"))
+        evidence_manifest = json.loads(archive.read("evidence_export/trust_critical_manifest.json"))
+        statement_facts_bytes = archive.read("evidence_export/statement_facts.csv")
     required = {item["path"]: item for item in manifest["required"]}
     assert required["evidence_export/candle_context.csv"]["unavailable_marker"] == "evidence_export/candle_context_unavailable.txt"
     assert required["evidence_export/source_conflicts.csv"]["allow_unavailable"] is True
     assert required["01_portfolio_summary.json"]["allow_unavailable"] is False
+    assert "statement_facts.csv" in evidence_manifest["included"]
+    assert evidence_manifest["checksums"]["statement_facts.csv"] == hashlib.sha256(statement_facts_bytes).hexdigest()
     assert "combined_review_packet.md" in manifest["checksums"]
