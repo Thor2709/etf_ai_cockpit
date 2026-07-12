@@ -29,24 +29,36 @@ from etf_cockpit.data.trust_artifacts import (
 
 
 def provider_status_page(_page: ft.Page, state: AppState) -> ft.Control:
-    capabilities = ProviderRegistry(state.snapshot.config.data_providers).probe_all()
+    registry = ProviderRegistry(state.snapshot.config.data_providers)
+    capabilities = registry.probe_all()
+    status_rows = registry.status_rows(capabilities)
     capability_rows = [
         ft.DataRow(
             cells=[
-                ft.DataCell(ft.Text(item.provider_id, color=theme.TEXT)),
-                ft.DataCell(ft.Text(item.status, color=theme.GREEN if item.status == "ok" else theme.AMBER)),
-                ft.DataCell(ft.Text(item.authority.value, color=theme.MUTED)),
-                ft.DataCell(ft.Text("yes" if item.score_eligible else "no", color=theme.GREEN if item.score_eligible else theme.MUTED)),
-                ft.DataCell(ft.Text(item.message, color=theme.MUTED, selectable=True)),
+                ft.DataCell(ft.Text(str(row["provider_id"]), color=theme.TEXT)),
+                ft.DataCell(ft.Text(str(row["dataset_type"]), color=theme.MUTED)),
+                ft.DataCell(ft.Text(f"{row['enabled']}/{row['configured']}", color=theme.MUTED)),
+                ft.DataCell(ft.Text(str(row["status"]), color=theme.GREEN if row["status"] == "ok" else theme.AMBER)),
+                ft.DataCell(ft.Text(str(row["authority"]), color=theme.MUTED)),
+                ft.DataCell(ft.Text(str(row["entitlement"]), color=theme.MUTED)),
+                ft.DataCell(ft.Text(str(row["rate_limit_note"]), color=theme.MUTED, selectable=True)),
+                ft.DataCell(ft.Text(str(row["last_success_at"] or "N/A"), color=theme.MUTED)),
+                ft.DataCell(ft.Text("yes" if row["score_eligible"] else "no", color=theme.GREEN if row["score_eligible"] else theme.MUTED)),
+                ft.DataCell(ft.Text(_short(str(row["redacted_configuration"])), color=theme.MUTED, selectable=True)),
+                ft.DataCell(ft.Text(str(row["message"]), color=theme.MUTED, selectable=True)),
             ]
         )
-        for item in capabilities
+        for row in status_rows
     ]
     capability_panel = panel(
         ft.Column(
             [
                 section_header("Capability registry", "Disabled providers are not probed. Missing keys and optional entitlements remain unavailable and cannot feed scoring."),
-                ft.DataTable(columns=[ft.DataColumn(ft.Text(label, color=theme.TEXT)) for label in ("Provider", "Status", "Authority", "Score eligible", "Message")], rows=capability_rows),
+                ft.Text("Provider fields: enabled/configured, status, authority, capabilities, entitlement, rate/limit note, last success, score eligibility and redacted configuration.", color=theme.MUTED, size=11, selectable=True),
+                ft.DataTable(
+                    columns=[ft.DataColumn(ft.Text(label, color=theme.TEXT)) for label in ("Provider", "Dataset", "Enabled/configured", "Status", "Authority", "Entitlement", "Rate/limit", "Last success", "Score eligible", "Redacted configuration", "Message")],
+                    rows=capability_rows,
+                ),
             ],
             scroll=ft.ScrollMode.AUTO,
         )
@@ -55,7 +67,7 @@ def provider_status_page(_page: ft.Page, state: AppState) -> ft.Control:
         "Provider Status",
         "Provider capabilities, source authority and disabled/unavailable states. API keys are redacted and never exported.",
         [
-            ("Provider probes", PROVIDER_PROBE_PATH, ["dataset_type", "provider_name", "status", "source_authority", "enabled", "message"]),
+            ("Provider probes", PROVIDER_PROBE_PATH, ["dataset_type", "provider_name", "status", "source_authority", "enabled", "configured", "entitlement", "rate_limit_note", "last_success_at", "message"]),
             ("Instrument identity", IDENTITY_PATH, ["instrument_id", "analysis_tier", "instrument_type", "isin", "yahoo_symbol", "identity_confidence", "warnings"]),
             ("Source conflicts", SOURCE_CONFLICTS_PATH, ["instrument_id", "field_name", "resolution_status", "requires_manual_review"]),
         ],

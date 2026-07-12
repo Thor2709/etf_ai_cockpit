@@ -20,6 +20,8 @@ from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.paths import CLEAN_DIR, DERIVED_DIR, RAW_DIR
 from etf_cockpit.core.session_log import log_event
 from etf_cockpit.data.trade_candidate_analysis import latest_candidate_input
+from etf_cockpit.data.contracts import SourceAuthority, redact_text
+from etf_cockpit.data.provider_registry import PROBE_SCHEMA_VERSION, ProviderRegistry
 from etf_cockpit.data.yfinance_provider import yfinance_symbol_map_from_config
 
 PROVIDER_PROBE_PATH = CLEAN_DIR / "provider_probe_results.parquet"
@@ -50,15 +52,23 @@ SOURCE_AUTHORITY = {
 }
 
 PROVIDER_COLUMNS = [
+    "schema_version",
     "provider_id",
-    "provider_name",
     "dataset_type",
+    "status",
+    "authority",
+    "authority_rank",
+    "configured",
+    "entitlement",
+    "rate_limit_note",
+    "last_success_at",
+    "error_fingerprint",
+    "score_eligible",
+    "message",
+    "provider_name",
     "active_provider",
     "enabled",
-    "status",
-    "message",
     "source_authority",
-    "authority_rank",
     "requires_api_key",
     "has_api_key",
     "base_url_configured",
@@ -287,40 +297,37 @@ def write_trust_artifacts_for_scores(
 
 def write_provider_probe_results(config: AppConfig) -> Path:
     now = _utc_now()
+    registry = ProviderRegistry(config.data_providers)
+    capabilities = registry.probe_all()
+    # Publish one atomic frame containing both canonical capability fields and
+    # legacy aliases.  Existing consumers can continue reading their aliases
+    # without dropping the versioned registry contract.
     rows: list[dict[str, Any]] = []
-    provider_names = sorted(set(config.data_providers.providers) | {"prices", "fx", "etf_metadata", "etf_holdings"})
-    for dataset_type in provider_names:
-        section = config.data_providers.section(dataset_type)
+    for item in capabilities:
+        section, dataset_type = _provider_section_for(config, item.provider_id)
         active = (section.active_provider or "none").strip().lower()
-        status = "unavailable"
-        if active in {"", "none"}:
-            message = "No provider configured. Use yfinance where default, configure a provider later, or import local files."
-            status = "unavailable"
-        elif active == "yfinance":
-            message = "yfinance configured, but no bounded provider probe was run; data remains unavailable until a refresh succeeds."
-        else:
-            message = "Provider configured but not probed automatically. Add an explicit provider adapter before score use."
+        legacy_authority = _legacy_provider_authority(item.authority)
+        canonical = item.to_dict()
         rows.append(
             {
-                "provider_id": f"{dataset_type}:{active}",
-                "provider_name": active,
-                "dataset_type": dataset_type,
-                "active_provider": active,
-                "enabled": active not in {"", "none"},
-                "status": status,
-                "message": message,
-                "source_authority": "vendor_unofficial" if active == "yfinance" else "unknown",
-                "authority_rank": SOURCE_AUTHORITY["vendor_unofficial"] if active == "yfinance" else 0,
-                "requires_api_key": active not in {"", "none", "yfinance", "manual_local_file", "sec_edgar", "rss", "stooq", "fred"},
+                **canonical,
+                "schema_version": PROBE_SCHEMA_VERSION,
+                "provider_id": canonical["provider_id"],
+                "dataset_type": canonical["dataset_type"],
+                "provider_name": canonical["provider_id"],
+                "active_provider": redact_text(active),
+                "enabled": item.configured,
+                "source_authority": legacy_authority,
+                "requires_api_key": _provider_requires_api_key(item.provider_id, active),
                 "has_api_key": bool(section.api_key),
                 "base_url_configured": bool(section.base_url),
-                "capabilities": _capabilities_for_dataset(dataset_type, active),
+                "capabilities": canonical["dataset_type"],
                 "last_probe_at": now,
                 "executable_authority": False,
             }
         )
-    rows.extend(_optional_free_provider_rows(now))
     frame = pd.DataFrame(rows, columns=PROVIDER_COLUMNS)
+    frame.attrs["schema_version"] = PROBE_SCHEMA_VERSION
     return _write_dual(frame, PROVIDER_PROBE_PATH)
 
 
@@ -835,6 +842,44 @@ def _document_rows(root: Path, *, document_type: str, instrument_ids: set[str]) 
             }
         )
     return rows
+
+
+def _provider_section_for(config: AppConfig, provider_id: str) -> tuple[Any, str]:
+    direct = config.data_providers.providers.get(provider_id)
+    if direct is not None and (direct.active_provider or "none").strip().lower() not in {"", "none"}:
+        return direct, provider_id
+    for dataset_type, section in config.data_providers.providers.items():
+        if (section.active_provider or "none").strip().lower() == provider_id:
+            return section, dataset_type
+    return direct or config.data_providers.section(provider_id), provider_id
+
+
+def _provider_requires_api_key(provider_id: str, active_provider: str) -> bool:
+    keyless = {
+        "",
+        "none",
+        "yfinance",
+        "sec_edgar",
+        "filings_xbrl_org",
+        "stooq",
+        "rss",
+        "manual_local",
+        "manual_local_file",
+        "issuer_document",
+        "index_provider",
+    }
+    return provider_id == "fred" or active_provider not in keyless
+
+
+def _legacy_provider_authority(authority: SourceAuthority) -> str:
+    return {
+        SourceAuthority.OFFICIAL: "official_regulator",
+        SourceAuthority.ISSUER: "issuer_document",
+        SourceAuthority.VENDOR: "vendor_unofficial",
+        SourceAuthority.COMMUNITY: "manual_context",
+        SourceAuthority.MANUAL: "manual_context",
+        SourceAuthority.MODEL: "model_advisory",
+    }[authority]
 
 
 def _news_context_inventory(identity: pd.DataFrame) -> pd.DataFrame:
