@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from math import isfinite
 from typing import Literal, Mapping, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -57,6 +58,25 @@ class GateSeverity(StrEnum):
 
 AnalysisStatus = Literal["complete", "partial", "unavailable"]
 MigrationSemantics = Literal["lossless", "lossy"]
+_VALID_ANALYSIS_STATUSES = frozenset({"complete", "partial", "unavailable"})
+
+# Only known evidence/provenance identifiers may support a positive public
+# candidate.  Model-only and arbitrary caller-supplied source strings remain
+# diagnostic context and cannot become authority evidence.
+ALLOWED_EVIDENCE_SOURCE_IDS = frozenset(
+    {
+        "yfinance:prices",
+        "yfinance:holdings",
+        "yfinance:fundamentals",
+        "yfinance:analyst_estimates",
+        "sec_edgar:companyfacts",
+        "sec_edgar:esef",
+        "manual:thesis",
+        "manual:news",
+        "official:filing",
+        "official:fundamentals",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -166,9 +186,39 @@ def _component_score(component: object) -> float | None:
     if value is None:
         value = getattr(component, "score_10", None)
     try:
-        return None if value is None else float(value)
+        score = None if value is None else float(value)
+        return score if score is not None and isfinite(score) else None
     except (TypeError, ValueError):
         return None
+
+
+def _component_source_id(component: object) -> str | None:
+    for attribute in ("source_id", "source", "provenance", "provider"):
+        value = getattr(component, attribute, None)
+        if value is None:
+            continue
+        text = str(value).strip().casefold()
+        if text:
+            return text
+    return None
+
+
+def _component_is_model_only(component: object) -> bool:
+    authority = str(getattr(component, "authority", "") or "").strip().casefold()
+    role = str(getattr(component, "score_role", "") or "").strip().casefold()
+    return authority in {"model", "model_only", "model-only"} or role in {
+        "model",
+        "model_only",
+        "model-only",
+        "model_confirmation",
+    }
+
+
+def normalise_analysis_status(value: object, *, fallback: AnalysisStatus = "unavailable") -> AnalysisStatus:
+    """Return only the release-facing analysis-status vocabulary."""
+
+    text = str(value or "").strip().casefold()
+    return text if text in _VALID_ANALYSIS_STATUSES else fallback  # type: ignore[return-value]
 
 
 def resolve_research_state(
@@ -192,21 +242,32 @@ def resolve_research_state(
     if typed_decision.research_state.value not in states:
         return ResearchState.MANUAL_REVIEW
 
+    component_list = list(components)
     if typed_decision.analysis_status == "unavailable":
         return ResearchState.NOT_SCOREABLE
 
     if any(
         _component_status(component)
         in {"blocked", "blocker", "failed", "unavailable", "invalid", "n/a", "na"}
-        for component in components
+        for component in component_list
     ):
         return ResearchState.NOT_SCOREABLE
 
+    # Task 2 is a compatibility seam: only an already-resolved positive gate
+    # may reach a public candidate.  Task 3 owns how this flag is established.
+    if typed_decision.research_state is ResearchState.RESEARCH_CANDIDATE:
+        if typed_decision.analysis_status != "complete" or not typed_decision.research_promotion_allowed:
+            return ResearchState.NOT_SCOREABLE
+        if any(not gate.passed or gate.severity is GateSeverity.BLOCKER for gate in typed_decision.gates):
+            return ResearchState.NOT_SCOREABLE
+
     usable = [
         component
-        for component in components
-        if _component_score(component) is not None
-        and str(getattr(component, "source_id", "") or "").split(":", 1)[0].casefold() != "model"
+        for component in component_list
+        if _component_status(component) == "ok"
+        and not _component_is_model_only(component)
+        and _component_score(component) is not None
+        and _component_source_id(component) in ALLOWED_EVIDENCE_SOURCE_IDS
     ]
     if typed_decision.research_state is ResearchState.RESEARCH_CANDIDATE and not usable:
         return ResearchState.NOT_SCOREABLE
@@ -232,12 +293,15 @@ def public_authority_payload(
 
     state = ResearchState(research_state)
     portfolio_state = PortfolioReviewState(portfolio_review_state)
+    status = normalise_analysis_status(analysis_status)
     return {
         "research_state": state.value,
         "portfolio_review_state": portfolio_state.value,
-        "analysis_status": analysis_status,
-        "research_promotion_allowed": bool(research_promotion_allowed),
-        "portfolio_review_allowed": bool(portfolio_review_allowed),
+        "analysis_status": status,
+        # Positive authority is owned by Task 3's typed resolver.  Dataclass
+        # and compatibility serializers in this task always fail closed.
+        "research_promotion_allowed": False,
+        "portfolio_review_allowed": False,
         "execution_allowed": False,
         "legacy_action": normalise_legacy_action(legacy_action),
         "migration_version": str(migration_version),
@@ -249,17 +313,20 @@ def public_authority_payload(
 
 __all__ = [
     "AnalysisStatus",
+    "ALLOWED_EVIDENCE_SOURCE_IDS",
     "AuthorityDecision",
     "GateResult",
     "GateSeverity",
     "InternalSignalIntent",
     "LEGACY_ACTION_TO_INTENT",
     "LEGACY_ACTION_TO_RESEARCH_STATE",
+    "MigrationSemantics",
     "PortfolioReviewState",
     "ResearchState",
     "ScoreComponent",
     "internal_intent_for_legacy_action",
     "normalise_legacy_action",
+    "normalise_analysis_status",
     "public_authority_payload",
     "research_state_for_legacy_action",
     "resolve_research_state",

@@ -10,21 +10,11 @@ from etf_cockpit.signals.research_states import (
     PortfolioReviewState,
     ResearchState,
     internal_intent_for_legacy_action,
+    normalise_analysis_status,
     public_authority_payload,
     research_state_for_legacy_action,
 )
 
-Action = Literal[
-    "buy",
-    "add",
-    "hold",
-    "trim",
-    "sell",
-    "no_trade",
-    "manual_review",
-    "add_candidate",
-    "trim_candidate",
-]
 SignalStatus = Literal["ok", "blocked", "warning", "failed"]
 ModelStatus = Literal["ok", "failed", "skipped", "unavailable"]
 StalenessStatus = Literal["ok", "warning", "block", "dated_only", "unknown"]
@@ -108,7 +98,10 @@ class SignalResult:
     run_id: str
     signal_date: date
     etf_id: str
-    action: Action
+    # Legacy action text is retained for one migration release at the
+    # import/diagnostic seam only.  Release serializers use ``research_state``
+    # and never expose this field.
+    action: str
     confidence: float
     total_score: float
     components: ComponentScores
@@ -153,8 +146,15 @@ class SignalResult:
             object.__setattr__(self, "research_state", research_state_for_legacy_action(self.action))
         if self.internal_intent is InternalSignalIntent.NONE:
             object.__setattr__(self, "internal_intent", internal_intent_for_legacy_action(self.action))
+        raw_analysis_status = str(self.analysis_status or "").strip().casefold()
+        valid_analysis_status = raw_analysis_status in {"complete", "partial", "unavailable"}
+        object.__setattr__(self, "analysis_status", normalise_analysis_status(raw_analysis_status))
+        # This compatibility seam cannot grant authority; Task 3's typed
+        # resolver is the only owner of positive promotion/review flags.
+        object.__setattr__(self, "research_promotion_allowed", False)
+        object.__setattr__(self, "portfolio_review_allowed", False)
         object.__setattr__(self, "execution_allowed", False)
-        if self.analysis_status == "unavailable":
+        if valid_analysis_status and self.analysis_status == "unavailable":
             derived: AnalysisStatus = "partial" if self.blocked_by or self.warnings else "complete"
             object.__setattr__(self, "analysis_status", derived)
 

@@ -107,3 +107,180 @@ portfolio journal/review-report replacement, and it does not close any issue.
 The seven generated-data/identity failures require their owning fixture/data
 work before a full-suite green claim. Independent review, package/boundary
 verification and later governance UI/journal gates remain outstanding.
+
+## Independent review fix pass (2026-07-12)
+
+Status remains `DONE_WITH_CONCERNS`: all Critical/Important review findings
+and the two Minor findings were addressed without implementing Task 3 central
+gates or Task 4 journal/UI work. The worktree remains uncommitted for the
+controller.
+
+### TDD evidence
+
+The new focused behavioural tests were added before the production fixes. The
+fix-pass RED run was:
+
+```powershell
+$env:PYTHONPATH='src'; & '..\..\etf_ai_cockpit\.venv\Scripts\python.exe' -m pytest tests\test_research_state_migration.py tests\test_score_history.py tests\test_trade_proposals.py -q
+```
+
+It exited `1` with the expected behavioural failures for the newly specified
+snapshot, fail-closed resolver, forged-flag, serializer, strict-v2 and schema
+cases; there were no import or syntax failures. After the implementation and
+refactor, the GREEN run was:
+
+```powershell
+$env:PYTHONPATH='src'; & '..\..\etf_ai_cockpit\.venv\Scripts\python.exe' -m pytest tests\test_research_state_migration.py tests\test_score_history.py tests\test_chatgpt_import.py tests\test_trade_proposals.py -q
+```
+
+Result: `26 passed` (the two existing score-history FutureWarnings are
+non-failing pandas warnings).
+
+### Fixes and interfaces
+
+- Portfolio migration now validates a timestamp plus a review state or
+  holdings/weight payload, rejects state-only and malformed snapshots, and
+  carries `portfolio_snapshot_validated` plus
+  `portfolio_snapshot_provenance=validated_snapshot` markers so a repeated
+  migration is byte-equivalent. V2 caller-supplied promotion/review flags are
+  ignored; promotion is always false and portfolio review is allowed only by
+  validated context. Unsupported schema versions are rejected without
+  mutating the input row, and `migration_semantics` is constrained to
+  `lossless|lossy`.
+- `resolve_research_state` now requires `complete` analysis, a passed positive
+  decision, no failed/blocker gates, and finite `ok` components whose source
+  IDs are in the explicit evidence allow-list. Partial, unavailable,
+  missing-source, model-only and unknown-source evidence fail closed.
+- `SignalResult` and `SimpleInstrumentScore` normalise invalid analysis status
+  values, force promotion/review flags false at the compatibility seam, and
+  keep `execution_allowed=False`; the shared public payload helper enforces
+  the same boundary.
+- Score-history import and payload serialisation preserve validated snapshot
+  markers and never infer portfolio authority from a legacy review state alone.
+- V2 ChatGPT review models now reject extras (including `action` and
+  `final_action`) while v1 compatibility imports remain accepted. The audit
+  file validator annotation now returns the v1/v2 union.
+
+### Verification and full-suite classification
+
+Compilation and scoped lint passed:
+
+```powershell
+$env:PYTHONPATH='src'; & '..\..\etf_ai_cockpit\.venv\Scripts\python.exe' -m compileall -q src
+& '..\..\etf_ai_cockpit\.venv\Scripts\ruff.exe' check src\etf_cockpit\signals\research_states.py src\etf_cockpit\governance\migrations.py src\etf_cockpit\core\types.py src\etf_cockpit\signals\simple_scores.py src\etf_cockpit\data\score_history.py src\etf_cockpit\chatgpt_bridge\schemas.py src\etf_cockpit\chatgpt_bridge\validation.py src\etf_cockpit\chatgpt_bridge\import_audit.py tests\test_research_state_migration.py tests\test_score_history.py
+```
+
+The focused governance regression run passed; the six known generated-data /
+identity `test_simple_scores.py` failures remain unchanged. The authoritative
+full-suite classification recorded in
+`evidence/governance/task2-full-suite.txt` remains seven pre-existing failures:
+those six simple-score fixture/coverage rows plus the static trust-artifact
+identity-count row. No migration, score-history, ChatGPT, trade-proposal or
+governance regression was added by this fix pass.
+
+## Coordinated residual-finding fix pass 2 (2026-07-12)
+
+Status remains `DONE_WITH_CONCERNS`; this pass is uncommitted and does not
+close issues or implement Task 3/Task 4 scope.
+
+### RED/GREEN evidence
+
+Focused RED tests were added before the production changes and run with:
+
+```powershell
+$env:PYTHONPATH='src'; & '..\\..\\etf_ai_cockpit\\.venv\\Scripts\\python.exe' -m pytest tests\\test_research_state_migration.py tests\\test_score_history.py -q
+```
+
+The RED run exited `1` with six expected behavioural failures and no import or
+syntax errors: missing snapshot checksum integrity, forged snapshot marker
+acceptance, model-confirmation promotion, direct v2 model authority, stale
+service return typing and score-history forged marker acceptance.
+
+The GREEN compatibility run was:
+
+```powershell
+$env:PYTHONPATH='src'; & '..\\..\\etf_ai_cockpit\\.venv\\Scripts\\python.exe' -m pytest tests\\test_research_state_migration.py tests\\test_score_history.py tests\\test_chatgpt_import.py tests\\test_trade_proposals.py -q
+```
+
+Result: `37 passed` (only the two existing pandas FutureWarnings).
+
+### Residual fixes
+
+- Validated migration output now retains the validated snapshot and a
+  deterministic `portfolio_snapshot_checksum`; v2 migration and score-history
+  paths require retained source evidence plus a matching checksum, so marker,
+  provenance and positive flags alone fail closed. Genuine snapshotted
+  migration remains byte-equivalent on repeat. Score-history parquet rows keep
+  canonical snapshot JSON and checksum for the same integrity check.
+- `ResearchStateMigration` direct construction and `PortfolioReviewAudit`
+  direct construction force both positive authority flags false. Migration's
+  `from_validated_snapshot` classmethod is the explicit, checksum-verified
+  context contract used for genuine portfolio review context; promotion remains
+  unavailable in Task 2. Their `model_dump` outputs remain fail-closed.
+- `resolve_research_state` classifies `score_role='model_confirmation'` as
+  model-only even when its source ID is allow-listed.
+- `ChatGPTBridge.import_audit_json` now exposes the
+  `ChatGPTAudit | ChatGPTAuditV2` return type at the service boundary.
+
+### Additional verification
+
+The focused governance regressions passed:
+
+```powershell
+$env:PYTHONPATH='src'; & '..\\..\\etf_ai_cockpit\\.venv\\Scripts\\python.exe' -m pytest tests\\test_product_governance.py tests\\test_feature_registry.py tests\\test_strategy_scope.py tests\\test_gate_policy.py tests\\test_governance_review_regressions.py -q
+```
+
+Result: `43 passed`.
+
+Compilation and scoped Ruff both passed:
+
+```powershell
+$env:PYTHONPATH='src'; & '..\\..\\etf_ai_cockpit\\.venv\\Scripts\\python.exe' -m compileall -q src
+$env:PYTHONPATH='src'; & '..\\..\\etf_ai_cockpit\\.venv\\Scripts\\ruff.exe' check src\\etf_cockpit\\governance\\migrations.py src\\etf_cockpit\\data\\score_history.py src\\etf_cockpit\\signals\\research_states.py src\\etf_cockpit\\chatgpt_bridge\\schemas.py src\\etf_cockpit\\services.py tests\\test_research_state_migration.py tests\\test_score_history.py
+```
+
+The authoritative full suite was rerun and exited `1` with exactly the seven
+known baseline failures, recorded verbatim in
+`evidence/governance/task2-full-suite-fix-pass2.txt`: six generated-data /
+identity fixture rows in `tests/test_simple_scores.py` and the static
+trust-artifact identity-count row in `tests/test_trust_critical_artifacts.py`.
+No migration, score-history, ChatGPT, trade-proposal or governance regression
+failed.
+
+## Independent review strict-v2 version contract fix (2026-07-12)
+
+### RED evidence
+
+Added direct-construction regression cases for the fixed v2 version metadata
+contract before changing the model. The focused RED command was:
+
+```powershell
+$env:PYTHONPATH='src'; & '..\\..\\etf_ai_cockpit\\.venv\\Scripts\\python.exe' -m pytest tests\\test_research_state_migration.py -q -k direct_migration_models_reject_non_v2_version_metadata --tb=short
+```
+
+It exited `1` with two expected failures: `ResearchStateMigration` accepted
+`schema_version='9.9'` and `migration_version='bogus'` without raising
+`ValidationError`.
+
+### GREEN evidence
+
+`ResearchStateMigration.migration_version` and `.schema_version` now use
+`Literal["2.0"]`, so direct construction rejects non-v2 metadata while v1
+imports and canonical v2 idempotence continue to use the fixed defaults. The
+required focused compatibility command passed:
+
+```powershell
+$env:PYTHONPATH='src'; & '..\\..\\etf_ai_cockpit\\.venv\\Scripts\\python.exe' -m pytest tests\\test_research_state_migration.py tests\\test_score_history.py tests\\test_chatgpt_import.py tests\\test_trade_proposals.py -q --tb=short
+```
+
+Result: `39 passed`; the two existing pandas `FutureWarning`s in
+`tests/test_score_history.py` remain non-failing.
+
+Scoped verification also passed:
+
+```powershell
+$env:PYTHONPATH='src'; & '..\\..\\etf_ai_cockpit\\.venv\\Scripts\\python.exe' -m compileall -q src
+& '..\\..\\etf_ai_cockpit\\.venv\\Scripts\\ruff.exe' check src\\etf_cockpit\\governance\\migrations.py tests\\test_research_state_migration.py
+```
+
+Both commands exited `0`.

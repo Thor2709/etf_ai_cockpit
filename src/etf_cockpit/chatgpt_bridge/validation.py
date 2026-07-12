@@ -34,5 +34,5 @@ def validate_audit_text(raw_text: str, known_etf_ids: set[str]) -> ChatGPTAudit 
     return audit
 
 
-def validate_audit_file(path: Path, known_etf_ids: set[str]) -> ChatGPTAudit:
+def validate_audit_file(path: Path, known_etf_ids: set[str]) -> ChatGPTAudit | ChatGPTAuditV2:
     return validate_audit_text(path.read_text(encoding="utf-8"), known_etf_ids)

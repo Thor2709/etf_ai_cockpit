@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from etf_cockpit.core.constants import ALLOWED_ACTIONS
 from etf_cockpit.signals.research_states import PortfolioReviewState, ResearchState
@@ -24,6 +24,8 @@ class PortfolioActionAudit(BaseModel):
 class PortfolioReviewAudit(BaseModel):
     """Release-facing v2 review row with no transaction-shaped action field."""
 
+    model_config = ConfigDict(extra="forbid")
+
     etf_id: str
     research_state: ResearchState
     portfolio_review_state: PortfolioReviewState = PortfolioReviewState.NOT_APPLICABLE
@@ -42,6 +44,13 @@ class PortfolioReviewAudit(BaseModel):
     main_risks: list[str] = Field(default_factory=list)
     blocked_by: list[str] = Field(default_factory=list)
     manual_checks: list[str] = Field(default_factory=list)
+
+    @field_validator("research_promotion_allowed", "portfolio_review_allowed", mode="before")
+    @classmethod
+    def _force_task2_authority_false(cls, _value: object) -> bool:
+        """Direct v2 audit construction cannot mint positive authority."""
+
+        return False
 
 
 class IgnoredSignal(BaseModel):
@@ -82,6 +91,8 @@ class ChatGPTAudit(BaseModel):
 
 class ChatGPTAuditV2(BaseModel):
     """Typed v2 external-review import; v1 remains accepted at the seam."""
+
+    model_config = ConfigDict(extra="forbid")
 
     schema_version: Literal["2.0"] = "2.0"
     review_date: str

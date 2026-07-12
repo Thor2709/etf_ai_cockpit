@@ -23,6 +23,7 @@ from etf_cockpit.signals.research_states import (
     PortfolioReviewState,
     ResearchState,
     internal_intent_for_legacy_action,
+    normalise_analysis_status,
     public_authority_payload,
     research_state_for_legacy_action,
 )
@@ -247,7 +248,14 @@ class SimpleInstrumentScore:
             object.__setattr__(self, "research_state", research_state_for_legacy_action(self.final_action))
         if self.internal_intent is InternalSignalIntent.NONE:
             object.__setattr__(self, "internal_intent", internal_intent_for_legacy_action(self.final_action))
-        if self.analysis_status == "unavailable":
+        raw_analysis_status = str(self.analysis_status or "").strip().casefold()
+        valid_analysis_status = raw_analysis_status in {"complete", "partial", "unavailable"}
+        object.__setattr__(self, "analysis_status", normalise_analysis_status(raw_analysis_status))
+        # Public score serialisation remains fail-closed until Task 3's
+        # policy-driven resolver establishes positive authority.
+        object.__setattr__(self, "research_promotion_allowed", False)
+        object.__setattr__(self, "portfolio_review_allowed", False)
+        if valid_analysis_status and self.analysis_status == "unavailable":
             if self.final_score_10 is None:
                 derived: AnalysisStatus = "unavailable"
             elif self.warnings:
@@ -255,8 +263,6 @@ class SimpleInstrumentScore:
             else:
                 derived = "complete"
             object.__setattr__(self, "analysis_status", derived)
-        # This task only defines the compatibility seam.  Promotion remains
-        # disabled until the policy-driven gate resolver in Task 3.
         object.__setattr__(self, "execution_allowed", False)
 
     def to_v2_dict(self) -> dict[str, object]:
