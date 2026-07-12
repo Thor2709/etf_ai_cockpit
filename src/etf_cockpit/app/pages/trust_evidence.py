@@ -10,10 +10,6 @@ from etf_cockpit.app.components.cards import evidence_chip, panel, section_heade
 from etf_cockpit.app.state import AppState
 from etf_cockpit.data.instrument_identity import CanonicalIdentity
 from etf_cockpit.data.provider_registry import ProviderRegistry
-from etf_cockpit.parsers.esef_ixbrl import parse_esef_package
-from etf_cockpit.parsers.priips_kid import parse_priips_kid
-from etf_cockpit.parsers.index_methodology import parse_index_methodology
-from etf_cockpit.parsers.sec_facts import parse_companyfacts
 from etf_cockpit.data.trust_artifacts import (
     BENCHMARK_ATTRIBUTION_PATH,
     CORRELATION_CLUSTERS_PATH,
@@ -153,9 +149,11 @@ def _status_page(title: str, subtitle: str, tables: list[tuple[str, Path, list[s
 
 def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
     result = ft.Text("No official filing imported in this view.", color=theme.MUTED, selectable=True)
-    picker = _attach_picker(page)
+    picker = _attach_picker(page, "filings.import.file-picker")
 
     async def import_sec(_event: ft.ControlEvent) -> None:
+        from etf_cockpit.parsers.sec_facts import parse_companyfacts
+
         files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["json"], with_data=True)
         if not files:
             result.value = "SEC import cancelled; no data changed."
@@ -167,21 +165,31 @@ def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             result.value = "SEC import requires a readable local JSON path."
         else:
             identity = CanonicalIdentity("imported_sec", "Imported SEC entity", None, "needs_verification", "", None, None, "stock", {}, "manual_review", (), None)
-            parsed = parse_companyfacts(path, identity)
-            result.value = f"SEC parser {parsed.parser_name}: {len(parsed.records)} facts, {len(parsed.warnings)} warnings, success={parsed.success}."
-            state.last_message = result.value
+            try:
+                parsed = parse_companyfacts(path, identity)
+                result.value = f"SEC parser {parsed.parser_name}: {len(parsed.records)} facts, {len(parsed.warnings)} warnings, success={parsed.success}."
+                state.last_message = result.value
+            except Exception as exc:
+                state.fail_activity("Import SEC companyfacts", exc)
+                result.value = f"SEC import failed safely: {state.last_message}"
         page.update()
 
     async def import_esef(_event: ft.ControlEvent) -> None:
+        from etf_cockpit.parsers.esef_ixbrl import parse_esef_package
+
         files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["xbri", "zip"], with_data=True)
         if not files:
             result.value = "ESEF import cancelled; no data changed."
         else:
             selected = files[0]
             path = Path(selected.path) if selected.path else None
-            parsed = parse_esef_package(path) if path and path.exists() else None
-            result.value = "ESEF import requires a readable local package." if parsed is None else f"ESEF parser {parsed.parser_name}: {len(parsed.records)} facts, {len(parsed.warnings)} warnings, success={parsed.success}."
-            state.last_message = result.value
+            try:
+                parsed = parse_esef_package(path) if path and path.exists() else None
+                result.value = "ESEF import requires a readable local package." if parsed is None else f"ESEF parser {parsed.parser_name}: {len(parsed.records)} facts, {len(parsed.warnings)} warnings, success={parsed.success}."
+                state.last_message = result.value
+            except Exception as exc:
+                state.fail_activity("Import ESEF package", exc)
+                result.value = f"ESEF import failed safely: {state.last_message}"
         page.update()
 
     return panel(ft.Column([section_header("Official filing import", "Local SEC companyfacts JSON and ESEF report packages are parsed with checksum/provenance warnings; unavailable network remains controlled."), ft.Row([ft.OutlinedButton("Import SEC companyfacts", key="filings.import-sec", icon=ft.Icons.UPLOAD_FILE, on_click=import_sec), ft.OutlinedButton("Import ESEF package", key="filings.import-esef", icon=ft.Icons.UPLOAD_FILE, on_click=import_esef)], wrap=True), result], spacing=8))
@@ -189,35 +197,47 @@ def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
 
 def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
     result = ft.Text("No ETF disclosure imported in this view.", color=theme.MUTED, selectable=True)
-    picker = _attach_picker(page)
+    picker = _attach_picker(page, "etf-disclosures.import.file-picker")
 
     async def import_kid(_event: ft.ControlEvent) -> None:
+        from etf_cockpit.parsers.priips_kid import parse_priips_kid
+
         files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["pdf"], with_data=True)
         if not files:
             result.value = "PRIIPs KID import cancelled; no data changed."
         else:
             path = Path(files[0].path) if files[0].path else None
-            parsed = parse_priips_kid(path) if path and path.exists() else None
-            result.value = "PRIIPs import requires a readable PDF." if parsed is None else f"PRIIPs parser {parsed.parser_name}: {len(parsed.records)} record(s), {len(parsed.warnings)} warnings, success={parsed.success}."
-            state.last_message = result.value
+            try:
+                parsed = parse_priips_kid(path) if path and path.exists() else None
+                result.value = "PRIIPs import requires a readable PDF." if parsed is None else f"PRIIPs parser {parsed.parser_name}: {len(parsed.records)} record(s), {len(parsed.warnings)} warnings, success={parsed.success}."
+                state.last_message = result.value
+            except Exception as exc:
+                state.fail_activity("Import PRIIPs KID", exc)
+                result.value = f"PRIIPs import failed safely: {state.last_message}"
         page.update()
 
     async def import_methodology(_event: ft.ControlEvent) -> None:
+        from etf_cockpit.parsers.index_methodology import parse_index_methodology
+
         files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["pdf"], with_data=True)
         if not files:
             result.value = "Methodology import cancelled; no data changed."
         else:
             path = Path(files[0].path) if files[0].path else None
-            parsed = parse_index_methodology(path, "Imported index provider") if path and path.exists() else None
-            result.value = "Methodology import requires a readable PDF." if parsed is None else f"Methodology parser {parsed.parser_name}: {len(parsed.records)} record(s), {len(parsed.warnings)} warnings, success={parsed.success}."
-            state.last_message = result.value
+            try:
+                parsed = parse_index_methodology(path, "Imported index provider") if path and path.exists() else None
+                result.value = "Methodology import requires a readable PDF." if parsed is None else f"Methodology parser {parsed.parser_name}: {len(parsed.records)} record(s), {len(parsed.warnings)} warnings, success={parsed.success}."
+                state.last_message = result.value
+            except Exception as exc:
+                state.fail_activity("Import index methodology", exc)
+                result.value = f"Methodology import failed safely: {state.last_message}"
         page.update()
 
     return panel(ft.Column([section_header("ETF disclosure import", "PRIIPs KIDs and index methodology PDFs are extracted deterministically with page/checksum warnings. Missing fields stay unavailable."), ft.Row([ft.OutlinedButton("Import PRIIPs KID", key="etf-disclosures.import-kid", icon=ft.Icons.UPLOAD_FILE, on_click=import_kid), ft.OutlinedButton("Import index methodology", key="etf-disclosures.import-methodology", icon=ft.Icons.UPLOAD_FILE, on_click=import_methodology)], wrap=True), result], spacing=8))
 
 
-def _attach_picker(page: ft.Page) -> ft.FilePicker:
-    picker = ft.FilePicker()
+def _attach_picker(page: ft.Page, key: str) -> ft.FilePicker:
+    picker = ft.FilePicker(key=key)
     try:
         page.services.append(picker)
     except Exception:

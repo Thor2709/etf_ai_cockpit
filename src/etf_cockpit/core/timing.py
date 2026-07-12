@@ -31,9 +31,12 @@ def timed_step(
             "duration_ms": round(duration_ms, 3),
             "slow": duration_ms >= slow_ms,
         }
-        if event_logger is not None:
+        logger = event_logger
+        if logger is None and store_path is None:
+            logger = _session_timing_logger
+        if logger is not None:
             try:
-                event_logger(payload)
+                logger(payload)
             except Exception:
                 pass
         destination = store_path or (LOG_DIR / "timings.jsonl")
@@ -44,3 +47,86 @@ def timed_step(
                 handle.flush()
         except Exception:
             pass
+
+
+def record_cache_event(
+    cache_name: str,
+    cache_status: str,
+    *,
+    action_id: str = "",
+    store_path: Path | None = None,
+    detail: str = "",
+) -> dict[str, object]:
+    """Persist a normalised cache hit/miss/invalidation diagnostic event."""
+    status = str(cache_status).strip().lower()
+    if status not in {"hit", "miss", "invalidation"}:
+        raise ValueError(f"unsupported cache status: {cache_status}")
+    payload: dict[str, object] = {
+        "timestamp": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+        "event_type": "cache",
+        "action_id": str(action_id),
+        "cache_name": str(cache_name),
+        "cache_status": status,
+        "detail": str(detail),
+    }
+    destination = store_path or (LOG_DIR / "timings.jsonl")
+    try:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with destination.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, sort_keys=True) + "\n")
+            handle.flush()
+    except Exception:
+        pass
+    return payload
+
+
+def _session_timing_logger(payload: dict[str, object]) -> None:
+    from etf_cockpit.core.session_log import log_event
+
+    log_event(
+        event_type="timed_step",
+        severity="warning" if payload.get("slow") else "info",
+        action_id=str(payload.get("action_id") or ""),
+        component="timing",
+        operation=str(payload.get("step") or ""),
+        status="slow" if payload.get("slow") else "complete",
+        duration_ms=payload.get("duration_ms"),
+        output_summary={"step": payload.get("step"), "slow": payload.get("slow")},
+    )
+
+
+def read_timing_records(path: Path | None = None) -> list[dict[str, object]]:
+    """Read valid timing/cache events while ignoring corrupt tail lines."""
+    source = path or (LOG_DIR / "timings.jsonl")
+    try:
+        lines = source.read_text(encoding="utf-8", errors="replace").splitlines()
+    except Exception:
+        return []
+    records: list[dict[str, object]] = []
+    for line in lines:
+        try:
+            item = json.loads(line)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if not isinstance(item, dict):
+            continue
+        if "duration_ms" in item or item.get("event_type") == "cache":
+            records.append(item)
+    return records
+
+
+def timing_summary(path: Path | None = None, *, limit: int = 50) -> dict[str, object]:
+    records = read_timing_records(path)[-max(1, int(limit)) :]
+    durations = [float(record["duration_ms"]) for record in records if "duration_ms" in record]
+    slow_steps = [record for record in records if bool(record.get("slow"))]
+    cache_events = [record for record in records if record.get("event_type") == "cache"]
+    return {
+        "records": records,
+        "durations_ms": durations,
+        "slow_steps": slow_steps,
+        "cache_events": cache_events,
+        "cache_counts": {
+            status: sum(1 for record in cache_events if record.get("cache_status") == status)
+            for status in ("hit", "miss", "invalidation")
+        },
+    }

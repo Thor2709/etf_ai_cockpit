@@ -270,7 +270,7 @@ def _run_action(page: ft.Page, state: AppState, label: str, action: Callable[[],
             message = action()
             state.finish_activity(message, label=label)
         except Exception as exc:
-            state.fail_activity(label, exc)
+            state.fail_activity(label, exc, retry_callback=action)
         _rebuild(page, state)
 
     threading.Thread(target=worker, daemon=True).start()
@@ -291,7 +291,7 @@ def _run_dialog_action(page: ft.Page, state: AppState, result_text: ft.Text, lab
             result_text.value = message
             state.finish_activity(message, label=label)
         except Exception as exc:
-            state.fail_activity(label, exc)
+            state.fail_activity(label, exc, retry_callback=action)
             result_text.value = state.last_message
         page.update()
 
@@ -311,7 +311,7 @@ def _export_pack(page: ft.Page, state: AppState) -> None:
             path = state.export_audit_packet()
             state.finish_activity(f"Audit packet exported: {path}", output_path=path)
         except Exception as exc:
-            state.fail_activity("Export audit packet", exc)
+            state.fail_activity("Export audit packet", exc, retry_callback=state.export_audit_packet)
         _rebuild(page, state)
 
     threading.Thread(target=worker, daemon=True).start()
@@ -349,7 +349,7 @@ def _open_renew_dialog(page: ft.Page, state: AppState) -> None:
     def rollback_prices(_event: ft.ControlEvent) -> None:
         _run_dialog_action(page, state, result_text, "Rollback prices", "Searching previous clean price snapshot", state.rollback_latest_prices)
 
-    file_picker = ft.FilePicker()
+    file_picker = ft.FilePicker(key="dashboard.renew-import.file-picker")
     try:
         if file_picker not in page.services:
             page.services.append(file_picker)
@@ -425,17 +425,17 @@ def _open_renew_dialog(page: ft.Page, state: AppState) -> None:
                     ft.Text("Prices, FX, ETF factsheets, holdings and notes are copied to raw storage, validated, then committed only if clean enough.", color=theme.MUTED),
                     ft.Row(
                         [
-                            ft.TextButton("Import prices", on_click=import_prices),
-                            ft.TextButton("Import manual notes", on_click=import_manual_notes),
-                            ft.TextButton("Import ETF factsheets", on_click=import_etf_factsheets),
+                            ft.TextButton("Import prices", key="dashboard.import-prices", on_click=import_prices),
+                            ft.TextButton("Import manual notes", key="dashboard.import-manual-notes", on_click=import_manual_notes),
+                            ft.TextButton("Import ETF factsheets", key="dashboard.import-etf-factsheets", on_click=import_etf_factsheets),
                         ],
                         spacing=8,
                         wrap=True,
                     ),
                     ft.Row(
                         [
-                            ft.TextButton("Import ETF holdings", on_click=import_etf_holdings),
-                            ft.TextButton("Import FX rates", on_click=import_fx_rates),
+                            ft.TextButton("Import ETF holdings", key="dashboard.import-etf-holdings", on_click=import_etf_holdings),
+                            ft.TextButton("Import FX rates", key="dashboard.import-fx-rates", on_click=import_fx_rates),
                         ],
                         spacing=8,
                         wrap=True,
@@ -449,10 +449,10 @@ def _open_renew_dialog(page: ft.Page, state: AppState) -> None:
             ),
         ),
         actions=[
-            ft.TextButton("Use API/yfinance provider", on_click=api_status),
-            ft.TextButton("Validate current data", on_click=dry_run),
-            ft.TextButton("Rollback prices", on_click=rollback_prices),
-            ft.TextButton("Close", on_click=close_dialog),
+            ft.TextButton("Use API/yfinance provider", key="dashboard.renew-api-status", on_click=api_status),
+            ft.TextButton("Validate current data", key="dashboard.renew-dry-run", on_click=dry_run),
+            ft.TextButton("Rollback prices", key="dashboard.renew-rollback", on_click=rollback_prices),
+            ft.TextButton("Close", key="dashboard.renew-close", on_click=close_dialog),
         ],
     )
     if hasattr(page, "show_dialog"):

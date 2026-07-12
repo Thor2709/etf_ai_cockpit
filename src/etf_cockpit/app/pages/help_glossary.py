@@ -34,7 +34,7 @@ def help_glossary_page(page: ft.Page | None, state: AppState) -> ft.Control:
                     [
                         ft.TextButton(
                             entry.term,
-                            key=f"glossary.{_slug(entry.term)}",
+                            key=f"help.glossary-term.{_slug(entry.term)}",
                             tooltip=f"Open glossary definition for {entry.term}",
                             on_click=lambda _event, term=entry.term: open_help(term),
                         ),

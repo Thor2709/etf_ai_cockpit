@@ -13,6 +13,7 @@ from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import DATA_DIR, LOG_DIR, MODEL_DIR
 from etf_cockpit.core.session_log import read_session_events, session_log_status
 from etf_cockpit.core.errors import ErrorStore
+from etf_cockpit.core.timing import timing_summary
 from etf_cockpit.operations.event_store import load_events_with_tail_recovery
 
 
@@ -75,15 +76,36 @@ def diagnostics_page(_page: ft.Page, state: AppState) -> ft.Control:
 
 def _performance_panel(state: AppState) -> ft.Control:
     timing_path = LOG_DIR / "timings.jsonl"
-    timing_lines = timing_path.read_text(encoding="utf-8", errors="replace").splitlines()[-12:] if timing_path.exists() else []
+    summary = timing_summary(timing_path, limit=50)
+    timing_records = list(summary["records"])
+    durations = list(summary["durations_ms"])
+    slow_steps = list(summary["slow_steps"])
+    cache_counts = dict(summary["cache_counts"])
     errors = ErrorStore().recent(limit=8)
     rows: list[ft.Control] = [
-        ft.Text(f"Timing trace: {timing_path} | {len(timing_lines)} recent records", color=theme.MUTED, selectable=True),
+        ft.Text(f"Timing trace: {timing_path} | {len(timing_records)} parsed records", color=theme.MUTED, selectable=True),
+        ft.Text(
+            f"Durations: {len(durations)} | slow steps: {len(slow_steps)} | "
+            f"cache hits: {cache_counts.get('hit', 0)} | misses: {cache_counts.get('miss', 0)} | "
+            f"invalidations: {cache_counts.get('invalidation', 0)}",
+            color=theme.MUTED,
+            selectable=True,
+        ),
         ft.Text(f"Controlled errors: {len(errors)} recent records", color=theme.MUTED),
         ft.Text(f"Current workflow: {state.current_activity.label if state.current_activity else 'idle'}", color=theme.MUTED),
     ]
-    for line in reversed(timing_lines[-6:]):
-        rows.append(ft.Text(line, color=theme.MUTED, size=11, selectable=True))
+    for record in reversed(timing_records[-6:]):
+        if record.get("event_type") == "cache":
+            text = (
+                f"cache {record.get('cache_name')} {record.get('cache_status')} "
+                f"action={record.get('action_id') or 'n/a'}"
+            )
+        else:
+            text = (
+                f"{record.get('step', 'step')} | {record.get('duration_ms', 'n/a')} ms | "
+                f"slow={record.get('slow', False)} | action={record.get('action_id') or 'n/a'}"
+            )
+        rows.append(ft.Text(text, color=theme.MUTED, size=11, selectable=True))
     return panel(ft.Column([section_header("Performance and recovery", "Workflow timing, slow-step visibility and controlled error counts."), *rows], spacing=6))
 
 

@@ -78,6 +78,29 @@ class ErrorStore:
         self._append(record)
         return record
 
+    def record_exception(
+        self,
+        *,
+        action_id: str,
+        exc: BaseException,
+        retry_callback: RetryHandler | None = None,
+        user_message: str | None = None,
+    ) -> ErrorRecord:
+        """Classify and persist an exception with an optional in-process retry."""
+        category, retryable = classify_exception(exc)
+        retry_key: str | None = None
+        if retryable and retry_callback is not None:
+            retry_key = f"retry_{uuid.uuid4().hex[:12]}"
+            self.register_retry(retry_key, retry_callback)
+        return self.append(
+            action_id=action_id,
+            category=category,
+            user_message=user_message or f"{type(exc).__name__}: {exc}",
+            retryable=retryable,
+            retry_key=retry_key,
+            detail=str(exc),
+        )
+
     def recent(self, limit: int = 20) -> list[ErrorRecord]:
         try:
             lines = self.path.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -114,7 +137,13 @@ class ErrorStore:
         if record is None or not record.retryable or not record.retry_key:
             return None
         callback = self._retry_handlers.get(record.retry_key)
-        return None if callback is None else callback()
+        if callback is None:
+            return None
+        try:
+            return callback()
+        except Exception as exc:
+            self.record_exception(action_id=record.action_id, exc=exc)
+            return None
 
     def _append(self, record: ErrorRecord) -> None:
         try:
@@ -127,7 +156,24 @@ class ErrorStore:
 
 
 def classify_exception(exc: BaseException) -> tuple[ErrorCategory, bool]:
-    if isinstance(exc, (TimeoutError, ConnectionError)):
+    text = str(exc).lower()
+    # Match specific workflow states before broad Python exception classes;
+    # parser/schema and locked-file failures often arrive as ValueError/OSError.
+    if not isinstance(exc, PermissionError) and ("locked" in text or "sharing violation" in text or "resource busy" in text):
+        return ErrorCategory.LOCKED_FILE, False
+    if "429" in text or "rate limit" in text:
+        return ErrorCategory.RATE_LIMIT, True
+    if "entitlement" in text or "subscription required" in text or "not entitled" in text:
+        return ErrorCategory.ENTITLEMENT, False
+    if "token" in text or "api key" in text or "authentication" in text or "unauthori" in text:
+        return ErrorCategory.AUTHENTICATION, False
+    if "schema" in text or "parse" in text or "malformed" in text or "invalid json" in text:
+        return ErrorCategory.PARSER_SCHEMA, False
+    if "identity" in text or "isin" in text:
+        return ErrorCategory.IDENTITY_CONFLICT, False
+    if "missing data" in text or "not found" in text:
+        return ErrorCategory.MISSING_DATA, False
+    if isinstance(exc, (TimeoutError, ConnectionError)) or "timeout" in text or "connection reset" in text:
         return ErrorCategory.NETWORK, True
     if isinstance(exc, PermissionError):
         return ErrorCategory.PERMISSION, False
@@ -135,17 +181,6 @@ def classify_exception(exc: BaseException) -> tuple[ErrorCategory, bool]:
         return ErrorCategory.MISSING_DATA, False
     if isinstance(exc, (ValueError, TypeError)):
         return ErrorCategory.INVALID_INPUT, False
-    text = str(exc).lower()
-    if "429" in text or "rate limit" in text:
-        return ErrorCategory.RATE_LIMIT, True
-    if "token" in text or "api key" in text or "authentication" in text:
-        return ErrorCategory.AUTHENTICATION, False
-    if "schema" in text or "parse" in text or "malformed" in text:
-        return ErrorCategory.PARSER_SCHEMA, False
-    if "identity" in text or "isin" in text:
-        return ErrorCategory.IDENTITY_CONFLICT, False
-    if "locked" in text or "sharing violation" in text:
-        return ErrorCategory.LOCKED_FILE, True
     return ErrorCategory.UNKNOWN, False
 
 

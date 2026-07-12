@@ -12,8 +12,10 @@ from etf_cockpit.chatgpt_bridge.export_pack import export_review_pack
 from etf_cockpit.chatgpt_bridge.import_audit import import_audit_json
 from etf_cockpit.chatgpt_bridge.schemas import ChatGPTAudit, ChatGPTAuditV2
 from etf_cockpit.core.config import AppConfig, load_config
+from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_bytes, atomic_write_group
 from etf_cockpit.core.logging import append_jsonl, configure_logging
 from etf_cockpit.core.paths import BACKTESTS_DIR, FORECASTS_DIR, ensure_project_dirs
+from etf_cockpit.core.timing import record_cache_event, timed_step
 from etf_cockpit.core.types import DataQualityReport, ForecastResult, SignalResult
 from etf_cockpit.data.duckdb_store import initialise_store, load_holdings, load_prices, write_features
 from etf_cockpit.data.fx_data import commit_fx_import, fx_data_inventory, load_fx_rates, validate_fx_rates
@@ -35,8 +37,6 @@ from etf_cockpit.models.baseline_models import baseline_forecast
 from etf_cockpit.models.forecast_scores import forecast_component_maps, load_latest_forecasts
 from etf_cockpit.models.local_weights import LocalModelStatus
 from etf_cockpit.models.registry import model_availability, model_diagnostics
-from etf_cockpit.models.timesfm_adapter import TimesFMAdapter
-from etf_cockpit.models.toto_adapter import TotoAdapter
 from etf_cockpit.portfolio.risk import target_policy_issues
 from etf_cockpit.signals.signal_pipeline import generate_signals
 
@@ -224,10 +224,28 @@ class DataService:
         forecast_service = ForecastService(forecast_config)
         output = FORECASTS_DIR / f"forecast_results_yfinance_{effective_as_of:%Y%m%d}.csv"
         if use_cache and output.exists():
-            universe_forecast_frame = pd.read_csv(output)
-            universe_summary = _forecast_frame_status_summary(universe_forecast_frame)
-            universe_mode = "reused from cache"
+            try:
+                universe_forecast_frame = pd.read_csv(output)
+            except Exception:
+                record_cache_event("forecast", "invalidation", action_id="forecasts", detail="unreadable output")
+                universe_forecast_frame = None
+            if universe_forecast_frame is not None:
+                record_cache_event("forecast", "hit", action_id="forecasts")
+                universe_summary = _forecast_frame_status_summary(universe_forecast_frame)
+                universe_mode = "reused from cache"
+            else:
+                record_cache_event("forecast", "miss", action_id="forecasts")
+                universe_forecasts = forecast_service.run_forecasts(
+                    effective_as_of,
+                    self.config.universe.enabled_ids,
+                    prices,
+                    output_path=output,
+                    horizons=horizons,
+                )
+                universe_summary = _forecast_status_summary(universe_forecasts)
+                universe_mode = "refreshed"
         else:
+            record_cache_event("forecast", "miss", action_id="forecasts")
             universe_forecasts = forecast_service.run_forecasts(
                 effective_as_of,
                 self.config.universe.enabled_ids,
@@ -246,14 +264,38 @@ class DataService:
         if include_candidates:
             candidate_output = FORECASTS_DIR / f"yfinance_candidate_forecasts_{effective_as_of:%Y%m%d}.csv"
             if use_cache and candidate_output.exists():
-                candidate_summary = _forecast_frame_status_summary(pd.read_csv(candidate_output))
-                candidate_as_of = effective_as_of
-                candidate_mode = "reused from cache"
+                try:
+                    candidate_frame = pd.read_csv(candidate_output)
+                except Exception:
+                    record_cache_event("candidate_forecast", "invalidation", action_id="forecasts", detail="unreadable output")
+                    candidate_frame = None
+                if candidate_frame is not None:
+                    record_cache_event("candidate_forecast", "hit", action_id="forecasts")
+                    candidate_summary = _forecast_frame_status_summary(candidate_frame)
+                    candidate_as_of = effective_as_of
+                    candidate_mode = "reused from cache"
+                else:
+                    record_cache_event("candidate_forecast", "miss", action_id="forecasts")
+                    candidate_data = fetch_candidate_prices(self.config, years=years)
+                    candidate_ids = list(candidate_data.candidates["instrument_id"].astype(str))
+                    candidate_output = FORECASTS_DIR / f"yfinance_candidate_forecasts_{candidate_data.effective_as_of:%Y%m%d}.csv"
+                    candidate_forecasts = forecast_service.run_forecasts(
+                        candidate_data.effective_as_of,
+                        candidate_ids,
+                        candidate_data.prices,
+                        output_path=candidate_output,
+                        horizons=horizons,
+                    )
+                    candidate_summary = _forecast_status_summary(candidate_forecasts)
+                    candidate_as_of = candidate_data.effective_as_of
+                    candidate_mode = "refreshed"
             else:
+                record_cache_event("candidate_forecast", "miss", action_id="forecasts")
                 candidate_data = fetch_candidate_prices(self.config, years=years)
                 candidate_ids = list(candidate_data.candidates["instrument_id"].astype(str))
                 candidate_output = FORECASTS_DIR / f"yfinance_candidate_forecasts_{candidate_data.effective_as_of:%Y%m%d}.csv"
                 if use_cache and candidate_output.exists():
+                    record_cache_event("candidate_forecast", "hit", action_id="forecasts")
                     candidate_summary = _forecast_frame_status_summary(pd.read_csv(candidate_output))
                     candidate_as_of = candidate_data.effective_as_of
                     candidate_mode = "reused from cache"
@@ -522,6 +564,8 @@ class ForecastService:
         as_of_date: date,
         run_id: str,
     ) -> list[ForecastResult]:
+        from etf_cockpit.models.timesfm_adapter import TimesFMAdapter
+
         adapter = TimesFMAdapter(self.config.models.runtime("timesfm"))
         forecasts: list[ForecastResult] = []
         try:
@@ -549,6 +593,8 @@ class ForecastService:
         as_of_date: date,
         run_id: str,
     ) -> list[ForecastResult]:
+        from etf_cockpit.models.toto_adapter import TotoAdapter
+
         adapter = TotoAdapter(self.config.models.runtime("toto"))
         forecasts: list[ForecastResult] = []
         try:
@@ -567,9 +613,14 @@ class ForecastService:
         return forecasts
 
     def _write_forecasts(self, forecasts: list[ForecastResult], as_of_date: date, *, output_path: Path | None = None) -> None:
-        FORECASTS_DIR.mkdir(parents=True, exist_ok=True)
         output = output_path or FORECASTS_DIR / f"forecast_results_{as_of_date:%Y%m%d}.csv"
-        pd.DataFrame([_forecast_to_row(forecast) for forecast in forecasts]).to_csv(output, index=False)
+        payload = pd.DataFrame([_forecast_to_row(forecast) for forecast in forecasts]).to_csv(index=False).encode("utf-8")
+
+        def validate(path: Path) -> None:
+            _validate_csv(path)
+
+        with timed_step("forecasts", "write_output"):
+            atomic_write_bytes(output, payload, validate)
 
 
 class SignalService:
@@ -602,6 +653,12 @@ def _forecast_to_row(forecast: ForecastResult) -> dict[str, object]:
     data = asdict(forecast)
     data["forecast_date"] = forecast.forecast_date.isoformat()
     return data
+
+
+def _validate_csv(path: Path, *, index_col: int | None = None) -> None:
+    # Empty trade/signal/forecast frames are valid unavailable artefacts.
+    if path.stat().st_size:
+        pd.read_csv(path, index_col=index_col)
 
 
 def _forecast_status_summary(forecasts: list[ForecastResult]) -> str:
@@ -646,18 +703,28 @@ class BacktestService:
         self.config = config
 
     def load_or_run_backtest(self, as_of_date: date | None = None) -> BacktestReport:
-        cached = self._load_cached_backtest(as_of_date)
+        cache_present = (BACKTESTS_DIR / "backtest_results.csv").exists() or (BACKTESTS_DIR / "equity_curves.csv").exists()
+        with timed_step("backtest", "cache_read"):
+            cached = self._load_cached_backtest(as_of_date)
         if cached is not None:
+            record_cache_event("backtest", "hit", action_id="backtest")
             return cached
+        if cache_present:
+            record_cache_event("backtest", "invalidation", action_id="backtest", detail="unreadable or stale output")
+        record_cache_event("backtest", "miss", action_id="backtest")
         return self.run_backtest()
 
     def run_backtest(self) -> BacktestReport:
         report = run_backtest(self.config, load_prices())
         BACKTESTS_DIR.mkdir(parents=True, exist_ok=True)
-        report.results.to_csv(BACKTESTS_DIR / "backtest_results.csv", index=False)
-        report.equity_curves.to_csv(BACKTESTS_DIR / "equity_curves.csv")
-        report.trade_log.to_csv(BACKTESTS_DIR / "trade_log.csv", index=False)
-        report.signal_log.to_csv(BACKTESTS_DIR / "signal_log.csv", index=False)
+        requests = (
+            AtomicWriteRequest(BACKTESTS_DIR / "backtest_results.csv", report.results.to_csv(index=False).encode("utf-8"), lambda path: _validate_csv(path)),
+            AtomicWriteRequest(BACKTESTS_DIR / "equity_curves.csv", report.equity_curves.to_csv().encode("utf-8"), lambda path: _validate_csv(path, index_col=0)),
+            AtomicWriteRequest(BACKTESTS_DIR / "trade_log.csv", report.trade_log.to_csv(index=False).encode("utf-8"), lambda path: _validate_csv(path)),
+            AtomicWriteRequest(BACKTESTS_DIR / "signal_log.csv", report.signal_log.to_csv(index=False).encode("utf-8"), lambda path: _validate_csv(path)),
+        )
+        with timed_step("backtest", "write_outputs"):
+            atomic_write_group(requests)
         append_jsonl("model_runs.jsonl", "backtest_completed", {"ai_added_value": report.ai_added_value})
         return report
 
@@ -724,6 +791,11 @@ class ChatGPTBridge:
 
 
 def build_snapshot(force_sample: bool = False) -> CockpitSnapshot:
+    with timed_step("snapshot", "build"):
+        return _build_snapshot(force_sample=force_sample)
+
+
+def _build_snapshot(force_sample: bool = False) -> CockpitSnapshot:
     configure_logging()
     ensure_project_dirs()
     config = load_config()

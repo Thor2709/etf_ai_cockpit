@@ -10,6 +10,7 @@ from etf_cockpit.core.migrations import run_startup_migrations
 from etf_cockpit.core.paths import RAW_DIR
 from etf_cockpit.core.session_log import SESSION_LOG_PATH, log_event, log_exception
 from etf_cockpit.core.errors import ErrorStore, classify_exception
+from etf_cockpit.core.timing import timed_step
 from etf_cockpit.core.workflow import WorkflowController, WorkflowStatus, WorkflowStep
 from etf_cockpit.data.trust_artifacts import refresh_static_trust_artifacts, write_trust_artifacts_for_scores
 from etf_cockpit.features.regime import build_market_regime, write_market_regime
@@ -120,8 +121,10 @@ class AppState:
 
     @classmethod
     def load(cls) -> "AppState":
-        run_startup_migrations()
-        snapshot = build_snapshot()
+        with timed_step("startup", "migrations"):
+            run_startup_migrations()
+        with timed_step("startup", "snapshot"):
+            snapshot = build_snapshot()
         try:
             refresh_static_trust_artifacts(snapshot.config)
         except Exception:
@@ -187,10 +190,11 @@ class AppState:
             self.last_message = message
         else:
             self.last_message = step
-        self.workflow_controller.step(
-            self.current_activity.action_id,
-            WorkflowStep(step, self.current_activity.message or step, completed_units, total_units),
-        )
+        with timed_step(self.current_activity.action_id, step):
+            self.workflow_controller.step(
+                self.current_activity.action_id,
+                WorkflowStep(step, self.current_activity.message or step, completed_units, total_units),
+            )
         log_event(
             event_type="activity_update",
             severity="info",
@@ -235,9 +239,16 @@ class AppState:
         )
         return entry
 
-    def fail_activity(self, label: str, exc: Exception) -> ActivityEntry:
+    def fail_activity(
+        self,
+        label: str,
+        exc: Exception,
+        *,
+        retry_callback=None,
+    ) -> ActivityEntry:
         entry = self.current_activity or self.begin_activity(label, "Failed")
-        result = self.workflow_controller.fail(entry.action_id, exc, retryable=isinstance(exc, (TimeoutError, ConnectionError)))
+        _, retryable = classify_exception(exc)
+        result = self.workflow_controller.fail(entry.action_id, exc, retryable=retryable)
         entry.status = "failed"
         entry.step = "Failed"
         entry.finished_at = _utc_now()
@@ -245,13 +256,11 @@ class AppState:
         self.current_activity = None
         self.last_message = entry.message
         self.recent_activity = (self.recent_activity + [entry])[-8:]
-        category, retryable = classify_exception(exc)
-        self.error_store.append(
+        self.error_store.record_exception(
             action_id=entry.action_id,
-            category=category,
+            exc=exc,
+            retry_callback=retry_callback,
             user_message=entry.message,
-            retryable=retryable,
-            detail=str(exc),
         )
         log_exception(
             event_type="activity_failed",
