@@ -77,6 +77,20 @@ def test_registry_normalises_probe_states_and_maps_failures_without_leaking_erro
     assert "token=secret" not in str(states["timed"].to_dict())
 
 
+def test_registry_preserves_forbidden_probe_state_without_score_or_execution_authority() -> None:
+    config = DataProvidersConfig(providers={"forbidden": ProviderSection(active_provider="manual_local")})
+    registry = ProviderRegistry(config)
+    registry.register_probe("forbidden", lambda: {"status": "forbidden", "message": "Provider access is forbidden."})
+
+    capability = next(item for item in registry.probe_all() if item.provider_id == "forbidden")
+    row = next(item for item in registry.status_rows((capability,)))
+
+    assert capability.status == "forbidden"
+    assert capability.score_eligible is False
+    assert row["score_eligible"] is False
+    assert row.get("executable_authority", False) is False
+
+
 def test_registry_persists_versioned_probe_results_atomically_without_secrets(tmp_path) -> None:
     config = DataProvidersConfig(
         providers={"fred": ProviderSection(active_provider="fred", api_key="super-secret", base_url="https://fred")}
@@ -124,6 +138,27 @@ def test_startup_probe_writer_persists_versioned_registry_rows_and_legacy_column
 
     assert frame["schema_version"].eq(provider_registry.PROBE_SCHEMA_VERSION).all()
     assert frame.attrs["schema_version"] == provider_registry.PROBE_SCHEMA_VERSION
-    assert {"provider_name", "source_authority", "status", "executable_authority"} <= set(frame.columns)
+    assert {
+        "authority",
+        "configured",
+        "entitlement",
+        "rate_limit_note",
+        "last_success_at",
+        "error_fingerprint",
+        "score_eligible",
+        "schema_version",
+        "provider_name",
+        "source_authority",
+        "active_provider",
+        "enabled",
+        "requires_api_key",
+        "has_api_key",
+        "base_url_configured",
+        "capabilities",
+        "last_probe_at",
+        "executable_authority",
+    } <= set(frame.columns)
+    csv_frame = pd.read_csv(written.with_suffix(".csv"))
+    assert set(frame.columns) == set(csv_frame.columns)
     assert "super-secret" not in csv_text
     assert "super-secret" not in written.read_bytes().decode("latin1", errors="ignore")

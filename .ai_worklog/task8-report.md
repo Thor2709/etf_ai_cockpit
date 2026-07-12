@@ -119,10 +119,10 @@ migration fixture but have identical Git object hashes and no content diff.
   provider IDs are additive YAML entries disabled by default.
 - API keys are represented only as boolean presence metadata in capabilities;
   values are not included in parquet/CSV rows, status text or redacted config.
-- `trust_artifacts.write_provider_probe_results` now calls
-  `ProviderRegistry.persist_probe_results` during startup refresh, then
-  atomically republishes the canonical rows with legacy manifest aliases for
-  existing Data Health, exports and Provider Status consumers.
+- `trust_artifacts.write_provider_probe_results` now publishes one atomic
+  canonical-plus-legacy union frame during startup refresh, retaining the
+  canonical capability fields alongside legacy manifest aliases for existing
+  Data Health, exports and Provider Status consumers.
 - Independent review and package/browser evidence remain pending parent-level
   release verification.  The affected bundle retains the pre-existing
   identity-fixture limitation above.
@@ -132,3 +132,44 @@ migration fixture but have identical Git object hashes and no content diff.
 Parent should review the scoped diff, run the full release/package/browser
 gates, and retain the documented identity-fixture limitation before any
 issue-state change.
+
+## Independent review fix pass
+
+The first fresh independent review rejected commit `4324b05` with one Critical
+and one Important finding and recorded one Minor closure-criteria gap:
+
+- a bearer header left the token suffix visible after redaction;
+- startup refresh overwrote the canonical registry columns while adding legacy
+  aliases; and
+- the provider matrix lacked an explicit `forbidden` state test.
+
+RED evidence was the reviewer’s direct probe against `4324b05`: bearer output
+was `***redacted*** super-secret-token`, and the startup Parquet was missing
+`authority`, `configured`, `entitlement`, `rate_limit_note`,
+`last_success_at`, `error_fingerprint` and `score_eligible`. The newly added
+regressions were then run before the fix and failed on these behaviours.
+
+The fix pass now redacts complete `Authorization`/`Proxy-Authorization` and
+Bearer values, preserves the canonical and legacy provider columns in one
+versioned startup artefact, recognises `forbidden` as non-score-eligible and
+non-executable, and covers the final Parquet/CSV output. GREEN verification:
+
+```text
+..\..\etf_ai_cockpit\.venv\Scripts\python.exe -m pytest -q tests/test_data_contracts.py tests/test_provider_registry.py
+14 passed
+
+..\..\etf_ai_cockpit\.venv\Scripts\python.exe -m compileall -q src tests
+exit 0
+
+..\..\etf_ai_cockpit\.venv\Scripts\python.exe -m ruff check src/etf_cockpit/data/contracts.py src/etf_cockpit/data/provider_registry.py src/etf_cockpit/data/providers.py src/etf_cockpit/data/trust_artifacts.py src/etf_cockpit/app/pages/trust_evidence.py tests/test_provider_registry.py tests/test_data_contracts.py
+All checks passed!
+
+..\..\etf_ai_cockpit\.venv\Scripts\python.exe scripts\run_app.py --smoke
+snapshot_ok as_of=2026-07-13 signals=16 backtests=5
+```
+
+The affected regression bundle remains 42 passed and one pre-existing identity
+fixture failure (`identity.shape[0] == 16`, expected `>=45`) in the isolated
+worktree. No Task 8 provider or trust-artifact failure remains in the affected
+tests. Package/browser evidence and the final independent re-review remain
+parent-level gates.

@@ -54,7 +54,7 @@ _AUTHORITY_BY_PROVIDER = {
     "rss": SourceAuthority.COMMUNITY,
     "manual_local": SourceAuthority.COMMUNITY,
 }
-_VALID_STATUSES = frozenset({"ok", "unavailable", "rate_limited", "timeout", "malformed", "error"})
+_VALID_STATUSES = frozenset({"ok", "unavailable", "rate_limited", "timeout", "malformed", "error", "forbidden"})
 
 
 class ProviderRegistry:
@@ -89,19 +89,20 @@ class ProviderRegistry:
         rows = capabilities if capabilities is not None else self.probe_all()
         return tuple(
             {
-                "provider_id": item.provider_id,
-                "dataset_type": item.dataset_type,
+                "provider_id": redact_text(item.provider_id),
+                "dataset_type": redact_text(item.dataset_type),
                 "enabled": item.configured,
                 "configured": item.configured,
-                "status": item.status,
+                "status": redact_text(item.status),
                 "authority": item.authority.value,
-                "capabilities": item.dataset_type,
-                "entitlement": item.entitlement,
-                "rate_limit_note": item.rate_limit_note,
-                "last_success_at": item.last_success_at,
+                "capabilities": redact_text(item.dataset_type),
+                "entitlement": redact_text(item.entitlement),
+                "rate_limit_note": redact_text(item.rate_limit_note),
+                "last_success_at": redact_text(item.last_success_at) if item.last_success_at else None,
                 "redacted_configuration": self.redacted_configuration(item.provider_id),
                 "score_eligible": item.score_eligible,
                 "message": redact_text(item.message),
+                "executable_authority": False,
             }
             for item in rows
         )
@@ -254,6 +255,8 @@ def _merge_capability(base: ProviderCapability, result: ProviderCapability) -> P
 
 
 def _exception_status(exc: Exception) -> str:
+    if isinstance(exc, PermissionError) or "forbidden" in type(exc).__name__.lower() or "403" in str(exc):
+        return "forbidden"
     if isinstance(exc, TimeoutError) or "timeout" in type(exc).__name__.lower():
         return "timeout"
     if "rate" in type(exc).__name__.lower() or "429" in str(exc):

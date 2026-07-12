@@ -51,24 +51,31 @@ class ProviderCapability:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "provider_id": self.provider_id,
-            "dataset_type": self.dataset_type,
-            "status": self.status,
+            "provider_id": redact_text(self.provider_id),
+            "dataset_type": redact_text(self.dataset_type),
+            "status": redact_text(self.status),
             "authority": self.authority.value,
             "authority_rank": self.authority.rank,
             "configured": self.configured,
-            "entitlement": self.entitlement,
-            "rate_limit_note": self.rate_limit_note,
-            "last_success_at": self.last_success_at,
-            "error_fingerprint": self.error_fingerprint,
+            "entitlement": redact_text(self.entitlement),
+            "rate_limit_note": redact_text(self.rate_limit_note),
+            "last_success_at": _redact_optional_text(self.last_success_at),
+            "error_fingerprint": _redact_optional_text(self.error_fingerprint),
             "secret_present": self.secret_present,
             "score_eligible": self.score_eligible,
             "message": redact_text(self.message),
         }
 
 
+_HEADER_CREDENTIAL_PATTERN = re.compile(
+    r"(?P<prefix>\b(?:authorization|proxy-authorization)\s*[:=]\s*)"
+    r"(?:(?P<scheme>bearer|basic|digest|token)\s+)?"
+    r"(?P<value>[^\s,;]+)",
+    re.IGNORECASE,
+)
+_BEARER_PATTERN = re.compile(r"(?P<prefix>\bbearer\s+)(?P<value>[^\s,;]+)", re.IGNORECASE)
 _SECRET_PATTERNS = (
-    re.compile(r"(?i)(api[_ -]?key|token|password|passwd|secret|bearer|authorization)(\s*[:=]\s*)[^\s,;]+"),
+    re.compile(r"(?i)(api[_ -]?key|token|password|passwd|secret)(\s*[:=]\s*)[^\s,;]+"),
     re.compile(r"(?i)(?:^|[?&])(api[_-]?key|token|password|secret)=[^&\s]+"),
     re.compile(r"(?i)\b[A-Za-z0-9_-]{24,}\b"),
 )
@@ -78,9 +85,22 @@ def redact_text(value: object) -> str:
     """Return safe human-readable probe text without credential material."""
 
     text = str(value or "")
+    text = _HEADER_CREDENTIAL_PATTERN.sub(
+        lambda match: (
+            f"{match.group('prefix')}{match.group('scheme')} ***redacted***"
+            if match.group("scheme")
+            else f"{match.group('prefix')}***redacted***"
+        ),
+        text,
+    )
+    text = _BEARER_PATTERN.sub(lambda match: f"{match.group('prefix')}***redacted***", text)
     for pattern in _SECRET_PATTERNS:
         text = pattern.sub("***redacted***", text)
     return text.replace(".env", "[env-file]")
+
+
+def _redact_optional_text(value: object) -> str | None:
+    return None if value is None else redact_text(value)
 
 
 def redact_mapping(value: object) -> object:

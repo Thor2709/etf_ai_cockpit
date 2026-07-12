@@ -47,6 +47,27 @@ def test_ok_capability_requires_configuration_and_authority_is_serialised_withou
     assert "token=" not in str(payload)
 
 
+def test_provider_capability_redacts_complete_bearer_header_values() -> None:
+    token = "super-secret-token"
+    capability = ProviderCapability(
+        provider_id="fred",
+        dataset_type="macro",
+        status="ok",
+        authority=SourceAuthority.VENDOR,
+        configured=True,
+        entitlement=f"Authorization: Bearer {token}",
+        rate_limit_note=f"Bearer {token}",
+        last_success_at=None,
+        error_fingerprint=f"Authorization: Bearer {token}",
+        message=f"Authorization: Bearer {token}",
+    )
+
+    payload = capability.to_dict()
+
+    assert token not in str(payload)
+    assert "Bearer ***redacted***" in str(payload)
+
+
 def test_official_authority_ranks_above_vendor() -> None:
     assert SourceAuthority.OFFICIAL.rank > SourceAuthority.VENDOR.rank
     assert SourceAuthority.MODEL.rank == 0

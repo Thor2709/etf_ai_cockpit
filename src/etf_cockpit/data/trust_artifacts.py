@@ -20,7 +20,7 @@ from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.paths import CLEAN_DIR, DERIVED_DIR, RAW_DIR
 from etf_cockpit.core.session_log import log_event
 from etf_cockpit.data.trade_candidate_analysis import latest_candidate_input
-from etf_cockpit.data.contracts import SourceAuthority
+from etf_cockpit.data.contracts import SourceAuthority, redact_text
 from etf_cockpit.data.provider_registry import PROBE_SCHEMA_VERSION, ProviderRegistry
 from etf_cockpit.data.yfinance_provider import yfinance_symbol_map_from_config
 
@@ -54,14 +54,21 @@ SOURCE_AUTHORITY = {
 PROVIDER_COLUMNS = [
     "schema_version",
     "provider_id",
-    "provider_name",
     "dataset_type",
+    "status",
+    "authority",
+    "authority_rank",
+    "configured",
+    "entitlement",
+    "rate_limit_note",
+    "last_success_at",
+    "error_fingerprint",
+    "score_eligible",
+    "message",
+    "provider_name",
     "active_provider",
     "enabled",
-    "status",
-    "message",
     "source_authority",
-    "authority_rank",
     "requires_api_key",
     "has_api_key",
     "base_url_configured",
@@ -292,33 +299,29 @@ def write_provider_probe_results(config: AppConfig) -> Path:
     now = _utc_now()
     registry = ProviderRegistry(config.data_providers)
     capabilities = registry.probe_all()
-    # The registry owns the canonical, versioned atomic publication.  Enrich
-    # that same frame with the legacy manifest aliases still consumed by Data
-    # Health, exports and existing Provider Status previews.
-    registry.persist_probe_results(PROVIDER_PROBE_PATH, capabilities)
-    frame = pd.read_parquet(PROVIDER_PROBE_PATH)
-    frame.attrs["schema_version"] = PROBE_SCHEMA_VERSION
+    # Publish one atomic frame containing both canonical capability fields and
+    # legacy aliases.  Existing consumers can continue reading their aliases
+    # without dropping the versioned registry contract.
     rows: list[dict[str, Any]] = []
     for item in capabilities:
         section, dataset_type = _provider_section_for(config, item.provider_id)
         active = (section.active_provider or "none").strip().lower()
         legacy_authority = _legacy_provider_authority(item.authority)
+        canonical = item.to_dict()
         rows.append(
             {
+                **canonical,
                 "schema_version": PROBE_SCHEMA_VERSION,
-                "provider_id": item.provider_id,
-                "provider_name": item.provider_id,
-                "dataset_type": dataset_type,
-                "active_provider": active,
+                "provider_id": canonical["provider_id"],
+                "dataset_type": canonical["dataset_type"],
+                "provider_name": canonical["provider_id"],
+                "active_provider": redact_text(active),
                 "enabled": item.configured,
-                "status": item.status,
-                "message": item.message,
                 "source_authority": legacy_authority,
-                "authority_rank": item.authority.rank,
                 "requires_api_key": _provider_requires_api_key(item.provider_id, active),
                 "has_api_key": bool(section.api_key),
                 "base_url_configured": bool(section.base_url),
-                "capabilities": item.dataset_type,
+                "capabilities": canonical["dataset_type"],
                 "last_probe_at": now,
                 "executable_authority": False,
             }
