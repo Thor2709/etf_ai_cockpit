@@ -10,7 +10,7 @@ ___ test_recovery_of_interrupted_second_real_writer_preserves_first_commit ____
 tests\operations\test_transactions.py:486: in test_recovery_of_interrupted_second_real_writer_preserves_first_commit
     assert errors == []
 E   AssertionError: assert [PermissionEr...g geweigerd')] == []
-E     
+E
 E     Left contains one more item: PermissionError(13, 'Toegang geweigerd')
 E     Use -v to get more diff
 _ test_two_tier_universe_config_contains_requested_primary_and_secondary_without_duplicates _
@@ -22,14 +22,14 @@ _ test_simple_scores_show_all_two_tier_instruments_as_pending_without_refresh _
 tests\test_simple_scores.py:456: in test_simple_scores_show_all_two_tier_instruments_as_pending_without_refresh
     assert SECONDARY_IDS <= set(by_id)
 E   AssertionError: assert {'AIR', 'AM',..., 'EUDF', ...} <= {'DB1', 'ENX'...T', 'LR', ...}
-E     
+E
 E     Extra items in the left set:
 E     'XAIX'
 E     'EUDF'
 E     'CBUK'
 E     'AM'
 E     'KOG'...
-E     
+E
 E     ...Full output truncated (23 lines hidden), use '-vv' to show
 __________ test_simple_scores_group_into_required_main_page_sections __________
 tests\test_simple_scores.py:486: in test_simple_scores_group_into_required_main_page_sections

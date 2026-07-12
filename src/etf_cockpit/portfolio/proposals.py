@@ -43,7 +43,24 @@ def create_manual_trade_proposal_report(
         DeprecationWarning,
         stacklevel=2,
     )
-    return create_portfolio_review_report(signals, data_report, run_id=run_id, report_dir=report_dir)
+    report = create_portfolio_review_report(signals, data_report, run_id=run_id, report_dir=report_dir)
+    legacy_rows = [
+        _proposal_row(signal)
+        for signal in signals
+        if _is_eligible_proposal_signal(signal) and data_report.analysis_allowed
+    ]
+    append_jsonl(
+        "portfolio_review_adapter.jsonl",
+        "deprecated_portfolio_proposal_adapter",
+        {
+            "report_path": report.get("path"),
+            "legacy_row_count": len(legacy_rows),
+            "execution_allowed": False,
+            "executable_authority": False,
+        },
+        run_id=run_id,
+    )
+    return report | {"proposals": legacy_rows}
 
 
 def _legacy_create_manual_trade_proposal_report(

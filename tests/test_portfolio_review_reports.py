@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 import warnings
 
 import pandas as pd
 
 from etf_cockpit.core.types import ComponentScores, DataQualityReport, SignalResult
 from etf_cockpit.portfolio.proposals import create_manual_trade_proposal_report
+from etf_cockpit.portfolio import review_reports
 from etf_cockpit.portfolio.review_reports import create_portfolio_review_report
 
 
@@ -46,6 +49,11 @@ def test_portfolio_review_report_is_never_executable_and_persists_typed_states(t
     assert report["portfolio_review_state"] == "not_applicable"
     assert "gates" in report
     assert report["blocked_or_no_trade_summary"] == []
+    assert "review_rows" in report
+    assert "proposals" not in report
+    assert "final_action" not in json.dumps(report)
+    assert "suggested_trade_value_eur" not in json.dumps(report)
+    assert report["policy_version"]
     saved = json.loads(Path(str(report["path"])).read_text(encoding="utf-8"))
     assert saved["execution_allowed"] is False
     assert "private thesis" in json.dumps(saved)
@@ -62,3 +70,29 @@ def test_legacy_manual_trade_adapter_warns_and_never_creates_authority(tmp_path:
     assert report["broker_execution"] == "not_supported"
     assert report["proposals"]
 
+
+def test_release_review_report_uses_neutral_recommendations(tmp_path: Path) -> None:
+    signals = [_signal(action) for action in ("buy", "sell", "add_candidate", "trim_candidate")]
+    report = create_portfolio_review_report(signals, _data_report(), run_id="run-1", report_dir=tmp_path)
+    encoded = json.dumps(report)
+    assert all(token not in encoded for token in ("buy", "sell", "add_candidate", "trim_candidate"))
+    assert {row["review_recommendation"] for row in report["review_rows"]} == {
+        "consider_increase",
+        "consider_decrease",
+    }
+
+
+def test_release_review_report_preserves_signal_policy_evidence(tmp_path: Path, monkeypatch) -> None:
+    signal = replace(_signal(), gate_policy_version="historic", gate_policy_checksum="h" * 64)
+    monkeypatch.setattr(
+        review_reports,
+        "load_gate_policy",
+        lambda: SimpleNamespace(
+            policy=SimpleNamespace(policy_version="current"),
+            diagnostic_mode=False,
+            checksum="c" * 64,
+        ),
+    )
+    report = create_portfolio_review_report([signal], _data_report(), run_id="run-1", report_dir=tmp_path)
+    assert report["policy_version"] == "historic"
+    assert report["policy_checksum"] == "h" * 64

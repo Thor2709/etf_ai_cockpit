@@ -2,11 +2,25 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from pathlib import Path
+
+from etf_cockpit.core.atomic_io import atomic_write_json
 from etf_cockpit.core.paths import REPORTS_DIR
 from etf_cockpit.core.types import DataQualityReport, SignalResult
+from etf_cockpit.governance.product_scope import load_gate_policy
+
+
+def _review_recommendation(signal: SignalResult) -> str:
+    """Map legacy signal actions to neutral, non-transaction review language."""
+
+    if signal.blocked_by or signal.action in {"manual_review", "no_trade"}:
+        return "manual_review"
+    if signal.action in {"buy", "add", "add_candidate"}:
+        return "consider_increase"
+    if signal.action in {"sell", "trim", "trim_candidate"}:
+        return "consider_decrease"
+    return "manual_review"
 
 
 def create_portfolio_review_report(
@@ -33,12 +47,12 @@ def create_portfolio_review_report(
             "gate_policy_checksum": payload["gate_policy_checksum"],
             "execution_allowed": False,
             "executable_authority": False,
-            "final_action": signal.action,
+            "review_recommendation": _review_recommendation(signal),
             "reason": signal.reason_short,
             "reason_full": signal.reason_long,
             "blocked_by": list(signal.blocked_by),
             "warnings": list(signal.warnings),
-            "suggested_trade_value_eur": signal.suggested_trade_value_eur,
+            "gate_evidence": list(payload.get("gates", [])),
         }
         if signal.blocked_by or signal.action in {"manual_review", "no_trade"}:
             blocked.append(row)
@@ -48,6 +62,13 @@ def create_portfolio_review_report(
     if not data_report.analysis_allowed:
         rows = []
     first = signals[0].to_v2_dict() if signals else {}
+    policy_version = str(first.get("gate_policy_version") or "unavailable")
+    policy_checksum = str(first.get("gate_policy_checksum") or "unavailable")
+    if policy_version == "unavailable" or policy_checksum == "unavailable":
+        policy_result = load_gate_policy()
+        if policy_result.policy is not None and not policy_result.diagnostic_mode:
+            policy_version = str(policy_result.policy.policy_version or policy_version)
+            policy_checksum = str(policy_result.checksum or policy_checksum)
     report: dict[str, object] = {
         "created_at": created_at.isoformat(),
         "run_id": run_id,
@@ -57,16 +78,18 @@ def create_portfolio_review_report(
         "research_state": first.get("research_state", "manual_review"),
         "portfolio_review_state": first.get("portfolio_review_state", "not_applicable"),
         "analysis_status": first.get("analysis_status", "unavailable"),
+        "policy_version": policy_version,
+        "policy_checksum": policy_checksum,
         "gates": first.get("gates", []),
         "executable_authority": False,
         "execution_allowed": False,
         "broker_execution": "not_supported",
         "required_user_action": "manual_review_before_any_external_broker_action",
-        "proposals": rows,
+        "review_rows": rows,
         "blocked_or_no_trade_summary": blocked,
     }
     path = report_dir / f"portfolio_review_{created_at:%Y%m%dT%H%M%SZ}.json"
-    path.write_text(json.dumps(report, indent=2, default=str) + "\n", encoding="utf-8")
+    atomic_write_json(path, report)
     return report | {"path": str(path)}
 
 
