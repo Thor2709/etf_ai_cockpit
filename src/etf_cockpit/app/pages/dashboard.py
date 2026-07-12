@@ -9,7 +9,6 @@ import pandas as pd
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, metric_card, panel, section_header
-from etf_cockpit.app.components.flet_compat import border_all
 from etf_cockpit.app.components.simple_scores import score_colour, simple_score_grouped_sections, simple_score_legend
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import FORECASTS_DIR
@@ -212,26 +211,17 @@ def _activity_panel(state: AppState) -> ft.Control:
 
 
 def _workflow_button(label: str, *, key_name: str, icon: str, on_click, width: int) -> ft.Control:
-    return ft.Container(
+    button = ft.OutlinedButton(
+        label,
         key=key_name,
         tooltip=label,
-        content=ft.Row(
-            [
-                ft.Icon(icon, size=18, color="#b9c7ff"),
-                ft.Text(label, size=14, weight=ft.FontWeight.W_600, color="#b9c7ff", no_wrap=True),
-            ],
-            spacing=8,
-            alignment=ft.MainAxisAlignment.CENTER,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        ),
+        icon=icon,
+        on_click=on_click,
+    )
+    return ft.Container(
+        content=button,
         width=width,
         height=42,
-        padding=ft.Padding(left=10, top=0, right=10, bottom=0),
-        border=border_all(1, theme.BORDER),
-        border_radius=8,
-        bgcolor=theme.SURFACE_2,
-        ink=True,
-        on_click=on_click,
     )
 
 
