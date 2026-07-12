@@ -1,0 +1,9 @@
+{
+  "schema_version": "1.0",
+  "purpose": "Opt-in Decision Journal export contract; identifiers and checksums only.",
+  "row_count": 0,
+  "ids": [],
+  "checksums": [],
+  "private_notes_exported": false,
+  "execution_allowed": false
+}
