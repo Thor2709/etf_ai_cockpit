@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from etf_cockpit.data.universe_store import support_decision
-from etf_cockpit.app.pages.onboarding import OnboardingProfile, validate_onboarding
+from etf_cockpit.app.pages.onboarding import OnboardingProfile, complete_onboarding, validate_onboarding
 
 
 def test_supported_and_rejected_asset_decisions_are_explicit() -> None:
@@ -18,3 +18,15 @@ def test_onboarding_rejects_empty_scope_and_preserves_unresolved_symbols() -> No
     valid = validate_onboarding(OnboardingProfile("EUR", "EU", ("UNKNOWN",), "balanced", "medium"))
     assert valid.valid is True
     assert valid.unresolved_symbols == ("UNKNOWN",)
+
+
+def test_offline_onboarding_persists_profile_and_disables_unresolved_tickers(tmp_path) -> None:
+    profile = OnboardingProfile(
+        "EUR", "Europe", ("both",), "balanced", "medium", tickers=("VWCE.DE", "UNKNOWN"),
+    )
+    result = complete_onboarding(profile, tmp_path, online=False)
+    assert result.saved is True
+    assert result.unresolved_symbols == ("UNKNOWN",)
+    assert result.records[0].enabled is True
+    assert result.records[1].enabled is False
+    assert (tmp_path / "configs" / "onboarding.json").exists()

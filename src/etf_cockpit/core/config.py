@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from etf_cockpit.core.constants import ALLOWED_ROLES
 from etf_cockpit.core.exceptions import ConfigError
 from etf_cockpit.core.paths import CONFIG_DIR
+from etf_cockpit.data.universe_store import import_legacy_universe
 
 
 class ETFConfig(BaseModel):
@@ -36,6 +37,12 @@ class ETFConfig(BaseModel):
     max_weight: float = 1.0
     min_history_days: int = 252
     enabled: bool = True
+    instrument_type: str = "etf"
+    analysis_tier: str = "primary"
+    data_policy: str = "daily"
+    source_group: str = ""
+    isin_status: str = "verified"
+    notes: str = ""
 
     @field_validator("role")
     @classmethod
@@ -74,7 +81,7 @@ class PortfolioTargets(BaseModel):
     cash_min_weight: float = Field(default=0.02, ge=0, le=1)
     cash_target_weight: float = Field(default=0.05, ge=0, le=1)
     portfolio: dict[str, float] = Field(default_factory=dict)
-    positions: dict[str, TargetPosition]
+    positions: dict[str, TargetPosition] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_total_target(self) -> "PortfolioTargets":
@@ -111,8 +118,8 @@ class SignalLimits(BaseModel):
 
 
 class RiskLimits(BaseModel):
-    portfolio_limits: PortfolioLimits
-    signal_limits: SignalLimits
+    portfolio_limits: PortfolioLimits = Field(default_factory=PortfolioLimits)
+    signal_limits: SignalLimits = Field(default_factory=SignalLimits)
 
 
 class CostModel(BaseModel):
@@ -125,8 +132,8 @@ class CostModel(BaseModel):
 
 class CostConfig(BaseModel):
     base_currency: str = "EUR"
-    broker: str
-    cost_model: CostModel
+    broker: str = "local"
+    cost_model: CostModel = Field(default_factory=CostModel)
     per_etf: dict[str, dict[str, float]] = Field(default_factory=dict)
 
 
@@ -150,8 +157,8 @@ class ModelRuntimeConfig(BaseModel):
 
 class ModelSettings(BaseModel):
     forecast_horizons_trading_days: list[int] = Field(default_factory=lambda: [5, 20, 60, 120, 180])
-    models: dict[str, Any]
-    ensemble: dict[str, Any]
+    models: dict[str, Any] = Field(default_factory=dict)
+    ensemble: dict[str, Any] = Field(default_factory=dict)
 
     def runtime(self, name: str) -> ModelRuntimeConfig:
         raw = self.models.get(name, {})
@@ -227,12 +234,12 @@ def load_config(config_dir: Path = CONFIG_DIR) -> AppConfig:
         data_providers = _apply_provider_env(data_providers, config_dir)
         return AppConfig(
             universe=_load_universe_config(config_dir),
-            targets=PortfolioTargets(**_read_yaml(config_dir / "portfolio_targets.yaml")),
-            risks=RiskLimits(**_read_yaml(config_dir / "risk_limits.yaml")),
-            costs=CostConfig(**_read_yaml(config_dir / "costs.yaml")),
-            models=ModelSettings(**_read_yaml(config_dir / "model_settings.yaml")),
-            ui=UISettings(**_read_yaml(config_dir / "ui_settings.yaml")),
-            chatgpt_schema=_read_json(config_dir / "chatgpt_schema.json"),
+            targets=PortfolioTargets(**(_read_yaml(config_dir / "portfolio_targets.yaml") if (config_dir / "portfolio_targets.yaml").exists() else {})),
+            risks=RiskLimits(**(_read_yaml(config_dir / "risk_limits.yaml") if (config_dir / "risk_limits.yaml").exists() else {})),
+            costs=CostConfig(**(_read_yaml(config_dir / "costs.yaml") if (config_dir / "costs.yaml").exists() else {})),
+            models=ModelSettings(**(_read_yaml(config_dir / "model_settings.yaml") if (config_dir / "model_settings.yaml").exists() else {})),
+            ui=UISettings(**(_read_yaml(config_dir / "ui_settings.yaml") if (config_dir / "ui_settings.yaml").exists() else {})),
+            chatgpt_schema=_read_json(config_dir / "chatgpt_schema.json") if (config_dir / "chatgpt_schema.json").exists() else {},
             data_providers=data_providers,
         )
     except ConfigError:
@@ -244,12 +251,46 @@ def load_config(config_dir: Path = CONFIG_DIR) -> AppConfig:
 def _load_universe_config(config_dir: Path) -> UniverseConfig:
     persisted = config_dir / "universe_store.json"
     if not persisted.exists():
-        return UniverseConfig(**_read_yaml(config_dir / "universe.yaml"))
+        primary_path = config_dir / "universe.yaml"
+        if not primary_path.exists():
+            return UniverseConfig(etfs=[])
+        payload = _read_yaml(primary_path)
+        candidate_dir = config_dir.parent / "data" / "raw" / "trade_candidates"
+        candidates = sorted(candidate_dir.glob("yahoo_trade_candidates_*.csv")) if candidate_dir.exists() else []
+        if candidates:
+            imported = import_legacy_universe(primary_path, candidates[-1])
+            return UniverseConfig(
+                etfs=[
+                    ETFConfig(
+                        id=row.instrument_id,
+                        name=row.name,
+                        isin=None if row.isin_status == "needs_verification" else row.isin,
+                        ticker=row.ticker,
+                        provider_symbol=row.ticker,
+                        exchange="OSE" if row.tier == "sparebanken" else None,
+                        currency=row.currency,
+                        asset_class="equity",
+                        region=row.region or None,
+                        sector=row.sector or None,
+                        theme=row.theme or None,
+                        role="core" if row.tier == "primary" else "watchlist",
+                        enabled=row.enabled,
+                        instrument_type=row.asset_type,
+                        analysis_tier=row.tier,
+                        data_policy=row.data_policy,
+                        source_group=row.group,
+                        isin_status=row.isin_status,
+                        notes=row.notes,
+                    )
+                    for row in imported.records
+                ]
+            )
+        return UniverseConfig(**payload)
     try:
         payload = _read_json(persisted)
         records = payload.get("records")
-        if not isinstance(records, list) or not records:
-            raise ValueError("persisted universe must contain a non-empty records list")
+        if not isinstance(records, list):
+            raise ValueError("persisted universe must contain a records list")
         etfs: list[ETFConfig] = []
         for raw in records:
             if not isinstance(raw, dict):
