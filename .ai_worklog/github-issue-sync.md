@@ -80,3 +80,15 @@ authoritative ledgers as part of remote synchronisation.
 - The final read-only reconciliation completed with exit 0 and 98 unchanged
   actions. No GitHub Issue was created, closed, reopened, deleted or otherwise
   changed by this refresh; the local issue state remains authoritative.
+
+## Ledger refresh after Wave 1 Governance Task 2 - 2026-07-12
+
+- The Task 2 checkpoint updated the authoritative local source checksums. The
+  deterministic synchroniser was rerun after the PR 172 merge; local counts
+  remain 77 open and 21 closed, matching the mapped remote state, with no
+  unresolved duplicates.
+- No GitHub Issue was created, closed, reopened or deleted by this refresh.
+  The local issue ledger remains authoritative and Task 2 does not close any
+  governance issue.
+- The next sync is required after the next local issue-ledger transition or
+  closure-evidence update.

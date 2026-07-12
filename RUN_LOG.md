@@ -298,3 +298,23 @@ Executing the approved plan at `docs/superpowers/plans/2026-07-09-launcher-spare
   ledgers and `execution_allowed` remains `false`.
 - The next dependency-valid task is Wave 1 Governance Task 2: split public
   research state from internal signal intent and migrate historical records.
+## 2026-07-12 Wave 1 Governance Task 2 integration checkpoint
+
+- Wave 1 Governance Task 2 split public research state from internal signal
+  intent and migrated legacy v1.x action records to deterministic v2.0
+  serialisation. Snapshot timestamp/payload/checksum validation, strict v2
+  version metadata, fail-closed direct authority flags, model-only exclusion,
+  score-history provenance and ChatGPT/export compatibility are covered by
+  `.ai_worklog/task-governance-2-report.md`.
+- RED/GREEN/refactor and two residual fix cycles were independently reviewed;
+  the final fresh re-review reports specification and code-quality approval
+  with no Critical, Important or Minor findings. Focused post-merge
+  verification passed 82 tests; compileall, scoped Ruff, diff checks and
+  `scripts/run_app.py --smoke` passed.
+- The authoritative full suite still exits 1 with the seven documented
+  pre-existing generated-data/identity fixture failures; no Task 2 regression
+  was introduced. `execution_allowed` remains false and no issue moved
+  between local ledgers.
+- PR 172 (`https://github.com/Thor2709/etf_ai_cockpit/pull/172`) merged into
+  `main` at `ab4772c36701507da444ebd73243ff827b5403af`; local `main` is clean
+  and matches `origin/main`. Wave 1 Governance Task 3 is next.

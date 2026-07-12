@@ -1162,3 +1162,12 @@ Required checks for the current implementation sweep:
 - Scoped Ruff and compilation: governance, audit-export and Task 1 regression paths passed with exit 0.
 - Independent re-review: `.ai_worklog/task-governance-1-review-rereview.md` approved specification compliance and code quality with no Critical, Important or Minor findings.
 - Integration: PR 171 merged into `main` at `a54aed9c8157ff361eb7782252a88a471b835499`; no issue state changed and `execution_allowed` remains `false`. Wave 1 Governance Task 2 is next.
+## 2026-07-12 Wave 1 Governance Task 2 post-merge verification
+
+- Focused governance/research bundle: `$env:PYTHONPATH='src'; .\.venv\Scripts\python.exe -m pytest tests\test_research_state_migration.py tests\test_score_history.py tests\test_chatgpt_import.py tests\test_trade_proposals.py tests\test_product_governance.py tests\test_feature_registry.py tests\test_strategy_scope.py tests\test_gate_policy.py tests\test_governance_review_regressions.py tests\test_signal_gates.py tests\test_import_export.py -q --tb=short` - exit 0, 82 passed; two non-failing pandas FutureWarnings.
+- Full suite: `.\.venv\Scripts\python.exe -m pytest tests -q --tb=short` - exit 1, with seven documented pre-existing generated-data/identity fixture failures and no Task 2 regression.
+- Compileall: `.\.venv\Scripts\python.exe -m compileall -q src` - exit 0.
+- Scoped Ruff over Task 2 source/tests - exit 0, `All checks passed!`.
+- Source smoke: `.\.venv\Scripts\python.exe scripts\run_app.py --smoke` - exit 0, `snapshot_ok as_of=2026-07-09 signals=16 backtests=5`.
+- Fresh independent review and re-review: specification compliance and code quality approved; no Critical, Important or Minor findings.
+- Integration: PR 172 merged at `ab4772c36701507da444ebd73243ff827b5403af`; local `main` clean and matching `origin/main`; no issue state transition; `execution_allowed=false`.

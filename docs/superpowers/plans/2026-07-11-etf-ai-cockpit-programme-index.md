@@ -1,6 +1,6 @@
 # ETF AI Cockpit Programme Index
 
-> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5 and Wave 1 Governance Task 1 are independently approved, merged and post-merge verified. Governance Task 1 merged through PR 171 with fresh re-review. The authoritative local issue ledger is synchronised to GitHub through the versioned map and reconciliation report; later issue closure remains evidence-gated.
+> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5 and Wave 1 Governance Tasks 1-2 are independently approved, merged and post-merge verified. Governance Task 2 merged through PR 172 with fresh re-review. The authoritative local issue ledger is synchronised to GitHub through the versioned map and reconciliation report; later issue closure remains evidence-gated.
 
 **Binding inputs:**
 
@@ -117,7 +117,7 @@ The next agent must reread this index, the active plan, the progress ledger, the
 - Placeholder scan over all nine implementation plans found no `TBD`, `TODO`, `add tests`, `handle errors`, `similar to above` or `implement later` placeholder.
 - The documentation-only pre-flight change corrected the final plan heading. No implementation code, configuration, tracker status or user data has changed.
 - Fresh baseline evidence recorded before implementation: pytest exit 0, Ruff clean, compileall exit 0, source snapshot smoke exit 0, source/native/portable smoke exit 0, and a rendered in-app-browser inspection of the source Simple Scores route.
-- No blocking product contradiction remains after applying the approved precedence rules. Wave 0, Tasks 1 and 2 are independently reviewed complete. Wave 0, Task 3 is independently approved, merged and post-merge verified with no Critical, Important or Minor findings. Wave 0, Task 4 and its generated-package correction are independently approved, merged through PRs 2 and 3, and post-merge verified. Wave 0, Task 5 is independently approved, merged through PR 4 and post-merge verified; Wave 1 governance Task 1 is the next dependency-valid task.
+- No blocking product contradiction remains after applying the approved precedence rules. Wave 0, Tasks 1 and 2 are independently reviewed complete. Wave 0, Task 3 is independently approved, merged and post-merge verified with no Critical, Important or Minor findings. Wave 0, Task 4 and its generated-package correction are independently approved, merged through PRs 2 and 3, and post-merge verified. Wave 0, Task 5 and Wave 1 governance Tasks 1-2 are independently approved, merged and post-merge verified; Wave 1 governance Task 3 is the next dependency-valid task.
 
 ## GitHub issue synchronisation checkpoint - 2026-07-12
 
@@ -141,3 +141,20 @@ verification passed 43 tests; the full suite reproduced 316 passes and seven
 pre-existing generated-data/identity fixture failures; scoped Ruff and
 compileall passed. No owning issue is closed by this foundation task. The next
 dependency-valid task is Wave 1 Governance Task 2, research-state migration.
+
+## Wave 1 Governance Task 2 integration checkpoint - 2026-07-12
+
+Task 2 is complete at the task boundary and integrated into `origin/main`.
+PR 172 (`https://github.com/Thor2709/etf_ai_cockpit/pull/172`) merged at
+`ab4772c36701507da444ebd73243ff827b5403af`. The v1.x-to-v2.0 migration now
+separates research state, portfolio review state and internal analytical
+intent, preserves `legacy_action`, validates snapshot checksums and rejects
+forged authority markers. Direct v2 models reject non-2.0 metadata and cannot
+mint positive authority; release serializers omit legacy `action` fields and
+keep `execution_allowed=false`. The final fresh independent review and
+re-review passed specification compliance and code quality with no findings.
+The post-merge focused bundle passed 82 tests, compileall, scoped Ruff and
+source smoke passed. The full suite still has the seven documented
+pre-existing generated-data/identity fixture failures. No owning issue is
+closed by this foundation task. The next dependency-valid task is Wave 1
+Governance Task 3, the central severity-aware authority resolver.

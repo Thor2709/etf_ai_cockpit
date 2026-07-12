@@ -126,7 +126,7 @@ remains `false`.
 
 **Produces:** v2 serialisation with `research_state`, `portfolio_review_state`, explicit authority fields and traceable `legacy_action`.
 
-- [ ] **Step 1: Create failing migration and public-type tests**
+- [x] **Step 1: Create failing migration and public-type tests**
 
 ```python
 def test_v1_trim_migrates_lossily_and_preserves_original_value() -> None:
@@ -140,13 +140,13 @@ def test_no_public_authority_model_accepts_buy_or_sell() -> None:
     assert "sell" not in PortfolioReviewState._value2member_map_
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `.\.venv\Scripts\python.exe -m pytest tests\test_research_state_migration.py tests\test_simple_scores.py tests\test_trade_proposals.py -q`
 
 Expected: FAIL because public models still expose legacy `Action` values.
 
-- [ ] **Step 3: Implement v1-to-v2 migration and score-output adapter**
+- [x] **Step 3: Implement v1-to-v2 migration and score-output adapter**
 
 ```python
 def migrate_legacy_action(record: Mapping[str, object]) -> ResearchStateMigration: ...
@@ -155,15 +155,31 @@ def resolve_research_state(components: Sequence[ScoreComponent], decision: Autho
 
 The migration maps unknown legacy action values to `manual_review`, preserves original text, is idempotent and writes a new versioned dataset before any catalogue pointer changes.
 
-- [ ] **Step 4: Run GREEN and property tests**
+- [x] **Step 4: Run GREEN and property tests**
 
 Run: `.\.venv\Scripts\python.exe -m pytest tests\test_research_state_migration.py tests\test_simple_scores.py tests\test_score_history.py -q`
 
 Expected: PASS; repeat migration is semantically byte-equivalent and an experimental model cannot create a positive public research state.
 
-- [ ] **Step 5: Record migration report**
+- [x] **Step 5: Record migration report**
 
 Write row counts, mapped/unmapped values, old/new checksums and a compatibility-window note to `evidence/governance/research_state_migration_report.json`.
+
+**Task 2 completion checkpoint (2026-07-12):** v1.x legacy actions now map to
+the separate v2 research and portfolio-review states with preserved
+`legacy_action`, deterministic snapshot checksums, idempotent migration and
+fail-closed authority. Score history, signal serializers and ChatGPT/export
+schemas use the v2 field set while compatibility imports remain supported.
+Direct v2 construction cannot mint positive authority or non-2.0 version
+metadata; `execution_allowed` remains `false`. RED/GREEN evidence and the
+seven pre-existing full-suite fixture/identity failures are recorded in
+`.ai_worklog/task-governance-2-report.md` and
+`evidence/governance/task2-full-suite-final.txt`. Final fresh independent
+review and re-review passed specification compliance and code quality with no
+findings (`.ai_worklog/task-governance-2-review-rereview-final.md`). The
+implementation was merged through PR 172 at
+`ab4772c36701507da444ebd73243ff827b5403af`; no issue moved between local
+ledgers. Wave 1 Governance Task 3 is next.
 
 ### Task 3: Centralise severity-aware gates and permanently neutralise `trading_allowed`
 

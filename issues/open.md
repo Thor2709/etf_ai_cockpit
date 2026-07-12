@@ -40,6 +40,20 @@ close `ISSUE-0008`, `ISSUE-0010`, `ISSUE-0030`, `ISSUE-0043`, `ISSUE-0047`,
 `ISSUE-0060` or `ISSUE-0066`; their migration, authority-resolution, journal,
 UI and complete evidence gates remain open. Wave 1 Governance Task 2 is next.
 
+Wave 1 Governance Task 2 checkpoint 2026-07-12: public research state is now
+separate from internal signal intent, with deterministic v1.x-to-v2.0
+migration, preserved `legacy_action`, validated portfolio snapshot checksums,
+fail-closed direct authority flags, strict v2 metadata and provenance-aware
+score-history/ChatGPT exports. Fresh independent review and re-review approved
+specification compliance and code quality with no findings. The focused
+post-merge bundle passed 82 tests; compileall, scoped Ruff and source smoke
+passed. The full suite retains the seven documented pre-existing
+generated-data/identity fixture failures. PR 172 merged at
+`ab4772c36701507da444ebd73243ff827b5403af`. No issue moved between ledgers;
+`ISSUE-0008`, `ISSUE-0010`, `ISSUE-0030`, `ISSUE-0043`, `ISSUE-0047`,
+`ISSUE-0060` and `ISSUE-0066` remain open for later authority-resolution,
+journal, UI and complete closure gates. Wave 1 Governance Task 3 is next.
+
 ## Tracker Rules
 
 Every issue below is open until all close criteria pass. User-facing issues must be implemented in source, visible in the app UI, tested, included in audit/export where relevant, rebuilt, started from the rebuilt app and smoke-tested from the user's point of view. Backend-only fields do not close UI-facing issues.
