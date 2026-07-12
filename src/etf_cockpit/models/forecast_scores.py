@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -11,13 +12,36 @@ PRIMARY_MODEL_HORIZON_DAYS = 60
 FALLBACK_MODEL_HORIZONS_DAYS = (120, 20, 5, 180)
 
 
-def latest_forecast_file(pattern: str = "forecast_results_*.csv", directory: Path = FORECASTS_DIR) -> Path | None:
+def _forecast_cache_matches(path: Path, universe_revision: str) -> bool:
+    metadata_path = Path(f"{path}.meta.json")
+    if not metadata_path.exists():
+        return False
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return False
+    return isinstance(payload, dict) and str(payload.get("universe_revision") or "") == universe_revision
+
+
+def latest_forecast_file(
+    pattern: str = "forecast_results_*.csv",
+    directory: Path = FORECASTS_DIR,
+    *,
+    universe_revision: str | None = None,
+) -> Path | None:
     files = sorted(directory.glob(pattern), key=lambda path: path.stat().st_mtime, reverse=True)
+    if universe_revision is not None:
+        files = [path for path in files if _forecast_cache_matches(path, universe_revision)]
     return files[0] if files else None
 
 
-def load_latest_forecasts(pattern: str = "forecast_results_*.csv", directory: Path = FORECASTS_DIR) -> pd.DataFrame:
-    path = latest_forecast_file(pattern, directory)
+def load_latest_forecasts(
+    pattern: str = "forecast_results_*.csv",
+    directory: Path = FORECASTS_DIR,
+    *,
+    universe_revision: str | None = None,
+) -> pd.DataFrame:
+    path = latest_forecast_file(pattern, directory, universe_revision=universe_revision)
     if path is None:
         return pd.DataFrame()
     frame = pd.read_csv(path)

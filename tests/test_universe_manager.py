@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+import json
 
 import flet as ft
 import pandas as pd
@@ -9,6 +10,9 @@ import pandas as pd
 import etf_cockpit.app.pages.universe_manager as manager
 from etf_cockpit.app.pages.universe_manager import universe_manager_page
 from etf_cockpit.app.state import AppState
+from etf_cockpit.backtest.engine import BacktestReport
+from etf_cockpit.models.forecast_scores import load_latest_forecasts
+import etf_cockpit.services as services
 from etf_cockpit.core.config import (
     AppConfig,
     CostConfig,
@@ -162,3 +166,51 @@ def test_save_reloads_active_state_and_marks_universe_cache_revision(monkeypatch
     assert state.snapshot.config.universe.enabled_ids == []
     assert state.universe_cache_revision == "saved-revision"
     assert state.workflow_calls == 0
+
+
+def test_universe_revision_invalidates_dated_forecast_and_backtest_caches(tmp_path, monkeypatch) -> None:
+    old_revision = "old-universe"
+    new_revision = "new-universe"
+    forecast_path = tmp_path / "forecast_results_yfinance_20260713.csv"
+    forecast_path.write_text("etf_id,model_name\nA,baseline\n", encoding="utf-8")
+    (tmp_path / f"{forecast_path.name}.meta.json").write_text(
+        json.dumps({"schema_version": 1, "universe_revision": old_revision}), encoding="utf-8"
+    )
+    assert load_latest_forecasts(directory=tmp_path, universe_revision=new_revision).empty
+
+    monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path)
+    for name in ("backtest_results.csv", "equity_curves.csv"):
+        (tmp_path / name).write_text("sentinel\n", encoding="utf-8")
+        (tmp_path / f"{name}.meta.json").write_text(
+            json.dumps({"schema_version": 1, "universe_revision": old_revision}), encoding="utf-8"
+        )
+    service = services.BacktestService(_state().snapshot.config, universe_revision=new_revision)
+    assert service._load_cached_backtest() is None
+
+
+def test_apply_universe_config_marks_backtest_stale() -> None:
+    config = _state().snapshot.config
+    report = BacktestReport(
+        results=pd.DataFrame({"strategy_name": ["sentinel"]}),
+        equity_curves=pd.DataFrame({"signal_strategy": [1.0]}),
+        trade_log=pd.DataFrame({"trade": [1]}),
+        signal_log=pd.DataFrame({"signal": [1]}),
+        ai_added_value=True,
+    )
+    state = AppState(
+        snapshot=SimpleNamespace(
+            config=config,
+            prices=pd.DataFrame(),
+            holdings=pd.DataFrame(),
+            features=pd.DataFrame(),
+            latest_features=pd.DataFrame(),
+            signals=[],
+            forecasts=pd.DataFrame(),
+            backtest=report,
+            universe_revision="old",
+        ),
+        selected_etf="A",
+    )
+    state.apply_universe_config(config, "new")
+    assert state.snapshot.backtest.results.empty
+    assert state.snapshot.backtest.quality_label == "stale_universe"

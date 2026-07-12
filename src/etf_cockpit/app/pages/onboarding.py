@@ -12,6 +12,7 @@ import yaml
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
+from etf_cockpit.core.config import load_config
 from etf_cockpit.data.universe_store import UniverseRecord, load_universe, save_universe
 
 
@@ -195,8 +196,9 @@ def onboarding_page(
     horizon = ft.Dropdown(label="Target horizon", value="medium", options=[ft.dropdown.Option(item) for item in ("short", "medium", "long")], width=180, dense=True)
     tickers = ft.TextField(label="Initial tickers (comma separated)", hint_text="VWCE.DE, MSFT", expand=True, dense=True)
     online_validation = ft.Checkbox(
-        label="Validate tickers online (optional)",
+        label="Validate tickers online (optional)" if validator is not None else "Online validation unavailable (no validator configured)",
         value=False,
+        disabled=validator is None,
         key="onboarding.online-validation",
     )
     status = ft.Text("", color=theme.MUTED, selectable=True)
@@ -211,6 +213,15 @@ def onboarding_page(
                 online=bool(online_validation.value),
                 validator=validator,
             )
+            if result.revision and state is not None:
+                refreshed_config = load_config()
+                apply_method = getattr(state, "apply_universe_config", None)
+                if callable(apply_method):
+                    apply_method(refreshed_config, result.revision)
+                else:
+                    state.snapshot.config = refreshed_config
+                    state.snapshot.universe_revision = result.revision
+                    state.universe_cache_revision = result.revision
             status.value = f"Saved locally. {len(result.unresolved_symbols)} unresolved ticker(s) remain disabled; no refresh or model run was started."
         except Exception as exc:
             status.value = f"Setup not saved: {exc}"

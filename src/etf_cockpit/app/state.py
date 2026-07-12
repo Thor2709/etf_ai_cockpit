@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -151,6 +151,21 @@ class AppState:
         forecasts = self.snapshot.forecasts
         if forecasts is not None and hasattr(forecasts, "columns") and "etf_id" in forecasts.columns:
             self.snapshot.forecasts = forecasts[forecasts["etf_id"].astype(str).isin(enabled)].copy()
+        backtest = getattr(self.snapshot, "backtest", None)
+        if backtest is not None:
+            try:
+                self.snapshot.backtest = replace(
+                    backtest,
+                    results=backtest.results.iloc[0:0].copy(),
+                    equity_curves=backtest.equity_curves.iloc[0:0].copy(),
+                    trade_log=backtest.trade_log.iloc[0:0].copy(),
+                    signal_log=backtest.signal_log.iloc[0:0].copy(),
+                    quality_label="stale_universe",
+                    quality_notes=["Cached backtest invalidated because the configured universe revision changed."],
+                )
+            except (AttributeError, TypeError):
+                # Lightweight embedding snapshots may not carry a full report.
+                self.snapshot.backtest = None
 
     def begin_activity(self, label: str, step: str | None = None) -> ActivityEntry:
         if self.current_activity is not None:
