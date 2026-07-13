@@ -1,6 +1,6 @@
 # ETF AI Cockpit Programme Index
 
-> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6, Wave 3 Tasks 7-9 and Wave 4 Tasks 10-18 are independently approved, merged and post-merge verified. Task 10 is closed locally and synchronised to GitHub Issue #81; Tasks 11-18 are implementation-complete with their owning issues still closure-pending strict release/package/audit/export/browser/clean-first-run evidence. The next dependency-valid implementation is Task 19, Comprehensive Instrument Detail.
+> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6, Wave 3 Tasks 7-9 and Wave 4 Tasks 10-19 are independently approved, merged and post-merge verified. Task 10 is closed locally and synchronised to GitHub Issue #81; Tasks 11-19 are implementation-complete with their owning issues still closure-pending strict release/package/audit/export/browser/clean-first-run evidence. The next dependency-valid implementation is Task 20, Import/Export, Backup/Restore, Charts and Accessible Tables.
 
 **Binding inputs:**
 
@@ -326,5 +326,8 @@ with fresh SPEC and CODE approval and no Critical or Important findings;
 focused verification passed 53 tests with Ruff, compileall and diff checks.
 `ISSUE-0052`, `ISSUE-0059` and `ISSUE-0064` remain open as
 implementation-complete/closure-pending because strict release/package,
-audit/export, browser and clean-first-run evidence is not yet fresh. Continue
-with Task 19, Comprehensive Instrument Detail.
+audit/export, browser and clean-first-run evidence is not yet fresh. Task 19,
+Comprehensive Instrument Detail, is now merged via PR 189 at `da271bc` with
+implementation head `89f4644`; `ISSUE-0019` remains implementation-complete
+and closure-pending the same strict gates. Continue with Task 20,
+Import/Export, Backup/Restore, Charts and Accessible Tables.

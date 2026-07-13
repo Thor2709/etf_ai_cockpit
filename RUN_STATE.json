@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-    "updated_at": "2026-07-13T14:45:00+10:00",
+    "updated_at": "2026-07-13T15:20:00+10:00",
   "active_programme": {
     "name": "2026-07-11-etf-ai-cockpit-approved-programme",
     "programme_index": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-programme-index.md",
     "progress_ledger": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-progress-ledger.md",
-    "phase": "wave5_task18_merged_closure_pending_task19_starting",
-    "next_task": "Wave 5, Task 19: Comprehensive Instrument Detail",
+    "phase": "wave5_task19_merged_closure_pending_task20_starting",
+    "next_task": "Wave 5, Task 20: Import/Export, Backup/Restore, Charts and Accessible Tables",
     "git_repository": true,
     "git_branch": "main",
     "baseline": {
@@ -762,7 +762,7 @@
     }
   },
   "first_unpassed_criterion": "Task 11-17 issues still require fresh strict release/audit-export/clean-first-run/browser/computer-use evidence and final closure-matrix evaluation",
-  "next_command": "Create the isolated Wave 5 Task 19 worktree/branch from origin/main and dispatch a fresh implementer and independent reviewer for Comprehensive Instrument Detail",
+  "next_command": "Create the isolated Wave 5 Task 20 worktree/branch from origin/main and dispatch a fresh implementer and independent reviewer for Import/Export, Backup/Restore, Charts and Accessible Tables",
   "notes": [
     "No Git initialisation or commit occurred before the independently approved Task 2 boundary; the user now authorises local baseline Git setup and optional private GitHub push only.",
     "Closure status is evaluator-backed: 4/42 ready and 38 still open; do not close remaining issues without their complete dossiers.",
@@ -796,6 +796,7 @@
     ,"Wave 4 Task 16 is independently approved and integrated through PR 186 at 3143678 with implementation head cd7aea5; ISSUE-0023, ISSUE-0025, ISSUE-0054 and ISSUE-0055 remain open/closure-pending strict release, audit/export, clean-first-run and browser/computer-use evidence."
     ,"Wave 4 Task 17 is independently approved and integrated through PR 187 at merge commit 265b798 with implementation head e83edfc; ISSUE-0067, ISSUE-0034 and ISSUE-0047 remain open/closure-pending strict release, audit/export, browser and clean-first-run evidence."
     ,"Wave 5 Task 18 was independently approved through six bounded fix/review cycles and merged by PR 188 at 3e3b02e with implementation head 0a5e0a6; ISSUE-0052, ISSUE-0059 and ISSUE-0064 remain closure-pending strict release/package/audit/export/browser/clean-first-run evidence."
-    ,"The next dependency-valid implementation is Wave 5 Task 19, Comprehensive Instrument Detail."
+    ,"Wave 5 Task 19 was independently approved and merged through PR 189 at da271bc with implementation head 89f4644; ISSUE-0019 remains closure-pending strict release/package/audit/export/browser/clean-first-run evidence."
+    ,"The next dependency-valid implementation is Wave 5 Task 20, Import/Export, Backup/Restore, Charts and Accessible Tables."
   ]
 }

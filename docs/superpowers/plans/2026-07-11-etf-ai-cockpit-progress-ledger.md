@@ -7,9 +7,9 @@
 | Field | Value |
 |---|---|
 | Updated | 2026-07-13 |
-| Active phase | Wave 5 Task 18 implementation complete and merged; `ISSUE-0052`, `ISSUE-0059` and `ISSUE-0064` plus earlier issues closure-pending strict release/audit/browser/clean-first-run evidence; Task 19 next |
+| Active phase | Wave 5 Task 19 implementation complete and merged; `ISSUE-0019` plus earlier issues closure-pending strict release/audit/browser/clean-first-run evidence; Task 20 next |
 | Active plan | `docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md` |
-| Git state | PR 188 merged Task 18 into `main` at `3e3b02e`; implementation head `0a5e0a6`; local `main` matches `origin/main` and is clean |
+| Git state | PR 189 merged Task 19 into `main` at `da271bc`; implementation head `89f4644`; local `main` matches `origin/main` and is clean |
 | Existing closure state | Task 11 issues `ISSUE-0068`, `ISSUE-0018`, `ISSUE-0017` and `ISSUE-0056` are implementation-complete but closure-pending final release/browser/clean-first-run evidence; `ISSUE-0035` is closed locally and on GitHub Issue #81 |
 | Fresh baseline | Task 10 focused 16 and affected 40 passed; compileall/Ruff/source smoke passed; portable build, native/portable smoke, semantic focus, export and authoritative full suite passed; package-inventory rerun passed after removing the merged worktree |
 | Pre-existing type state | recorded mypy failure caused by external stubs and existing typing debt; no new failure attributed |
@@ -24,7 +24,7 @@
 | 2 | registry and universe | Not started | `UniverseRecord`/optimistic revision/atomic save present | registry dry-run and validator RED suite |
 | 3 | DATA-05 | Not started | no live seed verification has been performed in this programme | retrieve current official identity evidence and write failing seed-contract tests |
 | 4 | storage and evidence | Task 10 closed and synchronised; Tasks 11-17 implementation-complete and merged; seventeen issues closure-pending | Task 17 focused score-history/run-comparison/driver/UI bundle 38 passed; four fix/review cycles ended with fresh independent SPEC/CODE PASS, PR 187 merged at `265b798`; strict package/audit/browser/clean-first-run evidence remains open | continue closure evidence while Wave 5 proceeds |
-| 5 | domain and scoring | Task 18 implementation-complete and merged; `ISSUE-0052`, `ISSUE-0059` and `ISSUE-0064` closure-pending | Task 18 focused crowding/attribution/friction/UI/trust bundle 53 passed; six fix/review cycles ended with fresh independent SPEC/CODE approval, PR 188 merged at `3e3b02e`, implementation head `0a5e0a6`; strict package/audit/browser/clean-first-run evidence remains open | begin Task 19: Comprehensive Instrument Detail |
+| 5 | domain and scoring | Tasks 18-19 implementation-complete and merged; `ISSUE-0052`, `ISSUE-0059`, `ISSUE-0064` and `ISSUE-0019` closure-pending | Task 19 focused instrument-detail bundle passed fresh post-merge; nine fix/review cycles ended with fresh independent SPEC/CODE approval, PR 189 merged at `da271bc`, implementation head `89f4644`; strict package/audit/browser/clean-first-run evidence remains open | begin Task 20: Import/Export, Backup/Restore, Charts and Accessible Tables |
 | 5 | domain and scoring | Not started | source-aware deterministic scorer present; first-enabled benchmark and legacy ensemble remain | template/benchmark/champion RED suite |
 | 6 | AI and validation | Not started | optional adapter foundations present; authority/caching/validation seams remain | strict forecast-state and fold/trial RED suite |
 | 7 | portfolio | Not started | static holdings/allocation foundation present | immutable ledger RED suite |
@@ -372,5 +372,27 @@ passed 4; Ruff, compileall and diff checks passed. PR 188
 (`https://github.com/Thor2709/etf_ai_cockpit/pull/188`) merged into `main` at
 `3e3b02e`. `ISSUE-0052`, `ISSUE-0059` and `ISSUE-0064` remain open and
 closure-pending strict release/package, audit/export, browser and clean-first-
-run evidence. The next dependency-valid implementation is Task 19,
-Comprehensive Instrument Detail.
+run evidence.
+
+### Wave 5 Task 19 integration checkpoint - 2026-07-13
+
+Task 19 implemented the canonical Instrument Detail view-model and route for
+ETF, stock and Sparebanken contexts. It assembles price, scores, feature
+drivers, risk, attribution, fundamentals, ETF disclosures/holdings, news,
+forecasts, backtests, paper trades, journal and run-change evidence with strict
+canonical-ID scoping and fail-closed unavailable/manual-review states. Score
+rows navigate to `/instrument/<id>` and `/etf` remains a compatibility route;
+the audit-evidence control uses the existing export authority and provenance
+badges expose source, authority and conflict state.
+
+RED/GREEN and review evidence is recorded in `.ai_worklog/task-19-report.md`
+and `.ai_worklog/task-19-fix1-report.md` through
+`.ai_worklog/task-19-fix9-report.md`. Fresh post-merge focused verification,
+scoped Ruff, compileall and diff checks passed. The independent reviewer
+approved SPECIFICATION and CODE QUALITY with no Critical or Important findings
+at `89f4644`. PR 189
+(`https://github.com/Thor2709/etf_ai_cockpit/pull/189`) merged into `main` at
+`da271bc`. `ISSUE-0019` remains open and closure-pending strict release,
+package, audit/export, browser/computer-use, keyboard/focus/responsive and
+clean-first-run evidence. The next dependency-valid implementation is Task 20,
+Import/Export, Backup/Restore, Charts and Accessible Tables.

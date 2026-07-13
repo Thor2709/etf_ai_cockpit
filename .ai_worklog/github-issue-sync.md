@@ -295,3 +295,13 @@ authoritative ledgers as part of remote synchronisation.
   are the deterministic read-back evidence. Reconciliation passes with no
   unresolved duplicates. The committed local issue ledger and approved
   specification remain authoritative.
+
+## Ledger refresh after Wave 5 Task 19 - 2026-07-13
+
+- Task 19 merged through PR 189 at `da271bc` with implementation head
+  `89f4644`. `ISSUE-0019` remains open because strict release/package,
+  audit/export, browser/computer-use, keyboard/focus/responsive and
+  clean-first-run evidence is not yet fresh.
+- The next synchronisation run is required after this durable ledger update;
+  the local issue ledger remains authoritative and GitHub Issue #23 must stay
+  open with the managed implementation checkpoint.

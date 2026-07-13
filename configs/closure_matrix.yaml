@@ -2349,6 +2349,18 @@ issues:
   title: Proper instrument detail page
   wave: 7
   status: still_open
+  implementation_checkpoint: merged_pr_189_da271bc; implementation_head_89f4644; closure_pending_strict_release_audit_export_browser_clean_first_run
+  implementation_evidence:
+  - .ai_worklog/task-19-report.md
+  - .ai_worklog/task-19-fix1-report.md
+  - .ai_worklog/task-19-fix2-report.md
+  - .ai_worklog/task-19-fix3-report.md
+  - .ai_worklog/task-19-fix4-report.md
+  - .ai_worklog/task-19-fix5-report.md
+  - .ai_worklog/task-19-fix6-report.md
+  - .ai_worklog/task-19-fix7-report.md
+  - .ai_worklog/task-19-fix8-report.md
+  - .ai_worklog/task-19-fix9-report.md
   criteria:
   - criterion_id: ISSUE-0019-R01
     text: 'Acceptance criteria: Show price history, latest price/date, Evidence Score, Evidence Quality, Risk/Friction, final label, reason, blocked gates, freshness,

@@ -1111,25 +1111,27 @@ Run new tests plus `test_evidence_derivatives.py`, `test_simple_scores.py`, `tes
 - `build_instrument_detail(snapshot, instrument_id) -> InstrumentDetailViewModel` combines canonical stores only.
 - View model has identity, price/freshness, three score dimensions, final label/reason/gates, technicals, liquidity, risk, attribution, fundamentals, ETF disclosures, news, forecasts, backtests, paper history, journal and run changes.
 
-- [ ] **Step 1: Write ETF, stock, Sparebanken and missing-data view-model tests**
+- [x] **Step 1: Write ETF, stock, Sparebanken and missing-data view-model tests**
 
 Assert all required sections, correct identity/group, unavailable states, source links and no crash when any optional store is empty/corrupt.
 
-- [ ] **Step 2: Implement selectors without UI calculations**
+- [x] **Step 2: Implement selectors without UI calculations**
 
 Selectors join by canonical instrument ID and source IDs. UI modules format data but cannot recalculate scores or resolve conflicts.
 
-- [ ] **Step 3: Build route and score-row navigation**
+- [x] **Step 3: Build route and score-row navigation**
 
 Use `/instrument/<id>` or selected-state equivalent supported by current Flet routing. Retain `/etf` compatibility redirect until tests prove no broken links.
 
-- [ ] **Step 4: Build inspectable panels**
+- [x] **Step 4: Build inspectable panels**
 
 Use tabs or full-width sections, not nested cards. Include export controls and source/conflict badges. Maintain dense operational layout and stable responsive dimensions.
 
 - [ ] **Step 5: Browser/computer-use detail matrix**
 
 Navigate from representative ETF, stock and Sparebanken score rows; expand all sections; capture desktop/mobile screenshots and inspect browser/session logs.
+
+**Task 19 checkpoint (2026-07-13):** Steps 1-4 are implemented, independently reviewed through nine bounded fix/re-review cycles, and merged via PR 189 at `da271bc` (implementation head `89f4644`). Fresh post-merge focused verification, scoped Ruff, compileall and diff checks passed. `ISSUE-0019` remains open and closure-pending strict release/package, audit/export, browser/computer-use, keyboard/focus/responsive and clean-first-run evidence. Step 5 remains open. The next dependency-valid implementation is Task 20, Import/Export, Backup/Restore, Charts and Accessible Tables.
 
 ---
 

@@ -894,7 +894,7 @@ schema_version
 
 ## ISSUE-0019 - Proper instrument detail page
 
-**Status:** Open  
+**Status:** Open - implementation complete; closure pending strict release, audit/export, package, browser/computer-use, keyboard/focus/responsive and clean-first-run evidence
 **Type:** UI / Analysis  
 **Priority:** P0/P1  
 **Evidence grade:** High  
@@ -908,6 +908,16 @@ schema_version
 **Rebuild requirement:** Full release gate before close.  
 **Plan.md update requirement:** Record detail page as integration point.  
 **Close criteria:** Common close criteria plus row-to-detail browser flow.
+
+**Implementation checkpoint (2026-07-13):** Wave 5 Task 19 implementation is
+merged through PR 189 at `da271bc` (implementation head `89f4644`). The
+canonical detail selectors, route, score-row navigation, provenance badges and
+audit-evidence control are covered by `.ai_worklog/task-19-report.md` and
+`.ai_worklog/task-19-fix1-report.md` through
+`.ai_worklog/task-19-fix9-report.md`. Fresh post-merge focused tests, scoped
+Ruff, compileall and diff checks passed. Strict release/package, audit/export,
+browser/computer-use, keyboard/focus/responsive and clean-first-run gates
+remain open; do not close this issue until those gates have fresh evidence.
 
 ## ISSUE-0020 - Screener and filter system
 
