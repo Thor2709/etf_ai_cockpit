@@ -1438,7 +1438,8 @@ def build_priips_kid_cost_evidence(record: object) -> SimpleScoreComponent:
     cost_fields = getattr(record, "cost_fields", {})
     cost_text = " ".join(str(value) for value in cost_fields.values()) if isinstance(cost_fields, dict) else ""
     malformed_cost = bool(re.search(r"What are the costs|cost_table_malformed", cost_text, re.IGNORECASE)) or "cost_table_malformed" in warnings
-    numeric_match = re.search(r"(?<![A-Za-z])(\d+(?:[.,]\d+)?)\s*%", cost_text)
+    ongoing_text = cost_fields.get("ongoing_costs") if isinstance(cost_fields, dict) else None
+    numeric_match = re.search(r"(?<![A-Za-z])(\d+(?:[.,]\d+)?)\s*%", str(ongoing_text or ""))
     explicit_value = None if numeric_match is None else _safe_float(numeric_match.group(1).replace(",", "."))
     sri = _safe_int(getattr(record, "sri", None))
     key = "liquidity_cost"

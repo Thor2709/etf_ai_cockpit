@@ -257,6 +257,47 @@ def test_higher_disclosed_ongoing_cost_never_improves_liquidity_cost_score() -> 
     assert higher_component.raw_score < lower_component.raw_score
 
 
+def test_complete_kid_cost_fields_score_the_ongoing_cost_row() -> None:
+    base_costs = {
+        "entry_costs": "1.00% of the value of your investment",
+        "exit_costs": "2.00% of the value of your investment",
+        "transaction_costs": "0.10% of the value of your investment per year",
+        "performance_fees": "3.00% of profits",
+    }
+    lower_cost = _kid_for_score(cost_fields={**base_costs, "ongoing_costs": "0.05% of the value of your investment"})
+    higher_cost = _kid_for_score(cost_fields={**base_costs, "ongoing_costs": "0.50% of the value of your investment"})
+
+    lower_component = simple_scores_module.build_priips_kid_cost_evidence(lower_cost)
+    higher_component = simple_scores_module.build_priips_kid_cost_evidence(higher_cost)
+
+    assert lower_component.key == higher_component.key == "liquidity_cost"
+    assert lower_component.score_10 is not None
+    assert higher_component.score_10 is not None
+    assert higher_component.score_10 < lower_component.score_10
+    assert higher_component.raw_score < lower_component.raw_score
+
+
+def test_kid_cost_evidence_without_numeric_ongoing_cost_is_unavailable() -> None:
+    record = _kid_for_score(
+        cost_fields={
+            "entry_costs": "1.00% of the value of your investment",
+            "exit_costs": "2.00% of the value of your investment",
+            "ongoing_costs": "Costs vary by portfolio",
+            "transaction_costs": "0.10% of the value of your investment per year",
+            "performance_fees": "3.00% of profits",
+        },
+        sri=None,
+    )
+
+    component = simple_scores_module.build_priips_kid_cost_evidence(record)
+
+    assert component.key == "risk"
+    assert component.raw_score is None
+    assert component.score_10 is None
+    assert component.status == "N/A"
+    assert component.score_eligible is False
+
+
 def test_higher_sri_never_improves_risk_score() -> None:
     lower_sri = _kid_for_score(cost_fields={}, sri=2)
     higher_sri = _kid_for_score(cost_fields={}, sri=6)
