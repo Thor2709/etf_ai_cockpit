@@ -731,6 +731,7 @@ def append_score_history(scores: Iterable[Any], *, run_id: str, created_at: str)
         SCORE_HISTORY_COLUMNS,
         id_columns=["run_id", "instrument_id"],
         snapshot_hash_column="snapshot_hash",
+        run_id=run_id,
     )
 
 
@@ -1285,11 +1286,19 @@ def _append_parquet(
     *,
     id_columns: list[str],
     snapshot_hash_column: str | None = None,
+    run_id: str | None = None,
 ) -> Path:
     existing = _safe_read_parquet(path, columns)
-    if snapshot_hash_column and "run_id" in new_frame.columns and "run_id" in existing.columns:
-        run_ids = set(new_frame["run_id"].astype(str))
-        existing = existing.loc[~existing["run_id"].astype(str).isin(run_ids)].copy()
+    if snapshot_hash_column and "run_id" in existing.columns:
+        run_ids = (
+            {str(run_id)}
+            if run_id is not None
+            else set(new_frame["run_id"].astype(str))
+            if "run_id" in new_frame.columns
+            else set()
+        )
+        if run_ids:
+            existing = existing.loc[~existing["run_id"].astype(str).isin(run_ids)].copy()
     if existing.empty:
         combined = new_frame.copy()
     elif new_frame.empty:
