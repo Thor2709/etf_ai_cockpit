@@ -88,6 +88,15 @@ def _value_or(value: object, fallback: object = "unavailable") -> object:
     return value
 
 
+def _safe_text(value: object) -> str | None:
+    """Return non-empty textual evidence without stringifying containers."""
+
+    if _is_missing_scalar(value) or not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text or None
+
+
 def _first_value(row: Mapping[str, Any], columns: tuple[str, ...], fallback: object = "unavailable") -> object:
     for column in columns:
         value = row.get(column)
@@ -581,19 +590,21 @@ def _friction_panel(instrument_id: str) -> dict[str, Any]:
         return number if math.isfinite(number) else None
 
     result = {field: _finite(row.get(field)) if field in row.index else None for field in fields}
-    scenario = row.get("cost_stress_scenario")
-    try:
-        scenario_is_non_finite = isinstance(scenario, (int, float)) and not math.isfinite(float(scenario))
-    except (TypeError, ValueError):
-        scenario_is_non_finite = False
-    if scenario_is_non_finite or pd.isna(scenario):
+    scenario_text = _safe_text(row.get("cost_stress_scenario"))
+    scenario_valid = scenario_text is not None and scenario_text.casefold() not in {
+        "unavailable",
+        "unknown",
+        "not_evaluated",
+        "not_available_no_score",
+    }
+    if not scenario_valid:
         scenario_text = "unavailable"
-    else:
-        scenario_text = str(scenario).strip() or "unavailable"
+    numeric_available = any(result[field] is not None for field in fields)
     result.update(
         {
             "cost_stress_scenario": scenario_text,
-            "status": "available" if any(result[field] is not None for field in fields) else "unavailable",
+            "status": "available" if numeric_available and scenario_valid else "manual_review" if numeric_available else "unavailable",
+            "manual_review": numeric_available and not scenario_valid,
             "execution_allowed": False,
             **_provenance_fields(row),
         }
@@ -662,12 +673,21 @@ def _score_panel(signal: Any, scoreboard: Mapping[str, Any], derived: Mapping[st
             gates.append(gate_id)
     evidence_score = next((_safe_float(scoreboard.get(key)) for key in ("evidence_score_10", "evidence_score", "final_combined_score_10") if _safe_float(scoreboard.get(key)) is not None), None)
     quality = next((_safe_float(scoreboard.get(key)) for key in ("evidence_quality_10", "evidence_quality") if _safe_float(scoreboard.get(key)) is not None), None)
-    label_value = _first_value(scoreboard, ("final_label", "final_action"), fallback=None)
-    label = str(_value_or(label_value if label_value is not None else getattr(signal, "research_state", None), "manual_review"))
-    reason_value = _first_value(scoreboard, ("one_line_reason", "reason"), fallback=None)
-    reason = str(_value_or(reason_value if reason_value is not None else getattr(signal, "reason_long", None), "Score reason unavailable."))
+    label = next((_safe_text(scoreboard.get(key)) for key in ("final_label", "final_action") if _safe_text(scoreboard.get(key)) is not None), None)
+    if label is None:
+        label = _safe_text(getattr(signal, "research_state", None))
+    label_valid = label is not None
+    label = label or "manual_review"
+    reason = next((_safe_text(scoreboard.get(key)) for key in ("one_line_reason", "reason") if _safe_text(scoreboard.get(key)) is not None), None)
+    if reason is None:
+        reason = _safe_text(getattr(signal, "reason_long", None))
+    reason_valid = reason is not None
+    reason = reason or "Score reason unavailable."
     signal_score = _safe_float(getattr(signal, "total_score", None))
-    status = "available" if any(value is not None for value in (evidence_score, quality, signal_score)) else "manual_review"
+    freshness = _safe_text(scoreboard.get("freshness_status"))
+    freshness_valid = freshness is not None
+    numeric_available = any(value is not None for value in (evidence_score, quality, signal_score))
+    status = "available" if numeric_available and label_valid and reason_valid and freshness_valid else "manual_review"
     return {
         "status": status,
         "evidence_score": evidence_score,
@@ -678,7 +698,7 @@ def _score_panel(signal: Any, scoreboard: Mapping[str, Any], derived: Mapping[st
         "reason": reason,
         "blocked_gates": gates,
         "warnings": list(_safe_sequence(getattr(signal, "warnings", ()))),
-        "freshness": _value_or(scoreboard.get("freshness_status"), "unavailable"),
+        "freshness": freshness or "unavailable",
         "crowding": derived["crowding"],
         "friction": friction,
         "execution_allowed": False,

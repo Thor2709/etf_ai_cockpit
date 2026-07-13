@@ -555,6 +555,35 @@ def test_news_item_record_nullable_provenance_fails_closed() -> None:
     assert item["timestamp_status"] == "unavailable"
 
 
+@pytest.mark.parametrize("scenario", [["high"], {"level": "high"}, np.array(["high"]), 123])
+def test_friction_panel_malformed_scenarios_fail_closed_without_crashing(tmp_path, monkeypatch, scenario) -> None:
+    import etf_cockpit.app.selectors.instrument_detail as selector
+
+    frame = pd.DataFrame(
+        [
+            {
+                "display_id": "VWCE",
+                "gross_expected_edge_bps": 42.0,
+                "estimated_total_cost_bps": 7.0,
+                "net_expected_edge_bps": 35.0,
+                "edge_to_cost_ratio": 5.0,
+                "cost_stress_scenario": "placeholder",
+            }
+        ]
+    )
+    frame.at[0, "cost_stress_scenario"] = scenario
+    scoreboard_path = tmp_path / "scoreboard.parquet"
+    scoreboard_path.touch()
+    monkeypatch.setattr(selector, "SCOREBOARD_PATH", scoreboard_path)
+    monkeypatch.setattr(selector.pd, "read_parquet", lambda _path: frame)
+
+    panel = _friction_panel("VWCE")
+
+    assert panel["cost_stress_scenario"] == "unavailable"
+    assert panel["status"] == "manual_review"
+    assert panel["execution_allowed"] is False
+
+
 def test_score_panel_nullable_scoreboard_and_signal_values_fail_closed() -> None:
     class Signal:
         blocked_by = pd.NA
@@ -584,6 +613,37 @@ def test_score_panel_nullable_scoreboard_and_signal_values_fail_closed() -> None
     assert panel["signal_score"] is None
     assert panel["blocked_gates"] == ["unavailable"]
     assert panel["warnings"] == []
+
+
+def test_score_panel_numeric_evidence_with_malformed_required_metadata_fails_closed() -> None:
+    class Signal:
+        blocked_by = []
+        authority_decision = None
+        total_score = 0.8
+        research_state = pd.NA
+        reason_long = {"reason": "malformed"}
+        warnings = []
+
+    panel = _score_panel(
+        Signal(),
+        {
+            "evidence_score_10": 8.0,
+            "evidence_quality_10": 7.0,
+            "final_label": pd.NA,
+            "final_action": ["hold"],
+            "one_line_reason": {"reason": "malformed"},
+            "reason": pd.NA,
+            "freshness_status": np.array(["fresh"]),
+        },
+        {"crowding": {}, "attribution": {}},
+        {},
+    )
+
+    assert panel["status"] == "manual_review"
+    assert panel["final_label"] == "manual_review"
+    assert panel["final_reason"] == "Score reason unavailable."
+    assert panel["freshness"] == "unavailable"
+    assert panel["execution_allowed"] is False
 
 
 def test_backtest_panel_nullable_quality_fails_closed() -> None:
