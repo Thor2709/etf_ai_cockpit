@@ -1,6 +1,6 @@
 # ETF AI Cockpit Programme Index
 
-> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6, Wave 3 Tasks 7-9 and Wave 4 Tasks 10-17 are independently approved, merged and post-merge verified. Task 10 is closed locally and synchronised to GitHub Issue #81; Tasks 11-17 are implementation-complete with their owning issues still closure-pending strict release/package/audit/export/browser/clean-first-run evidence. The next dependency-valid implementation is Task 18, Crowding, Sector/Theme Attribution and Friction-Adjusted Edge.
+> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6, Wave 3 Tasks 7-9 and Wave 4 Tasks 10-18 are independently approved, merged and post-merge verified. Task 10 is closed locally and synchronised to GitHub Issue #81; Tasks 11-18 are implementation-complete with their owning issues still closure-pending strict release/package/audit/export/browser/clean-first-run evidence. The next dependency-valid implementation is Task 19, Comprehensive Instrument Detail.
 
 **Binding inputs:**
 
@@ -318,3 +318,13 @@ focused verification passed 38 tests with Ruff, compileall and diff checks.
 implementation-complete/closure-pending because strict package/browser,
 audit/export and clean-first-run evidence is not yet fresh. Continue with
 Task 18, Crowding, Sector/Theme Attribution and Friction-Adjusted Edge.
+
+Wave 5 Task 18, Crowding, Sector/Theme Attribution and Friction-Adjusted Edge,
+is implemented and independently approved through PR 188 at merge commit
+`3e3b02e` (implementation head `0a5e0a6`). Six bounded fix/review cycles ended
+with fresh SPEC and CODE approval and no Critical or Important findings;
+focused verification passed 53 tests with Ruff, compileall and diff checks.
+`ISSUE-0052`, `ISSUE-0059` and `ISSUE-0064` remain open as
+implementation-complete/closure-pending because strict release/package,
+audit/export, browser and clean-first-run evidence is not yet fresh. Continue
+with Task 19, Comprehensive Instrument Detail.

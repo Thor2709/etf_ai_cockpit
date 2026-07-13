@@ -277,3 +277,21 @@ authoritative ledgers as part of remote synchronisation.
   for `ISSUE-0067` remains recorded by the resolver; reconciliation passes.
   The committed local issue ledger and approved specification remain
   authoritative.
+
+## Ledger refresh after Wave 5 Task 18 - 2026-07-13
+
+- Authenticated `python scripts/sync_github_issues.py --apply` completed with
+  exit 0 after PR 188 merged Task 18. The run reported 98 canonical records,
+  77 local open and 21 local closed records, matching 77/21 mapped GitHub
+  states; all local IDs were unique, mappings valid, states agreed and no
+  duplicate action was required. It applied 79 managed updates and left 19
+  records unchanged.
+- `ISSUE-0052` maps to GitHub Issue #109, `ISSUE-0059` to #123 and
+  `ISSUE-0064` to #132. Their managed bodies now mirror the local
+  implementation-complete/closure-pending status; none was closed because
+  strict release/package, audit/export, browser/computer-use and clean-first-
+  run evidence remains outstanding.
+- `issues/github_issue_map.json` and `issues/github_issue_sync_report.json`
+  are the deterministic read-back evidence. Reconciliation passes with no
+  unresolved duplicates. The committed local issue ledger and approved
+  specification remain authoritative.

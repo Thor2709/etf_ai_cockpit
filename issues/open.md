@@ -1439,7 +1439,7 @@ schema_version
 
 ## ISSUE-0052 - Correlation clustering and factor-crowding warnings
 
-**Status:** Open  
+**Status:** Open - implementation complete; closure pending strict release, audit/export, package, browser/computer-use and clean-first-run evidence
 **Type:** Portfolio / Risk / Diversification  
 **Priority:** P1  
 **Evidence grade:** Moderate/High  
@@ -1453,6 +1453,8 @@ schema_version
 **Rebuild requirement:** Full release gate before close.  
 **Plan.md update requirement:** Cross-link to `ISSUE-0003`, `ISSUE-0059`.  
 **Close criteria:** Common close criteria plus visible crowding label.
+
+**Implementation checkpoint (2026-07-13):** Task 18 merged through PR 188 at `3e3b02e` (implementation head `0a5e0a6`). Rolling adjusted-price clusters, explicit top-ten ranked factor/theme concentration, covariance-normalised cluster risk contribution, honest pair coverage and Scores/Risk/Instrument Detail/Trust evidence are implemented. Focused Task 18 verification passed 53 tests; independent final review approved with no Critical, Important or Minor findings. Strict release/package, audit/export, browser/computer-use and clean-first-run closure evidence remains pending.
 
 ## ISSUE-0053 - What matters today digest
 
@@ -1558,7 +1560,7 @@ schema_version
 
 ## ISSUE-0059 - Benchmark-relative sector/theme attribution beyond single benchmark beta
 
-**Status:** Open  
+**Status:** Open - implementation complete; closure pending strict release, audit/export, package, browser/computer-use and clean-first-run evidence
 **Type:** Benchmark / Attribution / Risk  
 **Priority:** P1/P2  
 **Evidence grade:** Moderate/High  
@@ -1572,6 +1574,8 @@ schema_version
 **Rebuild requirement:** Full release gate before close.  
 **Plan.md update requirement:** Cross-link to `ISSUE-0003`, `ISSUE-0052`.  
 **Close criteria:** Common close criteria plus sector-relative attribution visible.
+
+**Implementation checkpoint (2026-07-13):** Task 18 merged through PR 188 at `3e3b02e` (implementation head `0a5e0a6`). Broad, sector and configured-theme attribution now use clean overlapping returns with explicit missing/insufficient `N/A` states; theme warnings are ranked-cohort based and visible in Scores, Risk, Instrument Detail and Trust evidence. Focused Task 18 verification passed 53 tests; independent final review approved with no Critical, Important or Minor findings. Strict release/package, audit/export, browser/computer-use and clean-first-run closure evidence remains pending.
 
 ## ISSUE-0060 - Strategy rejection tests
 
@@ -1643,7 +1647,7 @@ schema_version
 
 ## ISSUE-0064 - Friction-adjusted return estimate per evidence score
 
-**Status:** Open  
+**Status:** Open - implementation complete; closure pending strict release, audit/export, package, browser/computer-use and clean-first-run evidence
 **Type:** Scoring / Cost Realism  
 **Priority:** P1  
 **Evidence grade:** High  
@@ -1657,6 +1661,8 @@ schema_version
 **Rebuild requirement:** Full release gate before close.  
 **Plan.md update requirement:** Cross-link to `ISSUE-0005`, `ISSUE-0050`.  
 **Close criteria:** Common close criteria plus visible net edge.
+
+**Implementation checkpoint (2026-07-13):** Task 18 merged through PR 188 at `3e3b02e` (implementation head `0a5e0a6`). Calculator-backed gross/net edge, estimated cost, edge/cost ratio and low/base/high scenario evidence are persisted in audit exports and exposed in Scores, Risk and Instrument Detail with finite-safe unavailable states. Focused Task 18 verification passed 53 tests; independent final review approved with no Critical, Important or Minor findings. Strict release/package, audit/export, browser/computer-use and clean-first-run closure evidence remains pending.
 
 ## ISSUE-0065 - Payoff-profile classification and risk/reward asymmetry display
 

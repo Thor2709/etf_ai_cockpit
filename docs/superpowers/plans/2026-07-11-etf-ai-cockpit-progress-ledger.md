@@ -7,9 +7,9 @@
 | Field | Value |
 |---|---|
 | Updated | 2026-07-13 |
-| Active phase | Wave 4 Task 17 implementation complete and merged; `ISSUE-0067`, `ISSUE-0034` and `ISSUE-0047` plus earlier Wave 4 issues closure-pending strict release/audit/browser/clean-first-run evidence; Task 18 next |
+| Active phase | Wave 5 Task 18 implementation complete and merged; `ISSUE-0052`, `ISSUE-0059` and `ISSUE-0064` plus earlier issues closure-pending strict release/audit/browser/clean-first-run evidence; Task 19 next |
 | Active plan | `docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md` |
-| Git state | PR 187 merged Task 17 into `main` at `265b798`; implementation head `e83edfc`; local `main` matches `origin/main` and is clean |
+| Git state | PR 188 merged Task 18 into `main` at `3e3b02e`; implementation head `0a5e0a6`; local `main` matches `origin/main` and is clean |
 | Existing closure state | Task 11 issues `ISSUE-0068`, `ISSUE-0018`, `ISSUE-0017` and `ISSUE-0056` are implementation-complete but closure-pending final release/browser/clean-first-run evidence; `ISSUE-0035` is closed locally and on GitHub Issue #81 |
 | Fresh baseline | Task 10 focused 16 and affected 40 passed; compileall/Ruff/source smoke passed; portable build, native/portable smoke, semantic focus, export and authoritative full suite passed; package-inventory rerun passed after removing the merged worktree |
 | Pre-existing type state | recorded mypy failure caused by external stubs and existing typing debt; no new failure attributed |
@@ -23,7 +23,8 @@
 | 1 | governance | Tasks 1-6 independently approved and merged; Task 7 integrated | Task 6 WorkflowController/session trace paths plus Task 7 source-linked UI inventory, controlled recovery and timing/cache evidence | continue with Wave 3 Task 8 Canonical Data Contracts and Provider Registry |
 | 2 | registry and universe | Not started | `UniverseRecord`/optimistic revision/atomic save present | registry dry-run and validator RED suite |
 | 3 | DATA-05 | Not started | no live seed verification has been performed in this programme | retrieve current official identity evidence and write failing seed-contract tests |
-| 4 | storage and evidence | Task 10 closed and synchronised; Tasks 11-17 implementation-complete and merged; seventeen issues closure-pending | Task 17 focused score-history/run-comparison/driver/UI bundle 38 passed; four fix/review cycles ended with fresh independent SPEC/CODE PASS, PR 187 merged at `265b798`; strict package/audit/browser/clean-first-run evidence remains open | begin Task 18: Crowding, Sector/Theme Attribution and Friction-Adjusted Edge |
+| 4 | storage and evidence | Task 10 closed and synchronised; Tasks 11-17 implementation-complete and merged; seventeen issues closure-pending | Task 17 focused score-history/run-comparison/driver/UI bundle 38 passed; four fix/review cycles ended with fresh independent SPEC/CODE PASS, PR 187 merged at `265b798`; strict package/audit/browser/clean-first-run evidence remains open | continue closure evidence while Wave 5 proceeds |
+| 5 | domain and scoring | Task 18 implementation-complete and merged; `ISSUE-0052`, `ISSUE-0059` and `ISSUE-0064` closure-pending | Task 18 focused crowding/attribution/friction/UI/trust bundle 53 passed; six fix/review cycles ended with fresh independent SPEC/CODE approval, PR 188 merged at `3e3b02e`, implementation head `0a5e0a6`; strict package/audit/browser/clean-first-run evidence remains open | begin Task 19: Comprehensive Instrument Detail |
 | 5 | domain and scoring | Not started | source-aware deterministic scorer present; first-enabled benchmark and legacy ensemble remain | template/benchmark/champion RED suite |
 | 6 | AI and validation | Not started | optional adapter foundations present; authority/caching/validation seams remain | strict forecast-state and fold/trial RED suite |
 | 7 | portfolio | Not started | static holdings/allocation foundation present | immutable ledger RED suite |
@@ -350,3 +351,26 @@ at `e83edfc`. PR 187
 `265b798`. The owning issues remain open and closure-pending strict
 package/browser, audit/export and clean-first-run evidence; Task 18 is the
 next dependency-valid implementation.
+
+### Wave 5 Task 18 integration checkpoint - 2026-07-13
+
+Task 18 implemented rolling adjusted-price crowding clusters with an explicit
+top-ten ranked cohort, configured-theme concentration independent of cluster
+membership, covariance-normalised cluster risk contribution including
+singleton exposure and honest per-pair coverage. Benchmark attribution now
+provides broad, sector and configured-theme relative evidence on clean
+overlapping returns with explicit `N/A` states. Friction edge fields are
+calculator-backed, finite-safe and persisted through Scores, Risk, Instrument
+Detail and Trust/audit exports. The nominal correlation window is separated
+from observed sample size, regime and portfolio-fit forward-fill compatibility
+is preserved, and warning-state UI semantics are explicit. Six bounded
+fix/review cycles ended with fresh independent SPECIFICATION and CODE QUALITY
+approval at `0a5e0a6`; no Critical, Important or Minor findings remain.
+
+Fresh Task 18 verification passed 53 focused tests; the focused Trust subset
+passed 4; Ruff, compileall and diff checks passed. PR 188
+(`https://github.com/Thor2709/etf_ai_cockpit/pull/188`) merged into `main` at
+`3e3b02e`. `ISSUE-0052`, `ISSUE-0059` and `ISSUE-0064` remain open and
+closure-pending strict release/package, audit/export, browser and clean-first-
+run evidence. The next dependency-valid implementation is Task 19,
+Comprehensive Instrument Detail.

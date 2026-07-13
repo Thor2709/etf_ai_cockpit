@@ -1074,25 +1074,27 @@ audit/export and clean-first-run evidence has not yet been generated.
 - `build_benchmark_attribution(instrument_returns, broad_returns, sector_returns) -> AttributionResult`.
 - `estimate_friction_edge(evidence_score, volatility, costs, scenario) -> FrictionEdgeResult`.
 
-- [ ] **Step 1: Write deterministic numerical and insufficient-data tests**
+- [x] **Step 1: Write deterministic numerical and insufficient-data tests**
 
 Test known correlation clusters, AI/semi/theme concentration, broad vs sector alpha proxy, missing sector benchmark `N/A`, gross/net bps, edge-to-cost ratio and low/base/high cost scenarios.
 
-- [ ] **Step 2: Extract and strengthen existing calculations**
+- [x] **Step 2: Extract and strengthen existing calculations**
 
 Move existing correlation/benchmark/friction logic into typed modules, preserve wrappers and add sample-size/as-of/source fields. Candidate rows without clean price panels remain unavailable.
 
-- [ ] **Step 3: Add metadata-driven theme warnings**
+- [x] **Step 3: Add metadata-driven theme warnings**
 
 Use configured sector/theme labels and cluster membership; do not infer themes from company names or model output.
 
-- [ ] **Step 4: Add UI and export fields**
+- [x] **Step 4: Add UI and export fields**
 
 Scores, Risk and Instrument Detail show cluster, contribution, broad/sector attribution and gross/net edge/cost scenario with `N/A` where unsupported.
 
 - [ ] **Step 5: Run analytics regression**
 
 Run new tests plus `test_evidence_derivatives.py`, `test_simple_scores.py`, `test_risk_analytics.py`, `test_signal_gates.py` and audit export tests.
+
+**Task 18 checkpoint (2026-07-13):** Steps 1-4 are implemented, independently reviewed through six bounded fix/re-review cycles, and merged via PR 188 at `3e3b02e` (implementation head `0a5e0a6`). Fresh Task 18 focused verification passed 53 tests; scoped Ruff, compileall and diff checks passed. `ISSUE-0052`, `ISSUE-0059` and `ISSUE-0064` remain open and closure-pending strict package/browser/audit-export/clean-first-run evidence. The next dependency-valid implementation is Task 19, Comprehensive Instrument Detail.
 
 ---
 
