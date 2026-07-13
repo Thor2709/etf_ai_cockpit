@@ -127,16 +127,15 @@ def _holdings_quality_panel(holdings: pd.DataFrame) -> ft.Control:
 
 
 def _load_holdings_evidence() -> pd.DataFrame:
+    canonical = pd.DataFrame()
     try:
         if FUND_HOLDINGS_PATH.exists():
             canonical = pd.read_parquet(FUND_HOLDINGS_PATH)
-            if not canonical.empty:
-                return canonical
     except Exception:
-        pass
+        canonical = pd.DataFrame()
     legacy = load_reference_dataset("etf_holdings")
     if legacy.empty or not {"etf_id", "weight"}.issubset(legacy.columns):
-        return legacy
+        return canonical if not canonical.empty else legacy
     # Reference-data imports pre-date the normalised fund store. Adapt them in
     # memory so existing holdings remain visible while issuer/vendor and
     # freshness eligibility are still enforced by the normaliser.
@@ -148,7 +147,12 @@ def _load_holdings_evidence() -> pd.DataFrame:
         adapted = normalise_holdings(group, str(etf_id), as_of_value, source)
         if not adapted.frame.empty:
             rows.append(adapted.frame)
-    return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
+    legacy_context = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
+    if canonical.empty:
+        return legacy_context
+    if legacy_context.empty:
+        return canonical
+    return pd.concat([canonical, legacy_context], ignore_index=True, sort=False)
 
 
 def _exposure_eligible_holdings(holdings: pd.DataFrame) -> pd.DataFrame:

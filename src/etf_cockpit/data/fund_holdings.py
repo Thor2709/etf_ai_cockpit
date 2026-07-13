@@ -10,6 +10,12 @@ import pandas as pd
 
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
 from etf_cockpit.core.paths import CLEAN_DIR
+from etf_cockpit.data.fund_documents import (
+    FUND_DOCUMENTS_PATH,
+    build_document_inventory,
+    read_document_registry,
+    register_document,
+)
 
 
 FUND_HOLDINGS_PATH = CLEAN_DIR / "fund_holdings.parquet"
@@ -209,13 +215,48 @@ def write_holdings_records(
     if "schema_version" not in frame.columns:
         frame.insert(0, "schema_version", 1)
     destination = Path(destination)
+    _write_holdings_frame(frame, destination=destination)
+    return destination
+
+
+def _write_holdings_frame(frame: pd.DataFrame, *, destination: Path) -> None:
+    """Publish a canonical/context holdings frame and its CSV mirror atomically."""
+    destination = Path(destination)
     csv_destination = destination.with_suffix(".csv")
     requests = (
         AtomicWriteRequest(destination, parquet_payload(frame), validate_parquet_file),
         AtomicWriteRequest(csv_destination, frame.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
     )
     atomic_write_group(requests)
-    return destination
+
+
+def _read_existing_holdings(destination: Path) -> pd.DataFrame:
+    if not destination.exists():
+        return pd.DataFrame()
+    try:
+        existing = pd.read_parquet(destination)
+    except Exception as exc:
+        raise ValueError(f"Existing holdings store could not be read: {destination}") from exc
+    if existing.empty:
+        return existing
+    if "instrument_id" not in existing.columns:
+        raise ValueError(f"Existing holdings store is missing instrument_id: {destination}")
+    return existing
+
+
+def _merge_holdings_frame(existing: pd.DataFrame, result_frame: pd.DataFrame, instrument_id: str) -> pd.DataFrame:
+    incoming = result_frame.copy()
+    if "schema_version" not in incoming.columns:
+        incoming.insert(0, "schema_version", 1)
+    if existing.empty:
+        return incoming
+    retained = existing.loc[existing["instrument_id"].astype(str).str.strip().ne(str(instrument_id).strip())].copy()
+    merged = pd.concat([retained, incoming], ignore_index=True, sort=False)
+    if "schema_version" not in merged.columns:
+        merged.insert(0, "schema_version", 1)
+    else:
+        merged["schema_version"] = merged["schema_version"].fillna(1)
+    return merged
 
 
 def _holdings_write_reasons(result: HoldingsNormalisationResult, frame: pd.DataFrame) -> list[str]:
@@ -343,6 +384,17 @@ def import_etf_holdings(
 ) -> HoldingsNormalisationResult:
     """Read a local CSV/XLSX holdings file, validate it and persist only eligible data."""
     destination = Path(destination or FUND_HOLDINGS_PATH)
+    _, frame, effective_as_of = _read_holdings_import(path, as_of)
+    result = normalise_holdings(frame, instrument_id, effective_as_of, source, today=today)
+    if not result.score_eligible:
+        detail = ", ".join(result.warnings) or f"completeness={result.completeness}, freshness={result.freshness}"
+        raise ValueError(f"Holdings import is invalid or ineligible; no data changed ({detail}).")
+    merged = _merge_holdings_frame(_read_existing_holdings(destination), result.frame, instrument_id)
+    _write_holdings_frame(merged, destination=destination)
+    return result
+
+
+def _read_holdings_import(path: Path, as_of: str | date | datetime | None) -> tuple[Path, pd.DataFrame, str | date | datetime]:
     candidate = Path(path)
     if not candidate.exists() or not candidate.is_file():
         raise ValueError(f"Holdings file is missing: {candidate}")
@@ -368,11 +420,55 @@ def import_etf_holdings(
                 break
     if effective_as_of is None:
         raise ValueError("Holdings import requires an as_of date")
+    return candidate, frame, effective_as_of
+
+
+def import_etf_holdings_with_document(
+    path: Path,
+    instrument_id: str,
+    as_of: str | date | datetime | None,
+    source: str = "issuer",
+    *,
+    holdings_destination: Path | None = None,
+    registry_destination: Path | None = None,
+    configured_instrument_ids: list[str] | tuple[str, ...] | None = None,
+    today: str | date | datetime | None = None,
+) -> HoldingsNormalisationResult:
+    """Import eligible holdings and register their source in one atomic group."""
+    holdings_destination = Path(holdings_destination or FUND_HOLDINGS_PATH)
+    registry_destination = Path(registry_destination or FUND_DOCUMENTS_PATH)
+    candidate, frame, effective_as_of = _read_holdings_import(path, as_of)
     result = normalise_holdings(frame, instrument_id, effective_as_of, source, today=today)
     if not result.score_eligible:
         detail = ", ".join(result.warnings) or f"completeness={result.completeness}, freshness={result.freshness}"
         raise ValueError(f"Holdings import is invalid or ineligible; no data changed ({detail}).")
-    write_holdings_records(result, destination=destination)
+
+    existing_holdings = _read_existing_holdings(holdings_destination)
+    merged_holdings = _merge_holdings_frame(existing_holdings, result.frame, instrument_id)
+    document = register_document(
+        candidate,
+        "holdings",
+        str(instrument_id).strip(),
+        "",
+        "issuer_document",
+        document_date=result.as_of,
+    )
+    existing_registry = read_document_registry(path=registry_destination)
+    instrument_ids = list(configured_instrument_ids or ())
+    if not instrument_ids and not existing_registry.empty and "instrument_id" in existing_registry.columns:
+        instrument_ids.extend(existing_registry["instrument_id"].dropna().astype(str).tolist())
+    instrument_ids.append(str(instrument_id).strip())
+    inventory = build_document_inventory(instrument_ids, [*existing_registry.to_dict("records"), document])
+
+    holdings_csv_destination = holdings_destination.with_suffix(".csv")
+    registry_csv_destination = registry_destination.with_suffix(".csv")
+    requests = (
+        AtomicWriteRequest(holdings_destination, parquet_payload(merged_holdings), validate_parquet_file),
+        AtomicWriteRequest(holdings_csv_destination, merged_holdings.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
+        AtomicWriteRequest(registry_destination, parquet_payload(inventory), validate_parquet_file),
+        AtomicWriteRequest(registry_csv_destination, inventory.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
+    )
+    atomic_write_group(requests)
     return result
 
 

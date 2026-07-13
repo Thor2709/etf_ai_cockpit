@@ -10,7 +10,7 @@ from etf_cockpit.app.components.cards import evidence_chip, panel, section_heade
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import STATEMENT_FACTS_PATH
 from etf_cockpit.data.fund_documents import import_etf_document
-from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH, import_etf_holdings
+from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH, import_etf_holdings_with_document
 from etf_cockpit.data.provider_registry import ProviderRegistry
 from etf_cockpit.data.trust_artifacts import (
     BENCHMARK_ATTRIBUTION_PATH,
@@ -268,18 +268,11 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
         try:
             if path is None or not path.exists():
                 raise ValueError("a readable local holdings path is required")
-            imported = import_etf_holdings(
+            imported = import_etf_holdings_with_document(
                 path,
                 str(instrument_field.value or state.selected_etf or "").strip(),
                 str(holdings_date_field.value or "").strip() or None,
                 str(holdings_source_field.value or "issuer").strip() or "issuer",
-            )
-            import_etf_document(
-                path,
-                instrument_id=str(instrument_field.value or state.selected_etf or "").strip(),
-                document_type="holdings",
-                document_date=imported.as_of,
-                authority="issuer_document",
                 configured_instrument_ids=state.snapshot.config.universe.enabled_ids,
             )
             result.value = f"ETF holdings imported for {instrument_field.value}: completeness={imported.completeness}, freshness={imported.freshness}, confidence={imported.confidence:.2f}."

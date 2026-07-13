@@ -141,6 +141,9 @@ def _as_document(value: FundDocument | dict[str, object]) -> FundDocument:
     if isinstance(value, FundDocument):
         return value
     payload = dict(value)
+    if "sha256" not in payload and payload.get("checksum"):
+        payload["sha256"] = payload["checksum"]
+    payload.pop("checksum", None)
     payload["document_type"] = canonical_document_type(str(payload.get("document_type", "")))
     payload.setdefault("warnings", ())
     payload.setdefault("schema_version", 1)

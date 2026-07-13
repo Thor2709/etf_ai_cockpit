@@ -246,3 +246,100 @@ def test_holdings_import_path_normalises_csv_and_persists_records(tmp_path: Path
     imported = import_etf_holdings(source, "VWCE", "2026-07-10", "issuer", destination=destination)
     assert imported.score_eligible is True
     assert pd.read_parquet(destination).loc[0, "instrument_id"] == "VWCE"
+
+
+def test_holdings_import_merges_one_instrument_without_dropping_other_canonical_rows(tmp_path: Path) -> None:
+    from etf_cockpit.data.fund_holdings import import_etf_holdings
+
+    destination = tmp_path / "fund_holdings.parquet"
+    first_source = tmp_path / "vwce.csv"
+    second_source = tmp_path / "lyp6.csv"
+    pd.DataFrame({"security": ["A"], "ticker": ["A"], "weight": [1.0]}).to_csv(first_source, index=False)
+    pd.DataFrame({"security": ["B"], "ticker": ["B"], "weight": [1.0]}).to_csv(second_source, index=False)
+
+    import_etf_holdings(first_source, "VWCE", "2026-07-10", "issuer", destination=destination, today="2026-07-11")
+    import_etf_holdings(second_source, "LYP6", "2026-07-11", "issuer", destination=destination, today="2026-07-11")
+
+    stored = pd.read_parquet(destination)
+    assert set(stored["instrument_id"]) == {"VWCE", "LYP6"}
+    assert set(stored["ticker"]) == {"A", "B"}
+
+
+def test_risk_holdings_loader_keeps_legacy_vendor_context_when_canonical_exists(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from etf_cockpit.data.fund_holdings import import_etf_holdings
+
+    canonical = tmp_path / "fund_holdings.parquet"
+    source = tmp_path / "vwce.csv"
+    pd.DataFrame({"security": ["A"], "ticker": ["A"], "weight": [1.0]}).to_csv(source, index=False)
+    import_etf_holdings(source, "VWCE", "2026-07-10", "issuer", destination=canonical, today="2026-07-11")
+    monkeypatch.setattr(risk_page_module, "FUND_HOLDINGS_PATH", canonical)
+    monkeypatch.setattr(
+        risk_page_module,
+        "load_reference_dataset",
+        lambda _dataset: pd.DataFrame(
+            {
+                "etf_id": ["LYP6"],
+                "as_of_date": ["2026-07-10"],
+                "holding_name": ["Vendor B"],
+                "weight": [0.4],
+                "source": ["yfinance"],
+            }
+        ),
+    )
+
+    loaded = risk_page_module._load_holdings_evidence()
+    assert set(loaded["instrument_id"]) == {"VWCE", "LYP6"}
+    vendor = loaded.loc[loaded["instrument_id"] == "LYP6"].iloc[0]
+    assert vendor["authority"] == "vendor"
+    assert bool(vendor["score_eligible"]) is False
+
+
+def test_combined_holdings_import_leaves_holdings_and_registry_unchanged_when_registry_stage_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import etf_cockpit.data.fund_holdings as fund_holdings
+    from etf_cockpit.core import atomic_io
+    from etf_cockpit.data.fund_documents import register_document, write_document_registry
+
+    holdings_destination = tmp_path / "fund_holdings.parquet"
+    registry_destination = tmp_path / "fund_documents.parquet"
+    prior_source = tmp_path / "prior.csv"
+    import_source = tmp_path / "import.csv"
+    pd.DataFrame({"security": ["Prior"], "ticker": ["PRIOR"], "weight": [1.0]}).to_csv(prior_source, index=False)
+    pd.DataFrame({"security": ["Imported"], "ticker": ["IMPORTED"], "weight": [1.0]}).to_csv(import_source, index=False)
+    fund_holdings.import_etf_holdings(prior_source, "VWCE", "2026-07-10", "issuer", destination=holdings_destination, today="2026-07-11")
+    prior_document = register_document(prior_source, "holdings", "VWCE", "", "issuer_document", document_date="2026-07-10")
+    write_document_registry([prior_document], destination=registry_destination)
+    prior_holdings_bytes = holdings_destination.read_bytes()
+    prior_holdings_csv_bytes = holdings_destination.with_suffix(".csv").read_bytes()
+    prior_registry_bytes = registry_destination.read_bytes()
+    prior_registry_csv_bytes = registry_destination.with_suffix(".csv").read_bytes()
+
+    real_atomic_write_group = atomic_io.atomic_write_group
+
+    def fail_registry_stage(requests, **kwargs):
+        staged_requests = []
+        for request in tuple(requests):
+            if request.destination.resolve() == registry_destination.resolve():
+                staged_requests.append(
+                    atomic_io.AtomicWriteRequest(request.destination, request.payload, lambda _path: (_ for _ in ()).throw(OSError("registry validation failed")))
+                )
+            else:
+                staged_requests.append(request)
+        return real_atomic_write_group(tuple(staged_requests), **kwargs)
+
+    monkeypatch.setattr(fund_holdings, "atomic_write_group", fail_registry_stage)
+    with pytest.raises(OSError, match="registry validation failed"):
+        fund_holdings.import_etf_holdings_with_document(
+            import_source,
+            "LYP6",
+            "2026-07-11",
+            "issuer",
+            holdings_destination=holdings_destination,
+            registry_destination=registry_destination,
+            configured_instrument_ids=["VWCE", "LYP6"],
+            today="2026-07-11",
+        )
+
+    assert holdings_destination.read_bytes() == prior_holdings_bytes
+    assert holdings_destination.with_suffix(".csv").read_bytes() == prior_holdings_csv_bytes
+    assert registry_destination.read_bytes() == prior_registry_bytes
+    assert registry_destination.with_suffix(".csv").read_bytes() == prior_registry_csv_bytes
