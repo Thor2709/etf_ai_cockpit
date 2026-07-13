@@ -7,9 +7,9 @@
 | Field | Value |
 |---|---|
 | Updated | 2026-07-13 |
-| Active phase | Wave 4 Task 13 implementation complete and merged; `UPDATEV2-0013` closure-pending strict release/audit/browser/clean-first-run evidence; Task 14 next |
+| Active phase | Wave 4 Task 14 implementation complete and merged; `UPDATEV2-0015`/`UPDATEV2-0016` closure-pending strict release/audit/browser/clean-first-run evidence; Task 15 next |
 | Active plan | `docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md` |
-| Git state | PR 182 merged Task 12 into `main` at `dc9765ff97f14cc29e9dd7a4f02d669ce0e5ee7f`; issue synchronisation and durable docs committed at `b932dc879ec7822b1af14891dfadff337bb86d65`; local `main` matches `origin/main` |
+| Git state | PR 184 merged Task 14 into `main` at `49abaf4907f81ab2798a394d11cf2ddaf5d3b031`; implementation head `a7cb185`; local `main` matches `origin/main` and is clean |
 | Existing closure state | Task 11 issues `ISSUE-0068`, `ISSUE-0018`, `ISSUE-0017` and `ISSUE-0056` are implementation-complete but closure-pending final release/browser/clean-first-run evidence; `ISSUE-0035` is closed locally and on GitHub Issue #81 |
 | Fresh baseline | Task 10 focused 16 and affected 40 passed; compileall/Ruff/source smoke passed; portable build, native/portable smoke, semantic focus, export and authoritative full suite passed; package-inventory rerun passed after removing the merged worktree |
 | Pre-existing type state | recorded mypy failure caused by external stubs and existing typing debt; no new failure attributed |
@@ -23,7 +23,7 @@
 | 1 | governance | Tasks 1-6 independently approved and merged; Task 7 integrated | Task 6 WorkflowController/session trace paths plus Task 7 source-linked UI inventory, controlled recovery and timing/cache evidence | continue with Wave 3 Task 8 Canonical Data Contracts and Provider Registry |
 | 2 | registry and universe | Not started | `UniverseRecord`/optimistic revision/atomic save present | registry dry-run and validator RED suite |
 | 3 | DATA-05 | Not started | no live seed verification has been performed in this programme | retrieve current official identity evidence and write failing seed-contract tests |
-| 4 | storage and evidence | Task 10 closed and synchronised; Tasks 11-13 implementation-complete and merged; six issues closure-pending | Task 13 focused provider/parser/statement/UI bundle passed, pinned-Arelle worker serialisation passed, scoped Ruff/compileall/diff passed, fresh independent review SPEC/CODE PASS, PR 183 merged at `231f5be`; strict package/audit/browser/clean-first-run evidence remains open | begin Task 14: ETF Document Registry and Holdings Normaliser |
+| 4 | storage and evidence | Task 10 closed and synchronised; Tasks 11-14 implementation-complete and merged; eight issues closure-pending | Task 14 focused fund-document/holdings/Risk/Instrument Detail/trust/button bundle passed, Flet/E2E 14 passed, scoped Ruff/compileall/diff passed, fresh independent review SPEC/CODE PASS, PR 184 merged at `49abaf4`; strict package/audit/browser/clean-first-run evidence remains open | begin Task 15: PRIIPs KID and Index Methodology Parsers |
 | 5 | domain and scoring | Not started | source-aware deterministic scorer present; first-enabled benchmark and legacy ensemble remain | template/benchmark/champion RED suite |
 | 6 | AI and validation | Not started | optional adapter foundations present; authority/caching/validation seams remain | strict forecast-state and fold/trial RED suite |
 | 7 | portfolio | Not started | static holdings/allocation foundation present | immutable ledger RED suite |
@@ -271,3 +271,19 @@ and 220. PR 183 merged to `main` at
 implementation-complete/closure-pending strict release, audit/export,
 clean-first-run and browser/computer-use evidence. The next dependency-valid
 task is Wave 4 Task 14, ETF Document Registry and Holdings Normaliser.
+
+### Wave 4 Task 14 integration checkpoint - 2026-07-13
+
+Task 14 was independently re-reviewed after six bounded fix cycles covering
+mutable holdings-frame integrity, canonical schema version, future document
+dates, registry/holdings import paths, Instrument Detail evidence, multi-
+instrument/vendor preservation, four-file rollback and UI acceptance contracts.
+The final fresh reviewer approved specification compliance and code quality with
+no Critical, Important or Minor findings. Focused Task 14, Risk, Instrument
+Detail, trust-registration and button-contract tests passed; Flet/E2E controls,
+Ruff, compileall and diff checks passed. PR 184 merged to `main` at
+`49abaf4907f81ab2798a394d11cf2ddaf5d3b031`; `UPDATEV2-0015` and `UPDATEV2-0016`
+remain open as implementation-complete/closure-pending strict release,
+audit/export, clean-first-run and browser/computer-use evidence. The next
+dependency-valid task is Wave 4 Task 15, PRIIPs KID and Index Methodology
+Parsers.

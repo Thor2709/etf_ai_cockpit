@@ -881,25 +881,40 @@ audit/export, clean-first-run and browser/computer-use gates.
 - `normalise_holdings(frame, instrument_id, as_of, source) -> HoldingsNormalisationResult`.
 - Completeness states: `full`, `partial`, `invalid`, `stale`, `unavailable`.
 
-- [ ] **Step 1: Write document and holdings tests**
+- [x] **Step 1: Write document and holdings tests**
 
 Cover checksum/date/type inventory, missing document rows, exact duplicate handling, 99-101% full holdings tolerance, partial top holdings, invalid negative/overweight values, stale evidence-quality cap and Risk-page aggregation.
 
-- [ ] **Step 2: Implement registry and atomic stores**
+- [x] **Step 2: Implement registry and atomic stores**
 
 Write versioned `fund_documents.parquet` and holdings records with source IDs. Every configured ETF receives inventory rows for factsheet, KID, prospectus/report, holdings and methodology even when missing.
 
-- [ ] **Step 3: Integrate evidence eligibility**
+- [x] **Step 3: Integrate evidence eligibility**
 
 Full/current issuer holdings receive issuer authority; yfinance top holdings remain partial vendor evidence; stale/invalid holdings cannot support current exposure scoring.
 
-- [ ] **Step 4: Build ETF Disclosures and Risk panels**
+- [x] **Step 4: Build ETF Disclosures and Risk panels**
 
 Show document type/date/checksum/source, holdings completeness/freshness/confidence, missing requirements and exposure contribution.
 
 - [ ] **Step 5: Verify import/export/package**
 
 Use real issuer holdings where publicly available or a real downloaded issuer CSV; if unavailable for the selected ETF, use the existing imported issuer file as UI proof but do not claim live coverage. Verify audit inventory and packaged panels.
+
+**Task 14 implementation checkpoint - 2026-07-13:** Steps 1-4 are implemented
+and independently approved on branch `wave4/task14-fund-docs`, head commit
+`a7cb185`, merged through PR 184 at merge commit
+`49abaf4907f81ab2798a394d11cf2ddaf5d3b031`. The registry and holdings stores
+preserve checksums, source IDs, explicit missing rows, authority and eligibility
+boundaries; local document and CSV/XLSX holdings imports use fail-closed
+validation and atomic four-file publication; ETF Disclosures, Risk and
+Instrument Detail surfaces are wired and the two new UI controls are
+acceptance-covered. Focused Task 14/Risk/Instrument Detail/trust
+registration/button tests passed, scoped Ruff, compileall and diff checks
+passed, and the fresh independent reviewer returned SPEC PASS, CODE PASS and
+READY with no findings. `UPDATEV2-0015` and `UPDATEV2-0016` remain open as
+implementation-complete/closure-pending for strict audit/export, package,
+clean-first-run and browser/computer-use evidence; Step 5 is not yet passed.
 
 ---
 

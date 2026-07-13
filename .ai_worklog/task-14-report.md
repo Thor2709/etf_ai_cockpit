@@ -59,3 +59,34 @@
 
 The full package rebuild, audit/export archive, browser/computer-use smoke, clean-first-run,
 issue tracker synchronisation and closure-matrix gates remain outside this focused implementation.
+
+## Independent review and integration checkpoint - 2026-07-13
+
+Six fresh fix/review cycles addressed mutable holdings-frame persistence, canonical
+schema-version validation, future document dates, canonical document/holdings
+import paths, Instrument Detail disclosure rendering, multi-instrument and vendor
+context preservation, four-file rollback, UI acceptance contracts and retention
+of registry identities omitted from a non-empty enabled-ID list. The final fresh
+independent reviewer (`task14_reviewer_final6`) returned:
+
+- specification compliance: PASS;
+- code quality: PASS;
+- readiness: READY;
+- Critical, Important and Minor findings: none.
+
+The implementation head is `a7cb185` on `wave4/task14-fund-docs`, merged through
+PR 184 (`https://github.com/Thor2709/etf_ai_cockpit/pull/184`) into `main` at
+`49abaf4907f81ab2798a394d11cf2ddaf5d3b031`. Post-merge `main` matches
+`origin/main` and is clean.
+
+Post-merge verification:
+
+- `python -m pytest -q tests/test_fund_documents.py tests/test_fund_holdings.py tests/test_risk_analytics.py tests/test_instrument_detail.py tests/test_trust_critical_artifacts.py::test_trust_evidence_pages_are_registered tests/test_button_contracts.py --disable-warnings --maxfail=1` -> 67 passed, exit 0;
+- scoped Ruff -> passed;
+- `python -m compileall -q src tests` -> passed;
+- `git diff --check` -> passed;
+- full `tests/test_trust_critical_artifacts.py` -> 77 passed and one known baseline identity fixture failure (`16 < 45`), unrelated to Task 14.
+
+`UPDATEV2-0015` and `UPDATEV2-0016` remain open as implementation-complete and
+closure-pending. Step 5 and the strict package, audit/export, clean-first-run,
+browser/computer-use and closure-matrix gates are not claimed as passed.

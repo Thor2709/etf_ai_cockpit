@@ -1,6 +1,6 @@
 # ETF AI Cockpit Programme Index
 
-> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6, Wave 3 Tasks 7-9 and Wave 4 Tasks 10-13 are independently approved, merged and post-merge verified. Task 10 is closed locally and synchronised to GitHub Issue #81; Task 11, Task 12 and Task 13 are implementation-complete with their owning issues still closure-pending final release/package/browser/clean-first-run evidence. The next dependency-valid implementation is Task 14, ETF Document Registry and Holdings Normaliser.
+> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6, Wave 3 Tasks 7-9 and Wave 4 Tasks 10-14 are independently approved, merged and post-merge verified. Task 10 is closed locally and synchronised to GitHub Issue #81; Tasks 11-14 are implementation-complete with their owning issues still closure-pending strict release/package/audit/export/browser/clean-first-run evidence. The next dependency-valid implementation is Task 15, PRIIPs KID and Index Methodology Parsers.
 
 **Binding inputs:**
 
@@ -265,4 +265,17 @@ Filings-page controls are present. Focused tests, worker-level Arelle
 serialisation coverage, Ruff, compileall and diff checks pass. `UPDATEV2-0013`
 remains open as implementation-complete/closure-pending because strict release,
 audit/export, clean-first-run and browser/computer-use evidence is not yet
-fresh. Continue with Task 14, ETF Document Registry and Holdings Normaliser.
+fresh.
+
+Wave 4 Task 14, ETF Document Registry and Holdings Normaliser, is implemented
+and independently approved through PR 184 at merge commit
+`49abaf4907f81ab2798a394d11cf2ddaf5d3b031` (head `a7cb185`). The versioned
+document registry, explicit missing inventory, fail-closed issuer/vendor
+holdings eligibility, atomic four-file imports, ETF Disclosures/Risk panels,
+Instrument Detail disclosure panel and UI acceptance contracts are present.
+Focused Task 14/Risk/Instrument Detail/trust registration/button tests, Ruff,
+compileall and diff checks pass; the known unrelated trust identity fixture
+threshold remains documented. `UPDATEV2-0015` and `UPDATEV2-0016` remain open
+until strict release, audit/export, clean-first-run and browser/computer-use
+evidence is fresh. Continue with Task 15, PRIIPs KID and Index Methodology
+Parsers.

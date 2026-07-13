@@ -415,7 +415,7 @@ schema_version
 
 ## UPDATEV2-0015 - ETF disclosure registry (original update ISSUE-0015)
 
-**Status:** Open  
+**Status:** Open - implementation complete; closure pending strict package, audit/export, clean-first-run and browser/computer-use evidence
 **Type:** ETF Evidence  
 **Priority:** P0  
 **Evidence grade:** High  
@@ -432,7 +432,7 @@ schema_version
 
 ## UPDATEV2-0016 - ETF holdings normaliser (original update ISSUE-0016)
 
-**Status:** Open  
+**Status:** Open - implementation complete; closure pending strict package, audit/export, clean-first-run and browser/computer-use evidence
 **Type:** ETF Evidence / Holdings  
 **Priority:** P0  
 **Evidence grade:** High  
