@@ -18,6 +18,9 @@ from etf_cockpit.core.session_log import SESSION_LOG_PATH, copy_session_log_to
 from etf_cockpit.core.types import DataQualityReport, SignalResult
 from etf_cockpit.data.fx_data import fx_data_inventory
 from etf_cockpit.data.manual_notes import MANUAL_NEWS_CLEAN_PATH, load_manual_news, manual_news_markdown
+from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH
+from etf_cockpit.data.fundamentals import FUNDAMENTAL_RAW_DIR
+from etf_cockpit.data.news_context import NEWS_RAW_DIR
 from etf_cockpit.data.reference_data import reference_data_inventory
 from etf_cockpit.data.trust_artifacts import (
     BENCHMARK_ATTRIBUTION_PATH,
@@ -210,7 +213,27 @@ def export_review_pack(
     }
     (export_dir / "05_backtest_summary.json").write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
     manual_news = load_manual_news(MANUAL_NEWS_CLEAN_PATH)
-    (export_dir / "06_recent_news_events.md").write_text(manual_news_markdown(manual_news), encoding="utf-8")
+    news_markdown = manual_news_markdown(manual_news)
+    canonical_news = _safe_optional_frame(NEWS_CONTEXT_PATH)
+    if not canonical_news.empty:
+        news_markdown += "\n## Canonical point-in-time news/context\n\n"
+        news_markdown += "News is context-only (`executable_authority=false`) and unavailable rows are not backtest inputs.\n\n"
+        for _, row in canonical_news.tail(20).iterrows():
+            news_markdown += (
+                f"- {row.get('instrument_id', 'unavailable')} | {row.get('published_at', 'unavailable')} | "
+                f"provider={row.get('provider_name', 'unavailable')} | source_url={row.get('source_url', 'unavailable')} | "
+                f"status={row.get('timestamp_status', 'unavailable')} | executable_authority=false\n"
+            )
+    fundamentals = _safe_optional_frame(FUNDAMENTAL_CLEAN_PATH)
+    if not fundamentals.empty:
+        news_markdown += "\n## Fundamental evidence inventory\n\n"
+        for _, row in fundamentals.tail(20).iterrows():
+            news_markdown += (
+                f"- {row.get('instrument_id', 'unavailable')} | as_of={row.get('as_of_date', 'unavailable')} | "
+                f"eligibility={row.get('eligibility', 'not_score_eligible')} | source={row.get('source', 'unavailable')} | "
+                f"missing={row.get('missing_fields', 'none') or 'none'} | executable_authority=false\n"
+            )
+    (export_dir / "06_recent_news_events.md").write_text(news_markdown, encoding="utf-8")
     (export_dir / "07_questions_for_chatgpt.md").write_text(
         "- Which app signals are too weak after costs?\n- Which risks should downgrade buy/add/trim actions?\n- Are AI forecasts adding value versus simple baselines?\n",
         encoding="utf-8",
@@ -445,10 +468,17 @@ def _export_trust_critical_evidence(export_dir: Path, config: AppConfig) -> dict
         PRIIPS_KID_RECORDS_PATH,
         INDEX_METHODOLOGY_RECORDS_PATH,
         NEWS_CONTEXT_PATH,
+        NEWS_CONTEXT_PATH.with_suffix(".csv"),
+        NEWS_CONTEXT_PATH.with_name(NEWS_CONTEXT_PATH.stem + "_audit.json"),
         NEWS_TIMESTAMP_VALIDATION_PATH,
+        FUNDAMENTAL_CLEAN_PATH,
+        FUNDAMENTAL_CLEAN_PATH.with_suffix(".csv"),
+        FUNDAMENTAL_CLEAN_PATH.with_name(FUNDAMENTAL_CLEAN_PATH.stem + "_audit.json"),
     ):
         _copy_evidence_file(source_path, evidence_root, manifest)
     _copy_evidence_file(CANDLE_CONTEXT_PATH, evidence_root, manifest)
+    _copy_evidence_tree(FUNDAMENTAL_RAW_DIR, evidence_root / "raw_fundamentals", manifest)
+    _copy_evidence_tree(NEWS_RAW_DIR, evidence_root / "raw_news_context", manifest)
 
     session_destination = evidence_root / "session.jsonl"
     if copy_session_log_to(session_destination):
@@ -519,6 +549,24 @@ def _copy_evidence_file(source_path: Path, evidence_root: Path, manifest: dict[s
     _include_file(target, target.name, manifest)
 
 
+def _copy_evidence_tree(source_root: Path, destination_root: Path, manifest: dict[str, object]) -> None:
+    """Copy immutable raw generations into the audit packet when present."""
+
+    if not source_root.exists():
+        marker = destination_root.parent / f"{destination_root.name}_unavailable.txt"
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(f"{source_root} is unavailable. Missing optional raw evidence was not invented.\n", encoding="utf-8")
+        _include_file(marker, marker.relative_to(destination_root.parent).as_posix(), manifest)
+        manifest.setdefault("missing", []).append(str(source_root))
+        return
+    for source in sorted(path for path in source_root.rglob("*") if path.is_file()):
+        relative = source.relative_to(source_root)
+        target = destination_root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(source.read_bytes())
+        _include_file(target, target.relative_to(destination_root.parent).as_posix(), manifest)
+
+
 def _include_file(path: Path, arcname: str, manifest: dict[str, object]) -> None:
     manifest.setdefault("included", []).append(str(arcname))
     manifest.setdefault("checksums", {})[str(arcname)] = _sha256_file(path)
@@ -549,3 +597,10 @@ def _redact_config_text(text: str) -> str:
 def _safe_file_stem(value: str) -> str:
     cleaned = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in value.strip())
     return cleaned or "instrument"
+
+
+def _safe_optional_frame(path: Path) -> pd.DataFrame:
+    try:
+        return pd.read_parquet(path) if path.exists() else pd.DataFrame()
+    except Exception:
+        return pd.DataFrame()

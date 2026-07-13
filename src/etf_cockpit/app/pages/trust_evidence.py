@@ -10,6 +10,7 @@ from etf_cockpit.app.components.cards import evidence_chip, panel, section_heade
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import STATEMENT_FACTS_PATH
 from etf_cockpit.data.fund_documents import import_etf_document
+from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH
 from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH, import_etf_holdings_with_document
 from etf_cockpit.data.parsed_disclosures import (
     INDEX_METHODOLOGY_RECORDS_PATH,
@@ -108,6 +109,7 @@ def filings_page(page: ft.Page, state: AppState) -> ft.Control:
             ("SEC statement facts", STATEMENT_FACTS_PATH, ["instrument_id", "taxonomy", "concept", "canonical_metric", "mapping_status", "is_custom", "unit", "end", "filed", "form", "accession", "source_id"]),
             ("Provider probes", PROVIDER_PROBE_PATH, ["dataset_type", "provider_name", "status", "source_authority", "message"]),
             ("Identity mappings", IDENTITY_PATH, ["instrument_id", "isin", "yahoo_symbol", "exchange", "mic", "currency", "share_class", "listing", "identity_confidence", "warnings"]),
+            ("Fundamental evidence", FUNDAMENTAL_CLEAN_PATH, ["instrument_id", "as_of_date", "eligibility", "missing_fields", "warnings", "source", "source_authority", "limitations", "score_eligible", "executable_authority"]),
         ],
         extra=_filing_import_controls(page, state),
     )
@@ -134,9 +136,11 @@ def news_context_page(_page: ft.Page, _state) -> ft.Control:
         "Free/manual news and context evidence. News is non-executable and cannot directly change scores or actions.",
         [
             ("News/context inventory", NEWS_CONTEXT_PATH, ["instrument_id", "provider_name", "published_at", "timestamp_confidence", "context_only", "path"]),
-            ("Point-in-time validation", NEWS_TIMESTAMP_VALIDATION_PATH, ["news_id", "timestamp_status", "backtest_eligible", "reason"]),
+            ("Point-in-time validation", NEWS_TIMESTAMP_VALIDATION_PATH, ["news_id", "timestamp_status", "backtest_eligible", "reason", "available_at_decision_time", "instrument_mapping_method"]),
             ("Optional free provider status", PROVIDER_PROBE_PATH, ["dataset_type", "provider_name", "status", "message"]),
+            ("Fundamental source limitations", FUNDAMENTAL_CLEAN_PATH, ["instrument_id", "source", "source_authority", "limitations", "score_eligible", "executable_authority"]),
         ],
+        extra=ft.Text("Contradictions against deterministic price evidence are informational only; current-only or ambiguous news is unavailable to backtests and manual review is required.", color=theme.MUTED, selectable=True),
     )
 
 

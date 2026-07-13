@@ -1,0 +1,56 @@
+# Task 16 - Fundamentals, News, Point-in-Time Validation and Free Providers
+
+## RED baseline
+
+Command:
+
+```text
+pytest -q tests/test_fundamentals.py tests/test_news_context.py tests/test_optional_providers.py
+```
+
+Result: expected failure (7 failed, 4 passed). The failures prove the missing contracts: strict five-section eligibility/staleness/source fields, canonical raw/clean persistence, strict NewsItem point-in-time metadata and current-only rejection, and Task 8 capability probes for optional adapters.
+
+Implementation and GREEN evidence will be appended after the focused checks.
+
+## GREEN and focused integration evidence
+
+Commands and results:
+
+```text
+pytest -q tests/test_fundamentals.py tests/test_news_context.py tests/test_optional_providers.py
+13 passed
+
+pytest -q tests/test_provider_registry.py tests/test_instrument_detail.py
+15 passed
+
+pytest -q tests/test_release_hardening.py
+31 passed
+
+pytest -q tests/test_evidence_ledger.py tests/test_e2e_workflow.py
+5 passed
+
+pytest -q tests/test_release_hardening.py -k "audit_export"
+2 passed
+
+ruff check src/etf_cockpit/data/fundamentals.py src/etf_cockpit/data/news_context.py src/etf_cockpit/data/fred_provider.py src/etf_cockpit/data/rss_provider.py src/etf_cockpit/data/stooq_provider.py src/etf_cockpit/data/sec_edgar_provider.py src/etf_cockpit/data/trust_artifacts.py src/etf_cockpit/chatgpt_bridge/export_pack.py src/etf_cockpit/app/pages/etf_detail.py src/etf_cockpit/app/pages/trust_evidence.py src/etf_cockpit/app/selectors/instrument_detail.py tests/test_fundamentals.py tests/test_news_context.py tests/test_optional_providers.py
+All checks passed
+
+python -m compileall -q src
+exit 0
+```
+
+The implementation keeps yfinance as the default, forces context/news and
+fundamentals to `executable_authority=false`, rejects missing/ambiguous/current-only
+news from point-in-time backtests, and persists immutable raw plus idempotent
+clean/audit rows through atomic writes. Optional FRED, RSS, Stooq and SEC probes
+are visible through the Task 8 registry and make no network calls by default.
+
+Remaining closure gates: full release/package/browser/computer-use matrix and
+parent-owned issue/closure records. Four `data/.schema_versions/*.json` files
+may show metadata-only CRLF/stat changes after pytest; they are unrelated to
+Task 16 and should be cleaned before integration.
+
+The repository-wide `pytest -q` collection gate remains blocked by four
+pre-existing missing `scripts.*` modules (`scripts.sync_github_issues`,
+`scripts.dev_finish_check`, `scripts.smoke_app`, `scripts.launcher_core`). No
+Task16 test failure was observed before collection stopped.
