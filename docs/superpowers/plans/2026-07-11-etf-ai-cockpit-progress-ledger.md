@@ -9,7 +9,7 @@
 | Updated | 2026-07-13 |
 | Active phase | Wave 4 Task 16 implementation complete and merged; `ISSUE-0023`, `ISSUE-0025`, `ISSUE-0054` and `ISSUE-0055` plus earlier Wave 4 issues closure-pending strict release/audit/browser/clean-first-run evidence; Task 17 next |
 | Active plan | `docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md` |
-| Git state | PR 186 merged Task 16 into `main` at `3143678`; implementation head `cd7aea5`; local `main` matches `origin/main` and is clean |
+| Git state | PR 186 merged Task 16 into `main` at `3143678`; documentation and GitHub reconciliation are committed through `0d1c593`; local `main` matches `origin/main` and is clean |
 | Existing closure state | Task 11 issues `ISSUE-0068`, `ISSUE-0018`, `ISSUE-0017` and `ISSUE-0056` are implementation-complete but closure-pending final release/browser/clean-first-run evidence; `ISSUE-0035` is closed locally and on GitHub Issue #81 |
 | Fresh baseline | Task 10 focused 16 and affected 40 passed; compileall/Ruff/source smoke passed; portable build, native/portable smoke, semantic focus, export and authoritative full suite passed; package-inventory rerun passed after removing the merged worktree |
 | Pre-existing type state | recorded mypy failure caused by external stubs and existing typing debt; no new failure attributed |
