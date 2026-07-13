@@ -226,3 +226,17 @@ authoritative ledgers as part of remote synchronisation.
 - The updated `issues/github_issue_map.json` and
   `issues/github_issue_sync_report.json` are the deterministic mirror evidence;
   the committed local ledger and approved specification remain authoritative.
+
+## Ledger refresh after Wave 4 Task 15 - 2026-07-13
+
+- Authenticated `python scripts/sync_github_issues.py --apply` completed after
+  the Task 15 ledger checkpoint. Reconciliation remains 98 canonical records,
+  77 local open and 21 local closed records, with matching mapped GitHub
+  states, unique local IDs, valid URLs and no unresolved duplicates.
+- `UPDATEV2-0017` maps to GitHub Issue #157 OPEN and `UPDATEV2-0019` maps to
+  GitHub Issue #159 OPEN. Their managed bodies now state implementation
+  complete/closure pending; no issue was closed because strict release,
+  audit/export, clean-first-run and browser/computer-use evidence remains
+  outstanding.
+- The committed local ledger and approved specification remain authoritative;
+  GitHub Issues are synchronised project-management representations.
