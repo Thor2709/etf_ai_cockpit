@@ -377,6 +377,7 @@ def write_trust_artifacts_for_scores(
     prices: pd.DataFrame | None = None,
 ) -> dict[str, Path]:
     scores = list(scores)
+    ranked_instruments = [str(getattr(score, "display_id", "")) for score in scores[:10]]
     now = _utc_now()
     run_id = f"score_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}_{uuid.uuid4().hex[:8]}"
     refresh_static_trust_artifacts(config)
@@ -389,8 +390,8 @@ def write_trust_artifacts_for_scores(
         "correlation_clusters": write_correlation_clusters(
             prices,
             _configured_metadata(config),
-            ranked_instruments=[str(getattr(score, "display_id", "")) for score in scores],
-            weights={str(getattr(score, "display_id", "")): 1.0 for score in scores},
+            ranked_instruments=ranked_instruments,
+            weights={instrument_id: 1.0 for instrument_id in ranked_instruments},
         ),
         "benchmark_attribution": write_benchmark_attribution(scoreboard),
     }

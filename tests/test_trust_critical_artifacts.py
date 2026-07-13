@@ -247,6 +247,67 @@ def test_score_artifacts_write_history_components_and_drivers() -> None:
     assert "VWCE" in set(history["instrument_id"])
 
 
+def test_score_trust_writer_uses_same_top_ten_theme_cohort_as_scores(tmp_path, monkeypatch) -> None:
+    import numpy as np
+
+    from etf_cockpit.features.crowding import build_correlation_clusters
+
+    output_names = (
+        "EVIDENCE_LEDGER_PATH",
+        "SCORE_COMPONENTS_PATH",
+        "SCORE_HISTORY_PATH",
+        "SCORE_METRIC_HISTORY_PATH",
+        "FEATURE_DRIVERS_PATH",
+        "CORRELATION_CLUSTERS_PATH",
+        "BENCHMARK_ATTRIBUTION_PATH",
+    )
+    for name in output_names:
+        monkeypatch.setattr(trust, name, tmp_path / f"{name.lower()}.parquet")
+    monkeypatch.setattr(trust, "refresh_static_trust_artifacts", lambda config: {})
+    monkeypatch.setattr(trust, "log_event", lambda **kwargs: None)
+
+    instrument_ids = [f"AI_{index:02d}" for index in range(10)] + [f"BOND_{index:02d}" for index in range(10)]
+    metadata = {
+        instrument_id: {"sector": "Technology" if instrument_id.startswith("AI_") else "Defensive", "theme": "AI" if instrument_id.startswith("AI_") else "Bonds"}
+        for instrument_id in instrument_ids
+    }
+    config = SimpleNamespace(
+        universe=SimpleNamespace(
+            etfs=[SimpleNamespace(id=instrument_id, **metadata[instrument_id]) for instrument_id in instrument_ids],
+            enabled_ids=instrument_ids,
+        )
+    )
+    index = pd.date_range("2026-01-01", periods=150, freq="D")
+    rng = np.random.default_rng(18)
+    returns = rng.normal(0.0005, 0.01, size=(len(index), len(instrument_ids)))
+    prices = pd.DataFrame(100.0 * np.exp(np.cumsum(returns, axis=0)), index=index, columns=instrument_ids)
+    scores = [
+        SimpleNamespace(
+            display_id=instrument_id,
+            final_score_10=float(20 - rank),
+            latest_date="2026-05-30",
+            components=[],
+            warnings=[],
+        )
+        for rank, instrument_id in enumerate(instrument_ids)
+    ]
+
+    expected = build_correlation_clusters(
+        prices,
+        metadata,
+        ranked_instruments=instrument_ids[:10],
+        weights={instrument_id: 1.0 for instrument_id in instrument_ids[:10]},
+    )
+    paths = trust.write_trust_artifacts_for_scores(config, scores, pd.DataFrame(), prices)
+    persisted = pd.read_parquet(paths["correlation_clusters"])
+
+    assert expected.top_ranked_theme_concentration == 1.0
+    assert expected.top_ranked_theme_warning == "theme_concentration_warning"
+    assert set(persisted["top_ranked_theme_concentration"]) == {expected.top_ranked_theme_concentration}
+    assert set(persisted["top_ranked_theme_warning"]) == {expected.top_ranked_theme_warning}
+    assert set(persisted["execution_allowed"]) == {False}
+
+
 def test_production_score_history_replaces_complete_run_snapshot_when_scope_narrows(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(trust, "SCORE_HISTORY_PATH", tmp_path / "score_history.parquet")
     first = [
