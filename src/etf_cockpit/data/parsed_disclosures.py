@@ -12,8 +12,14 @@ import pandas as pd
 
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
 from etf_cockpit.core.paths import CLEAN_DIR
+from etf_cockpit.data.fund_documents import (
+    FUND_DOCUMENTS_PATH,
+    build_document_inventory,
+    read_document_registry,
+    register_document,
+)
 from etf_cockpit.parsers.contracts import ParseResult
-from etf_cockpit.parsers.index_methodology import IndexMethodologyRecord
+from etf_cockpit.parsers.index_methodology import IndexMethodologyRecord, apply_methodology_holdings_assessment
 from etf_cockpit.parsers.priips_kid import PriipsKidRecord
 
 
@@ -51,7 +57,10 @@ def persist_index_methodology_result(
     instrument_id: str,
     *,
     destination: Path = INDEX_METHODOLOGY_RECORDS_PATH,
+    holdings: pd.DataFrame | None = None,
 ) -> Path:
+    if holdings is not None:
+        result = apply_methodology_holdings_assessment(result, holdings)
     rows = [_methodology_row(result, instrument_id, record) for record in result.records]
     if not rows:
         rows = [_methodology_unavailable_row(result, instrument_id)]
@@ -69,6 +78,132 @@ def read_index_methodology_records(path: Path = INDEX_METHODOLOGY_RECORDS_PATH) 
 # Compatibility aliases for import callers.
 persist_priips_kid = persist_priips_kid_result
 persist_index_methodology = persist_index_methodology_result
+
+
+def persist_priips_kid_with_document(
+    result: ParseResult[PriipsKidRecord],
+    instrument_id: str,
+    document_path: Path,
+    *,
+    destination: Path = PRIIPS_KID_RECORDS_PATH,
+    registry_destination: Path = FUND_DOCUMENTS_PATH,
+    source_url: str = "",
+    authority: str = "issuer_document",
+    document_date: str | None = None,
+    configured_instrument_ids: Iterable[str] = (),
+) -> Path:
+    """Publish KID parsed rows and the FundDocument registry as one transaction."""
+
+    return _persist_with_document(
+        result,
+        instrument_id,
+        document_path,
+        "kid",
+        destination=destination,
+        registry_destination=registry_destination,
+        source_url=source_url,
+        authority=authority,
+        document_date=document_date or (result.records[0].document_date if result.records else None),
+        configured_instrument_ids=configured_instrument_ids,
+    )
+
+
+def persist_index_methodology_with_document(
+    result: ParseResult[IndexMethodologyRecord],
+    instrument_id: str,
+    document_path: Path,
+    *,
+    destination: Path = INDEX_METHODOLOGY_RECORDS_PATH,
+    registry_destination: Path = FUND_DOCUMENTS_PATH,
+    source_url: str = "",
+    authority: str = "issuer_document",
+    document_date: str | None = None,
+    configured_instrument_ids: Iterable[str] = (),
+    holdings: pd.DataFrame | None = None,
+) -> Path:
+    """Publish methodology parsed rows and the FundDocument registry atomically."""
+
+    if holdings is not None:
+        result = apply_methodology_holdings_assessment(result, holdings)
+    return _persist_with_document(
+        result,
+        instrument_id,
+        document_path,
+        "methodology",
+        destination=destination,
+        registry_destination=registry_destination,
+        source_url=source_url,
+        authority=authority,
+        document_date=document_date,
+        configured_instrument_ids=configured_instrument_ids,
+    )
+
+
+def _persist_with_document(
+    result: ParseResult[Any],
+    instrument_id: str,
+    document_path: Path,
+    document_type: str,
+    *,
+    destination: Path,
+    registry_destination: Path,
+    source_url: str,
+    authority: str,
+    document_date: str | None,
+    configured_instrument_ids: Iterable[str],
+) -> Path:
+    destination = Path(destination)
+    registry_destination = Path(registry_destination)
+    if document_type == "kid":
+        columns = KID_COLUMNS
+        rows = [_kid_row(result, instrument_id, record) for record in result.records]
+        if not rows:
+            rows = [_kid_unavailable_row(result, instrument_id)]
+    else:
+        columns = METHODOLOGY_COLUMNS
+        rows = [_methodology_row(result, instrument_id, record) for record in result.records]
+        if not rows:
+            rows = [_methodology_unavailable_row(result, instrument_id)]
+    existing = _read_frame(destination, columns)
+    incoming = pd.DataFrame(rows, columns=columns)
+    combined = pd.concat([existing, incoming], ignore_index=True) if not existing.empty else incoming
+    if not combined.empty:
+        combined = combined.drop_duplicates(subset=["source_id"], keep="last").sort_values("source_id", kind="stable").reset_index(drop=True)
+
+    registry_existing = _read_registry_fail_closed(registry_destination)
+    document = register_document(
+        Path(document_path),
+        document_type,
+        instrument_id,
+        source_url,
+        authority,
+        document_date=document_date,
+    )
+    ids = [str(item).strip() for item in configured_instrument_ids if str(item).strip()]
+    if not registry_existing.empty and "instrument_id" in registry_existing.columns:
+        ids.extend(value for value in registry_existing["instrument_id"].dropna().astype(str).map(str.strip) if value)
+    ids.append(str(instrument_id).strip())
+    inventory = build_document_inventory(ids, [*registry_existing.to_dict("records"), document])
+
+    requests = (
+        AtomicWriteRequest(destination, parquet_payload(combined), validate_parquet_file),
+        AtomicWriteRequest(destination.with_suffix(".csv"), combined.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
+        AtomicWriteRequest(registry_destination, parquet_payload(inventory), validate_parquet_file),
+        AtomicWriteRequest(registry_destination.with_suffix(".csv"), inventory.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
+    )
+    atomic_write_group(requests)
+    return destination
+
+
+def _read_registry_fail_closed(path: Path) -> pd.DataFrame:
+    candidate = Path(path)
+    if not candidate.exists() or not candidate.is_file():
+        return pd.DataFrame()
+    try:
+        pd.read_parquet(candidate)
+    except Exception as exc:
+        raise ValueError(f"Fund document registry is corrupt: {candidate}") from exc
+    return read_document_registry(path=candidate)
 
 
 def _kid_row(result: ParseResult[PriipsKidRecord], instrument_id: str, record: PriipsKidRecord) -> dict[str, Any]:
@@ -206,8 +341,8 @@ def _read_frame(path: Path, columns: list[str]) -> pd.DataFrame:
         return pd.DataFrame(columns=columns)
     try:
         frame = pd.read_parquet(candidate)
-    except Exception:
-        return pd.DataFrame(columns=columns)
+    except Exception as exc:
+        raise ValueError(f"Parsed disclosure store is corrupt: {candidate}") from exc
     for column in columns:
         if column not in frame.columns:
             frame[column] = None
@@ -274,8 +409,10 @@ __all__ = [
     "PRIIPS_KID_RECORDS_PATH",
     "persist_index_methodology",
     "persist_index_methodology_result",
+    "persist_index_methodology_with_document",
     "persist_priips_kid",
     "persist_priips_kid_result",
+    "persist_priips_kid_with_document",
     "read_index_methodology_records",
     "read_priips_kid_records",
 ]

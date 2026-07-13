@@ -14,8 +14,8 @@ from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH, import_etf_holdin
 from etf_cockpit.data.parsed_disclosures import (
     INDEX_METHODOLOGY_RECORDS_PATH,
     PRIIPS_KID_RECORDS_PATH,
-    persist_index_methodology_result,
-    persist_priips_kid_result,
+    persist_index_methodology_with_document,
+    persist_priips_kid_with_document,
 )
 from etf_cockpit.data.provider_registry import ProviderRegistry
 from etf_cockpit.data.trust_artifacts import (
@@ -307,19 +307,23 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
                 if parsed is None:
                     result.value = "PRIIPs import requires a readable PDF."
                 else:
-                    persist_priips_kid_result(parsed, instrument_id)
                     record = parsed.records[0] if parsed.records else None
                     document_date = record.document_date if record is not None else str(document_date_field.value or "").strip() or None
-                    document = import_etf_document(
+                    document = persist_priips_kid_with_document(
+                        parsed,
+                        instrument_id,
                         path,
-                        instrument_id=instrument_id,
-                        document_type="kid",
                         document_date=document_date,
-                        authority="issuer_document",
                         configured_instrument_ids=state.snapshot.config.universe.configured_enabled_ids,
                     )
+                    from etf_cockpit.data.fund_documents import read_document_registry
+
+                    registry = read_document_registry(path=document.with_name("fund_documents.parquet"))
+                    registered = registry.loc[registry["instrument_id"].astype(str).eq(instrument_id)]
+                    document_row = registered.loc[registered["document_type"].astype(str).eq("kid")].iloc[-1] if not registered.empty else None
+                    document_checksum = str(document_row["sha256"]) if document_row is not None else ""
                     warning_text = ", ".join(item.code for item in parsed.warnings) or "none"
-                    result.value = f"PRIIPs KID {document.instrument_id}: records={len(parsed.records)}, confidence={record.extraction_confidence if record else 'unavailable'}, pages={record.source_pages if record else ()}, warnings={warning_text}, checksum={document.sha256[:12]}..., success={parsed.success}."
+                    result.value = f"PRIIPs KID {instrument_id}: records={len(parsed.records)}, confidence={record.extraction_confidence if record else 'unavailable'}, pages={record.source_pages if record else ()}, warnings={warning_text}, checksum={document_checksum[:12]}..., success={parsed.success}."
                 state.last_message = result.value
             except Exception as exc:
                 state.fail_activity("Import PRIIPs KID", exc)
@@ -341,18 +345,32 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
                 if parsed is None:
                     result.value = "Methodology import requires a readable PDF."
                 else:
-                    persist_index_methodology_result(parsed, instrument_id)
+                    holdings = pd.DataFrame()
+                    if FUND_HOLDINGS_PATH.exists():
+                        try:
+                            stored_holdings = pd.read_parquet(FUND_HOLDINGS_PATH)
+                            if "instrument_id" in stored_holdings.columns:
+                                holdings = stored_holdings.loc[stored_holdings["instrument_id"].astype(str).eq(instrument_id)].copy()
+                        except Exception:
+                            holdings = pd.DataFrame()
+                    from etf_cockpit.parsers.index_methodology import apply_methodology_holdings_assessment
+
+                    parsed = apply_methodology_holdings_assessment(parsed, holdings)
                     record = parsed.records[0] if parsed.records else None
-                    document = import_etf_document(
+                    document = persist_index_methodology_with_document(
+                        parsed,
+                        instrument_id,
                         path,
-                        instrument_id=instrument_id,
-                        document_type="methodology",
-                        document_date=None,
-                        authority="issuer_document",
                         configured_instrument_ids=state.snapshot.config.universe.configured_enabled_ids,
                     )
+                    from etf_cockpit.data.fund_documents import read_document_registry
+
+                    registry = read_document_registry(path=document.with_name("fund_documents.parquet"))
+                    registered = registry.loc[registry["instrument_id"].astype(str).eq(instrument_id)]
+                    document_row = registered.loc[registered["document_type"].astype(str).eq("methodology")].iloc[-1] if not registered.empty else None
+                    document_checksum = str(document_row["sha256"]) if document_row is not None else ""
                     warning_text = ", ".join(item.code for item in parsed.warnings) or "none"
-                    result.value = f"Methodology {document.instrument_id}/{provider or 'unknown provider'}: records={len(parsed.records)}, version={record.version if record else 'unavailable'}, pages={record.source_pages if record else ()}, warnings={warning_text}, checksum={document.sha256[:12]}..., success={parsed.success}."
+                    result.value = f"Methodology {instrument_id}/{provider or 'unknown provider'}: records={len(parsed.records)}, version={record.version if record else 'unavailable'}, pages={record.source_pages if record else ()}, warnings={warning_text}, checksum={document_checksum[:12]}..., success={parsed.success}."
                 state.last_message = result.value
             except Exception as exc:
                 state.fail_activity("Import index methodology", exc)

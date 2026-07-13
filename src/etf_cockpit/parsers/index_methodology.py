@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 import re
+
+import pandas as pd
 
 from etf_cockpit.parsers.contracts import ParseResult, ParseWarning, _sha256_file
 
@@ -48,6 +50,130 @@ class IndexMethodologyRecord:
     schema_version: int = 2
     manual_review: bool = False
     score_eligible: bool = False
+
+
+@dataclass(frozen=True)
+class MethodologyHoldingsAssessment:
+    """Deterministic comparison of methodology rules with normalised holdings."""
+
+    warnings: tuple[ParseWarning, ...]
+    manual_review: bool
+    score_eligible: bool
+    availability: str
+    conflict: bool
+
+
+def assess_methodology_holdings(
+    record: IndexMethodologyRecord,
+    holdings: pd.DataFrame | None,
+) -> MethodologyHoldingsAssessment:
+    """Compare explicit methodology constraints with actual holdings rows.
+
+    The helper accepts the canonical normalised holdings frame (``security`` /
+    ``weight`` plus optional region aliases).  Missing holdings are an explicit
+    unavailable/manual-review state; no conflict is inferred from an absent
+    frame.  Only material, directly stated cap or geography rules can produce
+    a conflict warning.
+    """
+
+    if holdings is None or holdings.empty:
+        warning = ParseWarning(
+            "methodology_holdings_unavailable",
+            "Methodology holdings comparison is unavailable because no holdings rows were supplied",
+            "warning",
+            "holdings",
+        )
+        return MethodologyHoldingsAssessment((warning,), True, False, "unavailable", False)
+
+    frame = holdings.copy()
+    security_column = next((column for column in ("security", "holding_name", "security_name", "name", "ticker", "symbol", "isin") if column in frame.columns), None)
+    weight_column = next((column for column in ("weight", "weight_decimal", "weight_percent", "weight_pct") if column in frame.columns), None)
+    if security_column is None or weight_column is None:
+        warning = ParseWarning(
+            "methodology_holdings_unavailable",
+            "Methodology holdings comparison requires normalised security and weight columns",
+            "warning",
+            "holdings",
+        )
+        return MethodologyHoldingsAssessment((warning,), True, False, "unavailable", False)
+
+    weights = pd.to_numeric(frame[weight_column], errors="coerce")
+    if weights.isna().any():
+        warning = ParseWarning("methodology_holdings_unavailable", "Methodology holdings contain non-numeric weights", "warning", "holdings")
+        return MethodologyHoldingsAssessment((warning,), True, False, "unavailable", False)
+    weights = weights.astype(float)
+    if weight_column in {"weight_percent", "weight_pct"} or float(weights.max()) > 1:
+        weights = weights / 100.0
+    if (weights < 0).any() or (weights > 1).any():
+        warning = ParseWarning("methodology_holdings_unavailable", "Methodology holdings contain unusable weights", "warning", "holdings")
+        return MethodologyHoldingsAssessment((warning,), True, False, "unavailable", False)
+
+    rules_text = " ".join((*record.eligibility_rules, *record.weighting_rules, *record.caps)).casefold()
+    conflicts: list[str] = []
+    cap_match = re.search(
+        r"(?:maximum|max(?:imum)?\s+weight|cap(?:ping)?).{0,40}?(\d+(?:\.\d+)?)\s*%|"
+        r"(\d+(?:\.\d+)?)\s*%[^.;]{0,20}(?:cap|maximum)",
+        rules_text,
+        re.IGNORECASE,
+    )
+    if cap_match is not None:
+        cap_text = cap_match.group(1) or cap_match.group(2)
+        cap = float(cap_text) / 100.0
+        if bool((weights > cap + 1e-9).any()):
+            conflicts.append(f"holding weight exceeds stated {cap_text}% cap")
+
+    region_column = next((column for column in ("region", "market", "country_group", "geography") if column in frame.columns), None)
+    if region_column is not None:
+        regions = frame[region_column].fillna("").astype(str).str.casefold()
+        if "developed" in rules_text and bool(regions.str.contains("emerging|frontier", regex=True).any()):
+            conflicts.append("holding geography is outside the stated developed-market eligibility")
+        if "emerging" in rules_text and bool(regions.str.contains("developed", regex=True).any()) and "developed" not in rules_text:
+            conflicts.append("holding geography is outside the stated emerging-market eligibility")
+
+    if conflicts:
+        warning = ParseWarning(
+            "methodology_holdings_conflict",
+            "Methodology and holdings evidence materially disagree: " + "; ".join(conflicts),
+            "warning",
+            "holdings",
+        )
+        return MethodologyHoldingsAssessment((warning,), True, False, "available", True)
+    return MethodologyHoldingsAssessment(
+        (),
+        bool(record.manual_review),
+        bool(record.score_eligible),
+        "available",
+        False,
+    )
+
+
+def apply_methodology_holdings_assessment(
+    result: ParseResult[IndexMethodologyRecord],
+    holdings: pd.DataFrame | None,
+) -> ParseResult[IndexMethodologyRecord]:
+    """Attach holdings comparison warnings to persisted methodology evidence."""
+
+    if not result.records:
+        return result
+    updated_records: list[IndexMethodologyRecord] = []
+    extra_warnings: list[ParseWarning] = []
+    for record in result.records:
+        assessment = assess_methodology_holdings(record, holdings)
+        extra_warnings.extend(assessment.warnings)
+        if assessment.warnings:
+            updated_records.append(
+                replace(
+                    record,
+                    warnings=tuple(dict.fromkeys((*record.warnings, *(item.code for item in assessment.warnings)))),
+                    manual_review=True,
+                    score_eligible=False,
+                    confidence="partial",
+                )
+            )
+        else:
+            updated_records.append(record)
+    warnings = tuple((*result.warnings, *extra_warnings))
+    return ParseResult(tuple(updated_records), warnings, result.parser_name, result.parser_version, result.source_sha256, result.success and not extra_warnings)
 
 
 def parse_index_methodology(path: Path, provider: str) -> ParseResult[IndexMethodologyRecord]:
@@ -172,4 +298,11 @@ def _warning(code: str, message: str, text: str, pages: list[str], term: str) ->
     return ParseWarning(code, message, "warning", _location(text, pages, term))
 
 
-__all__ = ["PARSER_VERSION", "IndexMethodologyRecord", "parse_index_methodology"]
+__all__ = [
+    "PARSER_VERSION",
+    "IndexMethodologyRecord",
+    "MethodologyHoldingsAssessment",
+    "apply_methodology_holdings_assessment",
+    "assess_methodology_holdings",
+    "parse_index_methodology",
+]

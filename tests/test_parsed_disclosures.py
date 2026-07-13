@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pandas as pd
+import pytest
+
 from etf_cockpit.parsers.contracts import ParseResult, ParseWarning
 from etf_cockpit.parsers.index_methodology import IndexMethodologyRecord
 from etf_cockpit.parsers.priips_kid import PriipsKidRecord
@@ -81,3 +84,83 @@ def test_parsed_methodology_persistence_retains_warning_pages_and_manual_state(t
     assert row["source_pages"] == "[1, 3]"
     assert "methodology_holdings_conflict" in row["warnings"]
     assert bool(row["manual_review"]) is True
+
+
+def test_methodology_persistence_attaches_real_holdings_conflict(tmp_path: Path) -> None:
+    from etf_cockpit.data.parsed_disclosures import persist_index_methodology_result, read_index_methodology_records
+
+    destination = tmp_path / "index_methodology_records.parquet"
+    holdings = pd.DataFrame({"security": ["Large"], "weight": [0.08], "region": ["Developed Markets"]})
+    persist_index_methodology_result(_methodology_result(), "VWCE", destination=destination, holdings=holdings)
+
+    row = read_index_methodology_records(destination).iloc[0]
+    assert "methodology_holdings_conflict" in row["warnings"]
+    assert bool(row["manual_review"]) is True
+    assert bool(row["score_eligible"]) is False
+
+
+def test_combined_kid_import_publishes_parsed_store_and_registry_atomically(tmp_path: Path) -> None:
+    import etf_cockpit.data.parsed_disclosures as parsed
+
+    source = tmp_path / "kid.pdf"
+    source.write_bytes(b"kid source")
+    destination = tmp_path / "priips_kid_records.parquet"
+    registry = tmp_path / "fund_documents.parquet"
+
+    assert hasattr(parsed, "persist_priips_kid_with_document")
+    parsed.persist_priips_kid_with_document(
+        _kid_result(),
+        "VWCE",
+        source,
+        destination=destination,
+        registry_destination=registry,
+    )
+
+    assert len(pd.read_parquet(destination)) == 1
+    registry_frame = pd.read_parquet(registry)
+    assert set(registry_frame["document_type"]) >= {"kid"}
+
+
+def test_combined_kid_import_rolls_back_when_registry_stage_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import etf_cockpit.data.parsed_disclosures as parsed
+    from etf_cockpit.core import atomic_io
+
+    source = tmp_path / "kid.pdf"
+    source.write_bytes(b"kid source")
+    destination = tmp_path / "priips_kid_records.parquet"
+    registry = tmp_path / "fund_documents.parquet"
+    parsed.persist_priips_kid_with_document(_kid_result(), "VWCE", source, destination=destination, registry_destination=registry)
+    prior = {
+        path: path.read_bytes()
+        for path in (destination, destination.with_suffix(".csv"), registry, registry.with_suffix(".csv"))
+    }
+
+    real_atomic_write_group = atomic_io.atomic_write_group
+
+    def fail_registry_stage(requests, **kwargs):
+        staged = []
+        for request in tuple(requests):
+            if request.destination.resolve() == registry.resolve():
+                staged.append(atomic_io.AtomicWriteRequest(request.destination, request.payload, lambda _path: (_ for _ in ()).throw(OSError("registry validation failed"))))
+            else:
+                staged.append(request)
+        return real_atomic_write_group(tuple(staged), **kwargs)
+
+    monkeypatch.setattr(parsed, "atomic_write_group", fail_registry_stage)
+    with pytest.raises(OSError, match="registry validation failed"):
+        parsed.persist_priips_kid_with_document(_kid_result(), "LYP6", source, destination=destination, registry_destination=registry)
+
+    assert {path: path.read_bytes() for path in prior} == prior
+
+
+def test_corrupt_parsed_store_fails_closed_without_overwriting_prior_bytes(tmp_path: Path) -> None:
+    from etf_cockpit.data.parsed_disclosures import persist_priips_kid_result
+
+    destination = tmp_path / "corrupt.parquet"
+    destination.write_bytes(b"corrupt parquet bytes")
+    prior = destination.read_bytes()
+
+    with pytest.raises(ValueError, match="corrupt"):
+        persist_priips_kid_result(_kid_result(), "VWCE", destination=destination)
+
+    assert destination.read_bytes() == prior

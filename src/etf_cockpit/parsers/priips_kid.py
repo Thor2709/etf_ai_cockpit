@@ -179,25 +179,128 @@ def _manufacturer(text: str) -> str:
 
 
 def _extract_costs(text: str, pages: list[str]) -> tuple[dict[str, str], ParseWarning | None]:
-    patterns = {
-        "entry_costs": r"Entry costs\s+(.+?)(?=\s+Exit costs\b|\n|$)",
-        "exit_costs": r"Exit costs\s+(.+?)(?=\s+Ongoing costs\b|\n|$)",
-        "ongoing_costs": r"(?:Management fees and other administrative or operating costs|Ongoing costs taken each year)\s+(.+?)(?=\s+Transaction costs\b|\s+Incidental costs\b|\n|$)",
-        "transaction_costs": r"Transaction costs\s+(.+?)(?=\s+Incidental costs\b|\s+Performance fees\b|\n|$)",
-        "performance_fees": r"Performance fees\s+(.+?)(?=\n|$)",
-    }
+    """Extract only bounded values from the issuer's cost-table rows.
+
+    KID PDF tables are commonly emitted by ``pdfplumber`` in visual-column
+    order rather than reading order.  Parsing one broad DOTALL expression can
+    therefore capture the next question/header or transaction prose.  This
+    routine anchors each row to its label, keeps the row within the cost
+    section, and requires an explicit percentage/currency token before a value
+    is accepted.
+    """
+
+    lines = text.splitlines()
+    section_start = next((index for index, line in enumerate(lines) if re.search(r"Composition of Costs", line, re.IGNORECASE)), None)
+    if section_start is None:
+        return {}, _warning("cost_table_malformed", "KID cost table is unavailable or malformed", text, pages, "cost")
+    section_end = next(
+        (index for index in range(section_start + 1, len(lines)) if re.search(r"How long should I hold it", lines[index], re.IGNORECASE)),
+        len(lines),
+    )
+    rows = [" ".join(line.split()).strip() for line in lines[section_start:section_end] if line.strip()]
     result: dict[str, str] = {}
-    for key, pattern in patterns.items():
-        match = re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL)
-        if match:
-            value = " ".join(match.group(1).split()).strip()
-            if value:
-                result[key] = value[:240]
+
+    def clean(parts: list[str]) -> str | None:
+        value = " ".join(" ".join(parts).split()).strip()
+        value = re.sub(r"\bWhat are the costs\?\b", "", value, flags=re.IGNORECASE)
+        value = re.sub(r"\bIf you exit after \d+\b", "", value, flags=re.IGNORECASE)
+        value = " ".join(value.split()).strip(" -:")
+        if not value or "?" in value or re.search(r"What are the costs|Composition of Costs", value, re.IGNORECASE):
+            return None
+        if not re.search(r"(?:\b(?:EUR|GBP|USD)\s*\d+(?:[.,]\d+)?|\d+(?:[.,]\d+)?\s*%)", value, re.IGNORECASE):
+            return None
+        return value[:500]
+
+    def after(prefix: str, index: int) -> str:
+        return rows[index][len(prefix):].strip(" :")
+
+    entry_index = next((index for index, row in enumerate(rows) if re.match(r"^Entry costs\b", row, re.IGNORECASE)), None)
+    if entry_index is not None:
+        value = clean([after("Entry costs", entry_index)])
+        if value:
+            result["entry_costs"] = value
+
+    exit_index = next((index for index, row in enumerate(rows) if re.match(r"^Exit costs\b", row, re.IGNORECASE)), None)
+    if exit_index is not None:
+        parts: list[str] = []
+        if exit_index and rows[exit_index - 1].casefold().startswith("the fund does not charge an exit fee"):
+            parts.append(rows[exit_index - 1])
+        parts.append(after("Exit costs", exit_index))
+        if exit_index + 1 < len(rows) and rows[exit_index + 1].casefold() == "so.":
+            parts.insert(1, rows[exit_index + 1])
+        value = clean(parts)
+        if value:
+            result["exit_costs"] = value
+
+    management_index = next((index for index, row in enumerate(rows) if row.casefold().startswith("management fees and other")), None)
+    transaction_index = next((index for index, row in enumerate(rows) if re.match(r"^Transaction costs\b", row, re.IGNORECASE)), None)
+    if management_index is not None:
+        parts = [after("Management fees and other", management_index)]
+        index = management_index + 1
+        while index < len(rows):
+            row = rows[index]
+            if re.match(r"^(?:Incidental costs|Performance fees)\b", row, re.IGNORECASE):
+                break
+            if transaction_index is not None and index >= transaction_index:
+                break
+            if re.match(r"^\d+(?:[.,]\d+)?\s*%", row) and any("%" in item for item in parts):
+                break
+            parts.append(row)
+            index += 1
+        # Amounts are often emitted between a wrapped label and its final
+        # continuation.  Move a standalone currency amount to the end.
+        amounts: list[str] = []
+        text_parts: list[str] = []
+        for part in parts:
+            matches = re.findall(r"(?:EUR|GBP|USD)\s*\d+(?:[.,]\d+)?", part, re.IGNORECASE)
+            amounts.extend(matches)
+            text_parts.append(re.sub(r"(?:EUR|GBP|USD)\s*\d+(?:[.,]\d+)?", "", part, flags=re.IGNORECASE).strip())
+        parts = [part for part in text_parts if part] + amounts
+        value = clean(parts)
+        if value:
+            result["ongoing_costs"] = value
+
+    transaction_start = None
+    if transaction_index is not None:
+        transaction_start = transaction_index
+        if transaction_index and re.match(r"^\d+(?:[.,]\d+)?\s*%", rows[transaction_index - 1]):
+            transaction_start = transaction_index - 1
+    else:
+        transaction_start = next(
+            (index for index, row in enumerate(rows) if re.match(r"^\d+(?:[.,]\d+)?\s*%", row)),
+            None,
+        )
+    if transaction_start is not None:
+        parts = []
+        for index in range(transaction_start, len(rows)):
+            row = rows[index]
+            if re.match(r"^Incidental costs\b|^Performance fees\b", row, re.IGNORECASE):
+                break
+            if re.match(r"^Transaction costs\b", row, re.IGNORECASE):
+                row = after("Transaction costs", index)
+            parts.append(row)
+        amounts = []
+        text_parts = []
+        for part in parts:
+            matches = re.findall(r"(?:EUR|GBP|USD)\s*\d+(?:[.,]\d+)?", part, re.IGNORECASE)
+            amounts.extend(matches)
+            text_parts.append(re.sub(r"(?:EUR|GBP|USD)\s*\d+(?:[.,]\d+)?", "", part, flags=re.IGNORECASE).strip())
+        parts = [part for part in text_parts if part] + amounts
+        value = clean(parts)
+        if value:
+            result["transaction_costs"] = value
+
+    performance_index = next((index for index, row in enumerate(rows) if re.match(r"^Performance fees\b", row, re.IGNORECASE)), None)
+    if performance_index is not None:
+        value = clean([after("Performance fees", performance_index)])
+        if value:
+            result["performance_fees"] = value
+
     has_cost_section = bool(re.search(r"(?:What are the costs|Composition of Costs|Costs over Time)", text, flags=re.IGNORECASE))
-    malformed = has_cost_section and len(result) < 2
+    malformed = has_cost_section and set(result) != {"entry_costs", "exit_costs", "ongoing_costs", "transaction_costs", "performance_fees"}
     warning = None
     if malformed:
-        warning = _warning("cost_table_malformed", "KID cost table is incomplete or malformed", text, pages, "cost")
+        warning = _warning("cost_table_malformed", "KID cost table is incomplete or malformed", text, pages, "Composition of Costs")
     return result, warning
 
 

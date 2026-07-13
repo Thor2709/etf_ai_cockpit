@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
+from etf_cockpit.parsers.priips_kid import PriipsKidRecord
 from etf_cockpit.app.router import build_shell
 from etf_cockpit.app.components.simple_scores import _component_row, simple_score_grouped_sections, simple_score_tiles
 from etf_cockpit.app.state import AppState
@@ -204,6 +205,59 @@ def test_score_component_requires_as_of_and_freshness_provenance() -> None:
     )
     assert valid_provenance.score_eligible is True
     assert combine_component_scores([valid_provenance], weights={"momentum": 1.0}) == (1.0, 10.0)
+
+
+def _kid_for_score(**changes: object) -> PriipsKidRecord:
+    values: dict[str, object] = {
+        "product": "Example ETF",
+        "isin": "IE000Q4J3CW6",
+        "manufacturer": "Vanguard",
+        "sri": 4,
+        "cost_fields": {"ongoing_costs": "0.07% of the value of your investment p.a. EUR 7"},
+        "holding_period_years": 5,
+        "scenarios": ("moderate",),
+        "document_date": pd.Timestamp.today().date().isoformat(),
+        "extraction_confidence": "high",
+        "warnings": (),
+        "source_sha256": "k" * 64,
+        "source_pages": (1, 2, 3),
+        "manual_review": False,
+        "score_eligible": True,
+    }
+    values.update(changes)
+    return PriipsKidRecord(**values)
+
+
+def test_complete_fresh_kid_is_observable_as_issuer_cost_evidence() -> None:
+    record = _kid_for_score()
+    assert hasattr(simple_scores_module, "build_priips_kid_cost_evidence")
+    component = simple_scores_module.build_priips_kid_cost_evidence(record)
+
+    assert component is not None
+    assert component.key == "liquidity_cost"
+    assert component.source_id == "priips_kid:" + "k" * 64
+    assert component.source_authority == "issuer_document"
+    assert component.as_of_date == record.document_date
+    assert component.freshness_status == "ok"
+    assert component.score_eligible is True
+    assert component.score_10 is not None
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"manual_review": True, "score_eligible": False, "warnings": ("cost_table_malformed",)},
+        {"document_date": "2020-01-01"},
+        {"cost_fields": {"ongoing_costs": "What are the costs?"}},
+    ],
+)
+def test_incomplete_or_stale_kid_is_excluded_from_cost_evidence(changes: dict[str, object]) -> None:
+    assert hasattr(simple_scores_module, "build_priips_kid_cost_evidence")
+    component = simple_scores_module.build_priips_kid_cost_evidence(_kid_for_score(**changes))
+
+    assert component is not None
+    assert component.score_eligible is False
+    assert component.score_10 is None
 
 
 def test_model_confirmation_is_visible_but_not_deterministic_score_evidence() -> None:
