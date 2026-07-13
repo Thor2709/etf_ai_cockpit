@@ -64,3 +64,25 @@ def test_risk_page_renders_cost_edge_fields_and_unavailable_state(tmp_path, monk
     monkeypatch.setattr(page_module, "SCOREBOARD_PATH", tmp_path / "missing.parquet")
     unavailable = "\n".join(_text_values(page_module._friction_edge_panel()))
     assert "unavailable" in unavailable.lower()
+
+
+def test_risk_friction_panel_formats_non_finite_edge_values_as_unavailable(tmp_path, monkeypatch) -> None:
+    from etf_cockpit.app.pages import risk as page_module
+
+    scoreboard_path = tmp_path / "scoreboard.parquet"
+    pd.DataFrame([{
+        "display_id": "A",
+        "gross_expected_edge_bps": float("nan"),
+        "estimated_total_cost_bps": None,
+        "net_expected_edge_bps": float("inf"),
+        "edge_to_cost_ratio": float("-inf"),
+        "cost_stress_scenario": float("nan"),
+    }]).to_parquet(scoreboard_path, index=False)
+    monkeypatch.setattr(page_module, "SCOREBOARD_PATH", scoreboard_path)
+
+    rendered = "\n".join(_text_values(page_module._friction_edge_panel()))
+
+    assert "N/A" in rendered
+    assert "unavailable" in rendered.lower()
+    assert "nan" not in rendered.lower()
+    assert "inf" not in rendered.lower()

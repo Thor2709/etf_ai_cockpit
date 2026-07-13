@@ -30,10 +30,7 @@ def build_market_regime(prices: pd.DataFrame, candidate_report: pd.DataFrame | N
     benchmark_above_sma200 = bool(latest.get(benchmark_id, np.nan) > sma200.get(benchmark_id, np.nan))
     benchmark_return_60d = _horizon_return(benchmark, 60)
     benchmark_return_120d = _horizon_return(benchmark, 120)
-    # Return evidence must use only observed overlapping prices. Forward-fill
-    # is appropriate for display-oriented trend levels above, but would create
-    # synthetic zero returns and inflate attribution coverage here.
-    returns = pivot.pct_change(fill_method=None)
+    returns = pivot.ffill().pct_change(fill_method=None)
     median_vol_60d = float(returns.tail(60).std(skipna=True).median() * np.sqrt(252)) if len(returns) >= 60 else None
     drawdowns = pivot.ffill() / pivot.ffill().cummax() - 1.0
     median_drawdown = float(drawdowns.iloc[-1].median(skipna=True))
@@ -80,7 +77,7 @@ def build_portfolio_fit_lookup(prices: pd.DataFrame) -> dict[str, dict[str, obje
     frame = prices.copy()
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
     frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
-    pivot = frame.dropna(subset=["date", "adjusted_close"]).pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
+    pivot = frame.dropna(subset=["date", "adjusted_close"]).pivot(index="date", columns="etf_id", values="adjusted_close").sort_index().ffill()
     if pivot.shape[1] < 2:
         return {}
     benchmark_id = str(pivot.columns[0])

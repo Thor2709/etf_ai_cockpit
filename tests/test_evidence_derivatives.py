@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from etf_cockpit.features.regime import build_benchmark_attribution_lookup, build_market_regime, build_portfolio_fit_lookup
@@ -179,6 +180,42 @@ def test_peer_attribution_does_not_forward_fill_a_single_peer_observation() -> N
         metadata={"ALT": {"sector": "Technology"}, "PEER": {"sector": "Technology"}},
     )
 
+    assert attribution["ALT"]["sector_attribution_status"] == "N/A"
+    assert attribution["ALT"]["sector_sample_size"] == 0
+
+
+def test_sparse_price_compatibility_keeps_regime_and_portfolio_forward_fill_but_not_peer_attribution() -> None:
+    dates = pd.bdate_range("2025-01-01", periods=260)
+    rows = []
+    for index, dt in enumerate(dates):
+        rows.append({"date": dt, "etf_id": "BENCH", "adjusted_close": 100.0 + index * 0.20})
+        if not 180 <= index < 210:
+            rows.append({"date": dt, "etf_id": "ALT", "adjusted_close": 100.0 + index * 0.35})
+        if index == 0:
+            rows.append({"date": dt, "etf_id": "PEER", "adjusted_close": 100.0})
+    prices = pd.DataFrame(rows)
+
+    regime_prices = prices[prices["etf_id"].isin(["BENCH", "ALT"])]
+    regime = build_market_regime(regime_prices)
+    fit = build_portfolio_fit_lookup(regime_prices)
+    attribution = build_benchmark_attribution_lookup(
+        prices,
+        window=120,
+        benchmark_id="BENCH",
+        metadata={"ALT": {"sector": "Technology"}, "PEER": {"sector": "Technology"}},
+    )
+    pivot = regime_prices.pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
+    forward_filled_returns = pivot.ffill().pct_change(fill_method=None)
+    expected_regime_volatility = float(
+        forward_filled_returns.tail(60).std(skipna=True).median() * np.sqrt(252)
+    )
+    expected_fit_returns = forward_filled_returns.tail(252).dropna(how="all")
+    expected_fit_joined = pd.concat(
+        [expected_fit_returns["BENCH"], expected_fit_returns["ALT"]], axis=1, join="inner"
+    ).dropna()
+
+    assert regime["median_volatility_60d_ann"] == round(expected_regime_volatility, 4)
+    assert fit["BENCH"]["correlation_to_benchmark"] == round(float(expected_fit_joined.corr().iloc[0, 1]), 4)
     assert attribution["ALT"]["sector_attribution_status"] == "N/A"
     assert attribution["ALT"]["sector_sample_size"] == 0
 

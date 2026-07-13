@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import pandas as pd
 import flet as ft
 
@@ -17,15 +19,21 @@ SCOREBOARD_PATH = DERIVED_DIR / "scoreboard.parquet"
 
 
 def _pct(value: object) -> str:
-    if value is None or pd.isna(value):
-        return "n/a"
-    return f"{float(value):.1%}"
+    number = _finite_float(value)
+    return "n/a" if number is None else f"{number:.1%}"
 
 
 def _number(value: object) -> str:
-    if value is None or pd.isna(value):
-        return "n/a"
-    return f"{float(value):.2f}"
+    number = _finite_float(value)
+    return "n/a" if number is None else f"{number:.2f}"
+
+
+def _finite_float(value: object) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
 
 
 def _status_colour(status: str) -> str:
@@ -326,16 +334,18 @@ def _friction_edge_panel() -> ft.Control:
         )
 
     def _bps(value: object) -> str:
-        try:
-            return f"{float(value):.2f} bps"
-        except (TypeError, ValueError):
-            return "N/A"
+        number = _finite_float(value)
+        return "N/A" if number is None else f"{number:.2f} bps"
 
     def _ratio(value: object) -> str:
-        try:
-            return f"{float(value):.2f}"
-        except (TypeError, ValueError):
-            return "N/A"
+        number = _finite_float(value)
+        return "N/A" if number is None else f"{number:.2f}"
+
+    def _scenario(value: object) -> str:
+        if value is None or pd.isna(value):
+            return "unavailable"
+        text = str(value).strip()
+        return text or "unavailable"
 
     rows = [
         ft.DataRow(
@@ -345,13 +355,13 @@ def _friction_edge_panel() -> ft.Control:
                 ft.DataCell(ft.Text(_bps(row.get("estimated_total_cost_bps")), color=theme.MUTED, size=11)),
                 ft.DataCell(ft.Text(_bps(row.get("net_expected_edge_bps")), color=theme.TEXT, size=11)),
                 ft.DataCell(ft.Text(_ratio(row.get("edge_to_cost_ratio")), color=theme.TEXT, size=11)),
-                ft.DataCell(ft.Text(str(row.get("cost_stress_scenario") or "unavailable"), color=theme.MUTED, size=11)),
+                ft.DataCell(ft.Text(_scenario(row.get("cost_stress_scenario")), color=theme.MUTED, size=11)),
             ]
         )
         for _, row in scoreboard.iterrows()
     ]
     summary = [
-        f"{row.get(id_column, 'N/A')}: Gross edge {_bps(row.get('gross_expected_edge_bps'))} | Estimated cost {_bps(row.get('estimated_total_cost_bps'))} | Net edge {_bps(row.get('net_expected_edge_bps'))} | Edge/cost {_ratio(row.get('edge_to_cost_ratio'))} | Cost scenario: {row.get('cost_stress_scenario') or 'unavailable'}"
+        f"{row.get(id_column, 'N/A')}: Gross edge {_bps(row.get('gross_expected_edge_bps'))} | Estimated cost {_bps(row.get('estimated_total_cost_bps'))} | Net edge {_bps(row.get('net_expected_edge_bps'))} | Edge/cost {_ratio(row.get('edge_to_cost_ratio'))} | Cost scenario: {_scenario(row.get('cost_stress_scenario'))}"
         for _, row in scoreboard.iterrows()
     ]
     return panel(

@@ -67,6 +67,12 @@ def test_ranked_weights_publish_top_concentration_and_cluster_risk_contribution(
     assert rows["A"].cluster_weight == 0.8
     assert rows["A"].cluster_risk_contribution == 0.8
     assert rows["A"].ranking_coverage == 1.0
+    contributions = {
+        row.cluster_id: row.cluster_risk_contribution
+        for row in rows.values()
+        if row.cluster_risk_contribution is not None
+    }
+    assert np.isclose(sum(contributions.values()), 1.0)
 
 
 def test_sparse_instrument_uses_pair_coverage_not_global_sample_size() -> None:
