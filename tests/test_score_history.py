@@ -132,3 +132,58 @@ def test_score_history_reader_drops_malformed_rows(tmp_path) -> None:
 
     assert len(history) == 1
     assert history.iloc[0]["instrument_id"] == "A"
+
+
+def test_empty_complete_run_replaces_only_supplied_run_rows(tmp_path) -> None:
+    append_score_run(
+        pd.DataFrame({"instrument_id": ["A"], "final_combined_score_10": [7.0]}),
+        "run-empty",
+        "2026-07-10",
+        root=tmp_path,
+    )
+    append_score_run(
+        pd.DataFrame({"instrument_id": ["B"], "final_combined_score_10": [6.0]}),
+        "run-other",
+        "2026-07-10",
+        root=tmp_path,
+    )
+
+    result = append_score_run(
+        pd.DataFrame(columns=["instrument_id", "final_combined_score_10"]),
+        "run-empty",
+        "2026-07-10",
+        root=tmp_path,
+    )
+
+    history = score_history_frame(root=tmp_path)
+    assert result.rows_written == 0
+    assert set(history["run_id"]) == {"run-other"}
+    assert set(history["instrument_id"]) == {"B"}
+
+
+def test_score_history_publishes_paired_csv_and_rolls_back_on_group_failure(tmp_path, monkeypatch) -> None:
+    scores = pd.DataFrame({"instrument_id": ["A"], "final_combined_score_10": [7.0]})
+    append_score_run(scores, "run-atomic", "2026-07-10", root=tmp_path)
+    parquet_path = tmp_path / "data" / "derived" / "score_history.parquet"
+    csv_path = parquet_path.with_suffix(".csv")
+    before = parquet_path.read_bytes()
+    assert csv_path.exists()
+    assert len(pd.read_csv(csv_path)) == 1
+
+    def fail_group(_requests):
+        raise RuntimeError("injected grouped write failure")
+
+    monkeypatch.setattr("etf_cockpit.data.score_history.atomic_write_group", fail_group)
+    try:
+        append_score_run(
+            pd.DataFrame({"instrument_id": ["A"], "final_combined_score_10": [8.0]}),
+            "run-atomic",
+            "2026-07-10",
+            root=tmp_path,
+        )
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("failure injection did not reach grouped persistence")
+    assert parquet_path.read_bytes() == before
+    assert len(pd.read_csv(csv_path)) == 1

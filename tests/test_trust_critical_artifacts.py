@@ -262,6 +262,26 @@ def test_production_score_history_persists_real_dimensions_and_explicit_unavaila
     assert history["execution_allowed"].eq(False).all()
 
 
+def test_pending_model_label_persists_unavailable_without_model_row_or_version(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(trust, "SCORE_HISTORY_PATH", tmp_path / "score_history.parquet")
+    score = SimpleNamespace(
+        display_id="PENDING",
+        name="Pending instrument",
+        final_score_10=5.0,
+        latest_date="pending refresh",
+        components=[],
+        warnings=["pending_refresh"],
+        model_authority_label="Model evidence pending",
+        model_versions_used=None,
+    )
+
+    trust.append_score_history([score], run_id="pending-model", created_at="2026-07-10T00:00:00Z")
+
+    row = pd.read_parquet(trust.SCORE_HISTORY_PATH).iloc[0]
+    assert bool(row["model_available"]) is False
+    assert row["model_availability"] == "unavailable"
+
+
 def test_score_components_persist_non_executable_authority(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(trust, "SCORE_COMPONENTS_PATH", tmp_path / "score_components.parquet")
     component = SimpleScoreComponent(

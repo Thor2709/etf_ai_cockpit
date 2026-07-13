@@ -3,11 +3,13 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 from typing import Literal
 
 import pandas as pd
 
+from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, wait_for_atomic_group
 from etf_cockpit.governance.migrations import _snapshot_checksum, validated_portfolio_snapshot
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.signals.research_states import (
@@ -97,6 +99,60 @@ def _clean_optional_text(value: object) -> str | None:
     return text or None
 
 
+def _model_value_is_real(value: object) -> bool:
+    if value is None:
+        return False
+    try:
+        if bool(pd.isna(value)):
+            return False
+    except (TypeError, ValueError):
+        pass
+    text = str(value).strip().casefold()
+    return bool(text) and text not in {
+        "none",
+        "null",
+        "nan",
+        "unavailable",
+        "pending",
+        "pending refresh",
+        "false",
+    }
+
+
+def _row_has_real_model(values: dict[str, object]) -> bool:
+    versions = values.get("model_versions_used")
+    if isinstance(versions, dict):
+        return any(_model_value_is_real(version) for version in versions.values())
+    for key in ("model_version", "model_id", "model_name"):
+        if _model_value_is_real(values.get(key)):
+            return True
+    if values.get("model_row_exists") is True:
+        return True
+    availability = values.get("model_availability")
+    if _model_value_is_real(availability) and str(availability).casefold() not in {"false", "not_available"}:
+        return True
+    label = str(values.get("model_authority_label") or "").strip().casefold()
+    if "pending" in label or "unavailable" in label:
+        return False
+    # A positive boolean without a model row/version is not evidence.  This
+    # avoids promoting configured/candidate placeholders by metadata alone.
+    return False
+
+
+def _normalise_model_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    result = frame.copy()
+    normalised: list[tuple[bool, str]] = []
+    for _, row in result.iterrows():
+        values = row.to_dict()
+        available = _row_has_real_model(values)
+        supplied = _clean_optional_text(values.get("model_availability"))
+        label = _clean_optional_text(values.get("model_authority_label"))
+        normalised.append((available, (supplied or label or "available") if available else "unavailable"))
+    result["model_available"] = [item[0] for item in normalised]
+    result["model_availability"] = [item[1] for item in normalised]
+    return result
+
+
 def append_score_run(
     scores: pd.DataFrame,
     run_id: str,
@@ -114,6 +170,13 @@ def append_score_run(
     root = Path(root) if root is not None else ROOT
     path = root / "data" / "derived" / "score_history.parquet"
     frame = scores.copy()
+    # An explicitly supplied empty frame is a valid complete run snapshot.  A
+    # caller-provided run_id is the durable identity for that zero-instrument
+    # snapshot; no rows from any other run may be touched.
+    if frame.empty:
+        for column in ("instrument_id", "final_combined_score_10"):
+            if column not in frame.columns:
+                frame[column] = pd.Series(dtype=object)
     if "instrument_id" not in frame.columns or "final_combined_score_10" not in frame.columns:
         raise ValueError("score history requires instrument_id and final_combined_score_10")
     frame["final_combined_score_10"] = pd.to_numeric(frame["final_combined_score_10"], errors="coerce")
@@ -179,6 +242,7 @@ def append_score_run(
     ):
         if column not in frame.columns:
             frame[column] = default
+    frame = _normalise_model_columns(frame)
     # Hash only canonical content, not the row ordering, so retries are
     # idempotent while a changed snapshot for the same run is replaced.
     hash_frame = frame.sort_values(["instrument_id", "run_id"], kind="stable").reindex(
@@ -189,7 +253,7 @@ def append_score_run(
     ).hexdigest()
     frame["snapshot_hash"] = snapshot_hash
     frame = frame[_COLUMNS]
-    existing = _normalise_history_frame(pd.read_parquet(path)) if path.exists() else pd.DataFrame(columns=_COLUMNS)
+    existing = _read_history_raw(path)
     duplicate = (
         existing.loc[
             existing["run_id"].astype(str).eq(str(run_id))
@@ -210,8 +274,10 @@ def append_score_run(
         else pd.concat([existing, frame], ignore_index=True, sort=False).reindex(columns=_COLUMNS)
     )
     combined = combined.drop_duplicates(subset=["run_id", "instrument_id"], keep="last")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    combined.to_parquet(path, index=False)
+    # Keep parquet and the legacy CSV mirror within one repository atomic
+    # write-group.  Readers never observe one format from a newer generation
+    # than the other, and injected publication failures roll back both.
+    _write_history_group(combined, path)
     return ScoreHistoryWriteResult(path, len(frame), run_id, snapshot_hash)
 
 
@@ -225,6 +291,36 @@ def score_history_frame(*, root: Path | None = None) -> pd.DataFrame:
     except Exception:
         return pd.DataFrame(columns=_COLUMNS)
     return frame.reindex(columns=_COLUMNS).copy()
+
+
+def _read_history_raw(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        return pd.DataFrame(columns=_COLUMNS)
+    try:
+        wait_for_atomic_group(path)
+        return pd.read_parquet(path)
+    except Exception:
+        return pd.DataFrame(columns=_COLUMNS)
+
+
+def _write_history_group(frame: pd.DataFrame, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    parquet_buffer = BytesIO()
+    frame.to_parquet(parquet_buffer, index=False)
+    csv_path = path.with_suffix(".csv")
+
+    def validate_parquet(candidate: Path) -> None:
+        pd.read_parquet(candidate)
+
+    def validate_csv(candidate: Path) -> None:
+        pd.read_csv(candidate)
+
+    atomic_write_group(
+        (
+            AtomicWriteRequest(path, parquet_buffer.getvalue(), validate_parquet),
+            AtomicWriteRequest(csv_path, frame.to_csv(index=False).encode("utf-8"), validate_csv),
+        )
+    )
 
 
 def score_history_v2_payload(row: object) -> dict[str, object]:

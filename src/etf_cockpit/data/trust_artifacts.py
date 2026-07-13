@@ -1405,22 +1405,51 @@ def _score_freshness(score: Any) -> str:
 def _model_available(score: Any) -> bool | None:
     versions = getattr(score, "model_versions_used", None)
     if isinstance(versions, dict) and versions:
-        return any(str(value or "").casefold() not in {"", "unavailable", "none"} for value in versions.values())
-    label = str(getattr(score, "model_authority_label", "") or "").casefold()
-    if not label:
-        return False
-    return "unavailable" not in label and "not" not in label
+        return any(_real_model_value(value) for value in versions.values())
+    components = getattr(score, "components", []) or []
+    if any(
+        str(getattr(component, "key", "") or "").casefold() in {"baseline", "timesfm", "toto"}
+        and getattr(component, "score_10", None) is not None
+        for component in components
+    ):
+        return True
+    # Human-readable labels are not model evidence.  In particular the
+    # configured/candidate placeholder "Model evidence pending" must remain
+    # unavailable until a real model row or version is present.
+    return False
 
 
 def _model_availability(score: Any) -> str:
     versions = getattr(score, "model_versions_used", None)
     if isinstance(versions, dict) and versions:
-        return "|".join(
-            f"{name}={str(version or 'unavailable').strip() or 'unavailable'}"
-            for name, version in sorted(versions.items())
-        )
-    label = str(getattr(score, "model_authority_label", "") or "").strip()
-    return label or "unavailable"
+        real_versions = {
+            name: str(version).strip()
+            for name, version in versions.items()
+            if _real_model_value(version)
+        }
+        if real_versions:
+            return "|".join(f"{name}={version}" for name, version in sorted(real_versions.items()))
+    components = getattr(score, "components", []) or []
+    model_rows = [
+        str(getattr(component, "key", "") or "").strip()
+        for component in components
+        if str(getattr(component, "key", "") or "").casefold() in {"baseline", "timesfm", "toto"}
+        and getattr(component, "score_10", None) is not None
+    ]
+    if model_rows:
+        return "|".join(f"{key}=available" for key in sorted(model_rows))
+    return "unavailable"
+
+
+def _real_model_value(value: object) -> bool:
+    if value is None:
+        return False
+    try:
+        if bool(pd.isna(value)):
+            return False
+    except (TypeError, ValueError):
+        pass
+    return str(value).strip().casefold() not in {"", "none", "null", "nan", "unavailable", "pending", "pending refresh", "false"}
 
 
 def _forecast_status(score: Any) -> str:

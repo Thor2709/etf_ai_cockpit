@@ -51,6 +51,30 @@ def test_instrument_detail_driver_groups_are_ordered_structured_rows(tmp_path, m
     assert "{'instrument_id'" not in " ".join(texts)
 
 
+def test_instrument_detail_driver_panel_normalises_legacy_store_columns(tmp_path, monkeypatch) -> None:
+    from etf_cockpit.app.selectors import instrument_detail as selector
+
+    snapshot = build_snapshot()
+    instrument_id = snapshot.config.universe.enabled_ids[0]
+    monkeypatch.setattr(selector, "FEATURE_DRIVERS_PATH", tmp_path / "feature_drivers.parquet")
+    pd.DataFrame(
+        [{
+            "instrument_id": instrument_id,
+            "component": "trend",
+            "normalised_score": 8.0,
+            "direction": "positive",
+            "authority": "high",
+            "driver_text": "legacy trend",
+        }]
+    ).to_parquet(selector.FEATURE_DRIVERS_PATH, index=False)
+
+    panel = selector._feature_driver_panel(instrument_id)
+    assert panel["status"] == "available"
+    assert panel["top_positive"][0]["driver_text"] == "legacy trend"
+    assert panel["low_authority"] == []
+    assert panel["stale_or_partial"] == []
+
+
 def test_instrument_detail_has_required_sections_for_primary_and_sparebanken() -> None:
     snapshot = build_snapshot()
     model = build_instrument_detail(snapshot, snapshot.config.universe.enabled_ids[0])

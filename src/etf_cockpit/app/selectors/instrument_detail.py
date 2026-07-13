@@ -31,6 +31,7 @@ def _feature_driver_panel(instrument_id: str) -> dict[str, Any]:
         frame = pd.read_parquet(FEATURE_DRIVERS_PATH) if FEATURE_DRIVERS_PATH.exists() else pd.DataFrame()
     except Exception:
         frame = pd.DataFrame()
+    frame = _normalise_feature_driver_frame(frame)
     if frame.empty or "instrument_id" not in frame.columns:
         return {"status": "unavailable", "rows": [], "message": "Feature drivers unavailable; no local component history is registered.", "execution_allowed": False}
     scoped = frame[frame["instrument_id"].astype(str).eq(str(instrument_id))].copy()
@@ -53,6 +54,47 @@ def _feature_driver_panel(instrument_id: str) -> dict[str, Any]:
         "stale_or_partial": stale_or_partial,
         "execution_allowed": False,
     }
+
+
+def _normalise_feature_driver_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    """Add modern feature-driver columns when reading a legacy local store."""
+
+    if not isinstance(frame, pd.DataFrame) or frame.empty:
+        return pd.DataFrame()
+    result = frame.copy()
+    if "instrument_id" not in result.columns and "instrument" in result.columns:
+        result["instrument_id"] = result["instrument"]
+    if "instrument" not in result.columns and "instrument_id" in result.columns:
+        result["instrument"] = result["instrument_id"]
+    if "normalised_score" not in result.columns:
+        result["normalised_score"] = result.get("normalised_score_10")
+    if "raw_metric" not in result.columns:
+        result["raw_metric"] = result.get("raw_metric_value")
+    for column, default in (
+        ("component", "unknown"),
+        ("source_id", "unavailable"),
+        ("authority", "unknown"),
+        ("driver_text", "Feature driver unavailable; informational only."),
+        ("source_dataset", "unavailable"),
+        ("as_of_date", "unavailable"),
+        ("freshness_status", "unknown"),
+        ("classification", "unclassified"),
+        ("authority_classification", "unknown"),
+        ("freshness_classification", "unknown"),
+        ("flags", "none"),
+        ("execution_allowed", False),
+    ):
+        if column not in result.columns:
+            result[column] = default
+    if "direction" not in result.columns:
+        score = pd.to_numeric(result["normalised_score"], errors="coerce")
+        result["direction"] = score.map(lambda value: "missing" if pd.isna(value) else "positive" if value >= 6 else "negative" if value <= 4 else "mixed")
+    result["flags"] = result["flags"].fillna("none").astype(str)
+    derived_flags = result["flags"].eq("none")
+    result.loc[derived_flags & result["direction"].astype(str).eq("missing"), "flags"] = "missing"
+    result.loc[derived_flags & result["authority_classification"].astype(str).str.contains("low", case=False, na=False), "flags"] = "low_authority"
+    result.loc[derived_flags & result["freshness_classification"].astype(str).str.contains("stale|partial", case=False, na=False, regex=True), "flags"] = "stale"
+    return result
 
 
 def _fundamentals_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:

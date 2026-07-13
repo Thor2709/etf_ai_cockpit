@@ -79,3 +79,19 @@ def test_run_comparison_can_load_history_by_run_ids(tmp_path) -> None:
     report = compare_runs("new", "old", root=tmp_path)
 
     assert report.changes[0].score_delta == 1.0
+
+
+def test_run_comparison_includes_previous_only_instrument_as_unavailable_removal() -> None:
+    frame = pd.DataFrame(
+        [
+            {"run_id": "old", "instrument_id": "REMOVED", "final_combined_score_10": 7.0, "final_action": "watchlist"},
+            {"run_id": "new", "instrument_id": "KEPT", "final_combined_score_10": 6.0, "final_action": "watchlist"},
+        ]
+    )
+
+    report = compare_runs(frame, "new", "old")
+    removed = next(change for change in report.changes if change.instrument_id == "REMOVED")
+    assert removed.current_action == "unavailable"
+    assert removed.previous_action == "watchlist"
+    assert removed.summary.startswith("Instrument removed")
+    assert removed.current_model_availability == "unavailable"

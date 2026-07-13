@@ -154,11 +154,17 @@ def compare_runs(
         for row in previous_frame.to_dict(orient="records")
         if _clean_text(row.get("instrument_id"))
     }
+    current_by_id = {
+        str(row.get("instrument_id")): row
+        for row in current_frame.to_dict(orient="records")
+        if _clean_text(row.get("instrument_id"))
+    }
     changes: list[RunChange] = []
-    for row in current_frame.to_dict(orient="records"):
-        instrument_id = _clean_text(row.get("instrument_id"))
-        if not instrument_id:
-            continue
+    for instrument_id in sorted(set(current_by_id) | set(previous_by_id)):
+        # A previous-only instrument is retained as a removal with an explicit
+        # unavailable current state, so What Changed and its digest do not
+        # silently lose coverage when a run's universe narrows.
+        row = current_by_id.get(instrument_id, {"instrument_id": instrument_id})
         old = previous_by_id.get(instrument_id)
         changes.append(_change_for(instrument_id, row, old))
     changes.sort(key=lambda change: change.instrument_id)
@@ -174,7 +180,7 @@ def _change_for(instrument_id: str, current: Mapping[str, Any], old: Mapping[str
     previous_rank = _float(_first(old or {}, "score_rank", "rank", "previous_rank"))
     rank_delta = None if current_rank is None or previous_rank is None else current_rank - previous_rank
 
-    current_action = _clean_text(_first(current, "final_action", "legacy_action", "action"))
+    current_action = _clean_text(_first(current, "final_action", "legacy_action", "action")) or "unavailable"
     previous_action = _optional_text(_first(old or {}, "final_action", "legacy_action", "action"))
     dimensions: dict[str, bool] = {}
     values: dict[str, tuple[str, str | None, bool]] = {}
@@ -252,6 +258,8 @@ def _change_summary(
 ) -> str:
     if not has_previous:
         return f"No previous snapshot; current action is {current_action or 'unavailable'}."
+    if current_action == "unavailable" and previous_action:
+        return f"Instrument removed from current run; previous action was {previous_action}."
     fragments: list[str] = []
     if score_delta is not None and score_delta != 0:
         fragments.append(f"score {'increased' if score_delta > 0 else 'decreased'} by {abs(score_delta):.1f}")
