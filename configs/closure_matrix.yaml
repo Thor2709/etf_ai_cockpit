@@ -2434,6 +2434,15 @@ issues:
   title: Stock fundamentals quality module hardening
   wave: 6
   status: still_open
+  implementation_checkpoint: merged_pr_186_3143678; closure_pending_strict_release_audit_export_clean_first_run_browser
+  implementation_evidence:
+  - .ai_worklog/task-16-report.md
+  - .ai_worklog/task-16-fix1-report.md
+  - .ai_worklog/task-16-fix2-report.md
+  - .ai_worklog/task-16-fix3-report.md
+  - .ai_worklog/task-16-fix4-report.md
+  - .ai_worklog/task-16-fix5-report.md
+  - .ai_worklog/task-16-fix6-report.md
   criteria:
   - criterion_id: ISSUE-0023-R01
     text: 'Acceptance criteria: Add valuation, profitability, leverage, growth and shareholder-return sections.'
@@ -2540,6 +2549,15 @@ issues:
   title: Free news and filings dashboard
   wave: 6
   status: still_open
+  implementation_checkpoint: merged_pr_186_3143678; closure_pending_strict_release_audit_export_clean_first_run_browser
+  implementation_evidence:
+  - .ai_worklog/task-16-report.md
+  - .ai_worklog/task-16-fix1-report.md
+  - .ai_worklog/task-16-fix2-report.md
+  - .ai_worklog/task-16-fix3-report.md
+  - .ai_worklog/task-16-fix4-report.md
+  - .ai_worklog/task-16-fix5-report.md
+  - .ai_worklog/task-16-fix6-report.md
   criteria:
   - criterion_id: ISSUE-0025-R01
     text: 'Acceptance criteria: Store raw and clean news locally.'
@@ -3899,6 +3917,15 @@ issues:
   title: Point-in-time news/sentiment validation rules
   wave: 6
   status: still_open
+  implementation_checkpoint: merged_pr_186_3143678; closure_pending_strict_release_audit_export_clean_first_run_browser
+  implementation_evidence:
+  - .ai_worklog/task-16-report.md
+  - .ai_worklog/task-16-fix1-report.md
+  - .ai_worklog/task-16-fix2-report.md
+  - .ai_worklog/task-16-fix3-report.md
+  - .ai_worklog/task-16-fix4-report.md
+  - .ai_worklog/task-16-fix5-report.md
+  - .ai_worklog/task-16-fix6-report.md
   criteria:
   - criterion_id: ISSUE-0054-R01
     text: 'Acceptance criteria: Every item has `published_at`, `ingested_at`, `source_url`, `provider_name`, `instrument_mapping_method`, `available_at_decision_time`.'
@@ -3993,6 +4020,15 @@ issues:
   title: 'Optional free provider research/stubs: SEC EDGAR, FRED, Stooq, RSS'
   wave: 6
   status: still_open
+  implementation_checkpoint: merged_pr_186_3143678; closure_pending_strict_release_audit_export_clean_first_run_browser
+  implementation_evidence:
+  - .ai_worklog/task-16-report.md
+  - .ai_worklog/task-16-fix1-report.md
+  - .ai_worklog/task-16-fix2-report.md
+  - .ai_worklog/task-16-fix3-report.md
+  - .ai_worklog/task-16-fix4-report.md
+  - .ai_worklog/task-16-fix5-report.md
+  - .ai_worklog/task-16-fix6-report.md
   criteria:
   - criterion_id: ISSUE-0055-R01
     text: 'Acceptance criteria: yfinance remains default.'

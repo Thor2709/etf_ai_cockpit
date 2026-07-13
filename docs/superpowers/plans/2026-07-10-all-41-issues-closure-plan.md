@@ -971,25 +971,38 @@ Task 15 implementation is merged through PR 185 at `9139e515bda9e149dde52e907499
 - `validate_news_item(item, decision_time) -> NewsValidation` requires published/ingested/source/provider/mapping/available-at fields.
 - Optional providers implement the Task 8 capability interface and remain disabled by default.
 
-- [ ] **Step 1: Write missing-vs-bad and point-in-time tests**
+- [x] **Step 1: Write missing-vs-bad and point-in-time tests**
 
 Assert missing key fundamentals produce `not_score_eligible`, genuinely weak present metrics remain valid negative evidence, stale fields warn, sector comparison can be unavailable, and news after decision time or with ambiguous timestamp is rejected from backtests.
 
-- [ ] **Step 2: Implement clean news and fundamentals stores**
+- [x] **Step 2: Implement clean news and fundamentals stores**
 
 Store raw items immutably and clean rows with authority, credibility, timestamp validation and `executable_authority=false`. SEC facts outrank vendor fundamentals; vendor fields show limitations.
 
-- [ ] **Step 3: Implement optional provider states**
+- [x] **Step 3: Implement optional provider states**
 
 EDGAR public access can be enabled without key; FRED missing key, Stooq and RSS disabled/offline states are explicit. No optional provider becomes required for app startup or scoring.
 
-- [ ] **Step 4: Build News/Filings dashboard and contradiction panel**
+- [x] **Step 4: Build News/Filings dashboard and contradiction panel**
 
 Show URL, published/ingested time, source/provider, credibility, mapping and contradictions against deterministic evidence. News cannot change final action.
 
 - [ ] **Step 5: Wave 6 integration gate**
 
 Run all parser/provider/property/fuzz tests, raw-clean-ledger-score-export integration, full suite, package rebuild and browser/computer-use workflows for Filings, ETF Disclosures, News and Instrument Detail. Request parser-focused and security-focused reviews before marking ten Wave 6 dossiers ready.
+
+Task 16 implementation is merged through PR 186 at `3143678` (implementation
+head `cd7aea5`) after six bounded fix/review cycles. Fundamentals are strict
+five-section evidence with missing-vs-negative eligibility, source limitations,
+sector-relative comparison fields and deterministic temporal selection. News is
+point-in-time validated, context-only and chronologically selected across UI
+and audit export. Optional FRED, RSS, Stooq and SEC states remain disabled by
+default. Fresh independent review approved specification compliance and code
+quality with no Critical or Important findings. The strict release/package,
+clean-first-run, audit-export, browser/computer-use and full-suite baseline
+gates remain pending; the Task 16 owning issues stay open and closure-pending.
+The next dependency-valid implementation is Task 17, Score History, Run
+Comparison and Feature Drivers.
 
 ---
 

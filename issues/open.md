@@ -962,7 +962,7 @@ schema_version
 
 ## ISSUE-0023 - Stock fundamentals quality module hardening
 
-**Status:** Open  
+**Status:** Open - implementation complete; closure pending strict release, audit/export, clean-first-run and browser/computer-use evidence  
 **Type:** Stock Analysis  
 **Priority:** P1  
 **Evidence grade:** Moderate/High  
@@ -996,7 +996,7 @@ schema_version
 
 ## ISSUE-0025 - Free news and filings dashboard
 
-**Status:** Open  
+**Status:** Open - implementation complete; closure pending strict release, audit/export, clean-first-run and browser/computer-use evidence  
 **Type:** News / Context  
 **Priority:** P1  
 **Evidence grade:** Moderate  
@@ -1473,7 +1473,7 @@ schema_version
 
 ## ISSUE-0054 - Point-in-time news/sentiment validation rules
 
-**Status:** Open  
+**Status:** Open - implementation complete; closure pending strict release, audit/export, clean-first-run and browser/computer-use evidence  
 **Type:** News / Backtest Safety  
 **Priority:** P1/P2  
 **Evidence grade:** High  
@@ -1490,7 +1490,7 @@ schema_version
 
 ## ISSUE-0055 - Optional free provider research/stubs: SEC EDGAR, FRED, Stooq, RSS
 
-**Status:** Open  
+**Status:** Open - implementation complete; closure pending strict release, audit/export, clean-first-run and browser/computer-use evidence  
 **Type:** Data Provider / Research / Optional Context  
 **Priority:** P2  
 **Evidence grade:** Moderate  
@@ -1860,3 +1860,18 @@ fresh independent review approved specification compliance and code quality
 with no Critical, Important or Minor findings. Strict release/package,
 clean-first-run, audit-export and browser/computer-use evidence remains
 outstanding; neither issue is moved to `issues/closed.md`.
+
+### Wave 4 Task 16 checkpoint - 2026-07-13
+
+`ISSUE-0023`, `ISSUE-0025`, `ISSUE-0054` and `ISSUE-0055` are **implementation
+complete, closure pending**. PR 186 merged the approved Task 16 implementation
+into `main` at `3143678` (implementation head `cd7aea5`). The implementation
+adds strict five-section fundamentals with missing-vs-negative eligibility,
+sector-relative comparison evidence and source limitations; atomic raw/clean/
+audit stores; point-in-time news validation and contradiction visibility;
+disabled-by-default optional provider states; Dashboard, News & Context,
+Instrument Detail and Screener surfaces; deterministic temporal selection; and
+chronologically ordered audit export. Six bounded fix/review cycles ended with
+fresh independent SPEC/CODE approval and no Critical or Important findings.
+The strict release/package, audit/export, clean-first-run and browser/
+computer-use gates remain outstanding, so these issues stay in `issues/open.md`.

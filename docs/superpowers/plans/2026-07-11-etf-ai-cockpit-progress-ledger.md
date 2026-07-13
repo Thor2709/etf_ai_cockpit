@@ -7,9 +7,9 @@
 | Field | Value |
 |---|---|
 | Updated | 2026-07-13 |
-| Active phase | Wave 4 Task 15 implementation complete and merged; `UPDATEV2-0017`/`UPDATEV2-0019` plus earlier Wave 4 issues closure-pending strict release/audit/browser/clean-first-run evidence; Task 16 next |
+| Active phase | Wave 4 Task 16 implementation complete and merged; `ISSUE-0023`, `ISSUE-0025`, `ISSUE-0054` and `ISSUE-0055` plus earlier Wave 4 issues closure-pending strict release/audit/browser/clean-first-run evidence; Task 17 next |
 | Active plan | `docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md` |
-| Git state | PR 185 merged Task 15 into `main` at `9139e515bda9e149dde52e9074990cbc5c781e84`; implementation head `fb98b16c`; local `main` matches `origin/main` and is clean |
+| Git state | PR 186 merged Task 16 into `main` at `3143678`; implementation head `cd7aea5`; local `main` matches `origin/main` and is clean |
 | Existing closure state | Task 11 issues `ISSUE-0068`, `ISSUE-0018`, `ISSUE-0017` and `ISSUE-0056` are implementation-complete but closure-pending final release/browser/clean-first-run evidence; `ISSUE-0035` is closed locally and on GitHub Issue #81 |
 | Fresh baseline | Task 10 focused 16 and affected 40 passed; compileall/Ruff/source smoke passed; portable build, native/portable smoke, semantic focus, export and authoritative full suite passed; package-inventory rerun passed after removing the merged worktree |
 | Pre-existing type state | recorded mypy failure caused by external stubs and existing typing debt; no new failure attributed |
@@ -23,7 +23,7 @@
 | 1 | governance | Tasks 1-6 independently approved and merged; Task 7 integrated | Task 6 WorkflowController/session trace paths plus Task 7 source-linked UI inventory, controlled recovery and timing/cache evidence | continue with Wave 3 Task 8 Canonical Data Contracts and Provider Registry |
 | 2 | registry and universe | Not started | `UniverseRecord`/optimistic revision/atomic save present | registry dry-run and validator RED suite |
 | 3 | DATA-05 | Not started | no live seed verification has been performed in this programme | retrieve current official identity evidence and write failing seed-contract tests |
-| 4 | storage and evidence | Task 10 closed and synchronised; Tasks 11-15 implementation-complete and merged; ten issues closure-pending | Task 15 focused parser/persistence/registry/UI/audit/score tests and official fixtures passed; fresh independent review SPEC/CODE PASS, PR 185 merged at `9139e51`; strict package/audit/browser/clean-first-run evidence remains open | begin Task 16: Fundamentals, News, Point-in-Time Validation and Free Providers |
+| 4 | storage and evidence | Task 10 closed and synchronised; Tasks 11-16 implementation-complete and merged; fourteen issues closure-pending | Task 16 focused fundamentals/news/provider/UI/audit tests passed; six fix/review cycles ended with fresh independent SPEC/CODE PASS, PR 186 merged at `3143678`; strict package/audit/browser/clean-first-run evidence remains open | begin Task 17: Score History, Run Comparison and Feature Drivers |
 | 5 | domain and scoring | Not started | source-aware deterministic scorer present; first-enabled benchmark and legacy ensemble remain | template/benchmark/champion RED suite |
 | 6 | AI and validation | Not started | optional adapter foundations present; authority/caching/validation seams remain | strict forecast-state and fold/trial RED suite |
 | 7 | portfolio | Not started | static holdings/allocation foundation present | immutable ledger RED suite |
@@ -306,3 +306,22 @@ smoke Sparebanken fixture mismatch remain recorded; strict release/package,
 clean-first-run, audit-export and browser/computer-use evidence is still
 required before closure. The next dependency-valid implementation is Wave 4
 Task 16, Fundamentals, News, Point-in-Time Validation and Free Providers.
+
+### Wave 4 Task 16 integration checkpoint - 2026-07-13
+
+`ISSUE-0023`, `ISSUE-0025`, `ISSUE-0054` and `ISSUE-0055` are now
+**implementation complete, closure pending**. Task 16 passed six bounded
+implementation/review cycles: strict five-section fundamentals and
+missing-vs-negative eligibility; atomic raw/clean/audit stores; point-in-time
+news validation and contradiction visibility; optional-provider capability
+states; a Fundamentals Screener; deterministic temporal selection across UI,
+trust and audit export; and persisted sector-relative comparison evidence.
+The final fresh independent reviewer approved specification compliance and
+code quality with no Critical or Important findings. PR 186 merged to `main`
+at `3143678` (implementation head `cd7aea5`). Focused Task 16 bundles,
+release-hardening tests, optional-provider/UI contracts, Ruff, compileall and
+diff checks passed. The complete repository/package/browser/clean-first-run
+closure gates remain pending; known baseline fixture/package failures are not
+attributed to Task 16. A Minor mixed-direction headline ambiguity recommendation
+is recorded for final triage. The next dependency-valid implementation is
+Wave 4 Task 17, Score History, Run Comparison and Feature Drivers.

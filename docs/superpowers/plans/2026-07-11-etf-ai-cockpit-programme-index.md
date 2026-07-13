@@ -1,6 +1,6 @@
 # ETF AI Cockpit Programme Index
 
-> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6, Wave 3 Tasks 7-9 and Wave 4 Tasks 10-15 are independently approved, merged and post-merge verified. Task 10 is closed locally and synchronised to GitHub Issue #81; Tasks 11-15 are implementation-complete with their owning issues still closure-pending strict release/package/audit/export/browser/clean-first-run evidence. The next dependency-valid implementation is Task 16, Fundamentals, News, Point-in-Time Validation and Free Providers.
+> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6, Wave 3 Tasks 7-9 and Wave 4 Tasks 10-16 are independently approved, merged and post-merge verified. Task 10 is closed locally and synchronised to GitHub Issue #81; Tasks 11-16 are implementation-complete with their owning issues still closure-pending strict release/package/audit/export/browser/clean-first-run evidence. The next dependency-valid implementation is Task 17, Score History, Run Comparison and Feature Drivers.
 
 **Binding inputs:**
 
@@ -292,3 +292,16 @@ checksums, Ruff, compileall and diff checks pass. `UPDATEV2-0017` and
 strict release/package, clean-first-run, audit-export and browser/computer-use
 evidence is not yet fresh. Continue with Task 16, Fundamentals, News,
 Point-in-Time Validation and Free Providers.
+
+Wave 4 Task 16, Fundamentals, News, Point-in-Time Validation and Free
+Providers, is implemented and independently approved through PR 186 at merge
+commit `3143678` (implementation head `cd7aea5`). Strict five-section
+fundamentals, point-in-time news validation, optional-provider capability
+states, Dashboard/News & Context/Instrument Detail/Screener surfaces,
+chronological evidence selection and audit-export ordering are present. Six
+bounded fix/review cycles ended with fresh SPEC and CODE approval and no
+Critical or Important findings. `ISSUE-0023`, `ISSUE-0025`, `ISSUE-0054` and
+`ISSUE-0055` remain open as implementation-complete/closure-pending because
+full release/package, audit/export, clean-first-run and browser/computer-use
+evidence is not yet fresh. Continue with Task 17, Score History, Run
+Comparison and Feature Drivers.
