@@ -20,6 +20,14 @@ class AccessibleTable:
     sortable_columns: tuple[str, ...]
     status_text: str
     frame: pd.DataFrame
+    search_callback: object
+    sort_callback: object
+
+    def search(self, query: str) -> pd.DataFrame:
+        return self.search_callback(query)
+
+    def sort(self, column: str, ascending: bool = True) -> pd.DataFrame:
+        return self.sort_callback(column, ascending)
 
 
 def accessible_table(
@@ -42,6 +50,19 @@ def accessible_table(
         data_row_max_height=56,
         column_spacing=14,
     )
+
+    def search_callback(query: str) -> pd.DataFrame:
+        text = str(query or "").strip().casefold()
+        if not text:
+            return data.copy()
+        mask = data.astype("string").apply(lambda column: column.str.casefold().str.contains(text, na=False)).any(axis=1)
+        return data.loc[mask].copy()
+
+    def sort_callback(column: str, ascending: bool = True) -> pd.DataFrame:
+        if column not in columns or not sortable:
+            return data.copy()
+        return data.sort_values(column, ascending=bool(ascending), kind="stable", na_position="last").reset_index(drop=True)
+
     return AccessibleTable(
         control=control,
         table_id=str(table_id),
@@ -49,6 +70,8 @@ def accessible_table(
         sortable_columns=columns if sortable else (),
         status_text=f"{len(data)} rows; status is shown as text",
         frame=data,
+        search_callback=search_callback,
+        sort_callback=sort_callback,
     )
 
 

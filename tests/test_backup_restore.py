@@ -62,3 +62,34 @@ def test_failed_restore_does_not_replace_existing_destination(tmp_path: Path) ->
     result = commit_restore(preview, destination)
     assert result.ok is False
     assert existing.read_text(encoding="utf-8") == "old"
+
+
+def test_backup_scans_contents_and_records_secret_exclusions(tmp_path: Path) -> None:
+    payload = tmp_path / "configs" / "settings.yaml"
+    payload.parent.mkdir(parents=True)
+    payload.write_text("provider: local\napi_key: super-secret-token\n", encoding="utf-8")
+    archive = tmp_path / "backup.zip"
+    manifest = create_backup([payload], archive)
+    assert "configs/settings.yaml" in manifest.excluded
+    assert "configs/settings.yaml" not in manifest.checksums
+    with __import__("zipfile").ZipFile(archive) as z:
+        assert all("super-secret-token" not in value.decode("utf-8", "ignore") for value in (z.read(name) for name in z.namelist()))
+
+
+def test_restore_rejects_unsupported_known_payload_schema_before_writes(tmp_path: Path) -> None:
+    import json
+    import zipfile
+
+    archive = tmp_path / "unsupported.zip"
+    payload_name = "configs/settings.json"
+    payload = json.dumps({"schema_version": 999, "safe": True}).encode("utf-8")
+    checksums = {payload_name: __import__("hashlib").sha256(payload).hexdigest()}
+    manifest = json.dumps({"schema_version": 1, "checksums": checksums}, sort_keys=True, indent=2).encode("utf-8") + b"\n"
+    with zipfile.ZipFile(archive, "w") as z:
+        z.writestr(payload_name, payload)
+        z.writestr("manifest.json", manifest)
+    preview = validate_restore(archive)
+    assert preview.valid is False
+    assert any("schema" in error for error in preview.errors)
+    destination = tmp_path / "restored"
+    assert not destination.exists()

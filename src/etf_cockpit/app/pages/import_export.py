@@ -10,7 +10,8 @@ from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import CONFIG_DIR, DATA_DIR, ROOT
 from etf_cockpit.data.backup_restore import commit_restore, create_backup, validate_restore
-from etf_cockpit.data.export_tables import export_table
+from etf_cockpit.data.decision_journal import DecisionJournal, JournalIntegrityError
+from etf_cockpit.data.export_tables import APPROVED_EXPORT_CATEGORIES, export_table
 from etf_cockpit.data.import_export import ImportService, ImportPreview, validate_import
 
 
@@ -73,17 +74,12 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
 
     export_path = ft.TextField(label="Export destination", value=str(ROOT / "exports" / "scoreboard.csv"), expand=True, key="import-export.export-path")
 
-    def export_scoreboard(_event: ft.ControlEvent) -> None:
-        frame = getattr(state.snapshot, "scoreboard", None)
-        if not isinstance(frame, pd.DataFrame):
-            signals = getattr(state.snapshot, "signals", ())
-            frame = pd.DataFrame([getattr(signal, "__dict__", {}) for signal in signals])
-        result = export_table("scoreboard", frame, Path(export_path.value or "scoreboard.csv"))
-        state.last_export_path = result.destination
-        show(f"Export {'complete' if result.ok else 'failed'}: {result.destination}; {result.error or f'{result.rows} rows'}.", colour=theme.GREEN if result.ok else theme.RED)
-
     backup_path = ft.TextField(label="Backup archive destination", value=str(ROOT / "backups" / "cockpit-backup.zip"), expand=True, key="import-export.backup-path")
     restore_path = ft.TextField(label="Restore archive", expand=True, key="import-export.restore-path")
+    restore_status = ft.Text("Restore validation preview required; nothing will be written.", color=theme.MUTED, selectable=True, key="import-export.restore-status")
+    restore_commit_button = ft.OutlinedButton("Commit restore", key="import-export.restore-commit", disabled=True)
+    restore_cancel_button = ft.TextButton("Cancel restore", key="import-export.restore-cancel", disabled=True)
+    restore_preview = None
 
     def backup(_event: ft.ControlEvent) -> None:
         try:
@@ -92,20 +88,95 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
         except Exception as exc:
             show(f"Backup failed: {type(exc).__name__}: {exc}.", colour=theme.RED)
 
-    def restore(_event: ft.ControlEvent) -> None:
+    def validate_restore_preview(_event: ft.ControlEvent) -> None:
+        nonlocal restore_preview
         archive = Path(restore_path.value or "")
-        preview = validate_restore(archive)
-        if not preview.valid:
-            show(f"Restore rejected before write: {'; '.join(preview.errors)}.", colour=theme.RED)
+        restore_preview = validate_restore(archive)
+        restore_commit_button.disabled = not restore_preview.valid
+        restore_cancel_button.disabled = False
+        restore_status.value = (
+            f"Restore preview {'valid' if restore_preview.valid else 'rejected'} for {archive}; destination {ROOT}; "
+            f"{len(restore_preview.entries)} entries; errors={'; '.join(restore_preview.errors) or 'none'}."
+        )
+        restore_status.color = theme.GREEN if restore_preview.valid else theme.RED
+        page.update()
+
+    def commit_restore_preview(_event: ft.ControlEvent) -> None:
+        nonlocal restore_preview
+        if restore_preview is None or not restore_preview.valid:
+            restore_status.value = "Restore commit blocked: validate a valid preview first."
+            restore_status.color = theme.RED
+            page.update()
             return
-        result = commit_restore(preview, ROOT)
-        show(f"Restore {'complete' if result.ok else 'failed'} at {result.destination}; {result.error or f'{result.restored} files'}.", colour=theme.GREEN if result.ok else theme.RED)
+        result = commit_restore(restore_preview, ROOT)
+        restore_status.value = f"Restore {'complete' if result.ok else 'failed'} at {result.destination}; {result.error or f'{result.restored} files'}."
+        restore_status.color = theme.GREEN if result.ok else theme.RED
+        if result.ok:
+            restore_preview = None
+            restore_commit_button.disabled = True
+            restore_cancel_button.disabled = True
+        page.update()
+
+    def cancel_restore_preview(_event: ft.ControlEvent) -> None:
+        nonlocal restore_preview
+        restore_preview = None
+        restore_commit_button.disabled = True
+        restore_cancel_button.disabled = True
+        restore_status.value = "Restore cancelled; no files changed."
+        restore_status.color = theme.MUTED
+        page.update()
+
+    restore_commit_button.on_click = commit_restore_preview
+    restore_cancel_button.on_click = cancel_restore_preview
+
+    def _export_frame(category: str) -> pd.DataFrame | None:
+        if category == "scoreboard":
+            frame = getattr(state.snapshot, "scoreboard", None)
+            if isinstance(frame, pd.DataFrame):
+                return frame
+            return pd.DataFrame([getattr(signal, "__dict__", {}) for signal in getattr(state.snapshot, "signals", ())])
+        if category == "watchlist":
+            rows = [getattr(signal, "__dict__", {}) for signal in getattr(state.snapshot, "signals", ()) if getattr(signal, "final_label", "") == "watchlist"]
+            return pd.DataFrame(rows)
+        if category == "paper_trade_journal":
+            path = ROOT / "data" / "derived" / "paper_trades.parquet"
+            return pd.read_parquet(path) if path.exists() else None
+        if category == "decision_journal":
+            try:
+                return pd.DataFrame([entry.model_dump(mode="json") for entry in DecisionJournal().list_entries(root=ROOT)])
+            except JournalIntegrityError:
+                return None
+        if category == "plan_issues_snapshot":
+            rows = []
+            for path in (ROOT / "plan.md", ROOT / "ISSUES.md", ROOT / "issues" / "open.md", ROOT / "issues" / "closed.md"):
+                if path.is_file():
+                    rows.append({"path": str(path), "content": path.read_text(encoding="utf-8")})
+            return pd.DataFrame(rows) if rows else None
+        return None
+
+    def export_category(category: str) -> None:
+        if category == "audit_packet":
+            try:
+                destination = state.export_audit_packet()
+                state.last_export_path = destination
+                show(f"Export complete: audit packet at {destination}.", colour=theme.GREEN)
+            except Exception as exc:
+                show(f"Export unavailable: audit packet: {type(exc).__name__}: {exc}.", colour=theme.RED)
+            return
+        frame = _export_frame(category)
+        destination = Path(export_path.value or ROOT / "exports" / f"{category}.csv") if category == "scoreboard" else ROOT / "exports" / f"{category}.csv"
+        result = export_table(category, frame, destination)
+        state.last_export_path = result.destination
+        show(f"Export {'complete' if result.ok else 'unavailable'}: {result.destination}; {result.error or f'{result.rows} rows'}.", colour=theme.GREEN if result.ok else theme.RED)
+
+    def export_scoreboard(_event: ft.ControlEvent) -> None:
+        export_category("scoreboard")
 
     return ft.Column(
         [
             panel(ft.Column([section_header("Import and Export Centre", "Preview and validate local evidence before any commit. All actions remain non-executable."), ft.Text("execution_allowed=false", color=theme.AMBER), ft.Row([import_type, path_field, ft.OutlinedButton("Choose and preview", key="import-export.import", icon=ft.Icons.UPLOAD_FILE, on_click=open_import)], wrap=True), ft.Row([commit_button], wrap=True), preview_text], spacing=10)),
-            panel(ft.Column([section_header("Exports", "Scoreboard, audit packet, watchlist, journals, plan/issues snapshot and analytical tables use explicit local paths."), ft.Row([export_path, ft.OutlinedButton("Export scoreboard CSV", key="import-export.export-scoreboard", icon=ft.Icons.DOWNLOAD, on_click=export_scoreboard)], wrap=True), ft.Text("Export status and destination are shown above; failures do not replace prior output.", color=theme.MUTED, selectable=True)], spacing=10)),
-            panel(ft.Column([section_header("Backup and Restore", "Checksums and zip traversal are validated before atomic restore publication."), ft.Row([backup_path, ft.OutlinedButton("Create backup", key="import-export.create-backup", icon=ft.Icons.ARCHIVE, on_click=backup)], wrap=True), ft.Row([restore_path, ft.OutlinedButton("Validate and restore", key="import-export.restore", icon=ft.Icons.RESTORE, on_click=restore)], wrap=True)], spacing=10)),
+            panel(ft.Column([section_header("Exports", "Scoreboard, audit packet, watchlist, journals, plan/issues snapshot and analytical tables use explicit local paths."), ft.Row([export_path, *[ft.OutlinedButton(f"Export {category.replace('_', ' ')}", key=f"import-export.export-{category}", icon=ft.Icons.DOWNLOAD, on_click=lambda _event, value=category: export_category(value)) for category in APPROVED_EXPORT_CATEGORIES]], wrap=True), ft.Text("Export status and destination are shown above; unavailable sources are reported without writing placeholders.", color=theme.MUTED, selectable=True)], spacing=10)),
+            panel(ft.Column([section_header("Backup and Restore", "Validate a restore preview before an explicit commit; cancel leaves the destination unchanged."), ft.Row([backup_path, ft.OutlinedButton("Create backup", key="import-export.create-backup", icon=ft.Icons.ARCHIVE, on_click=backup)], wrap=True), ft.Row([restore_path, ft.OutlinedButton("Validate restore preview", key="import-export.restore-validate", icon=ft.Icons.RESTORE, on_click=validate_restore_preview), restore_commit_button, restore_cancel_button], wrap=True), restore_status], spacing=10)),
             ft.Text(state.last_message, color=theme.MUTED, selectable=True),
         ],
         expand=True,

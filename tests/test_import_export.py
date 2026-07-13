@@ -91,3 +91,114 @@ def test_export_result_reports_path_and_controlled_failure(tmp_path: Path) -> No
     failed = export_table("scoreboard", None, destination)
     assert failed.ok is False
     assert "unavailable" in failed.error
+
+
+def test_broker_import_uses_canonical_current_holdings_csv(tmp_path: Path) -> None:
+    source = tmp_path / "broker.csv"
+    pd.DataFrame(
+        {
+            "as_of_date": ["2026-07-10"],
+            "etf_id": ["VWCE"],
+            "units": [2.0],
+            "market_price": [100.0],
+            "market_value_eur": [200.0],
+            "current_weight": [1.0],
+        }
+    ).to_csv(source, index=False)
+    preview = validate_import("broker", source)
+    result = ImportService(tmp_path).commit(preview.preview_id)
+    assert result.destination == tmp_path / "data" / "portfolios" / "current_holdings.csv"
+    assert result.destination.exists()
+    assert not (tmp_path / "data" / "portfolios" / "current_holdings.parquet").exists()
+
+
+def test_candidate_import_preserves_runtime_yahoo_csv_contract(tmp_path: Path) -> None:
+    source = tmp_path / "candidates.csv"
+    pd.DataFrame({"instrument_id": ["AAA"], "yahoo_symbol": ["AAA.DE"], "name": ["Example"]}).to_csv(source, index=False)
+    preview = validate_import("candidate", source)
+    assert preview.valid is True, preview.errors
+    result = ImportService(tmp_path).commit(preview.preview_id)
+    assert result.destination.parent == tmp_path / "data" / "raw" / "trade_candidates"
+    assert result.destination.name.startswith("yahoo_trade_candidates_")
+    saved = pd.read_csv(result.destination)
+    assert {"instrument_id", "yahoo_symbol"}.issubset(saved.columns)
+
+
+def test_manual_notes_import_keeps_normaliser_provenance_and_authority(tmp_path: Path) -> None:
+    source = tmp_path / "notes.csv"
+    pd.DataFrame({"as_of_date": ["2026-07-10"], "note": ["dated thesis"], "etf_id": ["VWCE"], "source_url": ["https://example.test/note"]}).to_csv(source, index=False)
+    preview = validate_import("manual_notes", source)
+    result = ImportService(tmp_path).commit(preview.preview_id)
+    saved = pd.read_parquet(result.destination)
+    assert result.destination == tmp_path / "data" / "clean" / "manual_news.parquet"
+    assert bool(saved.loc[0, "executable_authority"]) is False
+    assert {"source_credibility", "evidence_grade", "authority_note"}.issubset(saved.columns)
+
+
+def test_mutated_preview_is_rejected_without_writing(tmp_path: Path) -> None:
+    source = tmp_path / "prices.csv"
+    pd.DataFrame({"date": ["2026-07-10"], "etf_id": ["A"], "adjusted_close": [100.0]}).to_csv(source, index=False)
+    preview = validate_import("prices", source)
+    preview.frame.loc[0, "adjusted_close"] = 999.0
+    with pytest.raises(ValueError, match="stale|checksum|mutated"):
+        ImportService(tmp_path).commit(preview.preview_id)
+    assert not (tmp_path / "data" / "clean" / "prices.parquet").exists()
+
+
+@pytest.mark.parametrize(
+    "columns",
+    [
+        {"as_of_date": ["2026-07-10"], "note": [None]},
+        {"as_of_date": ["2026-07-10"], "note": ["   "]},
+        {"published_at": ["2026-07-10T12:00:00Z"], "headline": [None], "url": ["https://example.test"]},
+        {"published_at": ["2026-07-10T12:00:00Z"], "headline": ["   "], "url": ["https://example.test"]},
+    ],
+)
+def test_manual_text_and_news_headline_nan_or_blank_are_rejected(tmp_path: Path, columns: dict[str, list[object]]) -> None:
+    source = tmp_path / "invalid.csv"
+    pd.DataFrame(columns).to_csv(source, index=False)
+    import_type = "manual_notes" if "note" in columns else "news"
+    preview = validate_import(import_type, source)
+    assert preview.valid is False
+
+
+@pytest.mark.parametrize("feed_url", ["", "not-a-url"])
+def test_rss_list_import_requires_valid_feed_url(tmp_path: Path, feed_url: str) -> None:
+    source = tmp_path / "feeds.csv"
+    pd.DataFrame({"feed_url": [feed_url]}).to_csv(source, index=False)
+    preview = validate_import("rss_list", source)
+    assert preview.valid is False
+
+
+def test_rss_feed_url_list_needs_parsed_items_before_commit(tmp_path: Path) -> None:
+    source = tmp_path / "feeds.csv"
+    pd.DataFrame({"feed_url": ["https://example.test/feed.xml"]}).to_csv(source, index=False)
+    preview = validate_import("rss_list", source)
+    assert preview.valid is True
+    with pytest.raises(ValueError, match="parsed headline"):
+        ImportService(tmp_path).commit(preview.preview_id)
+
+
+def test_news_import_persists_canonical_context_provenance(tmp_path: Path) -> None:
+    source = tmp_path / "news.csv"
+    pd.DataFrame(
+        {
+            "news_id": ["n1"],
+            "instrument_id": ["VWCE"],
+            "source": ["rss"],
+            "provider": ["feed"],
+            "headline": ["Markets rise"],
+            "published_at": ["2026-07-10T12:00:00+00:00"],
+            "ingested_at": ["2026-07-10T12:01:00+00:00"],
+            "url": ["https://example.test/n1"],
+            "instrument_mapping_method": ["manual"],
+            "available_at_decision_time": [True],
+        }
+    ).to_csv(source, index=False)
+    preview = validate_import("news", source)
+    assert preview.valid is True, preview.errors
+    result = ImportService(tmp_path).commit(preview.preview_id)
+    saved = pd.read_parquet(result.destination)
+    assert {"news_id", "context_only", "executable_authority", "item_checksum"}.issubset(saved.columns)
+    assert bool(saved.loc[0, "context_only"]) is True
+    assert bool(saved.loc[0, "executable_authority"]) is False

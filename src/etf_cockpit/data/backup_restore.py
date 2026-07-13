@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import tempfile
 import zipfile
 from dataclasses import dataclass
@@ -28,6 +29,7 @@ class RestorePreview:
     errors: tuple[str, ...]
     checksums: dict[str, str] | None = None
     manifest_checksum: str = ""
+    excluded: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -46,13 +48,13 @@ def create_backup(paths: list[Path], destination: Path, *, include_transient: bo
     payloads: dict[str, bytes] = {}
     for path in files:
         relative = _archive_name(path)
-        if _secret_path(path) or (not include_transient and _transient_path(path)):
+        data = path.read_bytes()
+        if _secret_path(path) or _secret_content(data) or (not include_transient and _transient_path(path)):
             excluded.append(relative)
             continue
-        data = path.read_bytes()
         checksums[relative] = hashlib.sha256(data).hexdigest()
         payloads[relative] = data
-    manifest_payload = _manifest_payload(checksums)
+    manifest_payload = _manifest_payload(checksums, excluded)
     manifest_checksum = hashlib.sha256(manifest_payload).hexdigest()
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -75,6 +77,7 @@ def validate_restore(archive_path: Path) -> RestorePreview:
     entries: list[str] = []
     checksums: dict[str, str] = {}
     manifest_checksum = ""
+    excluded: tuple[str, ...] = ()
     try:
         with zipfile.ZipFile(archive_path) as archive:
             names = [info.filename.replace("\\", "/") for info in archive.infolist()]
@@ -95,6 +98,7 @@ def validate_restore(archive_path: Path) -> RestorePreview:
                     errors.append("manifest_schema_invalid")
                 else:
                     checksums = {str(name): str(value) for name, value in payload["checksums"].items()}
+                    excluded = tuple(str(name) for name in payload.get("excluded", ()) if str(name))
                     if set(checksums) != set(entries):
                         errors.append("manifest_entries_mismatch")
                     for name, expected in checksums.items():
@@ -108,9 +112,12 @@ def validate_restore(archive_path: Path) -> RestorePreview:
                             continue
                         if actual != expected:
                             errors.append(f"checksum_mismatch:{name}")
+                        schema_error = _validate_payload_schema(name, archive.read(name))
+                        if schema_error:
+                            errors.append(schema_error)
     except (OSError, zipfile.BadZipFile, json.JSONDecodeError, TypeError, ValueError, KeyError) as exc:
         errors.append(f"archive_invalid:{type(exc).__name__}")
-    return RestorePreview(Path(archive_path), not errors, tuple(sorted(set(entries))), tuple(errors), checksums, manifest_checksum)
+    return RestorePreview(Path(archive_path), not errors, tuple(sorted(set(entries))), tuple(errors), checksums, manifest_checksum, excluded)
 
 
 def commit_restore(preview: RestorePreview, destination: Path) -> RestoreResult:
@@ -141,8 +148,8 @@ def _iter_files(paths: list[Path]):
             yield source
 
 
-def _manifest_payload(checksums: dict[str, str]) -> bytes:
-    return (json.dumps({"schema_version": 1, "checksums": checksums}, sort_keys=True, indent=2) + "\n").encode("utf-8")
+def _manifest_payload(checksums: dict[str, str], excluded: list[str] | tuple[str, ...] = ()) -> bytes:
+    return (json.dumps({"schema_version": 1, "checksums": checksums, "excluded": sorted(set(excluded))}, sort_keys=True, indent=2) + "\n").encode("utf-8")
 
 
 def _unsafe(name: str) -> bool:
@@ -153,6 +160,47 @@ def _unsafe(name: str) -> bool:
 def _secret_path(path: Path) -> bool:
     lowered = path.name.lower()
     return lowered in {".env", ".env.local", "secrets.json", "credentials.json"} or "secret" in lowered or "credential" in lowered
+
+
+_SECRET_CONTENT = re.compile(
+    r"(?i)(?:api[_-]?key|access[_-]?token|client[_-]?secret|secret[_-]?key|password|private[_-]?key)\s*[:=]"
+)
+
+
+def _secret_content(data: bytes) -> bool:
+    text = data.decode("utf-8", errors="ignore")
+    return bool(_SECRET_CONTENT.search(text) or "-----BEGIN" in text and "PRIVATE KEY-----" in text)
+
+
+def _validate_payload_schema(name: str, data: bytes) -> str | None:
+    lowered = name.lower()
+    if not lowered.startswith(("configs/", "data/")) or Path(lowered).suffix not in {".json", ".yaml", ".yml"}:
+        return None
+    try:
+        if lowered.endswith(".json"):
+            payload = json.loads(data)
+        else:
+            try:
+                import yaml  # type: ignore[import-not-found]
+
+                payload = yaml.safe_load(data.decode("utf-8"))
+            except ImportError:
+                return None
+    except Exception:
+        return f"payload_schema_invalid:{name}"
+    if not isinstance(payload, dict):
+        return None
+    for key in ("schema_version", "programme_schema_version"):
+        if key not in payload:
+            continue
+        value = payload[key]
+        try:
+            numeric = float(str(value).strip())
+        except (TypeError, ValueError):
+            continue
+        if not 0 < numeric <= 4:
+            return f"unsupported_schema_version:{name}:{value}"
+    return None
 
 
 def _transient_path(path: Path) -> bool:

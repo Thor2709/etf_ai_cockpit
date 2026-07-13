@@ -15,35 +15,45 @@ class ChartDescriptor:
     export_table_id: str
     control: ft.Control
     available: bool
+    data: dict[str, tuple[object, ...]]
 
 
 def history_chart(frame: pd.DataFrame | None, *, title: str = "Price history") -> ChartDescriptor:
     available = isinstance(frame, pd.DataFrame) and not frame.empty
     label = title if available else f"{title} (unavailable)"
+    data = _series_data(frame, ("date", "adjusted_close", "etf_id", "instrument_id")) if available else {}
+    detail = f"{title}: {len(frame)} rows; series={', '.join(data)}" if available else f"{title}: unavailable; import dated adjusted prices first"
     control = ft.Container(
         content=ft.Text(
-            f"{title}: {len(frame)} rows" if available else f"{title}: unavailable; import dated adjusted prices first",
+            detail,
             color=TEXT if available else MUTED,
             selectable=True,
         ),
         padding=10,
         border=border_all(1, BORDER),
     )
-    return ChartDescriptor(label, "price_history", control, available)
+    return ChartDescriptor(label, "price_history", control, available, data)
 
 
 def equity_drawdown_chart(frame: pd.DataFrame | None) -> ChartDescriptor:
     available = isinstance(frame, pd.DataFrame) and not frame.empty and {"equity", "drawdown"}.issubset(frame.columns)
+    data = _series_data(frame, ("date", "equity", "drawdown")) if available else {}
     control = ft.Container(
         content=ft.Text(
-            f"Backtest equity and drawdown: {len(frame)} rows" if available else "Backtest equity and drawdown: unavailable",
+            f"Backtest equity and drawdown: {len(frame)} rows; series=equity, drawdown" if available else "Backtest equity and drawdown: unavailable",
             color=TEXT if available else MUTED,
             selectable=True,
         ),
         padding=10,
         border=border_all(1, BORDER),
     )
-    return ChartDescriptor("Backtest equity and drawdown", "backtest_equity_drawdown", control, available)
+    return ChartDescriptor("Backtest equity and drawdown", "backtest_equity_drawdown", control, available, data)
+
+
+def _series_data(frame: pd.DataFrame | None, columns: tuple[str, ...]) -> dict[str, tuple[object, ...]]:
+    if not isinstance(frame, pd.DataFrame):
+        return {}
+    return {column: tuple(frame[column].tolist()) for column in columns if column in frame.columns}
 
 
 def drift_bar(current: float, target: float, soft_band: float, hard_band: float, width: int = 180) -> ft.Column:

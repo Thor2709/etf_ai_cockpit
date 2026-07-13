@@ -85,3 +85,56 @@ are excluded by default; `include_transient=True` is an explicit opt-in.
   mixed bundle (`test_what_changed_uses_compact_responsive_instrument_cards_without_horizontal_table`,
   `test_dashboard_digest_surfaces_deterministic_run_changes`); they are outside
   Task 20 ownership and unrelated to the changed files.
+
+## Review fix pass
+
+### RED
+
+Added adversarial coverage for canonical broker/candidate routes, manual/news
+normalisation, checksum-bound preview mutation, NaN/blank text, malformed RSS
+URLs, content-level secret exclusion, unsupported payload schemas, functional
+table callbacks and chart data descriptors. The initial run produced 14
+expected assertion failures (the tests exercised the old incompatible paths and
+missing safeguards, not collection or syntax errors).
+
+### GREEN and refactor evidence
+
+- Broker imports now call the canonical holdings validator and publish
+  `data/portfolios/current_holdings.csv` atomically.
+- Candidate imports publish a runtime-compatible
+  `data/raw/trade_candidates/yahoo_trade_candidates_*.csv` with
+  `instrument_id`/`yahoo_symbol` fields.
+- Manual notes, canonical news and ETF holdings use their existing
+  normalisers/persistence contracts, retaining provenance and forced
+  `executable_authority=false`.
+- Commit recomputes the preview frame checksum and rejects stale/mutated
+  previews before writes. RSS/news text and URLs fail closed for NaN, blanks,
+  malformed URLs and empty feeds.
+- Backup scans payload contents for credential material, records excluded paths
+  in `manifest.json`, validates known JSON/YAML schema versions, and retains
+  traversal, duplicate, checksum and stale-preview checks.
+- Import/export UI exposes all six approved categories and separates restore
+  validation preview from explicit commit/cancel controls with destination and
+  controlled status text.
+- Chart descriptors expose series tuples; accessible tables expose deterministic
+  search and sort callbacks.
+
+### Fix-pass validation
+
+```powershell
+python -m pytest tests/test_import_export.py tests/test_backup_restore.py tests/test_accessible_tables.py -q
+# 32 passed
+
+python -m pytest tests/test_flet_startup.py tests/test_task18_ui.py tests/test_risk_analytics.py tests/test_import_export.py tests/test_backup_restore.py tests/test_accessible_tables.py -q
+# 57 passed
+
+python -m ruff check src/etf_cockpit/data/import_export.py src/etf_cockpit/data/ingest_broker.py src/etf_cockpit/data/backup_restore.py src/etf_cockpit/data/export_tables.py src/etf_cockpit/app/components/charts.py src/etf_cockpit/app/components/tables.py src/etf_cockpit/app/pages/import_export.py tests/test_import_export.py tests/test_backup_restore.py tests/test_accessible_tables.py
+# All checks passed
+
+python -m compileall -q src tests
+git diff --check
+```
+
+The full repository suite, packaged build and browser/computer-use visual
+checks remain outside this fix pass and were not run here. No issue closure
+state was changed.

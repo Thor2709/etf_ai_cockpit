@@ -8,6 +8,22 @@ import pandas as pd
 from etf_cockpit.core.atomic_io import atomic_write_bytes, parquet_payload, validate_parquet_file
 
 
+APPROVED_EXPORT_CATEGORIES = (
+    "scoreboard",
+    "audit_packet",
+    "watchlist",
+    "paper_trade_journal",
+    "decision_journal",
+    "plan_issues_snapshot",
+)
+
+
+def approved_export_categories() -> tuple[str, ...]:
+    """Return the explicit local export actions exposed by the UI."""
+
+    return APPROVED_EXPORT_CATEGORIES
+
+
 @dataclass(frozen=True)
 class ExportResult:
     table_id: str
