@@ -67,6 +67,78 @@ def _safe_frame(frame: object) -> pd.DataFrame:
     return frame.copy() if isinstance(frame, pd.DataFrame) else pd.DataFrame()
 
 
+def _is_missing_scalar(value: object) -> bool:
+    if value is None:
+        return True
+    try:
+        missing = pd.isna(value)
+    except (TypeError, ValueError):
+        return False
+    try:
+        return bool(missing) if not hasattr(missing, "__len__") else False
+    except (TypeError, ValueError):
+        return False
+
+
+def _value_or(value: object, fallback: object = "unavailable") -> object:
+    if _is_missing_scalar(value):
+        return fallback
+    if isinstance(value, str):
+        return value.strip() or fallback
+    return value
+
+
+def _first_value(row: Mapping[str, Any], columns: tuple[str, ...], fallback: object = "unavailable") -> object:
+    for column in columns:
+        value = row.get(column)
+        if not _is_missing_scalar(value) and (not isinstance(value, str) or value.strip()):
+            return value
+    return fallback
+
+
+def _normalise_identifier(value: object) -> str | None:
+    value = _value_or(value, None)
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _scope_identifier_rows(frame: pd.DataFrame, instrument_id: str) -> tuple[pd.DataFrame, bool]:
+    """Scope canonical IDs and reject rows that carry contradictory identity."""
+
+    if bool(frame.columns.duplicated().any()):
+        return frame.iloc[0:0].copy(), True
+    columns = [column for column in ("instrument_id", "etf_id") if column in frame.columns]
+    if not columns:
+        return frame.iloc[0:0].copy(), True
+    target = str(instrument_id).strip()
+    identifiers = pd.DataFrame(
+        {column: frame[column].map(_normalise_identifier) for column in columns},
+        index=frame.index,
+    )
+    populated = identifiers.notna().any(axis=1)
+    matches = identifiers.eq(target).any(axis=1)
+    contradictory = identifiers.apply(
+        lambda row: any(value is not None and value != target for value in row),
+        axis=1,
+    ) & matches
+    malformed = ~populated
+    if bool((contradictory | malformed).any()):
+        return frame.iloc[0:0].copy(), True
+    return frame.loc[matches & ~contradictory].copy(), False
+
+
+def _safe_bool(value: object, default: bool = False) -> bool:
+    if _is_missing_scalar(value):
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().casefold() in {"1", "true", "yes", "y", "on"}
+    return default
+
+
 def _load_parquet(path: object) -> pd.DataFrame:
     try:
         candidate = path
@@ -248,31 +320,32 @@ def _etf_disclosure_panel(
         registry = pd.DataFrame()
     registry_manual_review = False
     registry_message = ""
+    registry_had_rows = not registry.empty
     if not registry.empty:
-        registry_id_column = next((column for column in ("instrument_id", "etf_id") if column in registry.columns), None)
-        if registry_id_column is None:
+        registry, registry_manual_review = _scope_identifier_rows(registry, instrument_id)
+        if registry_manual_review:
             registry_manual_review = True
-            registry_message = "ETF disclosure registry is missing a canonical instrument_id or etf_id column; manual review is required."
+            registry_message = "ETF disclosure registry has missing or contradictory canonical IDs; manual review is required."
             inventory = pd.DataFrame()
-        else:
-            registry = registry[registry[registry_id_column].astype(str).eq(str(instrument_id))].copy()
-    if not registry_manual_review and registry.empty:
+    if not registry_manual_review and registry.empty and not registry_had_rows:
         try:
             inventory = build_document_inventory([instrument_id])
         except Exception:
             inventory = pd.DataFrame()
+    elif not registry_manual_review and registry.empty:
+        inventory = pd.DataFrame()
     elif not registry_manual_review:
         inventory = registry
     document_rows = []
     for row in inventory.to_dict("records"):
         document_rows.append(
             {
-                "document_type": str(row.get("document_type", "")),
-                "coverage_status": str(row.get("coverage_status", "unavailable")),
-                "document_date": row.get("document_date") or "unavailable",
-                "source": row.get("source_url") or row.get("authority") or "unavailable",
-                "checksum": row.get("checksum") or row.get("sha256") or "unavailable",
-                "source_id": row.get("source_id") or "unavailable",
+                "document_type": str(_value_or(row.get("document_type"), "")),
+                "coverage_status": str(_value_or(row.get("coverage_status"))),
+                "document_date": _first_value(row, ("document_date",)),
+                "source": _first_value(row, ("source_url", "authority")),
+                "checksum": _first_value(row, ("checksum", "sha256")),
+                "source_id": _first_value(row, ("source_id",)),
             }
         )
 
@@ -285,37 +358,62 @@ def _etf_disclosure_panel(
     holdings_manual_review = False
     holdings_message = ""
     if not holdings_frame.empty:
-        id_column = "instrument_id" if "instrument_id" in holdings_frame.columns else "etf_id" if "etf_id" in holdings_frame.columns else None
-        if id_column:
-            holdings_frame = holdings_frame[holdings_frame[id_column].astype(str).eq(str(instrument_id))]
-        else:
+        holdings_frame, holdings_manual_review = _scope_identifier_rows(holdings_frame, instrument_id)
+        if holdings_manual_review:
             holdings_manual_review = True
-            holdings_message = "ETF holdings are missing a canonical instrument_id or etf_id column; manual review is required."
+            holdings_message = "ETF holdings have missing or contradictory canonical IDs; manual review is required."
             holdings_frame = pd.DataFrame()
     if holdings_frame.empty:
         holdings_summary: dict[str, Any] = {
             "status": "manual_review" if holdings_manual_review else "unavailable",
             "message": holdings_message or "No normalised holdings are available.",
             "manual_review": holdings_manual_review,
+            "as_of": "unavailable",
+            "completeness": "unavailable",
+            "freshness": "unavailable",
+            "confidence": "unavailable",
+            "source": "unavailable",
+            "authority": "unavailable",
+            "score_eligible": False,
             "rows": [],
         }
     else:
-        sort_column = "as_of" if "as_of" in holdings_frame.columns else "as_of_date" if "as_of_date" in holdings_frame.columns else None
-        if sort_column:
-            holdings_frame = holdings_frame.sort_values(sort_column, kind="stable")
-        row = holdings_frame.iloc[-1]
-        holdings_summary = {
-            "status": "available",
-            "as_of": row.get("as_of") or row.get("as_of_date") or "unavailable",
-            "completeness": row.get("completeness", "unavailable"),
-            "freshness": row.get("freshness", "unavailable"),
-            "confidence": row.get("confidence", "unavailable"),
-            "source": row.get("source", "unavailable"),
-            "authority": row.get("authority", "unavailable"),
-            "score_eligible": row.get("score_eligible", False),
-            "manual_review": False,
-            "rows": holdings_frame.to_dict("records"),
-        }
+        as_of_values = holdings_frame.apply(
+            lambda row: _first_value(row, ("as_of", "as_of_date"), None),
+            axis=1,
+        )
+        parsed_dates = pd.to_datetime(as_of_values, errors="coerce", utc=True, format="mixed")
+        if bool(parsed_dates.isna().any()):
+            holdings_summary = {
+                "status": "manual_review",
+                "message": "ETF holdings have missing or malformed as_of metadata; manual review is required.",
+                "manual_review": True,
+                "as_of": "unavailable",
+                "completeness": "unavailable",
+                "freshness": "unavailable",
+                "confidence": "unavailable",
+                "source": "unavailable",
+                "authority": "unavailable",
+                "score_eligible": False,
+                "rows": [],
+            }
+            holdings_manual_review = True
+        else:
+            holdings_frame = holdings_frame.assign(_as_of_sort=parsed_dates).sort_values("_as_of_sort", kind="stable").drop(columns=["_as_of_sort"])
+            row = holdings_frame.iloc[-1]
+            confidence = _safe_float(row.get("confidence"))
+            holdings_summary = {
+                "status": "available",
+                "as_of": _first_value(row, ("as_of", "as_of_date")),
+                "completeness": _value_or(row.get("completeness")),
+                "freshness": _value_or(row.get("freshness")),
+                "confidence": confidence if confidence is not None else "unavailable",
+                "source": _value_or(row.get("source")),
+                "authority": _value_or(row.get("authority")),
+                "score_eligible": _safe_bool(row.get("score_eligible")),
+                "manual_review": False,
+                "rows": holdings_frame.where(pd.notna(holdings_frame), None).to_dict("records"),
+            }
     try:
         kid_frame = kid_records.copy() if isinstance(kid_records, pd.DataFrame) else read_priips_kid_records()
     except Exception:
@@ -328,8 +426,8 @@ def _etf_disclosure_panel(
     methodology = _parsed_methodology_panel(methodology_frame, instrument_id)
     has_registered_document = any(row["coverage_status"] in {"available", "imported", "mapped"} for row in document_rows)
     return {
-        "status": "manual_review" if registry_manual_review else "available" if has_registered_document or kid["status"] == "available" or methodology["status"] == "available" else "unavailable",
-        "message": registry_message or "ETF disclosure evidence is shown from canonical instrument-linked local records.",
+        "status": "manual_review" if registry_manual_review or holdings_manual_review else "available" if has_registered_document or kid["status"] == "available" or methodology["status"] == "available" else "unavailable",
+        "message": registry_message or holdings_message or "ETF disclosure evidence is shown from canonical instrument-linked local records.",
         "manual_review": registry_manual_review or holdings_manual_review,
         "document_inventory": document_rows,
         "holdings": holdings_summary,

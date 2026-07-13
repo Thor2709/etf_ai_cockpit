@@ -7,7 +7,7 @@ import pandas as pd
 from etf_cockpit.app import router
 from etf_cockpit.app.router import PAGES, _page_route, navigate_to
 from etf_cockpit.app.pages.instrument_detail import _render_evidence_section
-from etf_cockpit.app.selectors.instrument_detail import _attribution_panel, build_instrument_detail
+from etf_cockpit.app.selectors.instrument_detail import _attribution_panel, _etf_disclosure_panel, build_instrument_detail
 from etf_cockpit.backtest.engine import BacktestReport
 from etf_cockpit.app.components.simple_scores import simple_score_grouped_sections
 from etf_cockpit.core.config import ETFConfig
@@ -249,6 +249,58 @@ def test_etf_disclosures_do_not_use_foreign_ids() -> None:
     assert all(row.get("coverage_status") != "available" for row in panel["document_inventory"])
     assert all(row.get("source") != "OTHER" for row in panel["document_inventory"])
     assert panel["holdings"]["status"] in {"unavailable", "manual_review"}
+    assert panel["holdings"]["rows"] == []
+
+
+def test_etf_disclosures_reject_contradictory_supported_ids() -> None:
+    panel = _etf_disclosure_panel(
+        "VWCE",
+        document_registry=pd.DataFrame(
+            {
+                "instrument_id": ["VWCE"],
+                "etf_id": ["OTHER"],
+                "document_type": ["factsheet"],
+                "coverage_status": ["available"],
+            }
+        ),
+        holdings=pd.DataFrame(
+            {
+                "instrument_id": ["VWCE"],
+                "etf_id": ["OTHER"],
+                "as_of": ["2026-07-10"],
+            }
+        ),
+    )
+
+    assert panel["status"] == "manual_review"
+    assert panel["manual_review"] is True
+    assert panel["document_inventory"] == []
+    assert panel["holdings"]["status"] == "manual_review"
+    assert panel["holdings"]["rows"] == []
+
+
+def test_etf_disclosures_nullable_holdings_metadata_fail_closed() -> None:
+    panel = _etf_disclosure_panel(
+        "VWCE",
+        document_registry=pd.DataFrame(),
+        holdings=pd.DataFrame(
+            {
+                "instrument_id": ["VWCE"],
+                "as_of": [pd.NA],
+                "as_of_date": [pd.NA],
+                "completeness": [pd.NA],
+                "freshness": [pd.NA],
+                "confidence": [pd.NA],
+                "source": [pd.NA],
+                "authority": [pd.NA],
+                "score_eligible": [pd.NA],
+            }
+        ),
+    )
+
+    assert panel["holdings"]["status"] == "manual_review"
+    assert panel["holdings"]["manual_review"] is True
+    assert panel["holdings"]["as_of"] == "unavailable"
     assert panel["holdings"]["rows"] == []
 
 
