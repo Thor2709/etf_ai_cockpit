@@ -873,3 +873,20 @@ def test_risk_panel_rejects_empty_or_malformed_feature_rows() -> None:
     panel = _risk_panel(malformed, {}, {})
     assert panel["status"] in {"unavailable", "manual_review"}
     assert panel["execution_allowed"] is False
+
+
+def test_candidate_price_panel_rejects_malformed_latest_date() -> None:
+    snapshot = build_snapshot()
+    score = _candidate_score("candidate-invalid-date", asset_type="ETF", source_group="Secondary tier")
+    score = replace(score, latest_date="not-a-date")
+    panel = _price_panel(snapshot, "candidate-invalid-date", candidate_score=score)
+    assert panel["status"] in {"unavailable", "manual_review"}
+    assert panel["freshness"] in {"unknown", "unavailable"}
+
+
+@pytest.mark.parametrize("date_value", [["2026-07-13"], {"date": "2026-07-13"}, np.array(["2026-07-13"])])
+def test_risk_panel_rejects_container_dates(date_value) -> None:
+    frame = pd.DataFrame([{"instrument_id": "VWCE", "date": date_value, "momentum_60d": 0.1}])
+    panel = _risk_panel(frame, {}, {})
+    assert panel["status"] in {"unavailable", "manual_review"}
+    assert panel["execution_allowed"] is False

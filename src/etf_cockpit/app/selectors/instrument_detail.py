@@ -67,6 +67,20 @@ def _safe_float(value: object) -> float | None:
     return number if math.isfinite(number) else None
 
 
+def _safe_datetime_scalar(value: object) -> pd.Timestamp | None:
+    """Parse only scalar date evidence; containers are malformed."""
+
+    if not pd.api.types.is_scalar(value) or _is_missing_scalar(value):
+        return None
+    try:
+        parsed = pd.to_datetime(value, errors="coerce", utc=True, format="mixed")
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if isinstance(parsed, pd.Timestamp) and not pd.isna(parsed):
+        return parsed
+    return None
+
+
 def _safe_frame(frame: object) -> pd.DataFrame:
     return frame.copy() if isinstance(frame, pd.DataFrame) else pd.DataFrame()
 
@@ -673,15 +687,16 @@ def _price_panel(snapshot: CockpitSnapshot, instrument_id: str, *, candidate_sco
         if _candidate_score_matches(candidate_score, instrument_id):
             candidate_price = _safe_float(candidate_score.latest_price)  # type: ignore[union-attr]
             candidate_date = _safe_text(candidate_score.latest_date)  # type: ignore[union-attr]
-            if candidate_price is not None or candidate_date is not None:
+            candidate_timestamp = _safe_datetime_scalar(candidate_date)
+            if candidate_price is not None or candidate_timestamp is not None:
                 return {
-                    "status": "available" if candidate_price is not None and candidate_date is not None else "manual_review",
+                    "status": "available" if candidate_price is not None and candidate_timestamp is not None else "manual_review",
                     "rows": 0,
                     "history": [],
                     "latest_price": candidate_price,
-                    "latest_date": candidate_date or "unavailable",
-                    "as_of": candidate_date or "unavailable",
-                    "freshness": _candidate_freshness(candidate_score),  # type: ignore[arg-type]
+                    "latest_date": candidate_date if candidate_timestamp is not None else "unavailable",
+                    "as_of": candidate_date if candidate_timestamp is not None else "unavailable",
+                    "freshness": _candidate_freshness(candidate_score) if candidate_timestamp is not None else "unavailable",  # type: ignore[arg-type]
                     "source": "score_row",
                     "currency": "unavailable",
                     "execution_allowed": False,
@@ -826,7 +841,7 @@ def _risk_panel(features: object, friction: Mapping[str, Any], crowding: Mapping
     drawdown = {key: values.get(key) for key in ("drawdown_current", "drawdown_60d_max", "drawdown_120d_max")}
     liquidity = {"liquidity_score": values.get("liquidity_score")}
     as_of_raw = row.get("date", row.get("as_of_date"))
-    as_of_timestamp = pd.to_datetime(as_of_raw, errors="coerce", utc=True, format="mixed")
+    as_of_timestamp = _safe_datetime_scalar(as_of_raw)
     required_values = [*momentum.values(), *trend.values(), *relative.values(), *volatility.values(), *drawdown.values(), liquidity["liquidity_score"]]
     if pd.isna(as_of_timestamp) or not any(value is not None for value in required_values):
         return _unavailable("Risk and feature evidence unavailable; no valid dated risk dimensions are registered.") | {"crowding": crowding, "cost": friction}
