@@ -246,14 +246,22 @@ def _etf_disclosure_panel(
         registry = document_registry.copy() if isinstance(document_registry, pd.DataFrame) else read_document_registry()
     except Exception:
         registry = pd.DataFrame()
-    if not registry.empty and "instrument_id" in registry.columns:
-        registry = registry[registry["instrument_id"].astype(str).eq(str(instrument_id))].copy()
-    if registry.empty:
+    registry_manual_review = False
+    registry_message = ""
+    if not registry.empty:
+        registry_id_column = next((column for column in ("instrument_id", "etf_id") if column in registry.columns), None)
+        if registry_id_column is None:
+            registry_manual_review = True
+            registry_message = "ETF disclosure registry is missing a canonical instrument_id or etf_id column; manual review is required."
+            inventory = pd.DataFrame()
+        else:
+            registry = registry[registry[registry_id_column].astype(str).eq(str(instrument_id))].copy()
+    if not registry_manual_review and registry.empty:
         try:
             inventory = build_document_inventory([instrument_id])
         except Exception:
             inventory = pd.DataFrame()
-    else:
+    elif not registry_manual_review:
         inventory = registry
     document_rows = []
     for row in inventory.to_dict("records"):
@@ -274,12 +282,23 @@ def _etf_disclosure_panel(
         except Exception:
             holdings = pd.DataFrame()
     holdings_frame = holdings.copy() if isinstance(holdings, pd.DataFrame) else pd.DataFrame()
+    holdings_manual_review = False
+    holdings_message = ""
     if not holdings_frame.empty:
         id_column = "instrument_id" if "instrument_id" in holdings_frame.columns else "etf_id" if "etf_id" in holdings_frame.columns else None
         if id_column:
             holdings_frame = holdings_frame[holdings_frame[id_column].astype(str).eq(str(instrument_id))]
+        else:
+            holdings_manual_review = True
+            holdings_message = "ETF holdings are missing a canonical instrument_id or etf_id column; manual review is required."
+            holdings_frame = pd.DataFrame()
     if holdings_frame.empty:
-        holdings_summary: dict[str, Any] = {"status": "unavailable", "message": "No normalised holdings are available."}
+        holdings_summary: dict[str, Any] = {
+            "status": "manual_review" if holdings_manual_review else "unavailable",
+            "message": holdings_message or "No normalised holdings are available.",
+            "manual_review": holdings_manual_review,
+            "rows": [],
+        }
     else:
         sort_column = "as_of" if "as_of" in holdings_frame.columns else "as_of_date" if "as_of_date" in holdings_frame.columns else None
         if sort_column:
@@ -294,6 +313,7 @@ def _etf_disclosure_panel(
             "source": row.get("source", "unavailable"),
             "authority": row.get("authority", "unavailable"),
             "score_eligible": row.get("score_eligible", False),
+            "manual_review": False,
             "rows": holdings_frame.to_dict("records"),
         }
     try:
@@ -308,7 +328,9 @@ def _etf_disclosure_panel(
     methodology = _parsed_methodology_panel(methodology_frame, instrument_id)
     has_registered_document = any(row["coverage_status"] in {"available", "imported", "mapped"} for row in document_rows)
     return {
-        "status": "available" if has_registered_document or kid["status"] == "available" or methodology["status"] == "available" else "unavailable",
+        "status": "manual_review" if registry_manual_review else "available" if has_registered_document or kid["status"] == "available" or methodology["status"] == "available" else "unavailable",
+        "message": registry_message or "ETF disclosure evidence is shown from canonical instrument-linked local records.",
+        "manual_review": registry_manual_review or holdings_manual_review,
         "document_inventory": document_rows,
         "holdings": holdings_summary,
         "exposure": {
@@ -519,12 +541,19 @@ def _risk_panel(features: object, friction: Mapping[str, Any], crowding: Mapping
 def _attribution_panel(derived: Mapping[str, Any], scoreboard: Mapping[str, Any]) -> dict[str, Any]:
     value = dict(derived.get("attribution", {}))
     aliases = {
-        "alpha": ("alpha", "alpha_proxy", "sector_alpha_proxy"),
+        "alpha": ("alpha", "alpha_proxy"),
         "beta": ("beta", "benchmark_beta"),
         "correlation": ("correlation", "benchmark_correlation"),
     }
     for target, names in aliases.items():
-        value[target] = next((_safe_float(scoreboard.get(name)) for name in names if _safe_float(scoreboard.get(name)) is not None), _safe_float(value.get(names[-1])))
+        value[target] = next(
+            (
+                _safe_float(scoreboard.get(name))
+                for name in names
+                if _safe_float(scoreboard.get(name)) is not None
+            ),
+            next((_safe_float(value.get(name)) for name in names if _safe_float(value.get(name)) is not None), None),
+        )
     value.setdefault("status", "available" if any(value.get(key) is not None for key in ("alpha", "beta", "correlation")) else "unavailable")
     value["execution_allowed"] = False
     return value

@@ -6,7 +6,9 @@ import pandas as pd
 
 from etf_cockpit.app import router
 from etf_cockpit.app.router import PAGES, _page_route, navigate_to
-from etf_cockpit.app.selectors.instrument_detail import build_instrument_detail
+from etf_cockpit.app.pages.instrument_detail import _render_evidence_section
+from etf_cockpit.app.selectors.instrument_detail import _attribution_panel, build_instrument_detail
+from etf_cockpit.backtest.engine import BacktestReport
 from etf_cockpit.app.components.simple_scores import simple_score_grouped_sections
 from etf_cockpit.core.config import ETFConfig
 from etf_cockpit.services import build_snapshot
@@ -141,3 +143,119 @@ def test_score_row_exposes_keyboard_operable_instrument_detail_action(monkeypatc
     button.on_click(None)
     assert page.route == "/instrument/VWCE"
     assert state.selected_etf == "VWCE"
+
+
+def _text_values(control: object) -> list[str]:
+    values: list[str] = []
+    value = getattr(control, "value", None)
+    if value is not None:
+        values.append(str(value))
+    for child in getattr(control, "controls", []) or []:
+        values.extend(_text_values(child))
+    content = getattr(control, "content", None)
+    if content is not None:
+        values.extend(_text_values(content))
+    for row in getattr(control, "rows", []) or []:
+        for cell in getattr(row, "cells", []) or []:
+            values.extend(_text_values(getattr(cell, "content", None)))
+    return values
+
+
+def test_instrument_detail_renders_scoped_records_for_etf_panels() -> None:
+    snapshot = build_snapshot()
+    instrument_id = "VWCE"
+    history = pd.DataFrame(
+        [
+            {"instrument_id": instrument_id, "run_id": "previous", "final_combined_score_10": 4.0, "final_action": "no_trade"},
+            {"instrument_id": instrument_id, "run_id": "current", "final_combined_score_10": 7.0, "final_action": "buy"},
+        ]
+    )
+    custom = replace(
+        snapshot,
+        forecasts=pd.DataFrame([{"etf_id": instrument_id, "forecast_id": "forecast-etf-1", "status": "ok"}]),
+        backtest=BacktestReport(
+            results=pd.DataFrame(),
+            equity_curves=pd.DataFrame(),
+            trade_log=pd.DataFrame([{"etf_id": instrument_id, "trade_id": "backtest-trade-etf-1", "return": 0.12}]),
+            signal_log=pd.DataFrame([{"etf_id": instrument_id, "signal_id": "backtest-signal-etf-1", "action": "buy"}]),
+            ai_added_value=False,
+        ),
+    )
+    model = build_instrument_detail(
+        custom,
+        instrument_id,
+        paper_trades=pd.DataFrame([{"instrument_id": instrument_id, "paper_trade_id": "paper-etf-1", "status": "open"}]),
+        journal=pd.DataFrame([{"instrument_id": instrument_id, "journal_id": "journal-etf-1", "thesis": "ETF thesis"}]),
+        score_history=history,
+    )
+
+    rendered = "\n".join(
+        value
+        for key in ("price", "forecasts", "backtests", "paper_trades", "journal", "run_changes")
+        for value in _text_values(_render_evidence_section(key, model.sections[key]))
+    )
+    assert "forecast-etf-1" in rendered
+    assert "backtest-signal-etf-1" in rendered
+    assert "backtest-trade-etf-1" in rendered
+    assert "paper-etf-1" in rendered
+    assert "journal-etf-1" in rendered
+    assert "current" in rendered
+
+
+def test_instrument_detail_renders_scoped_records_for_stock() -> None:
+    snapshot = build_snapshot()
+    stock = ETFConfig(id="stock-render", name="Rendered Stock", ticker="STK.OL", instrument_type="stock", role="watchlist")
+    config = snapshot.config.model_copy(update={"universe": snapshot.config.universe.model_copy(update={"etfs": [*snapshot.config.universe.etfs, stock]})})
+    custom = replace(
+        snapshot,
+        config=config,
+        prices=pd.concat([snapshot.prices, pd.DataFrame([{"etf_id": "stock-render", "date": "2026-07-13", "adjusted_close": 123.45}])], ignore_index=True),
+        forecasts=pd.DataFrame([{"etf_id": "stock-render", "forecast_id": "forecast-stock-1", "status": "ok"}]),
+    )
+    model = build_instrument_detail(custom, "stock-render", paper_trades=pd.DataFrame([{"instrument_id": "stock-render", "paper_trade_id": "paper-stock-1"}]))
+    rendered = "\n".join(_text_values(_render_evidence_section("Price history", model.sections["price"])))
+    rendered += "\n".join(_text_values(_render_evidence_section("Forecast evidence", model.sections["forecasts"])))
+    rendered += "\n".join(_text_values(_render_evidence_section("Paper-trade history", model.sections["paper_trades"])))
+    assert "123.45" in rendered
+    assert "forecast-stock-1" in rendered
+    assert "paper-stock-1" in rendered
+
+
+def test_etf_disclosures_reject_idless_registry_and_holdings() -> None:
+    snapshot = build_snapshot()
+    model = build_instrument_detail(
+        snapshot,
+        "VWCE",
+        document_registry=pd.DataFrame({"document_type": ["factsheet"], "coverage_status": ["available"]}),
+        holdings=pd.DataFrame({"holding_symbol": ["FOREIGN"], "weight": [1.0]}),
+    )
+    panel = model.sections["etf_disclosures"]
+    assert panel["status"] in {"unavailable", "manual_review"}
+    assert panel["manual_review"] is True
+    assert panel["document_inventory"] == []
+    assert panel["holdings"]["status"] in {"unavailable", "manual_review"}
+    assert panel["holdings"]["rows"] == []
+
+
+def test_etf_disclosures_do_not_use_foreign_ids() -> None:
+    snapshot = build_snapshot()
+    model = build_instrument_detail(
+        snapshot,
+        "VWCE",
+        document_registry=pd.DataFrame({"etf_id": ["OTHER"], "document_type": ["factsheet"], "coverage_status": ["available"]}),
+        holdings=pd.DataFrame({"etf_id": ["OTHER"], "holding_symbol": ["FOREIGN"], "weight": [1.0]}),
+    )
+    panel = model.sections["etf_disclosures"]
+    assert all(row.get("coverage_status") != "available" for row in panel["document_inventory"])
+    assert all(row.get("source") != "OTHER" for row in panel["document_inventory"])
+    assert panel["holdings"]["status"] in {"unavailable", "manual_review"}
+    assert panel["holdings"]["rows"] == []
+
+
+def test_attribution_alpha_fallback_never_uses_sector_alpha() -> None:
+    panel = _attribution_panel(
+        {"attribution": {"alpha_proxy": 0.11, "sector_alpha_proxy": 0.42, "status": "available"}},
+        {"sector_alpha_proxy": 0.42},
+    )
+    assert panel["alpha"] == 0.11
+    assert panel["sector_alpha_proxy"] == 0.42

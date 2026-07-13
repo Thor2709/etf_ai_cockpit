@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping, Sequence
 
 import flet as ft
 
@@ -152,12 +153,45 @@ def _render_crowding_attribution_panel(sections: dict[str, object]) -> ft.Contro
     return panel(ft.Column([section_header("Crowding and attribution", "Configured sector/theme metadata and clean adjusted-price evidence; unavailable values remain N/A."), *[ft.Text(line, color=theme.MUTED, size=11, selectable=True) for line in lines]], spacing=5))
 
 
+def _format_record_value(value: object) -> str:
+    if value is None:
+        return "N/A"
+    try:
+        if isinstance(value, float) and not math.isfinite(value):
+            return "N/A"
+    except (TypeError, ValueError):
+        return "N/A"
+    return str(value)
+
+
+def _render_record_group(label: str, records: object) -> ft.Control:
+    if not isinstance(records, Sequence) or isinstance(records, (str, bytes)):
+        records = []
+    if not records:
+        return ft.Column(
+            [
+                ft.Text(label, color=theme.TEXT, weight=ft.FontWeight.BOLD, size=12),
+                ft.Text("No scoped records available.", color=theme.MUTED, size=11, selectable=True),
+            ],
+            spacing=4,
+        )
+    lines: list[ft.Control] = [ft.Text(label, color=theme.TEXT, weight=ft.FontWeight.BOLD, size=12)]
+    for index, record in enumerate(records, start=1):
+        if isinstance(record, Mapping):
+            details = " | ".join(f"{key}={_format_record_value(value)}" for key, value in record.items())
+        else:
+            details = _format_record_value(record)
+        lines.append(ft.Text(f"{label} {index}: {details or 'unavailable'}", color=theme.MUTED, size=11, selectable=True))
+    return ft.Column(lines, spacing=4, scroll=ft.ScrollMode.AUTO)
+
+
 def _render_evidence_section(title: str, value: object, *, subtitle: str = "Canonical local evidence is shown as stored; unavailable values remain explicit.") -> ft.Control:
     if not isinstance(value, dict):
         return panel(ft.Column([section_header(title, subtitle), ft.Text(str(value), color=theme.MUTED, selectable=True)], spacing=6))
     lines: list[ft.Control] = []
     for key, item in value.items():
         if key in {"history", "rows", "entries", "signal_rows", "trade_rows", "changes", "document_inventory"}:
+            lines.append(_render_record_group(str(key), item))
             continue
         if isinstance(item, dict):
             compact = ", ".join(f"{child}={child_value if child_value is not None else 'N/A'}" for child, child_value in item.items())
