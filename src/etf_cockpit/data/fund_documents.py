@@ -53,16 +53,24 @@ def canonical_document_type(document_type: str) -> str:
 
 
 def _normalise_date(document_date: str | date | datetime | None) -> str | None:
-    if document_date is None or document_date == "":
+    if document_date is None or (isinstance(document_date, str) and not document_date.strip()):
         return None
     if isinstance(document_date, datetime):
-        return document_date.date().isoformat()
-    if isinstance(document_date, date):
-        return document_date.isoformat()
-    try:
-        return date.fromisoformat(str(document_date).strip()).isoformat()
-    except ValueError as exc:
-        raise ValueError(f"Invalid document_date: {document_date}") from exc
+        normalised = document_date.astimezone(timezone.utc).date() if document_date.tzinfo else document_date.date()
+    elif isinstance(document_date, date):
+        normalised = document_date
+    else:
+        value = str(document_date).strip()
+        try:
+            normalised = date.fromisoformat(value)
+        except ValueError:
+            try:
+                normalised = datetime.fromisoformat(value).date()
+            except ValueError as exc:
+                raise ValueError(f"Invalid document_date: {document_date}") from exc
+    if normalised > datetime.now(timezone.utc).date():
+        raise ValueError(f"future document_date is not allowed: {normalised.isoformat()}")
+    return normalised.isoformat()
 
 
 def _document_source_id(instrument_id: str, document_type: str, checksum: str | None, document_date: str | None) -> str:
@@ -229,6 +237,44 @@ def write_document_registry(
     )
     atomic_write_group(requests)
     return destination
+
+
+def import_etf_document(
+    path: Path,
+    *,
+    instrument_id: str,
+    document_type: str,
+    source_url: str = "",
+    authority: str = "issuer_document",
+    document_date: str | date | datetime | None = None,
+    expected_sha256: str | None = None,
+    destination: Path | None = None,
+    configured_instrument_ids: Iterable[str] | None = None,
+) -> FundDocument:
+    """Register one local ETF disclosure and persist a complete inventory.
+
+    The existing registry is read first so importing a new version retains all
+    prior source-linked documents. Inventory generation supplies explicit
+    missing rows for configured instruments and document types.
+    """
+    destination = Path(destination or FUND_DOCUMENTS_PATH)
+    document = register_document(
+        Path(path),
+        document_type,
+        instrument_id,
+        source_url,
+        authority,
+        document_date=document_date,
+        expected_sha256=expected_sha256,
+    )
+    existing = read_document_registry(path=destination)
+    ids = list(configured_instrument_ids or ())
+    if not ids and not existing.empty and "instrument_id" in existing.columns:
+        ids.extend(existing["instrument_id"].dropna().astype(str).tolist())
+    ids.append(str(instrument_id))
+    inventory = build_document_inventory(ids, [*existing.to_dict("records"), document])
+    write_document_registry(inventory, destination=destination)
+    return document
 
 
 def read_document_registry(*, path: Path = FUND_DOCUMENTS_PATH) -> pd.DataFrame:

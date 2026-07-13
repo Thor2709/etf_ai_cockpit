@@ -9,7 +9,8 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import STATEMENT_FACTS_PATH
-from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
+from etf_cockpit.data.fund_documents import import_etf_document
+from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH, import_etf_holdings
 from etf_cockpit.data.provider_registry import ProviderRegistry
 from etf_cockpit.data.trust_artifacts import (
     BENCHMARK_ATTRIBUTION_PATH,
@@ -221,6 +222,72 @@ def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
 def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
     result = ft.Text("No ETF disclosure imported in this view.", color=theme.MUTED, selectable=True)
     picker = _attach_picker(page, "etf-disclosures.import.file-picker")
+    instrument_field = ft.TextField(label="ETF instrument ID", value=state.selected_etf, width=180)
+    document_date_field = ft.TextField(label="Document date (optional)", width=190)
+    document_type_field = ft.Dropdown(
+        label="Document type",
+        value="factsheet",
+        width=190,
+        options=[ft.dropdown.Option(value) for value in ("factsheet", "kid", "prospectus_report", "methodology")],
+    )
+    holdings_date_field = ft.TextField(label="Holdings as-of date", width=190)
+    holdings_source_field = ft.TextField(label="Holdings source", value="issuer", width=150)
+
+    async def import_document(_event: ft.ControlEvent) -> None:
+        files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["pdf", "csv", "xlsx", "xls"], with_data=True)
+        if not files:
+            result.value = "ETF document import cancelled; no data changed."
+            page.update()
+            return
+        path = Path(files[0].path) if files[0].path else None
+        try:
+            if path is None or not path.exists():
+                raise ValueError("a readable local path is required")
+            document = import_etf_document(
+                path,
+                instrument_id=str(instrument_field.value or state.selected_etf or "").strip(),
+                document_type=str(document_type_field.value or "factsheet"),
+                document_date=str(document_date_field.value or "").strip() or None,
+                authority="issuer_document",
+                configured_instrument_ids=state.snapshot.config.universe.enabled_ids,
+            )
+            result.value = f"ETF {document.document_type} registered for {document.instrument_id}; registry persisted with checksum {document.sha256[:12]}...."
+            state.last_message = result.value
+        except Exception as exc:
+            state.fail_activity("Import ETF document", exc)
+            result.value = f"ETF document import failed safely: {state.last_message or type(exc).__name__}; no data changed."
+        page.update()
+
+    async def import_holdings(_event: ft.ControlEvent) -> None:
+        files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["csv", "xlsx", "xls"], with_data=True)
+        if not files:
+            result.value = "ETF holdings import cancelled; no data changed."
+            page.update()
+            return
+        path = Path(files[0].path) if files[0].path else None
+        try:
+            if path is None or not path.exists():
+                raise ValueError("a readable local holdings path is required")
+            imported = import_etf_holdings(
+                path,
+                str(instrument_field.value or state.selected_etf or "").strip(),
+                str(holdings_date_field.value or "").strip() or None,
+                str(holdings_source_field.value or "issuer").strip() or "issuer",
+            )
+            import_etf_document(
+                path,
+                instrument_id=str(instrument_field.value or state.selected_etf or "").strip(),
+                document_type="holdings",
+                document_date=imported.as_of,
+                authority="issuer_document",
+                configured_instrument_ids=state.snapshot.config.universe.enabled_ids,
+            )
+            result.value = f"ETF holdings imported for {instrument_field.value}: completeness={imported.completeness}, freshness={imported.freshness}, confidence={imported.confidence:.2f}."
+            state.last_message = result.value
+        except Exception as exc:
+            state.fail_activity("Import ETF holdings", exc)
+            result.value = f"ETF holdings import failed safely: {state.last_message or type(exc).__name__}; existing holdings were preserved."
+        page.update()
 
     async def import_kid(_event: ft.ControlEvent) -> None:
         from etf_cockpit.parsers.priips_kid import parse_priips_kid
@@ -256,7 +323,18 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
                 result.value = f"Methodology import failed safely: {state.last_message}"
         page.update()
 
-    return panel(ft.Column([section_header("ETF disclosure import", "PRIIPs KIDs and index methodology PDFs are extracted deterministically with page/checksum warnings. Missing fields stay unavailable."), ft.Row([ft.OutlinedButton("Import PRIIPs KID", key="etf-disclosures.import-kid", icon=ft.Icons.UPLOAD_FILE, on_click=import_kid), ft.OutlinedButton("Import index methodology", key="etf-disclosures.import-methodology", icon=ft.Icons.UPLOAD_FILE, on_click=import_methodology)], wrap=True), result], spacing=8))
+    return panel(
+        ft.Column(
+            [
+                section_header("ETF disclosure import", "Local factsheets, KIDs, prospectuses/reports, holdings and methodologies are registered with checksums and explicit missing/invalid states. Parser controls remain available for KIDs and methodologies."),
+                ft.Row([instrument_field, document_type_field, document_date_field, ft.OutlinedButton("Register ETF document", key="etf-disclosures.import-document", icon=ft.Icons.UPLOAD_FILE, on_click=import_document)], wrap=True),
+                ft.Row([holdings_date_field, holdings_source_field, ft.OutlinedButton("Import ETF holdings", key="etf-disclosures.import-holdings", icon=ft.Icons.UPLOAD_FILE, on_click=import_holdings)], wrap=True),
+                ft.Row([ft.OutlinedButton("Import PRIIPs KID", key="etf-disclosures.import-kid", icon=ft.Icons.UPLOAD_FILE, on_click=import_kid), ft.OutlinedButton("Import index methodology", key="etf-disclosures.import-methodology", icon=ft.Icons.UPLOAD_FILE, on_click=import_methodology)], wrap=True),
+                result,
+            ],
+            spacing=8,
+        )
+    )
 
 
 def _attach_picker(page: ft.Page, key: str) -> ft.FilePicker:

@@ -24,6 +24,51 @@ def test_missing_optional_stores_are_unavailable_not_crash() -> None:
     assert model.sections["identity"] == "unavailable"
 
 
+def test_instrument_detail_etf_disclosure_panel_shows_inventory_and_holdings_quality() -> None:
+    from etf_cockpit.app.selectors.instrument_detail import build_etf_disclosure_panel
+
+    snapshot = build_snapshot()
+    model = build_instrument_detail(
+        snapshot,
+        snapshot.config.universe.enabled_ids[0],
+        document_registry=pd.DataFrame(
+            {
+                "instrument_id": [snapshot.config.universe.enabled_ids[0]],
+                "document_type": ["factsheet"],
+                "coverage_status": ["available"],
+                "document_date": ["2026-07-10"],
+                "source_id": ["funddoc:test"],
+                "checksum": ["a" * 64],
+            }
+        ),
+        holdings=pd.DataFrame(
+            {
+                "instrument_id": [snapshot.config.universe.enabled_ids[0]],
+                "as_of": ["2026-07-10"],
+                "completeness": ["full"],
+                "freshness": ["fresh"],
+                "confidence": [1.0],
+                "source": ["issuer"],
+            }
+        ),
+    )
+    panel = build_etf_disclosure_panel(model)
+    assert panel["document_inventory"][0]["document_type"] == "factsheet"
+    assert panel["holdings"]["completeness"] == "full"
+    assert panel["holdings"]["confidence"] == 1.0
+
+
+def test_instrument_detail_disclosure_panel_is_honest_when_inventory_is_missing() -> None:
+    from etf_cockpit.app.selectors.instrument_detail import build_etf_disclosure_panel
+
+    snapshot = build_snapshot()
+    model = build_instrument_detail(snapshot, snapshot.config.universe.enabled_ids[0], document_registry=pd.DataFrame(), holdings=pd.DataFrame())
+    panel = build_etf_disclosure_panel(model)
+    assert panel["status"] == "unavailable"
+    assert {row["coverage_status"] for row in panel["document_inventory"]} == {"missing"}
+    assert panel["holdings"]["status"] == "unavailable"
+
+
 def test_legacy_etf_detail_renders_controlled_empty_state_without_scores() -> None:
     snapshot = build_snapshot()
     empty_snapshot = replace(snapshot, signals=[], latest_features=pd.DataFrame())

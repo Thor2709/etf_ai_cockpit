@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -31,6 +32,41 @@ def test_document_registry_rejects_unknown_type_and_bad_date(tmp_path: Path) -> 
         register_document(path, "marketing", "VWCE", "https://issuer.example/kid.pdf", "issuer")
     with pytest.raises(ValueError, match="document_date"):
         register_document(path, "kid", "VWCE", "https://issuer.example/kid.pdf", "issuer", document_date="not-a-date")
+
+
+@pytest.mark.parametrize(
+    "future_date",
+    [
+        datetime.now(timezone.utc) + timedelta(days=1),
+        date.today() + timedelta(days=1),
+        (date.today() + timedelta(days=1)).isoformat(),
+    ],
+)
+def test_document_registry_rejects_future_dates_fail_closed(tmp_path: Path, future_date: object) -> None:
+    path = tmp_path / "factsheet.pdf"
+    path.write_bytes(b"fixture")
+    with pytest.raises(ValueError, match="future document_date"):
+        register_document(path, "factsheet", "VWCE", "", "issuer", document_date=future_date)
+
+
+def test_document_import_path_registers_and_persists_inventory(tmp_path: Path) -> None:
+    from etf_cockpit.data.fund_documents import import_etf_document
+
+    source = tmp_path / "factsheet.pdf"
+    source.write_bytes(b"fixture")
+    destination = tmp_path / "fund_documents.parquet"
+    imported = import_etf_document(
+        source,
+        instrument_id="VWCE",
+        document_type="factsheet",
+        source_url="",
+        authority="issuer",
+        destination=destination,
+        configured_instrument_ids=["VWCE"],
+    )
+    assert imported.document_type == "factsheet"
+    stored = pd.read_parquet(destination)
+    assert stored.loc[stored["document_type"] == "factsheet", "coverage_status"].eq("available").any()
 
 
 def test_document_inventory_has_every_type_for_every_configured_etf_and_dedupes_exact_versions(tmp_path: Path) -> None:

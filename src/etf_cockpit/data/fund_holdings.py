@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+from numbers import Integral
 from pathlib import Path
 
 import pandas as pd
@@ -64,7 +65,11 @@ def _date_value(value: str | date | datetime) -> date | None:
     try:
         return date.fromisoformat(str(value).strip())
     except (TypeError, ValueError):
-        return None
+        try:
+            parsed = datetime.fromisoformat(str(value).strip())
+        except (TypeError, ValueError):
+            return None
+        return parsed.date()
 
 
 def _today_value(value: str | date | datetime | None) -> date:
@@ -236,6 +241,14 @@ def _holdings_write_reasons(result: HoldingsNormalisationResult, frame: pd.DataF
     if missing or frame.empty:
         return reasons
 
+    if "schema_version" in frame.columns:
+        schema_values = frame["schema_version"]
+        valid_schema = schema_values.notna() & schema_values.map(
+            lambda value: isinstance(value, Integral) and not isinstance(value, bool) and int(value) == 1
+        )
+        if not bool(valid_schema.all()):
+            reasons.append("schema_version must be canonical integer 1")
+
     text_columns = ("security", "instrument_id", "source", "source_id", "completeness", "freshness", "authority")
     for column in text_columns:
         values = frame[column]
@@ -317,6 +330,50 @@ def _holdings_write_reasons(result: HoldingsNormalisationResult, frame: pd.DataF
     if not bool(frame["source_id"].astype(str).str.strip().eq(expected_source_id).all()):
         reasons.append("mismatched row source_id")
     return reasons
+
+
+def import_etf_holdings(
+    path: Path,
+    instrument_id: str,
+    as_of: str | date | datetime | None,
+    source: str = "issuer",
+    *,
+    destination: Path | None = None,
+    today: str | date | datetime | None = None,
+) -> HoldingsNormalisationResult:
+    """Read a local CSV/XLSX holdings file, validate it and persist only eligible data."""
+    destination = Path(destination or FUND_HOLDINGS_PATH)
+    candidate = Path(path)
+    if not candidate.exists() or not candidate.is_file():
+        raise ValueError(f"Holdings file is missing: {candidate}")
+    suffix = candidate.suffix.lower()
+    if suffix == ".csv":
+        try:
+            frame = pd.read_csv(candidate)
+        except Exception as exc:
+            raise ValueError(f"Holdings CSV could not be read: {candidate}") from exc
+    elif suffix in {".xlsx", ".xls"}:
+        try:
+            frame = pd.read_excel(candidate)
+        except Exception as exc:
+            raise ValueError(f"Holdings workbook could not be read: {candidate}") from exc
+    else:
+        raise ValueError("Holdings import supports CSV and XLSX files only")
+
+    effective_as_of = as_of
+    if effective_as_of is None:
+        for column in ("as_of", "as_of_date", "date"):
+            if column in frame.columns and not frame[column].dropna().empty:
+                effective_as_of = frame[column].dropna().iloc[0]
+                break
+    if effective_as_of is None:
+        raise ValueError("Holdings import requires an as_of date")
+    result = normalise_holdings(frame, instrument_id, effective_as_of, source, today=today)
+    if not result.score_eligible:
+        detail = ", ".join(result.warnings) or f"completeness={result.completeness}, freshness={result.freshness}"
+        raise ValueError(f"Holdings import is invalid or ineligible; no data changed ({detail}).")
+    write_holdings_records(result, destination=destination)
+    return result
 
 
 persist_holdings = write_holdings_records

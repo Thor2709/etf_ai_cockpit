@@ -213,3 +213,36 @@ def test_write_rejects_mutated_frame_without_replacing_store(tmp_path: Path) -> 
 
     assert destination.read_bytes() == prior_bytes
     assert destination.with_suffix(".csv").read_bytes() == prior_csv_bytes
+
+
+def test_write_rejects_mutated_schema_version_without_replacing_store(tmp_path: Path) -> None:
+    destination = tmp_path / "fund_holdings.parquet"
+    result = normalise_holdings(
+        pd.DataFrame({"security": ["A"], "ticker": ["A"], "weight": [1.0]}),
+        "VWCE",
+        "2026-07-10",
+        "issuer",
+        today="2026-07-11",
+    )
+    write_holdings_records(result, destination=destination)
+    prior_bytes = destination.read_bytes()
+    prior_csv_bytes = destination.with_suffix(".csv").read_bytes()
+
+    result.frame["schema_version"] = "corrupt"
+
+    with pytest.raises(ValueError, match="schema_version"):
+        write_holdings_records(result, destination=destination)
+
+    assert destination.read_bytes() == prior_bytes
+    assert destination.with_suffix(".csv").read_bytes() == prior_csv_bytes
+
+
+def test_holdings_import_path_normalises_csv_and_persists_records(tmp_path: Path) -> None:
+    from etf_cockpit.data.fund_holdings import import_etf_holdings
+
+    source = tmp_path / "holdings.csv"
+    pd.DataFrame({"security": ["A"], "ticker": ["A"], "weight": [1.0]}).to_csv(source, index=False)
+    destination = tmp_path / "fund_holdings.parquet"
+    imported = import_etf_holdings(source, "VWCE", "2026-07-10", "issuer", destination=destination)
+    assert imported.score_eligible is True
+    assert pd.read_parquet(destination).loc[0, "instrument_id"] == "VWCE"
