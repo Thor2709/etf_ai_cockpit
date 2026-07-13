@@ -36,15 +36,21 @@ def _feature_driver_panel(instrument_id: str) -> dict[str, Any]:
     scoped = frame[frame["instrument_id"].astype(str).eq(str(instrument_id))].copy()
     if scoped.empty:
         return {"status": "unavailable", "rows": [], "message": "Feature drivers unavailable for this instrument.", "execution_allowed": False}
-    rows = scoped.to_dict(orient="records")
+    scoped["_score_sort"] = pd.to_numeric(scoped.get("normalised_score"), errors="coerce")
+    rows = scoped.drop(columns=["_score_sort"], errors="ignore").to_dict(orient="records")
+    positive = scoped.loc[scoped["direction"].astype(str).eq("positive")].sort_values(["_score_sort", "component"], ascending=[False, True], kind="stable").drop(columns=["_score_sort"], errors="ignore").to_dict(orient="records")
+    negative = scoped.loc[scoped["direction"].astype(str).eq("negative")].sort_values(["_score_sort", "component"], ascending=[True, True], kind="stable").drop(columns=["_score_sort"], errors="ignore").to_dict(orient="records")
+    missing = scoped.loc[scoped["direction"].astype(str).eq("missing")].sort_values(["component"], kind="stable").drop(columns=["_score_sort"], errors="ignore").to_dict(orient="records")
+    low_authority = scoped.loc[scoped["flags"].astype(str).str.contains("low_authority", na=False)].sort_values(["component"], kind="stable").drop(columns=["_score_sort"], errors="ignore").to_dict(orient="records")
+    stale_or_partial = scoped.loc[scoped["flags"].astype(str).str.contains("stale|partial", na=False, regex=True)].sort_values(["component"], kind="stable").drop(columns=["_score_sort"], errors="ignore").to_dict(orient="records")
     return {
         "status": "available",
         "rows": rows,
-        "top_positive": [row for row in rows if str(row.get("direction", "")) == "positive"][:3],
-        "top_negative": [row for row in rows if str(row.get("direction", "")) == "negative"][:3],
-        "missing_or_na": [row for row in rows if str(row.get("direction", "")) == "missing"],
-        "low_authority": [row for row in rows if "low_authority" in str(row.get("flags", ""))],
-        "stale_or_partial": [row for row in rows if any(flag in str(row.get("flags", "")) for flag in ("stale", "partial"))],
+        "top_positive": positive[:3],
+        "top_negative": negative[:3],
+        "missing_or_na": missing,
+        "low_authority": low_authority,
+        "stale_or_partial": stale_or_partial,
         "execution_allowed": False,
     }
 

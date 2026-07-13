@@ -73,8 +73,69 @@ def render_news_context_panel(model: InstrumentDetailViewModel) -> ft.Control:
     )
 
 
+def _driver_table(label: str, rows: list[dict[str, object]]) -> ft.Control:
+    columns = ["Component", "Score", "Direction", "Authority", "Freshness", "Driver"]
+    if not rows:
+        return ft.Column([ft.Text(label, color=theme.TEXT, weight=ft.FontWeight.BOLD, size=12), ft.Text("Unavailable", color=theme.MUTED, size=11)], spacing=4)
+    table_rows = [
+        ft.DataRow(
+            cells=[
+                ft.DataCell(ft.Text(str(row.get("component") or "unavailable"), color=theme.TEXT)),
+                ft.DataCell(ft.Text(str(row.get("normalised_score") if row.get("normalised_score") is not None else "N/A"), color=theme.CYAN)),
+                ft.DataCell(ft.Text(str(row.get("direction") or "unavailable"), color=theme.MUTED)),
+                ft.DataCell(ft.Text(str(row.get("authority") or "unavailable"), color=theme.MUTED)),
+                ft.DataCell(ft.Text(str(row.get("freshness_status") or "unavailable"), color=theme.MUTED)),
+                ft.DataCell(ft.Text(str(row.get("driver_text") or "unavailable"), color=theme.MUTED, selectable=True)),
+            ]
+        )
+        for row in rows
+    ]
+    return ft.Column(
+        [
+            ft.Text(label, color=theme.TEXT, weight=ft.FontWeight.BOLD, size=12),
+            ft.DataTable(columns=[ft.DataColumn(ft.Text(column, color=theme.TEXT)) for column in columns], rows=table_rows),
+        ],
+        spacing=4,
+    )
+
+
+def _render_feature_driver_panel(panel_data: object) -> ft.Control:
+    if not isinstance(panel_data, dict):
+        return panel(ft.Column([ft.Text("Feature drivers unavailable", color=theme.MUTED)], spacing=4))
+    groups = [
+        ("Top positive", panel_data.get("top_positive", [])),
+        ("Top negative", panel_data.get("top_negative", [])),
+        ("Missing / N/A", panel_data.get("missing_or_na", [])),
+        ("Low authority", panel_data.get("low_authority", [])),
+        ("Stale / partial", panel_data.get("stale_or_partial", [])),
+    ]
+    return panel(
+        ft.Column(
+            [
+                section_header("Feature drivers", "Ordered driver rows are informational evidence only; missing, low-authority and stale values remain explicit."),
+                *[_driver_table(label, rows if isinstance(rows, list) else []) for label, rows in groups],
+            ],
+            spacing=8,
+        )
+    )
+
+
 def instrument_detail_page(_page: ft.Page, state: AppState) -> ft.Control:
     selected = state.selected_etf
     model = build_instrument_detail(state.snapshot, selected)
-    rows = [ft.Row([ft.Text(name, color=theme.TEXT, width=160), ft.Text(str(value), color=theme.MUTED, selectable=True)], spacing=8) for name, value in model.sections.items()]
-    return ft.Column([panel(ft.Column([section_header(f"Instrument Detail: {model.display_name}", "Canonical identity, score evidence, data freshness and unavailable states are shown without recalculating authority in the UI."), ft.Text(str(model.identity), color=theme.MUTED, selectable=True)], spacing=8)), render_etf_disclosure_panel(model), render_news_context_panel(model), panel(ft.Column(rows, spacing=8))], expand=True, scroll=ft.ScrollMode.AUTO)
+    rows = [
+        ft.Row([ft.Text(name, color=theme.TEXT, width=160), ft.Text(str(value), color=theme.MUTED, selectable=True)], spacing=8)
+        for name, value in model.sections.items()
+        if name != "feature_drivers"
+    ]
+    return ft.Column(
+        [
+            panel(ft.Column([section_header(f"Instrument Detail: {model.display_name}", "Canonical identity, score evidence, data freshness and unavailable states are shown without recalculating authority in the UI."), ft.Text(str(model.identity), color=theme.MUTED, selectable=True)], spacing=8)),
+            _render_feature_driver_panel(model.sections.get("feature_drivers")),
+            render_etf_disclosure_panel(model),
+            render_news_context_panel(model),
+            panel(ft.Column(rows, spacing=8)),
+        ],
+        expand=True,
+        scroll=ft.ScrollMode.AUTO,
+    )

@@ -222,6 +222,46 @@ def test_score_artifacts_write_history_components_and_drivers() -> None:
     assert "VWCE" in set(history["instrument_id"])
 
 
+def test_production_score_history_replaces_complete_run_snapshot_when_scope_narrows(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(trust, "SCORE_HISTORY_PATH", tmp_path / "score_history.parquet")
+    first = [
+        SimpleNamespace(display_id="A", final_score_10=7.0, latest_date="2026-07-10", components=[], warnings=[]),
+        SimpleNamespace(display_id="B", final_score_10=6.0, latest_date="2026-07-10", components=[], warnings=[]),
+    ]
+    narrowed = [
+        SimpleNamespace(display_id="A", final_score_10=8.0, latest_date="2026-07-10", components=[], warnings=[]),
+    ]
+
+    trust.append_score_history(first, run_id="run-scope", created_at="2026-07-10T00:00:00Z")
+    trust.append_score_history(narrowed, run_id="run-scope", created_at="2026-07-10T00:00:00Z")
+
+    history = pd.read_parquet(trust.SCORE_HISTORY_PATH)
+    assert set(history["instrument_id"]) == {"A"}
+    assert history["snapshot_hash"].nunique() == 1
+    assert float(history.iloc[0]["final_combined_score_10"]) == 8.0
+
+
+def test_production_score_history_persists_real_dimensions_and_explicit_unavailable_values(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(trust, "SCORE_HISTORY_PATH", tmp_path / "score_history.parquet")
+    snapshot = build_snapshot()
+    scores = build_simple_instrument_scores(snapshot.config, snapshot.signals, snapshot.forecasts, snapshot.prices)
+    scoreboard = simple_scoreboard_frame(scores)
+
+    paths = trust.write_trust_artifacts_for_scores(snapshot.config, scores, scoreboard, snapshot.prices)
+    history = pd.read_parquet(paths["score_history"])
+
+    assert history["rank"].notna().all()
+    assert history["score_rank"].notna().all()
+    assert history["warnings"].astype(str).str.strip().ne("").all()
+    assert history["freshness_status"].astype(str).str.strip().ne("").all()
+    assert history["model_availability"].astype(str).str.strip().ne("").all()
+    assert history["forecast_status"].astype(str).str.strip().ne("").all()
+    assert history["news_inventory"].notna().all()
+    assert history["backtest_trust"].astype(str).str.strip().ne("").all()
+    assert history["portfolio_risk"].astype(str).str.strip().ne("").all()
+    assert history["execution_allowed"].eq(False).all()
+
+
 def test_score_components_persist_non_executable_authority(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(trust, "SCORE_COMPONENTS_PATH", tmp_path / "score_components.parquet")
     component = SimpleScoreComponent(

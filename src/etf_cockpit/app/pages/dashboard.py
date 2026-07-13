@@ -12,7 +12,9 @@ from etf_cockpit.app.components.cards import evidence_chip, metric_card, panel, 
 from etf_cockpit.app.components.simple_scores import score_colour, simple_score_grouped_sections, simple_score_legend
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import FORECASTS_DIR
+from etf_cockpit.core.paths import DERIVED_DIR
 from etf_cockpit.data.news_context import NEWS_CLEAN_PATH, load_news_items, sort_news_items
+from etf_cockpit.data.run_changes import compare_runs
 from etf_cockpit.models.forecast_scores import filter_forecasts_for_universe, load_latest_forecasts
 from etf_cockpit.signals.simple_scores import SimpleInstrumentScore, build_simple_instrument_scores
 
@@ -51,6 +53,7 @@ def dashboard_page(page: ft.Page, state: AppState) -> ft.Control:
     return ft.Column(
         [
             cards,
+            _run_changes_digest(page, state),
             _news_digest(page, state),
             _action_bar(page, state),
             simple_score_legend(),
@@ -72,6 +75,39 @@ def dashboard_page(page: ft.Page, state: AppState) -> ft.Control:
         expand=True,
         spacing=14,
         scroll=ft.ScrollMode.AUTO,
+    )
+
+
+def _run_changes_digest(_page: ft.Page, _state: AppState) -> ft.Control:
+    """Show a deterministic, informational summary of the latest run delta."""
+
+    path = DERIVED_DIR / "score_history.parquet"
+    try:
+        history = pd.read_parquet(path) if path.exists() else pd.DataFrame()
+    except Exception:
+        history = pd.DataFrame()
+    if history.empty or "run_id" not in history.columns:
+        body: ft.Control = ft.Text("Run changes unavailable; complete two score runs to populate the digest.", color=theme.MUTED, selectable=True)
+    else:
+        if "run_completed_at" in history.columns:
+            history = history.sort_values(["run_completed_at", "run_id"], kind="stable")
+        runs = list(dict.fromkeys(history["run_id"].astype(str).tolist()))
+        current = runs[-1]
+        previous = runs[-2] if len(runs) > 1 else None
+        report = compare_runs(history, current, previous)
+        lines = [ft.Text(report.summary, color=theme.MUTED, selectable=True)]
+        for change in report.changes[:5]:
+            lines.append(ft.Text(f"{change.instrument_id}: {change.summary}", color=theme.MUTED, selectable=True, size=11))
+        body = ft.Column(lines, spacing=4)
+    return panel(
+        ft.Column(
+            [
+                section_header("Run changes digest", "Latest score-run differences are deterministic, informational and cannot change current action authority."),
+                body,
+                ft.TextButton("Open What Changed", key="dashboard.open-what-changed", on_click=lambda _event: _go_to(_page, _state, "/what-changed")),
+            ],
+            spacing=8,
+        )
     )
 
 

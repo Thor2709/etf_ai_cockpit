@@ -226,6 +226,7 @@ SCORE_HISTORY_COLUMNS = [
     "blocked_by",
     "source_snapshot_hash",
     "score_schema_version",
+    "snapshot_hash",
     "execution_allowed",
 ]
 
@@ -663,8 +664,26 @@ def write_score_components(scores: Iterable[Any], *, run_id: str, created_at: st
 
 
 def append_score_history(scores: Iterable[Any], *, run_id: str, created_at: str) -> Path:
+    scores = list(scores)
+    ranked_ids = {
+        str(getattr(score, "display_id", "")): rank
+        for rank, score in enumerate(
+            sorted(
+                scores,
+                key=_score_sort_key,
+            ),
+            start=1,
+        )
+    }
     rows: list[dict[str, Any]] = []
     for score in scores:
+        warnings = "|".join(str(item).strip() for item in (getattr(score, "warnings", []) or []) if str(item).strip()) or "unavailable"
+        rank = getattr(score, "rank", None)
+        score_rank = getattr(score, "score_rank", None)
+        if rank is None:
+            rank = ranked_ids.get(str(getattr(score, "display_id", "")))
+        if score_rank is None:
+            score_rank = rank
         rows.append(
             {
                 "run_id": run_id,
@@ -682,16 +701,16 @@ def append_score_history(scores: Iterable[Any], *, run_id: str, created_at: str)
                 "evidence_quality_10": getattr(score, "evidence_quality_10", None),
                 "risk_friction_10": getattr(score, "risk_friction_10", None),
                 "final_combined_score_10": getattr(score, "final_score_10", None),
-                "rank": getattr(score, "rank", None),
-                "score_rank": getattr(score, "score_rank", getattr(score, "rank", None)),
-                "warnings": "|".join(str(item) for item in (getattr(score, "warnings", []) or [])),
+                "rank": rank,
+                "score_rank": score_rank,
+                "warnings": warnings,
                 "freshness_status": _score_freshness(score),
                 "model_available": _model_available(score),
                 "model_availability": _model_availability(score),
                 "forecast_status": _forecast_status(score),
-                "news_inventory": getattr(score, "news_inventory", None),
-                "backtest_trust": getattr(score, "backtest_trust_label", "not_evaluated"),
-                "portfolio_risk": getattr(score, "portfolio_fit_label", "not_evaluated"),
+                "news_inventory": getattr(score, "news_inventory", None) if getattr(score, "news_inventory", None) is not None else "unavailable",
+                "backtest_trust": getattr(score, "backtest_trust_label", None) or "unavailable",
+                "portfolio_risk": getattr(score, "portfolio_fit_label", None) or "unavailable",
                 "final_label": getattr(score, "final_label", ""),
                 "final_action": getattr(score, "final_action", ""),
                 "reason_short": getattr(score, "one_line_reason", ""),
@@ -699,11 +718,20 @@ def append_score_history(scores: Iterable[Any], *, run_id: str, created_at: str)
                 "blocked_by": "|".join(getattr(score, "warnings", []) or []),
                 "source_snapshot_hash": _score_snapshot_hash(score),
                 "score_schema_version": "simple_scores_v3_groups",
+                "snapshot_hash": "",
                 "execution_allowed": False,
             }
         )
     new_frame = pd.DataFrame(rows, columns=SCORE_HISTORY_COLUMNS)
-    return _append_parquet(SCORE_HISTORY_PATH, new_frame, SCORE_HISTORY_COLUMNS, id_columns=["run_id", "instrument_id"])
+    snapshot_hash = _run_snapshot_hash(new_frame)
+    new_frame["snapshot_hash"] = snapshot_hash
+    return _append_parquet(
+        SCORE_HISTORY_PATH,
+        new_frame,
+        SCORE_HISTORY_COLUMNS,
+        id_columns=["run_id", "instrument_id"],
+        snapshot_hash_column="snapshot_hash",
+    )
 
 
 def append_score_metric_history(scores: Iterable[Any], *, run_id: str, created_at: str) -> Path:
@@ -1250,12 +1278,44 @@ def _news_timestamp_validation() -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["news_id", "timestamp_status", "backtest_eligible", "reason", "available_at_decision_time", "instrument_mapping_method"])
 
 
-def _append_parquet(path: Path, new_frame: pd.DataFrame, columns: list[str], *, id_columns: list[str]) -> Path:
+def _append_parquet(
+    path: Path,
+    new_frame: pd.DataFrame,
+    columns: list[str],
+    *,
+    id_columns: list[str],
+    snapshot_hash_column: str | None = None,
+) -> Path:
     existing = _safe_read_parquet(path, columns)
-    combined = pd.concat([existing, new_frame], ignore_index=True)
+    if snapshot_hash_column and "run_id" in new_frame.columns and "run_id" in existing.columns:
+        run_ids = set(new_frame["run_id"].astype(str))
+        existing = existing.loc[~existing["run_id"].astype(str).isin(run_ids)].copy()
+    if existing.empty:
+        combined = new_frame.copy()
+    elif new_frame.empty:
+        combined = existing.copy()
+    else:
+        combined = pd.concat([existing, new_frame], ignore_index=True)
     if not combined.empty:
         combined = combined.drop_duplicates(subset=[col for col in id_columns if col in combined.columns], keep="last")
     return _write_dual(combined, path)
+
+
+def _run_snapshot_hash(frame: pd.DataFrame) -> str:
+    """Hash a complete run snapshot, independent of row ordering."""
+
+    canonical = frame.drop(columns=["snapshot_hash"], errors="ignore").copy()
+    sort_columns = [column for column in ("run_id", "instrument_id") if column in canonical.columns]
+    if sort_columns:
+        canonical = canonical.sort_values(sort_columns, kind="stable")
+    canonical = canonical.reindex(sorted(canonical.columns), axis=1)
+    payload = canonical.to_json(orient="records", date_format="iso", default_handler=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _score_sort_key(score: Any) -> tuple[bool, float, str]:
+    value = _safe_float(getattr(score, "final_score_10", None))
+    return (value is None, -(value or 0.0), str(getattr(score, "display_id", "")))
 
 
 def _write_dual(frame: pd.DataFrame, path: Path) -> Path:
@@ -1348,24 +1408,35 @@ def _model_available(score: Any) -> bool | None:
         return any(str(value or "").casefold() not in {"", "unavailable", "none"} for value in versions.values())
     label = str(getattr(score, "model_authority_label", "") or "").casefold()
     if not label:
-        return None
+        return False
     return "unavailable" not in label and "not" not in label
 
 
 def _model_availability(score: Any) -> str:
-    available = _model_available(score)
-    if available is True:
-        return "available"
-    if available is False:
-        return "unavailable"
-    return "unknown"
+    versions = getattr(score, "model_versions_used", None)
+    if isinstance(versions, dict) and versions:
+        return "|".join(
+            f"{name}={str(version or 'unavailable').strip() or 'unavailable'}"
+            for name, version in sorted(versions.items())
+        )
+    label = str(getattr(score, "model_authority_label", "") or "").strip()
+    return label or "unavailable"
 
 
 def _forecast_status(score: Any) -> str:
-    versions = getattr(score, "model_versions_used", None)
-    if isinstance(versions, dict) and versions:
-        return "available" if _model_available(score) else "unavailable"
-    return "unknown"
+    components = [
+        component
+        for component in (getattr(score, "components", []) or [])
+        if str(getattr(component, "key", "") or "").casefold() in {"baseline", "timesfm", "toto"}
+    ]
+    if not components:
+        return "unavailable"
+    valid = sum(getattr(component, "score_10", None) is not None for component in components)
+    if valid == len(components):
+        return "available"
+    if valid:
+        return "partial"
+    return "unavailable"
 
 
 def _freshness_from_date(value: str) -> str:

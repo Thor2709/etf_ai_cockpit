@@ -11,6 +11,46 @@ from etf_cockpit.app.state import AppState
 from etf_cockpit.services import build_snapshot
 
 
+def _walk_controls(control):
+    yield control
+    for child in getattr(control, "controls", []) or []:
+        yield from _walk_controls(child)
+    content = getattr(control, "content", None)
+    if content is not None:
+        yield from _walk_controls(content)
+    for row in getattr(control, "rows", []) or []:
+        for cell in getattr(row, "cells", []) or []:
+            yield from _walk_controls(getattr(cell, "content", None))
+
+
+def test_instrument_detail_driver_groups_are_ordered_structured_rows(tmp_path, monkeypatch) -> None:
+    from etf_cockpit.app.pages.instrument_detail import instrument_detail_page
+    from etf_cockpit.app.selectors import instrument_detail as selector
+
+    snapshot = build_snapshot()
+    instrument_id = snapshot.config.universe.enabled_ids[0]
+    monkeypatch.setattr(selector, "FEATURE_DRIVERS_PATH", tmp_path / "feature_drivers.parquet")
+    pd.DataFrame(
+        [
+            {"instrument_id": instrument_id, "component": "trend", "normalised_score": 8.5, "direction": "positive", "authority": "high", "freshness_status": "ok", "driver_text": "trend positive", "flags": "none"},
+            {"instrument_id": instrument_id, "component": "risk", "normalised_score": 2.0, "direction": "negative", "authority": "high", "freshness_status": "ok", "driver_text": "risk negative", "flags": "none"},
+            {"instrument_id": instrument_id, "component": "value", "normalised_score": None, "direction": "missing", "authority": "unknown", "freshness_status": "unknown", "driver_text": "value unavailable", "flags": "missing|low_authority"},
+            {"instrument_id": instrument_id, "component": "news", "normalised_score": 5.0, "direction": "mixed", "authority": "low", "freshness_status": "stale", "driver_text": "news stale", "flags": "stale|low_authority"},
+        ]
+    ).to_parquet(selector.FEATURE_DRIVERS_PATH, index=False)
+
+    rendered = instrument_detail_page(None, type("State", (), {"selected_etf": instrument_id, "snapshot": snapshot})())
+    texts = [str(getattr(item, "value", "")) for item in _walk_controls(rendered) if hasattr(item, "value")]
+    assert "Top positive" in texts
+    assert "Top negative" in texts
+    assert "Missing / N/A" in texts
+    assert "Low authority" in texts
+    assert "Stale / partial" in texts
+    assert "trend positive" in texts
+    assert "risk negative" in texts
+    assert "{'instrument_id'" not in " ".join(texts)
+
+
 def test_instrument_detail_has_required_sections_for_primary_and_sparebanken() -> None:
     snapshot = build_snapshot()
     model = build_instrument_detail(snapshot, snapshot.config.universe.enabled_ids[0])
