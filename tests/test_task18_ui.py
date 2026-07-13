@@ -19,6 +19,27 @@ def _text_values(control) -> list[str]:
     return values
 
 
+def _walk_controls(control):
+    yield control
+    for child in getattr(control, "controls", []) or []:
+        yield from _walk_controls(child)
+    content = getattr(control, "content", None)
+    if content is not None:
+        yield from _walk_controls(content)
+    for row in getattr(control, "rows", []) or []:
+        for cell in getattr(row, "cells", []) or []:
+            yield from _walk_controls(getattr(cell, "content", None))
+
+
+def _chip_colour(control, label: str) -> str | None:
+    for candidate in _walk_controls(control):
+        content = getattr(candidate, "content", None)
+        controls = getattr(content, "controls", []) if content is not None else []
+        if len(controls) >= 2 and getattr(controls[1], "value", None) == label:
+            return getattr(controls[0], "bgcolor", None)
+    return None
+
+
 def test_instrument_detail_renders_cost_edge_fields(tmp_path, monkeypatch) -> None:
     from etf_cockpit.app.pages import instrument_detail as page_module
     from etf_cockpit.app.selectors import instrument_detail as selector
@@ -132,3 +153,43 @@ def test_instrument_detail_friction_non_finite_values_are_unavailable(tmp_path, 
     assert "nan" not in friction_line.lower()
     assert "inf" not in friction_line.lower()
     assert "N/A" in friction_line
+
+
+def test_risk_crowding_counts_distinct_explicit_warning_cluster_ids(tmp_path, monkeypatch) -> None:
+    from etf_cockpit.app.pages import risk as page_module
+
+    crowding_path = tmp_path / "clusters.parquet"
+    pd.DataFrame(
+        [
+            {"instrument_id": "A", "cluster_id": "cluster_singleton", "crowding_warning": "no_cluster_warning"},
+            {"instrument_id": "B", "cluster_id": "cluster_pair", "crowding_warning": "high_correlation_cluster_warning"},
+            {"instrument_id": "C", "cluster_id": "cluster_pair", "crowding_warning": "high_correlation_cluster_warning"},
+            {"instrument_id": "D", "cluster_id": "cluster_theme", "crowding_warning": "no_theme_concentration_warning"},
+        ]
+    ).to_parquet(crowding_path, index=False)
+    monkeypatch.setattr(page_module, "CORRELATION_CLUSTERS_PATH", crowding_path)
+    monkeypatch.setattr(page_module, "BENCHMARK_ATTRIBUTION_PATH", tmp_path / "missing-attribution.parquet")
+
+    rendered = "\n".join(_text_values(page_module._crowding_attribution_panel()))
+
+    assert "Clusters with warnings: 1" in rendered
+
+
+def test_scores_crowding_no_cluster_warning_is_not_amber() -> None:
+    from dataclasses import replace
+
+    from etf_cockpit.app import theme
+    from etf_cockpit.app.components import simple_scores
+    from etf_cockpit.core.config import load_config
+    from etf_cockpit.signals.simple_scores import build_simple_instrument_scores
+
+    pending = build_simple_instrument_scores(load_config(), [], pd.DataFrame(), pd.DataFrame())[0]
+    score = replace(pending, crowding_warning="no_cluster_warning")
+
+    colour = _chip_colour(simple_scores._score_tile(score, []), "Crowding")
+
+    assert colour == theme.CYAN
+
+    for warning_state in ("high_correlation_cluster_warning", "theme_concentration_warning"):
+        warning_score = replace(pending, crowding_warning=warning_state)
+        assert _chip_colour(simple_scores._score_tile(warning_score, []), "Crowding") == theme.AMBER

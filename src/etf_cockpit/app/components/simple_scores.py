@@ -11,6 +11,17 @@ from etf_cockpit.data.trust_artifacts import load_score_history_summary
 from etf_cockpit.signals.simple_scores import SCORE_LEGEND, SimpleInstrumentScore, SimpleScoreComponent, group_simple_scores
 
 
+def _is_crowding_warning_state(value: object) -> bool:
+    """Return whether a crowding state represents an explicit warning."""
+
+    state = "" if value is None else str(value).strip().casefold()
+    if not state or state.startswith("no_"):
+        return False
+    if state in {"n/a", "na", "none", "null", "nan", "<na>", "unavailable", "partial", "pending"}:
+        return False
+    return not state.endswith("_unavailable")
+
+
 def simple_score_legend() -> ft.Control:
     return ft.Row(
         [evidence_chip(label.split(":", 1)[0], label.split(":", 1)[1].strip(), _legend_colour(label)) for label in SCORE_LEGEND],
@@ -163,7 +174,11 @@ def _score_tile(item: SimpleInstrumentScore, history_rows: list[dict[str, object
                         evidence_chip("Corr", _number_badge(item.benchmark_correlation), _benchmark_colour(item)),
                         evidence_chip("Alpha proxy", _pct_badge(item.alpha_proxy), _alpha_colour(item.alpha_proxy)),
                         evidence_chip("Sector/theme", _sector_theme_badge(item), theme.AMBER if "warning" in item.sector_theme_warning.lower() else theme.CYAN),
-                        evidence_chip("Crowding", item.crowding_warning, theme.AMBER if "warning" in item.crowding_warning.lower() else theme.CYAN),
+                        evidence_chip(
+                            "Crowding",
+                            item.crowding_warning,
+                            theme.AMBER if _is_crowding_warning_state(item.crowding_warning) else theme.CYAN,
+                        ),
                     ],
                     spacing=8,
                     wrap=True,

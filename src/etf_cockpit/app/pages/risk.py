@@ -7,6 +7,7 @@ import flet as ft
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import metric_card, panel, section_header
+from etf_cockpit.app.components.simple_scores import _is_crowding_warning_state
 from etf_cockpit.app.state import AppState
 from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH, normalise_holdings
 from etf_cockpit.data.trust_artifacts import CORRELATION_CLUSTERS_PATH, BENCHMARK_ATTRIBUTION_PATH
@@ -297,7 +298,18 @@ def _crowding_attribution_panel() -> ft.Control:
         attribution = pd.DataFrame()
     if crowding.empty and attribution.empty:
         return panel(ft.Column([section_header("Crowding and attribution", "Trust evidence from clean adjusted-price returns."), ft.Text("Correlation and benchmark attribution evidence is unavailable; no cluster or sector-relative conclusion is inferred.", color=theme.MUTED)]))
-    warnings = crowding[crowding.get("crowding_warning", pd.Series(dtype=str)).astype(str).str.contains("warning", na=False)] if not crowding.empty else pd.DataFrame()
+    warning_values = (
+        crowding["crowding_warning"]
+        if "crowding_warning" in crowding.columns
+        else pd.Series("", index=crowding.index, dtype=str)
+    )
+    warning_mask = warning_values.map(_is_crowding_warning_state)
+    warning_rows = crowding.loc[warning_mask] if not crowding.empty else pd.DataFrame()
+    if not warning_rows.empty and "cluster_id" in warning_rows.columns:
+        warning_ids = warning_rows["cluster_id"].astype("string").str.strip()
+        warning_count = int(warning_ids[warning_ids.notna() & warning_ids.ne("")].nunique())
+    else:
+        warning_count = 0
     sector_available = int((attribution.get("sector_attribution_status", pd.Series(dtype=str)).astype(str) == "available").sum()) if not attribution.empty else 0
     theme_available = int((attribution.get("theme_attribution_status", pd.Series(dtype=str)).astype(str) == "available").sum()) if not attribution.empty else 0
     broad_available = int(
@@ -309,7 +321,7 @@ def _crowding_attribution_panel() -> ft.Control:
     mean_coverage = float(coverage.mean()) if not coverage.dropna().empty else None
     return panel(ft.Column([
         section_header("Crowding and attribution", "Configured metadata and clean adjusted-price evidence; diagnostics are descriptive and non-executable."),
-        ft.Text(f"Clusters with warnings: {len(warnings)} | highest cluster risk contribution: {_number(top_contribution)} | mean ranking coverage: {_number(mean_coverage)} | execution_allowed=false", color=theme.MUTED, selectable=True),
+        ft.Text(f"Clusters with warnings: {warning_count} | highest cluster risk contribution: {_number(top_contribution)} | mean ranking coverage: {_number(mean_coverage)} | execution_allowed=false", color=theme.MUTED, selectable=True),
         ft.Text(f"Broad benchmark attribution: {broad_available} rows available | Sector attribution: {sector_available} rows available | Theme attribution: {theme_available} rows available | horizons use clean overlapping returns; unavailable or insufficient evidence is N/A.", color=theme.MUTED, selectable=True),
     ]))
 
