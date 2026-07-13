@@ -271,10 +271,10 @@ def import_etf_document(
         expected_sha256=expected_sha256,
     )
     existing = read_document_registry(path=destination)
-    ids = list(configured_instrument_ids or ())
-    if not ids and not existing.empty and "instrument_id" in existing.columns:
-        ids.extend(existing["instrument_id"].dropna().astype(str).tolist())
-    ids.append(str(instrument_id))
+    ids = [str(item).strip() for item in configured_instrument_ids or () if str(item).strip()]
+    if not existing.empty and "instrument_id" in existing.columns:
+        ids.extend(value for value in existing["instrument_id"].dropna().astype(str).map(str.strip) if value)
+    ids.append(str(instrument_id).strip())
     inventory = build_document_inventory(ids, [*existing.to_dict("records"), document])
     write_document_registry(inventory, destination=destination)
     return document

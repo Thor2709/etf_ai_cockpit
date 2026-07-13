@@ -454,9 +454,9 @@ def import_etf_holdings_with_document(
         document_date=result.as_of,
     )
     existing_registry = read_document_registry(path=registry_destination)
-    instrument_ids = list(configured_instrument_ids or ())
-    if not instrument_ids and not existing_registry.empty and "instrument_id" in existing_registry.columns:
-        instrument_ids.extend(existing_registry["instrument_id"].dropna().astype(str).tolist())
+    instrument_ids = [str(item).strip() for item in configured_instrument_ids or () if str(item).strip()]
+    if not existing_registry.empty and "instrument_id" in existing_registry.columns:
+        instrument_ids.extend(value for value in existing_registry["instrument_id"].dropna().astype(str).map(str.strip) if value)
     instrument_ids.append(str(instrument_id).strip())
     inventory = build_document_inventory(instrument_ids, [*existing_registry.to_dict("records"), document])
 

@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from etf_cockpit.data.fund_holdings import normalise_holdings, write_holdings_records
+from etf_cockpit.data.fund_documents import DOCUMENT_TYPES
 from etf_cockpit.app.pages import risk as risk_page_module
 
 
@@ -263,6 +264,46 @@ def test_holdings_import_merges_one_instrument_without_dropping_other_canonical_
     stored = pd.read_parquet(destination)
     assert set(stored["instrument_id"]) == {"VWCE", "LYP6"}
     assert set(stored["ticker"]) == {"A", "B"}
+
+
+def test_combined_holdings_import_preserves_registry_instrument_omitted_from_configured_ids(tmp_path: Path) -> None:
+    import etf_cockpit.data.fund_holdings as fund_holdings
+    from etf_cockpit.data.fund_documents import register_document, write_document_registry
+
+    holdings_destination = tmp_path / "fund_holdings.parquet"
+    registry_destination = tmp_path / "fund_documents.parquet"
+    prior_source = tmp_path / "disabled-factsheet.pdf"
+    prior_source.write_bytes(b"disabled instrument document")
+    prior = register_document(
+        prior_source,
+        "factsheet",
+        "DISABLED",
+        "https://issuer.example/disabled/factsheet.pdf",
+        "issuer",
+        document_date="2026-07-10",
+    )
+    write_document_registry([prior], destination=registry_destination)
+
+    import_source = tmp_path / "vwce-holdings.csv"
+    pd.DataFrame({"security": ["Imported"], "ticker": ["IMPORTED"], "weight": [1.0]}).to_csv(import_source, index=False)
+    fund_holdings.import_etf_holdings_with_document(
+        import_source,
+        "VWCE",
+        "2026-07-11",
+        "issuer",
+        holdings_destination=holdings_destination,
+        registry_destination=registry_destination,
+        configured_instrument_ids=["VWCE"],
+        today="2026-07-11",
+    )
+
+    stored = pd.read_parquet(registry_destination)
+    assert set(stored["instrument_id"]) == {"DISABLED", "VWCE"}
+    retained = stored.loc[stored["source_id"] == prior.source_id].iloc[0]
+    assert retained["coverage_status"] == "available"
+    disabled_rows = stored[stored["instrument_id"] == "DISABLED"]
+    assert disabled_rows["document_type"].nunique() == len(DOCUMENT_TYPES)
+    assert disabled_rows.loc[disabled_rows["document_type"] != "factsheet", "coverage_status"].eq("missing").all()
 
 
 def test_risk_holdings_loader_keeps_legacy_vendor_context_when_canonical_exists(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

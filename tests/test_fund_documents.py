@@ -9,6 +9,7 @@ import pandas as pd
 from etf_cockpit.data.fund_documents import (
     DOCUMENT_TYPES,
     build_document_inventory,
+    import_etf_document,
     register_document,
     write_document_registry,
 )
@@ -50,8 +51,6 @@ def test_document_registry_rejects_future_dates_fail_closed(tmp_path: Path, futu
 
 
 def test_document_import_path_registers_and_persists_inventory(tmp_path: Path) -> None:
-    from etf_cockpit.data.fund_documents import import_etf_document
-
     source = tmp_path / "factsheet.pdf"
     source.write_bytes(b"fixture")
     destination = tmp_path / "fund_documents.parquet"
@@ -67,6 +66,40 @@ def test_document_import_path_registers_and_persists_inventory(tmp_path: Path) -
     assert imported.document_type == "factsheet"
     stored = pd.read_parquet(destination)
     assert stored.loc[stored["document_type"] == "factsheet", "coverage_status"].eq("available").any()
+
+
+def test_document_import_preserves_registry_instrument_omitted_from_configured_ids(tmp_path: Path) -> None:
+    prior_source = tmp_path / "disabled-factsheet.pdf"
+    prior_source.write_bytes(b"disabled instrument document")
+    prior = register_document(
+        prior_source,
+        "factsheet",
+        "DISABLED",
+        "https://issuer.example/disabled/factsheet.pdf",
+        "issuer",
+        document_date="2026-07-10",
+    )
+    destination = tmp_path / "fund_documents.parquet"
+    write_document_registry([prior], destination=destination)
+
+    imported_source = tmp_path / "vwce-kid.pdf"
+    imported_source.write_bytes(b"new instrument document")
+    import_etf_document(
+        imported_source,
+        instrument_id="VWCE",
+        document_type="kid",
+        destination=destination,
+        configured_instrument_ids=["VWCE"],
+        document_date="2026-07-11",
+    )
+
+    stored = pd.read_parquet(destination)
+    assert set(stored["instrument_id"]) == {"DISABLED", "VWCE"}
+    retained = stored.loc[stored["source_id"] == prior.source_id].iloc[0]
+    assert retained["coverage_status"] == "available"
+    disabled_rows = stored[stored["instrument_id"] == "DISABLED"]
+    assert disabled_rows["document_type"].nunique() == len(DOCUMENT_TYPES)
+    assert disabled_rows.loc[disabled_rows["document_type"] != "factsheet", "coverage_status"].eq("missing").all()
 
 
 def test_document_inventory_has_every_type_for_every_configured_etf_and_dedupes_exact_versions(tmp_path: Path) -> None:
