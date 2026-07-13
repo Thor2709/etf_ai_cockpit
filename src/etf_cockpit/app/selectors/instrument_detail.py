@@ -11,9 +11,12 @@ from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
 from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH, latest_fundamental_rows, load_fundamental_evidence
 from etf_cockpit.data.news_context import NEWS_CLEAN_PATH, load_news_items, sort_news_items
 from etf_cockpit.data.parsed_disclosures import read_index_methodology_records, read_priips_kid_records
+from etf_cockpit.data.run_changes import compare_runs
+from etf_cockpit.data.score_history import score_history_frame
 from etf_cockpit.data.trust_artifacts import BENCHMARK_ATTRIBUTION_PATH, CORRELATION_CLUSTERS_PATH, FEATURE_DRIVERS_PATH
 from etf_cockpit.core.paths import DERIVED_DIR
 from etf_cockpit.services import CockpitSnapshot
+from etf_cockpit.signals.simple_scores import SimpleInstrumentScore
 
 
 @dataclass(frozen=True)
@@ -25,8 +28,259 @@ class InstrumentDetailViewModel:
     sections: dict[str, Any]
 
 
-_SECTION_NAMES = ("identity", "price", "scores", "feature_drivers", "risk", "attribution", "fundamentals", "etf_disclosures", "news", "forecasts", "backtests", "history", "journal", "run_changes")
+_SECTION_NAMES = (
+    "identity",
+    "price",
+    "scores",
+    "feature_drivers",
+    "risk",
+    "attribution",
+    "fundamentals",
+    "etf_disclosures",
+    "etf_holdings",
+    "news",
+    "forecasts",
+    "backtests",
+    "paper_trades",
+    "history",
+    "journal",
+    "run_changes",
+)
 SCOREBOARD_PATH = DERIVED_DIR / "scoreboard.parquet"
+PAPER_TRADES_PATH = DERIVED_DIR / "paper_trades.parquet"
+_KNOWN_FRESHNESS_STATES = frozenset({"ok", "fresh", "warning", "stale", "stale_block", "missing", "missing_or_pending", "unknown", "not_checked", "unavailable"})
+_KNOWN_BACKTEST_QUALITIES = frozenset({"low", "medium", "high", "not_evaluated", "not_backtested_candidate", "unverified_backtest", "usable_low_authority", "weak_or_low_quality", "model_claim_unverified", "stale_universe", "unavailable"})
+_KNOWN_FUNDAMENTAL_ELIGIBILITY = frozenset({"eligible", "eligible_negative_evidence", "not_score_eligible"})
+
+
+def _unavailable(message: str) -> dict[str, Any]:
+    """Return a consistent, non-authoritative unavailable panel."""
+
+    return {"status": "unavailable", "message": message, "execution_allowed": False}
+
+
+def _safe_float(value: object) -> float | None:
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _safe_datetime_scalar(value: object) -> pd.Timestamp | None:
+    """Parse only scalar date evidence; containers are malformed."""
+
+    if not pd.api.types.is_scalar(value) or _is_missing_scalar(value):
+        return None
+    try:
+        parsed = pd.to_datetime(value, errors="coerce", utc=True, format="mixed")
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if isinstance(parsed, pd.Timestamp) and not pd.isna(parsed):
+        return parsed
+    return None
+
+
+def _safe_frame(frame: object) -> pd.DataFrame:
+    return frame.copy() if isinstance(frame, pd.DataFrame) else pd.DataFrame()
+
+
+def _is_missing_scalar(value: object) -> bool:
+    if value is None:
+        return True
+    try:
+        missing = pd.isna(value)
+    except (TypeError, ValueError):
+        return False
+    try:
+        return bool(missing) if not hasattr(missing, "__len__") else False
+    except (TypeError, ValueError):
+        return False
+
+
+def _value_or(value: object, fallback: object = "unavailable") -> object:
+    if _is_missing_scalar(value):
+        return fallback
+    if isinstance(value, str):
+        return value.strip() or fallback
+    return value
+
+
+def _safe_text(value: object) -> str | None:
+    """Return non-empty textual evidence without stringifying containers."""
+
+    if _is_missing_scalar(value) or not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text or None
+
+
+def _safe_known_text(value: object, allowed: frozenset[str]) -> str | None:
+    text = _safe_text(value)
+    if text is None:
+        return None
+    normalised = text.casefold()
+    return normalised if normalised in allowed else None
+
+
+def _safe_scalar_bool(value: object) -> tuple[bool, bool]:
+    """Return a boolean plus validity without coercing containers."""
+
+    if _is_missing_scalar(value):
+        return False, False
+    try:
+        if pd.api.types.is_bool(value):
+            return bool(value), True
+    except (TypeError, ValueError):
+        return False, False
+    if isinstance(value, str):
+        normalised = value.strip().casefold()
+        if normalised in {"1", "true", "yes", "y", "on"}:
+            return True, True
+        if normalised in {"0", "false", "no", "n", "off"}:
+            return False, True
+    return False, False
+
+
+def _safe_backtest_quality(value: object) -> str | None:
+    text = _safe_text(value)
+    if text is None:
+        return None
+    normalised = text.casefold()
+    if normalised in _KNOWN_BACKTEST_QUALITIES:
+        return normalised
+    if normalised.startswith(("low trust:", "medium trust:", "backtest trust pending:", "candidate not backtested:")):
+        return text
+    return None
+
+
+def _first_value(row: Mapping[str, Any], columns: tuple[str, ...], fallback: object = "unavailable") -> object:
+    for column in columns:
+        value = row.get(column)
+        if not _is_missing_scalar(value) and (not isinstance(value, str) or value.strip()):
+            return value
+    return fallback
+
+
+def _provenance_fields(row: Any) -> dict[str, Any]:
+    """Carry canonical provenance fields through a panel without fabricating values."""
+
+    getter = getattr(row, "get", None)
+    if not callable(getter):
+        return {"source_id": "unavailable", "source_authority": "unavailable", "conflict_id": "unavailable"}
+    return {
+        "source_id": _value_or(getter("source_id"), "unavailable"),
+        "source_authority": _value_or(getter("source_authority", getter("authority")), "unavailable"),
+        "conflict_id": _value_or(getter("conflict_id", getter("conflict_status")), "unavailable"),
+    }
+
+
+def _normalise_identifier(value: object) -> str | None:
+    value = _value_or(value, None)
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+_CANONICAL_ID_COLUMNS = ("instrument_id", "etf_id", "display_id")
+
+
+def _scope_identifier_rows(frame: pd.DataFrame, instrument_id: str) -> tuple[pd.DataFrame, bool]:
+    """Scope canonical IDs and reject rows that carry contradictory identity."""
+
+    if bool(frame.columns.duplicated().any()):
+        return frame.iloc[0:0].copy(), True
+    columns = [column for column in _CANONICAL_ID_COLUMNS if column in frame.columns]
+    if not columns:
+        return frame.iloc[0:0].copy(), True
+    target = str(instrument_id).strip()
+    identifiers = pd.DataFrame(
+        {column: frame[column].map(_normalise_identifier) for column in columns},
+        index=frame.index,
+    )
+    populated = identifiers.notna().any(axis=1)
+    matches = identifiers.eq(target).any(axis=1)
+    contradictory = identifiers.apply(
+        lambda row: any(value is not None and value != target for value in row),
+        axis=1,
+    ) & matches
+    malformed = ~populated
+    if bool((contradictory | malformed).any()):
+        return frame.iloc[0:0].copy(), True
+    return frame.loc[matches & ~contradictory].copy(), False
+
+
+def _safe_bool(value: object, default: bool = False) -> bool:
+    if _is_missing_scalar(value):
+        return default
+    try:
+        if pd.api.types.is_bool(value):
+            return bool(value)
+    except (TypeError, ValueError):
+        return default
+    if isinstance(value, str):
+        normalised = value.strip().casefold()
+        if normalised in {"1", "true", "yes", "y", "on"}:
+            return True
+        if normalised in {"0", "false", "no", "n", "off"}:
+            return False
+        return default
+    return default
+
+
+def _safe_sequence(value: object) -> tuple[object, ...]:
+    """Return an iterable value without evaluating nullable scalars as booleans."""
+
+    if _is_missing_scalar(value):
+        return ()
+    if isinstance(value, (str, bytes)):
+        return (value,)
+    try:
+        return tuple(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return ()
+
+
+def _load_parquet(path: object) -> pd.DataFrame:
+    try:
+        candidate = path
+        if candidate is None or not candidate.exists():  # type: ignore[union-attr]
+            return pd.DataFrame()
+        return pd.read_parquet(candidate)  # type: ignore[arg-type]
+    except Exception:
+        return pd.DataFrame()
+
+
+def _instrument_rows(frame: object, instrument_id: str, *, columns: tuple[str, ...] = _CANONICAL_ID_COLUMNS) -> pd.DataFrame:
+    """Return rows whose populated supported IDs all resolve to ``instrument_id``.
+
+    A row is eligible when at least one supported identifier matches and no
+    populated supported identifier disagrees.  Rows containing only another
+    instrument's identifiers, or no usable identifier, are ignored.
+    """
+
+    source = _safe_frame(frame)
+    if source.empty:
+        return source
+    if bool(source.columns.duplicated().any()):
+        return source.iloc[0:0].copy()
+    available = [column for column in columns if column in source.columns]
+    if not available:
+        return source.iloc[0:0].copy()
+    target = _normalise_identifier(instrument_id)
+    if target is None:
+        return source.iloc[0:0].copy()
+    identifiers = pd.DataFrame(
+        {column: source[column].map(_normalise_identifier) for column in available},
+        index=source.index,
+    )
+    matches = identifiers.eq(target).any(axis=1)
+    contradictory = identifiers.apply(
+        lambda row: any(value is not None and value != target for value in row),
+        axis=1,
+    )
+    return source.loc[matches & ~contradictory].copy()
 
 
 def _feature_driver_panel(instrument_id: str) -> dict[str, Any]:
@@ -37,7 +291,7 @@ def _feature_driver_panel(instrument_id: str) -> dict[str, Any]:
     frame = _normalise_feature_driver_frame(frame)
     if frame.empty or "instrument_id" not in frame.columns:
         return {"status": "unavailable", "rows": [], "message": "Feature drivers unavailable; no local component history is registered.", "execution_allowed": False}
-    scoped = frame[frame["instrument_id"].astype(str).eq(str(instrument_id))].copy()
+    scoped = _instrument_rows(frame, instrument_id)
     if scoped.empty:
         return {"status": "unavailable", "rows": [], "message": "Feature drivers unavailable for this instrument.", "execution_allowed": False}
     scoped["_score_sort"] = pd.to_numeric(scoped.get("normalised_score"), errors="coerce")
@@ -56,6 +310,7 @@ def _feature_driver_panel(instrument_id: str) -> dict[str, Any]:
         "low_authority": low_authority,
         "stale_or_partial": stale_or_partial,
         "execution_allowed": False,
+        **_provenance_fields(scoped.iloc[-1]),
     }
 
 
@@ -101,19 +356,35 @@ def _normalise_feature_driver_frame(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def _fundamentals_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
-    source = frame if isinstance(frame, pd.DataFrame) else load_fundamental_evidence(FUNDAMENTAL_CLEAN_PATH)
+    try:
+        source = frame if isinstance(frame, pd.DataFrame) else load_fundamental_evidence(FUNDAMENTAL_CLEAN_PATH)
+    except Exception:
+        return _unavailable("Fundamental evidence unavailable; the optional local store is missing or corrupt.") | {"score_eligible": False}
     if source.empty or "instrument_id" not in source.columns:
-        return {"status": "unavailable", "message": "Fundamental evidence unavailable; no complete local five-section record is registered.", "score_eligible": False}
-    scoped = latest_fundamental_rows(source[source["instrument_id"].astype(str).eq(str(instrument_id))])
+        return _unavailable("Fundamental evidence unavailable; no complete local five-section record is registered.") | {"score_eligible": False}
+    try:
+        scoped = latest_fundamental_rows(_instrument_rows(source, instrument_id))
+    except Exception:
+        return _unavailable("Fundamental evidence unavailable; the optional local store is malformed.") | {"score_eligible": False}
     if scoped.empty:
-        return {"status": "unavailable", "message": "Fundamental evidence unavailable for this instrument.", "score_eligible": False}
+        return _unavailable("Fundamental evidence unavailable for this instrument.") | {"score_eligible": False}
     row = scoped.iloc[-1]
+    eligibility = _safe_known_text(row.get("eligibility"), _KNOWN_FUNDAMENTAL_ELIGIBILITY)
+    score_eligible, score_eligible_valid = _safe_scalar_bool(row.get("score_eligible"))
+    manual_review = _safe_bool(row.get("manual_review"), default=True) if "manual_review" in row.index else False
+    metadata_valid = eligibility is not None and score_eligible_valid
+    if manual_review or not metadata_valid:
+        manual_review = True
+        score_eligible = False
     return {
-        "status": "available" if bool(row.get("score_eligible", False)) else "manual_review",
-        "eligibility": row.get("eligibility", "not_score_eligible"),
-        "score_eligible": bool(row.get("score_eligible", False)),
+        "status": "available" if score_eligible and eligibility in {"eligible", "eligible_negative_evidence"} and not manual_review else "manual_review",
+        "eligibility": eligibility or "unavailable",
+        "score_eligible": score_eligible,
+        "manual_review": manual_review,
         "source": row.get("source", row.get("source_authority", "unavailable")),
+        "source_id": row.get("source_id", "unavailable"),
         "source_authority": row.get("source_authority", "unavailable"),
+        "conflict_id": row.get("conflict_id", "unavailable"),
         "as_of": row.get("as_of_date", "unavailable"),
         "missing_fields": str(row.get("missing_fields", "")),
         "warnings": str(row.get("warnings", "")),
@@ -125,18 +396,25 @@ def _fundamentals_panel(instrument_id: str, frame: pd.DataFrame | None = None) -
         "sector_relative_delta": row.get("sector_relative_delta", "unavailable"),
         "sector_relative_limitation": row.get("sector_relative_limitation", "No sector-relative comparison evidence supplied."),
         "executable_authority": False,
+        "execution_allowed": False,
     }
 
 
 def _news_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
-    source = frame if isinstance(frame, pd.DataFrame) else load_news_items(NEWS_CLEAN_PATH)
+    try:
+        source = frame if isinstance(frame, pd.DataFrame) else load_news_items(NEWS_CLEAN_PATH)
+    except Exception:
+        return _unavailable("News unavailable; the optional local store is missing or corrupt.") | {"items": [], "context_only": True, "executable_authority": False}
     if source.empty or "instrument_id" not in source.columns:
-        return {"status": "unavailable", "message": "News unavailable; no timestamp-validated local items are registered.", "items": [], "context_only": True, "executable_authority": False}
-    scoped = sort_news_items(source[source["instrument_id"].astype(str).eq(str(instrument_id))])
+        return _unavailable("News unavailable; no timestamp-validated local items are registered.") | {"items": [], "context_only": True, "executable_authority": False}
+    try:
+        scoped = sort_news_items(_instrument_rows(source, instrument_id))
+    except Exception:
+        return _unavailable("News unavailable; the optional local store is malformed.") | {"items": [], "context_only": True, "executable_authority": False}
     if scoped.empty:
-        return {"status": "unavailable", "message": "News unavailable for this instrument.", "items": [], "context_only": True, "executable_authority": False}
+        return _unavailable("News unavailable for this instrument.") | {"items": [], "context_only": True, "executable_authority": False}
     items = [_news_item_record(row) for row in scoped.tail(20).to_dict("records")]
-    return {"status": "available", "message": "News is context-only and cannot change deterministic scores.", "items": items, "context_only": True, "executable_authority": False}
+    return {"status": "available", "message": "News is context-only and cannot change deterministic scores.", "items": items, "context_only": True, "executable_authority": False, "execution_allowed": False}
 
 
 def _news_item_record(row: Mapping[str, Any]) -> dict[str, Any]:
@@ -145,14 +423,14 @@ def _news_item_record(row: Mapping[str, Any]) -> dict[str, Any]:
     item = dict(row)
     item.update(
         {
-            "source_url": item.get("source_url") or item.get("url") or "unavailable",
-            "published_at": item.get("published_at") or "unavailable",
-            "ingested_at": item.get("ingested_at") or "unavailable",
-            "provider_name": item.get("provider_name") or item.get("provider") or "unavailable",
-            "credibility": item.get("credibility") or "unverified",
-            "instrument_mapping_method": item.get("instrument_mapping_method") or "unavailable",
-            "available_at_decision_time": bool(item.get("available_at_decision_time", False)),
-            "timestamp_status": item.get("timestamp_status") or item.get("timestamp_confidence") or "unavailable",
+            "source_url": _first_value(item, ("source_url", "url")),
+            "published_at": _value_or(item.get("published_at"), "unavailable"),
+            "ingested_at": _value_or(item.get("ingested_at"), "unavailable"),
+            "provider_name": _first_value(item, ("provider_name", "provider")),
+            "credibility": _value_or(item.get("credibility"), "unverified"),
+            "instrument_mapping_method": _value_or(item.get("instrument_mapping_method"), "unavailable"),
+            "available_at_decision_time": _safe_bool(item.get("available_at_decision_time"), default=False),
+            "timestamp_status": _first_value(item, ("timestamp_status", "timestamp_confidence")),
             "context_only": True,
             "executable_authority": False,
         }
@@ -168,23 +446,38 @@ def _etf_disclosure_panel(
     kid_records: pd.DataFrame | None = None,
     methodology_records: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
-    registry = document_registry.copy() if isinstance(document_registry, pd.DataFrame) else read_document_registry()
-    if not registry.empty and "instrument_id" in registry.columns:
-        registry = registry[registry["instrument_id"].astype(str).eq(str(instrument_id))].copy()
-    if registry.empty:
-        inventory = build_document_inventory([instrument_id])
-    else:
+    try:
+        registry = document_registry.copy() if isinstance(document_registry, pd.DataFrame) else read_document_registry()
+    except Exception:
+        registry = pd.DataFrame()
+    registry_manual_review = False
+    registry_message = ""
+    registry_had_rows = not registry.empty
+    if not registry.empty:
+        registry, registry_manual_review = _scope_identifier_rows(registry, instrument_id)
+        if registry_manual_review:
+            registry_manual_review = True
+            registry_message = "ETF disclosure registry has missing or contradictory canonical IDs; manual review is required."
+            inventory = pd.DataFrame()
+    if not registry_manual_review and registry.empty and not registry_had_rows:
+        try:
+            inventory = build_document_inventory([instrument_id])
+        except Exception:
+            inventory = pd.DataFrame()
+    elif not registry_manual_review and registry.empty:
+        inventory = pd.DataFrame()
+    elif not registry_manual_review:
         inventory = registry
     document_rows = []
     for row in inventory.to_dict("records"):
         document_rows.append(
             {
-                "document_type": str(row.get("document_type", "")),
-                "coverage_status": str(row.get("coverage_status", "unavailable")),
-                "document_date": row.get("document_date") or "unavailable",
-                "source": row.get("source_url") or row.get("authority") or "unavailable",
-                "checksum": row.get("checksum") or row.get("sha256") or "unavailable",
-                "source_id": row.get("source_id") or "unavailable",
+                "document_type": str(_value_or(row.get("document_type"), "")),
+                "coverage_status": str(_value_or(row.get("coverage_status"))),
+                "document_date": _first_value(row, ("document_date",)),
+                "source": _first_value(row, ("source_url", "authority")),
+                "checksum": _first_value(row, ("checksum", "sha256")),
+                "source_id": _first_value(row, ("source_id",)),
             }
         )
 
@@ -194,38 +487,91 @@ def _etf_disclosure_panel(
         except Exception:
             holdings = pd.DataFrame()
     holdings_frame = holdings.copy() if isinstance(holdings, pd.DataFrame) else pd.DataFrame()
+    holdings_manual_review = False
+    holdings_message = ""
     if not holdings_frame.empty:
-        id_column = "instrument_id" if "instrument_id" in holdings_frame.columns else "etf_id" if "etf_id" in holdings_frame.columns else None
-        if id_column:
-            holdings_frame = holdings_frame[holdings_frame[id_column].astype(str).eq(str(instrument_id))]
+        holdings_frame, holdings_manual_review = _scope_identifier_rows(holdings_frame, instrument_id)
+        if holdings_manual_review:
+            holdings_manual_review = True
+            holdings_message = "ETF holdings have missing or contradictory canonical IDs; manual review is required."
+            holdings_frame = pd.DataFrame()
     if holdings_frame.empty:
-        holdings_summary: dict[str, Any] = {"status": "unavailable", "message": "No normalised holdings are available."}
-    else:
-        sort_column = "as_of" if "as_of" in holdings_frame.columns else "as_of_date" if "as_of_date" in holdings_frame.columns else None
-        if sort_column:
-            holdings_frame = holdings_frame.sort_values(sort_column, kind="stable")
-        row = holdings_frame.iloc[-1]
-        holdings_summary = {
-            "status": "available",
-            "as_of": row.get("as_of") or row.get("as_of_date") or "unavailable",
-            "completeness": row.get("completeness", "unavailable"),
-            "freshness": row.get("freshness", "unavailable"),
-            "confidence": row.get("confidence", "unavailable"),
-            "source": row.get("source", "unavailable"),
-            "authority": row.get("authority", "unavailable"),
-            "score_eligible": row.get("score_eligible", False),
+        holdings_summary: dict[str, Any] = {
+            "status": "manual_review" if holdings_manual_review else "unavailable",
+            "message": holdings_message or "No normalised holdings are available.",
+            "manual_review": holdings_manual_review,
+            "as_of": "unavailable",
+            "completeness": "unavailable",
+            "freshness": "unavailable",
+            "confidence": "unavailable",
+            "source": "unavailable",
+            "authority": "unavailable",
+            "score_eligible": False,
+            "rows": [],
         }
-    kid_frame = kid_records.copy() if isinstance(kid_records, pd.DataFrame) else read_priips_kid_records()
-    methodology_frame = methodology_records.copy() if isinstance(methodology_records, pd.DataFrame) else read_index_methodology_records()
+    else:
+        as_of_values = holdings_frame.apply(
+            lambda row: _first_value(row, ("as_of", "as_of_date"), None),
+            axis=1,
+        )
+        parsed_dates = pd.to_datetime(as_of_values, errors="coerce", utc=True, format="mixed")
+        if bool(parsed_dates.isna().any()):
+            holdings_summary = {
+                "status": "manual_review",
+                "message": "ETF holdings have missing or malformed as_of metadata; manual review is required.",
+                "manual_review": True,
+                "as_of": "unavailable",
+                "completeness": "unavailable",
+                "freshness": "unavailable",
+                "confidence": "unavailable",
+                "source": "unavailable",
+                "authority": "unavailable",
+                "score_eligible": False,
+                "rows": [],
+            }
+            holdings_manual_review = True
+        else:
+            holdings_frame = holdings_frame.assign(_as_of_sort=parsed_dates).sort_values("_as_of_sort", kind="stable").drop(columns=["_as_of_sort"])
+            row = holdings_frame.iloc[-1]
+            confidence = _safe_float(row.get("confidence"))
+            holdings_summary = {
+                "status": "available",
+                "as_of": _first_value(row, ("as_of", "as_of_date")),
+                "completeness": _value_or(row.get("completeness")),
+                "freshness": _value_or(row.get("freshness")),
+                "confidence": confidence if confidence is not None else "unavailable",
+                "source": _value_or(row.get("source")),
+                "authority": _value_or(row.get("authority")),
+                "score_eligible": _safe_bool(row.get("score_eligible")),
+                "manual_review": False,
+                "rows": holdings_frame.where(pd.notna(holdings_frame), None).to_dict("records"),
+                **_provenance_fields(row),
+            }
+    try:
+        kid_frame = kid_records.copy() if isinstance(kid_records, pd.DataFrame) else read_priips_kid_records()
+    except Exception:
+        kid_frame = pd.DataFrame()
+    try:
+        methodology_frame = methodology_records.copy() if isinstance(methodology_records, pd.DataFrame) else read_index_methodology_records()
+    except Exception:
+        methodology_frame = pd.DataFrame()
     kid = _parsed_kid_panel(kid_frame, instrument_id)
     methodology = _parsed_methodology_panel(methodology_frame, instrument_id)
     has_registered_document = any(row["coverage_status"] in {"available", "imported", "mapped"} for row in document_rows)
     return {
-        "status": "available" if has_registered_document or kid["status"] == "available" or methodology["status"] == "available" else "unavailable",
+        "status": "manual_review" if registry_manual_review or holdings_manual_review else "available" if has_registered_document or kid["status"] == "available" or methodology["status"] == "available" else "unavailable",
+        "message": registry_message or holdings_message or "ETF disclosure evidence is shown from canonical instrument-linked local records.",
+        "manual_review": registry_manual_review or holdings_manual_review,
         "document_inventory": document_rows,
         "holdings": holdings_summary,
+        "exposure": {
+            "status": holdings_summary.get("status", "unavailable"),
+            "rows": holdings_summary.get("rows", []),
+            "message": holdings_summary.get("message", "ETF holdings/exposure unavailable."),
+        },
         "kid": kid,
         "methodology": methodology,
+        "execution_allowed": False,
     }
 
 
@@ -239,10 +585,10 @@ def _parsed_methodology_panel(frame: pd.DataFrame, instrument_id: str) -> dict[s
 
 def _parsed_panel(frame: pd.DataFrame, instrument_id: str, kind: str, fields: tuple[str, ...]) -> dict[str, Any]:
     if frame.empty or "instrument_id" not in frame.columns:
-        return {"status": "unavailable", "manual_review": True, "message": f"Parsed {kind} evidence unavailable; manual review required."}
-    scoped = frame[frame["instrument_id"].astype(str).eq(str(instrument_id))]
+        return {"status": "unavailable", "manual_review": True, "score_eligible": False, "message": f"Parsed {kind} evidence unavailable; manual review required."}
+    scoped = _instrument_rows(frame, instrument_id)
     if scoped.empty:
-        return {"status": "unavailable", "manual_review": True, "message": f"Parsed {kind} evidence unavailable; manual review required."}
+        return {"status": "unavailable", "manual_review": True, "score_eligible": False, "message": f"Parsed {kind} evidence unavailable; manual review required."}
     row = scoped.sort_values("imported_at", kind="stable").iloc[-1] if "imported_at" in scoped.columns else scoped.iloc[-1]
     payload: dict[str, Any] = {field: row.get(field) for field in fields}
     payload.update({field: row.get(field) for field in ("source_pages", "warnings") if field in row.index})
@@ -254,16 +600,24 @@ def _parsed_panel(frame: pd.DataFrame, instrument_id: str, kind: str, fields: tu
                 payload[field] = json.loads(value)
             except (TypeError, ValueError):
                 payload[field] = [value] if field != "cost_fields" else {"raw": value}
+    success = _safe_bool(row.get("success"), default=False)
+    manual_review = _safe_bool(row.get("manual_review"), default=True)
+    score_eligible = _safe_bool(row.get("score_eligible"), default=False)
+    freshness_raw = row.get("freshness_status", "ok")
+    freshness_text = _safe_known_text(freshness_raw, _KNOWN_FRESHNESS_STATES)
+    freshness_valid = freshness_text is not None
+    available = success and not manual_review and freshness_valid and freshness_text not in {"stale_block", "missing_or_pending", "unknown", "unavailable"}
     payload.update(
         {
-            "status": "available" if bool(row.get("success")) and not bool(row.get("manual_review")) and str(row.get("freshness_status", "ok")) not in {"stale_block", "missing_or_pending", "unknown"} else "manual_review",
+            "status": "available" if available else "manual_review",
             "source_id": row.get("source_id", "unavailable"),
             "source_sha256": row.get("source_sha256", "unavailable"),
             "parser_version": row.get("parser_version", "unavailable"),
-            "manual_review": bool(row.get("manual_review", True)),
-            "score_eligible": bool(row.get("score_eligible", False)),
+            "conflict_id": row.get("conflict_id", "unavailable"),
+            "manual_review": manual_review or not available,
+            "score_eligible": score_eligible if available else False,
             "source_authority": row.get("source_authority", "issuer_document"),
-            "freshness_status": row.get("freshness_status", "unknown"),
+            "freshness_status": freshness_text or "unavailable",
         }
     )
     return payload
@@ -275,23 +629,33 @@ def build_etf_disclosure_panel(model: InstrumentDetailViewModel) -> dict[str, An
     return value if isinstance(value, dict) else {"status": "unavailable", "document_inventory": [], "holdings": {"status": "unavailable"}, "kid": {"status": "unavailable"}, "methodology": {"status": "unavailable"}}
 
 
-def _friction_panel(instrument_id: str) -> dict[str, Any]:
+def _friction_panel(instrument_id: str, *, candidate_score: SimpleInstrumentScore | None = None) -> dict[str, Any]:
     fields = ("gross_expected_edge_bps", "estimated_total_cost_bps", "net_expected_edge_bps", "edge_to_cost_ratio")
     empty = {field: None for field in fields}
     empty.update({"cost_stress_scenario": "unavailable", "status": "unavailable", "execution_allowed": False})
-    if not SCOREBOARD_PATH.exists():
-        return empty
-    try:
-        frame = pd.read_parquet(SCOREBOARD_PATH)
-    except Exception:
-        return empty
-    id_column = next((column for column in ("display_id", "instrument_id", "etf_id") if column in frame.columns), None)
-    if id_column is None:
-        return empty
-    rows = frame[frame[id_column].astype(str).eq(str(instrument_id))]
-    if rows.empty:
-        return empty
-    row = rows.iloc[-1]
+    if candidate_score is not None and str(candidate_score.display_id).strip() == str(instrument_id).strip():
+        row = pd.Series(
+            {
+                "gross_expected_edge_bps": candidate_score.gross_expected_edge_bps,
+                "estimated_total_cost_bps": candidate_score.estimated_total_cost_bps,
+                "net_expected_edge_bps": candidate_score.net_expected_edge_bps,
+                "edge_to_cost_ratio": candidate_score.edge_to_cost_ratio,
+                "cost_stress_scenario": candidate_score.cost_stress_scenario,
+                "source_id": candidate_score.instrument_key,
+                "source_authority": "score_row",
+            }
+        )
+    else:
+        if not SCOREBOARD_PATH.exists():
+            return empty
+        try:
+            frame = pd.read_parquet(SCOREBOARD_PATH)
+        except Exception:
+            return empty
+        rows = _instrument_rows(frame, instrument_id, columns=("display_id", "instrument_id", "etf_id"))
+        if rows.empty:
+            return empty
+        row = rows.iloc[-1]
     def _finite(value: object) -> float | None:
         try:
             number = float(value)  # type: ignore[arg-type]
@@ -300,23 +664,329 @@ def _friction_panel(instrument_id: str) -> dict[str, Any]:
         return number if math.isfinite(number) else None
 
     result = {field: _finite(row.get(field)) if field in row.index else None for field in fields}
-    scenario = row.get("cost_stress_scenario")
-    try:
-        scenario_is_non_finite = isinstance(scenario, (int, float)) and not math.isfinite(float(scenario))
-    except (TypeError, ValueError):
-        scenario_is_non_finite = False
-    if scenario_is_non_finite or pd.isna(scenario):
+    scenario_text = _safe_known_text(row.get("cost_stress_scenario"), frozenset({"low", "base", "high"}))
+    scenario_valid = scenario_text is not None
+    if not scenario_valid:
         scenario_text = "unavailable"
-    else:
-        scenario_text = str(scenario).strip() or "unavailable"
+    numeric_available = any(result[field] is not None for field in fields)
     result.update(
         {
             "cost_stress_scenario": scenario_text,
-            "status": "available" if any(result[field] is not None for field in fields) else "unavailable",
+            "status": "available" if numeric_available and scenario_valid else "manual_review" if numeric_available else "unavailable",
+            "manual_review": numeric_available and not scenario_valid,
             "execution_allowed": False,
+            **_provenance_fields(row),
         }
     )
     return result
+
+
+def _price_panel(snapshot: CockpitSnapshot, instrument_id: str, *, candidate_score: SimpleInstrumentScore | None = None) -> dict[str, Any]:
+    rows = _instrument_rows(getattr(snapshot, "prices", None), instrument_id)
+    if rows.empty:
+        if _candidate_score_matches(candidate_score, instrument_id):
+            candidate_price = _safe_float(candidate_score.latest_price)  # type: ignore[union-attr]
+            candidate_date = _safe_text(candidate_score.latest_date)  # type: ignore[union-attr]
+            candidate_timestamp = _safe_datetime_scalar(candidate_date)
+            if candidate_price is not None or candidate_timestamp is not None:
+                return {
+                    "status": "available" if candidate_price is not None and candidate_timestamp is not None else "manual_review",
+                    "rows": 0,
+                    "history": [],
+                    "latest_price": candidate_price,
+                    "latest_date": candidate_date if candidate_timestamp is not None else "unavailable",
+                    "as_of": candidate_date if candidate_timestamp is not None else "unavailable",
+                    "freshness": _candidate_freshness(candidate_score) if candidate_timestamp is not None else "unavailable",  # type: ignore[arg-type]
+                    "source": "score_row",
+                    "currency": "unavailable",
+                    "execution_allowed": False,
+                    "source_id": candidate_score.instrument_key,  # type: ignore[union-attr]
+                    "source_authority": "score_row",
+                    "conflict_id": "unavailable",
+                }
+        return _unavailable("Price history unavailable for this instrument.") | {"rows": [], "history": []}
+    date_column = "date" if "date" in rows.columns else "as_of_date" if "as_of_date" in rows.columns else None
+    if date_column is None:
+        return _unavailable("Price history unavailable; no validated date column is present.") | {"rows": [], "history": [], "freshness": "unavailable"}
+    rows["_date_sort"] = pd.to_datetime(rows[date_column], errors="coerce", utc=True, format="mixed")
+    rows = rows.loc[rows["_date_sort"].notna()].sort_values("_date_sort", kind="stable")
+    if rows.empty:
+        return _unavailable("Price history unavailable; no valid dated observations are registered.") | {"rows": [], "history": [], "freshness": "unavailable"}
+    rows = rows.drop(columns=["_date_sort"])
+    latest = rows.iloc[-1]
+    price = latest.get("adjusted_close")
+    if _safe_float(price) is None:
+        price = latest.get("close")
+    latest_date = latest.get(date_column) if date_column else None
+    latest_text = str(latest_date)
+    freshness = "unknown"
+    if latest_text != "unavailable":
+        freshness = "fresh"
+        try:
+            reference = pd.to_datetime(getattr(getattr(snapshot, "data_report", None), "as_of_date", None), errors="coerce", utc=True, format="mixed")
+            observed = pd.to_datetime(latest_date, errors="coerce", utc=True, format="mixed")
+            if pd.notna(reference) and pd.notna(observed) and (reference - observed).days > 5:
+                freshness = "stale"
+        except Exception:
+            freshness = "unknown"
+    records = rows.tail(500).where(pd.notna(rows.tail(500)), None).to_dict("records")
+    return {
+        "status": "available",
+        "rows": len(rows),
+        "history": records,
+        "latest_price": _safe_float(price),
+        "latest_date": latest_text,
+        "as_of": latest_text,
+        "freshness": freshness,
+        "source": latest.get("source", "unavailable"),
+        "currency": latest.get("currency", "unavailable"),
+        "execution_allowed": False,
+        **_provenance_fields(latest),
+    }
+
+
+def _candidate_score_matches(candidate_score: SimpleInstrumentScore | None, instrument_id: str) -> bool:
+    return candidate_score is not None and str(getattr(candidate_score, "display_id", "")).strip() == str(instrument_id).strip()
+
+
+def _candidate_freshness(candidate_score: SimpleInstrumentScore) -> str:
+    for component in candidate_score.components:
+        status = _safe_known_text(getattr(component, "freshness_status", None), _KNOWN_FRESHNESS_STATES)
+        if status is not None:
+            return status
+    return "unknown"
+
+
+def _candidate_scoreboard(candidate_score: SimpleInstrumentScore) -> dict[str, Any]:
+    return {
+        "display_id": candidate_score.display_id,
+        "instrument_id": candidate_score.display_id,
+        "evidence_score_10": candidate_score.evidence_score_10,
+        "evidence_quality_10": candidate_score.evidence_quality_10,
+        "final_label": candidate_score.final_label,
+        "final_action": candidate_score.final_action,
+        "one_line_reason": candidate_score.one_line_reason,
+        "freshness_status": _candidate_freshness(candidate_score),
+        "source_id": candidate_score.instrument_key,
+        "source_authority": "score_row",
+    }
+
+
+def _scoreboard_row(instrument_id: str, *, candidate_score: SimpleInstrumentScore | None = None) -> dict[str, Any]:
+    if _candidate_score_matches(candidate_score, instrument_id):
+        return _candidate_scoreboard(candidate_score)  # type: ignore[arg-type]
+    frame = _load_parquet(SCOREBOARD_PATH)
+    rows = _instrument_rows(frame, instrument_id, columns=("instrument_id", "display_id", "etf_id"))
+    return rows.iloc[-1].to_dict() if not rows.empty else {}
+
+
+def _score_panel(signal: Any, scoreboard: Mapping[str, Any], derived: Mapping[str, Any], friction: Mapping[str, Any]) -> dict[str, Any]:
+    if signal is None and not scoreboard:
+        return _unavailable("Score evidence unavailable for this instrument.") | {"crowding": derived["crowding"], "friction": friction}
+    gates: list[str] = []
+    for value in _safe_sequence(getattr(signal, "blocked_by", ())):
+        gate_id = _normalise_identifier(value)
+        if gate_id is not None and gate_id not in gates:
+            gates.append(gate_id)
+    decision = getattr(signal, "authority_decision", None)
+    for gate in _safe_sequence(getattr(decision, "gates", ())):
+        gate_id = _normalise_identifier(getattr(gate, "gate_id", None)) or "unavailable"
+        if not _safe_bool(getattr(gate, "passed", True), default=False) and gate_id not in gates:
+            gates.append(gate_id)
+    evidence_score = next((_safe_float(scoreboard.get(key)) for key in ("evidence_score_10", "evidence_score", "final_combined_score_10") if _safe_float(scoreboard.get(key)) is not None), None)
+    quality = next((_safe_float(scoreboard.get(key)) for key in ("evidence_quality_10", "evidence_quality") if _safe_float(scoreboard.get(key)) is not None), None)
+    label = next((_safe_text(scoreboard.get(key)) for key in ("final_label", "final_action") if _safe_text(scoreboard.get(key)) is not None), None)
+    if label is None:
+        label = _safe_text(getattr(signal, "research_state", None))
+    label_valid = label is not None
+    label = label or "manual_review"
+    reason = next((_safe_text(scoreboard.get(key)) for key in ("one_line_reason", "reason") if _safe_text(scoreboard.get(key)) is not None), None)
+    if reason is None:
+        reason = _safe_text(getattr(signal, "reason_long", None))
+    reason_valid = reason is not None
+    reason = reason or "Score reason unavailable."
+    signal_score = _safe_float(getattr(signal, "total_score", None))
+    freshness = _safe_text(scoreboard.get("freshness_status"))
+    freshness_valid = freshness is not None
+    numeric_available = any(value is not None for value in (evidence_score, quality, signal_score))
+    status = "available" if numeric_available and label_valid and reason_valid and freshness_valid else "manual_review"
+    return {
+        "status": status,
+        "evidence_score": evidence_score,
+        "evidence_quality": quality,
+        "signal_score": signal_score,
+        "final_label": label,
+        "final_reason": reason,
+        "reason": reason,
+        "blocked_gates": gates,
+        "warnings": list(_safe_sequence(getattr(signal, "warnings", ()))),
+        "freshness": freshness or "unavailable",
+        "crowding": derived["crowding"],
+        "friction": friction,
+        "execution_allowed": False,
+        **_provenance_fields(scoreboard),
+    }
+
+
+def _risk_panel(features: object, friction: Mapping[str, Any], crowding: Mapping[str, Any]) -> dict[str, Any]:
+    rows = _safe_frame(features)
+    if rows.empty:
+        return _unavailable("Risk and feature evidence unavailable for this instrument.") | {"crowding": crowding, "cost": friction}
+    row = rows.iloc[-1]
+    values = {str(key): _safe_float(row.get(key)) for key in row.index}
+    momentum = {key: values.get(key) for key in ("momentum_20d", "momentum_60d", "momentum_120d", "momentum_180d")}
+    trend = {key: values.get(key) for key in ("trend_100", "trend_200", "trend_slope")}
+    relative = {key: values.get(key) for key in ("relative_strength_60d", "relative_strength_120d")}
+    volatility = {key: values.get(key) for key in ("vol_20d_ann", "vol_60d_ann", "vol_120d_ann", "ewma_vol_ann")}
+    drawdown = {key: values.get(key) for key in ("drawdown_current", "drawdown_60d_max", "drawdown_120d_max")}
+    liquidity = {"liquidity_score": values.get("liquidity_score")}
+    as_of_raw = row.get("date", row.get("as_of_date"))
+    as_of_timestamp = _safe_datetime_scalar(as_of_raw)
+    required_values = [*momentum.values(), *trend.values(), *relative.values(), *volatility.values(), *drawdown.values(), liquidity["liquidity_score"]]
+    if pd.isna(as_of_timestamp) or not any(value is not None for value in required_values):
+        return _unavailable("Risk and feature evidence unavailable; no valid dated risk dimensions are registered.") | {"crowding": crowding, "cost": friction}
+    return {
+        "status": "available",
+        "as_of": str(as_of_timestamp),
+        "momentum": momentum,
+        "momentum_60d": momentum["momentum_60d"],
+        "trend": trend,
+        "trend_200": trend["trend_200"],
+        "relative_strength": relative,
+        "relative_strength_60d": relative["relative_strength_60d"],
+        "volatility": volatility,
+        "drawdown": drawdown,
+        "liquidity": liquidity,
+        "cost": friction,
+        "crowding": crowding,
+        "execution_allowed": False,
+        **_provenance_fields(row),
+    }
+
+
+def _attribution_panel(derived: Mapping[str, Any], scoreboard: Mapping[str, Any]) -> dict[str, Any]:
+    value = dict(derived.get("attribution", {}))
+    aliases = {
+        "alpha": ("alpha", "alpha_proxy"),
+        "beta": ("beta", "benchmark_beta"),
+        "correlation": ("correlation", "benchmark_correlation"),
+    }
+    for target, names in aliases.items():
+        value[target] = next(
+            (
+                _safe_float(scoreboard.get(name))
+                for name in names
+                if _safe_float(scoreboard.get(name)) is not None
+            ),
+            next((_safe_float(value.get(name)) for name in names if _safe_float(value.get(name)) is not None), None),
+        )
+    value.setdefault("status", "available" if any(value.get(key) is not None for key in ("alpha", "beta", "correlation")) else "unavailable")
+    for key, metadata in _provenance_fields(scoreboard).items():
+        value.setdefault(key, metadata)
+    value["execution_allowed"] = False
+    return value
+
+
+def _forecast_panel(snapshot: CockpitSnapshot, instrument_id: str) -> dict[str, Any]:
+    rows = _instrument_rows(getattr(snapshot, "forecasts", None), instrument_id)
+    if rows.empty:
+        return _unavailable("Forecast evidence unavailable; no valid local forecast rows are registered.") | {"rows": []}
+    return {"status": "available", "rows": rows.where(pd.notna(rows), None).to_dict("records"), "execution_allowed": False, **_provenance_fields(rows.iloc[-1])}
+
+
+def _backtest_panel(snapshot: CockpitSnapshot, instrument_id: str, scoreboard: Mapping[str, Any]) -> dict[str, Any]:
+    report = getattr(snapshot, "backtest", None)
+    signal_log = _instrument_rows(getattr(report, "signal_log", None), instrument_id)
+    trade_log = _instrument_rows(getattr(report, "trade_log", None), instrument_id)
+    quality_raw = None
+    quality_present = False
+    scoreboard_quality_seen = False
+    for key in ("backtest_trust_label", "backtest_validity"):
+        if key in scoreboard:
+            scoreboard_quality_seen = True
+        if key in scoreboard and not _is_missing_scalar(scoreboard.get(key)):
+            quality_raw = scoreboard.get(key)
+            quality_present = True
+            break
+    quality = _safe_backtest_quality(quality_raw)
+    report_quality_raw = getattr(report, "quality_label", None)
+    if not quality_present and not scoreboard_quality_seen and report is not None and (not signal_log.empty or not trade_log.empty) and not _is_missing_scalar(report_quality_raw):
+        quality_raw = report_quality_raw
+        quality_present = True
+        quality = _safe_backtest_quality(report_quality_raw)
+    if signal_log.empty and trade_log.empty and not quality_present:
+        return _unavailable("Backtest trust unavailable for this instrument.") | {"trust": "unavailable", "signal_rows": [], "trade_rows": []}
+    metadata_source = scoreboard or (signal_log.iloc[-1] if not signal_log.empty else trade_log.iloc[-1])
+    trust = quality or "unavailable"
+    return {"status": "available" if quality is not None else "manual_review", "trust": trust, "signal_rows": signal_log.to_dict("records"), "trade_rows": trade_log.to_dict("records"), "execution_allowed": False, **_provenance_fields(metadata_source)}
+
+
+def _paper_trade_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
+    source = frame if isinstance(frame, pd.DataFrame) else _load_parquet(PAPER_TRADES_PATH)
+    rows = _instrument_rows(source, instrument_id)
+    if rows.empty:
+        return _unavailable("Paper-trade history unavailable; no local paper-trade records are registered.") | {"rows": []}
+    return {"status": "available", "rows": rows.to_dict("records"), "execution_allowed": False, **_provenance_fields(rows.iloc[-1])}
+
+
+def _history_panel(instrument_id: str, history: pd.DataFrame | None = None) -> dict[str, Any]:
+    try:
+        source = history if isinstance(history, pd.DataFrame) else score_history_frame()
+    except Exception:
+        source = pd.DataFrame()
+    rows = _instrument_rows(source, instrument_id)
+    if rows.empty:
+        return _unavailable("Score history unavailable; a second local score run is required.") | {"rows": []}
+    return {"status": "available", "rows": rows.to_dict("records"), "execution_allowed": False, **_provenance_fields(rows.iloc[-1])}
+
+
+def _run_changes_panel(instrument_id: str, history: pd.DataFrame | None = None) -> dict[str, Any]:
+    try:
+        source = history if isinstance(history, pd.DataFrame) else score_history_frame()
+        source = _instrument_rows(source, instrument_id)
+        if not isinstance(source, pd.DataFrame) or source.empty or "run_id" not in source.columns:
+            raise ValueError("no score history")
+        runs = list(dict.fromkeys(source["run_id"].astype(str).tolist()))
+        current = runs[-1]
+        previous = runs[-2] if len(runs) > 1 else None
+        report = compare_runs(source, current, previous)
+        changes = [change.__dict__ for change in report.changes if change.instrument_id == instrument_id]
+        return {"status": "available", "current_run_id": current, "previous_run_id": previous, "changes": changes, "execution_allowed": False, **_provenance_fields(source.iloc[-1])}
+    except Exception:
+        return _unavailable("What changed since the last run is unavailable until comparable score history exists.") | {"changes": []}
+
+
+def _journal_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
+    rows = _instrument_rows(frame, instrument_id) if isinstance(frame, pd.DataFrame) else pd.DataFrame()
+    if rows.empty:
+        return _unavailable("Decision journal entries unavailable for this instrument.") | {"entries": []}
+    return {"status": "available", "entries": rows.to_dict("records"), "execution_allowed": False, **_provenance_fields(rows.iloc[-1])}
+
+
+def _candidate_identity_panel(instrument_id: str, candidate_score: SimpleInstrumentScore) -> dict[str, Any]:
+    source_group = _safe_text(candidate_score.source_group) or "unavailable"
+    analysis_tier = _safe_text(candidate_score.analysis_tier) or "unavailable"
+    asset_type = _safe_text(candidate_score.asset_type) or "unavailable"
+    return {
+        "status": "available",
+        "instrument_id": instrument_id,
+        "name": _safe_text(candidate_score.name) or instrument_id,
+        "ticker": _safe_text(candidate_score.yahoo_symbol) or "unavailable",
+        "isin": _safe_text(candidate_score.isin) or "needs_verification",
+        "asset_type": asset_type,
+        "asset_class": "unavailable",
+        "group": source_group,
+        "analysis_tier": analysis_tier,
+        "exchange": "unavailable",
+        "currency": "unavailable",
+        "region": "unavailable",
+        "sector": "unavailable",
+        "theme": "unavailable",
+        "source_id": candidate_score.instrument_key,
+        "source_authority": "score_row",
+        "conflict_id": "unavailable",
+        "execution_allowed": False,
+    }
 
 
 def build_instrument_detail(
@@ -329,34 +999,73 @@ def build_instrument_detail(
     methodology_records: pd.DataFrame | None = None,
     fundamentals: pd.DataFrame | None = None,
     news: pd.DataFrame | None = None,
+    score_history: pd.DataFrame | None = None,
+    paper_trades: pd.DataFrame | None = None,
+    journal: pd.DataFrame | None = None,
+    candidate_score: SimpleInstrumentScore | None = None,
 ) -> InstrumentDetailViewModel:
     identity = next((item for item in snapshot.config.universe.etfs if item.id == instrument_id), None)
-    if identity is None:
+    # Configured identities remain backed by canonical snapshot stores.  The
+    # score-row context is only a fallback for secondary/Sparebanken rows that
+    # are intentionally absent from the configured universe.
+    candidate = candidate_score if identity is None and _candidate_score_matches(candidate_score, instrument_id) else None
+    if identity is None and candidate is None:
         return InstrumentDetailViewModel(instrument_id, instrument_id, "unavailable", {"instrument_id": instrument_id}, {name: "unavailable" for name in _SECTION_NAMES})
-    signal = next((item for item in snapshot.signals if item.etf_id == instrument_id), None)
-    price_rows = snapshot.prices[snapshot.prices.get("etf_id", "") == instrument_id] if not snapshot.prices.empty and "etf_id" in snapshot.prices.columns else snapshot.prices.iloc[0:0]
+    signal = next((item for item in getattr(snapshot, "signals", ()) if item.etf_id == instrument_id), None)
+    features = _instrument_rows(getattr(snapshot, "latest_features", None), instrument_id)
+    if features.empty:
+        all_features = _instrument_rows(getattr(snapshot, "features", None), instrument_id)
+        if not all_features.empty and "date" in all_features.columns:
+            features = all_features.sort_values("date", kind="stable").tail(1)
     derived = _derived_evidence_panel(instrument_id)
-    friction = _friction_panel(instrument_id)
+    friction = _friction_panel(instrument_id, candidate_score=candidate)
+    scoreboard = _scoreboard_row(instrument_id, candidate_score=candidate)
+    if candidate is not None:
+        identity_panel = _candidate_identity_panel(instrument_id, candidate)
+        display_name = identity_panel["name"]
+    else:
+        group = str(getattr(identity, "source_group", "") or ("Sparebanken" if str(identity.instrument_type).casefold() in {"equity_certificate", "certificate"} else identity.analysis_tier or "unavailable"))
+        identity_panel = {
+            "status": "available",
+            "instrument_id": instrument_id,
+            "name": identity.name,
+            "ticker": identity.ticker,
+            "isin": identity.isin or "needs_verification",
+            "asset_type": identity.instrument_type or identity.asset_class,
+            "asset_class": identity.asset_class,
+            "group": group,
+            "exchange": identity.exchange or "unavailable",
+            "currency": identity.currency or "unavailable",
+            "region": identity.region or "unavailable",
+            "sector": identity.sector or "unavailable",
+            "theme": identity.theme or "unavailable",
+            "source_id": f"config:universe:{instrument_id}",
+            "execution_allowed": False,
+        }
+        display_name = identity.name
+    disclosure = _etf_disclosure_panel(instrument_id, document_registry=document_registry, holdings=holdings, kid_records=kid_records, methodology_records=methodology_records)
     return InstrumentDetailViewModel(
         instrument_id,
-        identity.name,
+        display_name,
         "ready",
-        {"name": identity.name, "ticker": identity.ticker, "isin": identity.isin or "needs_verification", "asset_type": identity.asset_class, "exchange": identity.exchange},
+        identity_panel,
         {
-            "identity": "ready",
-            "price": {"rows": len(price_rows), "as_of": str(price_rows["date"].max()) if not price_rows.empty and "date" in price_rows.columns else "unavailable"},
-            "scores": {"status": "ready" if signal is not None else "unavailable", "crowding": derived["crowding"], "friction": friction, "execution_allowed": False},
+            "identity": identity_panel,
+            "price": _price_panel(snapshot, instrument_id, candidate_score=candidate),
+            "scores": _score_panel(signal, scoreboard, derived, friction),
             "feature_drivers": _feature_driver_panel(instrument_id),
-            "risk": {"status": "ready" if signal is not None else "unavailable", "crowding": derived["crowding"], "friction": friction, "execution_allowed": False},
-            "attribution": {**derived["attribution"], "execution_allowed": False},
+            "risk": _risk_panel(features, friction, derived["crowding"]),
+            "attribution": _attribution_panel(derived, scoreboard),
             "fundamentals": _fundamentals_panel(instrument_id, fundamentals),
-            "etf_disclosures": _etf_disclosure_panel(instrument_id, document_registry=document_registry, holdings=holdings, kid_records=kid_records, methodology_records=methodology_records),
+            "etf_disclosures": disclosure,
+            "etf_holdings": disclosure.get("exposure", _unavailable("ETF holdings/exposure unavailable.")),
             "news": _news_panel(instrument_id, news),
-            "forecasts": "available from valid forecast rows",
-            "backtests": "available from local backtest report",
-            "history": "available from local score history",
-            "journal": "unavailable until a local note exists",
-            "run_changes": "available from local run history",
+            "forecasts": _forecast_panel(snapshot, instrument_id),
+            "backtests": _backtest_panel(snapshot, instrument_id, scoreboard),
+            "paper_trades": _paper_trade_panel(instrument_id, paper_trades),
+            "history": _history_panel(instrument_id, score_history),
+            "journal": _journal_panel(instrument_id, journal),
+            "run_changes": _run_changes_panel(instrument_id, score_history),
         },
     )
 
@@ -369,19 +1078,17 @@ def _derived_evidence_panel(instrument_id: str) -> dict[str, dict[str, Any]]:
     try:
         if CORRELATION_CLUSTERS_PATH.exists():
             frame = pd.read_parquet(CORRELATION_CLUSTERS_PATH)
-            if "instrument_id" in frame.columns:
-                rows = frame[frame["instrument_id"].astype(str).eq(str(instrument_id))]
-                if not rows.empty:
-                    crowding = {**rows.iloc[-1].to_dict(), "status": str(rows.iloc[-1].get("status", "available")), "execution_allowed": False}
+            rows = _instrument_rows(frame, instrument_id)
+            if not rows.empty:
+                crowding = {**rows.iloc[-1].to_dict(), "status": str(rows.iloc[-1].get("status", "available")), "execution_allowed": False}
     except Exception:
         pass
     try:
         if BENCHMARK_ATTRIBUTION_PATH.exists():
             frame = pd.read_parquet(BENCHMARK_ATTRIBUTION_PATH)
-            if "instrument_id" in frame.columns:
-                rows = frame[frame["instrument_id"].astype(str).eq(str(instrument_id))]
-                if not rows.empty:
-                    attribution = {**rows.iloc[-1].to_dict(), "status": str(rows.iloc[-1].get("status", "available")), "execution_allowed": False}
+            rows = _instrument_rows(frame, instrument_id)
+            if not rows.empty:
+                attribution = {**rows.iloc[-1].to_dict(), "status": str(rows.iloc[-1].get("status", "available")), "execution_allowed": False}
     except Exception:
         pass
     return {"crowding": crowding, "attribution": attribution}

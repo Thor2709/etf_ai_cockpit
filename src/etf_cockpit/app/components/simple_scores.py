@@ -56,11 +56,11 @@ def simple_score_tiles(scores: list[SimpleInstrumentScore], *, max_items: int | 
     )
 
 
-def simple_score_grouped_sections(scores: list[SimpleInstrumentScore]) -> ft.Control:
+def simple_score_grouped_sections(scores: list[SimpleInstrumentScore], *, page: ft.Page | None = None, state: object | None = None) -> ft.Control:
     history = load_score_history_summary()
     groups = group_simple_scores(scores)
     return ft.Column(
-        [_score_group_section(group.label, group.scores, history) for group in groups],
+        [_score_group_section(group.label, group.scores, history, page=page, state=state) for group in groups],
         spacing=10,
     )
 
@@ -85,7 +85,7 @@ def score_colour(score: float | None) -> str:
     return theme.RED
 
 
-def _score_group_section(label: str, scores: list[SimpleInstrumentScore], history: dict[str, list[dict[str, object]]]) -> ft.Control:
+def _score_group_section(label: str, scores: list[SimpleInstrumentScore], history: dict[str, list[dict[str, object]]], *, page: ft.Page | None = None, state: object | None = None) -> ft.Control:
     if not scores:
         body: list[ft.Control] = [ft.Text("No instruments in this group yet.", color=theme.MUTED, size=11)]
     else:
@@ -95,7 +95,7 @@ def _score_group_section(label: str, scores: list[SimpleInstrumentScore], histor
                 color=theme.MUTED,
                 size=11,
             ),
-            *[_score_tile(score, history.get(score.display_id, [])) for score in scores],
+            *[_score_tile(score, history.get(score.display_id, []), page=page, state=state) for score in scores],
         ]
     return ft.Container(
         bgcolor=theme.SURFACE_2,
@@ -112,7 +112,7 @@ def _score_group_section(label: str, scores: list[SimpleInstrumentScore], histor
     )
 
 
-def _score_tile(item: SimpleInstrumentScore, history_rows: list[dict[str, object]]) -> ft.Control:
+def _score_tile(item: SimpleInstrumentScore, history_rows: list[dict[str, object]], *, page: ft.Page | None = None, state: object | None = None) -> ft.Control:
     subtitle = (
         f"{item.source_group} | Yahoo {item.yahoo_symbol} | ISIN {item.isin or 'N/A'} | "
         f"{item.asset_type} | Latest {item.latest_date} | {item.one_line_reason}"
@@ -246,6 +246,19 @@ def _score_tile(item: SimpleInstrumentScore, history_rows: list[dict[str, object
         on_click=toggle_details,
     )
 
+    detail_button: ft.Control | None = None
+    if page is not None and state is not None:
+        def open_detail(_event: ft.ControlEvent) -> None:
+            from etf_cockpit.app.router import navigate_to, instrument_detail_route
+
+            navigate_to(page, state, instrument_detail_route(item.display_id), candidate_score=item)
+
+        detail_button = ft.TextButton(
+            "Open instrument detail",
+            key=f"dashboard.score-row-detail.{item.display_id}",
+            tooltip="Open instrument detail",
+            on_click=open_detail,
+        )
     return ft.Container(
         bgcolor=theme.SURFACE,
         border_radius=8,
@@ -262,6 +275,7 @@ def _score_tile(item: SimpleInstrumentScore, history_rows: list[dict[str, object
                                 [
                                     ft.Text(f"{item.display_id} - {item.name}", color=theme.TEXT, size=14, weight=ft.FontWeight.BOLD),
                                     ft.Text(subtitle, color=theme.MUTED, size=11, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                                    detail_button if detail_button is not None else ft.Container(),
                                 ],
                                 spacing=2,
                                 expand=True,

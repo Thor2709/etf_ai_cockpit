@@ -14,7 +14,6 @@ from etf_cockpit.app.pages.errors_recovery import errors_recovery_page
 from etf_cockpit.app.pages.onboarding import onboarding_page
 from etf_cockpit.app.pages.universe_manager import universe_manager_page
 from etf_cockpit.app.pages.what_changed import what_changed_page
-from etf_cockpit.app.pages.etf_detail import etf_detail_page
 from etf_cockpit.app.pages.instrument_detail import instrument_detail_page
 from etf_cockpit.app.pages.import_export import import_export_page
 from etf_cockpit.app.pages.system_map import system_map_page
@@ -41,7 +40,7 @@ PAGES = {
     "/signals": ("Scores", signals_page),
     "/screener": ("Fundamentals Screener", screener_page),
     "/risk": ("Risk Evidence", risk_page),
-    "/etf": ("Instrument Detail", etf_detail_page),
+    "/etf": ("Instrument Detail", instrument_detail_page),
     "/backtests": ("Backtests", backtests_page),
     "/chatgpt": ("Audit Notes", chatgpt_audit_page),
     "/providers": ("Provider Status", provider_status_page),
@@ -65,13 +64,28 @@ PAGES = {
 }
 
 
+def instrument_detail_route(instrument_id: str) -> str:
+    """Return the canonical inspect route for a configured instrument ID."""
+
+    value = str(instrument_id or "").strip()
+    return f"/instrument/{value}" if value else "/instrument"
+
+
 def _page_route(route: str) -> str:
     """Return the registered route while preserving query/hash targets for pages."""
 
-    return str(route or "/").split("?", 1)[0].split("#", 1)[0] or "/"
+    value = str(route or "/").split("?", 1)[0].split("#", 1)[0] or "/"
+    if value.startswith("/instrument/"):
+        return "/instrument"
+    return value
 
 
-def navigate_to(page: ft.Page, state: AppState, route: str) -> None:
+def navigate_to(page: ft.Page, state: AppState, route: str, *, candidate_score: object | None = None) -> None:
+    if str(route).startswith("/instrument/"):
+        selected = str(route).split("/", 2)[-1].strip()
+        if selected:
+            state.selected_etf = selected
+            state.selected_instrument_score = candidate_score
     go = getattr(page, "go", None)
     if callable(go):
         go(route)
