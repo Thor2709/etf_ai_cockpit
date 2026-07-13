@@ -7,6 +7,7 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import metric_card, panel, section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH, normalise_holdings
+from etf_cockpit.data.trust_artifacts import CORRELATION_CLUSTERS_PATH, BENCHMARK_ATTRIBUTION_PATH
 from etf_cockpit.data.reference_data import load_reference_dataset
 from etf_cockpit.portfolio.allocation import allocation_frame, exposure_summary
 from etf_cockpit.portfolio.risk_analytics import drawdown_contribution, exposure_limit_report, return_correlation_matrix, underlying_holdings_exposure
@@ -274,6 +275,25 @@ def _correlation_table(correlation: pd.DataFrame) -> ft.Control:
     )
 
 
+def _crowding_attribution_panel() -> ft.Control:
+    try:
+        crowding = pd.read_parquet(CORRELATION_CLUSTERS_PATH) if CORRELATION_CLUSTERS_PATH.exists() else pd.DataFrame()
+    except Exception:
+        crowding = pd.DataFrame()
+    try:
+        attribution = pd.read_parquet(BENCHMARK_ATTRIBUTION_PATH) if BENCHMARK_ATTRIBUTION_PATH.exists() else pd.DataFrame()
+    except Exception:
+        attribution = pd.DataFrame()
+    if crowding.empty and attribution.empty:
+        return panel(ft.Column([section_header("Crowding and attribution", "Trust evidence from clean adjusted-price returns."), ft.Text("Correlation and benchmark attribution evidence is unavailable; no cluster or sector-relative conclusion is inferred.", color=theme.MUTED)]))
+    warnings = crowding[crowding.get("crowding_warning", pd.Series(dtype=str)).astype(str).str.contains("warning", na=False)] if not crowding.empty else pd.DataFrame()
+    sector_available = int((attribution.get("sector_attribution_status", pd.Series(dtype=str)).astype(str) == "available").sum()) if not attribution.empty else 0
+    return panel(ft.Column([
+        section_header("Crowding and attribution", "Configured metadata and clean adjusted-price evidence; diagnostics are descriptive and non-executable."),
+        ft.Text(f"Clusters with warnings: {len(warnings)} | sector-relative rows available: {sector_available} | execution_allowed=false", color=theme.MUTED, selectable=True),
+    ]))
+
+
 def _drawdown_table(contribution: pd.DataFrame) -> ft.Control:
     rows = [
         ft.DataRow(
@@ -352,6 +372,7 @@ def risk_page(_page: ft.Page, state: AppState) -> ft.Control:
             _holdings_quality_panel(imported_holdings),
             _underlying_holdings_panel(eligible_holdings, allocation),
             _correlation_table(correlation),
+            _crowding_attribution_panel(),
             _drawdown_table(contribution),
         ],
         expand=True,

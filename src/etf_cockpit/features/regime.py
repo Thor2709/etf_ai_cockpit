@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from etf_cockpit.core.paths import DERIVED_DIR
+from etf_cockpit.features.benchmark_attribution import build_benchmark_attribution
 
 
 def build_market_regime(prices: pd.DataFrame, candidate_report: pd.DataFrame | None = None) -> dict[str, object]:
@@ -107,6 +108,7 @@ def build_benchmark_attribution_lookup(
     *,
     window: int = 120,
     benchmark_id: str | None = None,
+    metadata: dict[str, object] | None = None,
 ) -> dict[str, dict[str, object]]:
     if prices.empty or not {"etf_id", "date", "adjusted_close"}.issubset(prices.columns):
         return {}
@@ -120,6 +122,7 @@ def build_benchmark_attribution_lookup(
     returns = pivot.pct_change(fill_method=None).dropna(how="all")
     benchmark_returns = returns[benchmark_id].dropna()
     output: dict[str, dict[str, object]] = {}
+    metadata = metadata or {}
     for instrument_id in pivot.columns:
         instrument = str(instrument_id)
         series = returns[instrument_id].dropna()
@@ -137,6 +140,15 @@ def build_benchmark_attribution_lookup(
                 "correlation_to_benchmark": None,
                 "alpha_proxy": None,
                 "alpha_t_stat": None,
+                "sector_return": None,
+                "sector_relative_return": None,
+                "sector_beta": None,
+                "sector_correlation": None,
+                "sector_alpha_proxy": None,
+                "sector_attribution_status": "N/A",
+                "sample_size": len(sample),
+                "as_of": sample.index.max().date().isoformat() if len(sample) else None,
+                "source_dataset": "adjusted_price_returns",
             }
             continue
         instrument_prices = pivot[instrument_id].dropna()
@@ -155,6 +167,7 @@ def build_benchmark_attribution_lookup(
             residual_std = float(residual.std())
             if residual_std > 0 and len(residual) >= 80:
                 alpha_t_stat = float(residual.mean() / residual_std * np.sqrt(len(residual)))
+        sector_result = _sector_attribution_result(returns, str(instrument_id), metadata, window)
         output[instrument] = {
             "benchmark_id": benchmark_id,
             "period_days": window,
@@ -165,6 +178,15 @@ def build_benchmark_attribution_lookup(
             "correlation_to_benchmark": None if corr is None else round(corr, 4),
             "alpha_proxy": None if alpha_proxy is None else round(alpha_proxy, 4),
             "alpha_t_stat": None if alpha_t_stat is None else round(alpha_t_stat, 4),
+            "sector_return": sector_result.get("sector_return"),
+            "sector_relative_return": sector_result.get("sector_relative_return"),
+            "sector_beta": sector_result.get("sector_beta"),
+            "sector_correlation": sector_result.get("sector_correlation"),
+            "sector_alpha_proxy": sector_result.get("sector_alpha_proxy"),
+            "sector_attribution_status": sector_result.get("sector_attribution_status", "N/A"),
+            "sample_size": len(sample),
+            "as_of": sample.index.max().date().isoformat() if len(sample) else None,
+            "source_dataset": "adjusted_price_returns",
         }
     return output
 
@@ -239,6 +261,43 @@ def _benchmark_attribution_label(
         f"beta {_fmt_float(beta)}, corr {_fmt_float(corr)}, alpha proxy {_fmt_pct(alpha_proxy)} ({t_text}). "
         "Attribution is descriptive and does not prove causality."
     )
+
+
+def _sector_attribution_result(
+    returns: pd.DataFrame,
+    instrument_id: str,
+    metadata: dict[str, object],
+    window: int,
+) -> dict[str, object]:
+    current = metadata.get(instrument_id)
+    current_sector = current.get("sector") if isinstance(current, dict) else getattr(current, "sector", None)
+    current_sector = str(current_sector or "").strip()
+    if not current_sector:
+        return {"sector_attribution_status": "N/A"}
+    peers = []
+    for peer in returns.columns:
+        if str(peer) == instrument_id:
+            continue
+        value = metadata.get(str(peer))
+        peer_sector = value.get("sector") if isinstance(value, dict) else getattr(value, "sector", None)
+        if str(peer_sector or "").strip() == current_sector:
+            peers.append(str(peer))
+    if not peers:
+        return {"sector_attribution_status": "N/A"}
+    sector = returns[peers].mean(axis=1, skipna=False).rename("sector")
+    instrument = returns[instrument_id].rename("instrument")
+    result = build_benchmark_attribution(instrument.tail(window), sector.tail(window))
+    sector_relative_return = None
+    if result.instrument_return is not None and result.benchmark_return is not None:
+        sector_relative_return = result.instrument_return - result.benchmark_return
+    return {
+        "sector_return": None if result.benchmark_return is None else round(result.benchmark_return, 4),
+        "sector_relative_return": None if sector_relative_return is None else round(sector_relative_return, 4),
+        "sector_beta": None if result.beta is None else round(result.beta, 4),
+        "sector_correlation": None if result.correlation is None else round(result.correlation, 4),
+        "sector_alpha_proxy": None if result.alpha_proxy is None else round(result.alpha_proxy, 4),
+        "sector_attribution_status": "available" if result.status == "available" else "N/A",
+    }
 
 
 def _weighted_available(values: list[tuple[float | None, float]]) -> float:

@@ -10,7 +10,7 @@ from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
 from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH, latest_fundamental_rows, load_fundamental_evidence
 from etf_cockpit.data.news_context import NEWS_CLEAN_PATH, load_news_items, sort_news_items
 from etf_cockpit.data.parsed_disclosures import read_index_methodology_records, read_priips_kid_records
-from etf_cockpit.data.trust_artifacts import FEATURE_DRIVERS_PATH
+from etf_cockpit.data.trust_artifacts import BENCHMARK_ATTRIBUTION_PATH, CORRELATION_CLUSTERS_PATH, FEATURE_DRIVERS_PATH
 from etf_cockpit.services import CockpitSnapshot
 
 
@@ -288,6 +288,7 @@ def build_instrument_detail(
         return InstrumentDetailViewModel(instrument_id, instrument_id, "unavailable", {"instrument_id": instrument_id}, {name: "unavailable" for name in _SECTION_NAMES})
     signal = next((item for item in snapshot.signals if item.etf_id == instrument_id), None)
     price_rows = snapshot.prices[snapshot.prices.get("etf_id", "") == instrument_id] if not snapshot.prices.empty and "etf_id" in snapshot.prices.columns else snapshot.prices.iloc[0:0]
+    derived = _derived_evidence_panel(instrument_id)
     return InstrumentDetailViewModel(
         instrument_id,
         identity.name,
@@ -296,10 +297,10 @@ def build_instrument_detail(
         {
             "identity": "ready",
             "price": {"rows": len(price_rows), "as_of": str(price_rows["date"].max()) if not price_rows.empty and "date" in price_rows.columns else "unavailable"},
-            "scores": "ready" if signal is not None else "unavailable",
+            "scores": {"status": "ready" if signal is not None else "unavailable", "crowding": derived["crowding"], "execution_allowed": False},
             "feature_drivers": _feature_driver_panel(instrument_id),
-            "risk": "ready" if signal is not None else "unavailable",
-            "attribution": "available from evidence ledger where present",
+            "risk": {"status": "ready" if signal is not None else "unavailable", "crowding": derived["crowding"], "execution_allowed": False},
+            "attribution": {**derived["attribution"], "execution_allowed": False},
             "fundamentals": _fundamentals_panel(instrument_id, fundamentals),
             "etf_disclosures": _etf_disclosure_panel(instrument_id, document_registry=document_registry, holdings=holdings, kid_records=kid_records, methodology_records=methodology_records),
             "news": _news_panel(instrument_id, news),
@@ -310,3 +311,29 @@ def build_instrument_detail(
             "run_changes": "available from local run history",
         },
     )
+
+
+def _derived_evidence_panel(instrument_id: str) -> dict[str, dict[str, Any]]:
+    """Load persisted crowding/attribution evidence without recalculating UI authority."""
+
+    crowding: dict[str, Any] = {"status": "unavailable", "message": "Correlation cluster evidence is unavailable.", "execution_allowed": False}
+    attribution: dict[str, Any] = {"status": "unavailable", "message": "Benchmark attribution evidence is unavailable.", "sector_attribution_status": "N/A", "execution_allowed": False}
+    try:
+        if CORRELATION_CLUSTERS_PATH.exists():
+            frame = pd.read_parquet(CORRELATION_CLUSTERS_PATH)
+            if "instrument_id" in frame.columns:
+                rows = frame[frame["instrument_id"].astype(str).eq(str(instrument_id))]
+                if not rows.empty:
+                    crowding = {**rows.iloc[-1].to_dict(), "status": str(rows.iloc[-1].get("status", "available")), "execution_allowed": False}
+    except Exception:
+        pass
+    try:
+        if BENCHMARK_ATTRIBUTION_PATH.exists():
+            frame = pd.read_parquet(BENCHMARK_ATTRIBUTION_PATH)
+            if "instrument_id" in frame.columns:
+                rows = frame[frame["instrument_id"].astype(str).eq(str(instrument_id))]
+                if not rows.empty:
+                    attribution = {**rows.iloc[-1].to_dict(), "status": str(rows.iloc[-1].get("status", "available")), "execution_allowed": False}
+    except Exception:
+        pass
+    return {"crowding": crowding, "attribution": attribution}

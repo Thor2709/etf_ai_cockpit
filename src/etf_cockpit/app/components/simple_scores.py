@@ -161,6 +161,7 @@ def _score_tile(item: SimpleInstrumentScore, history_rows: list[dict[str, object
                         evidence_chip("Corr", _number_badge(item.benchmark_correlation), _benchmark_colour(item)),
                         evidence_chip("Alpha proxy", _pct_badge(item.alpha_proxy), _alpha_colour(item.alpha_proxy)),
                         evidence_chip("Sector/theme", _sector_theme_badge(item), theme.AMBER if "warning" in item.sector_theme_warning.lower() else theme.CYAN),
+                        evidence_chip("Crowding", item.crowding_warning, theme.AMBER if "warning" in item.crowding_warning.lower() else theme.CYAN),
                     ],
                     spacing=8,
                     wrap=True,
@@ -177,6 +178,16 @@ def _score_tile(item: SimpleInstrumentScore, history_rows: list[dict[str, object
                 ),
                 ft.Text(f"Cost scenario: {item.cost_stress_scenario}", color=theme.MUTED, size=11),
                 ft.Text(item.benchmark_attribution_label, color=theme.MUTED, size=11),
+                ft.Text(
+                    f"Sector-relative: {_pct_badge(item.sector_relative_return)} | alpha {_pct_badge(item.sector_alpha_proxy)} | status {item.sector_attribution_status}",
+                    color=theme.MUTED,
+                    size=11,
+                ),
+                ft.Text(
+                    f"Crowding cluster: {item.crowding_cluster_label} | peers {item.crowding_average_peer_correlation if item.crowding_average_peer_correlation is not None else 'N/A'} | as of {item.crowding_as_of or 'N/A'}",
+                    color=theme.MUTED,
+                    size=11,
+                ),
                 ft.Text(item.sector_theme_warning, color=theme.MUTED, size=11),
                 ft.Row(
                     [

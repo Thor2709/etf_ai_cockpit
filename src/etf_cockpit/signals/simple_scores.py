@@ -20,6 +20,7 @@ from etf_cockpit.data.news_context import NEWS_CLEAN_PATH, load_news_items
 from etf_cockpit.data.universe_store import support_decision
 from etf_cockpit.data.yfinance_provider import yfinance_symbol_map_from_config
 from etf_cockpit.data.universe_store import load_universe
+from etf_cockpit.features.crowding import ClusterReport, build_correlation_clusters
 from etf_cockpit.features.regime import build_benchmark_attribution_lookup, build_market_regime, build_portfolio_fit_lookup
 from etf_cockpit.models.calibration import calibration_lookup, evaluate_forecast_calibration, load_forecast_history
 from etf_cockpit.models.forecast_scores import (
@@ -278,6 +279,24 @@ class SimpleInstrumentScore:
     net_expected_edge_bps: float | None = None
     edge_to_cost_ratio: float | None = None
     cost_stress_scenario: str = "not_evaluated"
+    crowding_cluster_id: str | None = None
+    crowding_cluster_label: str = "Correlation clustering unavailable"
+    crowding_warning: str = "correlation_clustering_unavailable"
+    crowding_average_peer_correlation: float | None = None
+    crowding_sample_size: int | None = None
+    crowding_as_of: str | None = None
+    crowding_source_dataset: str = "adjusted_price_returns"
+    sector_return: float | None = None
+    sector_relative_return: float | None = None
+    sector_beta: float | None = None
+    sector_correlation: float | None = None
+    sector_alpha_proxy: float | None = None
+    sector_attribution_status: str = "N/A"
+    attribution_sample_size: int | None = None
+    attribution_as_of: str | None = None
+    attribution_source_dataset: str = "adjusted_price_returns"
+    friction_status: str = "unavailable"
+    friction_reason: str = "Friction-adjusted edge unavailable."
     # v2 public authority fields.  ``final_action`` is retained solely as an
     # internal compatibility seam and is omitted by ``to_v2_dict``.
     research_state: ResearchState = ResearchState.MANUAL_REVIEW
@@ -516,7 +535,13 @@ def build_simple_instrument_scores(
     regime = build_market_regime(prices, candidate_report)
     portfolio_fit = build_portfolio_fit_lookup(prices)
     benchmark_id = config.universe.enabled_ids[0] if config.universe.enabled_ids else None
-    benchmark_attribution = build_benchmark_attribution_lookup(prices, benchmark_id=benchmark_id)
+    metadata = {
+        etf.id: {"sector": etf.sector, "theme": etf.theme}
+        for etf in config.universe.etfs
+        if etf.id in config.universe.enabled_ids
+    }
+    benchmark_attribution = build_benchmark_attribution_lookup(prices, benchmark_id=benchmark_id, metadata=metadata)
+    crowding = build_correlation_clusters(prices, metadata)
     backtest_trust = _backtest_trust_lookup(universe_revision=universe_revision)
     universe_scores = build_universe_simple_scores(
         config,
@@ -527,6 +552,7 @@ def build_simple_instrument_scores(
         regime=regime,
         portfolio_fit=portfolio_fit,
         benchmark_attribution=benchmark_attribution,
+        crowding=crowding,
         backtest_trust=backtest_trust,
     )
     candidate_scores = build_candidate_simple_scores(
@@ -734,6 +760,24 @@ def simple_scoreboard_frame(
             "net_expected_edge_bps": score.net_expected_edge_bps,
             "edge_to_cost_ratio": score.edge_to_cost_ratio,
             "cost_stress_scenario": score.cost_stress_scenario,
+            "crowding_cluster_id": score.crowding_cluster_id,
+            "crowding_cluster_label": score.crowding_cluster_label,
+            "crowding_warning": score.crowding_warning,
+            "crowding_average_peer_correlation": score.crowding_average_peer_correlation,
+            "crowding_sample_size": score.crowding_sample_size,
+            "crowding_as_of": score.crowding_as_of,
+            "crowding_source_dataset": score.crowding_source_dataset,
+            "sector_return": score.sector_return,
+            "sector_relative_return": score.sector_relative_return,
+            "sector_beta": score.sector_beta,
+            "sector_correlation": score.sector_correlation,
+            "sector_alpha_proxy": score.sector_alpha_proxy,
+            "sector_attribution_status": score.sector_attribution_status,
+            "attribution_sample_size": score.attribution_sample_size,
+            "attribution_as_of": score.attribution_as_of,
+            "attribution_source_dataset": score.attribution_source_dataset,
+            "friction_status": score.friction_status,
+            "friction_reason": score.friction_reason,
             "valid_components": score.valid_component_count,
             "total_components": score.total_component_count,
             "source_quality": "research_grade_yfinance",
@@ -777,6 +821,7 @@ def build_universe_simple_scores(
     portfolio_fit: dict[str, dict[str, object]] | None = None,
     benchmark_attribution: dict[str, dict[str, object]] | None = None,
     backtest_trust: dict[str, dict[str, object]] | None = None,
+    crowding: ClusterReport | None = None,
 ) -> list[SimpleInstrumentScore]:
     raw_forecast_scores = forecast_component_maps(forecasts)
     forecast_details = forecast_score_details(forecasts)
@@ -791,6 +836,7 @@ def build_universe_simple_scores(
     portfolio_fit = portfolio_fit or {}
     benchmark_attribution = benchmark_attribution or {}
     backtest_trust = backtest_trust or {}
+    crowding_lookup = {row.instrument_id: row for row in (crowding.rows if crowding else ())}
     output: list[SimpleInstrumentScore] = []
 
     enabled_ids = set(config.universe.enabled_ids)
@@ -854,6 +900,7 @@ def build_universe_simple_scores(
         calibration_info = _calibration_info(calibration_by_id, signal.etf_id)
         fit_info = _portfolio_fit_info(portfolio_fit, signal.etf_id)
         attribution_info = _benchmark_attribution_info(benchmark_attribution, signal.etf_id)
+        crowding_info = _crowding_info(crowding_lookup, signal.etf_id)
         trust_info = _backtest_trust_info(backtest_trust, signal.etf_id, candidate=False)
         maturity = _evidence_maturity(
             rows=quality_info.get("rows"),
@@ -927,6 +974,22 @@ def build_universe_simple_scores(
                 alpha_proxy=_safe_float(attribution_info.get("alpha_proxy")),
                 alpha_t_stat=_safe_float(attribution_info.get("alpha_t_stat")),
                 benchmark_attribution_label=str(attribution_info["label"]),
+                crowding_cluster_id=crowding_info["cluster_id"],
+                crowding_cluster_label=crowding_info["cluster_label"],
+                crowding_warning=crowding_info["crowding_warning"],
+                crowding_average_peer_correlation=crowding_info["average_peer_correlation"],
+                crowding_sample_size=crowding_info["sample_size"],
+                crowding_as_of=crowding_info["as_of"],
+                crowding_source_dataset=crowding_info["source_dataset"],
+                sector_return=_safe_float(attribution_info.get("sector_return")),
+                sector_relative_return=_safe_float(attribution_info.get("sector_relative_return")),
+                sector_beta=_safe_float(attribution_info.get("sector_beta")),
+                sector_correlation=_safe_float(attribution_info.get("sector_correlation")),
+                sector_alpha_proxy=_safe_float(attribution_info.get("sector_alpha_proxy")),
+                sector_attribution_status=str(attribution_info.get("sector_attribution_status", "N/A")),
+                attribution_sample_size=_safe_int(attribution_info.get("sample_size")),
+                attribution_as_of=_noneable_str(attribution_info.get("as_of")),
+                attribution_source_dataset=str(attribution_info.get("source_dataset") or "adjusted_price_returns"),
                 sector_theme_warning=_sector_theme_warning(identity),
                 backtest_validity=str(validity["backtest_validity"]),
                 model_contamination_risk=str(validity["model_contamination_risk"]),
@@ -1822,6 +1885,8 @@ def _friction_edge_fields(evidence_score: float | None, components: list[SimpleS
             "net_expected_edge_bps": None,
             "edge_to_cost_ratio": None,
             "cost_stress_scenario": "not_available_no_score",
+            "friction_status": "unavailable",
+            "friction_reason": "Friction-adjusted edge unavailable because the evidence score is missing.",
         }
     liquidity = next((component for component in components if component.key == "liquidity_cost"), None)
     liquidity_score = liquidity.score_10 if liquidity is not None else None
@@ -1841,6 +1906,8 @@ def _friction_edge_fields(evidence_score: float | None, components: list[SimpleS
         "net_expected_edge_bps": net_edge,
         "edge_to_cost_ratio": ratio,
         "cost_stress_scenario": "heuristic_score_to_edge_proxy_not_trade_authority",
+        "friction_status": "available",
+        "friction_reason": "Heuristic score-to-edge proxy; costs are informational and cannot authorise execution.",
     }
 
 
@@ -1894,8 +1961,40 @@ def _benchmark_attribution_info(lookup: dict[str, dict[str, object]], instrument
             "correlation_to_benchmark": None,
             "alpha_proxy": None,
             "alpha_t_stat": None,
+            "sector_return": None,
+            "sector_relative_return": None,
+            "sector_beta": None,
+            "sector_correlation": None,
+            "sector_alpha_proxy": None,
+            "sector_attribution_status": "N/A",
+            "sample_size": None,
+            "as_of": None,
+            "source_dataset": "adjusted_price_returns",
         }
     return info
+
+
+def _crowding_info(lookup: dict[str, object], instrument_id: str) -> dict[str, object]:
+    row = lookup.get(str(instrument_id))
+    if row is None:
+        return {
+            "cluster_id": None,
+            "cluster_label": "Correlation clustering unavailable",
+            "crowding_warning": "correlation_clustering_unavailable",
+            "average_peer_correlation": None,
+            "sample_size": None,
+            "as_of": None,
+            "source_dataset": "adjusted_price_returns",
+        }
+    return {
+        "cluster_id": getattr(row, "cluster_id", None),
+        "cluster_label": getattr(row, "cluster_label", "Correlation cluster"),
+        "crowding_warning": getattr(row, "crowding_warning", "no_cluster_warning"),
+        "average_peer_correlation": getattr(row, "average_peer_correlation", None),
+        "sample_size": getattr(row, "sample_size", None),
+        "as_of": getattr(row, "as_of", None),
+        "source_dataset": getattr(row, "source_dataset", "adjusted_price_returns"),
+    }
 
 
 def _cache_revision_matches(path: Path, universe_revision: str) -> bool:

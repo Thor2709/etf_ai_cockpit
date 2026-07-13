@@ -120,18 +120,32 @@ def _render_feature_driver_panel(panel_data: object) -> ft.Control:
     )
 
 
+def _render_crowding_attribution_panel(sections: dict[str, object]) -> ft.Control:
+    scores = sections.get("scores") if isinstance(sections.get("scores"), dict) else {}
+    attribution = sections.get("attribution") if isinstance(sections.get("attribution"), dict) else {}
+    crowding = scores.get("crowding") if isinstance(scores.get("crowding"), dict) else {}
+    lines = [
+        f"Crowding: {crowding.get('crowding_warning', 'N/A')} | cluster {crowding.get('cluster_label', 'N/A')} | peer corr {crowding.get('average_peer_correlation', 'N/A')} | sample {crowding.get('sample_size', 'N/A')} | as of {crowding.get('as_of_date', 'N/A')}",
+        f"Broad benchmark: beta {attribution.get('benchmark_beta', 'N/A')} | corr {attribution.get('benchmark_correlation', 'N/A')} | alpha {attribution.get('alpha_proxy', 'N/A')}",
+        f"Sector-relative: return {attribution.get('sector_relative_return', 'N/A')} | alpha {attribution.get('sector_alpha_proxy', 'N/A')} | status {attribution.get('sector_attribution_status', 'N/A')} | source {attribution.get('source_dataset', 'N/A')}",
+        "These diagnostics are descriptive evidence only; execution_allowed=false.",
+    ]
+    return panel(ft.Column([section_header("Crowding and attribution", "Configured sector/theme metadata and clean adjusted-price evidence; unavailable values remain N/A."), *[ft.Text(line, color=theme.MUTED, size=11, selectable=True) for line in lines]], spacing=5))
+
+
 def instrument_detail_page(_page: ft.Page, state: AppState) -> ft.Control:
     selected = state.selected_etf
     model = build_instrument_detail(state.snapshot, selected)
     rows = [
         ft.Row([ft.Text(name, color=theme.TEXT, width=160), ft.Text(str(value), color=theme.MUTED, selectable=True)], spacing=8)
         for name, value in model.sections.items()
-        if name != "feature_drivers"
+        if name not in {"feature_drivers", "scores", "risk", "attribution"}
     ]
     return ft.Column(
         [
             panel(ft.Column([section_header(f"Instrument Detail: {model.display_name}", "Canonical identity, score evidence, data freshness and unavailable states are shown without recalculating authority in the UI."), ft.Text(str(model.identity), color=theme.MUTED, selectable=True)], spacing=8)),
             _render_feature_driver_panel(model.sections.get("feature_drivers")),
+            _render_crowding_attribution_panel(model.sections),
             render_etf_disclosure_panel(model),
             render_news_context_panel(model),
             panel(ft.Column(rows, spacing=8)),
