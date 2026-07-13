@@ -691,21 +691,25 @@ def _price_panel(snapshot: CockpitSnapshot, instrument_id: str, *, candidate_sco
                 }
         return _unavailable("Price history unavailable for this instrument.") | {"rows": [], "history": []}
     date_column = "date" if "date" in rows.columns else "as_of_date" if "as_of_date" in rows.columns else None
-    if date_column is not None:
-        rows["_date_sort"] = pd.to_datetime(rows[date_column], errors="coerce")
-        rows = rows.sort_values("_date_sort", kind="stable").drop(columns=["_date_sort"])
+    if date_column is None:
+        return _unavailable("Price history unavailable; no validated date column is present.") | {"rows": [], "history": [], "freshness": "unavailable"}
+    rows["_date_sort"] = pd.to_datetime(rows[date_column], errors="coerce", utc=True, format="mixed")
+    rows = rows.loc[rows["_date_sort"].notna()].sort_values("_date_sort", kind="stable")
+    if rows.empty:
+        return _unavailable("Price history unavailable; no valid dated observations are registered.") | {"rows": [], "history": [], "freshness": "unavailable"}
+    rows = rows.drop(columns=["_date_sort"])
     latest = rows.iloc[-1]
     price = latest.get("adjusted_close")
     if _safe_float(price) is None:
         price = latest.get("close")
     latest_date = latest.get(date_column) if date_column else None
-    latest_text = "unavailable" if latest_date is None or pd.isna(latest_date) else str(latest_date)
+    latest_text = str(latest_date)
     freshness = "unknown"
     if latest_text != "unavailable":
         freshness = "fresh"
         try:
-            reference = pd.to_datetime(getattr(getattr(snapshot, "data_report", None), "as_of_date", None), errors="coerce")
-            observed = pd.to_datetime(latest_date, errors="coerce")
+            reference = pd.to_datetime(getattr(getattr(snapshot, "data_report", None), "as_of_date", None), errors="coerce", utc=True, format="mixed")
+            observed = pd.to_datetime(latest_date, errors="coerce", utc=True, format="mixed")
             if pd.notna(reference) and pd.notna(observed) and (reference - observed).days > 5:
                 freshness = "stale"
         except Exception:
@@ -821,9 +825,14 @@ def _risk_panel(features: object, friction: Mapping[str, Any], crowding: Mapping
     volatility = {key: values.get(key) for key in ("vol_20d_ann", "vol_60d_ann", "vol_120d_ann", "ewma_vol_ann")}
     drawdown = {key: values.get(key) for key in ("drawdown_current", "drawdown_60d_max", "drawdown_120d_max")}
     liquidity = {"liquidity_score": values.get("liquidity_score")}
+    as_of_raw = row.get("date", row.get("as_of_date"))
+    as_of_timestamp = pd.to_datetime(as_of_raw, errors="coerce", utc=True, format="mixed")
+    required_values = [*momentum.values(), *trend.values(), *relative.values(), *volatility.values(), *drawdown.values(), liquidity["liquidity_score"]]
+    if pd.isna(as_of_timestamp) or not any(value is not None for value in required_values):
+        return _unavailable("Risk and feature evidence unavailable; no valid dated risk dimensions are registered.") | {"crowding": crowding, "cost": friction}
     return {
         "status": "available",
-        "as_of": str(row.get("date", "unavailable")),
+        "as_of": str(as_of_timestamp),
         "momentum": momentum,
         "momentum_60d": momentum["momentum_60d"],
         "trend": trend,

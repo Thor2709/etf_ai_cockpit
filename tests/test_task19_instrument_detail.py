@@ -9,7 +9,7 @@ import pytest
 from etf_cockpit.app import router
 from etf_cockpit.app.router import PAGES, _page_route, navigate_to
 from etf_cockpit.app.pages.instrument_detail import _render_crowding_attribution_panel, _render_evidence_section, instrument_detail_page
-from etf_cockpit.app.selectors.instrument_detail import _attribution_panel, _backtest_panel, _derived_evidence_panel, _etf_disclosure_panel, _feature_driver_panel, _friction_panel, _fundamentals_panel, _instrument_rows, _news_item_record, _parsed_panel, _run_changes_panel, _safe_bool, _score_panel, build_instrument_detail
+from etf_cockpit.app.selectors.instrument_detail import _attribution_panel, _backtest_panel, _derived_evidence_panel, _etf_disclosure_panel, _feature_driver_panel, _friction_panel, _fundamentals_panel, _instrument_rows, _news_item_record, _parsed_panel, _price_panel, _risk_panel, _run_changes_panel, _safe_bool, _score_panel, build_instrument_detail
 from etf_cockpit.backtest.engine import BacktestReport
 from etf_cockpit.app.components.simple_scores import simple_score_grouped_sections
 from etf_cockpit.core.config import ETFConfig
@@ -839,3 +839,37 @@ def test_evidence_sections_render_source_authority_and_conflict_badges() -> None
     assert "official" in rendered
     assert "Conflict" in rendered
     assert "conflict-1" in rendered
+
+
+def test_price_panel_rejects_missing_or_malformed_latest_dates() -> None:
+    snapshot = build_snapshot()
+    for date_value in (None, "not-a-date"):
+        custom = replace(snapshot, prices=pd.DataFrame([{"instrument_id": "VWCE", "date": date_value, "adjusted_close": 100.0}]))
+        panel = _price_panel(custom, "VWCE")
+        assert panel["status"] in {"unavailable", "manual_review"}
+        assert panel["freshness"] in {"unknown", "unavailable"}
+
+
+def test_price_panel_drops_malformed_rows_before_selecting_latest() -> None:
+    snapshot = build_snapshot()
+    custom = replace(
+        snapshot,
+        prices=pd.DataFrame(
+            [
+                {"instrument_id": "VWCE", "date": "2026-07-10", "adjusted_close": 100.0},
+                {"instrument_id": "VWCE", "date": "not-a-date", "adjusted_close": 999.0},
+            ]
+        ),
+    )
+    panel = _price_panel(custom, "VWCE")
+    assert panel["status"] == "available"
+    assert panel["latest_date"] == "2026-07-10"
+    assert panel["latest_price"] == 100.0
+
+
+def test_risk_panel_rejects_empty_or_malformed_feature_rows() -> None:
+    assert _risk_panel(pd.DataFrame([{"instrument_id": "VWCE", "date": "2026-07-13"}]), {}, {})["status"] in {"unavailable", "manual_review"}
+    malformed = pd.DataFrame([{"instrument_id": "VWCE", "date": "not-a-date", "momentum_60d": "bad", "trend_200": pd.NA}])
+    panel = _risk_panel(malformed, {}, {})
+    assert panel["status"] in {"unavailable", "manual_review"}
+    assert panel["execution_allowed"] is False
