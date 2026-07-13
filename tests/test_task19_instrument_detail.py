@@ -3,11 +3,12 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pandas as pd
+import pytest
 
 from etf_cockpit.app import router
 from etf_cockpit.app.router import PAGES, _page_route, navigate_to
 from etf_cockpit.app.pages.instrument_detail import _render_evidence_section
-from etf_cockpit.app.selectors.instrument_detail import _attribution_panel, _etf_disclosure_panel, build_instrument_detail
+from etf_cockpit.app.selectors.instrument_detail import _attribution_panel, _derived_evidence_panel, _etf_disclosure_panel, _feature_driver_panel, _friction_panel, _instrument_rows, _parsed_panel, _run_changes_panel, build_instrument_detail
 from etf_cockpit.backtest.engine import BacktestReport
 from etf_cockpit.app.components.simple_scores import simple_score_grouped_sections
 from etf_cockpit.core.config import ETFConfig
@@ -302,6 +303,99 @@ def test_etf_disclosures_nullable_holdings_metadata_fail_closed() -> None:
     assert panel["holdings"]["manual_review"] is True
     assert panel["holdings"]["as_of"] == "unavailable"
     assert panel["holdings"]["rows"] == []
+
+
+def test_instrument_rows_reject_foreign_and_contradictory_supported_ids_with_nullable_values() -> None:
+    frame = pd.DataFrame(
+        {
+            "row_id": ["single-instrument", "single-etf", "both-target", "contradictory", "foreign-only", "idless"],
+            "instrument_id": ["VWCE", pd.NA, "VWCE", "VWCE", "OTHER", pd.NA],
+            "etf_id": [pd.NA, "VWCE", "VWCE", "OTHER", pd.NA, pd.NA],
+            "display_id": [pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA],
+        }
+    )
+
+    rows = _instrument_rows(frame, "VWCE", columns=("instrument_id", "etf_id", "display_id"))
+
+    assert rows["row_id"].tolist() == ["single-instrument", "single-etf", "both-target"]
+
+
+@pytest.mark.parametrize(
+    ("kind", "fields"),
+    [
+        ("kid", ("product", "isin")),
+        ("methodology", ("provider", "version")),
+    ],
+)
+def test_parsed_panel_nullable_flags_fail_closed_for_kid_and_methodology(kind: str, fields: tuple[str, ...]) -> None:
+    frame = pd.DataFrame(
+        {
+            "instrument_id": ["VWCE"],
+            "success": [pd.NA],
+            "manual_review": [pd.NA],
+            "score_eligible": [pd.NA],
+            "imported_at": ["2026-07-10"],
+        }
+    )
+
+    panel = _parsed_panel(frame, "VWCE", kind, fields)
+
+    assert panel["status"] == "manual_review"
+    assert panel["manual_review"] is True
+    assert panel["score_eligible"] is False
+
+
+def test_parsed_panel_rejects_contradictory_supported_ids() -> None:
+    frame = pd.DataFrame(
+        {
+            "instrument_id": ["VWCE"],
+            "etf_id": ["OTHER"],
+            "success": [True],
+            "manual_review": [False],
+            "score_eligible": [True],
+            "imported_at": ["2026-07-10"],
+        }
+    )
+
+    panel = _parsed_panel(frame, "VWCE", "kid", ("product",))
+
+    assert panel["status"] == "unavailable"
+    assert panel["manual_review"] is True
+    assert panel["score_eligible"] is False
+
+
+def test_derived_panels_reject_contradictory_supported_ids(monkeypatch, tmp_path) -> None:
+    import etf_cockpit.app.selectors.instrument_detail as selector
+
+    feature_path = tmp_path / "feature_drivers.parquet"
+    scoreboard_path = tmp_path / "scoreboard.parquet"
+    correlation_path = tmp_path / "correlation_clusters.parquet"
+    attribution_path = tmp_path / "benchmark_attribution.parquet"
+    pd.DataFrame(
+        [{"instrument_id": "VWCE", "etf_id": "OTHER", "component": "foreign", "normalised_score": 9.0}]
+    ).to_parquet(feature_path)
+    pd.DataFrame(
+        [{"display_id": "VWCE", "instrument_id": "VWCE", "etf_id": "OTHER", "gross_expected_edge_bps": 12.0}]
+    ).to_parquet(scoreboard_path)
+    pd.DataFrame([{"instrument_id": "VWCE", "etf_id": "OTHER", "status": "available"}]).to_parquet(correlation_path)
+    pd.DataFrame([{"instrument_id": "VWCE", "etf_id": "OTHER", "status": "available"}]).to_parquet(attribution_path)
+    monkeypatch.setattr(selector, "FEATURE_DRIVERS_PATH", feature_path)
+    monkeypatch.setattr(selector, "SCOREBOARD_PATH", scoreboard_path)
+    monkeypatch.setattr(selector, "CORRELATION_CLUSTERS_PATH", correlation_path)
+    monkeypatch.setattr(selector, "BENCHMARK_ATTRIBUTION_PATH", attribution_path)
+
+    assert _feature_driver_panel("VWCE")["status"] == "unavailable"
+    assert _friction_panel("VWCE")["status"] == "unavailable"
+    derived = _derived_evidence_panel("VWCE")
+    assert derived["crowding"]["status"] == "unavailable"
+    assert derived["attribution"]["status"] == "unavailable"
+    history = pd.DataFrame(
+        [
+            {"instrument_id": "VWCE", "etf_id": "OTHER", "run_id": "previous", "final_action": "no_trade"},
+            {"instrument_id": "VWCE", "etf_id": "OTHER", "run_id": "current", "final_action": "buy"},
+        ]
+    )
+    assert _run_changes_panel("VWCE", history)["status"] == "unavailable"
 
 
 def test_attribution_alpha_fallback_never_uses_sector_alpha() -> None:

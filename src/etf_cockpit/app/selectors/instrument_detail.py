@@ -150,16 +150,34 @@ def _load_parquet(path: object) -> pd.DataFrame:
 
 
 def _instrument_rows(frame: object, instrument_id: str, *, columns: tuple[str, ...] = ("instrument_id", "etf_id")) -> pd.DataFrame:
+    """Return rows whose populated supported IDs all resolve to ``instrument_id``.
+
+    A row is eligible when at least one supported identifier matches and no
+    populated supported identifier disagrees.  Rows containing only another
+    instrument's identifiers, or no usable identifier, are ignored.
+    """
+
     source = _safe_frame(frame)
     if source.empty:
         return source
+    if bool(source.columns.duplicated().any()):
+        return source.iloc[0:0].copy()
     available = [column for column in columns if column in source.columns]
     if not available:
-        return source.iloc[0:0]
-    mask = pd.Series(False, index=source.index)
-    for column in available:
-        mask |= source[column].astype(str).eq(str(instrument_id))
-    return source.loc[mask].copy()
+        return source.iloc[0:0].copy()
+    target = _normalise_identifier(instrument_id)
+    if target is None:
+        return source.iloc[0:0].copy()
+    identifiers = pd.DataFrame(
+        {column: source[column].map(_normalise_identifier) for column in available},
+        index=source.index,
+    )
+    matches = identifiers.eq(target).any(axis=1)
+    contradictory = identifiers.apply(
+        lambda row: any(value is not None and value != target for value in row),
+        axis=1,
+    )
+    return source.loc[matches & ~contradictory].copy()
 
 
 def _feature_driver_panel(instrument_id: str) -> dict[str, Any]:
@@ -170,7 +188,7 @@ def _feature_driver_panel(instrument_id: str) -> dict[str, Any]:
     frame = _normalise_feature_driver_frame(frame)
     if frame.empty or "instrument_id" not in frame.columns:
         return {"status": "unavailable", "rows": [], "message": "Feature drivers unavailable; no local component history is registered.", "execution_allowed": False}
-    scoped = frame[frame["instrument_id"].astype(str).eq(str(instrument_id))].copy()
+    scoped = _instrument_rows(frame, instrument_id)
     if scoped.empty:
         return {"status": "unavailable", "rows": [], "message": "Feature drivers unavailable for this instrument.", "execution_allowed": False}
     scoped["_score_sort"] = pd.to_numeric(scoped.get("normalised_score"), errors="coerce")
@@ -241,7 +259,7 @@ def _fundamentals_panel(instrument_id: str, frame: pd.DataFrame | None = None) -
     if source.empty or "instrument_id" not in source.columns:
         return _unavailable("Fundamental evidence unavailable; no complete local five-section record is registered.") | {"score_eligible": False}
     try:
-        scoped = latest_fundamental_rows(source[source["instrument_id"].astype(str).eq(str(instrument_id))])
+        scoped = latest_fundamental_rows(_instrument_rows(source, instrument_id))
     except Exception:
         return _unavailable("Fundamental evidence unavailable; the optional local store is malformed.") | {"score_eligible": False}
     if scoped.empty:
@@ -276,7 +294,7 @@ def _news_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[s
     if source.empty or "instrument_id" not in source.columns:
         return _unavailable("News unavailable; no timestamp-validated local items are registered.") | {"items": [], "context_only": True, "executable_authority": False}
     try:
-        scoped = sort_news_items(source[source["instrument_id"].astype(str).eq(str(instrument_id))])
+        scoped = sort_news_items(_instrument_rows(source, instrument_id))
     except Exception:
         return _unavailable("News unavailable; the optional local store is malformed.") | {"items": [], "context_only": True, "executable_authority": False}
     if scoped.empty:
@@ -452,10 +470,10 @@ def _parsed_methodology_panel(frame: pd.DataFrame, instrument_id: str) -> dict[s
 
 def _parsed_panel(frame: pd.DataFrame, instrument_id: str, kind: str, fields: tuple[str, ...]) -> dict[str, Any]:
     if frame.empty or "instrument_id" not in frame.columns:
-        return {"status": "unavailable", "manual_review": True, "message": f"Parsed {kind} evidence unavailable; manual review required."}
-    scoped = frame[frame["instrument_id"].astype(str).eq(str(instrument_id))]
+        return {"status": "unavailable", "manual_review": True, "score_eligible": False, "message": f"Parsed {kind} evidence unavailable; manual review required."}
+    scoped = _instrument_rows(frame, instrument_id)
     if scoped.empty:
-        return {"status": "unavailable", "manual_review": True, "message": f"Parsed {kind} evidence unavailable; manual review required."}
+        return {"status": "unavailable", "manual_review": True, "score_eligible": False, "message": f"Parsed {kind} evidence unavailable; manual review required."}
     row = scoped.sort_values("imported_at", kind="stable").iloc[-1] if "imported_at" in scoped.columns else scoped.iloc[-1]
     payload: dict[str, Any] = {field: row.get(field) for field in fields}
     payload.update({field: row.get(field) for field in ("source_pages", "warnings") if field in row.index})
@@ -467,16 +485,22 @@ def _parsed_panel(frame: pd.DataFrame, instrument_id: str, kind: str, fields: tu
                 payload[field] = json.loads(value)
             except (TypeError, ValueError):
                 payload[field] = [value] if field != "cost_fields" else {"raw": value}
+    success = _safe_bool(row.get("success"), default=False)
+    manual_review = _safe_bool(row.get("manual_review"), default=True)
+    score_eligible = _safe_bool(row.get("score_eligible"), default=False)
+    freshness_status = _value_or(row.get("freshness_status", "ok"), "unknown")
+    freshness_text = str(freshness_status)
+    available = success and not manual_review and freshness_text not in {"stale_block", "missing_or_pending", "unknown"}
     payload.update(
         {
-            "status": "available" if bool(row.get("success")) and not bool(row.get("manual_review")) and str(row.get("freshness_status", "ok")) not in {"stale_block", "missing_or_pending", "unknown"} else "manual_review",
+            "status": "available" if available else "manual_review",
             "source_id": row.get("source_id", "unavailable"),
             "source_sha256": row.get("source_sha256", "unavailable"),
             "parser_version": row.get("parser_version", "unavailable"),
-            "manual_review": bool(row.get("manual_review", True)),
-            "score_eligible": bool(row.get("score_eligible", False)),
+            "manual_review": manual_review or not available,
+            "score_eligible": score_eligible if available else False,
             "source_authority": row.get("source_authority", "issuer_document"),
-            "freshness_status": row.get("freshness_status", "unknown"),
+            "freshness_status": freshness_status,
         }
     )
     return payload
@@ -498,10 +522,7 @@ def _friction_panel(instrument_id: str) -> dict[str, Any]:
         frame = pd.read_parquet(SCOREBOARD_PATH)
     except Exception:
         return empty
-    id_column = next((column for column in ("display_id", "instrument_id", "etf_id") if column in frame.columns), None)
-    if id_column is None:
-        return empty
-    rows = frame[frame[id_column].astype(str).eq(str(instrument_id))]
+    rows = _instrument_rows(frame, instrument_id, columns=("display_id", "instrument_id", "etf_id"))
     if rows.empty:
         return empty
     row = rows.iloc[-1]
@@ -696,6 +717,7 @@ def _history_panel(instrument_id: str, history: pd.DataFrame | None = None) -> d
 def _run_changes_panel(instrument_id: str, history: pd.DataFrame | None = None) -> dict[str, Any]:
     try:
         source = history if isinstance(history, pd.DataFrame) else score_history_frame()
+        source = _instrument_rows(source, instrument_id)
         if not isinstance(source, pd.DataFrame) or source.empty or "run_id" not in source.columns:
             raise ValueError("no score history")
         runs = list(dict.fromkeys(source["run_id"].astype(str).tolist()))
@@ -794,19 +816,17 @@ def _derived_evidence_panel(instrument_id: str) -> dict[str, dict[str, Any]]:
     try:
         if CORRELATION_CLUSTERS_PATH.exists():
             frame = pd.read_parquet(CORRELATION_CLUSTERS_PATH)
-            if "instrument_id" in frame.columns:
-                rows = frame[frame["instrument_id"].astype(str).eq(str(instrument_id))]
-                if not rows.empty:
-                    crowding = {**rows.iloc[-1].to_dict(), "status": str(rows.iloc[-1].get("status", "available")), "execution_allowed": False}
+            rows = _instrument_rows(frame, instrument_id)
+            if not rows.empty:
+                crowding = {**rows.iloc[-1].to_dict(), "status": str(rows.iloc[-1].get("status", "available")), "execution_allowed": False}
     except Exception:
         pass
     try:
         if BENCHMARK_ATTRIBUTION_PATH.exists():
             frame = pd.read_parquet(BENCHMARK_ATTRIBUTION_PATH)
-            if "instrument_id" in frame.columns:
-                rows = frame[frame["instrument_id"].astype(str).eq(str(instrument_id))]
-                if not rows.empty:
-                    attribution = {**rows.iloc[-1].to_dict(), "status": str(rows.iloc[-1].get("status", "available")), "execution_allowed": False}
+            rows = _instrument_rows(frame, instrument_id)
+            if not rows.empty:
+                attribution = {**rows.iloc[-1].to_dict(), "status": str(rows.iloc[-1].get("status", "available")), "execution_allowed": False}
     except Exception:
         pass
     return {"crowding": crowding, "attribution": attribution}
