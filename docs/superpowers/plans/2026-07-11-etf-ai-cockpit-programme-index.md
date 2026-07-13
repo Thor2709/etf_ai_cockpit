@@ -1,6 +1,6 @@
 # ETF AI Cockpit Programme Index
 
-> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6, Wave 3 Tasks 7-9 and Wave 4 Tasks 10-14 are independently approved, merged and post-merge verified. Task 10 is closed locally and synchronised to GitHub Issue #81; Tasks 11-14 are implementation-complete with their owning issues still closure-pending strict release/package/audit/export/browser/clean-first-run evidence. The next dependency-valid implementation is Task 15, PRIIPs KID and Index Methodology Parsers.
+> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6, Wave 3 Tasks 7-9 and Wave 4 Tasks 10-15 are independently approved, merged and post-merge verified. Task 10 is closed locally and synchronised to GitHub Issue #81; Tasks 11-15 are implementation-complete with their owning issues still closure-pending strict release/package/audit/export/browser/clean-first-run evidence. The next dependency-valid implementation is Task 16, Fundamentals, News, Point-in-Time Validation and Free Providers.
 
 **Binding inputs:**
 
@@ -279,3 +279,16 @@ threshold remains documented. `UPDATEV2-0015` and `UPDATEV2-0016` remain open
 until strict release, audit/export, clean-first-run and browser/computer-use
 evidence is fresh. Continue with Task 15, PRIIPs KID and Index Methodology
 Parsers.
+
+Wave 4 Task 15, PRIIPs KID and Index Methodology Parsers, is implemented and
+independently approved through PR 185 at merge commit
+`9139e515bda9e149dde52e9074990cbc5c781e84` (implementation head `fb98b16c`).
+Bounded official PDF parsing, manual-review states, holdings/methodology
+conflict handling, source-aware KID cost/risk evidence, atomic parsed-document
+publication, Trust Evidence/Instrument Detail panels and audit export are
+present. Focused parser/persistence/UI/audit/score tests, official fixture
+checksums, Ruff, compileall and diff checks pass. `UPDATEV2-0017` and
+`UPDATEV2-0019` remain open as implementation-complete/closure-pending because
+strict release/package, clean-first-run, audit-export and browser/computer-use
+evidence is not yet fresh. Continue with Task 16, Fundamentals, News,
+Point-in-Time Validation and Free Providers.

@@ -7,9 +7,9 @@
 | Field | Value |
 |---|---|
 | Updated | 2026-07-13 |
-| Active phase | Wave 4 Task 14 implementation complete and merged; `UPDATEV2-0015`/`UPDATEV2-0016` closure-pending strict release/audit/browser/clean-first-run evidence; Task 15 next |
+| Active phase | Wave 4 Task 15 implementation complete and merged; `UPDATEV2-0017`/`UPDATEV2-0019` plus earlier Wave 4 issues closure-pending strict release/audit/browser/clean-first-run evidence; Task 16 next |
 | Active plan | `docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md` |
-| Git state | PR 184 merged Task 14 into `main` at `49abaf4907f81ab2798a394d11cf2ddaf5d3b031`; implementation head `a7cb185`; local `main` matches `origin/main` and is clean |
+| Git state | PR 185 merged Task 15 into `main` at `9139e515bda9e149dde52e9074990cbc5c781e84`; implementation head `fb98b16c`; local `main` matches `origin/main` and is clean |
 | Existing closure state | Task 11 issues `ISSUE-0068`, `ISSUE-0018`, `ISSUE-0017` and `ISSUE-0056` are implementation-complete but closure-pending final release/browser/clean-first-run evidence; `ISSUE-0035` is closed locally and on GitHub Issue #81 |
 | Fresh baseline | Task 10 focused 16 and affected 40 passed; compileall/Ruff/source smoke passed; portable build, native/portable smoke, semantic focus, export and authoritative full suite passed; package-inventory rerun passed after removing the merged worktree |
 | Pre-existing type state | recorded mypy failure caused by external stubs and existing typing debt; no new failure attributed |
@@ -23,7 +23,7 @@
 | 1 | governance | Tasks 1-6 independently approved and merged; Task 7 integrated | Task 6 WorkflowController/session trace paths plus Task 7 source-linked UI inventory, controlled recovery and timing/cache evidence | continue with Wave 3 Task 8 Canonical Data Contracts and Provider Registry |
 | 2 | registry and universe | Not started | `UniverseRecord`/optimistic revision/atomic save present | registry dry-run and validator RED suite |
 | 3 | DATA-05 | Not started | no live seed verification has been performed in this programme | retrieve current official identity evidence and write failing seed-contract tests |
-| 4 | storage and evidence | Task 10 closed and synchronised; Tasks 11-14 implementation-complete and merged; eight issues closure-pending | Task 14 focused fund-document/holdings/Risk/Instrument Detail/trust/button bundle passed, Flet/E2E 14 passed, scoped Ruff/compileall/diff passed, fresh independent review SPEC/CODE PASS, PR 184 merged at `49abaf4`; strict package/audit/browser/clean-first-run evidence remains open | begin Task 15: PRIIPs KID and Index Methodology Parsers |
+| 4 | storage and evidence | Task 10 closed and synchronised; Tasks 11-15 implementation-complete and merged; ten issues closure-pending | Task 15 focused parser/persistence/registry/UI/audit/score tests and official fixtures passed; fresh independent review SPEC/CODE PASS, PR 185 merged at `9139e51`; strict package/audit/browser/clean-first-run evidence remains open | begin Task 16: Fundamentals, News, Point-in-Time Validation and Free Providers |
 | 5 | domain and scoring | Not started | source-aware deterministic scorer present; first-enabled benchmark and legacy ensemble remain | template/benchmark/champion RED suite |
 | 6 | AI and validation | Not started | optional adapter foundations present; authority/caching/validation seams remain | strict forecast-state and fold/trial RED suite |
 | 7 | portfolio | Not started | static holdings/allocation foundation present | immutable ledger RED suite |
@@ -287,3 +287,22 @@ remain open as implementation-complete/closure-pending strict release,
 audit/export, clean-first-run and browser/computer-use evidence. The next
 dependency-valid task is Wave 4 Task 15, PRIIPs KID and Index Methodology
 Parsers.
+
+### Wave 4 Task 15 integration checkpoint - 2026-07-13
+
+`UPDATEV2-0017` and `UPDATEV2-0019` are now **implementation complete, closure
+pending**. Task 15 was independently reviewed through three bounded fix/review
+cycles: official KID costs are bounded and fail closed, methodology-versus-
+holdings comparison is deterministic, KID cost/risk evidence is source-aware
+with correct inverse semantics and deterministic ongoing-cost selection, and
+parsed disclosure plus FundDocument publication is atomic and fail closed on
+corrupt stores. Focused parser/persistence/registry/UI/audit/score tests,
+official fixture/checksum tests, Ruff, compileall and diff checks passed. The
+final fresh reviewer approved specification compliance and code quality with
+no Critical, Important or Minor findings. PR 185 merged to `main` at
+`9139e515bda9e149dde52e9074990cbc5c781e84`; implementation head is
+`fb98b16c`. A known pre-existing audit portfolio fixture mismatch and source
+smoke Sparebanken fixture mismatch remain recorded; strict release/package,
+clean-first-run, audit-export and browser/computer-use evidence is still
+required before closure. The next dependency-valid implementation is Wave 4
+Task 16, Fundamentals, News, Point-in-Time Validation and Free Providers.

@@ -1003,6 +1003,12 @@ issues:
   title: PRIIPs KID parser (original update ISSUE-0017)
   wave: 6
   status: still_open
+  implementation_checkpoint: merged_pr_185_9139e51; closure_pending_strict_release_audit_export_clean_first_run_browser
+  implementation_evidence:
+  - .ai_worklog/task-15-report.md
+  - .ai_worklog/task-15-fix1-report.md
+  - .ai_worklog/task-15-fix2-report.md
+  - .ai_worklog/task-15-fix3-report.md
   criteria:
   - criterion_id: UPDATEV2-0017-R01
     text: 'Acceptance criteria: KID fields appear in ETF Disclosures.'
@@ -1104,6 +1110,12 @@ issues:
   title: Index methodology importer (original update ISSUE-0019)
   wave: 6
   status: still_open
+  implementation_checkpoint: merged_pr_185_9139e51; closure_pending_strict_release_audit_export_clean_first_run_browser
+  implementation_evidence:
+  - .ai_worklog/task-15-report.md
+  - .ai_worklog/task-15-fix1-report.md
+  - .ai_worklog/task-15-fix2-report.md
+  - .ai_worklog/task-15-fix3-report.md
   criteria:
   - criterion_id: UPDATEV2-0019-R01
     text: 'Acceptance criteria: ETF row links to methodology.'

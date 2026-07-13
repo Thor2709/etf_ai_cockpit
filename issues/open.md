@@ -449,7 +449,7 @@ schema_version
 
 ## UPDATEV2-0017 - PRIIPs KID parser (original update ISSUE-0017)
 
-**Status:** Open  
+**Status:** Open - implementation complete; closure pending strict release, audit/export, clean-first-run and browser/computer-use evidence
 **Type:** ETF Evidence / Retail Product Disclosure  
 **Priority:** P1  
 **Evidence grade:** High  
@@ -483,7 +483,7 @@ schema_version
 
 ## UPDATEV2-0019 - Index methodology importer (original update ISSUE-0019)
 
-**Status:** Open  
+**Status:** Open - implementation complete; closure pending strict release, audit/export, clean-first-run and browser/computer-use evidence
 **Type:** ETF Evidence / Benchmark Methodology  
 **Priority:** P1  
 **Evidence grade:** High  
@@ -1846,3 +1846,17 @@ full-release/package/browser/clean-first-run evidence and final closure-matrix
 evaluation. No false closure is claimed. `execution_allowed=false` remains
 unchanged. The next dependency-valid implementation is the first incomplete
 canonical registry task in the approved registry/universe plan.
+
+### Wave 4 Task 15 checkpoint - 2026-07-13
+
+`UPDATEV2-0017` and `UPDATEV2-0019` are **implementation complete, closure
+pending**. PR 185 merged the approved Task 15 implementation into `main` at
+`9139e515bda9e149dde52e9074990cbc5c781e84`. Official KID and FTSE methodology
+fixtures, bounded/manual-review parsing, methodology/holdings conflict states,
+source-aware KID cost/risk evidence, atomic parsed-document publication,
+focused tests, audit registration, Ruff, compileall and diff checks are
+recorded in `.ai_worklog/task-15-report.md` and the three fix reports. The
+fresh independent review approved specification compliance and code quality
+with no Critical, Important or Minor findings. Strict release/package,
+clean-first-run, audit-export and browser/computer-use evidence remains
+outstanding; neither issue is moved to `issues/closed.md`.

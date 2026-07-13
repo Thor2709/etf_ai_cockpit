@@ -933,25 +933,27 @@ clean-first-run and browser/computer-use evidence; Step 5 is not yet passed.
 - `parse_index_methodology(path: Path, provider: str) -> ParseResult[IndexMethodologyRecord]`.
 - Methodology fields: provider, index/series, version/date, eligibility, weighting, review/rebalance frequency, caps, source pages and confidence.
 
-- [ ] **Step 1: Write official PDF golden tests**
+- [x] **Step 1: Write official PDF golden tests**
 
 Use the checksummed Vanguard KID and FTSE GEIS rules. Assert exact known document identity/date plus bounded recognised fields. Test image-only/empty PDF, wrong ISIN, missing SRI, malformed cost table and unsupported language warning.
 
-- [ ] **Step 2: Implement deterministic PDF extraction**
+- [x] **Step 2: Implement deterministic PDF extraction**
 
 Use `pdfplumber` page text with normalised whitespace and page references. Extract with labelled regex/table rules; never infer missing numbers. Return warnings and confidence per field.
 
-- [ ] **Step 3: Integrate registry, scoring and conflicts**
+- [x] **Step 3: Integrate registry, scoring and conflicts**
 
 KID costs/risk may support cost/risk evidence with issuer authority but cannot substitute for holdings/prospectus. Missing KID/methodology caps relevant ETF evidence quality and creates manual-review warning. Holdings/methodology conflicts remain visible.
 
-- [ ] **Step 4: Add ETF Disclosure panels and import buttons**
+- [x] **Step 4: Add ETF Disclosure panels and import buttons**
 
 Display fields, source pages, confidence, warnings, document checksum/version and explicit missing states. File picker imports must show progress and controlled parse errors.
 
 - [ ] **Step 5: Strict closure verification**
 
 Run official/malformed fixture tests, UI imports, audit ZIP extraction and packaged browser/computer-use import. Both issues remain open until screenshots show parsed records and audit checksums.
+
+Task 15 implementation is merged through PR 185 at `9139e515bda9e149dde52e9074990cbc5c781e84` (implementation head `fb98b16c`). Fresh independent review approved specification compliance and code quality with no Critical, Important or Minor findings. Focused parser, persistence, registry, UI, audit and score evidence tests pass; official fixture/checksum tests, Ruff, compileall and diff checks pass. The strict release/package, clean-first-run, audit-export and browser/computer-use closure gates remain pending. The next dependency-valid implementation is Task 16, Fundamentals, News, Point-in-Time Validation and Free Providers.
 
 ---
 

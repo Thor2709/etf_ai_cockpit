@@ -57,3 +57,28 @@
   not alter approved scoring weights or authority boundaries. Methodology-versus-
   holdings disagreement is retained as parser/manual-review evidence and remains
   non-executable.
+
+## Independent review and integration checkpoint - 2026-07-13
+
+The first independent review rejected the implementation for broad KID cost
+matching, absent holdings comparison, missing score-evidence consumption and
+non-atomic registry ordering. Three bounded fix/review cycles resolved those
+findings. The final fresh reviewer (`task15_reviewer_fix3`) assessed both
+specification compliance and code quality as READY with no Critical, Important
+or Minor findings. Fix commits were `8556ab0`, `eb0625f` and `fb98b16c`.
+
+The final branch `wave4/task15-parsers` was pushed and merged through PR 185:
+`https://github.com/Thor2709/etf_ai_cockpit/pull/185`. Post-merge `main` is at
+`9139e515bda9e149dde52e9074990cbc5c781e84`, clean and matching `origin/main`.
+The final focused parser/persistence/registry/UI/audit bundle passed 45 tests;
+the changed Task 15 score tests passed 7, and official fixture/checksum tests
+passed 21. Scoped Ruff, compileall and diff checks passed. The full score and
+audit smoke attempts reproduce existing generated-candidate/secondary-universe
+and Sparebanken fixture mismatches; they are not caused by the Task 15 diff and
+remain closure blockers for the strict release gate. Source smoke also reports
+the pre-existing `AURG needs_verification ISIN` mismatch.
+
+Task 15 issues `UPDATEV2-0017` and `UPDATEV2-0019` remain in `issues/open.md` as
+implementation-complete/closure-pending. The closure matrix records the merged
+implementation and evidence paths, while strict package, clean-first-run,
+audit-export and browser/computer-use evidence remains outstanding.
