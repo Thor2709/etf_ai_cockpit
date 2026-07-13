@@ -86,3 +86,49 @@ def test_risk_friction_panel_formats_non_finite_edge_values_as_unavailable(tmp_p
     assert "unavailable" in rendered.lower()
     assert "nan" not in rendered.lower()
     assert "inf" not in rendered.lower()
+
+
+def test_scores_friction_helpers_hide_non_finite_values() -> None:
+    from etf_cockpit.app import theme
+    from etf_cockpit.app.components import simple_scores
+
+    for value in (float("nan"), float("inf"), float("-inf")):
+        assert simple_scores._number_badge(value) == "N/A"
+        assert simple_scores._bps_badge(value) == "N/A"
+        assert simple_scores._edge_colour(value) == theme.MUTED
+        assert simple_scores._ratio_colour(value) == theme.MUTED
+
+    assert simple_scores._number_badge(1.234) == "1.23"
+    assert simple_scores._bps_badge(42.0) == "+42.0 bps"
+
+
+def test_instrument_detail_friction_non_finite_values_are_unavailable(tmp_path, monkeypatch) -> None:
+    from etf_cockpit.app.pages import instrument_detail as page_module
+    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.services import build_snapshot
+
+    snapshot = build_snapshot()
+    instrument_id = snapshot.config.universe.enabled_ids[0]
+    scoreboard_path = tmp_path / "scoreboard.parquet"
+    pd.DataFrame([{
+        "display_id": instrument_id,
+        "gross_expected_edge_bps": float("nan"),
+        "estimated_total_cost_bps": float("inf"),
+        "net_expected_edge_bps": float("-inf"),
+        "edge_to_cost_ratio": float("nan"),
+        "cost_stress_scenario": float("inf"),
+    }]).to_parquet(scoreboard_path, index=False)
+    monkeypatch.setattr(selector, "SCOREBOARD_PATH", scoreboard_path)
+
+    model = selector.build_instrument_detail(snapshot, instrument_id)
+    friction = model.sections["scores"]["friction"]
+    assert friction["status"] == "unavailable"
+    assert all(friction[field] is None for field in ("gross_expected_edge_bps", "estimated_total_cost_bps", "net_expected_edge_bps", "edge_to_cost_ratio"))
+    assert friction["cost_stress_scenario"] == "unavailable"
+
+    control = page_module._render_crowding_attribution_panel(model.sections)
+    rendered = "\n".join(_text_values(control))
+    friction_line = next(line for line in rendered.splitlines() if line.startswith("Gross edge:"))
+    assert "nan" not in friction_line.lower()
+    assert "inf" not in friction_line.lower()
+    assert "N/A" in friction_line

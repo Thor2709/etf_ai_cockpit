@@ -21,6 +21,8 @@ def test_scoreboard_exports_crowding_sector_and_friction_authority_fields() -> N
         crowding_average_peer_correlation=0.91,
         crowding_sample_size=119,
         crowding_as_of="2026-07-10",
+        crowding_top_ranked_theme_concentration=1.0,
+        crowding_top_ranked_theme_warning="theme_concentration_warning",
         sector_relative_return=0.012,
         sector_alpha_proxy=0.004,
         sector_attribution_status="available",
@@ -30,6 +32,8 @@ def test_scoreboard_exports_crowding_sector_and_friction_authority_fields() -> N
     frame = simple_scoreboard_frame([score])
 
     assert frame.loc[0, "crowding_cluster_id"] == "cluster_A_B"
+    assert frame.loc[0, "crowding_top_ranked_theme_concentration"] == 1.0
+    assert frame.loc[0, "crowding_top_ranked_theme_warning"] == "theme_concentration_warning"
     assert frame.loc[0, "sector_relative_return"] == 0.012
     assert frame.loc[0, "friction_status"] == "available"
     assert bool(frame.loc[0, "execution_allowed"]) is False

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Any, Mapping
 
 import pandas as pd
@@ -291,10 +292,26 @@ def _friction_panel(instrument_id: str) -> dict[str, Any]:
     if rows.empty:
         return empty
     row = rows.iloc[-1]
-    result = {field: row.get(field) if field in row.index and pd.notna(row.get(field)) else None for field in fields}
+    def _finite(value: object) -> float | None:
+        try:
+            number = float(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+        return number if math.isfinite(number) else None
+
+    result = {field: _finite(row.get(field)) if field in row.index else None for field in fields}
+    scenario = row.get("cost_stress_scenario")
+    try:
+        scenario_is_non_finite = isinstance(scenario, (int, float)) and not math.isfinite(float(scenario))
+    except (TypeError, ValueError):
+        scenario_is_non_finite = False
+    if scenario_is_non_finite or pd.isna(scenario):
+        scenario_text = "unavailable"
+    else:
+        scenario_text = str(scenario).strip() or "unavailable"
     result.update(
         {
-            "cost_stress_scenario": str(row.get("cost_stress_scenario") or "unavailable"),
+            "cost_stress_scenario": scenario_text,
             "status": "available" if any(result[field] is not None for field in fields) else "unavailable",
             "execution_allowed": False,
         }

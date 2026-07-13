@@ -19,6 +19,30 @@ from etf_cockpit.services import build_snapshot
 from etf_cockpit.signals.simple_scores import SimpleScoreComponent, build_simple_instrument_scores, simple_scoreboard_frame
 
 
+def test_correlation_cluster_writer_preserves_nominal_window_and_observed_sample(tmp_path, monkeypatch) -> None:
+    from etf_cockpit.data import trust_artifacts as trust
+    import numpy as np
+
+    monkeypatch.setattr(trust, "CORRELATION_CLUSTERS_PATH", tmp_path / "correlation_clusters.parquet")
+    index = pd.date_range("2026-01-01", periods=120, freq="D")
+    prices = pd.DataFrame({"A": 100.0 * np.exp(np.linspace(0.0, 0.2, len(index))), "B": 100.0 * np.exp(np.linspace(0.0, -0.1, len(index)))}, index=index)
+
+    trust.write_correlation_clusters(
+        prices,
+        {"A": {"theme": "AI"}, "B": {"theme": "Bonds"}},
+        window=120,
+        ranked_instruments=["A", "B"],
+        weights={"A": 1.0, "B": 1.0},
+    )
+    persisted = pd.read_parquet(trust.CORRELATION_CLUSTERS_PATH)
+
+    assert not persisted.empty
+    assert set(persisted["calculation_window_days"]) == {120}
+    assert set(persisted["sample_size"]) == {119}
+    assert set(persisted["top_ranked_theme_concentration"]) == {0.5}
+    assert set(persisted["top_ranked_theme_warning"]) == {"theme_concentration_warning"}
+
+
 def test_session_log_clears_records_start_and_redacts_secrets(tmp_path, monkeypatch) -> None:
     log_path = tmp_path / "session.jsonl"
     monkeypatch.setattr(session_log, "SESSION_LOG_PATH", log_path)

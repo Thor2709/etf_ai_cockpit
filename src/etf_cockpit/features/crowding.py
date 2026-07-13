@@ -29,6 +29,8 @@ class ClusterRow:
     cluster_risk_contribution: float | None = None
     ranking_coverage: float | None = None
     top_ranked_concentration: float | None = None
+    top_ranked_theme_concentration: float | None = None
+    top_ranked_theme_warning: str = "no_theme_concentration_warning"
 
 
 @dataclass(frozen=True)
@@ -44,6 +46,8 @@ class ClusterReport:
     ranked_instrument_count: int = 0
     ranking_coverage: float | None = None
     top_ranked_concentration: float | None = None
+    top_ranked_theme_concentration: float | None = None
+    top_ranked_theme_warning: str = "no_theme_concentration_warning"
 
 
 def build_correlation_clusters(
@@ -95,6 +99,7 @@ def build_correlation_clusters(
             max((sum(normalised_weights.get(member, 0.0) for member in group) for group in groups.values()), default=0.0),
             6,
         )
+    top_ranked_theme_concentration, top_ranked_theme_warning = _ranked_theme_concentration(labels, normalised_weights)
     risk_by_cluster = _cluster_risk_contributions(returns, groups, normalised_weights, min_pair_samples)
     rows: list[ClusterRow] = []
     for members in sorted(groups.values(), key=lambda values: values[0]):
@@ -153,6 +158,8 @@ def build_correlation_clusters(
                     cluster_risk_contribution=cluster_risk_contribution,
                     ranking_coverage=row_coverage,
                     top_ranked_concentration=top_ranked_concentration,
+                    top_ranked_theme_concentration=top_ranked_theme_concentration,
+                    top_ranked_theme_warning=top_ranked_theme_warning,
                 )
             )
     return ClusterReport(
@@ -165,7 +172,35 @@ def build_correlation_clusters(
         ranked_instrument_count=len(ranked_set),
         ranking_coverage=ranking_coverage,
         top_ranked_concentration=top_ranked_concentration,
+        top_ranked_theme_concentration=top_ranked_theme_concentration,
+        top_ranked_theme_warning=top_ranked_theme_warning,
     )
+
+
+def _ranked_theme_concentration(
+    labels: Mapping[str, Mapping[str, str | None]],
+    normalised_weights: Mapping[str, float],
+) -> tuple[float | None, str]:
+    """Measure configured-theme concentration across the selected ranking.
+
+    This deliberately uses the ranked cohort rather than correlation groups so
+    a common configured theme remains visible even when every instrument is a
+    singleton cluster. Missing theme metadata is left unclassified and does
+    not get replaced with an inferred label.
+    """
+
+    if not normalised_weights:
+        return None, "no_theme_concentration_warning"
+    theme_weights: dict[str, float] = {}
+    for instrument_id, weight in normalised_weights.items():
+        theme = labels.get(instrument_id, {}).get("theme")
+        if theme:
+            theme_weights[theme] = theme_weights.get(theme, 0.0) + float(weight)
+    if not theme_weights:
+        return None, "no_theme_concentration_warning"
+    concentration = round(max(theme_weights.values()), 6)
+    warning = "theme_concentration_warning" if concentration >= 0.5 else "no_theme_concentration_warning"
+    return concentration, warning
 
 
 def _ranking_weights(

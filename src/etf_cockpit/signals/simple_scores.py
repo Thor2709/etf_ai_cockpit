@@ -292,6 +292,8 @@ class SimpleInstrumentScore:
     crowding_cluster_risk_contribution: float | None = None
     crowding_ranking_coverage: float | None = None
     crowding_top_ranked_concentration: float | None = None
+    crowding_top_ranked_theme_concentration: float | None = None
+    crowding_top_ranked_theme_warning: str = "no_theme_concentration_warning"
     sector_return: float | None = None
     sector_relative_return: float | None = None
     sector_beta: float | None = None
@@ -620,6 +622,8 @@ def _crowding_fields_for_score(row: object | None) -> dict[str, object]:
             "crowding_cluster_risk_contribution": None,
             "crowding_ranking_coverage": None,
             "crowding_top_ranked_concentration": None,
+            "crowding_top_ranked_theme_concentration": None,
+            "crowding_top_ranked_theme_warning": "no_theme_concentration_warning",
         }
     return {
         "crowding_cluster_id": getattr(row, "cluster_id", None),
@@ -634,6 +638,8 @@ def _crowding_fields_for_score(row: object | None) -> dict[str, object]:
         "crowding_cluster_risk_contribution": getattr(row, "cluster_risk_contribution", None),
         "crowding_ranking_coverage": getattr(row, "ranking_coverage", None),
         "crowding_top_ranked_concentration": getattr(row, "top_ranked_concentration", None),
+        "crowding_top_ranked_theme_concentration": getattr(row, "top_ranked_theme_concentration", None),
+        "crowding_top_ranked_theme_warning": getattr(row, "top_ranked_theme_warning", "no_theme_concentration_warning"),
     }
 
 
@@ -829,6 +835,8 @@ def simple_scoreboard_frame(
             "crowding_cluster_risk_contribution": score.crowding_cluster_risk_contribution,
             "crowding_ranking_coverage": score.crowding_ranking_coverage,
             "crowding_top_ranked_concentration": score.crowding_top_ranked_concentration,
+            "crowding_top_ranked_theme_concentration": score.crowding_top_ranked_theme_concentration,
+            "crowding_top_ranked_theme_warning": score.crowding_top_ranked_theme_warning,
             "sector_return": score.sector_return,
             "sector_relative_return": score.sector_relative_return,
             "sector_beta": score.sector_beta,
@@ -1055,6 +1063,8 @@ def build_universe_simple_scores(
                 crowding_cluster_risk_contribution=crowding_info["cluster_risk_contribution"],
                 crowding_ranking_coverage=crowding_info["ranking_coverage"],
                 crowding_top_ranked_concentration=crowding_info["top_ranked_concentration"],
+                crowding_top_ranked_theme_concentration=crowding_info["top_ranked_theme_concentration"],
+                crowding_top_ranked_theme_warning=crowding_info["top_ranked_theme_warning"],
                 sector_return=_safe_float(attribution_info.get("sector_return")),
                 sector_relative_return=_safe_float(attribution_info.get("sector_relative_return")),
                 sector_beta=_safe_float(attribution_info.get("sector_beta")),
@@ -2097,6 +2107,8 @@ def _crowding_info(lookup: dict[str, object], instrument_id: str) -> dict[str, o
             "cluster_risk_contribution": None,
             "ranking_coverage": None,
             "top_ranked_concentration": None,
+            "top_ranked_theme_concentration": None,
+            "top_ranked_theme_warning": "no_theme_concentration_warning",
             "as_of": None,
             "source_dataset": "adjusted_price_returns",
         }
@@ -2111,6 +2123,8 @@ def _crowding_info(lookup: dict[str, object], instrument_id: str) -> dict[str, o
         "cluster_risk_contribution": getattr(row, "cluster_risk_contribution", None),
         "ranking_coverage": getattr(row, "ranking_coverage", None),
         "top_ranked_concentration": getattr(row, "top_ranked_concentration", None),
+        "top_ranked_theme_concentration": getattr(row, "top_ranked_theme_concentration", None),
+        "top_ranked_theme_warning": getattr(row, "top_ranked_theme_warning", "no_theme_concentration_warning"),
         "as_of": getattr(row, "as_of", None),
         "source_dataset": getattr(row, "source_dataset", "adjusted_price_returns"),
     }

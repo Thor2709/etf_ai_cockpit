@@ -123,6 +123,28 @@ def test_ranked_cohort_concentration_and_singleton_risk_use_selected_weights() -
     assert rows["B"].cluster_risk_contribution > 0.0
 
 
+def test_ranked_theme_concentration_is_independent_of_singleton_clusters() -> None:
+    index = pd.date_range("2026-01-01", periods=150, freq="D")
+    rng = np.random.default_rng(18)
+    returns = rng.normal(0.0005, 0.01, size=(len(index), 10))
+    prices = pd.DataFrame(100.0 * np.exp(np.cumsum(returns, axis=0)), index=index, columns=[f"AI_{i}" for i in range(10)])
+    metadata = {instrument_id: {"theme": "AI"} for instrument_id in prices.columns}
+
+    report = build_correlation_clusters(
+        prices,
+        metadata,
+        ranked_instruments=list(prices.columns),
+        weights={instrument_id: 1.0 for instrument_id in prices.columns},
+    )
+
+    rows = {row.instrument_id: row for row in report.rows}
+    assert len({row.cluster_id for row in rows.values()}) == 10
+    assert report.top_ranked_theme_concentration == 1.0
+    assert report.top_ranked_theme_warning == "theme_concentration_warning"
+    assert {row.top_ranked_theme_concentration for row in rows.values()} == {1.0}
+    assert {row.top_ranked_theme_warning for row in rows.values()} == {"theme_concentration_warning"}
+
+
 def test_pair_sample_size_is_minimum_clean_pair_coverage_for_mixed_pairs() -> None:
     index = pd.date_range("2026-01-01", periods=150, freq="D")
     base = np.linspace(100, 120, len(index)) + np.sin(np.arange(len(index)))

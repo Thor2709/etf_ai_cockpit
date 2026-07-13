@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import flet as ft
 
 from etf_cockpit.app import theme
@@ -189,7 +191,7 @@ def _score_tile(item: SimpleInstrumentScore, history_rows: list[dict[str, object
                     size=11,
                 ),
                 ft.Text(
-                    f"Crowding cluster: {item.crowding_cluster_label} | peers {item.crowding_average_peer_correlation if item.crowding_average_peer_correlation is not None else 'N/A'} | risk contribution {item.crowding_cluster_risk_contribution if item.crowding_cluster_risk_contribution is not None else 'N/A'} | coverage {item.crowding_ranking_coverage if item.crowding_ranking_coverage is not None else 'N/A'} | pair sample {item.crowding_pair_sample_size if item.crowding_pair_sample_size is not None else 'N/A'} / row sample {item.crowding_sample_size if item.crowding_sample_size is not None else 'N/A'} | as of {item.crowding_as_of or 'N/A'}",
+                    f"Crowding cluster: {item.crowding_cluster_label} | peers {item.crowding_average_peer_correlation if item.crowding_average_peer_correlation is not None else 'N/A'} | risk contribution {item.crowding_cluster_risk_contribution if item.crowding_cluster_risk_contribution is not None else 'N/A'} | coverage {item.crowding_ranking_coverage if item.crowding_ranking_coverage is not None else 'N/A'} | pair sample {item.crowding_pair_sample_size if item.crowding_pair_sample_size is not None else 'N/A'} / row sample {item.crowding_sample_size if item.crowding_sample_size is not None else 'N/A'} | top-theme concentration {item.crowding_top_ranked_theme_concentration if item.crowding_top_ranked_theme_concentration is not None else 'N/A'} | top-theme warning {item.crowding_top_ranked_theme_warning} | as of {item.crowding_as_of or 'N/A'}",
                     color=theme.MUTED,
                     size=11,
                 ),
@@ -418,29 +420,45 @@ def _pct_badge(value: float | None) -> str:
 
 
 def _number_badge(value: float | None) -> str:
-    return "N/A" if value is None else f"{value:.2f}"
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return "N/A"
+    return "N/A" if not math.isfinite(number) else f"{number:.2f}"
 
 
 def _bps_badge(value: float | None) -> str:
-    return "N/A" if value is None else f"{value:+.1f} bps"
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return "N/A"
+    return "N/A" if not math.isfinite(number) else f"{number:+.1f} bps"
 
 
 def _edge_colour(value: float | None) -> str:
-    if value is None:
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
         return theme.MUTED
-    if value > 0:
+    if not math.isfinite(number):
+        return theme.MUTED
+    if number > 0:
         return theme.GREEN
-    if value < 0:
+    if number < 0:
         return theme.AMBER
     return theme.CYAN
 
 
 def _ratio_colour(value: float | None) -> str:
-    if value is None:
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
         return theme.MUTED
-    if value >= 2.5:
+    if not math.isfinite(number):
+        return theme.MUTED
+    if number >= 2.5:
         return theme.GREEN
-    if value >= 1.0:
+    if number >= 1.0:
         return theme.AMBER
     return theme.RED
 
