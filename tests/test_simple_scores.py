@@ -243,6 +243,34 @@ def test_complete_fresh_kid_is_observable_as_issuer_cost_evidence() -> None:
     assert component.score_10 is not None
 
 
+def test_higher_disclosed_ongoing_cost_never_improves_liquidity_cost_score() -> None:
+    lower_cost = _kid_for_score(cost_fields={"ongoing_costs": "0.05% of the value of your investment"})
+    higher_cost = _kid_for_score(cost_fields={"ongoing_costs": "0.50% of the value of your investment"})
+
+    lower_component = simple_scores_module.build_priips_kid_cost_evidence(lower_cost)
+    higher_component = simple_scores_module.build_priips_kid_cost_evidence(higher_cost)
+
+    assert lower_component.key == higher_component.key == "liquidity_cost"
+    assert lower_component.score_10 is not None
+    assert higher_component.score_10 is not None
+    assert higher_component.score_10 < lower_component.score_10
+    assert higher_component.raw_score < lower_component.raw_score
+
+
+def test_higher_sri_never_improves_risk_score() -> None:
+    lower_sri = _kid_for_score(cost_fields={}, sri=2)
+    higher_sri = _kid_for_score(cost_fields={}, sri=6)
+
+    lower_component = simple_scores_module.build_priips_kid_cost_evidence(lower_sri)
+    higher_component = simple_scores_module.build_priips_kid_cost_evidence(higher_sri)
+
+    assert lower_component.key == higher_component.key == "risk"
+    assert lower_component.score_10 is not None
+    assert higher_component.score_10 is not None
+    assert higher_component.score_10 < lower_component.score_10
+    assert higher_component.raw_score < lower_component.raw_score
+
+
 @pytest.mark.parametrize(
     "changes",
     [

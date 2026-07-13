@@ -1444,12 +1444,21 @@ def build_priips_kid_cost_evidence(record: object) -> SimpleScoreComponent:
     key = "liquidity_cost"
     value_reason = "No explicit numeric KID cost percentage is available."
     if explicit_value is not None:
-        raw_score = explicit_value
+        # A disclosed percentage is a cost penalty, not a positive return
+        # signal.  Keep the penalty bounded by the raw-score contract without
+        # inventing a preferred cost ceiling that the KID does not disclose.
+        raw_score = _clamp(-explicit_value)
         score_10 = raw_to_score_10(raw_score)
         value_reason = f"Issuer KID reports an explicit cost percentage of {explicit_value:g}%; no proxy cost was invented."
     else:
         key = "risk"
-        raw_score = None if sri is None else _score_10_to_raw(float(sri))
+        # PRIIPs SRI is defined from 1 (lowest risk) through 7 (highest risk).
+        # Map that bounded domain inversely onto the [-1, 1] raw-score domain.
+        raw_score = (
+            None
+            if sri is None
+            else _clamp(1.0 - 2.0 * ((float(sri) - 1.0) / (7.0 - 1.0)))
+        )
         score_10 = None if raw_score is None else raw_to_score_10(raw_score)
         if sri is not None:
             value_reason = f"Issuer KID reports explicit summary risk indicator {sri}; no cost proxy was invented."
