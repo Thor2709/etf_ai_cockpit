@@ -95,8 +95,8 @@ def evidence_ledger_page(_page: ft.Page, _state) -> ft.Control:
             ("Feature drivers", FEATURE_DRIVERS_PATH, ["instrument_id", "component", "normalised_score", "direction", "authority", "driver_text"]),
             ("Score history", SCORE_HISTORY_PATH, ["instrument_id", "run_completed_at", "final_combined_score_10", "final_label", "blocked_by"]),
             ("Score metric history", SCORE_METRIC_HISTORY_PATH, ["instrument_id", "component_name", "normalised_score_10", "score_available", "na_reason"]),
-            ("Correlation clusters", CORRELATION_CLUSTERS_PATH, ["instrument_id", "cluster_label", "average_peer_correlation", "crowding_warning", "sector", "theme", "theme_warning", "sample_size", "status", "execution_allowed"]),
-            ("Benchmark attribution", BENCHMARK_ATTRIBUTION_PATH, ["instrument_id", "benchmark_id", "benchmark_beta", "benchmark_correlation", "alpha_proxy", "sector_relative_return", "sector_alpha_proxy", "sector_attribution_status", "status", "execution_allowed"]),
+            ("Correlation clusters", CORRELATION_CLUSTERS_PATH, ["instrument_id", "cluster_label", "average_peer_correlation", "crowding_warning", "cluster_risk_contribution", "ranking_coverage", "pair_sample_size", "sector", "theme", "theme_warning", "sample_size", "status", "execution_allowed"]),
+            ("Benchmark attribution", BENCHMARK_ATTRIBUTION_PATH, ["instrument_id", "benchmark_id", "benchmark_beta", "benchmark_correlation", "alpha_proxy", "sector_relative_return", "sector_alpha_proxy", "sector_attribution_status", "theme_relative_return", "theme_alpha_proxy", "theme_attribution_status", "net_expected_edge_bps", "friction_status", "status", "execution_allowed"]),
         ],
     )
 

@@ -117,6 +117,51 @@ def test_benchmark_attribution_short_history_is_pending() -> None:
     assert "pending" in attribution["ALT"]["label"].lower()
 
 
+def test_benchmark_attribution_uses_same_overlapping_horizon_for_instrument_and_benchmark() -> None:
+    dates = pd.bdate_range("2025-01-01", periods=140)
+    rows = []
+    for index, dt in enumerate(dates):
+        rows.append({"date": dt, "etf_id": "BENCH", "adjusted_close": 100.0 + index})
+        if index >= 40:
+            rows.append({"date": dt, "etf_id": "ALT", "adjusted_close": 200.0 + (index - 40) * 2.0})
+    prices = pd.DataFrame(rows)
+
+    attribution = build_benchmark_attribution_lookup(prices, window=120, benchmark_id="BENCH")
+    alt = attribution["ALT"]
+    # ALT overlaps the benchmark from its first clean date; the displayed
+    # return must not use an instrument-only horizon that starts elsewhere.
+    assert alt["instrument_return"] == round((398.0 / 200.0) - 1.0, 4)
+
+
+def test_theme_only_metadata_maps_to_configured_theme_peers() -> None:
+    dates = pd.bdate_range("2025-01-01", periods=140)
+    rows = []
+    for index, dt in enumerate(dates):
+        rows.extend(
+            [
+                {"date": dt, "etf_id": "BENCH", "adjusted_close": 100.0 + index * 0.2},
+                {"date": dt, "etf_id": "AI_A", "adjusted_close": 100.0 + index * 0.3},
+                {"date": dt, "etf_id": "AI_B", "adjusted_close": 100.0 + index * 0.25},
+            ]
+        )
+    prices = pd.DataFrame(rows)
+
+    attribution = build_benchmark_attribution_lookup(
+        prices,
+        window=120,
+        benchmark_id="BENCH",
+        metadata={
+            "AI_A": {"theme": "AI"},
+            "AI_B": {"theme": "AI"},
+        },
+    )
+
+    assert attribution["AI_A"]["theme_attribution_status"] == "available"
+    assert attribution["AI_A"]["theme_relative_return"] is not None
+    assert attribution["AI_A"]["theme_alpha_proxy"] is not None
+    assert attribution["AI_A"]["sector_attribution_status"] == "N/A"
+
+
 def test_strategy_template_library_assigns_stock_and_etf_templates() -> None:
     etf_templates = strategy_template_labels(
         asset_type="ETF",

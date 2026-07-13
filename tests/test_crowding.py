@@ -44,3 +44,47 @@ def test_correlation_clusters_returns_explicit_unavailable_for_short_or_invalid_
     assert report.rows == ()
     assert report.reason
     assert report.sample_size == 0
+
+
+def test_ranked_weights_publish_top_concentration_and_cluster_risk_contribution() -> None:
+    index = pd.date_range("2026-01-01", periods=150, freq="D")
+    base = np.linspace(100, 120, len(index)) + np.sin(np.arange(len(index)))
+    prices = pd.DataFrame(
+        {"A": base, "B": base * 1.01, "C": np.linspace(100, 80, len(index))},
+        index=index,
+    )
+
+    report = build_correlation_clusters(
+        prices,
+        {"A": {"sector": "Technology", "theme": "AI"}, "B": {"sector": "Technology", "theme": "AI"}, "C": {"sector": "Defensive", "theme": "Bonds"}},
+        ranked_instruments=["A", "B", "C"],
+        weights={"A": 0.5, "B": 0.3, "C": 0.2},
+    )
+
+    rows = {row.instrument_id: row for row in report.rows}
+    assert report.ranked_instrument_count == 3
+    assert report.top_ranked_concentration == 0.8
+    assert rows["A"].cluster_weight == 0.8
+    assert rows["A"].cluster_risk_contribution == 0.8
+    assert rows["A"].ranking_coverage == 1.0
+
+
+def test_sparse_instrument_uses_pair_coverage_not_global_sample_size() -> None:
+    index = pd.date_range("2026-01-01", periods=150, freq="D")
+    base = np.linspace(100, 120, len(index)) + np.sin(np.arange(len(index)))
+    prices = pd.DataFrame(
+        {
+            "A": base,
+            "B": base * 1.01,
+            "SPARSE": pd.Series([100.0, 101.0, 102.0], index=index[-3:]),
+        },
+        index=index,
+    )
+
+    report = build_correlation_clusters(prices, {"A": "technology", "B": "technology", "SPARSE": "technology"})
+
+    sparse = next(row for row in report.rows if row.instrument_id == "SPARSE")
+    assert sparse.sample_size < report.sample_size
+    assert sparse.pair_sample_size == 0
+    assert sparse.average_peer_correlation is None
+    assert "coverage" in sparse.crowding_warning

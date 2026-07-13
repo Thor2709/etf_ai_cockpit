@@ -288,9 +288,13 @@ def _crowding_attribution_panel() -> ft.Control:
         return panel(ft.Column([section_header("Crowding and attribution", "Trust evidence from clean adjusted-price returns."), ft.Text("Correlation and benchmark attribution evidence is unavailable; no cluster or sector-relative conclusion is inferred.", color=theme.MUTED)]))
     warnings = crowding[crowding.get("crowding_warning", pd.Series(dtype=str)).astype(str).str.contains("warning", na=False)] if not crowding.empty else pd.DataFrame()
     sector_available = int((attribution.get("sector_attribution_status", pd.Series(dtype=str)).astype(str) == "available").sum()) if not attribution.empty else 0
+    risk_contribution = pd.to_numeric(crowding.get("cluster_risk_contribution", pd.Series(dtype=float)), errors="coerce") if not crowding.empty else pd.Series(dtype=float)
+    top_contribution = float(risk_contribution.max()) if not risk_contribution.dropna().empty else None
+    coverage = pd.to_numeric(crowding.get("ranking_coverage", pd.Series(dtype=float)), errors="coerce") if not crowding.empty else pd.Series(dtype=float)
+    mean_coverage = float(coverage.mean()) if not coverage.dropna().empty else None
     return panel(ft.Column([
         section_header("Crowding and attribution", "Configured metadata and clean adjusted-price evidence; diagnostics are descriptive and non-executable."),
-        ft.Text(f"Clusters with warnings: {len(warnings)} | sector-relative rows available: {sector_available} | execution_allowed=false", color=theme.MUTED, selectable=True),
+        ft.Text(f"Clusters with warnings: {len(warnings)} | highest cluster risk contribution: {_number(top_contribution)} | mean ranking coverage: {_number(mean_coverage)} | sector-relative rows available: {sector_available} | execution_allowed=false", color=theme.MUTED, selectable=True),
     ]))
 
 

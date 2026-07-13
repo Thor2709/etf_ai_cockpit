@@ -184,7 +184,12 @@ def _score_tile(item: SimpleInstrumentScore, history_rows: list[dict[str, object
                     size=11,
                 ),
                 ft.Text(
-                    f"Crowding cluster: {item.crowding_cluster_label} | peers {item.crowding_average_peer_correlation if item.crowding_average_peer_correlation is not None else 'N/A'} | as of {item.crowding_as_of or 'N/A'}",
+                    f"Theme-relative: {_pct_badge(item.theme_relative_return)} | alpha {_pct_badge(item.theme_alpha_proxy)} | status {item.theme_attribution_status}",
+                    color=theme.MUTED,
+                    size=11,
+                ),
+                ft.Text(
+                    f"Crowding cluster: {item.crowding_cluster_label} | peers {item.crowding_average_peer_correlation if item.crowding_average_peer_correlation is not None else 'N/A'} | risk contribution {item.crowding_cluster_risk_contribution if item.crowding_cluster_risk_contribution is not None else 'N/A'} | coverage {item.crowding_ranking_coverage if item.crowding_ranking_coverage is not None else 'N/A'} | pair sample {item.crowding_pair_sample_size if item.crowding_pair_sample_size is not None else 'N/A'} / row sample {item.crowding_sample_size if item.crowding_sample_size is not None else 'N/A'} | as of {item.crowding_as_of or 'N/A'}",
                     color=theme.MUTED,
                     size=11,
                 ),

@@ -146,31 +146,31 @@ def build_benchmark_attribution_lookup(
                 "sector_correlation": None,
                 "sector_alpha_proxy": None,
                 "sector_attribution_status": "N/A",
+                "sector_sample_size": 0,
+                "theme_return": None,
+                "theme_relative_return": None,
+                "theme_beta": None,
+                "theme_correlation": None,
+                "theme_alpha_proxy": None,
+                "theme_attribution_status": "N/A",
+                "theme_sample_size": 0,
                 "sample_size": len(sample),
                 "as_of": sample.index.max().date().isoformat() if len(sample) else None,
                 "source_dataset": "adjusted_price_returns",
             }
             continue
-        instrument_prices = pivot[instrument_id].dropna()
-        benchmark_prices = pivot[benchmark_id].dropna()
-        instrument_return = _horizon_return(instrument_prices, min(window, len(instrument_prices) - 1))
-        benchmark_return = _horizon_return(benchmark_prices, min(window, len(benchmark_prices) - 1))
-        variance = float(sample["benchmark"].var())
-        beta = float(sample["instrument"].cov(sample["benchmark"]) / variance) if variance > 0 else None
-        corr_raw = float(sample["instrument"].corr(sample["benchmark"]))
-        corr = corr_raw if np.isfinite(corr_raw) else None
-        alpha_proxy = None
-        alpha_t_stat = None
-        if beta is not None and benchmark_return is not None and instrument_return is not None:
-            alpha_proxy = float(instrument_return - beta * benchmark_return)
-            residual = sample["instrument"] - beta * sample["benchmark"]
-            residual_std = float(residual.std())
-            if residual_std > 0 and len(residual) >= 80:
-                alpha_t_stat = float(residual.mean() / residual_std * np.sqrt(len(residual)))
+        broad_result = build_benchmark_attribution(sample["instrument"], sample["benchmark"])
+        instrument_return = broad_result.instrument_return
+        benchmark_return = broad_result.benchmark_return
+        beta = broad_result.beta
+        corr = broad_result.correlation
+        alpha_proxy = broad_result.alpha_proxy
+        alpha_t_stat = broad_result.alpha_t_stat
         sector_result = _sector_attribution_result(returns, str(instrument_id), metadata, window)
+        theme_result = _peer_attribution_result(returns, str(instrument_id), metadata, "theme", window)
         output[instrument] = {
             "benchmark_id": benchmark_id,
-            "period_days": window,
+            "period_days": len(sample),
             "label": _benchmark_attribution_label(benchmark_id, instrument_return, benchmark_return, beta, corr, alpha_proxy, alpha_t_stat),
             "instrument_return": None if instrument_return is None else round(float(instrument_return), 4),
             "benchmark_return": None if benchmark_return is None else round(float(benchmark_return), 4),
@@ -184,6 +184,14 @@ def build_benchmark_attribution_lookup(
             "sector_correlation": sector_result.get("sector_correlation"),
             "sector_alpha_proxy": sector_result.get("sector_alpha_proxy"),
             "sector_attribution_status": sector_result.get("sector_attribution_status", "N/A"),
+            "sector_sample_size": sector_result.get("sector_sample_size", 0),
+            "theme_return": theme_result.get("theme_return"),
+            "theme_relative_return": theme_result.get("theme_relative_return"),
+            "theme_beta": theme_result.get("theme_beta"),
+            "theme_correlation": theme_result.get("theme_correlation"),
+            "theme_alpha_proxy": theme_result.get("theme_alpha_proxy"),
+            "theme_attribution_status": theme_result.get("theme_attribution_status", "N/A"),
+            "theme_sample_size": theme_result.get("theme_sample_size", 0),
             "sample_size": len(sample),
             "as_of": sample.index.max().date().isoformat() if len(sample) else None,
             "source_dataset": "adjusted_price_returns",
@@ -269,34 +277,49 @@ def _sector_attribution_result(
     metadata: dict[str, object],
     window: int,
 ) -> dict[str, object]:
+    return _peer_attribution_result(returns, instrument_id, metadata, "sector", window)
+
+
+def _peer_attribution_result(
+    returns: pd.DataFrame,
+    instrument_id: str,
+    metadata: dict[str, object],
+    dimension: str,
+    window: int,
+) -> dict[str, object]:
     current = metadata.get(instrument_id)
-    current_sector = current.get("sector") if isinstance(current, dict) else getattr(current, "sector", None)
-    current_sector = str(current_sector or "").strip()
-    if not current_sector:
-        return {"sector_attribution_status": "N/A"}
+    current_value = current.get(dimension) if isinstance(current, dict) else getattr(current, dimension, None)
+    current_value = str(current_value or "").strip()
+    prefix = dimension
+    if not current_value:
+        return {f"{prefix}_attribution_status": "N/A", f"{prefix}_sample_size": 0}
     peers = []
     for peer in returns.columns:
         if str(peer) == instrument_id:
             continue
         value = metadata.get(str(peer))
-        peer_sector = value.get("sector") if isinstance(value, dict) else getattr(value, "sector", None)
-        if str(peer_sector or "").strip() == current_sector:
+        peer_value = value.get(dimension) if isinstance(value, dict) else getattr(value, dimension, None)
+        if str(peer_value or "").strip() == current_value:
             peers.append(str(peer))
     if not peers:
-        return {"sector_attribution_status": "N/A"}
-    sector = returns[peers].mean(axis=1, skipna=False).rename("sector")
+        return {f"{prefix}_attribution_status": "N/A", f"{prefix}_sample_size": 0}
+    peer_returns = returns[peers].mean(axis=1, skipna=False).rename(prefix)
     instrument = returns[instrument_id].rename("instrument")
-    result = build_benchmark_attribution(instrument.tail(window), sector.tail(window))
-    sector_relative_return = None
+    joined = pd.concat([instrument, peer_returns], axis=1, join="inner").dropna().tail(window)
+    if len(joined) < 2:
+        return {f"{prefix}_attribution_status": "N/A", f"{prefix}_sample_size": len(joined)}
+    result = build_benchmark_attribution(joined["instrument"], joined[prefix])
+    relative_return = None
     if result.instrument_return is not None and result.benchmark_return is not None:
-        sector_relative_return = result.instrument_return - result.benchmark_return
+        relative_return = round(result.instrument_return - result.benchmark_return, 4)
     return {
-        "sector_return": None if result.benchmark_return is None else round(result.benchmark_return, 4),
-        "sector_relative_return": None if sector_relative_return is None else round(sector_relative_return, 4),
-        "sector_beta": None if result.beta is None else round(result.beta, 4),
-        "sector_correlation": None if result.correlation is None else round(result.correlation, 4),
-        "sector_alpha_proxy": None if result.alpha_proxy is None else round(result.alpha_proxy, 4),
-        "sector_attribution_status": "available" if result.status == "available" else "N/A",
+        f"{prefix}_return": None if result.benchmark_return is None else round(result.benchmark_return, 4),
+        f"{prefix}_relative_return": relative_return,
+        f"{prefix}_beta": None if result.beta is None else round(result.beta, 4),
+        f"{prefix}_correlation": None if result.correlation is None else round(result.correlation, 4),
+        f"{prefix}_alpha_proxy": None if result.alpha_proxy is None else round(result.alpha_proxy, 4),
+        f"{prefix}_attribution_status": "available" if result.status == "available" else "N/A",
+        f"{prefix}_sample_size": len(joined),
     }
 
 

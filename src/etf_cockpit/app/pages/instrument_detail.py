@@ -125,9 +125,9 @@ def _render_crowding_attribution_panel(sections: dict[str, object]) -> ft.Contro
     attribution = sections.get("attribution") if isinstance(sections.get("attribution"), dict) else {}
     crowding = scores.get("crowding") if isinstance(scores.get("crowding"), dict) else {}
     lines = [
-        f"Crowding: {crowding.get('crowding_warning', 'N/A')} | cluster {crowding.get('cluster_label', 'N/A')} | peer corr {crowding.get('average_peer_correlation', 'N/A')} | sample {crowding.get('sample_size', 'N/A')} | as of {crowding.get('as_of_date', 'N/A')}",
+        f"Crowding: {crowding.get('crowding_warning', 'N/A')} | cluster {crowding.get('cluster_label', 'N/A')} | peer corr {crowding.get('average_peer_correlation', 'N/A')} | risk contribution {crowding.get('cluster_risk_contribution', 'N/A')} | coverage {crowding.get('ranking_coverage', 'N/A')} | pair sample {crowding.get('pair_sample_size', 'N/A')} / row sample {crowding.get('sample_size', 'N/A')} | as of {crowding.get('as_of_date', 'N/A')}",
         f"Broad benchmark: beta {attribution.get('benchmark_beta', 'N/A')} | corr {attribution.get('benchmark_correlation', 'N/A')} | alpha {attribution.get('alpha_proxy', 'N/A')}",
-        f"Sector-relative: return {attribution.get('sector_relative_return', 'N/A')} | alpha {attribution.get('sector_alpha_proxy', 'N/A')} | status {attribution.get('sector_attribution_status', 'N/A')} | source {attribution.get('source_dataset', 'N/A')}",
+        f"Sector-relative: return {attribution.get('sector_relative_return', 'N/A')} | alpha {attribution.get('sector_alpha_proxy', 'N/A')} | status {attribution.get('sector_attribution_status', 'N/A')} | theme-relative return {attribution.get('theme_relative_return', 'N/A')} | theme alpha {attribution.get('theme_alpha_proxy', 'N/A')} | theme status {attribution.get('theme_attribution_status', 'N/A')} | source {attribution.get('source_dataset', 'N/A')}",
         "These diagnostics are descriptive evidence only; execution_allowed=false.",
     ]
     return panel(ft.Column([section_header("Crowding and attribution", "Configured sector/theme metadata and clean adjusted-price evidence; unavailable values remain N/A."), *[ft.Text(line, color=theme.MUTED, size=11, selectable=True) for line in lines]], spacing=5))

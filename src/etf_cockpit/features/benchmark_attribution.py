@@ -22,6 +22,13 @@ class AttributionResult:
     sector_relative_return: float | None = None
     sector_alpha_proxy: float | None = None
     sector_sample_size: int = 0
+    theme_attribution: str = "N/A"
+    theme_return: float | None = None
+    theme_beta: float | None = None
+    theme_correlation: float | None = None
+    theme_relative_return: float | None = None
+    theme_alpha_proxy: float | None = None
+    theme_sample_size: int = 0
     as_of: str | None = None
     source_dataset: str = "adjusted_price_returns"
     status: str = "unavailable"
@@ -45,6 +52,7 @@ def build_benchmark_attribution(
     instrument_returns: pd.Series,
     broad_returns: pd.Series,
     sector_returns: pd.Series | None = None,
+    theme_returns: pd.Series | None = None,
 ) -> AttributionResult:
     """Return descriptive broad and sector-relative attribution evidence.
 
@@ -86,9 +94,31 @@ def build_benchmark_attribution(
         if sector_sample_size >= 2:
             sector_status = "available"
             sector_return = _compound(sector_frame["sector"])
-            sector_relative_return = instrument_return - sector_return if sector_return is not None else None
+            sector_instrument_return = _compound(sector_frame["instrument"])
+            sector_relative_return = sector_instrument_return - sector_return if sector_return is not None and sector_instrument_return is not None else None
             sector_beta, sector_correlation = _beta_corr(sector_frame["instrument"], sector_frame["sector"])
-            sector_alpha_proxy = _alpha(instrument_return, sector_return, sector_beta)
+            sector_alpha_proxy = _alpha(sector_instrument_return, sector_return, sector_beta)
+
+    theme_return = theme_beta = theme_correlation = theme_relative_return = theme_alpha_proxy = None
+    theme_sample_size = 0
+    theme_status = "N/A"
+    if theme_returns is not None:
+        theme_frame = pd.concat(
+            [
+                _clean_series(instrument_returns, "instrument"),
+                _clean_series(theme_returns, "theme"),
+            ],
+            axis=1,
+            join="inner",
+        ).dropna()
+        theme_sample_size = len(theme_frame)
+        if theme_sample_size >= 2:
+            theme_status = "available"
+            theme_return = _compound(theme_frame["theme"])
+            theme_instrument_return = _compound(theme_frame["instrument"])
+            theme_relative_return = theme_instrument_return - theme_return if theme_instrument_return is not None and theme_return is not None else None
+            theme_beta, theme_correlation = _beta_corr(theme_frame["instrument"], theme_frame["theme"])
+            theme_alpha_proxy = _alpha(theme_instrument_return, theme_return, theme_beta)
 
     as_of = _as_of(broad_frame.index)
     return AttributionResult(
@@ -106,6 +136,13 @@ def build_benchmark_attribution(
         sector_relative_return=sector_relative_return,
         sector_alpha_proxy=sector_alpha_proxy,
         sector_sample_size=sector_sample_size,
+        theme_attribution=theme_status,
+        theme_return=theme_return,
+        theme_beta=theme_beta,
+        theme_correlation=theme_correlation,
+        theme_relative_return=theme_relative_return,
+        theme_alpha_proxy=theme_alpha_proxy,
+        theme_sample_size=theme_sample_size,
         as_of=as_of,
         status="available",
         reason="Broad benchmark attribution computed from overlapping clean returns.",

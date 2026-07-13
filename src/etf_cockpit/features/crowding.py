@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import isfinite
+from collections.abc import Sequence
 from typing import Any, Mapping
 
 import pandas as pd
@@ -22,6 +23,12 @@ class ClusterRow:
     as_of: str | None = None
     source_dataset: str = "adjusted_price_returns"
     execution_allowed: bool = False
+    pair_sample_size: int = 0
+    ranking_weight: float | None = None
+    cluster_weight: float | None = None
+    cluster_risk_contribution: float | None = None
+    ranking_coverage: float | None = None
+    top_ranked_concentration: float | None = None
 
 
 @dataclass(frozen=True)
@@ -34,6 +41,9 @@ class ClusterReport:
     source_dataset: str = "adjusted_price_returns"
     reason: str = "Correlation clusters unavailable."
     execution_allowed: bool = False
+    ranked_instrument_count: int = 0
+    ranking_coverage: float | None = None
+    top_ranked_concentration: float | None = None
 
 
 def build_correlation_clusters(
@@ -41,6 +51,8 @@ def build_correlation_clusters(
     metadata: Mapping[str, Any] | None = None,
     *,
     window: int = 120,
+    ranked_instruments: Sequence[str] | Mapping[str, float] | None = None,
+    weights: Mapping[str, float] | None = None,
 ) -> ClusterReport:
     """Build deterministic connected correlation clusters from adjusted prices.
 
@@ -73,6 +85,16 @@ def build_correlation_clusters(
     for instrument_id in instrument_ids:
         groups.setdefault(_find(parent, instrument_id), []).append(instrument_id)
     labels = _normalise_metadata(metadata or {})
+    requested_ranking_count = _requested_ranking_count(ranked_instruments, weights)
+    ranking, normalised_weights = _ranking_weights(instrument_ids, ranked_instruments, weights)
+    ranked_set = set(ranking)
+    ranking_coverage = None if not ranking or requested_ranking_count == 0 else round(len(ranked_set) / requested_ranking_count, 6)
+    top_ranked_concentration = None
+    if normalised_weights:
+        top_ranked_concentration = round(
+            max((sum(normalised_weights.get(member, 0.0) for member in group) for group in groups.values()), default=0.0),
+            6,
+        )
     rows: list[ClusterRow] = []
     for members in sorted(groups.values(), key=lambda values: values[0]):
         members = tuple(sorted(members))
@@ -84,12 +106,36 @@ def build_correlation_clusters(
         cluster_warning = "high_correlation_cluster_warning" if len(members) > 1 else "no_cluster_warning"
         if cluster_warning == "no_cluster_warning" and dominant_theme:
             cluster_warning = theme_warning
+        cluster_weight = None
+        cluster_risk_contribution = None
+        if normalised_weights:
+            cluster_weight = round(sum(normalised_weights.get(member, 0.0) for member in members), 6)
+            pair_values = []
+            for left_index, left in enumerate(members):
+                for right in members[left_index + 1 :]:
+                    pair_value = _safe_float(corr.loc[left, right])
+                    if pair_value is not None:
+                        pair_values.append(pair_value)
+            average_cluster_correlation = max(0.0, sum(pair_values) / len(pair_values)) if pair_values else 0.0
+            cluster_risk_contribution = round(cluster_weight * average_cluster_correlation, 6)
         cluster_label = "High correlation cluster" if len(members) > 1 else "Singleton / no correlated peer"
         if dominant_theme:
             cluster_label += f" ({dominant_theme})"
         for instrument_id in members:
             peers = corr[instrument_id].drop(labels=[instrument_id], errors="ignore").dropna()
-            average_peer = _safe_float(peers.mean()) if not peers.empty else None
+            valid_peer_values = []
+            pair_sample_size = 0
+            for peer in peers.index:
+                pair_count = int(returns[[instrument_id, peer]].dropna().shape[0])
+                if pair_count >= min_pair_samples:
+                    valid_peer_values.append(float(peers.loc[peer]))
+                    pair_sample_size = max(pair_sample_size, pair_count)
+            clean_sample_size = int(returns[instrument_id].notna().sum())
+            average_peer = _safe_float(sum(valid_peer_values) / len(valid_peer_values)) if valid_peer_values else None
+            row_warning = cluster_warning
+            if average_peer is None and (clean_sample_size < min_pair_samples or not valid_peer_values):
+                row_warning = "correlation_coverage_unavailable"
+            row_coverage = None if clean_sample_size == 0 else round(pair_sample_size / clean_sample_size, 6)
             item = labels.get(instrument_id, {})
             rows.append(
                 ClusterRow(
@@ -98,12 +144,18 @@ def build_correlation_clusters(
                     cluster_label=cluster_label,
                     average_peer_correlation=average_peer,
                     theme=item.get("theme"),
-                    crowding_warning=cluster_warning,
-                    sample_size=int(len(returns)),
+                    crowding_warning=row_warning,
+                    sample_size=clean_sample_size,
                     sector=item.get("sector"),
                     theme_warning=theme_warning,
                     members=members,
                     as_of=_as_of(frame.index),
+                    pair_sample_size=pair_sample_size,
+                    ranking_weight=normalised_weights.get(instrument_id) if normalised_weights else None,
+                    cluster_weight=cluster_weight,
+                    cluster_risk_contribution=cluster_risk_contribution,
+                    ranking_coverage=row_coverage,
+                    top_ranked_concentration=top_ranked_concentration,
                 )
             )
     return ClusterReport(
@@ -113,7 +165,55 @@ def build_correlation_clusters(
         status="available",
         sample_size=int(len(returns)),
         reason="Correlation clusters computed from clean adjusted-price returns.",
+        ranked_instrument_count=len(ranked_set),
+        ranking_coverage=ranking_coverage,
+        top_ranked_concentration=top_ranked_concentration,
     )
+
+
+def _ranking_weights(
+    instrument_ids: list[str],
+    ranked_instruments: Sequence[str] | Mapping[str, float] | None,
+    weights: Mapping[str, float] | None,
+) -> tuple[list[str], dict[str, float]]:
+    if isinstance(ranked_instruments, Mapping):
+        ranking = [
+            instrument_id
+            for instrument_id, _ in sorted(
+                ((str(key), _safe_float(value)) for key, value in ranked_instruments.items()),
+                key=lambda item: (float("inf") if item[1] is None else item[1], item[0]),
+            )
+        ]
+    elif ranked_instruments is not None:
+        ranking = [str(value) for value in ranked_instruments]
+    elif weights:
+        ranking = [
+            str(key)
+            for key, value in sorted(
+                weights.items(), key=lambda item: (-(_safe_float(item[1]) or 0.0), str(item[0]))
+            )
+        ]
+    else:
+        return [], {}
+    ranking = list(dict.fromkeys(item for item in ranking if item in instrument_ids))
+    if not ranking:
+        return [], {}
+    raw = {instrument_id: max(0.0, _safe_float((weights or {}).get(instrument_id)) or 0.0) for instrument_id in ranking}
+    if not any(raw.values()):
+        raw = {instrument_id: 1.0 for instrument_id in ranking}
+    total = sum(raw.values())
+    return ranking, {instrument_id: value / total for instrument_id, value in raw.items()}
+
+
+def _requested_ranking_count(
+    ranked_instruments: Sequence[str] | Mapping[str, float] | None,
+    weights: Mapping[str, float] | None,
+) -> int:
+    if isinstance(ranked_instruments, Mapping):
+        return len({str(key) for key in ranked_instruments})
+    if ranked_instruments is not None:
+        return len({str(value) for value in ranked_instruments})
+    return len({str(key) for key in (weights or {})})
 
 
 def _price_frame(prices: pd.DataFrame) -> pd.DataFrame:
