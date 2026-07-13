@@ -13,6 +13,7 @@ from etf_cockpit.core.paths import CLEAN_DIR
 
 FUND_HOLDINGS_PATH = CLEAN_DIR / "fund_holdings.parquet"
 HOLDINGS_CLEAN_PATH = FUND_HOLDINGS_PATH
+_EXPLICIT_IDENTITY_COLUMNS = ("isin", "ticker", "holding_id", "security_id")
 
 
 @dataclass(frozen=True)
@@ -95,10 +96,9 @@ def normalise_holdings(
     if frame is None or frame.empty:
         return _empty_result(instrument, as_of_text, source, "empty_holdings", authority=authority)
 
-    # Holdings may identify a constituent by an explicit ISIN/ticker or by the
-    # contract's accepted human-readable security name. Arbitrary columns are
-    # never treated as identity evidence and therefore fail closed below.
-    security_column = next((column for column in ("security", "holding_name", "security_name", "name", "ticker", "symbol", "isin") if column in frame.columns), None)
+    # Keep the established identity aliases for compatibility, but only the
+    # explicit identity columns below can make a holding score-eligible.
+    security_column = next((column for column in ("security", "holding_name", "security_name", "name", "ticker", "symbol", "isin", "holding_id", "security_id") if column in frame.columns), None)
     weight_column = next((column for column in ("weight", "weight_decimal", "weight_percent", "weight_pct") if column in frame.columns), None)
     if security_column is None or weight_column is None:
         return _empty_result(instrument, as_of_text, source, "missing_security_or_weight", authority=authority)
@@ -122,7 +122,7 @@ def normalise_holdings(
         return _empty_result(instrument, as_of_text, source, "weight_over_100_percent", authority=authority)
 
     selected = pd.DataFrame({"security": clean[security_column], "weight": weights})
-    for column in ("isin", "ticker", "sector", "region", "currency", "holding_id"):
+    for column in ("isin", "ticker", "sector", "region", "currency", "holding_id", "security_id"):
         if column in clean.columns and column not in selected.columns:
             selected[column] = clean[column]
     duplicate_count = int(selected.duplicated(keep="first").sum())
@@ -146,12 +146,11 @@ def normalise_holdings(
             warnings.append("partial_top_holdings")
     if freshness == "stale":
         completeness = "stale"
-    identity_columns = ("isin", "ticker", "symbol", "holding_id", "security_id", "security_isin")
-    has_explicit_identifier = any(
-        column in clean.columns and clean[column].fillna("").astype(str).str.strip().ne("").any()
-        for column in identity_columns
-    )
-    name_only_manual_review = security_column in {"holding_name", "security_name", "name"} and not has_explicit_identifier
+    row_has_explicit_identifier = pd.Series(False, index=clean.index)
+    for column in _EXPLICIT_IDENTITY_COLUMNS:
+        if column in clean.columns:
+            row_has_explicit_identifier |= clean[column].fillna("").astype(str).str.strip().ne("")
+    name_only_manual_review = not bool(row_has_explicit_identifier.all())
     if name_only_manual_review:
         warnings.append("missing_isin_or_ticker_manual_review")
     confidence = 1.0 if completeness == "full" and authority == "issuer" else 0.60 if completeness == "full" else 0.50 if authority == "vendor" else 0.55
@@ -185,6 +184,20 @@ def write_holdings_records(
 ) -> Path:
     """Persist normalised holdings plus provenance in one atomic transaction."""
     frame = result.frame.copy()
+    reasons: list[str] = []
+    if frame.empty:
+        reasons.append("empty frame")
+    if result.completeness != "full":
+        reasons.append(f"completeness={result.completeness!r}")
+    if result.freshness != "fresh":
+        reasons.append(f"freshness={result.freshness!r}")
+    if result.authority != "issuer":
+        reasons.append(f"authority={result.authority!r}")
+    if result.score_eligible is not True:
+        reasons.append("score_eligible=False")
+    if reasons:
+        detail = "; ".join(reasons)
+        raise ValueError(f"Holdings result is not score-eligible; refusing to replace canonical store ({detail}).")
     if "schema_version" not in frame.columns:
         frame.insert(0, "schema_version", 1)
     destination = Path(destination)

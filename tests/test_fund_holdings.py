@@ -21,7 +21,7 @@ def test_full_holdings_are_normalised_and_partial_data_is_explicit() -> None:
 
 @pytest.mark.parametrize("total", [0.99, 1.01])
 def test_full_holdings_accept_boundary_tolerance(total: float) -> None:
-    result = normalise_holdings(pd.DataFrame({"security": ["A", "B"], "weight": [total - 0.4, 0.4]}), "VWCE", "2026-07-10", "issuer", today="2026-07-11")
+    result = normalise_holdings(pd.DataFrame({"security": ["A", "B"], "ticker": ["A", "B"], "weight": [total - 0.4, 0.4]}), "VWCE", "2026-07-10", "issuer", today="2026-07-11")
     assert result.completeness == "full"
     assert result.score_eligible is True
     assert result.authority == "issuer"
@@ -66,7 +66,7 @@ def test_invalid_weights_or_empty_security_block_exposure(frame: pd.DataFrame) -
 
 
 def test_exact_duplicate_rows_do_not_change_source_id_or_weight_sum() -> None:
-    frame = pd.DataFrame({"security": ["A", "A", "B"], "weight": [0.6, 0.6, 0.4]})
+    frame = pd.DataFrame({"security": ["A", "A", "B"], "ticker": ["A", "A", "B"], "weight": [0.6, 0.6, 0.4]})
     result = normalise_holdings(frame, "VWCE", "2026-07-10", "issuer", today="2026-07-11")
     assert result.completeness == "full"
     assert len(result.frame) == 2
@@ -74,7 +74,7 @@ def test_exact_duplicate_rows_do_not_change_source_id_or_weight_sum() -> None:
 
 
 def test_holdings_are_persisted_with_provenance_columns(tmp_path: Path) -> None:
-    result = normalise_holdings(pd.DataFrame({"security": ["A"], "weight": [1.0]}), "VWCE", "2026-07-10", "issuer", today="2026-07-11")
+    result = normalise_holdings(pd.DataFrame({"security": ["A"], "ticker": ["A"], "weight": [1.0]}), "VWCE", "2026-07-10", "issuer", today="2026-07-11")
     destination = tmp_path / "fund_holdings.parquet"
     written = write_holdings_records(result, destination=destination)
     stored = pd.read_parquet(written)
@@ -133,3 +133,61 @@ def test_name_only_holdings_without_isin_or_ticker_are_context_only() -> None:
     assert result.score_eligible is False
     assert result.confidence <= 0.55
     assert "missing_isin_or_ticker_manual_review" in result.warnings
+
+
+@pytest.mark.parametrize("identity_column", ["security", "holding_name", "security_name", "name"])
+def test_all_name_only_holdings_identities_are_context_only(identity_column: str) -> None:
+    result = normalise_holdings(pd.DataFrame({identity_column: ["A"], "weight": [1.0]}), "VWCE", "2026-07-10", "issuer", today="2026-07-11")
+    assert result.completeness == "full"
+    assert result.score_eligible is False
+    assert result.confidence <= 0.55
+    assert "missing_isin_or_ticker_manual_review" in result.warnings
+
+
+@pytest.mark.parametrize("identity_column", ["isin", "ticker", "holding_id", "security_id"])
+def test_explicit_holdings_identity_allows_issuer_score_eligibility(identity_column: str) -> None:
+    result = normalise_holdings(
+        pd.DataFrame({"security": ["A"], identity_column: ["ID-A"], "weight": [1.0]}),
+        "VWCE",
+        "2026-07-10",
+        "issuer",
+        today="2026-07-11",
+    )
+    assert result.score_eligible is True
+
+
+def test_mixed_name_only_row_keeps_entire_holdings_set_context_only() -> None:
+    result = normalise_holdings(
+        pd.DataFrame({"security": ["A", "B"], "ticker": ["A", ""], "weight": [0.5, 0.5]}),
+        "VWCE",
+        "2026-07-10",
+        "issuer",
+        today="2026-07-11",
+    )
+    assert result.score_eligible is False
+    assert "missing_isin_or_ticker_manual_review" in result.warnings
+
+
+@pytest.mark.parametrize(
+    "result_factory",
+    [
+        lambda: normalise_holdings(pd.DataFrame({"security": ["A"], "ticker": ["A"], "weight": [-1.0]}), "VWCE", "2026-07-10", "issuer", today="2026-07-11"),
+        lambda: normalise_holdings(pd.DataFrame(), "VWCE", "2026-07-10", "issuer", today="2026-07-11"),
+        lambda: normalise_holdings(pd.DataFrame({"security": ["A"], "ticker": ["A"], "weight": [0.4]}), "VWCE", "2026-07-10", "issuer", today="2026-07-11"),
+        lambda: normalise_holdings(pd.DataFrame({"security": ["A"], "weight": [1.0]}), "VWCE", "2026-07-10", "issuer", today="2026-07-11"),
+    ],
+)
+def test_write_rejects_invalid_empty_and_ineligible_results_without_replacing_store(tmp_path: Path, result_factory) -> None:
+    destination = tmp_path / "fund_holdings.parquet"
+    valid = normalise_holdings(pd.DataFrame({"security": ["A"], "ticker": ["A"], "weight": [1.0]}), "VWCE", "2026-07-10", "issuer", today="2026-07-11")
+    write_holdings_records(valid, destination=destination)
+    prior_bytes = destination.read_bytes()
+    prior_csv_bytes = destination.with_suffix(".csv").read_bytes()
+    prior_data = pd.read_parquet(destination)
+
+    with pytest.raises(ValueError, match="score-eligible"):
+        write_holdings_records(result_factory(), destination=destination)
+
+    assert destination.read_bytes() == prior_bytes
+    assert destination.with_suffix(".csv").read_bytes() == prior_csv_bytes
+    pd.testing.assert_frame_equal(pd.read_parquet(destination), prior_data)
