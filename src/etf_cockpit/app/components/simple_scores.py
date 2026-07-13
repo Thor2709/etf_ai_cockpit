@@ -251,7 +251,7 @@ def _score_tile(item: SimpleInstrumentScore, history_rows: list[dict[str, object
         def open_detail(_event: ft.ControlEvent) -> None:
             from etf_cockpit.app.router import navigate_to, instrument_detail_route
 
-            navigate_to(page, state, instrument_detail_route(item.display_id))
+            navigate_to(page, state, instrument_detail_route(item.display_id), candidate_score=item)
 
         detail_button = ft.TextButton(
             "Open instrument detail",

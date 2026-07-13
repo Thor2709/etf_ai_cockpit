@@ -14,6 +14,7 @@ from etf_cockpit.backtest.engine import BacktestReport
 from etf_cockpit.app.components.simple_scores import simple_score_grouped_sections
 from etf_cockpit.core.config import ETFConfig
 from etf_cockpit.services import build_snapshot
+from etf_cockpit.signals.simple_scores import SimpleInstrumentScore, SimpleScoreComponent
 
 
 REQUIRED_SECTIONS = {
@@ -31,6 +32,49 @@ REQUIRED_SECTIONS = {
     "journal",
     "run_changes",
 }
+
+
+def _candidate_score(instrument_id: str, *, asset_type: str, source_group: str) -> SimpleInstrumentScore:
+    component = SimpleScoreComponent(
+        "momentum",
+        "Momentum",
+        7.0,
+        0.7,
+        "OK",
+        "",
+        "",
+        "Candidate score-row evidence.",
+        as_of_date="2026-07-13",
+        freshness_status="ok",
+    )
+    return SimpleInstrumentScore(
+        instrument_key=f"candidate:{instrument_id}",
+        display_id=instrument_id,
+        source_group=source_group,
+        asset_type=asset_type,
+        name=f"Candidate {instrument_id}",
+        yahoo_symbol=f"{instrument_id}.OL",
+        latest_date="2026-07-13",
+        latest_price=123.45,
+        final_score_10=7.5,
+        decision="Positive Evidence Candidate",
+        one_line_reason="Candidate score-row reason.",
+        components=[component],
+        warnings=[],
+        isin="needs_verification",
+        analysis_tier="sparebanken" if source_group == "Sparebanken" else "secondary",
+        data_policy="yfinance_only",
+        evidence_score_10=7.5,
+        evidence_quality_10=7.0,
+        risk_friction_10=6.5,
+        final_label="positive_evidence_candidate",
+        final_action="add_candidate",
+        cost_stress_scenario="base",
+        gross_expected_edge_bps=25.0,
+        estimated_total_cost_bps=8.0,
+        net_expected_edge_bps=17.0,
+        edge_to_cost_ratio=3.125,
+    )
 
 
 def test_instrument_detail_assembles_all_required_sections_and_derived_fields() -> None:
@@ -124,6 +168,51 @@ def test_instrument_detail_route_and_legacy_etf_compatibility(monkeypatch) -> No
     assert state.selected_etf == "VWCE"
 
 
+@pytest.mark.parametrize(
+    ("instrument_id", "asset_type", "source_group"),
+    [
+        ("candidate-etf", "ETF", "Secondary tier"),
+        ("candidate-stock", "Stock", "Secondary tier"),
+        ("candidate-spare", "Equity certificate", "Sparebanken"),
+    ],
+)
+def test_candidate_score_context_builds_detail_for_non_configured_rows(instrument_id: str, asset_type: str, source_group: str) -> None:
+    snapshot = build_snapshot()
+    score = _candidate_score(instrument_id, asset_type=asset_type, source_group=source_group)
+
+    model = build_instrument_detail(snapshot, instrument_id, candidate_score=score)
+
+    assert model.status == "ready"
+    assert model.identity["instrument_id"] == instrument_id
+    assert model.identity["name"] == score.name
+    assert model.identity["ticker"] == score.yahoo_symbol
+    assert model.identity["group"] == source_group
+    assert model.sections["price"]["status"] == "available"
+    assert model.sections["price"]["latest_price"] == score.latest_price
+    assert model.sections["scores"]["status"] == "available"
+    assert model.sections["scores"]["evidence_score"] == score.evidence_score_10
+    assert model.sections["scores"]["final_label"] == score.final_label
+    assert model.sections["fundamentals"]["status"] == "unavailable"
+    assert model.sections["news"]["status"] == "unavailable"
+    assert model.sections["forecasts"]["status"] == "unavailable"
+    assert model.sections["backtests"]["status"] == "unavailable"
+    assert model.sections["scores"]["execution_allowed"] is False
+
+
+def test_candidate_score_context_survives_score_row_navigation(monkeypatch) -> None:
+    snapshot = build_snapshot()
+    score = _candidate_score("candidate-nav", asset_type="Stock", source_group="Secondary tier")
+    state = type("State", (), {"selected_etf": "VWCE", "snapshot": snapshot})()
+    page = type("Page", (), {"route": "/"})()
+    monkeypatch.setattr(router, "render_shell", lambda *_args: None)
+
+    navigate_to(page, state, "/instrument/candidate-nav", candidate_score=score)
+
+    assert page.route == "/instrument/candidate-nav"
+    assert state.selected_etf == "candidate-nav"
+    assert state.selected_instrument_score is score
+
+
 def test_score_row_exposes_keyboard_operable_instrument_detail_action(monkeypatch) -> None:
     from etf_cockpit.signals.simple_scores import build_simple_instrument_scores
 
@@ -146,6 +235,7 @@ def test_score_row_exposes_keyboard_operable_instrument_detail_action(monkeypatc
     button.on_click(None)
     assert page.route == "/instrument/VWCE"
     assert state.selected_etf == "VWCE"
+    assert state.selected_instrument_score.display_id == "VWCE"
 
 
 def _text_values(control: object) -> list[str]:
@@ -555,7 +645,7 @@ def test_news_item_record_nullable_provenance_fails_closed() -> None:
     assert item["timestamp_status"] == "unavailable"
 
 
-@pytest.mark.parametrize("scenario", [["high"], {"level": "high"}, np.array(["high"]), 123])
+@pytest.mark.parametrize("scenario", ["stress", ["high"], {"level": "high"}, np.array(["high"]), 123])
 def test_friction_panel_malformed_scenarios_fail_closed_without_crashing(tmp_path, monkeypatch, scenario) -> None:
     import etf_cockpit.app.selectors.instrument_detail as selector
 
@@ -582,6 +672,67 @@ def test_friction_panel_malformed_scenarios_fail_closed_without_crashing(tmp_pat
     assert panel["cost_stress_scenario"] == "unavailable"
     assert panel["status"] == "manual_review"
     assert panel["execution_allowed"] is False
+
+
+@pytest.mark.parametrize("freshness", ["bogus", ["ok"], {"state": "ok"}, np.array(["ok"]), 123])
+def test_parsed_panel_malformed_freshness_metadata_fails_closed(freshness) -> None:
+    frame = pd.DataFrame(
+        {
+            "instrument_id": ["VWCE"],
+            "success": [True],
+            "manual_review": [False],
+            "score_eligible": [True],
+            "freshness_status": ["ok"],
+            "imported_at": ["2026-07-10"],
+        }
+    )
+    frame.at[0, "freshness_status"] = freshness
+
+    panel = _parsed_panel(frame, "VWCE", "kid", ("product",))
+
+    assert panel["status"] == "manual_review"
+    assert panel["manual_review"] is True
+    assert panel["freshness_status"] == "unavailable"
+    assert panel["score_eligible"] is False
+
+
+@pytest.mark.parametrize("quality", ["bogus", ["medium"], {"quality": "medium"}, np.array(["medium"]), 123])
+def test_backtest_panel_malformed_trust_quality_fails_closed(quality) -> None:
+    snapshot = build_snapshot()
+    custom = replace(
+        snapshot,
+        backtest=BacktestReport(
+            results=pd.DataFrame(),
+            equity_curves=pd.DataFrame(),
+            trade_log=pd.DataFrame([{"instrument_id": "VWCE", "trade_id": "trade-1"}]),
+            signal_log=pd.DataFrame([{"instrument_id": "VWCE", "signal_id": "signal-1"}]),
+            ai_added_value=False,
+        ),
+    )
+
+    panel = _backtest_panel(custom, "VWCE", {"backtest_trust_label": quality})
+
+    assert panel["status"] == "manual_review"
+    assert panel["trust"] == "unavailable"
+    assert panel["execution_allowed"] is False
+
+
+@pytest.mark.parametrize("eligibility", ["bogus", pd.NA, ["eligible"], {"state": "eligible"}, np.array(["eligible"])])
+def test_fundamentals_malformed_eligibility_fails_closed_even_when_score_eligible(eligibility) -> None:
+    panel_frame = pd.DataFrame(
+        {
+            "instrument_id": ["VWCE"],
+            "as_of_date": ["2026-07-10"],
+            "eligibility": [eligibility],
+            "score_eligible": [True],
+        }
+    )
+
+    panel = _fundamentals_panel("VWCE", panel_frame)
+
+    assert panel["status"] == "manual_review"
+    assert panel["manual_review"] is True
+    assert panel["score_eligible"] is False
 
 
 def test_score_panel_nullable_scoreboard_and_signal_values_fail_closed() -> None:

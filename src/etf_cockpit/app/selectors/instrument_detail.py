@@ -16,6 +16,7 @@ from etf_cockpit.data.score_history import score_history_frame
 from etf_cockpit.data.trust_artifacts import BENCHMARK_ATTRIBUTION_PATH, CORRELATION_CLUSTERS_PATH, FEATURE_DRIVERS_PATH
 from etf_cockpit.core.paths import DERIVED_DIR
 from etf_cockpit.services import CockpitSnapshot
+from etf_cockpit.signals.simple_scores import SimpleInstrumentScore
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,9 @@ _SECTION_NAMES = (
 )
 SCOREBOARD_PATH = DERIVED_DIR / "scoreboard.parquet"
 PAPER_TRADES_PATH = DERIVED_DIR / "paper_trades.parquet"
+_KNOWN_FRESHNESS_STATES = frozenset({"ok", "fresh", "warning", "stale", "stale_block", "missing", "missing_or_pending", "unknown", "not_checked", "unavailable"})
+_KNOWN_BACKTEST_QUALITIES = frozenset({"low", "medium", "high", "not_evaluated", "not_backtested_candidate", "unverified_backtest", "usable_low_authority", "weak_or_low_quality", "model_claim_unverified", "stale_universe", "unavailable"})
+_KNOWN_FUNDAMENTAL_ELIGIBILITY = frozenset({"eligible", "eligible_negative_evidence", "not_score_eligible"})
 
 
 def _unavailable(message: str) -> dict[str, Any]:
@@ -95,6 +99,45 @@ def _safe_text(value: object) -> str | None:
         return None
     text = value.strip()
     return text or None
+
+
+def _safe_known_text(value: object, allowed: frozenset[str]) -> str | None:
+    text = _safe_text(value)
+    if text is None:
+        return None
+    normalised = text.casefold()
+    return normalised if normalised in allowed else None
+
+
+def _safe_scalar_bool(value: object) -> tuple[bool, bool]:
+    """Return a boolean plus validity without coercing containers."""
+
+    if _is_missing_scalar(value):
+        return False, False
+    try:
+        if pd.api.types.is_bool(value):
+            return bool(value), True
+    except (TypeError, ValueError):
+        return False, False
+    if isinstance(value, str):
+        normalised = value.strip().casefold()
+        if normalised in {"1", "true", "yes", "y", "on"}:
+            return True, True
+        if normalised in {"0", "false", "no", "n", "off"}:
+            return False, True
+    return False, False
+
+
+def _safe_backtest_quality(value: object) -> str | None:
+    text = _safe_text(value)
+    if text is None:
+        return None
+    normalised = text.casefold()
+    if normalised in _KNOWN_BACKTEST_QUALITIES:
+        return normalised
+    if normalised.startswith(("low trust:", "medium trust:", "backtest trust pending:", "candidate not backtested:")):
+        return text
+    return None
 
 
 def _first_value(row: Mapping[str, Any], columns: tuple[str, ...], fallback: object = "unavailable") -> object:
@@ -312,13 +355,16 @@ def _fundamentals_panel(instrument_id: str, frame: pd.DataFrame | None = None) -
     if scoped.empty:
         return _unavailable("Fundamental evidence unavailable for this instrument.") | {"score_eligible": False}
     row = scoped.iloc[-1]
-    score_eligible = _safe_bool(row.get("score_eligible"), default=False)
+    eligibility = _safe_known_text(row.get("eligibility"), _KNOWN_FUNDAMENTAL_ELIGIBILITY)
+    score_eligible, score_eligible_valid = _safe_scalar_bool(row.get("score_eligible"))
     manual_review = _safe_bool(row.get("manual_review"), default=True) if "manual_review" in row.index else False
-    if manual_review:
+    metadata_valid = eligibility is not None and score_eligible_valid
+    if manual_review or not metadata_valid:
+        manual_review = True
         score_eligible = False
     return {
-        "status": "available" if score_eligible and not manual_review else "manual_review",
-        "eligibility": row.get("eligibility", "not_score_eligible"),
+        "status": "available" if score_eligible and eligibility in {"eligible", "eligible_negative_evidence"} and not manual_review else "manual_review",
+        "eligibility": eligibility or "unavailable",
         "score_eligible": score_eligible,
         "manual_review": manual_review,
         "source": row.get("source", row.get("source_authority", "unavailable")),
@@ -543,9 +589,10 @@ def _parsed_panel(frame: pd.DataFrame, instrument_id: str, kind: str, fields: tu
     success = _safe_bool(row.get("success"), default=False)
     manual_review = _safe_bool(row.get("manual_review"), default=True)
     score_eligible = _safe_bool(row.get("score_eligible"), default=False)
-    freshness_status = _value_or(row.get("freshness_status", "ok"), "unknown")
-    freshness_text = str(freshness_status)
-    available = success and not manual_review and freshness_text not in {"stale_block", "missing_or_pending", "unknown"}
+    freshness_raw = row.get("freshness_status", "ok")
+    freshness_text = _safe_known_text(freshness_raw, _KNOWN_FRESHNESS_STATES)
+    freshness_valid = freshness_text is not None
+    available = success and not manual_review and freshness_valid and freshness_text not in {"stale_block", "missing_or_pending", "unknown", "unavailable"}
     payload.update(
         {
             "status": "available" if available else "manual_review",
@@ -556,7 +603,7 @@ def _parsed_panel(frame: pd.DataFrame, instrument_id: str, kind: str, fields: tu
             "manual_review": manual_review or not available,
             "score_eligible": score_eligible if available else False,
             "source_authority": row.get("source_authority", "issuer_document"),
-            "freshness_status": freshness_status,
+            "freshness_status": freshness_text or "unavailable",
         }
     )
     return payload
@@ -568,20 +615,33 @@ def build_etf_disclosure_panel(model: InstrumentDetailViewModel) -> dict[str, An
     return value if isinstance(value, dict) else {"status": "unavailable", "document_inventory": [], "holdings": {"status": "unavailable"}, "kid": {"status": "unavailable"}, "methodology": {"status": "unavailable"}}
 
 
-def _friction_panel(instrument_id: str) -> dict[str, Any]:
+def _friction_panel(instrument_id: str, *, candidate_score: SimpleInstrumentScore | None = None) -> dict[str, Any]:
     fields = ("gross_expected_edge_bps", "estimated_total_cost_bps", "net_expected_edge_bps", "edge_to_cost_ratio")
     empty = {field: None for field in fields}
     empty.update({"cost_stress_scenario": "unavailable", "status": "unavailable", "execution_allowed": False})
-    if not SCOREBOARD_PATH.exists():
-        return empty
-    try:
-        frame = pd.read_parquet(SCOREBOARD_PATH)
-    except Exception:
-        return empty
-    rows = _instrument_rows(frame, instrument_id, columns=("display_id", "instrument_id", "etf_id"))
-    if rows.empty:
-        return empty
-    row = rows.iloc[-1]
+    if candidate_score is not None and str(candidate_score.display_id).strip() == str(instrument_id).strip():
+        row = pd.Series(
+            {
+                "gross_expected_edge_bps": candidate_score.gross_expected_edge_bps,
+                "estimated_total_cost_bps": candidate_score.estimated_total_cost_bps,
+                "net_expected_edge_bps": candidate_score.net_expected_edge_bps,
+                "edge_to_cost_ratio": candidate_score.edge_to_cost_ratio,
+                "cost_stress_scenario": candidate_score.cost_stress_scenario,
+                "source_id": candidate_score.instrument_key,
+                "source_authority": "score_row",
+            }
+        )
+    else:
+        if not SCOREBOARD_PATH.exists():
+            return empty
+        try:
+            frame = pd.read_parquet(SCOREBOARD_PATH)
+        except Exception:
+            return empty
+        rows = _instrument_rows(frame, instrument_id, columns=("display_id", "instrument_id", "etf_id"))
+        if rows.empty:
+            return empty
+        row = rows.iloc[-1]
     def _finite(value: object) -> float | None:
         try:
             number = float(value)  # type: ignore[arg-type]
@@ -590,13 +650,8 @@ def _friction_panel(instrument_id: str) -> dict[str, Any]:
         return number if math.isfinite(number) else None
 
     result = {field: _finite(row.get(field)) if field in row.index else None for field in fields}
-    scenario_text = _safe_text(row.get("cost_stress_scenario"))
-    scenario_valid = scenario_text is not None and scenario_text.casefold() not in {
-        "unavailable",
-        "unknown",
-        "not_evaluated",
-        "not_available_no_score",
-    }
+    scenario_text = _safe_known_text(row.get("cost_stress_scenario"), frozenset({"low", "base", "high"}))
+    scenario_valid = scenario_text is not None
     if not scenario_valid:
         scenario_text = "unavailable"
     numeric_available = any(result[field] is not None for field in fields)
@@ -612,9 +667,28 @@ def _friction_panel(instrument_id: str) -> dict[str, Any]:
     return result
 
 
-def _price_panel(snapshot: CockpitSnapshot, instrument_id: str) -> dict[str, Any]:
+def _price_panel(snapshot: CockpitSnapshot, instrument_id: str, *, candidate_score: SimpleInstrumentScore | None = None) -> dict[str, Any]:
     rows = _instrument_rows(getattr(snapshot, "prices", None), instrument_id)
     if rows.empty:
+        if _candidate_score_matches(candidate_score, instrument_id):
+            candidate_price = _safe_float(candidate_score.latest_price)  # type: ignore[union-attr]
+            candidate_date = _safe_text(candidate_score.latest_date)  # type: ignore[union-attr]
+            if candidate_price is not None or candidate_date is not None:
+                return {
+                    "status": "available" if candidate_price is not None and candidate_date is not None else "manual_review",
+                    "rows": 0,
+                    "history": [],
+                    "latest_price": candidate_price,
+                    "latest_date": candidate_date or "unavailable",
+                    "as_of": candidate_date or "unavailable",
+                    "freshness": _candidate_freshness(candidate_score),  # type: ignore[arg-type]
+                    "source": "score_row",
+                    "currency": "unavailable",
+                    "execution_allowed": False,
+                    "source_id": candidate_score.instrument_key,  # type: ignore[union-attr]
+                    "source_authority": "score_row",
+                    "conflict_id": "unavailable",
+                }
         return _unavailable("Price history unavailable for this instrument.") | {"rows": [], "history": []}
     date_column = "date" if "date" in rows.columns else "as_of_date" if "as_of_date" in rows.columns else None
     if date_column is not None:
@@ -652,7 +726,36 @@ def _price_panel(snapshot: CockpitSnapshot, instrument_id: str) -> dict[str, Any
     }
 
 
-def _scoreboard_row(instrument_id: str) -> dict[str, Any]:
+def _candidate_score_matches(candidate_score: SimpleInstrumentScore | None, instrument_id: str) -> bool:
+    return candidate_score is not None and str(getattr(candidate_score, "display_id", "")).strip() == str(instrument_id).strip()
+
+
+def _candidate_freshness(candidate_score: SimpleInstrumentScore) -> str:
+    for component in candidate_score.components:
+        status = _safe_known_text(getattr(component, "freshness_status", None), _KNOWN_FRESHNESS_STATES)
+        if status is not None:
+            return status
+    return "unknown"
+
+
+def _candidate_scoreboard(candidate_score: SimpleInstrumentScore) -> dict[str, Any]:
+    return {
+        "display_id": candidate_score.display_id,
+        "instrument_id": candidate_score.display_id,
+        "evidence_score_10": candidate_score.evidence_score_10,
+        "evidence_quality_10": candidate_score.evidence_quality_10,
+        "final_label": candidate_score.final_label,
+        "final_action": candidate_score.final_action,
+        "one_line_reason": candidate_score.one_line_reason,
+        "freshness_status": _candidate_freshness(candidate_score),
+        "source_id": candidate_score.instrument_key,
+        "source_authority": "score_row",
+    }
+
+
+def _scoreboard_row(instrument_id: str, *, candidate_score: SimpleInstrumentScore | None = None) -> dict[str, Any]:
+    if _candidate_score_matches(candidate_score, instrument_id):
+        return _candidate_scoreboard(candidate_score)  # type: ignore[arg-type]
     frame = _load_parquet(SCOREBOARD_PATH)
     rows = _instrument_rows(frame, instrument_id, columns=("instrument_id", "display_id", "etf_id"))
     return rows.iloc[-1].to_dict() if not rows.empty else {}
@@ -771,11 +874,26 @@ def _backtest_panel(snapshot: CockpitSnapshot, instrument_id: str, scoreboard: M
     report = getattr(snapshot, "backtest", None)
     signal_log = _instrument_rows(getattr(report, "signal_log", None), instrument_id)
     trade_log = _instrument_rows(getattr(report, "trade_log", None), instrument_id)
-    quality = _first_value(scoreboard, ("backtest_trust_label", "backtest_validity"), fallback=None)
-    if signal_log.empty and trade_log.empty and quality is None:
+    quality_raw = None
+    quality_present = False
+    scoreboard_quality_seen = False
+    for key in ("backtest_trust_label", "backtest_validity"):
+        if key in scoreboard:
+            scoreboard_quality_seen = True
+        if key in scoreboard and not _is_missing_scalar(scoreboard.get(key)):
+            quality_raw = scoreboard.get(key)
+            quality_present = True
+            break
+    quality = _safe_backtest_quality(quality_raw)
+    report_quality_raw = getattr(report, "quality_label", None)
+    if not quality_present and not scoreboard_quality_seen and report is not None and (not signal_log.empty or not trade_log.empty) and not _is_missing_scalar(report_quality_raw):
+        quality_raw = report_quality_raw
+        quality_present = True
+        quality = _safe_backtest_quality(report_quality_raw)
+    if signal_log.empty and trade_log.empty and not quality_present:
         return _unavailable("Backtest trust unavailable for this instrument.") | {"trust": "unavailable", "signal_rows": [], "trade_rows": []}
     metadata_source = scoreboard or (signal_log.iloc[-1] if not signal_log.empty else trade_log.iloc[-1])
-    trust = _value_or(quality, "unavailable")
+    trust = quality or "unavailable"
     return {"status": "available" if quality is not None else "manual_review", "trust": trust, "signal_rows": signal_log.to_dict("records"), "trade_rows": trade_log.to_dict("records"), "execution_allowed": False, **_provenance_fields(metadata_source)}
 
 
@@ -821,6 +939,32 @@ def _journal_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dic
     return {"status": "available", "entries": rows.to_dict("records"), "execution_allowed": False, **_provenance_fields(rows.iloc[-1])}
 
 
+def _candidate_identity_panel(instrument_id: str, candidate_score: SimpleInstrumentScore) -> dict[str, Any]:
+    source_group = _safe_text(candidate_score.source_group) or "unavailable"
+    analysis_tier = _safe_text(candidate_score.analysis_tier) or "unavailable"
+    asset_type = _safe_text(candidate_score.asset_type) or "unavailable"
+    return {
+        "status": "available",
+        "instrument_id": instrument_id,
+        "name": _safe_text(candidate_score.name) or instrument_id,
+        "ticker": _safe_text(candidate_score.yahoo_symbol) or "unavailable",
+        "isin": _safe_text(candidate_score.isin) or "needs_verification",
+        "asset_type": asset_type,
+        "asset_class": "unavailable",
+        "group": source_group,
+        "analysis_tier": analysis_tier,
+        "exchange": "unavailable",
+        "currency": "unavailable",
+        "region": "unavailable",
+        "sector": "unavailable",
+        "theme": "unavailable",
+        "source_id": candidate_score.instrument_key,
+        "source_authority": "score_row",
+        "conflict_id": "unavailable",
+        "execution_allowed": False,
+    }
+
+
 def build_instrument_detail(
     snapshot: CockpitSnapshot,
     instrument_id: str,
@@ -834,9 +978,14 @@ def build_instrument_detail(
     score_history: pd.DataFrame | None = None,
     paper_trades: pd.DataFrame | None = None,
     journal: pd.DataFrame | None = None,
+    candidate_score: SimpleInstrumentScore | None = None,
 ) -> InstrumentDetailViewModel:
     identity = next((item for item in snapshot.config.universe.etfs if item.id == instrument_id), None)
-    if identity is None:
+    # Configured identities remain backed by canonical snapshot stores.  The
+    # score-row context is only a fallback for secondary/Sparebanken rows that
+    # are intentionally absent from the configured universe.
+    candidate = candidate_score if identity is None and _candidate_score_matches(candidate_score, instrument_id) else None
+    if identity is None and candidate is None:
         return InstrumentDetailViewModel(instrument_id, instrument_id, "unavailable", {"instrument_id": instrument_id}, {name: "unavailable" for name in _SECTION_NAMES})
     signal = next((item for item in getattr(snapshot, "signals", ()) if item.etf_id == instrument_id), None)
     features = _instrument_rows(getattr(snapshot, "latest_features", None), instrument_id)
@@ -845,35 +994,40 @@ def build_instrument_detail(
         if not all_features.empty and "date" in all_features.columns:
             features = all_features.sort_values("date", kind="stable").tail(1)
     derived = _derived_evidence_panel(instrument_id)
-    friction = _friction_panel(instrument_id)
-    scoreboard = _scoreboard_row(instrument_id)
-    group = str(getattr(identity, "source_group", "") or ("Sparebanken" if str(identity.instrument_type).casefold() in {"equity_certificate", "certificate"} else identity.analysis_tier or "unavailable"))
-    identity_panel = {
-        "status": "available",
-        "instrument_id": instrument_id,
-        "name": identity.name,
-        "ticker": identity.ticker,
-        "isin": identity.isin or "needs_verification",
-        "asset_type": identity.instrument_type or identity.asset_class,
-        "asset_class": identity.asset_class,
-        "group": group,
-        "exchange": identity.exchange or "unavailable",
-        "currency": identity.currency or "unavailable",
-        "region": identity.region or "unavailable",
-        "sector": identity.sector or "unavailable",
-        "theme": identity.theme or "unavailable",
-        "source_id": f"config:universe:{instrument_id}",
-        "execution_allowed": False,
-    }
+    friction = _friction_panel(instrument_id, candidate_score=candidate)
+    scoreboard = _scoreboard_row(instrument_id, candidate_score=candidate)
+    if candidate is not None:
+        identity_panel = _candidate_identity_panel(instrument_id, candidate)
+        display_name = identity_panel["name"]
+    else:
+        group = str(getattr(identity, "source_group", "") or ("Sparebanken" if str(identity.instrument_type).casefold() in {"equity_certificate", "certificate"} else identity.analysis_tier or "unavailable"))
+        identity_panel = {
+            "status": "available",
+            "instrument_id": instrument_id,
+            "name": identity.name,
+            "ticker": identity.ticker,
+            "isin": identity.isin or "needs_verification",
+            "asset_type": identity.instrument_type or identity.asset_class,
+            "asset_class": identity.asset_class,
+            "group": group,
+            "exchange": identity.exchange or "unavailable",
+            "currency": identity.currency or "unavailable",
+            "region": identity.region or "unavailable",
+            "sector": identity.sector or "unavailable",
+            "theme": identity.theme or "unavailable",
+            "source_id": f"config:universe:{instrument_id}",
+            "execution_allowed": False,
+        }
+        display_name = identity.name
     disclosure = _etf_disclosure_panel(instrument_id, document_registry=document_registry, holdings=holdings, kid_records=kid_records, methodology_records=methodology_records)
     return InstrumentDetailViewModel(
         instrument_id,
-        identity.name,
+        display_name,
         "ready",
         identity_panel,
         {
             "identity": identity_panel,
-            "price": _price_panel(snapshot, instrument_id),
+            "price": _price_panel(snapshot, instrument_id, candidate_score=candidate),
             "scores": _score_panel(signal, scoreboard, derived, friction),
             "feature_drivers": _feature_driver_panel(instrument_id),
             "risk": _risk_panel(features, friction, derived["crowding"]),

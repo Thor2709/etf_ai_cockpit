@@ -27,7 +27,7 @@ from etf_cockpit.models.calibration import evaluate_forecast_calibration, load_f
 from etf_cockpit.operations.event_store import current_activity_view, load_events_with_tail_recovery
 from etf_cockpit.portfolio.review_reports import create_portfolio_review_report
 from etf_cockpit.services import ChatGPTBridge, CockpitSnapshot, DataService, build_snapshot
-from etf_cockpit.signals.simple_scores import build_simple_instrument_scores, load_latest_candidate_report, simple_scoreboard_frame, write_simple_scoreboard
+from etf_cockpit.signals.simple_scores import SimpleInstrumentScore, build_simple_instrument_scores, load_latest_candidate_report, simple_scoreboard_frame, write_simple_scoreboard
 
 
 # Compatibility seam for existing callers and tests. This is the session trace,
@@ -128,6 +128,7 @@ class AppState:
     workflow_controller: WorkflowController = field(default_factory=WorkflowController, repr=False)
     error_store: ErrorStore = field(default_factory=ErrorStore, repr=False)
     universe_cache_revision: str = ""
+    selected_instrument_score: SimpleInstrumentScore | None = None
 
     @classmethod
     def load(cls) -> "AppState":

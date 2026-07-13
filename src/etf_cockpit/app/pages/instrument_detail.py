@@ -245,7 +245,7 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
     selected = route.split("/", 2)[-1].split("?", 1)[0].split("#", 1)[0] if route.startswith("/instrument/") else state.selected_etf
     if selected:
         state.selected_etf = selected
-    model = build_instrument_detail(state.snapshot, selected)
+    model = build_instrument_detail(state.snapshot, selected, candidate_score=getattr(state, "selected_instrument_score", None))
     export_status = ft.Text(
         "Audit evidence export unavailable for this selection."
         if model.status == "unavailable" or not callable(getattr(state, "export_audit_packet", None))

@@ -80,11 +80,12 @@ def _page_route(route: str) -> str:
     return value
 
 
-def navigate_to(page: ft.Page, state: AppState, route: str) -> None:
+def navigate_to(page: ft.Page, state: AppState, route: str, *, candidate_score: object | None = None) -> None:
     if str(route).startswith("/instrument/"):
         selected = str(route).split("/", 2)[-1].strip()
         if selected:
             state.selected_etf = selected
+            state.selected_instrument_score = candidate_score
     go = getattr(page, "go", None)
     if callable(go):
         go(route)
