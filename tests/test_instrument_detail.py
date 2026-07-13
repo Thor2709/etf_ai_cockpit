@@ -322,3 +322,36 @@ def test_instrument_detail_news_is_sorted_by_published_then_ingested_time() -> N
     )
 
     assert [item["news_id"] for item in model.sections["news"]["items"]] == ["older", "newer"]
+
+
+def test_instrument_detail_surfaces_cost_edge_fields_and_unavailable_state(tmp_path, monkeypatch) -> None:
+    import etf_cockpit.app.selectors.instrument_detail as selector
+
+    snapshot = build_snapshot()
+    instrument_id = snapshot.config.universe.enabled_ids[0]
+    scoreboard_path = tmp_path / "scoreboard.parquet"
+    pd.DataFrame(
+        [{
+            "display_id": instrument_id,
+            "gross_expected_edge_bps": 42.0,
+            "estimated_total_cost_bps": 7.0,
+            "net_expected_edge_bps": 35.0,
+            "edge_to_cost_ratio": 5.0,
+            "cost_stress_scenario": "high",
+        }]
+    ).to_parquet(scoreboard_path, index=False)
+    monkeypatch.setattr(selector, "SCOREBOARD_PATH", scoreboard_path)
+
+    model = build_instrument_detail(snapshot, instrument_id)
+    friction = model.sections["scores"]["friction"]
+    assert friction["gross_expected_edge_bps"] == 42.0
+    assert friction["estimated_total_cost_bps"] == 7.0
+    assert friction["net_expected_edge_bps"] == 35.0
+    assert friction["edge_to_cost_ratio"] == 5.0
+    assert friction["cost_stress_scenario"] == "high"
+    assert friction["status"] == "available"
+
+    monkeypatch.setattr(selector, "SCOREBOARD_PATH", tmp_path / "missing.parquet")
+    unavailable = build_instrument_detail(snapshot, instrument_id)
+    assert unavailable.sections["scores"]["friction"]["status"] == "unavailable"
+    assert unavailable.sections["scores"]["friction"]["gross_expected_edge_bps"] is None

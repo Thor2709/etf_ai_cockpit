@@ -579,7 +579,10 @@ def build_simple_instrument_scores(
         [*universe_scores, *candidate_scores],
         key=lambda item: (item.final_score_10 is None, -(item.final_score_10 or -1.0), item.display_id),
     )
-    ranked_instruments = [score.display_id for score in scores]
+    # Concentration evidence is intentionally scoped to an explicit top-ranked
+    # cohort. Including every scored row with equal weight would turn the
+    # crowding summary into a universe average unrelated to the ranked ideas.
+    ranked_instruments = [score.display_id for score in scores[:10]]
     ranked_crowding = build_correlation_clusters(
         prices,
         metadata,

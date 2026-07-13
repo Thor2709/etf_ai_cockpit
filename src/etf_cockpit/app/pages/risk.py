@@ -9,8 +9,11 @@ from etf_cockpit.app.state import AppState
 from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH, normalise_holdings
 from etf_cockpit.data.trust_artifacts import CORRELATION_CLUSTERS_PATH, BENCHMARK_ATTRIBUTION_PATH
 from etf_cockpit.data.reference_data import load_reference_dataset
+from etf_cockpit.core.paths import DERIVED_DIR
 from etf_cockpit.portfolio.allocation import allocation_frame, exposure_summary
 from etf_cockpit.portfolio.risk_analytics import drawdown_contribution, exposure_limit_report, return_correlation_matrix, underlying_holdings_exposure
+
+SCOREBOARD_PATH = DERIVED_DIR / "scoreboard.parquet"
 
 
 def _pct(value: object) -> str:
@@ -288,14 +291,83 @@ def _crowding_attribution_panel() -> ft.Control:
         return panel(ft.Column([section_header("Crowding and attribution", "Trust evidence from clean adjusted-price returns."), ft.Text("Correlation and benchmark attribution evidence is unavailable; no cluster or sector-relative conclusion is inferred.", color=theme.MUTED)]))
     warnings = crowding[crowding.get("crowding_warning", pd.Series(dtype=str)).astype(str).str.contains("warning", na=False)] if not crowding.empty else pd.DataFrame()
     sector_available = int((attribution.get("sector_attribution_status", pd.Series(dtype=str)).astype(str) == "available").sum()) if not attribution.empty else 0
+    theme_available = int((attribution.get("theme_attribution_status", pd.Series(dtype=str)).astype(str) == "available").sum()) if not attribution.empty else 0
+    broad_available = int(
+        pd.to_numeric(attribution.get("benchmark_return", pd.Series(dtype=float)), errors="coerce").notna().sum()
+    ) if not attribution.empty else 0
     risk_contribution = pd.to_numeric(crowding.get("cluster_risk_contribution", pd.Series(dtype=float)), errors="coerce") if not crowding.empty else pd.Series(dtype=float)
     top_contribution = float(risk_contribution.max()) if not risk_contribution.dropna().empty else None
     coverage = pd.to_numeric(crowding.get("ranking_coverage", pd.Series(dtype=float)), errors="coerce") if not crowding.empty else pd.Series(dtype=float)
     mean_coverage = float(coverage.mean()) if not coverage.dropna().empty else None
     return panel(ft.Column([
         section_header("Crowding and attribution", "Configured metadata and clean adjusted-price evidence; diagnostics are descriptive and non-executable."),
-        ft.Text(f"Clusters with warnings: {len(warnings)} | highest cluster risk contribution: {_number(top_contribution)} | mean ranking coverage: {_number(mean_coverage)} | sector-relative rows available: {sector_available} | execution_allowed=false", color=theme.MUTED, selectable=True),
+        ft.Text(f"Clusters with warnings: {len(warnings)} | highest cluster risk contribution: {_number(top_contribution)} | mean ranking coverage: {_number(mean_coverage)} | execution_allowed=false", color=theme.MUTED, selectable=True),
+        ft.Text(f"Broad benchmark attribution: {broad_available} rows available | Sector attribution: {sector_available} rows available | Theme attribution: {theme_available} rows available | horizons use clean overlapping returns; unavailable or insufficient evidence is N/A.", color=theme.MUTED, selectable=True),
     ]))
+
+
+def _friction_edge_panel() -> ft.Control:
+    """Show persisted gross/net edge and cost scenarios as risk evidence."""
+
+    try:
+        scoreboard = pd.read_parquet(SCOREBOARD_PATH) if SCOREBOARD_PATH.exists() else pd.DataFrame()
+    except Exception:
+        scoreboard = pd.DataFrame()
+    required = {"gross_expected_edge_bps", "estimated_total_cost_bps", "net_expected_edge_bps", "edge_to_cost_ratio", "cost_stress_scenario"}
+    id_column = next((column for column in ("display_id", "instrument_id", "etf_id") if column in scoreboard.columns), None)
+    if scoreboard.empty or id_column is None or not required.issubset(scoreboard.columns):
+        return panel(
+            ft.Column(
+                [
+                    section_header("Expected edge and trading costs", "Gross/net edge, estimated cost, ratio and stress scenario are descriptive evidence only."),
+                    ft.Text("Expected edge and cost evidence unavailable; no scenario conclusion is inferred.", color=theme.MUTED, selectable=True),
+                ]
+            )
+        )
+
+    def _bps(value: object) -> str:
+        try:
+            return f"{float(value):.2f} bps"
+        except (TypeError, ValueError):
+            return "N/A"
+
+    def _ratio(value: object) -> str:
+        try:
+            return f"{float(value):.2f}"
+        except (TypeError, ValueError):
+            return "N/A"
+
+    rows = [
+        ft.DataRow(
+            cells=[
+                ft.DataCell(ft.Text(str(row.get(id_column, "N/A")), color=theme.TEXT, size=11)),
+                ft.DataCell(ft.Text(_bps(row.get("gross_expected_edge_bps")), color=theme.TEXT, size=11)),
+                ft.DataCell(ft.Text(_bps(row.get("estimated_total_cost_bps")), color=theme.MUTED, size=11)),
+                ft.DataCell(ft.Text(_bps(row.get("net_expected_edge_bps")), color=theme.TEXT, size=11)),
+                ft.DataCell(ft.Text(_ratio(row.get("edge_to_cost_ratio")), color=theme.TEXT, size=11)),
+                ft.DataCell(ft.Text(str(row.get("cost_stress_scenario") or "unavailable"), color=theme.MUTED, size=11)),
+            ]
+        )
+        for _, row in scoreboard.iterrows()
+    ]
+    summary = [
+        f"{row.get(id_column, 'N/A')}: Gross edge {_bps(row.get('gross_expected_edge_bps'))} | Estimated cost {_bps(row.get('estimated_total_cost_bps'))} | Net edge {_bps(row.get('net_expected_edge_bps'))} | Edge/cost {_ratio(row.get('edge_to_cost_ratio'))} | Cost scenario: {row.get('cost_stress_scenario') or 'unavailable'}"
+        for _, row in scoreboard.iterrows()
+    ]
+    return panel(
+        ft.Column(
+            [
+                section_header("Expected edge and trading costs", "Gross/net edge, estimated cost, ratio and stress scenario are descriptive evidence only."),
+                *[ft.Text(line, color=theme.MUTED, size=11, selectable=True) for line in summary],
+                ft.DataTable(
+                    columns=[ft.DataColumn(ft.Text(column, color=theme.TEXT, size=11)) for column in ("Instrument", "Gross edge", "Estimated cost", "Net edge", "Edge/cost", "Cost scenario")],
+                    rows=rows,
+                ),
+                ft.Text("execution_allowed=false", color=theme.MUTED, size=11),
+            ],
+            scroll=ft.ScrollMode.AUTO,
+        )
+    )
 
 
 def _drawdown_table(contribution: pd.DataFrame) -> ft.Control:
@@ -377,6 +449,7 @@ def risk_page(_page: ft.Page, state: AppState) -> ft.Control:
             _underlying_holdings_panel(eligible_holdings, allocation),
             _correlation_table(correlation),
             _crowding_attribution_panel(),
+            _friction_edge_panel(),
             _drawdown_table(contribution),
         ],
         expand=True,

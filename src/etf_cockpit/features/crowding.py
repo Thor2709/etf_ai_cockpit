@@ -95,6 +95,7 @@ def build_correlation_clusters(
             max((sum(normalised_weights.get(member, 0.0) for member in group) for group in groups.values()), default=0.0),
             6,
         )
+    risk_by_cluster = _cluster_risk_contributions(returns, groups, normalised_weights, min_pair_samples)
     rows: list[ClusterRow] = []
     for members in sorted(groups.values(), key=lambda values: values[0]):
         members = tuple(sorted(members))
@@ -106,35 +107,31 @@ def build_correlation_clusters(
         cluster_warning = "high_correlation_cluster_warning" if len(members) > 1 else "no_cluster_warning"
         if cluster_warning == "no_cluster_warning" and dominant_theme:
             cluster_warning = theme_warning
+        selected_members = [member for member in members if member in normalised_weights]
         cluster_weight = None
         cluster_risk_contribution = None
         if normalised_weights:
-            cluster_weight = round(sum(normalised_weights.get(member, 0.0) for member in members), 6)
-            pair_values = []
-            for left_index, left in enumerate(members):
-                for right in members[left_index + 1 :]:
-                    pair_value = _safe_float(corr.loc[left, right])
-                    if pair_value is not None:
-                        pair_values.append(pair_value)
-            average_cluster_correlation = max(0.0, sum(pair_values) / len(pair_values)) if pair_values else 0.0
-            cluster_risk_contribution = round(cluster_weight * average_cluster_correlation, 6)
+            if selected_members:
+                cluster_weight = round(sum(normalised_weights.get(member, 0.0) for member in selected_members), 6)
+                cluster_risk_contribution = risk_by_cluster.get(cluster_id)
         cluster_label = "High correlation cluster" if len(members) > 1 else "Singleton / no correlated peer"
         if dominant_theme:
             cluster_label += f" ({dominant_theme})"
         for instrument_id in members:
             peers = corr[instrument_id].drop(labels=[instrument_id], errors="ignore").dropna()
             valid_peer_values = []
-            pair_sample_size = 0
+            pair_sample_counts: list[int] = []
             for peer in peers.index:
                 pair_count = int(returns[[instrument_id, peer]].dropna().shape[0])
                 if pair_count >= min_pair_samples:
                     valid_peer_values.append(float(peers.loc[peer]))
-                    pair_sample_size = max(pair_sample_size, pair_count)
+                    pair_sample_counts.append(pair_count)
             clean_sample_size = int(returns[instrument_id].notna().sum())
             average_peer = _safe_float(sum(valid_peer_values) / len(valid_peer_values)) if valid_peer_values else None
             row_warning = cluster_warning
             if average_peer is None and (clean_sample_size < min_pair_samples or not valid_peer_values):
                 row_warning = "correlation_coverage_unavailable"
+            pair_sample_size = min(pair_sample_counts, default=0)
             row_coverage = None if clean_sample_size == 0 else round(pair_sample_size / clean_sample_size, 6)
             item = labels.get(instrument_id, {})
             rows.append(
@@ -214,6 +211,58 @@ def _requested_ranking_count(
     if ranked_instruments is not None:
         return len({str(value) for value in ranked_instruments})
     return len({str(key) for key in (weights or {})})
+
+
+def _cluster_risk_contributions(
+    returns: pd.DataFrame,
+    groups: Mapping[str, list[str]],
+    weights: Mapping[str, float],
+    min_pair_samples: int,
+) -> dict[str, float]:
+    """Estimate covariance-adjusted cluster risk while retaining singleton weight.
+
+    The multiplier compares each cluster's covariance variance with the variance
+    implied by its weighted average constituent volatility.  A singleton has a
+    multiplier of one, so its published contribution remains its selected
+    portfolio weight rather than collapsing to zero because it has no peer.
+    """
+
+    if not weights:
+        return {}
+    selected = [instrument_id for instrument_id in weights if instrument_id in returns.columns]
+    if not selected:
+        return {}
+    covariance = returns[selected].cov(min_periods=min_pair_samples).reindex(index=selected, columns=selected)
+    variances = pd.to_numeric(pd.Series({instrument_id: covariance.loc[instrument_id, instrument_id] for instrument_id in selected}), errors="coerce")
+    fallback_variances = returns[selected].var(skipna=True).reindex(selected)
+    variances = variances.fillna(fallback_variances).fillna(0.0).clip(lower=0.0)
+    covariance = covariance.fillna(0.0)
+    for instrument_id in selected:
+        covariance.loc[instrument_id, instrument_id] = float(variances.loc[instrument_id])
+
+    raw_contributions: dict[str, float] = {}
+    for members in groups.values():
+        selected_members = [member for member in members if member in weights and member in covariance.columns]
+        if not selected_members:
+            continue
+        cluster_id = "cluster_" + "_".join(sorted(members))
+        cluster_weight = sum(float(weights[member]) for member in selected_members)
+        if cluster_weight <= 0.0:
+            continue
+        vector = pd.Series({member: float(weights[member]) for member in selected_members})
+        sub_covariance = covariance.loc[selected_members, selected_members]
+        cluster_variance = float(vector.to_numpy() @ sub_covariance.to_numpy() @ vector.to_numpy())
+        weighted_average_variance = sum(
+            (float(weights[member]) / cluster_weight) * float(variances.loc[member])
+            for member in selected_members
+        )
+        denominator = cluster_weight * cluster_weight * weighted_average_variance
+        multiplier = cluster_variance / denominator if denominator > 0.0 else 1.0
+        raw_contributions[cluster_id] = max(0.0, cluster_weight * multiplier)
+    total = sum(raw_contributions.values())
+    if total <= 0.0:
+        return {}
+    return {cluster_id: round(value / total, 6) for cluster_id, value in raw_contributions.items()}
 
 
 def _price_frame(prices: pd.DataFrame) -> pd.DataFrame:

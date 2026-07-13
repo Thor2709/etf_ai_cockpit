@@ -162,6 +162,27 @@ def test_theme_only_metadata_maps_to_configured_theme_peers() -> None:
     assert attribution["AI_A"]["sector_attribution_status"] == "N/A"
 
 
+def test_peer_attribution_does_not_forward_fill_a_single_peer_observation() -> None:
+    dates = pd.bdate_range("2025-01-01", periods=140)
+    rows = []
+    for index, dt in enumerate(dates):
+        rows.append({"date": dt, "etf_id": "BENCH", "adjusted_close": 100.0 + index * 0.2})
+        rows.append({"date": dt, "etf_id": "ALT", "adjusted_close": 100.0 + index * 0.3})
+        if index == 0:
+            rows.append({"date": dt, "etf_id": "PEER", "adjusted_close": 100.0})
+    prices = pd.DataFrame(rows)
+
+    attribution = build_benchmark_attribution_lookup(
+        prices,
+        window=120,
+        benchmark_id="BENCH",
+        metadata={"ALT": {"sector": "Technology"}, "PEER": {"sector": "Technology"}},
+    )
+
+    assert attribution["ALT"]["sector_attribution_status"] == "N/A"
+    assert attribution["ALT"]["sector_sample_size"] == 0
+
+
 def test_strategy_template_library_assigns_stock_and_etf_templates() -> None:
     etf_templates = strategy_template_labels(
         asset_type="ETF",
