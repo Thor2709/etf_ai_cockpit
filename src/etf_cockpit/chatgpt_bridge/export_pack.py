@@ -18,9 +18,8 @@ from etf_cockpit.core.session_log import SESSION_LOG_PATH, copy_session_log_to
 from etf_cockpit.core.types import DataQualityReport, SignalResult
 from etf_cockpit.data.fx_data import fx_data_inventory
 from etf_cockpit.data.manual_notes import MANUAL_NEWS_CLEAN_PATH, load_manual_news, manual_news_markdown
-from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH
-from etf_cockpit.data.fundamentals import FUNDAMENTAL_RAW_DIR
-from etf_cockpit.data.news_context import NEWS_RAW_DIR
+from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH, FUNDAMENTAL_RAW_DIR, load_fundamental_evidence
+from etf_cockpit.data.news_context import NEWS_RAW_DIR, load_news_items
 from etf_cockpit.data.reference_data import reference_data_inventory
 from etf_cockpit.data.trust_artifacts import (
     BENCHMARK_ATTRIBUTION_PATH,
@@ -214,7 +213,7 @@ def export_review_pack(
     (export_dir / "05_backtest_summary.json").write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
     manual_news = load_manual_news(MANUAL_NEWS_CLEAN_PATH)
     news_markdown = manual_news_markdown(manual_news)
-    canonical_news = _safe_optional_frame(NEWS_CONTEXT_PATH)
+    canonical_news = load_news_items(NEWS_CONTEXT_PATH)
     if not canonical_news.empty:
         news_markdown += "\n## Canonical point-in-time news/context\n\n"
         news_markdown += "News is context-only (`executable_authority=false`) and unavailable rows are not backtest inputs.\n\n"
@@ -224,7 +223,7 @@ def export_review_pack(
                 f"provider={row.get('provider_name', 'unavailable')} | source_url={row.get('source_url', 'unavailable')} | "
                 f"status={row.get('timestamp_status', 'unavailable')} | executable_authority=false\n"
             )
-    fundamentals = _safe_optional_frame(FUNDAMENTAL_CLEAN_PATH)
+    fundamentals = load_fundamental_evidence(FUNDAMENTAL_CLEAN_PATH)
     if not fundamentals.empty:
         news_markdown += "\n## Fundamental evidence inventory\n\n"
         for _, row in fundamentals.tail(20).iterrows():
