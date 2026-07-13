@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import numpy as np
 import pandas as pd
 import pytest
 
 from etf_cockpit.app import router
 from etf_cockpit.app.router import PAGES, _page_route, navigate_to
-from etf_cockpit.app.pages.instrument_detail import _render_evidence_section
-from etf_cockpit.app.selectors.instrument_detail import _attribution_panel, _derived_evidence_panel, _etf_disclosure_panel, _feature_driver_panel, _friction_panel, _instrument_rows, _parsed_panel, _run_changes_panel, build_instrument_detail
+from etf_cockpit.app.pages.instrument_detail import _render_crowding_attribution_panel, _render_evidence_section, instrument_detail_page
+from etf_cockpit.app.selectors.instrument_detail import _attribution_panel, _derived_evidence_panel, _etf_disclosure_panel, _feature_driver_panel, _friction_panel, _fundamentals_panel, _instrument_rows, _parsed_panel, _run_changes_panel, _safe_bool, build_instrument_detail
 from etf_cockpit.backtest.engine import BacktestReport
 from etf_cockpit.app.components.simple_scores import simple_score_grouped_sections
 from etf_cockpit.core.config import ETFConfig
@@ -160,6 +161,15 @@ def _text_values(control: object) -> list[str]:
         for cell in getattr(row, "cells", []) or []:
             values.extend(_text_values(getattr(cell, "content", None)))
     return values
+
+
+def _walk(control: object):
+    yield control
+    for child in getattr(control, "controls", []) or []:
+        yield from _walk(child)
+    content = getattr(control, "content", None)
+    if content is not None:
+        yield from _walk(content)
 
 
 def test_instrument_detail_renders_scoped_records_for_etf_panels() -> None:
@@ -405,3 +415,128 @@ def test_attribution_alpha_fallback_never_uses_sector_alpha() -> None:
     )
     assert panel["alpha"] == 0.11
     assert panel["sector_alpha_proxy"] == 0.42
+
+
+def test_safe_bool_accepts_numpy_and_pandas_boolean_scalars_but_fail_closes_malformed_values() -> None:
+    pandas_boolean = pd.array([True], dtype="boolean")[0]
+
+    assert _safe_bool(np.bool_(True)) is True
+    assert _safe_bool(pandas_boolean) is True
+    assert _safe_bool(np.bool_(False), default=True) is False
+    assert _safe_bool(pd.NA, default=True) is True
+    assert _safe_bool("not-a-boolean", default=True) is True
+
+
+def test_parsed_panel_keeps_valid_numpy_boolean_rows_available_and_eligible() -> None:
+    frame = pd.DataFrame(
+        {
+            "instrument_id": ["VWCE"],
+            "success": pd.array([True], dtype="boolean"),
+            "manual_review": pd.array([False], dtype="boolean"),
+            "score_eligible": pd.array([True], dtype="boolean"),
+            "freshness_status": ["fresh"],
+            "imported_at": ["2026-07-10"],
+        }
+    )
+
+    panel = _parsed_panel(frame, "VWCE", "kid", ("product",))
+
+    assert panel["status"] == "available"
+    assert panel["manual_review"] is False
+    assert panel["score_eligible"] is True
+
+
+def test_instrument_rows_rejects_contradictory_display_id_by_default() -> None:
+    frame = pd.DataFrame(
+        {
+            "instrument_id": ["VWCE"],
+            "display_id": ["OTHER"],
+            "value": [1.0],
+        }
+    )
+
+    assert _instrument_rows(frame, "VWCE").empty
+
+
+def test_fundamentals_panel_fails_closed_for_nullable_score_eligibility() -> None:
+    panel = _fundamentals_panel(
+        "VWCE",
+        pd.DataFrame(
+            {
+                "instrument_id": ["VWCE"],
+                "as_of_date": ["2026-07-10"],
+                "eligibility": ["eligible"],
+                "score_eligible": pd.array([pd.NA], dtype="boolean"),
+            }
+        ),
+    )
+
+    assert panel["status"] == "manual_review"
+    assert panel["score_eligible"] is False
+
+
+def test_crowding_attribution_renders_canonical_broad_alpha_value() -> None:
+    control = _render_crowding_attribution_panel(
+        {
+            "scores": {"crowding": {}, "friction": {}},
+            "attribution": {
+                "alpha": 0.11,
+                "sector_alpha_proxy": 0.42,
+                "status": "available",
+            },
+        }
+    )
+
+    assert "alpha 0.11" in "\n".join(_text_values(control))
+
+
+def test_instrument_detail_exposes_functional_export_control_and_disabled_state() -> None:
+    snapshot = build_snapshot()
+    calls: list[bool] = []
+
+    def export_audit_packet() -> str:
+        calls.append(True)
+        return "exports/instrument-detail.zip"
+
+    state = type(
+        "State",
+        (),
+        {
+            "snapshot": snapshot,
+            "selected_etf": "VWCE",
+            "last_export_path": None,
+            "last_message": "Ready",
+            "export_audit_packet": staticmethod(export_audit_packet),
+        },
+    )()
+    control = instrument_detail_page(None, state)
+    export = next(item for item in _walk(control) if getattr(item, "key", "") == "instrument-detail.export-evidence")
+
+    assert export.disabled is False
+    export.on_click(None)
+    assert calls == [True]
+
+    unavailable_state = type("State", (), {"snapshot": snapshot, "selected_etf": "missing", "last_export_path": None, "last_message": "Ready"})()
+    unavailable = instrument_detail_page(None, unavailable_state)
+    disabled_export = next(item for item in _walk(unavailable) if getattr(item, "key", "") == "instrument-detail.export-evidence")
+    assert disabled_export.disabled is True
+    assert "unavailable" in "\n".join(_text_values(unavailable)).casefold()
+
+
+def test_evidence_sections_render_source_authority_and_conflict_badges() -> None:
+    control = _render_evidence_section(
+        "Evidence",
+        {
+            "source_id": "provider:alpha",
+            "source_authority": "official",
+            "conflict_id": "conflict-1",
+        },
+    )
+    rendered = "\n".join(_text_values(control))
+
+    assert "Source ID" in rendered
+    assert "provider:alpha" in rendered
+    assert "Authority" in rendered
+    assert "official" in rendered
+    assert "Conflict" in rendered
+    assert "conflict-1" in rendered

@@ -81,6 +81,7 @@ controls:
   - {key: chatgpt.check-llm, route: /chatgpt, control_label: Check LM Studio, callback: check_llm, success_signal: status_visible, controlled_error_signal: activity_failed, acceptance_test: tests/test_button_contracts.py, control_type: button}
   - {key: chatgpt.generate-commentary, route: /chatgpt, control_label: Generate commentary, callback: run_local_llm_audit, success_signal: commentary_saved_or_unavailable, controlled_error_signal: activity_failed, acceptance_test: tests/test_button_contracts.py, control_type: button}
   - {key: chatgpt.import-audit, route: /chatgpt, control_label: Validate and import, callback: import_audit, success_signal: commentary_imported_or_rejected, controlled_error_signal: activity_failed, acceptance_test: tests/test_button_contracts.py, control_type: button}
+  - {key: instrument-detail.export-evidence, route: /instrument, control_label: Export instrument evidence, callback: export_instrument_evidence, success_signal: archive_created_or_unavailable, controlled_error_signal: controlled_recovery_state, acceptance_test: tests/test_task19_instrument_detail.py, control_type: button}
 
   # Official parser file pickers and controlled parser callbacks.
   - {key: filings.import-sec, route: /filings, control_label: Import SEC companyfacts, callback: import_sec, success_signal: parser_result_visible, controlled_error_signal: controlled_recovery_state, acceptance_test: tests/test_button_contracts.py, control_type: button}

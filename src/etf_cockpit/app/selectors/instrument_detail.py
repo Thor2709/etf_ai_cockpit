@@ -96,6 +96,19 @@ def _first_value(row: Mapping[str, Any], columns: tuple[str, ...], fallback: obj
     return fallback
 
 
+def _provenance_fields(row: Any) -> dict[str, Any]:
+    """Carry canonical provenance fields through a panel without fabricating values."""
+
+    getter = getattr(row, "get", None)
+    if not callable(getter):
+        return {"source_id": "unavailable", "source_authority": "unavailable", "conflict_id": "unavailable"}
+    return {
+        "source_id": _value_or(getter("source_id"), "unavailable"),
+        "source_authority": _value_or(getter("source_authority", getter("authority")), "unavailable"),
+        "conflict_id": _value_or(getter("conflict_id", getter("conflict_status")), "unavailable"),
+    }
+
+
 def _normalise_identifier(value: object) -> str | None:
     value = _value_or(value, None)
     if value is None:
@@ -104,12 +117,15 @@ def _normalise_identifier(value: object) -> str | None:
     return text or None
 
 
+_CANONICAL_ID_COLUMNS = ("instrument_id", "etf_id", "display_id")
+
+
 def _scope_identifier_rows(frame: pd.DataFrame, instrument_id: str) -> tuple[pd.DataFrame, bool]:
     """Scope canonical IDs and reject rows that carry contradictory identity."""
 
     if bool(frame.columns.duplicated().any()):
         return frame.iloc[0:0].copy(), True
-    columns = [column for column in ("instrument_id", "etf_id") if column in frame.columns]
+    columns = [column for column in _CANONICAL_ID_COLUMNS if column in frame.columns]
     if not columns:
         return frame.iloc[0:0].copy(), True
     target = str(instrument_id).strip()
@@ -132,10 +148,18 @@ def _scope_identifier_rows(frame: pd.DataFrame, instrument_id: str) -> tuple[pd.
 def _safe_bool(value: object, default: bool = False) -> bool:
     if _is_missing_scalar(value):
         return default
-    if isinstance(value, bool):
-        return value
+    try:
+        if pd.api.types.is_bool(value):
+            return bool(value)
+    except (TypeError, ValueError):
+        return default
     if isinstance(value, str):
-        return value.strip().casefold() in {"1", "true", "yes", "y", "on"}
+        normalised = value.strip().casefold()
+        if normalised in {"1", "true", "yes", "y", "on"}:
+            return True
+        if normalised in {"0", "false", "no", "n", "off"}:
+            return False
+        return default
     return default
 
 
@@ -149,7 +173,7 @@ def _load_parquet(path: object) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def _instrument_rows(frame: object, instrument_id: str, *, columns: tuple[str, ...] = ("instrument_id", "etf_id")) -> pd.DataFrame:
+def _instrument_rows(frame: object, instrument_id: str, *, columns: tuple[str, ...] = _CANONICAL_ID_COLUMNS) -> pd.DataFrame:
     """Return rows whose populated supported IDs all resolve to ``instrument_id``.
 
     A row is eligible when at least one supported identifier matches and no
@@ -207,6 +231,7 @@ def _feature_driver_panel(instrument_id: str) -> dict[str, Any]:
         "low_authority": low_authority,
         "stale_or_partial": stale_or_partial,
         "execution_allowed": False,
+        **_provenance_fields(scoped.iloc[-1]),
     }
 
 
@@ -265,12 +290,19 @@ def _fundamentals_panel(instrument_id: str, frame: pd.DataFrame | None = None) -
     if scoped.empty:
         return _unavailable("Fundamental evidence unavailable for this instrument.") | {"score_eligible": False}
     row = scoped.iloc[-1]
+    score_eligible = _safe_bool(row.get("score_eligible"), default=False)
+    manual_review = _safe_bool(row.get("manual_review"), default=True) if "manual_review" in row.index else False
+    if manual_review:
+        score_eligible = False
     return {
-        "status": "available" if bool(row.get("score_eligible", False)) else "manual_review",
+        "status": "available" if score_eligible and not manual_review else "manual_review",
         "eligibility": row.get("eligibility", "not_score_eligible"),
-        "score_eligible": bool(row.get("score_eligible", False)),
+        "score_eligible": score_eligible,
+        "manual_review": manual_review,
         "source": row.get("source", row.get("source_authority", "unavailable")),
+        "source_id": row.get("source_id", "unavailable"),
         "source_authority": row.get("source_authority", "unavailable"),
+        "conflict_id": row.get("conflict_id", "unavailable"),
         "as_of": row.get("as_of_date", "unavailable"),
         "missing_fields": str(row.get("missing_fields", "")),
         "warnings": str(row.get("warnings", "")),
@@ -431,6 +463,7 @@ def _etf_disclosure_panel(
                 "score_eligible": _safe_bool(row.get("score_eligible")),
                 "manual_review": False,
                 "rows": holdings_frame.where(pd.notna(holdings_frame), None).to_dict("records"),
+                **_provenance_fields(row),
             }
     try:
         kid_frame = kid_records.copy() if isinstance(kid_records, pd.DataFrame) else read_priips_kid_records()
@@ -497,6 +530,7 @@ def _parsed_panel(frame: pd.DataFrame, instrument_id: str, kind: str, fields: tu
             "source_id": row.get("source_id", "unavailable"),
             "source_sha256": row.get("source_sha256", "unavailable"),
             "parser_version": row.get("parser_version", "unavailable"),
+            "conflict_id": row.get("conflict_id", "unavailable"),
             "manual_review": manual_review or not available,
             "score_eligible": score_eligible if available else False,
             "source_authority": row.get("source_authority", "issuer_document"),
@@ -548,6 +582,7 @@ def _friction_panel(instrument_id: str) -> dict[str, Any]:
             "cost_stress_scenario": scenario_text,
             "status": "available" if any(result[field] is not None for field in fields) else "unavailable",
             "execution_allowed": False,
+            **_provenance_fields(row),
         }
     )
     return result
@@ -589,6 +624,7 @@ def _price_panel(snapshot: CockpitSnapshot, instrument_id: str) -> dict[str, Any
         "source": latest.get("source", "unavailable"),
         "currency": latest.get("currency", "unavailable"),
         "execution_allowed": False,
+        **_provenance_fields(latest),
     }
 
 
@@ -624,6 +660,7 @@ def _score_panel(signal: Any, scoreboard: Mapping[str, Any], derived: Mapping[st
         "crowding": derived["crowding"],
         "friction": friction,
         "execution_allowed": False,
+        **_provenance_fields(scoreboard),
     }
 
 
@@ -654,6 +691,7 @@ def _risk_panel(features: object, friction: Mapping[str, Any], crowding: Mapping
         "cost": friction,
         "crowding": crowding,
         "execution_allowed": False,
+        **_provenance_fields(row),
     }
 
 
@@ -674,6 +712,8 @@ def _attribution_panel(derived: Mapping[str, Any], scoreboard: Mapping[str, Any]
             next((_safe_float(value.get(name)) for name in names if _safe_float(value.get(name)) is not None), None),
         )
     value.setdefault("status", "available" if any(value.get(key) is not None for key in ("alpha", "beta", "correlation")) else "unavailable")
+    for key, metadata in _provenance_fields(scoreboard).items():
+        value.setdefault(key, metadata)
     value["execution_allowed"] = False
     return value
 
@@ -682,7 +722,7 @@ def _forecast_panel(snapshot: CockpitSnapshot, instrument_id: str) -> dict[str, 
     rows = _instrument_rows(getattr(snapshot, "forecasts", None), instrument_id)
     if rows.empty:
         return _unavailable("Forecast evidence unavailable; no valid local forecast rows are registered.") | {"rows": []}
-    return {"status": "available", "rows": rows.where(pd.notna(rows), None).to_dict("records"), "execution_allowed": False}
+    return {"status": "available", "rows": rows.where(pd.notna(rows), None).to_dict("records"), "execution_allowed": False, **_provenance_fields(rows.iloc[-1])}
 
 
 def _backtest_panel(snapshot: CockpitSnapshot, instrument_id: str, scoreboard: Mapping[str, Any]) -> dict[str, Any]:
@@ -692,7 +732,8 @@ def _backtest_panel(snapshot: CockpitSnapshot, instrument_id: str, scoreboard: M
     quality = scoreboard.get("backtest_trust_label") or scoreboard.get("backtest_validity")
     if signal_log.empty and trade_log.empty and quality is None:
         return _unavailable("Backtest trust unavailable for this instrument.") | {"signal_rows": [], "trade_rows": []}
-    return {"status": "available", "trust": quality or "available", "signal_rows": signal_log.to_dict("records"), "trade_rows": trade_log.to_dict("records"), "execution_allowed": False}
+    metadata_source = scoreboard or (signal_log.iloc[-1] if not signal_log.empty else trade_log.iloc[-1])
+    return {"status": "available", "trust": quality or "available", "signal_rows": signal_log.to_dict("records"), "trade_rows": trade_log.to_dict("records"), "execution_allowed": False, **_provenance_fields(metadata_source)}
 
 
 def _paper_trade_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
@@ -700,7 +741,7 @@ def _paper_trade_panel(instrument_id: str, frame: pd.DataFrame | None = None) ->
     rows = _instrument_rows(source, instrument_id)
     if rows.empty:
         return _unavailable("Paper-trade history unavailable; no local paper-trade records are registered.") | {"rows": []}
-    return {"status": "available", "rows": rows.to_dict("records"), "execution_allowed": False}
+    return {"status": "available", "rows": rows.to_dict("records"), "execution_allowed": False, **_provenance_fields(rows.iloc[-1])}
 
 
 def _history_panel(instrument_id: str, history: pd.DataFrame | None = None) -> dict[str, Any]:
@@ -711,7 +752,7 @@ def _history_panel(instrument_id: str, history: pd.DataFrame | None = None) -> d
     rows = _instrument_rows(source, instrument_id)
     if rows.empty:
         return _unavailable("Score history unavailable; a second local score run is required.") | {"rows": []}
-    return {"status": "available", "rows": rows.to_dict("records"), "execution_allowed": False}
+    return {"status": "available", "rows": rows.to_dict("records"), "execution_allowed": False, **_provenance_fields(rows.iloc[-1])}
 
 
 def _run_changes_panel(instrument_id: str, history: pd.DataFrame | None = None) -> dict[str, Any]:
@@ -725,7 +766,7 @@ def _run_changes_panel(instrument_id: str, history: pd.DataFrame | None = None) 
         previous = runs[-2] if len(runs) > 1 else None
         report = compare_runs(source, current, previous)
         changes = [change.__dict__ for change in report.changes if change.instrument_id == instrument_id]
-        return {"status": "available", "current_run_id": current, "previous_run_id": previous, "changes": changes, "execution_allowed": False}
+        return {"status": "available", "current_run_id": current, "previous_run_id": previous, "changes": changes, "execution_allowed": False, **_provenance_fields(source.iloc[-1])}
     except Exception:
         return _unavailable("What changed since the last run is unavailable until comparable score history exists.") | {"changes": []}
 
@@ -734,7 +775,7 @@ def _journal_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dic
     rows = _instrument_rows(frame, instrument_id) if isinstance(frame, pd.DataFrame) else pd.DataFrame()
     if rows.empty:
         return _unavailable("Decision journal entries unavailable for this instrument.") | {"entries": []}
-    return {"status": "available", "entries": rows.to_dict("records"), "execution_allowed": False}
+    return {"status": "available", "entries": rows.to_dict("records"), "execution_allowed": False, **_provenance_fields(rows.iloc[-1])}
 
 
 def build_instrument_detail(
