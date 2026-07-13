@@ -259,9 +259,9 @@ def _score_history_panel(item: SimpleInstrumentScore, history_rows: list[dict[st
     valid_rows = [
         row
         for row in history_rows
-        if _safe_float(row.get("final_combined_score_10")) is not None
+        if _history_score(row) is not None
     ]
-    if len(valid_rows) < 2:
+    if not valid_rows:
         return ft.Container(
             bgcolor=theme.SURFACE_2,
             border_radius=6,
@@ -270,7 +270,7 @@ def _score_history_panel(item: SimpleInstrumentScore, history_rows: list[dict[st
                 [
                     ft.Text("Score history", color=theme.TEXT, size=12, weight=ft.FontWeight.BOLD),
                     ft.Text(
-                        "History will appear after at least two scored runs. Pending/N/A rows are stored but do not affect actions.",
+                        "No score history available yet. History will appear after another run. Pending/N/A rows are stored but do not affect actions.",
                         color=theme.MUTED,
                         size=11,
                     ),
@@ -278,12 +278,33 @@ def _score_history_panel(item: SimpleInstrumentScore, history_rows: list[dict[st
                 spacing=4,
             ),
         )
-    scores = [_safe_float(row.get("final_combined_score_10")) for row in valid_rows[-12:]]
+    scores = [_history_score(row) for row in valid_rows[-12:]]
     scores = [score for score in scores if score is not None]
     latest = scores[-1]
+    sparkline = " ".join(_score_bar(value) for value in scores)
+    if len(scores) == 1:
+        return ft.Container(
+            bgcolor=theme.SURFACE_2,
+            border_radius=6,
+            padding=10,
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [
+                            ft.Text("Score history", color=theme.TEXT, size=12, weight=ft.FontWeight.BOLD),
+                            ft.Text(f"Latest {latest:.1f}/10 | One snapshot", color=score_colour(latest), size=11),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        wrap=True,
+                    ),
+                    ft.Text(f"Score evolution: {sparkline}", color=theme.TEXT, size=11, selectable=True),
+                    ft.Text("A previous snapshot is not available yet; history will appear after another run. History is informational only and cannot change the current action.", color=theme.MUTED, size=11),
+                ],
+                spacing=6,
+            ),
+        )
     previous = scores[-2]
     delta = latest - previous
-    sparkline = " ".join(_score_bar(value) for value in scores)
     return ft.Container(
         bgcolor=theme.SURFACE_2,
         border_radius=6,
@@ -298,7 +319,7 @@ def _score_history_panel(item: SimpleInstrumentScore, history_rows: list[dict[st
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     wrap=True,
                 ),
-                ft.Text(f"Total score trend: {sparkline}", color=theme.TEXT, size=11, selectable=True),
+                ft.Text(f"Score evolution: {sparkline}", color=theme.TEXT, size=11, selectable=True),
                 ft.Text(
                     "Local score history is informational only and cannot directly change the current action.",
                     color=theme.MUTED,
@@ -335,6 +356,7 @@ def _component_row(component: SimpleScoreComponent) -> ft.Container:
                         evidence_chip("Authority", component.authority, _authority_colour(component.authority)),
                         evidence_chip("Role", component.score_role, theme.CYAN),
                         evidence_chip("Source", component.source_id or "unavailable", theme.BLUE_GREY),
+                        evidence_chip("Freshness", component.freshness_status or "unknown", _freshness_colour(component.freshness_status)),
                     ],
                     spacing=6,
                     wrap=True,
@@ -342,6 +364,7 @@ def _component_row(component: SimpleScoreComponent) -> ft.Container:
                 ft.Text(component.explanation, color=theme.MUTED, size=11),
                 ft.Text(component.good_score, color=theme.MUTED, size=11),
                 ft.Text(component.why, color=theme.TEXT if component.score_10 is not None else theme.AMBER, size=11),
+                ft.Text(_driver_classification(component), color=theme.MUTED, size=10),
             ],
             spacing=4,
         ),
@@ -491,6 +514,37 @@ def _authority_colour(authority: str) -> str:
     return theme.CYAN
 
 
+def _freshness_colour(status: str | None) -> str:
+    value = str(status or "unknown").casefold()
+    if value in {"ok", "fresh", "valid"}:
+        return theme.GREEN
+    if value in {"stale", "stale_block", "expired"}:
+        return theme.AMBER
+    return theme.MUTED
+
+
+def _driver_classification(component: SimpleScoreComponent) -> str:
+    score = component.score_10
+    if score is None:
+        direction = "missing"
+    elif score >= 6.5:
+        direction = "positive"
+    elif score < 4.0:
+        direction = "negative"
+    else:
+        direction = "mixed"
+    authority = str(component.authority or "unknown").casefold()
+    freshness = str(component.freshness_status or "unknown").casefold()
+    flags = []
+    if authority in {"low", "unknown"} or str(component.source_authority or "").casefold() in {"model_advisory", "unknown"}:
+        flags.append("low authority")
+    if freshness in {"stale", "stale_block", "expired"}:
+        flags.append("stale")
+    elif freshness in {"partial", "warning", "unknown"}:
+        flags.append("partial")
+    return "Driver classification: " + direction + (" (" + ", ".join(flags) + ")" if flags else "") + ". Informational only."
+
+
 def _action_colour(action: str) -> str:
     value = action.lower()
     if value == "add_candidate":
@@ -510,3 +564,7 @@ def _safe_float(value: object) -> float | None:
     if number != number:
         return None
     return number
+
+
+def _history_score(row: dict[str, object]) -> float | None:
+    return _safe_float(row.get("final_combined_score_10", row.get("final_score_10")))

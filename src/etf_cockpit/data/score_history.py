@@ -3,12 +3,15 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 from typing import Literal
 
 import pandas as pd
 
+from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, wait_for_atomic_group
 from etf_cockpit.governance.migrations import _snapshot_checksum, validated_portfolio_snapshot
+from etf_cockpit.core.paths import ROOT
 from etf_cockpit.signals.research_states import (
     PortfolioReviewState,
     ResearchState,
@@ -27,9 +30,36 @@ class ScoreHistoryWriteResult:
 
 _COLUMNS = [
     "run_id",
+    "run_started_at",
     "run_completed_at",
     "instrument_id",
+    "display_name",
+    "yahoo_ticker",
+    "asset_type",
+    "analysis_tier",
+    "source_group",
+    "data_as_of_date",
+    "price_as_of_date",
+    "evidence_score_10",
+    "evidence_quality_10",
+    "risk_friction_10",
     "final_combined_score_10",
+    # Comparison dimensions are retained as informational snapshots.  They
+    # deliberately do not participate in current action or authority gates.
+    "rank",
+    "score_rank",
+    "warnings",
+    "freshness_status",
+    "model_available",
+    "model_availability",
+    "forecast_status",
+    "news_inventory",
+    "backtest_trust",
+    "portfolio_risk",
+    "final_action",
+    "final_label",
+    "reason_short",
+    "reason_full",
     "research_state",
     "portfolio_review_state",
     "portfolio_snapshot_validated",
@@ -46,23 +76,119 @@ _COLUMNS = [
     "gate_policy_checksum",
     "schema_version",
     "blocked_by",
+    "source_snapshot_hash",
+    "score_schema_version",
     "snapshot_hash",
 ]
 LEGACY_COLUMNS = ["run_id", "run_completed_at", "instrument_id", "final_combined_score_10", "final_action", "blocked_by", "snapshot_hash"]
 
 
-def append_score_run(scores: pd.DataFrame, run_id: str, created_at: str, *, root: Path) -> ScoreHistoryWriteResult:
+def _clean_optional_text(value: object) -> str | None:
+    """Convert scalar/legacy null values to a stable text representation."""
+
+    if value is None:
+        return None
+    try:
+        if bool(pd.isna(value)):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, (list, tuple, set)):
+        return "|".join(str(item).strip() for item in value if str(item).strip()) or None
+    text = str(value).strip()
+    return text or None
+
+
+def _model_value_is_real(value: object) -> bool:
+    if value is None:
+        return False
+    try:
+        if bool(pd.isna(value)):
+            return False
+    except (TypeError, ValueError):
+        pass
+    text = str(value).strip().casefold()
+    return bool(text) and text not in {
+        "none",
+        "null",
+        "nan",
+        "unavailable",
+        "pending",
+        "pending refresh",
+        "false",
+    }
+
+
+def _row_has_real_model(values: dict[str, object]) -> bool:
+    versions = values.get("model_versions_used")
+    if isinstance(versions, dict):
+        return any(_model_value_is_real(version) for version in versions.values())
+    for key in ("model_version", "model_id", "model_name"):
+        if _model_value_is_real(values.get(key)):
+            return True
+    if values.get("model_row_exists") is True:
+        return True
+    availability = values.get("model_availability")
+    if _model_value_is_real(availability) and str(availability).casefold() not in {"false", "not_available"}:
+        return True
+    label = str(values.get("model_authority_label") or "").strip().casefold()
+    if "pending" in label or "unavailable" in label:
+        return False
+    # A positive boolean without a model row/version is not evidence.  This
+    # avoids promoting configured/candidate placeholders by metadata alone.
+    return False
+
+
+def _normalise_model_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    result = frame.copy()
+    normalised: list[tuple[bool, str]] = []
+    for _, row in result.iterrows():
+        values = row.to_dict()
+        available = _row_has_real_model(values)
+        supplied = _clean_optional_text(values.get("model_availability"))
+        label = _clean_optional_text(values.get("model_authority_label"))
+        normalised.append((available, (supplied or label or "available") if available else "unavailable"))
+    result["model_available"] = [item[0] for item in normalised]
+    result["model_availability"] = [item[1] for item in normalised]
+    return result
+
+
+def append_score_run(
+    scores: pd.DataFrame,
+    run_id: str,
+    created_at: str,
+    *,
+    root: Path | None = None,
+) -> ScoreHistoryWriteResult:
+    """Append one deterministic score snapshot, replacing only a changed run.
+
+    ``root`` remains injectable for tests and migrations; production callers
+    default to the configured project root.  A history row is informational
+    and is always written with ``execution_allowed=False``.
+    """
+
+    root = Path(root) if root is not None else ROOT
     path = root / "data" / "derived" / "score_history.parquet"
     frame = scores.copy()
+    # An explicitly supplied empty frame is a valid complete run snapshot.  A
+    # caller-provided run_id is the durable identity for that zero-instrument
+    # snapshot; no rows from any other run may be touched.
+    if frame.empty:
+        for column in ("instrument_id", "final_combined_score_10"):
+            if column not in frame.columns:
+                frame[column] = pd.Series(dtype=object)
     if "instrument_id" not in frame.columns or "final_combined_score_10" not in frame.columns:
         raise ValueError("score history requires instrument_id and final_combined_score_10")
     frame["final_combined_score_10"] = pd.to_numeric(frame["final_combined_score_10"], errors="coerce")
     frame = frame.dropna(subset=["instrument_id", "final_combined_score_10"])
     frame["run_id"] = run_id
+    frame["run_started_at"] = created_at
     frame["run_completed_at"] = created_at
     if "legacy_action" not in frame.columns:
         frame["legacy_action"] = frame.get("final_action", "")
-    frame["legacy_action"] = frame["legacy_action"].map(lambda value: None if pd.isna(value) else str(value).strip() or None)
+    frame["legacy_action"] = frame["legacy_action"].map(_clean_optional_text)
+    if "final_action" not in frame.columns:
+        frame["final_action"] = frame["legacy_action"]
     frame["research_state"] = frame.apply(
         lambda row: _state_for_row(row), axis=1
     )
@@ -86,20 +212,81 @@ def append_score_run(scores: pd.DataFrame, run_id: str, created_at: str, *, root
     frame["schema_version"] = "2.0"
     if "blocked_by" not in frame.columns:
         frame["blocked_by"] = ""
-    snapshot_hash = hashlib.sha256(frame.sort_values("instrument_id").to_json().encode()).hexdigest()
+    if "warnings" not in frame.columns:
+        frame["warnings"] = frame["blocked_by"]
+    for column, default in (
+        ("display_name", ""),
+        ("yahoo_ticker", ""),
+        ("asset_type", ""),
+        ("analysis_tier", ""),
+        ("source_group", ""),
+        ("data_as_of_date", ""),
+        ("price_as_of_date", ""),
+        ("evidence_score_10", None),
+        ("evidence_quality_10", None),
+        ("risk_friction_10", None),
+        ("rank", None),
+        ("score_rank", None),
+        ("freshness_status", "unknown"),
+        ("model_available", None),
+        ("model_availability", None),
+        ("forecast_status", "unavailable"),
+        ("news_inventory", None),
+        ("backtest_trust", "not_evaluated"),
+        ("portfolio_risk", "not_evaluated"),
+        ("final_label", ""),
+        ("reason_short", ""),
+        ("reason_full", ""),
+        ("source_snapshot_hash", ""),
+        ("score_schema_version", "2.0"),
+    ):
+        if column not in frame.columns:
+            frame[column] = default
+    frame = _normalise_model_columns(frame)
+    # Hash only canonical content, not the row ordering, so retries are
+    # idempotent while a changed snapshot for the same run is replaced.
+    hash_frame = frame.sort_values(["instrument_id", "run_id"], kind="stable").reindex(
+        sorted(frame.columns), axis=1
+    )
+    snapshot_hash = hashlib.sha256(
+        hash_frame.to_json(orient="records", date_format="iso", default_handler=str).encode("utf-8")
+    ).hexdigest()
     frame["snapshot_hash"] = snapshot_hash
     frame = frame[_COLUMNS]
-    existing = _normalise_history_frame(pd.read_parquet(path)) if path.exists() else pd.DataFrame(columns=_COLUMNS)
-    duplicate = existing[(existing.get("run_id", "") == run_id) & (existing.get("snapshot_hash", "") == snapshot_hash)] if not existing.empty else pd.DataFrame()
+    # Read through the compatibility normaliser before touching newer
+    # columns.  Stores written before v2 may omit snapshot_hash and several
+    # comparison dimensions; duplicate detection must not make those stores
+    # unreadable or raise a KeyError.
+    existing = _normalise_history_frame(_read_history_raw(path))
+    duplicate = (
+        existing.loc[
+            existing["run_id"].astype(str).eq(str(run_id))
+            & existing["snapshot_hash"].astype(str).eq(snapshot_hash)
+        ]
+        if not existing.empty
+        else pd.DataFrame()
+    )
     if not duplicate.empty:
         return ScoreHistoryWriteResult(path, 0, run_id, snapshot_hash)
-    combined = pd.concat([existing, frame], ignore_index=True).reindex(columns=_COLUMNS).drop_duplicates(subset=["run_id", "instrument_id"], keep="last")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    combined.to_parquet(path, index=False)
+    # A changed hash replaces the complete run snapshot, preventing stale
+    # instruments from surviving a deterministic retry with a narrower frame.
+    if not existing.empty and "run_id" in existing.columns:
+        existing = existing.loc[~existing["run_id"].astype(str).eq(str(run_id))]
+    combined = (
+        frame.copy().reindex(columns=_COLUMNS)
+        if existing.empty
+        else pd.concat([existing, frame], ignore_index=True, sort=False).reindex(columns=_COLUMNS)
+    )
+    combined = combined.drop_duplicates(subset=["run_id", "instrument_id"], keep="last")
+    # Keep parquet and the legacy CSV mirror within one repository atomic
+    # write-group.  Readers never observe one format from a newer generation
+    # than the other, and injected publication failures roll back both.
+    _write_history_group(combined, path)
     return ScoreHistoryWriteResult(path, len(frame), run_id, snapshot_hash)
 
 
-def score_history_frame(*, root: Path) -> pd.DataFrame:
+def score_history_frame(*, root: Path | None = None) -> pd.DataFrame:
+    root = Path(root) if root is not None else ROOT
     path = root / "data" / "derived" / "score_history.parquet"
     if not path.exists():
         return pd.DataFrame(columns=_COLUMNS)
@@ -108,6 +295,36 @@ def score_history_frame(*, root: Path) -> pd.DataFrame:
     except Exception:
         return pd.DataFrame(columns=_COLUMNS)
     return frame.reindex(columns=_COLUMNS).copy()
+
+
+def _read_history_raw(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        return pd.DataFrame(columns=_COLUMNS)
+    try:
+        wait_for_atomic_group(path)
+        return pd.read_parquet(path)
+    except Exception:
+        return pd.DataFrame(columns=_COLUMNS)
+
+
+def _write_history_group(frame: pd.DataFrame, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    parquet_buffer = BytesIO()
+    frame.to_parquet(parquet_buffer, index=False)
+    csv_path = path.with_suffix(".csv")
+
+    def validate_parquet(candidate: Path) -> None:
+        pd.read_parquet(candidate)
+
+    def validate_csv(candidate: Path) -> None:
+        pd.read_csv(candidate)
+
+    atomic_write_group(
+        (
+            AtomicWriteRequest(path, parquet_buffer.getvalue(), validate_parquet),
+            AtomicWriteRequest(csv_path, frame.to_csv(index=False).encode("utf-8"), validate_csv),
+        )
+    )
 
 
 def score_history_v2_payload(row: object) -> dict[str, object]:
@@ -236,8 +453,23 @@ def _normalise_history_frame(frame: pd.DataFrame) -> pd.DataFrame:
     if frame.empty:
         return pd.DataFrame(columns=_COLUMNS)
     result = frame.copy()
+    # Old stores may contain only a subset of columns or malformed rows.  Add
+    # compatibility defaults first, then validate the key identity/score.
+    if "final_combined_score_10" not in result.columns:
+        result["final_combined_score_10"] = None
+    result["final_combined_score_10"] = pd.to_numeric(result["final_combined_score_10"], errors="coerce")
+    if "instrument_id" not in result.columns:
+        result["instrument_id"] = None
+    result["instrument_id"] = result["instrument_id"].map(_clean_optional_text)
+    result = result.loc[result["instrument_id"].notna() & result["final_combined_score_10"].notna()].copy()
+    if result.empty:
+        return pd.DataFrame(columns=_COLUMNS)
+    if "run_id" not in result.columns:
+        result["run_id"] = ""
+    result["run_id"] = result["run_id"].map(lambda value: _clean_optional_text(value) or "")
     if "legacy_action" not in result.columns:
         result["legacy_action"] = result.get("final_action", None)
+    result["legacy_action"] = result["legacy_action"].map(_clean_optional_text)
     if "research_state" not in result.columns:
         result["research_state"] = result.apply(_state_for_row, axis=1)
     else:
@@ -259,6 +491,34 @@ def _normalise_history_frame(frame: pd.DataFrame) -> pd.DataFrame:
     )
     result["execution_allowed"] = False
     for column, default in (
+        ("run_started_at", ""),
+        ("run_completed_at", ""),
+        ("display_name", ""),
+        ("yahoo_ticker", ""),
+        ("asset_type", ""),
+        ("analysis_tier", ""),
+        ("source_group", ""),
+        ("data_as_of_date", ""),
+        ("price_as_of_date", ""),
+        ("evidence_score_10", None),
+        ("evidence_quality_10", None),
+        ("risk_friction_10", None),
+        ("final_action", None),
+        ("rank", None),
+        ("score_rank", None),
+        ("warnings", None),
+        ("freshness_status", "unknown"),
+        ("model_available", None),
+        ("model_availability", None),
+        ("forecast_status", "unavailable"),
+        ("news_inventory", None),
+        ("backtest_trust", "not_evaluated"),
+        ("portfolio_risk", "not_evaluated"),
+        ("final_label", ""),
+        ("reason_short", ""),
+        ("reason_full", ""),
+        ("source_snapshot_hash", ""),
+        ("score_schema_version", "2.0"),
         ("migration_version", "2.0"),
         ("gate_policy_version", "unavailable"),
         ("gate_policy_checksum", "unavailable"),
@@ -268,4 +528,13 @@ def _normalise_history_frame(frame: pd.DataFrame) -> pd.DataFrame:
     ):
         if column not in result.columns:
             result[column] = default
+    # Preserve warnings under both the modern comparison name and the legacy
+    # blocked_by field without allowing either to become action authority.
+    if "warnings" in result.columns:
+        result["warnings"] = result["warnings"].map(_clean_optional_text)
+        result["blocked_by"] = result["blocked_by"].where(
+            result["blocked_by"].map(_clean_optional_text).notna(), result["warnings"]
+        )
+    result["final_action"] = result["final_action"].map(_clean_optional_text)
+    result["execution_allowed"] = False
     return result.reindex(columns=_COLUMNS)

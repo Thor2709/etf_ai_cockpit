@@ -10,6 +10,7 @@ from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
 from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH, latest_fundamental_rows, load_fundamental_evidence
 from etf_cockpit.data.news_context import NEWS_CLEAN_PATH, load_news_items, sort_news_items
 from etf_cockpit.data.parsed_disclosures import read_index_methodology_records, read_priips_kid_records
+from etf_cockpit.data.trust_artifacts import FEATURE_DRIVERS_PATH
 from etf_cockpit.services import CockpitSnapshot
 
 
@@ -22,7 +23,78 @@ class InstrumentDetailViewModel:
     sections: dict[str, Any]
 
 
-_SECTION_NAMES = ("identity", "price", "scores", "risk", "attribution", "fundamentals", "etf_disclosures", "news", "forecasts", "backtests", "history", "journal", "run_changes")
+_SECTION_NAMES = ("identity", "price", "scores", "feature_drivers", "risk", "attribution", "fundamentals", "etf_disclosures", "news", "forecasts", "backtests", "history", "journal", "run_changes")
+
+
+def _feature_driver_panel(instrument_id: str) -> dict[str, Any]:
+    try:
+        frame = pd.read_parquet(FEATURE_DRIVERS_PATH) if FEATURE_DRIVERS_PATH.exists() else pd.DataFrame()
+    except Exception:
+        frame = pd.DataFrame()
+    frame = _normalise_feature_driver_frame(frame)
+    if frame.empty or "instrument_id" not in frame.columns:
+        return {"status": "unavailable", "rows": [], "message": "Feature drivers unavailable; no local component history is registered.", "execution_allowed": False}
+    scoped = frame[frame["instrument_id"].astype(str).eq(str(instrument_id))].copy()
+    if scoped.empty:
+        return {"status": "unavailable", "rows": [], "message": "Feature drivers unavailable for this instrument.", "execution_allowed": False}
+    scoped["_score_sort"] = pd.to_numeric(scoped.get("normalised_score"), errors="coerce")
+    rows = scoped.drop(columns=["_score_sort"], errors="ignore").to_dict(orient="records")
+    positive = scoped.loc[scoped["direction"].astype(str).eq("positive")].sort_values(["_score_sort", "component"], ascending=[False, True], kind="stable").drop(columns=["_score_sort"], errors="ignore").to_dict(orient="records")
+    negative = scoped.loc[scoped["direction"].astype(str).eq("negative")].sort_values(["_score_sort", "component"], ascending=[True, True], kind="stable").drop(columns=["_score_sort"], errors="ignore").to_dict(orient="records")
+    missing = scoped.loc[scoped["direction"].astype(str).eq("missing")].sort_values(["component"], kind="stable").drop(columns=["_score_sort"], errors="ignore").to_dict(orient="records")
+    low_authority = scoped.loc[scoped["flags"].astype(str).str.contains("low_authority", na=False)].sort_values(["component"], kind="stable").drop(columns=["_score_sort"], errors="ignore").to_dict(orient="records")
+    stale_or_partial = scoped.loc[scoped["flags"].astype(str).str.contains("stale|partial", na=False, regex=True)].sort_values(["component"], kind="stable").drop(columns=["_score_sort"], errors="ignore").to_dict(orient="records")
+    return {
+        "status": "available",
+        "rows": rows,
+        "top_positive": positive[:3],
+        "top_negative": negative[:3],
+        "missing_or_na": missing,
+        "low_authority": low_authority,
+        "stale_or_partial": stale_or_partial,
+        "execution_allowed": False,
+    }
+
+
+def _normalise_feature_driver_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    """Add modern feature-driver columns when reading a legacy local store."""
+
+    if not isinstance(frame, pd.DataFrame) or frame.empty:
+        return pd.DataFrame()
+    result = frame.copy()
+    if "instrument_id" not in result.columns and "instrument" in result.columns:
+        result["instrument_id"] = result["instrument"]
+    if "instrument" not in result.columns and "instrument_id" in result.columns:
+        result["instrument"] = result["instrument_id"]
+    if "normalised_score" not in result.columns:
+        result["normalised_score"] = result.get("normalised_score_10")
+    if "raw_metric" not in result.columns:
+        result["raw_metric"] = result.get("raw_metric_value")
+    for column, default in (
+        ("component", "unknown"),
+        ("source_id", "unavailable"),
+        ("authority", "unknown"),
+        ("driver_text", "Feature driver unavailable; informational only."),
+        ("source_dataset", "unavailable"),
+        ("as_of_date", "unavailable"),
+        ("freshness_status", "unknown"),
+        ("classification", "unclassified"),
+        ("authority_classification", "unknown"),
+        ("freshness_classification", "unknown"),
+        ("flags", "none"),
+        ("execution_allowed", False),
+    ):
+        if column not in result.columns:
+            result[column] = default
+    if "direction" not in result.columns:
+        score = pd.to_numeric(result["normalised_score"], errors="coerce")
+        result["direction"] = score.map(lambda value: "missing" if pd.isna(value) else "positive" if value >= 6 else "negative" if value <= 4 else "mixed")
+    result["flags"] = result["flags"].fillna("none").astype(str)
+    derived_flags = result["flags"].eq("none")
+    result.loc[derived_flags & result["direction"].astype(str).eq("missing"), "flags"] = "missing"
+    result.loc[derived_flags & result["authority_classification"].astype(str).str.contains("low", case=False, na=False), "flags"] = "low_authority"
+    result.loc[derived_flags & result["freshness_classification"].astype(str).str.contains("stale|partial", case=False, na=False, regex=True), "flags"] = "stale"
+    return result
 
 
 def _fundamentals_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
@@ -225,6 +297,7 @@ def build_instrument_detail(
             "identity": "ready",
             "price": {"rows": len(price_rows), "as_of": str(price_rows["date"].max()) if not price_rows.empty and "date" in price_rows.columns else "unavailable"},
             "scores": "ready" if signal is not None else "unavailable",
+            "feature_drivers": _feature_driver_panel(instrument_id),
             "risk": "ready" if signal is not None else "unavailable",
             "attribution": "available from evidence ledger where present",
             "fundamentals": _fundamentals_panel(instrument_id, fundamentals),

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import zipfile
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pandas as pd
@@ -220,6 +221,108 @@ def test_score_artifacts_write_history_components_and_drivers() -> None:
     assert ledger["executable_authority"].eq(False).all()
     assert {"direction", "driver_text", "freshness_status"} <= set(drivers.columns)
     assert "VWCE" in set(history["instrument_id"])
+
+
+def test_production_score_history_replaces_complete_run_snapshot_when_scope_narrows(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(trust, "SCORE_HISTORY_PATH", tmp_path / "score_history.parquet")
+    first = [
+        SimpleNamespace(display_id="A", final_score_10=7.0, latest_date="2026-07-10", components=[], warnings=[]),
+        SimpleNamespace(display_id="B", final_score_10=6.0, latest_date="2026-07-10", components=[], warnings=[]),
+    ]
+    narrowed = [
+        SimpleNamespace(display_id="A", final_score_10=8.0, latest_date="2026-07-10", components=[], warnings=[]),
+    ]
+
+    trust.append_score_history(first, run_id="run-scope", created_at="2026-07-10T00:00:00Z")
+    trust.append_score_history(narrowed, run_id="run-scope", created_at="2026-07-10T00:00:00Z")
+
+    history = pd.read_parquet(trust.SCORE_HISTORY_PATH)
+    assert set(history["instrument_id"]) == {"A"}
+    assert history["snapshot_hash"].nunique() == 1
+    assert float(history.iloc[0]["final_combined_score_10"]) == 8.0
+
+
+def test_production_wrapper_empty_snapshot_removes_supplied_run_only(tmp_path, monkeypatch) -> None:
+    history_path = tmp_path / "score_history.parquet"
+    metric_history_path = tmp_path / "score_metric_history.parquet"
+    monkeypatch.setattr(trust, "SCORE_HISTORY_PATH", history_path)
+    monkeypatch.setattr(trust, "SCORE_METRIC_HISTORY_PATH", metric_history_path)
+    monkeypatch.setattr(trust, "EVIDENCE_LEDGER_PATH", tmp_path / "evidence_ledger.parquet")
+    monkeypatch.setattr(trust, "SCORE_COMPONENTS_PATH", tmp_path / "score_components.parquet")
+    monkeypatch.setattr(trust, "FEATURE_DRIVERS_PATH", tmp_path / "feature_drivers.parquet")
+    monkeypatch.setattr(trust, "CORRELATION_CLUSTERS_PATH", tmp_path / "correlation_clusters.parquet")
+    monkeypatch.setattr(trust, "BENCHMARK_ATTRIBUTION_PATH", tmp_path / "benchmark_attribution.parquet")
+    monkeypatch.setattr(trust, "refresh_static_trust_artifacts", lambda config: {})
+
+    fixed_now = datetime(2026, 7, 13, 12, 34, 56, tzinfo=timezone.utc)
+
+    class FixedDateTime:
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_now if tz else fixed_now.replace(tzinfo=None)
+
+    monkeypatch.setattr(trust, "datetime", FixedDateTime)
+    monkeypatch.setattr(trust.uuid, "uuid4", lambda: SimpleNamespace(hex="emptyrun"))
+
+    generated_run_id = "score_20260713T123456_emptyrun"
+    legacy_columns = ["run_id", "instrument_id", "final_action"]
+    existing = pd.DataFrame(
+        [
+            {"run_id": generated_run_id, "instrument_id": "STALE", "final_action": "BUY"},
+            {"run_id": "unrelated-run", "instrument_id": "KEEP", "final_action": "HOLD"},
+        ],
+        columns=legacy_columns,
+    )
+    trust._write_dual(existing, history_path)
+
+    trust.write_trust_artifacts_for_scores(None, [], pd.DataFrame(), None)
+
+    history = pd.read_parquet(history_path)
+    assert list(history.columns) == legacy_columns
+    assert set(history["run_id"]) == {"unrelated-run"}
+    assert set(history["instrument_id"]) == {"KEEP"}
+    assert set(pd.read_csv(history_path.with_suffix(".csv"))["run_id"]) == {"unrelated-run"}
+
+
+def test_production_score_history_persists_real_dimensions_and_explicit_unavailable_values(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(trust, "SCORE_HISTORY_PATH", tmp_path / "score_history.parquet")
+    snapshot = build_snapshot()
+    scores = build_simple_instrument_scores(snapshot.config, snapshot.signals, snapshot.forecasts, snapshot.prices)
+    scoreboard = simple_scoreboard_frame(scores)
+
+    paths = trust.write_trust_artifacts_for_scores(snapshot.config, scores, scoreboard, snapshot.prices)
+    history = pd.read_parquet(paths["score_history"])
+
+    assert history["rank"].notna().all()
+    assert history["score_rank"].notna().all()
+    assert history["warnings"].astype(str).str.strip().ne("").all()
+    assert history["freshness_status"].astype(str).str.strip().ne("").all()
+    assert history["model_availability"].astype(str).str.strip().ne("").all()
+    assert history["forecast_status"].astype(str).str.strip().ne("").all()
+    assert history["news_inventory"].notna().all()
+    assert history["backtest_trust"].astype(str).str.strip().ne("").all()
+    assert history["portfolio_risk"].astype(str).str.strip().ne("").all()
+    assert history["execution_allowed"].eq(False).all()
+
+
+def test_pending_model_label_persists_unavailable_without_model_row_or_version(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(trust, "SCORE_HISTORY_PATH", tmp_path / "score_history.parquet")
+    score = SimpleNamespace(
+        display_id="PENDING",
+        name="Pending instrument",
+        final_score_10=5.0,
+        latest_date="pending refresh",
+        components=[],
+        warnings=["pending_refresh"],
+        model_authority_label="Model evidence pending",
+        model_versions_used=None,
+    )
+
+    trust.append_score_history([score], run_id="pending-model", created_at="2026-07-10T00:00:00Z")
+
+    row = pd.read_parquet(trust.SCORE_HISTORY_PATH).iloc[0]
+    assert bool(row["model_available"]) is False
+    assert row["model_availability"] == "unavailable"
 
 
 def test_score_components_persist_non_executable_authority(tmp_path, monkeypatch) -> None:

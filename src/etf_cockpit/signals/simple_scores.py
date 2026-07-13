@@ -16,6 +16,7 @@ from etf_cockpit.core.paths import BACKTESTS_DIR, DERIVED_DIR, FORECASTS_DIR, RA
 from etf_cockpit.core.types import SignalResult
 from etf_cockpit.governance.gate_policy import resolve_authority
 from etf_cockpit.data.reference_data import load_reference_dataset
+from etf_cockpit.data.news_context import NEWS_CLEAN_PATH, load_news_items
 from etf_cockpit.data.universe_store import support_decision
 from etf_cockpit.data.yfinance_provider import yfinance_symbol_map_from_config
 from etf_cockpit.data.universe_store import load_universe
@@ -267,6 +268,11 @@ class SimpleInstrumentScore:
     model_contamination_risk: str = "not_evaluated"
     model_authority_reason: str = "Model authority not evaluated"
     calibration_required: bool = True
+    rank: int | None = None
+    score_rank: int | None = None
+    model_versions_used: dict[str, str] | None = None
+    forecast_status: str = "unavailable"
+    news_inventory: int | None = None
     gross_expected_edge_bps: float | None = None
     estimated_total_cost_bps: float | None = None
     net_expected_edge_bps: float | None = None
@@ -534,7 +540,63 @@ def build_simple_instrument_scores(
         [*universe_scores, *candidate_scores],
         key=lambda item: (item.final_score_10 is None, -(item.final_score_10 or -1.0), item.display_id),
     )
-    return [_attach_authority(score) for score in scores]
+    news_inventory = _news_inventory_lookup()
+    ranked = [
+        replace(
+            score,
+            rank=index,
+            score_rank=index,
+            news_inventory=news_inventory.get(score.display_id),
+            forecast_status=_forecast_status_for_components(score.components),
+        )
+        for index, score in enumerate(scores, start=1)
+    ]
+    return [_attach_authority(score) for score in ranked]
+
+
+def _news_inventory_lookup() -> dict[str, int]:
+    """Count canonical local news rows without inventing missing inventory."""
+
+    if not NEWS_CLEAN_PATH.exists():
+        return {}
+    try:
+        frame = load_news_items(NEWS_CLEAN_PATH)
+    except Exception:
+        return {}
+    if frame.empty or "instrument_id" not in frame.columns:
+        return {}
+    scoped = frame.loc[frame["instrument_id"].notna()].copy()
+    if scoped.empty:
+        return {}
+    return {str(instrument_id): int(rows) for instrument_id, rows in scoped.groupby("instrument_id", sort=True).size().items()}
+
+
+def _forecast_versions_for_instrument(forecasts: pd.DataFrame, instrument_id: str) -> dict[str, str]:
+    if forecasts.empty or "etf_id" not in forecasts.columns or "model_name" not in forecasts.columns:
+        return {}
+    rows = forecasts.loc[forecasts["etf_id"].astype(str).eq(str(instrument_id))]
+    if rows.empty:
+        return {}
+    version_column = next((column for column in ("model_version", "version", "model_id") if column in rows.columns), None)
+    if version_column is None:
+        return {}
+    versions: dict[str, str] = {}
+    for _, row in rows.iterrows():
+        model_name = str(row.get("model_name") or "").strip().casefold()
+        version = str(row.get(version_column) or "").strip()
+        if model_name and version and version.casefold() not in {"nan", "none", "unavailable"}:
+            versions[model_name] = version
+    return dict(sorted(versions.items()))
+
+
+def _forecast_status_for_components(components: Iterable[SimpleScoreComponent]) -> str:
+    rows = [component for component in components if component.key in {"baseline", "timesfm", "toto"}]
+    if not rows:
+        return "unavailable"
+    valid = sum(component.score_10 is not None for component in rows)
+    if valid == len(rows):
+        return "available"
+    return "partial" if valid else "unavailable"
 
 
 def _attach_authority(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
@@ -838,6 +900,7 @@ def build_universe_simple_scores(
                 final_label=final_label,
                 final_action=final_action,
                 model_authority_label=_model_authority_label(components),
+                model_versions_used=dict(getattr(signal, "model_versions_used", {}) or {}),
                 backtest_trust_label=str(trust_info["label"]),
                 backtest_trust_score_10=_safe_float(trust_info.get("score")),
                 model_calibration_label=str(calibration_info["label"]),
@@ -869,6 +932,7 @@ def build_universe_simple_scores(
                 model_contamination_risk=str(validity["model_contamination_risk"]),
                 model_authority_reason=str(validity["model_authority_reason"]),
                 calibration_required=bool(validity["calibration_required"]),
+                forecast_status=_forecast_status_for_components(components),
                 **_friction_edge_fields(evidence_score, components),
             )
         )
@@ -1034,6 +1098,7 @@ def build_candidate_simple_scores(
                 final_label=final_label,
                 final_action=final_action,
                 model_authority_label=_model_authority_label(components),
+                model_versions_used=_forecast_versions_for_instrument(forecasts, instrument_id),
                 backtest_trust_label=str(trust_info["label"]),
                 backtest_trust_score_10=_safe_float(trust_info.get("score")),
                 model_calibration_label=str(calibration_info["label"]),
@@ -1057,6 +1122,7 @@ def build_candidate_simple_scores(
                 model_contamination_risk=str(validity["model_contamination_risk"]),
                 model_authority_reason=str(validity["model_authority_reason"]),
                 calibration_required=bool(validity["calibration_required"]),
+                forecast_status=_forecast_status_for_components(components),
                 **_friction_edge_fields(evidence_score, components),
             )
         )
