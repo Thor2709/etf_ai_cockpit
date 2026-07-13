@@ -753,7 +753,7 @@
       "windows_build": {"exit_code": 0, "native": "not_applicable: PyInstaller unavailable", "portable_outdir": "build/ETF_AI_Cockpit_Portable_v0.1.0_20260713_012732"},
       "package_smoke": {"exit_code": 0, "modes": ["portable-source-launcher"], "native": "not_applicable: PyInstaller unavailable"},
       "browser": {"exit_code": 0, "route": "/providers", "default_sha256": "84B81F9774A3DBA208DD0E73B6F4443A4EAE69EC39D0AC9490DC4ED2D3B39D98", "mobile_sha256": "49FD7480D63DA8877ACC61FFBDD0E2AEB799E4453C18473DC5DB1EDFCAA4DBB6"},
-      "current_commit": "9139e515bda9e149dde52e9074990cbc5c781e84",
+      "current_commit": "69f14f969f0e96500ab755d5cae21d528caf2e03",
       "origin_main_matches": true,
       "main_matches_origin": true,
       "working_tree_clean": true,
