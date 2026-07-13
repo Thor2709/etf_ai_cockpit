@@ -11,6 +11,12 @@ from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import STATEMENT_FACTS_PATH
 from etf_cockpit.data.fund_documents import import_etf_document
 from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH, import_etf_holdings_with_document
+from etf_cockpit.data.parsed_disclosures import (
+    INDEX_METHODOLOGY_RECORDS_PATH,
+    PRIIPS_KID_RECORDS_PATH,
+    persist_index_methodology_with_document,
+    persist_priips_kid_with_document,
+)
 from etf_cockpit.data.provider_registry import ProviderRegistry
 from etf_cockpit.data.trust_artifacts import (
     BENCHMARK_ATTRIBUTION_PATH,
@@ -113,6 +119,8 @@ def etf_disclosures_page(page: ft.Page, state: AppState) -> ft.Control:
         "ETF factsheets, holdings, PRIIPs KIDs, reports and index methodology inventory. Partial coverage is shown explicitly.",
         [
             ("ETF disclosure inventory", ETF_DISCLOSURES_PATH, ["instrument_id", "document_type", "source_id", "source_url", "source_authority", "as_of_date", "checksum", "coverage_status", "path"]),
+            ("Parsed PRIIPs KID evidence", PRIIPS_KID_RECORDS_PATH, ["instrument_id", "isin", "sri", "cost_fields", "holding_period_years", "document_date", "extraction_confidence", "source_pages", "warnings", "source_sha256", "parser_version", "source_authority", "freshness_status", "manual_review", "score_eligible"]),
+            ("Parsed index methodology evidence", INDEX_METHODOLOGY_RECORDS_PATH, ["instrument_id", "provider", "index_series", "version", "document_date", "eligibility_rules", "weighting_rules", "review_frequency", "caps", "source_pages", "warnings", "source_sha256", "parser_version", "source_authority", "freshness_status", "manual_review", "score_eligible"]),
             ("ETF holdings evidence", FUND_HOLDINGS_PATH, ["instrument_id", "as_of_date", "source", "completeness", "freshness", "confidence", "authority", "score_eligible", "source_id"]),
             ("Source conflicts", SOURCE_CONFLICTS_PATH, ["instrument_id", "field_name", "canonical_value", "resolution_status", "requires_manual_review", "reason"]),
         ],
@@ -223,6 +231,7 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
     result = ft.Text("No ETF disclosure imported in this view.", color=theme.MUTED, selectable=True)
     picker = _attach_picker(page, "etf-disclosures.import.file-picker")
     instrument_field = ft.TextField(label="ETF instrument ID", value=state.selected_etf, width=180)
+    provider_field = ft.TextField(label="Index provider", value="FTSE Russell", width=180)
     document_date_field = ft.TextField(label="Document date (optional)", width=190)
     document_type_field = ft.Dropdown(
         label="Document type",
@@ -291,8 +300,30 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
         else:
             path = Path(files[0].path) if files[0].path else None
             try:
-                parsed = parse_priips_kid(path) if path and path.exists() else None
-                result.value = "PRIIPs import requires a readable PDF." if parsed is None else f"PRIIPs parser {parsed.parser_name}: {len(parsed.records)} record(s), {len(parsed.warnings)} warnings, success={parsed.success}."
+                instrument_id = str(instrument_field.value or state.selected_etf or "").strip()
+                etf = next((item for item in state.snapshot.config.universe.etfs if item.id == instrument_id), None)
+                expected_isin = etf.isin if etf is not None else None
+                parsed = parse_priips_kid(path, expected_isin=expected_isin) if path and path.exists() else None
+                if parsed is None:
+                    result.value = "PRIIPs import requires a readable PDF."
+                else:
+                    record = parsed.records[0] if parsed.records else None
+                    document_date = record.document_date if record is not None else str(document_date_field.value or "").strip() or None
+                    document = persist_priips_kid_with_document(
+                        parsed,
+                        instrument_id,
+                        path,
+                        document_date=document_date,
+                        configured_instrument_ids=state.snapshot.config.universe.configured_enabled_ids,
+                    )
+                    from etf_cockpit.data.fund_documents import read_document_registry
+
+                    registry = read_document_registry(path=document.with_name("fund_documents.parquet"))
+                    registered = registry.loc[registry["instrument_id"].astype(str).eq(instrument_id)]
+                    document_row = registered.loc[registered["document_type"].astype(str).eq("kid")].iloc[-1] if not registered.empty else None
+                    document_checksum = str(document_row["sha256"]) if document_row is not None else ""
+                    warning_text = ", ".join(item.code for item in parsed.warnings) or "none"
+                    result.value = f"PRIIPs KID {instrument_id}: records={len(parsed.records)}, confidence={record.extraction_confidence if record else 'unavailable'}, pages={record.source_pages if record else ()}, warnings={warning_text}, checksum={document_checksum[:12]}..., success={parsed.success}."
                 state.last_message = result.value
             except Exception as exc:
                 state.fail_activity("Import PRIIPs KID", exc)
@@ -308,8 +339,38 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
         else:
             path = Path(files[0].path) if files[0].path else None
             try:
-                parsed = parse_index_methodology(path, "Imported index provider") if path and path.exists() else None
-                result.value = "Methodology import requires a readable PDF." if parsed is None else f"Methodology parser {parsed.parser_name}: {len(parsed.records)} record(s), {len(parsed.warnings)} warnings, success={parsed.success}."
+                instrument_id = str(instrument_field.value or state.selected_etf or "").strip()
+                provider = str(provider_field.value or "").strip()
+                parsed = parse_index_methodology(path, provider) if path and path.exists() else None
+                if parsed is None:
+                    result.value = "Methodology import requires a readable PDF."
+                else:
+                    holdings = pd.DataFrame()
+                    if FUND_HOLDINGS_PATH.exists():
+                        try:
+                            stored_holdings = pd.read_parquet(FUND_HOLDINGS_PATH)
+                            if "instrument_id" in stored_holdings.columns:
+                                holdings = stored_holdings.loc[stored_holdings["instrument_id"].astype(str).eq(instrument_id)].copy()
+                        except Exception:
+                            holdings = pd.DataFrame()
+                    from etf_cockpit.parsers.index_methodology import apply_methodology_holdings_assessment
+
+                    parsed = apply_methodology_holdings_assessment(parsed, holdings)
+                    record = parsed.records[0] if parsed.records else None
+                    document = persist_index_methodology_with_document(
+                        parsed,
+                        instrument_id,
+                        path,
+                        configured_instrument_ids=state.snapshot.config.universe.configured_enabled_ids,
+                    )
+                    from etf_cockpit.data.fund_documents import read_document_registry
+
+                    registry = read_document_registry(path=document.with_name("fund_documents.parquet"))
+                    registered = registry.loc[registry["instrument_id"].astype(str).eq(instrument_id)]
+                    document_row = registered.loc[registered["document_type"].astype(str).eq("methodology")].iloc[-1] if not registered.empty else None
+                    document_checksum = str(document_row["sha256"]) if document_row is not None else ""
+                    warning_text = ", ".join(item.code for item in parsed.warnings) or "none"
+                    result.value = f"Methodology {instrument_id}/{provider or 'unknown provider'}: records={len(parsed.records)}, version={record.version if record else 'unavailable'}, pages={record.source_pages if record else ()}, warnings={warning_text}, checksum={document_checksum[:12]}..., success={parsed.success}."
                 state.last_message = result.value
             except Exception as exc:
                 state.fail_activity("Import index methodology", exc)
@@ -322,7 +383,7 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
                 section_header("ETF disclosure import", "Local factsheets, KIDs, prospectuses/reports, holdings and methodologies are registered with checksums and explicit missing/invalid states. Parser controls remain available for KIDs and methodologies."),
                 ft.Row([instrument_field, document_type_field, document_date_field, ft.OutlinedButton("Register ETF document", key="etf-disclosures.import-document", icon=ft.Icons.UPLOAD_FILE, on_click=import_document)], wrap=True),
                 ft.Row([holdings_date_field, holdings_source_field, ft.OutlinedButton("Import ETF holdings", key="etf-disclosures.import-holdings", icon=ft.Icons.UPLOAD_FILE, on_click=import_holdings)], wrap=True),
-                ft.Row([ft.OutlinedButton("Import PRIIPs KID", key="etf-disclosures.import-kid", icon=ft.Icons.UPLOAD_FILE, on_click=import_kid), ft.OutlinedButton("Import index methodology", key="etf-disclosures.import-methodology", icon=ft.Icons.UPLOAD_FILE, on_click=import_methodology)], wrap=True),
+                ft.Row([provider_field, ft.OutlinedButton("Import PRIIPs KID", key="etf-disclosures.import-kid", icon=ft.Icons.UPLOAD_FILE, on_click=import_kid), ft.OutlinedButton("Import index methodology", key="etf-disclosures.import-methodology", icon=ft.Icons.UPLOAD_FILE, on_click=import_methodology)], wrap=True),
                 result,
             ],
             spacing=8,

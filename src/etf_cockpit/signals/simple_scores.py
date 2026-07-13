@@ -5,6 +5,7 @@ from datetime import date
 import json
 from math import isfinite, tanh
 from pathlib import Path
+import re
 from typing import Iterable, Literal
 
 import pandas as pd
@@ -1417,6 +1418,91 @@ def _liquidity_component(info: dict[str, object]) -> SimpleScoreComponent:
     spread_proxy = _safe_float(info.get("spread_proxy_20"))
     raw, why = _liquidity_raw_and_reason(avg_turnover, spread_proxy)
     return _component("liquidity_cost", raw, why, authority="high", role="risk_friction")
+
+
+def build_priips_kid_cost_evidence(record: object) -> SimpleScoreComponent:
+    """Expose complete, fresh issuer KID cost evidence at the score seam.
+
+    The helper is intentionally opt-in: the approved score weights and primary
+    yfinance path are unchanged.  A numeric score is produced only from an
+    explicitly parsed percentage/currency cost (or SRI fallback); incomplete,
+    conflicted or stale records remain observable but score-ineligible.
+    """
+
+    document_date = _noneable_str(getattr(record, "document_date", None))
+    source_sha = _noneable_str(getattr(record, "source_sha256", None))
+    source_id = f"priips_kid:{source_sha}" if source_sha else ""
+    freshness = _component_freshness_status(document_date)
+    warnings = tuple(str(item).strip() for item in (getattr(record, "warnings", ()) or ()) if str(item).strip())
+    conflict_id = "methodology_holdings_conflict" if "methodology_holdings_conflict" in warnings else None
+    cost_fields = getattr(record, "cost_fields", {})
+    cost_text = " ".join(str(value) for value in cost_fields.values()) if isinstance(cost_fields, dict) else ""
+    malformed_cost = bool(re.search(r"What are the costs|cost_table_malformed", cost_text, re.IGNORECASE)) or "cost_table_malformed" in warnings
+    ongoing_text = cost_fields.get("ongoing_costs") if isinstance(cost_fields, dict) else None
+    numeric_match = re.search(r"(?<![A-Za-z])(\d+(?:[.,]\d+)?)\s*%", str(ongoing_text or ""))
+    explicit_value = None if numeric_match is None else _safe_float(numeric_match.group(1).replace(",", "."))
+    sri = _safe_int(getattr(record, "sri", None))
+    key = "liquidity_cost"
+    value_reason = "No explicit numeric KID cost percentage is available."
+    if explicit_value is not None:
+        # A disclosed percentage is a cost penalty, not a positive return
+        # signal.  Keep the penalty bounded by the raw-score contract without
+        # inventing a preferred cost ceiling that the KID does not disclose.
+        raw_score = _clamp(-explicit_value)
+        score_10 = raw_to_score_10(raw_score)
+        value_reason = f"Issuer KID reports an explicit cost percentage of {explicit_value:g}%; no proxy cost was invented."
+    else:
+        key = "risk"
+        # PRIIPs SRI is defined from 1 (lowest risk) through 7 (highest risk).
+        # Map that bounded domain inversely onto the [-1, 1] raw-score domain.
+        raw_score = (
+            None
+            if sri is None
+            else _clamp(1.0 - 2.0 * ((float(sri) - 1.0) / (7.0 - 1.0)))
+        )
+        score_10 = None if raw_score is None else raw_to_score_10(raw_score)
+        if sri is not None:
+            value_reason = f"Issuer KID reports explicit summary risk indicator {sri}; no cost proxy was invented."
+    eligible_record = bool(
+        getattr(record, "score_eligible", False)
+        and not bool(getattr(record, "manual_review", False))
+        and not warnings
+        and bool(source_id)
+        and (explicit_value is not None or sri is not None)
+        and not malformed_cost
+        and freshness == "ok"
+    )
+    if not eligible_record:
+        raw_score = None
+        score_10 = None
+    status = "OK" if score_10 is not None else "N/A"
+    if warnings:
+        value_reason += " Manual review is required: " + ", ".join(warnings) + "."
+    elif freshness in {"stale", "stale_block", "missing", "missing_or_pending", "unknown"}:
+        value_reason += f" KID freshness is {freshness or 'unknown'} and is excluded."
+    return SimpleScoreComponent(
+        key=key,
+        label=COMPONENT_LABELS[key],
+        score_10=score_10,
+        raw_score=raw_score,
+        status=status,
+        explanation=COMPONENT_EXPLANATIONS[key],
+        good_score=GOOD_SCORE_TEXT[key],
+        why=value_reason if score_10 is not None else "KID evidence is unavailable or excluded from scoring. " + value_reason,
+        authority="high",
+        score_role="risk_friction" if key in {"risk", "liquidity_cost"} else "evidence",
+        source_id=source_id or "priips_kid:unavailable",
+        source_authority="issuer_document",
+        as_of_date=document_date,
+        freshness_status=freshness,
+        conflict_id=conflict_id,
+        evidence_quality=1.0 if eligible_record else "manual_review",
+    )
+
+
+# Compatibility-friendly aliases for evidence-ledger/import callers.
+build_kid_cost_evidence = build_priips_kid_cost_evidence
+priips_kid_cost_component = build_priips_kid_cost_evidence
 
 
 def _candidate_liquidity_component(row: pd.Series) -> SimpleScoreComponent:

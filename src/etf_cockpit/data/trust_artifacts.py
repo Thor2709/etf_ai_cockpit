@@ -34,6 +34,12 @@ from etf_cockpit.data.fund_documents import (
     read_document_registry,
     unavailable_document,
 )
+from etf_cockpit.data.parsed_disclosures import (
+    INDEX_METHODOLOGY_RECORDS_PATH,
+    KID_COLUMNS,
+    METHODOLOGY_COLUMNS,
+    PRIIPS_KID_RECORDS_PATH,
+)
 
 PROVIDER_PROBE_PATH = CLEAN_DIR / "provider_probe_results.parquet"
 IDENTITY_PATH = CLEAN_DIR / "instrument_identity.parquet"
@@ -284,6 +290,8 @@ def refresh_static_trust_artifacts(config: AppConfig) -> dict[str, Path]:
     _ensure_empty_if_missing(FEATURE_DRIVERS_PATH, FEATURE_DRIVER_COLUMNS)
     _ensure_empty_if_missing(CORRELATION_CLUSTERS_PATH, CORRELATION_CLUSTER_COLUMNS)
     _ensure_empty_if_missing(BENCHMARK_ATTRIBUTION_PATH, BENCHMARK_ATTRIBUTION_COLUMNS)
+    _ensure_empty_if_missing(PRIIPS_KID_RECORDS_PATH, KID_COLUMNS)
+    _ensure_empty_if_missing(INDEX_METHODOLOGY_RECORDS_PATH, METHODOLOGY_COLUMNS)
     log_event(
         event_type="trust_artifacts",
         severity="info",
@@ -796,6 +804,8 @@ def write_optional_source_inventories(config: AppConfig, identity: pd.DataFrame)
             _etf_disclosure_inventory(identity, configured_etf_ids=[etf.id for etf in config.universe.etfs if etf.instrument_type == "etf"]),
             ETF_DISCLOSURES_PATH,
         ),
+        "priips_kid_records": PRIIPS_KID_RECORDS_PATH,
+        "index_methodology_records": INDEX_METHODOLOGY_RECORDS_PATH,
         "news_context": _write_dual(_news_context_inventory(identity), NEWS_CONTEXT_PATH),
         "news_timestamp_validation": _write_dual(_news_timestamp_validation(), NEWS_TIMESTAMP_VALIDATION_PATH),
     }

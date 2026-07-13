@@ -35,6 +35,7 @@ from etf_cockpit.data.trust_artifacts import (
     SCORE_METRIC_HISTORY_PATH,
     SOURCE_CONFLICTS_PATH,
 )
+from etf_cockpit.data.parsed_disclosures import INDEX_METHODOLOGY_RECORDS_PATH, PRIIPS_KID_RECORDS_PATH
 from etf_cockpit.governance.product_scope import (
     load_feature_registry,
     load_gate_policy,
@@ -441,6 +442,8 @@ def _export_trust_critical_evidence(export_dir: Path, config: AppConfig) -> dict
         FILINGS_STATEMENTS_PATH,
         STATEMENT_FACTS_PATH,
         ETF_DISCLOSURES_PATH,
+        PRIIPS_KID_RECORDS_PATH,
+        INDEX_METHODOLOGY_RECORDS_PATH,
         NEWS_CONTEXT_PATH,
         NEWS_TIMESTAMP_VALIDATION_PATH,
     ):
