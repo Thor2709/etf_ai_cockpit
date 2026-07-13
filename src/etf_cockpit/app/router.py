@@ -65,13 +65,27 @@ PAGES = {
 }
 
 
+def instrument_detail_route(instrument_id: str) -> str:
+    """Return the canonical inspect route for a configured instrument ID."""
+
+    value = str(instrument_id or "").strip()
+    return f"/instrument/{value}" if value else "/instrument"
+
+
 def _page_route(route: str) -> str:
     """Return the registered route while preserving query/hash targets for pages."""
 
-    return str(route or "/").split("?", 1)[0].split("#", 1)[0] or "/"
+    value = str(route or "/").split("?", 1)[0].split("#", 1)[0] or "/"
+    if value.startswith("/instrument/"):
+        return "/instrument"
+    return value
 
 
 def navigate_to(page: ft.Page, state: AppState, route: str) -> None:
+    if str(route).startswith("/instrument/"):
+        selected = str(route).split("/", 2)[-1].strip()
+        if selected:
+            state.selected_etf = selected
     go = getattr(page, "go", None)
     if callable(go):
         go(route)

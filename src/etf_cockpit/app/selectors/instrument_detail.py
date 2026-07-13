@@ -11,6 +11,8 @@ from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
 from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH, latest_fundamental_rows, load_fundamental_evidence
 from etf_cockpit.data.news_context import NEWS_CLEAN_PATH, load_news_items, sort_news_items
 from etf_cockpit.data.parsed_disclosures import read_index_methodology_records, read_priips_kid_records
+from etf_cockpit.data.run_changes import compare_runs
+from etf_cockpit.data.score_history import score_history_frame
 from etf_cockpit.data.trust_artifacts import BENCHMARK_ATTRIBUTION_PATH, CORRELATION_CLUSTERS_PATH, FEATURE_DRIVERS_PATH
 from etf_cockpit.core.paths import DERIVED_DIR
 from etf_cockpit.services import CockpitSnapshot
@@ -25,8 +27,67 @@ class InstrumentDetailViewModel:
     sections: dict[str, Any]
 
 
-_SECTION_NAMES = ("identity", "price", "scores", "feature_drivers", "risk", "attribution", "fundamentals", "etf_disclosures", "news", "forecasts", "backtests", "history", "journal", "run_changes")
+_SECTION_NAMES = (
+    "identity",
+    "price",
+    "scores",
+    "feature_drivers",
+    "risk",
+    "attribution",
+    "fundamentals",
+    "etf_disclosures",
+    "etf_holdings",
+    "news",
+    "forecasts",
+    "backtests",
+    "paper_trades",
+    "history",
+    "journal",
+    "run_changes",
+)
 SCOREBOARD_PATH = DERIVED_DIR / "scoreboard.parquet"
+PAPER_TRADES_PATH = DERIVED_DIR / "paper_trades.parquet"
+
+
+def _unavailable(message: str) -> dict[str, Any]:
+    """Return a consistent, non-authoritative unavailable panel."""
+
+    return {"status": "unavailable", "message": message, "execution_allowed": False}
+
+
+def _safe_float(value: object) -> float | None:
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _safe_frame(frame: object) -> pd.DataFrame:
+    return frame.copy() if isinstance(frame, pd.DataFrame) else pd.DataFrame()
+
+
+def _load_parquet(path: object) -> pd.DataFrame:
+    try:
+        candidate = path
+        if candidate is None or not candidate.exists():  # type: ignore[union-attr]
+            return pd.DataFrame()
+        return pd.read_parquet(candidate)  # type: ignore[arg-type]
+    except Exception:
+        return pd.DataFrame()
+
+
+def _instrument_rows(frame: object, instrument_id: str, *, columns: tuple[str, ...] = ("instrument_id", "etf_id")) -> pd.DataFrame:
+    source = _safe_frame(frame)
+    if source.empty:
+        return source
+    available = [column for column in columns if column in source.columns]
+    if not available:
+        return source.iloc[0:0]
+    mask = pd.Series(False, index=source.index)
+    for column in available:
+        mask |= source[column].astype(str).eq(str(instrument_id))
+    return source.loc[mask].copy()
 
 
 def _feature_driver_panel(instrument_id: str) -> dict[str, Any]:
@@ -101,12 +162,18 @@ def _normalise_feature_driver_frame(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def _fundamentals_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
-    source = frame if isinstance(frame, pd.DataFrame) else load_fundamental_evidence(FUNDAMENTAL_CLEAN_PATH)
+    try:
+        source = frame if isinstance(frame, pd.DataFrame) else load_fundamental_evidence(FUNDAMENTAL_CLEAN_PATH)
+    except Exception:
+        return _unavailable("Fundamental evidence unavailable; the optional local store is missing or corrupt.") | {"score_eligible": False}
     if source.empty or "instrument_id" not in source.columns:
-        return {"status": "unavailable", "message": "Fundamental evidence unavailable; no complete local five-section record is registered.", "score_eligible": False}
-    scoped = latest_fundamental_rows(source[source["instrument_id"].astype(str).eq(str(instrument_id))])
+        return _unavailable("Fundamental evidence unavailable; no complete local five-section record is registered.") | {"score_eligible": False}
+    try:
+        scoped = latest_fundamental_rows(source[source["instrument_id"].astype(str).eq(str(instrument_id))])
+    except Exception:
+        return _unavailable("Fundamental evidence unavailable; the optional local store is malformed.") | {"score_eligible": False}
     if scoped.empty:
-        return {"status": "unavailable", "message": "Fundamental evidence unavailable for this instrument.", "score_eligible": False}
+        return _unavailable("Fundamental evidence unavailable for this instrument.") | {"score_eligible": False}
     row = scoped.iloc[-1]
     return {
         "status": "available" if bool(row.get("score_eligible", False)) else "manual_review",
@@ -125,18 +192,25 @@ def _fundamentals_panel(instrument_id: str, frame: pd.DataFrame | None = None) -
         "sector_relative_delta": row.get("sector_relative_delta", "unavailable"),
         "sector_relative_limitation": row.get("sector_relative_limitation", "No sector-relative comparison evidence supplied."),
         "executable_authority": False,
+        "execution_allowed": False,
     }
 
 
 def _news_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
-    source = frame if isinstance(frame, pd.DataFrame) else load_news_items(NEWS_CLEAN_PATH)
+    try:
+        source = frame if isinstance(frame, pd.DataFrame) else load_news_items(NEWS_CLEAN_PATH)
+    except Exception:
+        return _unavailable("News unavailable; the optional local store is missing or corrupt.") | {"items": [], "context_only": True, "executable_authority": False}
     if source.empty or "instrument_id" not in source.columns:
-        return {"status": "unavailable", "message": "News unavailable; no timestamp-validated local items are registered.", "items": [], "context_only": True, "executable_authority": False}
-    scoped = sort_news_items(source[source["instrument_id"].astype(str).eq(str(instrument_id))])
+        return _unavailable("News unavailable; no timestamp-validated local items are registered.") | {"items": [], "context_only": True, "executable_authority": False}
+    try:
+        scoped = sort_news_items(source[source["instrument_id"].astype(str).eq(str(instrument_id))])
+    except Exception:
+        return _unavailable("News unavailable; the optional local store is malformed.") | {"items": [], "context_only": True, "executable_authority": False}
     if scoped.empty:
-        return {"status": "unavailable", "message": "News unavailable for this instrument.", "items": [], "context_only": True, "executable_authority": False}
+        return _unavailable("News unavailable for this instrument.") | {"items": [], "context_only": True, "executable_authority": False}
     items = [_news_item_record(row) for row in scoped.tail(20).to_dict("records")]
-    return {"status": "available", "message": "News is context-only and cannot change deterministic scores.", "items": items, "context_only": True, "executable_authority": False}
+    return {"status": "available", "message": "News is context-only and cannot change deterministic scores.", "items": items, "context_only": True, "executable_authority": False, "execution_allowed": False}
 
 
 def _news_item_record(row: Mapping[str, Any]) -> dict[str, Any]:
@@ -168,11 +242,17 @@ def _etf_disclosure_panel(
     kid_records: pd.DataFrame | None = None,
     methodology_records: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
-    registry = document_registry.copy() if isinstance(document_registry, pd.DataFrame) else read_document_registry()
+    try:
+        registry = document_registry.copy() if isinstance(document_registry, pd.DataFrame) else read_document_registry()
+    except Exception:
+        registry = pd.DataFrame()
     if not registry.empty and "instrument_id" in registry.columns:
         registry = registry[registry["instrument_id"].astype(str).eq(str(instrument_id))].copy()
     if registry.empty:
-        inventory = build_document_inventory([instrument_id])
+        try:
+            inventory = build_document_inventory([instrument_id])
+        except Exception:
+            inventory = pd.DataFrame()
     else:
         inventory = registry
     document_rows = []
@@ -214,9 +294,16 @@ def _etf_disclosure_panel(
             "source": row.get("source", "unavailable"),
             "authority": row.get("authority", "unavailable"),
             "score_eligible": row.get("score_eligible", False),
+            "rows": holdings_frame.to_dict("records"),
         }
-    kid_frame = kid_records.copy() if isinstance(kid_records, pd.DataFrame) else read_priips_kid_records()
-    methodology_frame = methodology_records.copy() if isinstance(methodology_records, pd.DataFrame) else read_index_methodology_records()
+    try:
+        kid_frame = kid_records.copy() if isinstance(kid_records, pd.DataFrame) else read_priips_kid_records()
+    except Exception:
+        kid_frame = pd.DataFrame()
+    try:
+        methodology_frame = methodology_records.copy() if isinstance(methodology_records, pd.DataFrame) else read_index_methodology_records()
+    except Exception:
+        methodology_frame = pd.DataFrame()
     kid = _parsed_kid_panel(kid_frame, instrument_id)
     methodology = _parsed_methodology_panel(methodology_frame, instrument_id)
     has_registered_document = any(row["coverage_status"] in {"available", "imported", "mapped"} for row in document_rows)
@@ -224,8 +311,14 @@ def _etf_disclosure_panel(
         "status": "available" if has_registered_document or kid["status"] == "available" or methodology["status"] == "available" else "unavailable",
         "document_inventory": document_rows,
         "holdings": holdings_summary,
+        "exposure": {
+            "status": holdings_summary.get("status", "unavailable"),
+            "rows": holdings_summary.get("rows", []),
+            "message": holdings_summary.get("message", "ETF holdings/exposure unavailable."),
+        },
         "kid": kid,
         "methodology": methodology,
+        "execution_allowed": False,
     }
 
 
@@ -319,6 +412,182 @@ def _friction_panel(instrument_id: str) -> dict[str, Any]:
     return result
 
 
+def _price_panel(snapshot: CockpitSnapshot, instrument_id: str) -> dict[str, Any]:
+    rows = _instrument_rows(getattr(snapshot, "prices", None), instrument_id)
+    if rows.empty:
+        return _unavailable("Price history unavailable for this instrument.") | {"rows": [], "history": []}
+    date_column = "date" if "date" in rows.columns else "as_of_date" if "as_of_date" in rows.columns else None
+    if date_column is not None:
+        rows["_date_sort"] = pd.to_datetime(rows[date_column], errors="coerce")
+        rows = rows.sort_values("_date_sort", kind="stable").drop(columns=["_date_sort"])
+    latest = rows.iloc[-1]
+    price = latest.get("adjusted_close")
+    if _safe_float(price) is None:
+        price = latest.get("close")
+    latest_date = latest.get(date_column) if date_column else None
+    latest_text = "unavailable" if latest_date is None or pd.isna(latest_date) else str(latest_date)
+    freshness = "unknown"
+    if latest_text != "unavailable":
+        freshness = "fresh"
+        try:
+            reference = pd.to_datetime(getattr(getattr(snapshot, "data_report", None), "as_of_date", None), errors="coerce")
+            observed = pd.to_datetime(latest_date, errors="coerce")
+            if pd.notna(reference) and pd.notna(observed) and (reference - observed).days > 5:
+                freshness = "stale"
+        except Exception:
+            freshness = "unknown"
+    records = rows.tail(500).where(pd.notna(rows.tail(500)), None).to_dict("records")
+    return {
+        "status": "available",
+        "rows": len(rows),
+        "history": records,
+        "latest_price": _safe_float(price),
+        "latest_date": latest_text,
+        "as_of": latest_text,
+        "freshness": freshness,
+        "source": latest.get("source", "unavailable"),
+        "currency": latest.get("currency", "unavailable"),
+        "execution_allowed": False,
+    }
+
+
+def _scoreboard_row(instrument_id: str) -> dict[str, Any]:
+    frame = _load_parquet(SCOREBOARD_PATH)
+    rows = _instrument_rows(frame, instrument_id, columns=("instrument_id", "display_id", "etf_id"))
+    return rows.iloc[-1].to_dict() if not rows.empty else {}
+
+
+def _score_panel(signal: Any, scoreboard: Mapping[str, Any], derived: Mapping[str, Any], friction: Mapping[str, Any]) -> dict[str, Any]:
+    if signal is None and not scoreboard:
+        return _unavailable("Score evidence unavailable for this instrument.") | {"crowding": derived["crowding"], "friction": friction}
+    gates: list[str] = [str(value) for value in (getattr(signal, "blocked_by", ()) or ())]
+    decision = getattr(signal, "authority_decision", None)
+    for gate in getattr(decision, "gates", ()) or ():
+        if not bool(getattr(gate, "passed", True)) and str(getattr(gate, "gate_id", "")) not in gates:
+            gates.append(str(getattr(gate, "gate_id", "")))
+    evidence_score = next((_safe_float(scoreboard.get(key)) for key in ("evidence_score_10", "evidence_score", "final_combined_score_10") if _safe_float(scoreboard.get(key)) is not None), None)
+    quality = next((_safe_float(scoreboard.get(key)) for key in ("evidence_quality_10", "evidence_quality") if _safe_float(scoreboard.get(key)) is not None), None)
+    label = str(scoreboard.get("final_label") or scoreboard.get("final_action") or getattr(signal, "research_state", "manual_review"))
+    reason = str(scoreboard.get("one_line_reason") or scoreboard.get("reason") or getattr(signal, "reason_long", "Score reason unavailable."))
+    return {
+        "status": "available",
+        "evidence_score": evidence_score,
+        "evidence_quality": quality,
+        "signal_score": _safe_float(getattr(signal, "total_score", None)),
+        "final_label": label,
+        "final_reason": reason,
+        "reason": reason,
+        "blocked_gates": gates,
+        "warnings": list(getattr(signal, "warnings", ()) or ()),
+        "freshness": scoreboard.get("freshness_status", "unavailable"),
+        "crowding": derived["crowding"],
+        "friction": friction,
+        "execution_allowed": False,
+    }
+
+
+def _risk_panel(features: object, friction: Mapping[str, Any], crowding: Mapping[str, Any]) -> dict[str, Any]:
+    rows = _safe_frame(features)
+    if rows.empty:
+        return _unavailable("Risk and feature evidence unavailable for this instrument.") | {"crowding": crowding, "cost": friction}
+    row = rows.iloc[-1]
+    values = {str(key): _safe_float(row.get(key)) for key in row.index}
+    momentum = {key: values.get(key) for key in ("momentum_20d", "momentum_60d", "momentum_120d", "momentum_180d")}
+    trend = {key: values.get(key) for key in ("trend_100", "trend_200", "trend_slope")}
+    relative = {key: values.get(key) for key in ("relative_strength_60d", "relative_strength_120d")}
+    volatility = {key: values.get(key) for key in ("vol_20d_ann", "vol_60d_ann", "vol_120d_ann", "ewma_vol_ann")}
+    drawdown = {key: values.get(key) for key in ("drawdown_current", "drawdown_60d_max", "drawdown_120d_max")}
+    liquidity = {"liquidity_score": values.get("liquidity_score")}
+    return {
+        "status": "available",
+        "as_of": str(row.get("date", "unavailable")),
+        "momentum": momentum,
+        "momentum_60d": momentum["momentum_60d"],
+        "trend": trend,
+        "trend_200": trend["trend_200"],
+        "relative_strength": relative,
+        "relative_strength_60d": relative["relative_strength_60d"],
+        "volatility": volatility,
+        "drawdown": drawdown,
+        "liquidity": liquidity,
+        "cost": friction,
+        "crowding": crowding,
+        "execution_allowed": False,
+    }
+
+
+def _attribution_panel(derived: Mapping[str, Any], scoreboard: Mapping[str, Any]) -> dict[str, Any]:
+    value = dict(derived.get("attribution", {}))
+    aliases = {
+        "alpha": ("alpha", "alpha_proxy", "sector_alpha_proxy"),
+        "beta": ("beta", "benchmark_beta"),
+        "correlation": ("correlation", "benchmark_correlation"),
+    }
+    for target, names in aliases.items():
+        value[target] = next((_safe_float(scoreboard.get(name)) for name in names if _safe_float(scoreboard.get(name)) is not None), _safe_float(value.get(names[-1])))
+    value.setdefault("status", "available" if any(value.get(key) is not None for key in ("alpha", "beta", "correlation")) else "unavailable")
+    value["execution_allowed"] = False
+    return value
+
+
+def _forecast_panel(snapshot: CockpitSnapshot, instrument_id: str) -> dict[str, Any]:
+    rows = _instrument_rows(getattr(snapshot, "forecasts", None), instrument_id)
+    if rows.empty:
+        return _unavailable("Forecast evidence unavailable; no valid local forecast rows are registered.") | {"rows": []}
+    return {"status": "available", "rows": rows.where(pd.notna(rows), None).to_dict("records"), "execution_allowed": False}
+
+
+def _backtest_panel(snapshot: CockpitSnapshot, instrument_id: str, scoreboard: Mapping[str, Any]) -> dict[str, Any]:
+    report = getattr(snapshot, "backtest", None)
+    signal_log = _instrument_rows(getattr(report, "signal_log", None), instrument_id)
+    trade_log = _instrument_rows(getattr(report, "trade_log", None), instrument_id)
+    quality = scoreboard.get("backtest_trust_label") or scoreboard.get("backtest_validity")
+    if signal_log.empty and trade_log.empty and quality is None:
+        return _unavailable("Backtest trust unavailable for this instrument.") | {"signal_rows": [], "trade_rows": []}
+    return {"status": "available", "trust": quality or "available", "signal_rows": signal_log.to_dict("records"), "trade_rows": trade_log.to_dict("records"), "execution_allowed": False}
+
+
+def _paper_trade_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
+    source = frame if isinstance(frame, pd.DataFrame) else _load_parquet(PAPER_TRADES_PATH)
+    rows = _instrument_rows(source, instrument_id)
+    if rows.empty:
+        return _unavailable("Paper-trade history unavailable; no local paper-trade records are registered.") | {"rows": []}
+    return {"status": "available", "rows": rows.to_dict("records"), "execution_allowed": False}
+
+
+def _history_panel(instrument_id: str, history: pd.DataFrame | None = None) -> dict[str, Any]:
+    try:
+        source = history if isinstance(history, pd.DataFrame) else score_history_frame()
+    except Exception:
+        source = pd.DataFrame()
+    rows = _instrument_rows(source, instrument_id)
+    if rows.empty:
+        return _unavailable("Score history unavailable; a second local score run is required.") | {"rows": []}
+    return {"status": "available", "rows": rows.to_dict("records"), "execution_allowed": False}
+
+
+def _run_changes_panel(instrument_id: str, history: pd.DataFrame | None = None) -> dict[str, Any]:
+    try:
+        source = history if isinstance(history, pd.DataFrame) else score_history_frame()
+        if not isinstance(source, pd.DataFrame) or source.empty or "run_id" not in source.columns:
+            raise ValueError("no score history")
+        runs = list(dict.fromkeys(source["run_id"].astype(str).tolist()))
+        current = runs[-1]
+        previous = runs[-2] if len(runs) > 1 else None
+        report = compare_runs(source, current, previous)
+        changes = [change.__dict__ for change in report.changes if change.instrument_id == instrument_id]
+        return {"status": "available", "current_run_id": current, "previous_run_id": previous, "changes": changes, "execution_allowed": False}
+    except Exception:
+        return _unavailable("What changed since the last run is unavailable until comparable score history exists.") | {"changes": []}
+
+
+def _journal_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
+    rows = _instrument_rows(frame, instrument_id) if isinstance(frame, pd.DataFrame) else pd.DataFrame()
+    if rows.empty:
+        return _unavailable("Decision journal entries unavailable for this instrument.") | {"entries": []}
+    return {"status": "available", "entries": rows.to_dict("records"), "execution_allowed": False}
+
+
 def build_instrument_detail(
     snapshot: CockpitSnapshot,
     instrument_id: str,
@@ -329,34 +598,63 @@ def build_instrument_detail(
     methodology_records: pd.DataFrame | None = None,
     fundamentals: pd.DataFrame | None = None,
     news: pd.DataFrame | None = None,
+    score_history: pd.DataFrame | None = None,
+    paper_trades: pd.DataFrame | None = None,
+    journal: pd.DataFrame | None = None,
 ) -> InstrumentDetailViewModel:
     identity = next((item for item in snapshot.config.universe.etfs if item.id == instrument_id), None)
     if identity is None:
         return InstrumentDetailViewModel(instrument_id, instrument_id, "unavailable", {"instrument_id": instrument_id}, {name: "unavailable" for name in _SECTION_NAMES})
-    signal = next((item for item in snapshot.signals if item.etf_id == instrument_id), None)
-    price_rows = snapshot.prices[snapshot.prices.get("etf_id", "") == instrument_id] if not snapshot.prices.empty and "etf_id" in snapshot.prices.columns else snapshot.prices.iloc[0:0]
+    signal = next((item for item in getattr(snapshot, "signals", ()) if item.etf_id == instrument_id), None)
+    features = _instrument_rows(getattr(snapshot, "latest_features", None), instrument_id)
+    if features.empty:
+        all_features = _instrument_rows(getattr(snapshot, "features", None), instrument_id)
+        if not all_features.empty and "date" in all_features.columns:
+            features = all_features.sort_values("date", kind="stable").tail(1)
     derived = _derived_evidence_panel(instrument_id)
     friction = _friction_panel(instrument_id)
+    scoreboard = _scoreboard_row(instrument_id)
+    group = str(getattr(identity, "source_group", "") or ("Sparebanken" if str(identity.instrument_type).casefold() in {"equity_certificate", "certificate"} else identity.analysis_tier or "unavailable"))
+    identity_panel = {
+        "status": "available",
+        "instrument_id": instrument_id,
+        "name": identity.name,
+        "ticker": identity.ticker,
+        "isin": identity.isin or "needs_verification",
+        "asset_type": identity.instrument_type or identity.asset_class,
+        "asset_class": identity.asset_class,
+        "group": group,
+        "exchange": identity.exchange or "unavailable",
+        "currency": identity.currency or "unavailable",
+        "region": identity.region or "unavailable",
+        "sector": identity.sector or "unavailable",
+        "theme": identity.theme or "unavailable",
+        "source_id": f"config:universe:{instrument_id}",
+        "execution_allowed": False,
+    }
+    disclosure = _etf_disclosure_panel(instrument_id, document_registry=document_registry, holdings=holdings, kid_records=kid_records, methodology_records=methodology_records)
     return InstrumentDetailViewModel(
         instrument_id,
         identity.name,
         "ready",
-        {"name": identity.name, "ticker": identity.ticker, "isin": identity.isin or "needs_verification", "asset_type": identity.asset_class, "exchange": identity.exchange},
+        identity_panel,
         {
-            "identity": "ready",
-            "price": {"rows": len(price_rows), "as_of": str(price_rows["date"].max()) if not price_rows.empty and "date" in price_rows.columns else "unavailable"},
-            "scores": {"status": "ready" if signal is not None else "unavailable", "crowding": derived["crowding"], "friction": friction, "execution_allowed": False},
+            "identity": identity_panel,
+            "price": _price_panel(snapshot, instrument_id),
+            "scores": _score_panel(signal, scoreboard, derived, friction),
             "feature_drivers": _feature_driver_panel(instrument_id),
-            "risk": {"status": "ready" if signal is not None else "unavailable", "crowding": derived["crowding"], "friction": friction, "execution_allowed": False},
-            "attribution": {**derived["attribution"], "execution_allowed": False},
+            "risk": _risk_panel(features, friction, derived["crowding"]),
+            "attribution": _attribution_panel(derived, scoreboard),
             "fundamentals": _fundamentals_panel(instrument_id, fundamentals),
-            "etf_disclosures": _etf_disclosure_panel(instrument_id, document_registry=document_registry, holdings=holdings, kid_records=kid_records, methodology_records=methodology_records),
+            "etf_disclosures": disclosure,
+            "etf_holdings": disclosure.get("exposure", _unavailable("ETF holdings/exposure unavailable.")),
             "news": _news_panel(instrument_id, news),
-            "forecasts": "available from valid forecast rows",
-            "backtests": "available from local backtest report",
-            "history": "available from local score history",
-            "journal": "unavailable until a local note exists",
-            "run_changes": "available from local run history",
+            "forecasts": _forecast_panel(snapshot, instrument_id),
+            "backtests": _backtest_panel(snapshot, instrument_id, scoreboard),
+            "paper_trades": _paper_trade_panel(instrument_id, paper_trades),
+            "history": _history_panel(instrument_id, score_history),
+            "journal": _journal_panel(instrument_id, journal),
+            "run_changes": _run_changes_panel(instrument_id, score_history),
         },
     )
 

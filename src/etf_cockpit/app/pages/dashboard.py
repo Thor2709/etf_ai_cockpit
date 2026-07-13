@@ -64,7 +64,7 @@ def dashboard_page(page: ft.Page, state: AppState) -> ft.Control:
                             "Simple yfinance scores",
                             "Primary tier, secondary tier and Sparebanken rows are separated by asset class. Expand a row for evidence quality, risk/friction, deterministic algorithms and low-authority AI forecast confirmation.",
                         ),
-                        simple_score_grouped_sections(scores),
+                        simple_score_grouped_sections(scores, page=page, state=state),
                     ],
                     spacing=12,
                 ),
