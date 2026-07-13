@@ -1145,6 +1145,39 @@ def _legacy_provider_authority(authority: SourceAuthority) -> str:
 
 
 def _news_context_inventory(identity: pd.DataFrame) -> pd.DataFrame:
+    # Canonical Task 16 clean rows outrank legacy raw-directory discovery.  A
+    # trust refresh must never erase imported, timestamp-validated news.
+    canonical = _safe_read_parquet(NEWS_CONTEXT_PATH, [])
+    if not canonical.empty and "news_id" in canonical.columns:
+        frame = canonical.copy()
+        for column, default in (
+            ("headline", ""),
+            ("source_url", ""),
+            ("provider_name", ""),
+            ("published_at", ""),
+            ("ingested_at", ""),
+            ("credibility", "unverified"),
+            ("instrument_mapping_method", ""),
+            ("timestamp_confidence", "unknown"),
+            ("timestamp_status", "unknown"),
+            ("backtest_eligible", False),
+            ("available_at_decision_time", False),
+            ("source_authority", "unknown"),
+            ("context_only", True),
+            ("executable_authority", False),
+            ("raw_path", ""),
+            ("item_checksum", ""),
+            ("path", ""),
+        ):
+            if column not in frame.columns:
+                frame[column] = default
+        if "raw_path" not in canonical.columns and "path" in canonical.columns:
+            frame["raw_path"] = canonical["path"]
+        if "path" not in canonical.columns and "raw_path" in canonical.columns:
+            frame["path"] = canonical["raw_path"]
+        frame["context_only"] = True
+        frame["executable_authority"] = False
+        return frame.reset_index(drop=True)
     root = RAW_DIR / "manual_news"
     rows: list[dict[str, Any]] = []
     if root.exists():
@@ -1191,16 +1224,20 @@ def _news_timestamp_validation() -> pd.DataFrame:
     if not news.empty:
         for _, row in news.iterrows():
             published = str(row.get("published_at") or "")
-            confidence = "valid" if published else "missing_published_at"
+            source_status = str(row.get("timestamp_status") or "").strip().lower()
+            confidence = source_status if source_status else ("valid" if published else "missing_published_at")
+            eligible = confidence in {"valid", "valid_context"} and bool(row.get("available_at_decision_time"))
             rows.append(
                 {
                     "news_id": row.get("news_id"),
                     "timestamp_status": confidence,
-                    "backtest_eligible": confidence == "valid" and bool(row.get("available_at_decision_time")),
+                    "backtest_eligible": eligible,
                     "reason": "News without published_at or available_at_decision_time is context-only and excluded from backtests.",
+                    "available_at_decision_time": bool(row.get("available_at_decision_time", False)),
+                    "instrument_mapping_method": row.get("instrument_mapping_method", ""),
                 }
             )
-    return pd.DataFrame(rows, columns=["news_id", "timestamp_status", "backtest_eligible", "reason"])
+    return pd.DataFrame(rows, columns=["news_id", "timestamp_status", "backtest_eligible", "reason", "available_at_decision_time", "instrument_mapping_method"])
 
 
 def _append_parquet(path: Path, new_frame: pd.DataFrame, columns: list[str], *, id_columns: list[str]) -> Path:

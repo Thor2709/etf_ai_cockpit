@@ -748,6 +748,78 @@ def test_audit_export_includes_imported_manual_news_notes(tmp_path, monkeypatch)
     assert "cannot trigger a trade" in news_text
 
 
+def test_audit_export_orders_unordered_canonical_news_and_fundamentals_before_tail(tmp_path, monkeypatch) -> None:
+    news_path = tmp_path / "news_context.parquet"
+    news_rows = [
+        {
+            "news_id": "canonical-news-newest",
+            "instrument_id": "VWCE",
+            "published_at": "2026-07-21T00:00:00+00:00",
+            "ingested_at": "2026-07-21T00:00:00+00:00",
+            "provider_name": "test-provider",
+            "source_url": "https://example.invalid/news-newest",
+            "timestamp_status": "validated",
+        }
+    ] + [
+        {
+            "news_id": f"canonical-news-{day:02d}",
+            "instrument_id": "VWCE",
+            "published_at": f"2026-07-{day:02d}T00:00:00+00:00",
+            "ingested_at": f"2026-07-{day:02d}T00:00:00+00:00",
+            "provider_name": "test-provider",
+            "source_url": f"https://example.invalid/news-{day:02d}",
+            "timestamp_status": "validated",
+        }
+        for day in range(1, 21)
+    ]
+    pd.DataFrame(news_rows).to_parquet(news_path, index=False)
+
+    fundamentals_path = tmp_path / "fundamentals.parquet"
+    fundamental_rows = [
+        {
+            "instrument_id": "VWCE",
+            "as_of_date": "2026-07-21",
+            "eligibility": "newest_fundamental_evidence",
+            "source": "test-source",
+            "missing_fields": "",
+        }
+    ] + [
+        {
+            "instrument_id": "VWCE",
+            "as_of_date": f"2026-07-{day:02d}",
+            "eligibility": "old_fundamental_evidence",
+            "source": "test-source",
+            "missing_fields": "",
+        }
+        for day in range(1, 21)
+    ]
+    pd.DataFrame(fundamental_rows).to_parquet(fundamentals_path, index=False)
+
+    monkeypatch.setattr(export_module, "CHATGPT_EXPORTS_DIR", tmp_path / "exports")
+    monkeypatch.setattr(export_module, "NEWS_CONTEXT_PATH", news_path)
+    monkeypatch.setattr(export_module, "FUNDAMENTAL_CLEAN_PATH", fundamentals_path)
+    state = AppState.load()
+
+    zip_path = export_module.export_review_pack(
+        state.snapshot.config,
+        state.snapshot.holdings,
+        state.snapshot.features,
+        state.snapshot.signals,
+        state.snapshot.backtest,
+        as_of_date=state.snapshot.data_report.as_of_date,
+        data_report=state.snapshot.data_report,
+    )
+
+    with zipfile.ZipFile(zip_path) as archive:
+        news_text = archive.read("06_recent_news_events.md").decode("utf-8")
+
+    assert "source_url=https://example.invalid/news-newest" in news_text
+    assert "2026-07-21" in news_text
+    assert "newest_fundamental_evidence" in news_text
+    assert "executable_authority=false" in news_text
+    assert "source_url=https://example.invalid/news-01" not in news_text
+
+
 def test_external_audit_import_is_saved_as_non_executable_note(tmp_path, monkeypatch) -> None:
     payload = {
         "schema_version": "1.0",

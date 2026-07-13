@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import flet as ft
+import pandas as pd
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import metric_card, panel, section_header
 from etf_cockpit.app.state import AppState
+from etf_cockpit.data.trust_artifacts import NEWS_TIMESTAMP_VALIDATION_PATH
 
 
 def _format_number(value: object, *, percent: bool = False, money: bool = False, decimals: int = 2) -> str:
@@ -20,6 +22,7 @@ def _format_number(value: object, *, percent: bool = False, money: bool = False,
 
 def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
     report = state.snapshot.backtest
+    news_warning = _news_validation_warning()
     if report.results.empty or "strategy_name" not in report.results.columns:
         return ft.Column(
             [
@@ -27,6 +30,7 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
                     ft.Column(
                         [
                             section_header("Backtests", "Run Refresh yfinance data and Run algorithms before backtests can be evaluated for the current two-tier universe."),
+                            news_warning,
                             ft.Text("\n".join(report.quality_notes or ["Backtest pending."]), color=theme.MUTED, selectable=True),
                         ],
                         spacing=10,
@@ -122,10 +126,11 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
                     metric_card("Max drawdown", f"{signal['max_drawdown']:.1%}"),
                     metric_card("Turnover", f"{signal['turnover']:.2f}"),
                     metric_card("Model-added value", "Yes" if report.ai_added_value else "No", "diagnostic only"),
-                    metric_card("Backtest quality", str(report.quality_label).title(), str(signal["parameter_sensitivity_status"])),
+            metric_card("Backtest quality", str(report.quality_label).title(), str(signal["parameter_sensitivity_status"])),
                 ],
                 spacing=12,
             ),
+            news_warning,
             panel(
                 ft.Column(
                     [
@@ -186,3 +191,26 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
         spacing=14,
         scroll=ft.ScrollMode.AUTO,
     )
+
+
+def _news_validation_warning() -> ft.Control:
+    """Expose rejected point-in-time news without changing backtest results."""
+
+    try:
+        frame = pd.read_parquet(NEWS_TIMESTAMP_VALIDATION_PATH) if NEWS_TIMESTAMP_VALIDATION_PATH.exists() else pd.DataFrame()
+    except Exception:
+        frame = pd.DataFrame()
+    if frame.empty or "backtest_eligible" not in frame.columns:
+        return panel(ft.Column([section_header("News point-in-time checks", "News is optional context and cannot rescue or alter deterministic backtests."), ft.Text("No invalid news evidence detected; no canonical validation rows are available.", color=theme.MUTED, selectable=True)], spacing=6))
+    invalid = frame.loc[~frame["backtest_eligible"].fillna(False).astype(bool)]
+    if invalid.empty:
+        message = "No invalid news evidence detected; all recorded rows are eligible only where their timestamps and availability are proven."
+    else:
+        if "timestamp_status" in invalid.columns:
+            status_values = invalid["timestamp_status"].fillna("unknown").astype(str).str.strip()
+        else:
+            status_values = pd.Series("unknown", index=invalid.index)
+        status_values = status_values.mask(status_values.eq(""), "unknown")
+        statuses = ", ".join(f"{status}={count}" for status, count in status_values.value_counts().sort_index().items())
+        message = f"{len(invalid)} news rows are excluded from backtests ({statuses}); rejected evidence remains context-only and requires review."
+    return panel(ft.Column([section_header("News point-in-time checks", "Rejected news is visible here and cannot change deterministic backtest authority."), ft.Text(message, color=theme.AMBER if not invalid.empty else theme.MUTED, selectable=True)], spacing=6))

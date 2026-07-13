@@ -10,7 +10,9 @@ from etf_cockpit.app.components.cards import evidence_chip, panel, section_heade
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import STATEMENT_FACTS_PATH
 from etf_cockpit.data.fund_documents import import_etf_document
+from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH, sort_fundamental_evidence
 from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH, import_etf_holdings_with_document
+from etf_cockpit.data.news_context import build_news_contradiction_rows, load_news_items, sort_news_items
 from etf_cockpit.data.parsed_disclosures import (
     INDEX_METHODOLOGY_RECORDS_PATH,
     PRIIPS_KID_RECORDS_PATH,
@@ -108,6 +110,7 @@ def filings_page(page: ft.Page, state: AppState) -> ft.Control:
             ("SEC statement facts", STATEMENT_FACTS_PATH, ["instrument_id", "taxonomy", "concept", "canonical_metric", "mapping_status", "is_custom", "unit", "end", "filed", "form", "accession", "source_id"]),
             ("Provider probes", PROVIDER_PROBE_PATH, ["dataset_type", "provider_name", "status", "source_authority", "message"]),
             ("Identity mappings", IDENTITY_PATH, ["instrument_id", "isin", "yahoo_symbol", "exchange", "mic", "currency", "share_class", "listing", "identity_confidence", "warnings"]),
+            ("Fundamental evidence", FUNDAMENTAL_CLEAN_PATH, ["instrument_id", "as_of_date", "eligibility", "missing_fields", "warnings", "source", "source_authority", "limitations", "score_eligible", "executable_authority"]),
         ],
         extra=_filing_import_controls(page, state),
     )
@@ -128,15 +131,41 @@ def etf_disclosures_page(page: ft.Page, state: AppState) -> ft.Control:
     )
 
 
-def news_context_page(_page: ft.Page, _state) -> ft.Control:
+def news_context_page(_page: ft.Page, state: AppState) -> ft.Control:
     return _status_page(
         "News & Context",
         "Free/manual news and context evidence. News is non-executable and cannot directly change scores or actions.",
         [
-            ("News/context inventory", NEWS_CONTEXT_PATH, ["instrument_id", "provider_name", "published_at", "timestamp_confidence", "context_only", "path"]),
-            ("Point-in-time validation", NEWS_TIMESTAMP_VALIDATION_PATH, ["news_id", "timestamp_status", "backtest_eligible", "reason"]),
+            ("News/context inventory", NEWS_CONTEXT_PATH, ["instrument_id", "source_url", "published_at", "ingested_at", "provider_name", "credibility", "instrument_mapping_method", "available_at_decision_time", "timestamp_status", "context_only", "executable_authority", "raw_path"]),
+            ("Point-in-time validation", NEWS_TIMESTAMP_VALIDATION_PATH, ["news_id", "timestamp_status", "backtest_eligible", "reason", "available_at_decision_time", "instrument_mapping_method"]),
             ("Optional free provider status", PROVIDER_PROBE_PATH, ["dataset_type", "provider_name", "status", "message"]),
+            ("Fundamental source limitations", FUNDAMENTAL_CLEAN_PATH, ["instrument_id", "source", "source_authority", "limitations", "score_eligible", "executable_authority"]),
         ],
+        extra=_news_context_extra(state),
+    )
+
+
+def _news_context_extra(state: AppState) -> ft.Control:
+    frame = load_news_items(NEWS_CONTEXT_PATH)
+    prices = state.snapshot.prices if isinstance(state.snapshot.prices, pd.DataFrame) else pd.DataFrame()
+    contradictions = build_news_contradiction_rows(frame, prices)
+    if frame.empty:
+        body: ft.Control = ft.Text("News unavailable; no canonical local items are registered. Contradictions are unavailable.", color=theme.MUTED, selectable=True)
+    elif contradictions.empty:
+        body = ft.Text("No deterministic contradictions detected for the dated price rows available. Unsupported or undated comparisons remain unavailable.", color=theme.MUTED, selectable=True)
+    else:
+        body = ft.Column(
+            [ft.Text(f"{row['instrument_id']} | {row['headline']} | headline={row['headline_direction']} price={row['price_direction']} | {row['reason']}", color=theme.AMBER, selectable=True, size=11) for _, row in contradictions.iterrows()],
+            spacing=4,
+        )
+    return panel(
+        ft.Column(
+            [
+                section_header("News contradictions", "Explicit headline direction is compared with the next dated deterministic close; this panel is informational and cannot alter scores or actions."),
+                body,
+            ],
+            spacing=8,
+        )
     )
 
 
@@ -444,7 +473,12 @@ def _table_panel(label: str, path: Path, columns: list[str]) -> ft.Control:
 def _read_frame(path: Path) -> pd.DataFrame:
     try:
         if path.exists():
-            return pd.read_parquet(path)
+            frame = pd.read_parquet(path)
+            if "published_at" in frame.columns or "ingested_at" in frame.columns:
+                return sort_news_items(frame).iloc[::-1].reset_index(drop=True)
+            if "as_of_date" in frame.columns and "instrument_id" in frame.columns:
+                return sort_fundamental_evidence(frame).iloc[::-1].reset_index(drop=True)
+            return frame
     except Exception:
         pass
     return pd.DataFrame()

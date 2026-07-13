@@ -20,6 +20,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from etf_cockpit.core.atomic_io import atomic_write_bytes, atomic_write_json
+from etf_cockpit.data.contracts import ProviderCapability, SourceAuthority
 from etf_cockpit.parsers.contracts import RawDocument
 
 
@@ -50,6 +51,21 @@ class SecEdgarProvider:
     """
 
     BASE_URL = "https://data.sec.gov"
+
+    def probe_capabilities(self) -> tuple[ProviderCapability, ...]:
+        return (ProviderCapability(
+            provider_id="sec_edgar",
+            dataset_type="filings",
+            status="unavailable",
+            authority=SourceAuthority.OFFICIAL,
+            configured=True,
+            entitlement="keyless_public",
+            rate_limit_note="probe only; no network request",
+            last_success_at=None,
+            error_fingerprint=None,
+            secret_present=False,
+            message="SEC EDGAR is keyless but optional; acquisition is explicit and no probe network call was made.",
+        ),)
 
     def __init__(
         self,

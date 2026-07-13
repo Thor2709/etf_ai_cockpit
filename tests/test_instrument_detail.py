@@ -5,6 +5,7 @@ from dataclasses import replace
 import pandas as pd
 
 from etf_cockpit.app.pages.etf_detail import etf_detail_page
+from etf_cockpit.app.pages.instrument_detail import render_news_context_panel
 from etf_cockpit.app.selectors.instrument_detail import build_instrument_detail
 from etf_cockpit.app.state import AppState
 from etf_cockpit.services import build_snapshot
@@ -140,3 +141,120 @@ def test_legacy_etf_detail_renders_controlled_empty_state_without_scores() -> No
     control = etf_detail_page(None, state)
 
     assert control is not None
+
+
+def test_instrument_detail_news_panel_renders_complete_provenance_and_authority_flags() -> None:
+    snapshot = build_snapshot()
+    instrument_id = snapshot.config.universe.enabled_ids[0]
+    model = build_instrument_detail(
+        snapshot,
+        instrument_id,
+        news=pd.DataFrame(
+            {
+                "news_id": ["news-ui-1"],
+                "instrument_id": [instrument_id],
+                "headline": ["Provider headline"],
+                "source_url": ["https://example.invalid/news-ui-1"],
+                "published_at": ["2026-07-10T10:00:00+00:00"],
+                "ingested_at": ["2026-07-10T10:05:00+00:00"],
+                "provider_name": ["Example Provider"],
+                "credibility": ["high"],
+                "instrument_mapping_method": ["isin_exact"],
+                "available_at_decision_time": [True],
+                "timestamp_status": ["valid_context"],
+            }
+        ),
+    )
+    control = render_news_context_panel(model)
+
+    def text_values(node: object) -> list[str]:
+        values: list[str] = []
+        for attribute in ("value", "text"):
+            value = getattr(node, attribute, None)
+            if value:
+                values.append(str(value))
+        content = getattr(node, "content", None)
+        if content is not None:
+            values.extend(text_values(content))
+        for attribute in ("controls", "rows", "cells"):
+            children = getattr(node, attribute, None) or []
+            for child in children:
+                values.extend(text_values(child))
+        return values
+
+    rendered = "\n".join(text_values(control))
+    for expected in (
+        "source_url=https://example.invalid/news-ui-1",
+        "published_at=2026-07-10T10:00:00+00:00",
+        "ingested_at=2026-07-10T10:05:00+00:00",
+        "provider_name=Example Provider",
+        "credibility=high",
+        "instrument_mapping_method=isin_exact",
+        "available_at_decision_time=True",
+        "timestamp_status=valid_context",
+        "context_only=true",
+        "executable_authority=false",
+    ):
+        assert expected in rendered
+
+
+def test_instrument_detail_selects_latest_fundamentals_by_as_of_not_checksum() -> None:
+    snapshot = build_snapshot()
+    instrument_id = snapshot.config.universe.enabled_ids[0]
+    model = build_instrument_detail(
+        snapshot,
+        instrument_id,
+        fundamentals=pd.DataFrame(
+            [
+                {
+                    "instrument_id": instrument_id,
+                    "as_of_date": "2026-07-12",
+                    "evidence_checksum": "0" * 64,
+                    "eligibility": "eligible",
+                    "score_eligible": True,
+                    "source": "vendor",
+                },
+                {
+                    "instrument_id": instrument_id,
+                    "as_of_date": "2026-07-11",
+                    "evidence_checksum": "f" * 64,
+                    "eligibility": "eligible",
+                    "score_eligible": True,
+                    "source": "vendor",
+                },
+            ]
+        ),
+    )
+
+    assert model.sections["fundamentals"]["as_of"] == "2026-07-12"
+
+
+def test_instrument_detail_news_is_sorted_by_published_then_ingested_time() -> None:
+    snapshot = build_snapshot()
+    instrument_id = snapshot.config.universe.enabled_ids[0]
+    model = build_instrument_detail(
+        snapshot,
+        instrument_id,
+        news=pd.DataFrame(
+            [
+                {
+                    "news_id": "newer",
+                    "instrument_id": instrument_id,
+                    "headline": "Newer headline",
+                    "published_at": "2026-07-12T10:00:00+00:00",
+                    "ingested_at": "2026-07-12T10:01:00+00:00",
+                    "item_checksum": "0" * 64,
+                },
+                {
+                    "news_id": "older",
+                    "instrument_id": instrument_id,
+                    "headline": "Older headline",
+                    "published_at": "2026-07-11T10:00:00+00:00",
+                    "ingested_at": "2026-07-11T10:01:00+00:00",
+                    "item_checksum": "f" * 64,
+                },
+            ]
+        ),
+    )
+
+    assert [item["news_id"] for item in model.sections["news"]["items"]] == ["older", "newer"]

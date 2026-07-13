@@ -12,6 +12,7 @@ from etf_cockpit.app.components.cards import evidence_chip, metric_card, panel, 
 from etf_cockpit.app.components.simple_scores import score_colour, simple_score_grouped_sections, simple_score_legend
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import FORECASTS_DIR
+from etf_cockpit.data.news_context import NEWS_CLEAN_PATH, load_news_items, sort_news_items
 from etf_cockpit.models.forecast_scores import filter_forecasts_for_universe, load_latest_forecasts
 from etf_cockpit.signals.simple_scores import SimpleInstrumentScore, build_simple_instrument_scores
 
@@ -50,6 +51,7 @@ def dashboard_page(page: ft.Page, state: AppState) -> ft.Control:
     return ft.Column(
         [
             cards,
+            _news_digest(page, state),
             _action_bar(page, state),
             simple_score_legend(),
             panel(
@@ -70,6 +72,34 @@ def dashboard_page(page: ft.Page, state: AppState) -> ft.Control:
         expand=True,
         spacing=14,
         scroll=ft.ScrollMode.AUTO,
+    )
+
+
+def _news_digest(page: ft.Page, state: AppState) -> ft.Control:
+    """Show the latest canonical news context without granting authority."""
+
+    frame = sort_news_items(load_news_items(NEWS_CLEAN_PATH))
+    if frame.empty:
+        body: ft.Control = ft.Text("News unavailable; no timestamp-validated local context is registered.", color=theme.MUTED, selectable=True)
+    else:
+        rows = []
+        for _, row in frame.tail(4).iterrows():
+            rows.append(ft.Text(
+                f"{row.get('published_at', 'unavailable')} | {row.get('headline', 'Headline unavailable')} | {row.get('provider_name', 'provider unavailable')} | timestamp={row.get('timestamp_status', 'unavailable')} | context_only=true | executable_authority=false",
+                color=theme.MUTED,
+                selectable=True,
+                size=11,
+            ))
+        body = ft.Column(rows, spacing=4)
+    return panel(
+        ft.Column(
+            [
+                section_header("News & context digest", "Recent local news is dated, source-linked context only and cannot change deterministic scores or actions."),
+                body,
+                ft.TextButton("Open News & Context", key="dashboard.open-news-context", on_click=lambda _event: _go_to(page, state, "/news-context")),
+            ],
+            spacing=8,
+        )
     )
 
 
