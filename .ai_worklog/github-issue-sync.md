@@ -240,3 +240,22 @@ authoritative ledgers as part of remote synchronisation.
   outstanding.
 - The committed local ledger and approved specification remain authoritative;
   GitHub Issues are synchronised project-management representations.
+
+## Ledger refresh after Wave 4 Task 16 - 2026-07-13
+
+- Authenticated `python scripts/sync_github_issues.py --apply` completed with
+  exit 0 after the Task 16 checkpoint commit `4f765b4`. It reported 98 canonical
+  records, 77 local open and 21 local closed records, matching 77/21 mapped
+  GitHub states; all local IDs were unique, mappings valid, states agreed and
+  no duplicate action was required.
+- `ISSUE-0023` maps to GitHub Issue #27 OPEN, `ISSUE-0025` to #29 OPEN,
+  `ISSUE-0054` to #113 OPEN and `ISSUE-0055` to #115 OPEN. Their managed
+  bodies mirror the local implementation-complete/closure-pending status; no
+  issue was closed because strict release, package, audit/export,
+  clean-first-run and browser/computer-use evidence remains outstanding.
+- `issues/github_issue_map.json` and `issues/github_issue_sync_report.json`
+  are the deterministic mirror evidence. The report records the same known
+  historical ledger contradictions for ISSUE-0067, ISSUE-0069, UPDATEV2-0010,
+  UPDATEV2-0022 and UPDATEV2-0028; reconciliation still passes because the
+  dated/latest-state resolver agrees with the mapped states. The committed
+  local issue ledger and approved specification remain authoritative.
