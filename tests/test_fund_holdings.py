@@ -191,3 +191,25 @@ def test_write_rejects_invalid_empty_and_ineligible_results_without_replacing_st
     assert destination.read_bytes() == prior_bytes
     assert destination.with_suffix(".csv").read_bytes() == prior_csv_bytes
     pd.testing.assert_frame_equal(pd.read_parquet(destination), prior_data)
+
+
+def test_write_rejects_mutated_frame_without_replacing_store(tmp_path: Path) -> None:
+    destination = tmp_path / "fund_holdings.parquet"
+    result = normalise_holdings(
+        pd.DataFrame({"security": ["A"], "ticker": ["A"], "weight": [1.0]}),
+        "VWCE",
+        "2026-07-10",
+        "issuer",
+        today="2026-07-11",
+    )
+    write_holdings_records(result, destination=destination)
+    prior_bytes = destination.read_bytes()
+    prior_csv_bytes = destination.with_suffix(".csv").read_bytes()
+
+    result.frame.loc[0, "weight"] = 0.2
+
+    with pytest.raises(ValueError, match="score-eligible"):
+        write_holdings_records(result, destination=destination)
+
+    assert destination.read_bytes() == prior_bytes
+    assert destination.with_suffix(".csv").read_bytes() == prior_csv_bytes
