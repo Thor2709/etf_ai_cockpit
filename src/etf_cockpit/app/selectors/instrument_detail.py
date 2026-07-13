@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Mapping
 
 import pandas as pd
 
@@ -55,8 +55,29 @@ def _news_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[s
     scoped = source[source["instrument_id"].astype(str).eq(str(instrument_id))]
     if scoped.empty:
         return {"status": "unavailable", "message": "News unavailable for this instrument.", "items": [], "context_only": True, "executable_authority": False}
-    items = scoped.tail(20).to_dict("records")
+    items = [_news_item_record(row) for row in scoped.tail(20).to_dict("records")]
     return {"status": "available", "message": "News is context-only and cannot change deterministic scores.", "items": items, "context_only": True, "executable_authority": False}
+
+
+def _news_item_record(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalise every row to the provenance fields rendered by Instrument Detail."""
+
+    item = dict(row)
+    item.update(
+        {
+            "source_url": item.get("source_url") or item.get("url") or "unavailable",
+            "published_at": item.get("published_at") or "unavailable",
+            "ingested_at": item.get("ingested_at") or "unavailable",
+            "provider_name": item.get("provider_name") or item.get("provider") or "unavailable",
+            "credibility": item.get("credibility") or "unverified",
+            "instrument_mapping_method": item.get("instrument_mapping_method") or "unavailable",
+            "available_at_decision_time": bool(item.get("available_at_decision_time", False)),
+            "timestamp_status": item.get("timestamp_status") or item.get("timestamp_confidence") or "unavailable",
+            "context_only": True,
+            "executable_authority": False,
+        }
+    )
+    return item
 
 
 def _etf_disclosure_panel(

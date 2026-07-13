@@ -174,7 +174,28 @@ def _news_panel(instrument_id: str) -> ft.Control:
         return panel(ft.Column([section_header("News & context unavailable", "No source-mapped news is available for this instrument."), ft.Text("Manual review required; news cannot change deterministic scores.", color=theme.MUTED, selectable=True)]))
     rows = []
     for _, row in scoped.tail(8).iterrows():
-        rows.append(ft.Text(f"{row.get('published_at', 'unavailable')} | {row.get('headline', 'Headline unavailable')} | {row.get('provider_name', 'provider unavailable')} | {row.get('timestamp_status', 'unavailable')} | executable_authority=false", color=theme.MUTED, selectable=True, size=11))
+        rows.append(
+            ft.Text(
+                " | ".join(
+                    (
+                        str(row.get("headline", "Headline unavailable")),
+                        f"source_url={row.get('source_url', row.get('url', 'unavailable'))}",
+                        f"published_at={row.get('published_at', 'unavailable')}",
+                        f"ingested_at={row.get('ingested_at', 'unavailable')}",
+                        f"provider_name={row.get('provider_name', row.get('provider', 'provider unavailable'))}",
+                        f"credibility={row.get('credibility', 'unverified')}",
+                        f"instrument_mapping_method={row.get('instrument_mapping_method', 'unavailable')}",
+                        f"available_at_decision_time={bool(row.get('available_at_decision_time', False))}",
+                        f"timestamp_status={row.get('timestamp_status', row.get('timestamp_confidence', 'unavailable'))}",
+                        "context_only=true",
+                        "executable_authority=false",
+                    )
+                ),
+                color=theme.MUTED,
+                selectable=True,
+                size=11,
+            )
+        )
     return panel(ft.Column([section_header("News & context", "Source URL, published/ingested time, mapping and availability are shown; context cannot alter final action."), *rows]))
 
 

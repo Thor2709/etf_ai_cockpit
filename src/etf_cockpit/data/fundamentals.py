@@ -135,13 +135,10 @@ def build_fundamental_evidence(
     source_name = str(source or authority).strip().lower() or "vendor"
     limitations = _limitations_for_source(authority)
 
-    # Strict records need all five sections.  A two-field negative row is
-    # retained as a compatibility path for the legacy candidate screen: it is
-    # explicitly labelled negative evidence and never becomes complete data.
+    # Strict records need all five sections.  Missing sections are unavailable,
+    # not negative evidence; only a complete five-section row may be eligible.
     if not missing:
         eligibility = "eligible_negative_evidence" if any(value < 0 for value in values.values()) else "eligible"
-    elif len(values) == 2 and any(value < 0 for value in values.values()):
-        eligibility = "eligible_negative_evidence"
     else:
         eligibility = "not_score_eligible"
     return FundamentalEvidence(
@@ -177,8 +174,7 @@ def persist_fundamental_evidence(
     checksum = _payload_checksum(payload)
     raw_path = raw_dir / f"{_safe_id(evidence.instrument_id)}-{checksum}.json"
     raw_dir.mkdir(parents=True, exist_ok=True)
-    if not raw_path.exists():
-        raw_path.write_text(json.dumps(payload, sort_keys=True, indent=2, default=str) + "\n", encoding="utf-8")
+    raw_payload = (json.dumps(payload, sort_keys=True, indent=2, default=str) + "\n").encode("utf-8")
 
     existing = _read_clean(clean_path)
     row = _clean_row(evidence, checksum)
@@ -198,13 +194,23 @@ def persist_fundamental_evidence(
         "limitations": list(evidence.limitations),
     }
     csv_path = clean_path.with_suffix(".csv")
-    atomic_write_group(
-        (
-            AtomicWriteRequest(clean_path, parquet_payload(combined), validate_parquet_file),
-            AtomicWriteRequest(csv_path, combined.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
-            AtomicWriteRequest(audit_path, (json.dumps(audit_payload, indent=2, sort_keys=True) + "\n").encode("utf-8"), lambda path: json.loads(path.read_text(encoding="utf-8"))),
+    requests = [
+        AtomicWriteRequest(clean_path, parquet_payload(combined), validate_parquet_file),
+        AtomicWriteRequest(csv_path, combined.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
+        AtomicWriteRequest(audit_path, (json.dumps(audit_payload, indent=2, sort_keys=True) + "\n").encode("utf-8"), lambda path: json.loads(path.read_text(encoding="utf-8"))),
+    ]
+    # A raw generation is immutable.  New raw bytes must be published in the
+    # same transaction as the clean and audit mirrors so a failed generation
+    # cannot leave an orphan raw file behind.
+    if not raw_path.exists():
+        requests.append(
+            AtomicWriteRequest(
+                raw_path,
+                raw_payload,
+                lambda path: json.loads(path.read_text(encoding="utf-8")),
+            )
         )
-    )
+    atomic_write_group(tuple(requests))
     return FundamentalPersistenceResult(raw_path, clean_path, audit_path, len(combined), checksum, len(existing) == len(combined))
 
 

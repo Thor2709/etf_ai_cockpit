@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from etf_cockpit.data.news_context import NewsItem, validate_news_item
 
 
@@ -74,3 +76,40 @@ def test_news_raw_clean_persistence_is_idempotent(tmp_path) -> None:
     assert first.clean_path == second.clean_path
     assert len(list((tmp_path / "raw").glob("*.json"))) == 1
     assert second.rows == 1
+
+
+def test_news_atomic_failure_preserves_existing_generation_without_orphan_raw(tmp_path, monkeypatch) -> None:
+    import etf_cockpit.data.news_context as module
+
+    item = NewsItem(
+        "n6", "MSFT", "source", "vendor", "Headline", "2026-07-10T10:00:00+00:00",
+        "2026-07-10T10:05:00+00:00", "https://example.invalid/news/6", "medium",
+        instrument_mapping_method="ticker", available_at_decision_time=True,
+    )
+    clean_path = tmp_path / "clean.parquet"
+    module.persist_news_items([item], raw_dir=tmp_path / "raw", clean_path=clean_path)
+    before = clean_path.read_bytes()
+    audit_path = clean_path.with_name("clean_audit.json")
+    audit_before = audit_path.read_bytes()
+    raw_before = {path.name: path.read_bytes() for path in (tmp_path / "raw").glob("*.json")}
+    real_atomic_write_group = module.atomic_write_group
+
+    def fail_before_commit(requests):
+        def inject_failure(state, _journal):
+            if state == "committing":
+                raise RuntimeError("injected failure")
+
+        return real_atomic_write_group(requests, lifecycle_hook=inject_failure)
+
+    monkeypatch.setattr(module, "atomic_write_group", fail_before_commit)
+    changed_item = NewsItem(
+        "n7", "MSFT", "source", "vendor", "Changed headline", "2026-07-10T10:00:00+00:00",
+        "2026-07-10T10:06:00+00:00", "https://example.invalid/news/7", "medium",
+        instrument_mapping_method="ticker", available_at_decision_time=True,
+    )
+    with pytest.raises(RuntimeError, match="injected failure"):
+        module.persist_news_items([changed_item], raw_dir=tmp_path / "raw", clean_path=clean_path)
+
+    assert clean_path.read_bytes() == before
+    assert audit_path.read_bytes() == audit_before
+    assert {path.name: path.read_bytes() for path in (tmp_path / "raw").glob("*.json")} == raw_before

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from etf_cockpit.data.fundamentals import build_fundamental_evidence
 
 
@@ -18,8 +20,17 @@ def test_missing_and_weak_fundamentals_are_not_confused() -> None:
     weak = build_fundamental_evidence({"valuation": -1, "profitability": 2}, "MSFT", "2026-07-10")
     assert missing.eligibility == "not_score_eligible"
     assert "valuation" in missing.missing_fields
-    assert weak.eligibility == "eligible_negative_evidence"
+    assert weak.eligibility == "not_score_eligible"
+    assert weak.score_eligible is False
     assert weak.values["valuation"] == -1
+
+
+def test_complete_five_section_negative_evidence_remains_score_eligible() -> None:
+    claims = _complete_claims()
+    claims["valuation"] = -1.0
+    evidence = build_fundamental_evidence(claims, "MSFT", "2026-07-10")
+    assert evidence.eligibility == "eligible_negative_evidence"
+    assert evidence.score_eligible is True
 
 
 def test_strict_fundamentals_require_all_five_sections_for_score() -> None:
@@ -63,13 +74,25 @@ def test_fundamental_atomic_failure_preserves_existing_clean_generation(tmp_path
     clean_path = tmp_path / "clean.parquet"
     module.persist_fundamental_evidence(evidence, raw_dir=tmp_path / "raw", clean_path=clean_path)
     before = clean_path.read_bytes()
-    monkeypatch.setattr(module, "atomic_write_group", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("injected failure")))
-    try:
+    audit_path = clean_path.with_name("clean_audit.json")
+    audit_before = audit_path.read_bytes()
+    raw_before = {path.name: path.read_bytes() for path in (tmp_path / "raw").glob("*.json")}
+    real_atomic_write_group = module.atomic_write_group
+
+    def fail_before_commit(requests):
+        def inject_failure(state, _journal):
+            if state == "committing":
+                raise RuntimeError("injected failure")
+
+        return real_atomic_write_group(requests, lifecycle_hook=inject_failure)
+
+    monkeypatch.setattr(module, "atomic_write_group", fail_before_commit)
+    with pytest.raises(RuntimeError, match="injected failure"):
         module.persist_fundamental_evidence(
             build_fundamental_evidence({**_complete_claims(), "growth": 9.0}, "MSFT", "2026-07-11"),
             raw_dir=tmp_path / "raw",
             clean_path=clean_path,
         )
-    except RuntimeError:
-        pass
     assert clean_path.read_bytes() == before
+    assert audit_path.read_bytes() == audit_before
+    assert {path.name: path.read_bytes() for path in (tmp_path / "raw").glob("*.json")} == raw_before

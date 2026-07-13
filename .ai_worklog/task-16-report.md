@@ -50,7 +50,8 @@ parent-owned issue/closure records. Four `data/.schema_versions/*.json` files
 may show metadata-only CRLF/stat changes after pytest; they are unrelated to
 Task 16 and should be cleaned before integration.
 
-The repository-wide `pytest -q` collection gate remains blocked by four
-pre-existing missing `scripts.*` modules (`scripts.sync_github_issues`,
-`scripts.dev_finish_check`, `scripts.smoke_app`, `scripts.launcher_core`). No
-Task16 test failure was observed before collection stopped.
+The repository-wide `pytest -q --tb=short` run completed with eight existing
+fixture/package/universe failures outside Task 16: `tests/scope_boundary/test_package_inventory.py::test_current_production_package_inventory_passes`, six
+`tests/test_simple_scores.py` tests, and
+`tests/test_trust_critical_artifacts.py::test_static_trust_artifacts_cover_providers_and_identity`.
+Task 16 focused tests remained green; this is not a full-suite pass.

@@ -131,6 +131,7 @@ def persist_news_items(
         raise ValueError("At least one news item is required.")
     raw_dir.mkdir(parents=True, exist_ok=True)
     raw_paths: list[Path] = []
+    raw_requests: list[AtomicWriteRequest] = []
     rows: list[dict[str, Any]] = []
     validations: list[dict[str, Any]] = []
     for item in item_tuple:
@@ -138,7 +139,13 @@ def persist_news_items(
         checksum = _payload_checksum(payload)
         raw_path = raw_dir / f"{_safe_id(item.news_id)}-{checksum}.json"
         if not raw_path.exists():
-            raw_path.write_text(json.dumps(payload, sort_keys=True, indent=2, default=str) + "\n", encoding="utf-8")
+            raw_requests.append(
+                AtomicWriteRequest(
+                    raw_path,
+                    (json.dumps(payload, sort_keys=True, indent=2, default=str) + "\n").encode("utf-8"),
+                    lambda path: json.loads(path.read_text(encoding="utf-8")),
+                )
+            )
         raw_paths.append(raw_path)
         validation = validate_news_item(item, decision_time or _default_decision_time(item))
         rows.append(_clean_row(item, validation, checksum, raw_path))
@@ -161,13 +168,15 @@ def persist_news_items(
         "executable_authority": False,
     }
     csv_path = clean_path.with_suffix(".csv")
-    atomic_write_group(
-        (
-            AtomicWriteRequest(clean_path, parquet_payload(combined), validate_parquet_file),
-            AtomicWriteRequest(csv_path, combined.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
-            AtomicWriteRequest(audit_path, (json.dumps(audit_payload, indent=2, sort_keys=True, default=str) + "\n").encode("utf-8"), lambda path: json.loads(path.read_text(encoding="utf-8"))),
-        )
-    )
+    requests = [
+        AtomicWriteRequest(clean_path, parquet_payload(combined), validate_parquet_file),
+        AtomicWriteRequest(csv_path, combined.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
+        AtomicWriteRequest(audit_path, (json.dumps(audit_payload, indent=2, sort_keys=True, default=str) + "\n").encode("utf-8"), lambda path: json.loads(path.read_text(encoding="utf-8"))),
+        *raw_requests,
+    ]
+    # Raw provider payloads are immutable and part of the same generation as
+    # clean/audit mirrors. Existing raw bytes are intentionally not rewritten.
+    atomic_write_group(tuple(requests))
     checksum = _payload_checksum(_item_payload(item_tuple[0]))
     return NewsPersistenceResult(tuple(raw_paths), clean_path, audit_path, len(combined), checksum, len(existing) == len(combined))
 
