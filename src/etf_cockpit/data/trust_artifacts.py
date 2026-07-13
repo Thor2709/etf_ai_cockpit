@@ -1151,11 +1151,16 @@ def _news_context_inventory(identity: pd.DataFrame) -> pd.DataFrame:
     if not canonical.empty and "news_id" in canonical.columns:
         frame = canonical.copy()
         for column, default in (
+            ("headline", ""),
             ("source_url", ""),
             ("provider_name", ""),
             ("published_at", ""),
             ("ingested_at", ""),
+            ("credibility", "unverified"),
+            ("instrument_mapping_method", ""),
             ("timestamp_confidence", "unknown"),
+            ("timestamp_status", "unknown"),
+            ("backtest_eligible", False),
             ("available_at_decision_time", False),
             ("source_authority", "unknown"),
             ("context_only", True),
@@ -1166,13 +1171,13 @@ def _news_context_inventory(identity: pd.DataFrame) -> pd.DataFrame:
         ):
             if column not in frame.columns:
                 frame[column] = default
+        if "raw_path" not in canonical.columns and "path" in canonical.columns:
+            frame["raw_path"] = canonical["path"]
+        if "path" not in canonical.columns and "raw_path" in canonical.columns:
+            frame["path"] = canonical["raw_path"]
         frame["context_only"] = True
         frame["executable_authority"] = False
-        return frame[[
-            "news_id", "instrument_id", "source_url", "provider_name", "published_at", "ingested_at",
-            "timestamp_confidence", "available_at_decision_time", "source_authority", "context_only",
-            "executable_authority", "raw_path", "item_checksum", "path",
-        ]]
+        return frame.reset_index(drop=True)
     root = RAW_DIR / "manual_news"
     rows: list[dict[str, Any]] = []
     if root.exists():

@@ -56,6 +56,13 @@ fixture/package/universe failures outside Task 16: `tests/scope_boundary/test_pa
 `tests/test_trust_critical_artifacts.py::test_static_trust_artifacts_cover_providers_and_identity`.
 Task 16 focused tests remained green; this is not a full-suite pass.
 
+## Fix 3 follow-up
+
+The news refresh, contradiction and Backtests validation regressions are
+covered by `.ai_worklog/task-16-fix3-report.md`. The affected bundle remains
+green when the pre-existing static identity fixture failure is excluded; no
+new full-suite failure was introduced.
+
 ## Independent review and UI fix checkpoint
 
 The first fresh reviewer approved the storage/provider paths but rejected the

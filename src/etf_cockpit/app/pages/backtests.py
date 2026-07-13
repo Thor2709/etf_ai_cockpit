@@ -206,6 +206,11 @@ def _news_validation_warning() -> ft.Control:
     if invalid.empty:
         message = "No invalid news evidence detected; all recorded rows are eligible only where their timestamps and availability are proven."
     else:
-        statuses = ", ".join(sorted({str(value) for value in invalid.get("timestamp_status", pd.Series(dtype=str)).dropna()})) or "invalid"
-        message = f"{len(invalid)} news rows are excluded from backtests ({statuses}); missing, ambiguous, late and current-only/revised evidence remains context-only and requires review."
+        if "timestamp_status" in invalid.columns:
+            status_values = invalid["timestamp_status"].fillna("unknown").astype(str).str.strip()
+        else:
+            status_values = pd.Series("unknown", index=invalid.index)
+        status_values = status_values.mask(status_values.eq(""), "unknown")
+        statuses = ", ".join(f"{status}={count}" for status, count in status_values.value_counts().sort_index().items())
+        message = f"{len(invalid)} news rows are excluded from backtests ({statuses}); rejected evidence remains context-only and requires review."
     return panel(ft.Column([section_header("News point-in-time checks", "Rejected news is visible here and cannot change deterministic backtest authority."), ft.Text(message, color=theme.AMBER if not invalid.empty else theme.MUTED, selectable=True)], spacing=6))

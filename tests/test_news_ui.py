@@ -48,3 +48,36 @@ def test_backtests_news_warning_surfaces_rejected_rows(tmp_path, monkeypatch) ->
     rendered = "\n".join(_text_values(_news_validation_warning()))
     assert "excluded from backtests" in rendered
     assert "current_only_revised" in rendered
+
+
+def test_backtests_news_warning_reports_counts_for_actual_rejection_statuses(tmp_path, monkeypatch) -> None:
+    import etf_cockpit.app.pages.backtests as backtests
+
+    path = tmp_path / "news_timestamp_validation.parquet"
+    pd.DataFrame([
+        {"timestamp_status": "current_only_revised", "backtest_eligible": False},
+        {"timestamp_status": "current_only_revised", "backtest_eligible": False},
+        {"timestamp_status": "ambiguous_timestamp", "backtest_eligible": False},
+        {"timestamp_status": "valid_context", "backtest_eligible": True},
+    ]).to_parquet(path, index=False)
+    monkeypatch.setattr(backtests, "NEWS_TIMESTAMP_VALIDATION_PATH", path)
+
+    rendered = "\n".join(_text_values(_news_validation_warning()))
+
+    assert "3 news rows are excluded from backtests" in rendered
+    assert "ambiguous_timestamp=1" in rendered
+    assert "current_only_revised=2" in rendered
+    assert "missing" not in rendered
+    assert "late" not in rendered
+
+
+def test_backtests_news_warning_labels_missing_status_as_unknown(tmp_path, monkeypatch) -> None:
+    import etf_cockpit.app.pages.backtests as backtests
+
+    path = tmp_path / "news_timestamp_validation.parquet"
+    pd.DataFrame([{"backtest_eligible": False}]).to_parquet(path, index=False)
+    monkeypatch.setattr(backtests, "NEWS_TIMESTAMP_VALIDATION_PATH", path)
+
+    rendered = "\n".join(_text_values(_news_validation_warning()))
+
+    assert "1 news rows are excluded from backtests (unknown=1)" in rendered

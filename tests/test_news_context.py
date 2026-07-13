@@ -128,3 +128,19 @@ def test_news_contradictions_compare_explicit_headline_direction_with_next_close
     assert len(contradictions) == 1
     assert contradictions.iloc[0]["headline_direction"] == "up"
     assert contradictions.iloc[0]["price_direction"] == "down"
+
+
+def test_news_contradictions_match_direction_words_at_token_boundaries() -> None:
+    news = pd.DataFrame([
+        {"news_id": "group", "instrument_id": "MSFT", "headline": "Group reports results", "published_at": "2026-07-10T10:00:00+00:00"},
+        {"news_id": "rise", "instrument_id": "MSFT", "headline": "MSFT shares rise after results", "published_at": "2026-07-10T10:00:00+00:00"},
+    ])
+    prices = pd.DataFrame([
+        {"instrument_id": "MSFT", "date": "2026-07-10", "adjusted_close": 100.0},
+        {"instrument_id": "MSFT", "date": "2026-07-11", "adjusted_close": 95.0},
+    ])
+
+    contradictions = build_news_contradiction_rows(news, prices)
+
+    assert "group" not in set(contradictions["news_id"])
+    assert "rise" in set(contradictions["news_id"])

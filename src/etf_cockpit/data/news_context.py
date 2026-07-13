@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
+import re
 from typing import Any, Iterable
 
 import pandas as pd
@@ -209,7 +210,9 @@ def build_news_contradiction_rows(news: pd.DataFrame, prices: pd.DataFrame) -> p
     for _, item in news.iterrows():
         headline = str(item.get("headline", ""))
         lowered = headline.casefold()
-        headline_direction = "up" if any(word in lowered for word in positive) else "down" if any(word in lowered for word in negative) else "unknown"
+        has_positive = re.search(r"(?<!\w)(?:" + "|".join(map(re.escape, positive)) + r")(?!\w)", lowered) is not None
+        has_negative = re.search(r"(?<!\w)(?:" + "|".join(map(re.escape, negative)) + r")(?!\w)", lowered) is not None
+        headline_direction = "up" if has_positive else "down" if has_negative else "unknown"
         if headline_direction == "unknown":
             continue
         published = pd.to_datetime(item.get("published_at"), errors="coerce")

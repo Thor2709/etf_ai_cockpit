@@ -153,6 +153,52 @@ def test_static_trust_artifacts_cover_providers_and_identity() -> None:
     assert {"field_name", "resolution_status", "requires_manual_review"} <= set(conflicts.columns)
 
 
+def test_news_inventory_refresh_preserves_canonical_clean_evidence(tmp_path, monkeypatch) -> None:
+    news_path = tmp_path / "news_context.parquet"
+    canonical = pd.DataFrame([{
+        "news_id": "news-1",
+        "instrument_id": "MSFT",
+        "headline": "MSFT shares rise after results",
+        "source_url": "https://example.invalid/news-1",
+        "provider_name": "fixture-provider",
+        "published_at": "2026-07-10T10:00:00+00:00",
+        "ingested_at": "2026-07-10T10:05:00+00:00",
+        "credibility": "high",
+        "instrument_mapping_method": "ticker",
+        "available_at_decision_time": True,
+        "timestamp_status": "valid_context",
+        "backtest_eligible": True,
+        "context_only": True,
+        "executable_authority": False,
+        "raw_path": "raw/news-1.json",
+        "item_checksum": "checksum-1",
+    }])
+    canonical.to_parquet(news_path, index=False)
+    monkeypatch.setattr(trust, "NEWS_CONTEXT_PATH", news_path)
+
+    refreshed = trust._news_context_inventory(pd.DataFrame())
+    trust._write_dual(refreshed, news_path)
+    persisted = pd.read_parquet(news_path)
+
+    required = {
+        "news_id", "instrument_id", "headline", "source_url", "provider_name",
+        "published_at", "ingested_at", "credibility", "instrument_mapping_method",
+        "available_at_decision_time", "timestamp_status", "backtest_eligible",
+        "context_only", "executable_authority", "raw_path", "path",
+    }
+    assert required <= set(persisted.columns)
+    row = persisted.iloc[0]
+    assert row["headline"] == "MSFT shares rise after results"
+    assert row["credibility"] == "high"
+    assert row["instrument_mapping_method"] == "ticker"
+    assert bool(row["available_at_decision_time"]) is True
+    assert row["timestamp_status"] == "valid_context"
+    assert bool(row["backtest_eligible"]) is True
+    assert bool(row["context_only"]) is True
+    assert bool(row["executable_authority"]) is False
+    assert row["path"] == row["raw_path"] == "raw/news-1.json"
+
+
 def test_score_artifacts_write_history_components_and_drivers() -> None:
     snapshot = build_snapshot()
     scores = build_simple_instrument_scores(snapshot.config, snapshot.signals, snapshot.forecasts, snapshot.prices)
