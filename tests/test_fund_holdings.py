@@ -42,6 +42,15 @@ def test_stale_holdings_are_explicit_and_capped_for_current_exposure() -> None:
     assert result.score_eligible is False
 
 
+def test_future_holdings_are_invalid_and_never_score_eligible() -> None:
+    result = normalise_holdings(pd.DataFrame({"security": ["A"], "weight": [1.0]}), "VWCE", "2026-07-12", "issuer", today="2026-07-11")
+    assert result.completeness == "invalid"
+    assert result.freshness == "invalid"
+    assert result.score_eligible is False
+    assert result.frame.empty
+    assert "future_holdings" in result.warnings
+
+
 @pytest.mark.parametrize(
     "frame",
     [
@@ -92,3 +101,35 @@ def test_risk_adapts_legacy_reference_holdings_without_dropping_them(tmp_path: P
     assert not adapted.empty
     assert adapted["completeness"].eq("partial").all()
     assert adapted["score_eligible"].eq(False).all()
+
+
+@pytest.mark.parametrize("missing", ["score_eligible", "authority", "freshness", "completeness"])
+def test_risk_exposure_fails_closed_when_holdings_metadata_is_missing(missing: str) -> None:
+    frame = pd.DataFrame(
+        {
+            "instrument_id": ["VWCE"],
+            "security": ["A"],
+            "weight": [1.0],
+            "score_eligible": [True],
+            "authority": ["issuer"],
+            "freshness": ["fresh"],
+            "completeness": ["full"],
+        }
+    ).drop(columns=[missing])
+    eligible = risk_page_module._exposure_eligible_holdings(frame)
+    assert eligible.empty
+
+
+def test_missing_security_identity_is_invalid_and_requires_manual_review() -> None:
+    result = normalise_holdings(pd.DataFrame({"weight": [1.0]}), "VWCE", "2026-07-10", "issuer", today="2026-07-11")
+    assert result.completeness == "invalid"
+    assert result.score_eligible is False
+    assert "missing_security_or_weight" in result.warnings
+
+
+def test_name_only_holdings_without_isin_or_ticker_are_context_only() -> None:
+    result = normalise_holdings(pd.DataFrame({"holding_name": ["A"], "weight": [1.0]}), "VWCE", "2026-07-10", "issuer", today="2026-07-11")
+    assert result.completeness == "full"
+    assert result.score_eligible is False
+    assert result.confidence <= 0.55
+    assert "missing_isin_or_ticker_manual_review" in result.warnings

@@ -111,7 +111,7 @@ def etf_disclosures_page(page: ft.Page, state: AppState) -> ft.Control:
         "ETF Disclosures",
         "ETF factsheets, holdings, PRIIPs KIDs, reports and index methodology inventory. Partial coverage is shown explicitly.",
         [
-            ("ETF disclosure inventory", ETF_DISCLOSURES_PATH, ["instrument_id", "document_type", "source_authority", "as_of_date", "checksum", "coverage_status", "path"]),
+            ("ETF disclosure inventory", ETF_DISCLOSURES_PATH, ["instrument_id", "document_type", "source_id", "source_url", "source_authority", "as_of_date", "checksum", "coverage_status", "path"]),
             ("ETF holdings evidence", FUND_HOLDINGS_PATH, ["instrument_id", "as_of_date", "source", "completeness", "freshness", "confidence", "authority", "score_eligible", "source_id"]),
             ("Source conflicts", SOURCE_CONFLICTS_PATH, ["instrument_id", "field_name", "canonical_value", "resolution_status", "requires_manual_review", "reason"]),
         ],

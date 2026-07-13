@@ -152,10 +152,26 @@ def _load_holdings_evidence() -> pd.DataFrame:
 
 
 def _exposure_eligible_holdings(holdings: pd.DataFrame) -> pd.DataFrame:
-    if "score_eligible" not in holdings.columns:
-        return holdings
-    eligible = holdings[holdings["score_eligible"].fillna(False).astype(bool)].copy()
+    required = {"score_eligible", "authority", "freshness", "completeness"}
+    if holdings.empty or not required.issubset(holdings.columns):
+        return pd.DataFrame(columns=holdings.columns)
+    eligible = holdings.copy()
+    eligible = eligible[
+        eligible["score_eligible"].map(_as_bool)
+        & eligible["authority"].astype(str).str.strip().str.lower().eq("issuer")
+        & eligible["freshness"].astype(str).str.strip().str.lower().eq("fresh")
+        & eligible["completeness"].astype(str).str.strip().str.lower().eq("full")
+    ]
+    if "as_of_date" in eligible.columns:
+        as_of = pd.to_datetime(eligible["as_of_date"], errors="coerce")
+        eligible = eligible[as_of.notna() & (as_of.dt.date <= pd.Timestamp.now(tz="UTC").date())]
     return eligible
+
+
+def _as_bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}
 
 
 def _compact_exposure_table(title: str, frame: pd.DataFrame) -> ft.Control:

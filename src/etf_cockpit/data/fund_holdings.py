@@ -58,9 +58,17 @@ def _today_value(value: str | date | datetime | None) -> date:
     return parsed or datetime.now(timezone.utc).date()
 
 
-def _empty_result(instrument_id: str, as_of: str, source: str, warning: str, *, authority: str = "unknown") -> HoldingsNormalisationResult:
+def _empty_result(
+    instrument_id: str,
+    as_of: str,
+    source: str,
+    warning: str,
+    *,
+    authority: str = "unknown",
+    freshness: str = "invalid",
+) -> HoldingsNormalisationResult:
     columns = ["security", "weight", "instrument_id", "as_of", "source", "source_id", "completeness", "freshness", "confidence", "authority", "score_eligible"]
-    return HoldingsNormalisationResult(pd.DataFrame(columns=columns), "invalid", source, str(as_of), (warning,), "", "invalid", 0.0, authority, False)
+    return HoldingsNormalisationResult(pd.DataFrame(columns=columns), "invalid", source, str(as_of), (warning,), "", freshness, 0.0, authority, False)
 
 
 def normalise_holdings(
@@ -81,10 +89,16 @@ def normalise_holdings(
         return _empty_result(instrument, as_of_text, source, "missing_instrument_id", authority=authority)
     if as_of_date is None:
         return _empty_result(instrument, as_of_text, source, "invalid_as_of_date", authority=authority)
+    today_date = _today_value(today)
+    if as_of_date > today_date:
+        return _empty_result(instrument, as_of_text, source, "future_holdings", authority=authority, freshness="invalid")
     if frame is None or frame.empty:
         return _empty_result(instrument, as_of_text, source, "empty_holdings", authority=authority)
 
-    security_column = next((column for column in ("security", "holding_name", "security_name", "ticker", "symbol", "isin") if column in frame.columns), None)
+    # Holdings may identify a constituent by an explicit ISIN/ticker or by the
+    # contract's accepted human-readable security name. Arbitrary columns are
+    # never treated as identity evidence and therefore fail closed below.
+    security_column = next((column for column in ("security", "holding_name", "security_name", "name", "ticker", "symbol", "isin") if column in frame.columns), None)
     weight_column = next((column for column in ("weight", "weight_decimal", "weight_percent", "weight_pct") if column in frame.columns), None)
     if security_column is None or weight_column is None:
         return _empty_result(instrument, as_of_text, source, "missing_security_or_weight", authority=authority)
@@ -118,7 +132,7 @@ def normalise_holdings(
     if total <= 0 or total > 1.01 + 1e-9:
         return _empty_result(instrument, as_of_text, source, "weights_not_usable", authority=authority)
     completeness = "full" if 0.99 - 1e-9 <= total <= 1.01 + 1e-9 else "partial"
-    freshness = "fresh" if (_today_value(today) - as_of_date) <= timedelta(days=max(0, int(stale_after_days))) else "stale"
+    freshness = "fresh" if (today_date - as_of_date) <= timedelta(days=max(0, int(stale_after_days))) else "stale"
     warnings: list[str] = []
     if duplicate_count:
         warnings.append("exact_duplicate_rows_removed")
@@ -132,10 +146,20 @@ def normalise_holdings(
             warnings.append("partial_top_holdings")
     if freshness == "stale":
         completeness = "stale"
+    identity_columns = ("isin", "ticker", "symbol", "holding_id", "security_id", "security_isin")
+    has_explicit_identifier = any(
+        column in clean.columns and clean[column].fillna("").astype(str).str.strip().ne("").any()
+        for column in identity_columns
+    )
+    name_only_manual_review = security_column in {"holding_name", "security_name", "name"} and not has_explicit_identifier
+    if name_only_manual_review:
+        warnings.append("missing_isin_or_ticker_manual_review")
     confidence = 1.0 if completeness == "full" and authority == "issuer" else 0.60 if completeness == "full" else 0.50 if authority == "vendor" else 0.55
     if freshness == "stale":
         confidence = min(confidence, 0.25)
-    score_eligible = completeness == "full" and freshness == "fresh" and authority == "issuer"
+    if name_only_manual_review:
+        confidence = min(confidence, 0.55)
+    score_eligible = completeness == "full" and freshness == "fresh" and authority == "issuer" and not name_only_manual_review
     canonical = selected.sort_values(["security", "weight"], kind="stable").to_json(orient="records", date_format="iso")
     source_id = "fundhold:" + hashlib.sha256(f"{instrument}|{as_of_date.isoformat()}|{source}|{canonical}".encode("utf-8")).hexdigest()[:24]
     selected["instrument_id"] = instrument

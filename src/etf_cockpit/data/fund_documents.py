@@ -195,11 +195,18 @@ def _registry_frame(documents: Iterable[FundDocument | dict[str, object]] | pd.D
         return pd.DataFrame(columns=_DOCUMENT_COLUMNS)
     if "checksum" not in frame.columns:
         frame["checksum"] = frame.get("sha256", "")
-    if "source_id" not in frame.columns:
-        frame["source_id"] = [
-            _document_source_id(str(row.get("instrument_id", "")), canonical_document_type(str(row.get("document_type", ""))), row.get("sha256") if isinstance(row.get("sha256"), str) else None, row.get("document_date") if isinstance(row.get("document_date"), str) else None)
-            for _, row in frame.iterrows()
-        ]
+    else:
+        frame["checksum"] = frame["checksum"].where(frame["checksum"].notna() & frame["checksum"].astype(str).ne(""), frame.get("sha256", ""))
+    source_ids: list[str] = []
+    for _, row in frame.iterrows():
+        existing = row.get("source_id")
+        if existing is not None and not pd.isna(existing) and str(existing).strip():
+            source_ids.append(str(existing).strip())
+            continue
+        checksum = row.get("sha256") if isinstance(row.get("sha256"), str) else row.get("checksum") if isinstance(row.get("checksum"), str) else None
+        document_date = row.get("document_date") if isinstance(row.get("document_date"), str) else None
+        source_ids.append(_document_source_id(str(row.get("instrument_id", "")), canonical_document_type(str(row.get("document_type", ""))), checksum, document_date))
+    frame["source_id"] = source_ids
     frame["schema_version"] = 1
     for column in _DOCUMENT_COLUMNS:
         if column not in frame.columns:
@@ -222,6 +229,24 @@ def write_document_registry(
     )
     atomic_write_group(requests)
     return destination
+
+
+def read_document_registry(*, path: Path = FUND_DOCUMENTS_PATH) -> pd.DataFrame:
+    """Read the canonical registry without inventing rows when it is absent.
+
+    Consumers that need configured-instrument completeness should add explicit
+    missing rows through :func:`build_document_inventory`; an absent registry
+    is intentionally represented by an empty frame for compatibility with the
+    pre-registry local document scan.
+    """
+    destination = Path(path)
+    if not destination.exists() or not destination.is_file():
+        return pd.DataFrame(columns=_DOCUMENT_COLUMNS)
+    try:
+        frame = pd.read_parquet(destination)
+    except Exception:
+        return pd.DataFrame(columns=_DOCUMENT_COLUMNS)
+    return _registry_frame(frame)
 
 
 # Compatibility aliases for provider/import callers.

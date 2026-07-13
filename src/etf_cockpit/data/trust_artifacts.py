@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import asdict
 from io import BytesIO
 import json
 import math
@@ -25,7 +26,14 @@ from etf_cockpit.data.instrument_identity import IdentityClaim, resolve_identity
 from etf_cockpit.data.evidence_ledger import EvidenceSource, ledger_entry_for_component
 from etf_cockpit.data.provider_registry import PROBE_SCHEMA_VERSION, ProviderRegistry
 from etf_cockpit.data.yfinance_provider import yfinance_symbol_map_from_config
-from etf_cockpit.data.fund_documents import FundDocument, build_document_inventory, canonical_document_type
+from etf_cockpit.data.fund_documents import (
+    FUND_DOCUMENTS_PATH,
+    FundDocument,
+    build_document_inventory,
+    canonical_document_type,
+    read_document_registry,
+    unavailable_document,
+)
 
 PROVIDER_PROBE_PATH = CLEAN_DIR / "provider_probe_results.parquet"
 IDENTITY_PATH = CLEAN_DIR / "instrument_identity.parquet"
@@ -901,13 +909,6 @@ def _capabilities_for_dataset(dataset_type: str, active_provider: str) -> str:
 
 
 def _etf_disclosure_inventory(identity: pd.DataFrame, configured_etf_ids: Iterable[str] | None = None) -> pd.DataFrame:
-    roots = [
-        ("factsheet", RAW_DIR / "etf_factsheets"),
-        ("holdings", RAW_DIR / "etf_holdings"),
-        ("priips_kid", RAW_DIR / "priips_kids"),
-        ("prospectus_or_report", RAW_DIR / "etf_reports"),
-        ("index_methodology", RAW_DIR / "index_methodology"),
-    ]
     if configured_etf_ids is not None:
         instrument_ids = {str(value).strip() for value in configured_etf_ids if str(value).strip()}
     elif not identity.empty and "instrument_id" in identity.columns:
@@ -918,6 +919,18 @@ def _etf_disclosure_inventory(identity: pd.DataFrame, configured_etf_ids: Iterab
         instrument_ids = set(scoped_identity["instrument_id"].astype(str))
     else:
         instrument_ids = set()
+
+    canonical = _canonical_etf_disclosure_inventory(instrument_ids)
+    if canonical is not None:
+        return canonical
+
+    roots = [
+        ("factsheet", RAW_DIR / "etf_factsheets"),
+        ("holdings", RAW_DIR / "etf_holdings"),
+        ("priips_kid", RAW_DIR / "priips_kids"),
+        ("prospectus_or_report", RAW_DIR / "etf_reports"),
+        ("index_methodology", RAW_DIR / "index_methodology"),
+    ]
     documents: list[FundDocument] = []
     for doc_type, root in roots:
         for row in _document_rows(root, document_type=doc_type, instrument_ids=instrument_ids):
@@ -940,17 +953,20 @@ def _etf_disclosure_inventory(identity: pd.DataFrame, configured_etf_ids: Iterab
     inventory = build_document_inventory(sorted(instrument_ids), documents)
     if inventory.empty:
         return pd.DataFrame(columns=[
-            "document_id", "instrument_id", "document_type", "path", "source_authority",
-            "as_of_date", "ingested_at", "checksum", "coverage_status", "executable_authority",
+            "document_id", "source_id", "instrument_id", "document_type", "path", "source_url",
+            "source_authority", "as_of_date", "ingested_at", "checksum", "coverage_status", "executable_authority",
         ])
-    inventory = inventory.rename(columns={"source_id": "document_id", "authority": "source_authority", "document_date": "as_of_date"})
+    inventory = inventory.rename(columns={"authority": "source_authority", "document_date": "as_of_date"})
+    inventory["document_id"] = inventory["source_id"]
     inventory["executable_authority"] = False
     inventory["checksum"] = inventory["sha256"].fillna("")
     columns = [
         "document_id",
+        "source_id",
         "instrument_id",
         "document_type",
         "path",
+        "source_url",
         "source_authority",
         "as_of_date",
         "ingested_at",
@@ -959,6 +975,81 @@ def _etf_disclosure_inventory(identity: pd.DataFrame, configured_etf_ids: Iterab
         "executable_authority",
     ]
     return inventory[columns]
+
+
+def _canonical_etf_disclosure_inventory(instrument_ids: set[str]) -> pd.DataFrame | None:
+    """Project the canonical fund-document registry into the trust artifact.
+
+    A present registry is authoritative for its registered provenance. Missing
+    instrument/type combinations are added explicitly, while an absent or
+    unreadable registry returns ``None`` so older raw-directory discovery stays
+    compatible.
+    """
+    registry = read_document_registry(path=FUND_DOCUMENTS_PATH)
+    if registry.empty:
+        return None
+    rows: list[dict[str, Any]] = []
+    for instrument_id in sorted(instrument_ids):
+        for document_type in ("factsheet", "kid", "prospectus_report", "holdings", "methodology"):
+            matches = registry.loc[
+                registry.get("instrument_id", pd.Series(dtype=str)).astype(str).eq(instrument_id)
+                & registry.get("document_type", pd.Series(dtype=str)).astype(str).map(_canonical_document_type_or_empty).eq(document_type)
+            ]
+            if matches.empty:
+                missing = asdict(unavailable_document(instrument_id, document_type, "document_not_available"))
+                missing["coverage_status"] = "missing"
+                rows.append(_disclosure_row(missing))
+                continue
+            for _, raw in matches.iterrows():
+                row = raw.to_dict()
+                row["document_type"] = document_type
+                rows.append(_disclosure_row(row))
+    return pd.DataFrame(rows, columns=[
+        "document_id", "source_id", "instrument_id", "document_type", "path", "source_url",
+        "source_authority", "as_of_date", "ingested_at", "checksum", "coverage_status", "executable_authority",
+    ])
+
+
+def _canonical_document_type_or_empty(value: object) -> str:
+    try:
+        return canonical_document_type(str(value))
+    except ValueError:
+        return ""
+
+
+def _disclosure_row(raw: dict[str, Any]) -> dict[str, Any]:
+    source_id = _clean_text(raw.get("source_id") or raw.get("document_id"))
+    checksum = _clean_text(raw.get("checksum") or raw.get("sha256"))
+    coverage_status = _clean_text(raw.get("coverage_status"))
+    if coverage_status in {"", "unavailable"}:
+        coverage_status = "available" if checksum or _clean_text(raw.get("path")) else "missing"
+    as_of_date = raw.get("as_of_date") if raw.get("as_of_date") is not None else raw.get("document_date")
+    if hasattr(as_of_date, "date"):
+        as_of_date = as_of_date.date().isoformat()
+    elif pd.isna(as_of_date):
+        as_of_date = ""
+    else:
+        as_of_date = _clean_text(as_of_date)
+    return {
+        "document_id": source_id,
+        "source_id": source_id,
+        "instrument_id": _clean_text(raw.get("instrument_id")),
+        "document_type": _canonical_document_type_or_empty(raw.get("document_type")),
+        "path": _clean_text(raw.get("path")),
+        "source_url": _clean_text(raw.get("source_url")),
+        "source_authority": _clean_text(raw.get("source_authority") or raw.get("authority")) or "unknown",
+        "as_of_date": as_of_date,
+        "ingested_at": _clean_text(raw.get("ingested_at")),
+        "checksum": checksum,
+        "coverage_status": coverage_status,
+        "executable_authority": False,
+    }
+
+
+def _clean_text(value: object) -> str:
+    if value is None or (isinstance(value, float) and math.isnan(value)) or pd.isna(value):
+        return ""
+    return str(value).strip()
 
 
 def _local_document_inventory(dataset: str, root: Path, identity: pd.DataFrame) -> pd.DataFrame:

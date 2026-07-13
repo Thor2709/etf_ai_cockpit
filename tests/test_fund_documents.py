@@ -56,6 +56,28 @@ def test_document_registry_is_persisted_atomically_with_version_and_checksum(tmp
     assert {"schema_version", "source_id", "checksum", "document_date", "document_type"} <= set(stored.columns)
 
 
+def test_document_registry_backfills_blank_source_id_from_provenance(tmp_path: Path) -> None:
+    destination = tmp_path / "fund_documents.parquet"
+    write_document_registry(
+        pd.DataFrame(
+            {
+                "instrument_id": ["VWCE"],
+                "document_type": ["factsheet"],
+                "path": [""],
+                "source_url": ["https://issuer.example/factsheet.pdf"],
+                "authority": ["issuer_document"],
+                "sha256": ["a" * 64],
+                "document_date": ["2026-07-10"],
+                "coverage_status": ["missing"],
+                "source_id": [""],
+            }
+        ),
+        destination=destination,
+    )
+    stored = pd.read_parquet(destination)
+    assert stored.loc[0, "source_id"].startswith("funddoc:")
+
+
 def test_trust_artifact_inventory_emits_missing_rows_for_each_configured_instrument() -> None:
     inventory = trust_artifacts._etf_disclosure_inventory(pd.DataFrame({"instrument_id": ["VWCE", "LYP6"]}))
     assert len(inventory) == 2 * len(DOCUMENT_TYPES)
@@ -67,3 +89,42 @@ def test_trust_inventory_uses_configured_etf_ids_even_when_identity_is_incomplet
     inventory = trust_artifacts._etf_disclosure_inventory(pd.DataFrame({"instrument_id": ["not-configured"]}), configured_etf_ids=["VWCE", "LYP6"])
     assert set(inventory["instrument_id"]) == {"VWCE", "LYP6"}
     assert len(inventory) == 2 * len(DOCUMENT_TYPES)
+
+
+def test_trust_inventory_reads_canonical_registry_and_preserves_registered_provenance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "factsheet.pdf"
+    path.write_bytes(b"registered factsheet")
+    registered = register_document(
+        path,
+        "factsheet",
+        "VWCE",
+        "https://issuer.example/vwce/factsheet.pdf",
+        "issuer_document",
+        document_date="2026-07-10",
+    )
+    registry_path = tmp_path / "fund_documents.parquet"
+    write_document_registry([registered], destination=registry_path)
+    monkeypatch.setattr(trust_artifacts, "FUND_DOCUMENTS_PATH", registry_path)
+
+    inventory = trust_artifacts._etf_disclosure_inventory(
+        pd.DataFrame({"instrument_id": ["ignored"], "instrument_type": ["etf"]}),
+        configured_etf_ids=["VWCE", "LYP6"],
+    )
+    row = inventory[(inventory["instrument_id"] == "VWCE") & (inventory["document_type"] == "factsheet")].iloc[0]
+    assert row["source_id"] == registered.source_id
+    assert row["document_id"] == registered.source_id
+    assert row["source_url"] == registered.source_url
+    assert row["as_of_date"] == registered.document_date
+    assert row["checksum"] == registered.sha256
+    assert len(inventory) == 2 * len(DOCUMENT_TYPES)
+    assert inventory.loc[inventory["instrument_id"] == "LYP6", "coverage_status"].eq("missing").all()
+
+
+def test_trust_inventory_falls_back_to_explicit_missing_rows_when_registry_is_absent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(trust_artifacts, "FUND_DOCUMENTS_PATH", tmp_path / "absent.parquet")
+    inventory = trust_artifacts._etf_disclosure_inventory(
+        pd.DataFrame({"instrument_id": ["VWCE"], "instrument_type": ["etf"]}),
+        configured_etf_ids=["VWCE"],
+    )
+    assert len(inventory) == len(DOCUMENT_TYPES)
+    assert inventory["coverage_status"].eq("missing").all()
