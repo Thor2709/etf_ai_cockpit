@@ -25,6 +25,7 @@ from etf_cockpit.data.instrument_identity import IdentityClaim, resolve_identity
 from etf_cockpit.data.evidence_ledger import EvidenceSource, ledger_entry_for_component
 from etf_cockpit.data.provider_registry import PROBE_SCHEMA_VERSION, ProviderRegistry
 from etf_cockpit.data.yfinance_provider import yfinance_symbol_map_from_config
+from etf_cockpit.data.fund_documents import FundDocument, build_document_inventory, canonical_document_type
 
 PROVIDER_PROBE_PATH = CLEAN_DIR / "provider_probe_results.parquet"
 IDENTITY_PATH = CLEAN_DIR / "instrument_identity.parquet"
@@ -783,7 +784,10 @@ def write_optional_source_inventories(config: AppConfig, identity: pd.DataFrame)
             [],
             id_columns=["document_id", "checksum"],
         ),
-        "etf_disclosures": _write_dual(_etf_disclosure_inventory(identity), ETF_DISCLOSURES_PATH),
+        "etf_disclosures": _write_dual(
+            _etf_disclosure_inventory(identity, configured_etf_ids=[etf.id for etf in config.universe.etfs if etf.instrument_type == "etf"]),
+            ETF_DISCLOSURES_PATH,
+        ),
         "news_context": _write_dual(_news_context_inventory(identity), NEWS_CONTEXT_PATH),
         "news_timestamp_validation": _write_dual(_news_timestamp_validation(), NEWS_TIMESTAMP_VALIDATION_PATH),
     }
@@ -896,7 +900,7 @@ def _capabilities_for_dataset(dataset_type: str, active_provider: str) -> str:
     return json.dumps(capabilities, sort_keys=True)
 
 
-def _etf_disclosure_inventory(identity: pd.DataFrame) -> pd.DataFrame:
+def _etf_disclosure_inventory(identity: pd.DataFrame, configured_etf_ids: Iterable[str] | None = None) -> pd.DataFrame:
     roots = [
         ("factsheet", RAW_DIR / "etf_factsheets"),
         ("holdings", RAW_DIR / "etf_holdings"),
@@ -904,9 +908,44 @@ def _etf_disclosure_inventory(identity: pd.DataFrame) -> pd.DataFrame:
         ("prospectus_or_report", RAW_DIR / "etf_reports"),
         ("index_methodology", RAW_DIR / "index_methodology"),
     ]
-    rows: list[dict[str, Any]] = []
+    if configured_etf_ids is not None:
+        instrument_ids = {str(value).strip() for value in configured_etf_ids if str(value).strip()}
+    elif not identity.empty and "instrument_id" in identity.columns:
+        scoped_identity = identity
+        if "instrument_type" in identity.columns:
+            instrument_types = identity["instrument_type"].astype(str).str.lower().str.strip()
+            scoped_identity = identity[instrument_types.isin({"etf", "fund", ""})]
+        instrument_ids = set(scoped_identity["instrument_id"].astype(str))
+    else:
+        instrument_ids = set()
+    documents: list[FundDocument] = []
     for doc_type, root in roots:
-        rows.extend(_document_rows(root, document_type=doc_type, instrument_ids=set(identity["instrument_id"].astype(str)) if not identity.empty else set()))
+        for row in _document_rows(root, document_type=doc_type, instrument_ids=instrument_ids):
+            documents.append(
+                FundDocument(
+                    instrument_id=str(row.get("instrument_id", "")),
+                    document_type=canonical_document_type(str(row.get("document_type", doc_type))),
+                    path=str(row.get("path", "")),
+                    source_url="",
+                    authority=str(row.get("source_authority", "issuer_document")),
+                    sha256=str(row.get("checksum", "")) or None,
+                    document_date=str(row.get("as_of_date", "")) or None,
+                    coverage_status="available" if row.get("instrument_id") else "unavailable",
+                    warnings=("unmapped_manual_review",) if not row.get("instrument_id") else (),
+                    source_id="funddoc:" + str(row.get("document_id", "")),
+                    schema_version=1,
+                    ingested_at=str(row.get("ingested_at", "")),
+                )
+            )
+    inventory = build_document_inventory(sorted(instrument_ids), documents)
+    if inventory.empty:
+        return pd.DataFrame(columns=[
+            "document_id", "instrument_id", "document_type", "path", "source_authority",
+            "as_of_date", "ingested_at", "checksum", "coverage_status", "executable_authority",
+        ])
+    inventory = inventory.rename(columns={"source_id": "document_id", "authority": "source_authority", "document_date": "as_of_date"})
+    inventory["executable_authority"] = False
+    inventory["checksum"] = inventory["sha256"].fillna("")
     columns = [
         "document_id",
         "instrument_id",
@@ -919,7 +958,7 @@ def _etf_disclosure_inventory(identity: pd.DataFrame) -> pd.DataFrame:
         "coverage_status",
         "executable_authority",
     ]
-    return pd.DataFrame(rows, columns=columns)
+    return inventory[columns]
 
 
 def _local_document_inventory(dataset: str, root: Path, identity: pd.DataFrame) -> pd.DataFrame:

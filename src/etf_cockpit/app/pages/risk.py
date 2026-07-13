@@ -6,6 +6,7 @@ import flet as ft
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import metric_card, panel, section_header
 from etf_cockpit.app.state import AppState
+from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH, normalise_holdings
 from etf_cockpit.data.reference_data import load_reference_dataset
 from etf_cockpit.portfolio.allocation import allocation_frame, exposure_summary
 from etf_cockpit.portfolio.risk_analytics import drawdown_contribution, exposure_limit_report, return_correlation_matrix, underlying_holdings_exposure
@@ -91,6 +92,70 @@ def _underlying_holdings_panel(holdings: pd.DataFrame, allocation: pd.DataFrame)
         ),
         expand=True,
     )
+
+
+def _holdings_quality_panel(holdings: pd.DataFrame) -> ft.Control:
+    """Show the evidence quality cap separately from portfolio exposure."""
+    if holdings.empty or not {"instrument_id", "completeness"}.issubset(holdings.columns):
+        return panel(
+            ft.Column(
+                [
+                    section_header("ETF holdings evidence", "Completeness and freshness determine whether look-through exposure is current."),
+                    ft.Text("No normalised holdings evidence is available; current exposure remains unavailable.", color=theme.MUTED),
+                ]
+            )
+        )
+    columns = [column for column in ("instrument_id", "as_of_date", "completeness", "freshness", "confidence", "authority", "score_eligible") if column in holdings.columns]
+    rows = [
+        ft.DataRow(cells=[ft.DataCell(ft.Text(str(row.get(column, "")), color=theme.TEXT if column in {"instrument_id", "completeness"} else theme.MUTED, size=11, selectable=True)) for column in columns])
+        for _, row in holdings.drop_duplicates(subset=["instrument_id"]).iterrows()
+    ]
+    return panel(
+        ft.Column(
+            [
+                section_header("ETF holdings evidence", "Issuer full/current holdings can support exposure; vendor partial, stale and invalid rows remain context-only."),
+                ft.DataTable(
+                    columns=[ft.DataColumn(ft.Text(column, color=theme.TEXT, size=11)) for column in columns],
+                    rows=rows,
+                )
+                if rows
+                else ft.Text("No normalised holdings evidence is available; current exposure remains unavailable.", color=theme.MUTED),
+            ],
+            scroll=ft.ScrollMode.AUTO,
+        )
+    )
+
+
+def _load_holdings_evidence() -> pd.DataFrame:
+    try:
+        if FUND_HOLDINGS_PATH.exists():
+            canonical = pd.read_parquet(FUND_HOLDINGS_PATH)
+            if not canonical.empty:
+                return canonical
+    except Exception:
+        pass
+    legacy = load_reference_dataset("etf_holdings")
+    if legacy.empty or not {"etf_id", "weight"}.issubset(legacy.columns):
+        return legacy
+    # Reference-data imports pre-date the normalised fund store. Adapt them in
+    # memory so existing holdings remain visible while issuer/vendor and
+    # freshness eligibility are still enforced by the normaliser.
+    rows: list[pd.DataFrame] = []
+    for etf_id, group in legacy.groupby("etf_id", dropna=False):
+        as_of = group.get("as_of_date", pd.Series(dtype=str)).dropna()
+        as_of_value = str(as_of.max().date()) if not as_of.empty and hasattr(as_of.max(), "date") else str(as_of.max()) if not as_of.empty else ""
+        source = str(group.get("source", pd.Series(["legacy_import"])).iloc[0])
+        adapted = normalise_holdings(group, str(etf_id), as_of_value, source)
+        if not adapted.frame.empty:
+            rows.append(adapted.frame)
+    return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
+
+
+def _exposure_eligible_holdings(holdings: pd.DataFrame) -> pd.DataFrame:
+    if "score_eligible" not in holdings.columns:
+        return holdings
+    eligible = holdings[holdings["score_eligible"].fillna(False).astype(bool)].copy()
+    return eligible
 
 
 def _compact_exposure_table(title: str, frame: pd.DataFrame) -> ft.Control:
@@ -234,7 +299,8 @@ def risk_page(_page: ft.Page, state: AppState) -> ft.Control:
     watch = int((limit_report["status"] == "watch").sum()) if not limit_report.empty else 0
     correlation = return_correlation_matrix(state.snapshot.prices, state.snapshot.config.universe.enabled_ids, window=120)
     contribution = drawdown_contribution(allocation, state.snapshot.latest_features)
-    imported_holdings = load_reference_dataset("etf_holdings")
+    imported_holdings = _load_holdings_evidence()
+    eligible_holdings = _exposure_eligible_holdings(imported_holdings)
     top_contributor = contribution.iloc[0]["etf_id"] if not contribution.empty else "n/a"
     return ft.Column(
         [
@@ -263,7 +329,8 @@ def risk_page(_page: ft.Page, state: AppState) -> ft.Control:
                 ],
                 spacing=12,
             ),
-            _underlying_holdings_panel(imported_holdings, allocation),
+            _holdings_quality_panel(imported_holdings),
+            _underlying_holdings_panel(eligible_holdings, allocation),
             _correlation_table(correlation),
             _drawdown_table(contribution),
         ],
