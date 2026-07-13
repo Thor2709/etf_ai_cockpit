@@ -210,3 +210,19 @@ authoritative ledgers as part of remote synchronisation.
 - `UPDATEV2-0012` remains open/implementation-complete pending package,
   browser, clean-first-run and configured live SEC-network evidence. The local
   issue ledger and approved specification remain authoritative.
+
+## Ledger refresh after Wave 4 Task 14 - 2026-07-13
+
+- After PR 184 merged Task 14 and the local implementation checkpoint was
+  committed, the authenticated `python scripts/sync_github_issues.py --apply`
+  run exited 0. It reported 98 canonical records, 77 local open and 21 local
+  closed records, matching 77/21 mapped GitHub states; all IDs were unique,
+  mappings valid, states agreed and unresolved duplicates were empty.
+- `UPDATEV2-0015` remains mapped to GitHub Issue #155 OPEN and `UPDATEV2-0016`
+  remains mapped to GitHub Issue #156 OPEN. Both bodies now mirror their local
+  implementation-complete/closure-pending status; no issue was closed because
+  strict package, audit/export, clean-first-run and browser/computer-use evidence
+  remains outstanding.
+- The updated `issues/github_issue_map.json` and
+  `issues/github_issue_sync_report.json` are the deterministic mirror evidence;
+  the committed local ledger and approved specification remain authoritative.
