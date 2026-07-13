@@ -5,7 +5,10 @@ import pandas as pd
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import metric_card, panel, section_header
+from etf_cockpit.app.components.charts import equity_drawdown_chart
 from etf_cockpit.app.state import AppState
+from etf_cockpit.core.paths import EXPORTS_DIR
+from etf_cockpit.data.export_tables import export_table
 from etf_cockpit.data.trust_artifacts import NEWS_TIMESTAMP_VALIDATION_PATH
 
 
@@ -87,6 +90,18 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
             scroll=ft.ScrollMode.AUTO,
         )
     signal = signal_rows.iloc[0]
+    equity_frame = _equity_drawdown_frame(report.equity_curves)
+    chart_descriptor = equity_drawdown_chart(equity_frame)
+    export_status = ft.Text("CSV exports show the destination path and controlled failure state.", color=theme.MUTED, selectable=True)
+
+    def export_backtest(_event: ft.ControlEvent) -> None:
+        result = export_table("backtest_equity_drawdown", equity_frame, EXPORTS_DIR / "backtest_equity_drawdown.csv")
+        if result.ok:
+            export_status.value = f"Export complete: {result.destination} ({result.rows} rows)."
+        else:
+            export_status.value = f"Export failed: {result.error}; previous output preserved."
+        export_status.color = theme.GREEN if result.ok else theme.RED
+        _page.update()
     diagnostics = [
         f"Quality label: {report.quality_label}",
         *(report.quality_notes or []),
@@ -164,6 +179,7 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
                 ),
                 expand=True,
             ),
+            panel(ft.Column([section_header("Equity and drawdown evidence", "The curve is descriptive backtest evidence only; it cannot authorise broker execution."), chart_descriptor.control, ft.Row([ft.OutlinedButton("Export equity/drawdown CSV", key="backtests.export-equity-drawdown", icon=ft.Icons.DOWNLOAD, on_click=export_backtest)]), export_status], spacing=8)),
             panel(ft.Column([section_header("Backtest quality", "Walk-forward and overfitting diagnostics for the scoring method."), ft.Text("\n".join(diagnostics), color=theme.MUTED, selectable=True)])),
             panel(
                 ft.Column(
@@ -214,3 +230,18 @@ def _news_validation_warning() -> ft.Control:
         statuses = ", ".join(f"{status}={count}" for status, count in status_values.value_counts().sort_index().items())
         message = f"{len(invalid)} news rows are excluded from backtests ({statuses}); rejected evidence remains context-only and requires review."
     return panel(ft.Column([section_header("News point-in-time checks", "Rejected news is visible here and cannot change deterministic backtest authority."), ft.Text(message, color=theme.AMBER if not invalid.empty else theme.MUTED, selectable=True)], spacing=6))
+
+
+def _equity_drawdown_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    if not isinstance(frame, pd.DataFrame) or frame.empty:
+        return pd.DataFrame(columns=["date", "equity", "drawdown"])
+    result = frame.copy()
+    result = result.reset_index() if result.index.name else result
+    if "date" not in result.columns:
+        result = result.rename(columns={result.columns[0]: "date"})
+    equity_column = "signal_strategy" if "signal_strategy" in result.columns else next((column for column in result.columns if column != "date"), None)
+    if equity_column is None:
+        return pd.DataFrame(columns=["date", "equity", "drawdown"])
+    result["equity"] = pd.to_numeric(result[equity_column], errors="coerce")
+    result["drawdown"] = result["equity"] / result["equity"].cummax() - 1.0
+    return result[["date", "equity", "drawdown"]].dropna(subset=["equity"])

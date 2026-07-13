@@ -1,9 +1,49 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import flet as ft
+import pandas as pd
 
 from etf_cockpit.app.components.flet_compat import border_all
 from etf_cockpit.app.theme import AMBER, BORDER, CYAN, GREEN, MUTED, RED, SURFACE_2, TEXT
+
+
+@dataclass(frozen=True)
+class ChartDescriptor:
+    label: str
+    export_table_id: str
+    control: ft.Control
+    available: bool
+
+
+def history_chart(frame: pd.DataFrame | None, *, title: str = "Price history") -> ChartDescriptor:
+    available = isinstance(frame, pd.DataFrame) and not frame.empty
+    label = title if available else f"{title} (unavailable)"
+    control = ft.Container(
+        content=ft.Text(
+            f"{title}: {len(frame)} rows" if available else f"{title}: unavailable; import dated adjusted prices first",
+            color=TEXT if available else MUTED,
+            selectable=True,
+        ),
+        padding=10,
+        border=border_all(1, BORDER),
+    )
+    return ChartDescriptor(label, "price_history", control, available)
+
+
+def equity_drawdown_chart(frame: pd.DataFrame | None) -> ChartDescriptor:
+    available = isinstance(frame, pd.DataFrame) and not frame.empty and {"equity", "drawdown"}.issubset(frame.columns)
+    control = ft.Container(
+        content=ft.Text(
+            f"Backtest equity and drawdown: {len(frame)} rows" if available else "Backtest equity and drawdown: unavailable",
+            color=TEXT if available else MUTED,
+            selectable=True,
+        ),
+        padding=10,
+        border=border_all(1, BORDER),
+    )
+    return ChartDescriptor("Backtest equity and drawdown", "backtest_equity_drawdown", control, available)
 
 
 def drift_bar(current: float, target: float, soft_band: float, hard_band: float, width: int = 180) -> ft.Column:

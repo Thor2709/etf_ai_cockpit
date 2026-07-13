@@ -1,10 +1,55 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import flet as ft
+import pandas as pd
 
 from etf_cockpit.app.components.charts import score_meter
 from etf_cockpit.app.theme import MUTED, TEXT
 from etf_cockpit.core.types import SignalResult
+
+
+@dataclass(frozen=True)
+class AccessibleTable:
+    """Table view metadata kept alongside the Flet control for text-first QA."""
+
+    control: ft.DataTable
+    table_id: str
+    search_label: str
+    sortable_columns: tuple[str, ...]
+    status_text: str
+    frame: pd.DataFrame
+
+
+def accessible_table(
+    frame: pd.DataFrame,
+    *,
+    table_id: str,
+    searchable: bool = True,
+    sortable: bool = True,
+) -> AccessibleTable:
+    data = frame.copy() if isinstance(frame, pd.DataFrame) else pd.DataFrame()
+    columns = tuple(str(column) for column in data.columns)
+    rows = [
+        ft.DataRow(cells=[ft.DataCell(ft.Text("" if pd.isna(value) else str(value), selectable=True)) for value in row])
+        for row in data.itertuples(index=False, name=None)
+    ]
+    control = ft.DataTable(
+        columns=[ft.DataColumn(ft.Text(column, tooltip=f"Sort by {column}")) for column in columns],
+        rows=rows,
+        data_row_min_height=36,
+        data_row_max_height=56,
+        column_spacing=14,
+    )
+    return AccessibleTable(
+        control=control,
+        table_id=str(table_id),
+        search_label=f"Search {table_id}" if searchable else "",
+        sortable_columns=columns if sortable else (),
+        status_text=f"{len(data)} rows; status is shown as text",
+        frame=data,
+    )
 
 
 def signals_table(signals: list[SignalResult], allocation_lookup: dict[str, dict[str, float]]) -> ft.DataTable:

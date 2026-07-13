@@ -5,7 +5,8 @@ import flet as ft
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
-from etf_cockpit.core.paths import CONFIG_DIR
+from etf_cockpit.core.constants import APP_VERSION
+from etf_cockpit.core.paths import CONFIG_DIR, DATA_DIR, ROOT
 
 
 def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
@@ -13,6 +14,14 @@ def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
     target_lines = [f"{etf_id}: context target {pos.target_weight:.1%}, drift bands {pos.soft_band:.1%}/{pos.hard_band:.1%}" for etf_id, pos in config.targets.positions.items()]
     model_lines = [f"{name}: {settings}" for name, settings in config.models.models.items()]
     status_text = ft.Text(state.last_message, color=theme.MUTED, selectable=True)
+    changelog_path = ROOT / "CHANGELOG.md"
+    changelog_status = f"available at {changelog_path}" if changelog_path.is_file() else "unavailable (no local CHANGELOG.md)"
+    rebuild_path = ROOT / "RUN_STATE.json"
+    rebuild_timestamp = "unavailable"
+    try:
+        rebuild_timestamp = str(__import__("json").loads(rebuild_path.read_text(encoding="utf-8")).get("updated_at", "unavailable")) if rebuild_path.is_file() else "unavailable"
+    except Exception:
+        rebuild_timestamp = "unavailable"
     provider_fields: list[ft.Control] = []
     for name, section in config.data_providers.providers.items():
         provider_input = ft.TextField(label="Provider", value=section.active_provider, dense=True, width=180)
@@ -53,6 +62,7 @@ def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
         )
     return ft.Column(
         [
+            panel(ft.Column([section_header("Release and data metadata", "Local release metadata helps users identify the current evidence build."), ft.Text(f"App version: {APP_VERSION}", key="settings.app-version", selectable=True), ft.Text(f"Last rebuild timestamp: {rebuild_timestamp}", key="settings.last-rebuild", selectable=True), ft.Text(f"Current data root: {DATA_DIR}", key="settings.data-root", selectable=True), ft.Text(f"Changelog: {changelog_status}", key="settings.changelog", selectable=True)], spacing=6)),
             panel(ft.Column([section_header("Universe manager", "Validated local CRUD for watchlists and the Primary, Secondary and Sparebanken tiers."), ft.Row([ft.Button("Open Universe manager", key="settings.open-universe", on_click=lambda _event: _page.go("/universe")), ft.Button("Open first-run setup", key="settings.open-onboarding", on_click=lambda _event: _page.go("/onboarding"))]), ft.Text("Configuration saves show pending-refresh only; they never trigger refresh, scoring or model calls.", color=theme.MUTED)], spacing=8)),
             panel(ft.Column([section_header("Config folder", "Local YAML, JSON and .env-backed settings."), ft.Text(str(CONFIG_DIR), color=theme.MUTED, selectable=True)])),
             panel(ft.Column([section_header("Settings status", "Provider saves show progress here and are also written to the dashboard activity log."), status_text])),

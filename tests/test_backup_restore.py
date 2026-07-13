@@ -27,3 +27,38 @@ def test_restore_rejects_zip_traversal(tmp_path: Path) -> None:
     with zipfile.ZipFile(archive, "w") as z:
         z.writestr("../secret.txt", "bad")
     assert validate_restore(archive).valid is False
+
+
+def test_backup_manifest_is_deterministic_and_excludes_secret_and_caches(tmp_path: Path) -> None:
+    data = tmp_path / "data" / "prices.csv"
+    data.parent.mkdir(parents=True)
+    data.write_text("x,1\n", encoding="utf-8")
+    secret = tmp_path / "configs" / ".env"
+    secret.parent.mkdir(parents=True)
+    secret.write_text("TOKEN=do-not-export\n", encoding="utf-8")
+    cache = tmp_path / "logs" / "run.log"
+    cache.parent.mkdir(parents=True)
+    cache.write_text("transient", encoding="utf-8")
+    archive = tmp_path / "backup.zip"
+    manifest = create_backup([data, secret, cache], archive)
+    assert list(manifest.checksums) == ["data/prices.csv"]
+    assert manifest.schema_version == 1
+    assert manifest.manifest_checksum
+
+
+def test_failed_restore_does_not_replace_existing_destination(tmp_path: Path) -> None:
+    source = tmp_path / "data" / "safe.txt"
+    source.parent.mkdir(parents=True)
+    source.write_text("new", encoding="utf-8")
+    archive = tmp_path / "backup.zip"
+    create_backup([source], archive)
+    destination = tmp_path / "restored"
+    destination.mkdir()
+    existing = destination / "data" / "safe.txt"
+    existing.parent.mkdir(parents=True)
+    existing.write_text("old", encoding="utf-8")
+    preview = validate_restore(archive)
+    preview = type(preview)(preview.archive, False, preview.entries, ("forced_failure",))
+    result = commit_restore(preview, destination)
+    assert result.ok is False
+    assert existing.read_text(encoding="utf-8") == "old"

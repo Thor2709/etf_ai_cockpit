@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import tempfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -13,6 +15,9 @@ from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group
 class BackupManifest:
     archive: Path
     checksums: dict[str, str]
+    schema_version: int = 1
+    manifest_checksum: str = ""
+    excluded: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -21,82 +26,149 @@ class RestorePreview:
     valid: bool
     entries: tuple[str, ...]
     errors: tuple[str, ...]
+    checksums: dict[str, str] | None = None
+    manifest_checksum: str = ""
 
 
 @dataclass(frozen=True)
 class RestoreResult:
     destination: Path
     restored: int
+    ok: bool = True
+    error: str = ""
+    execution_allowed: bool = False
 
 
-def create_backup(paths: list[Path], destination: Path) -> BackupManifest:
+def create_backup(paths: list[Path], destination: Path, *, include_transient: bool = False) -> BackupManifest:
+    files = sorted(_iter_files(paths), key=lambda item: str(item))
     checksums: dict[str, str] = {}
+    excluded: list[str] = []
+    payloads: dict[str, bytes] = {}
+    for path in files:
+        relative = _archive_name(path)
+        if _secret_path(path) or (not include_transient and _transient_path(path)):
+            excluded.append(relative)
+            continue
+        data = path.read_bytes()
+        checksums[relative] = hashlib.sha256(data).hexdigest()
+        payloads[relative] = data
+    manifest_payload = _manifest_payload(checksums)
+    manifest_checksum = hashlib.sha256(manifest_payload).hexdigest()
+    destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for path in paths:
-            if not path.exists() or not path.is_file():
-                continue
-            if _secret_path(path):
-                continue
-            arcname = _archive_name(path)
-            data = path.read_bytes()
-            checksum = hashlib.sha256(data).hexdigest()
-            checksums[arcname] = checksum
-            archive.writestr(arcname, data)
-        archive.writestr("manifest.json", json.dumps({"schema_version": 1, "checksums": checksums}, sort_keys=True, indent=2))
-    return BackupManifest(destination, checksums)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent)
+    os.close(fd)
+    temp_path = Path(temp_name)
+    try:
+        with zipfile.ZipFile(temp_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for name in sorted(payloads):
+                archive.writestr(name, payloads[name])
+            archive.writestr("manifest.json", manifest_payload)
+        temp_path.replace(destination)
+    finally:
+        temp_path.unlink(missing_ok=True)
+    return BackupManifest(destination, checksums, 1, manifest_checksum, tuple(excluded))
 
 
 def validate_restore(archive_path: Path) -> RestorePreview:
     errors: list[str] = []
     entries: list[str] = []
+    checksums: dict[str, str] = {}
+    manifest_checksum = ""
     try:
         with zipfile.ZipFile(archive_path) as archive:
-            for info in archive.infolist():
-                name = info.filename.replace("\\", "/")
-                if name == "manifest.json":
-                    continue
-                if _unsafe(name):
-                    errors.append(f"unsafe_path:{name}")
-                entries.append(name)
-            if "manifest.json" not in archive.namelist():
+            names = [info.filename.replace("\\", "/") for info in archive.infolist()]
+            if len(names) != len(set(names)):
+                errors.append("duplicate_entry")
+            for name in names:
+                if name != "manifest.json":
+                    if _unsafe(name):
+                        errors.append(f"unsafe_path:{name}")
+                    entries.append(name)
+            if "manifest.json" not in names:
                 errors.append("manifest_missing")
             else:
-                manifest = json.loads(archive.read("manifest.json"))
-                for name, expected in manifest.get("checksums", {}).items():
-                    if name not in archive.namelist() or hashlib.sha256(archive.read(name)).hexdigest() != expected:
-                        errors.append(f"checksum_mismatch:{name}")
-    except (OSError, zipfile.BadZipFile, json.JSONDecodeError, TypeError, ValueError) as exc:
+                manifest_bytes = archive.read("manifest.json")
+                manifest_checksum = hashlib.sha256(manifest_bytes).hexdigest()
+                payload = json.loads(manifest_bytes)
+                if not isinstance(payload, dict) or payload.get("schema_version") != 1 or not isinstance(payload.get("checksums"), dict):
+                    errors.append("manifest_schema_invalid")
+                else:
+                    checksums = {str(name): str(value) for name, value in payload["checksums"].items()}
+                    if set(checksums) != set(entries):
+                        errors.append("manifest_entries_mismatch")
+                    for name, expected in checksums.items():
+                        if _unsafe(name):
+                            errors.append(f"unsafe_path:{name}")
+                            continue
+                        try:
+                            actual = hashlib.sha256(archive.read(name)).hexdigest()
+                        except KeyError:
+                            errors.append(f"checksum_missing:{name}")
+                            continue
+                        if actual != expected:
+                            errors.append(f"checksum_mismatch:{name}")
+    except (OSError, zipfile.BadZipFile, json.JSONDecodeError, TypeError, ValueError, KeyError) as exc:
         errors.append(f"archive_invalid:{type(exc).__name__}")
-    return RestorePreview(archive_path, not errors, tuple(entries), tuple(errors))
+    return RestorePreview(Path(archive_path), not errors, tuple(sorted(set(entries))), tuple(errors), checksums, manifest_checksum)
 
 
 def commit_restore(preview: RestorePreview, destination: Path) -> RestoreResult:
+    destination = Path(destination)
     if not preview.valid:
-        raise ValueError("Restore preview is invalid")
-    destination.mkdir(parents=True, exist_ok=True)
+        return RestoreResult(destination, 0, False, "; ".join(preview.errors) or "Restore preview is invalid")
+    current = validate_restore(preview.archive)
+    if not current.valid or current.manifest_checksum != preview.manifest_checksum or current.checksums != preview.checksums:
+        return RestoreResult(destination, 0, False, "restore_preview_stale_or_archive_changed")
     requests: list[AtomicWriteRequest] = []
-    with zipfile.ZipFile(preview.archive) as archive:
-        for name in preview.entries:
-            target = destination / Path(name)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            requests.append(AtomicWriteRequest(target, archive.read(name), lambda _path: None))
-    atomic_write_group(requests)
-    return RestoreResult(destination, len(requests))
+    try:
+        with zipfile.ZipFile(preview.archive) as archive:
+            for name in preview.entries:
+                target = destination / Path(name)
+                requests.append(AtomicWriteRequest(target, archive.read(name), lambda _path: None))
+        atomic_write_group(requests)
+    except Exception as exc:
+        return RestoreResult(destination, 0, False, f"restore_failed:{type(exc).__name__}:{exc}")
+    return RestoreResult(destination, len(requests), True)
+
+
+def _iter_files(paths: list[Path]):
+    for path in paths:
+        source = Path(path)
+        if source.is_dir():
+            yield from (item for item in source.rglob("*") if item.is_file())
+        elif source.is_file():
+            yield source
+
+
+def _manifest_payload(checksums: dict[str, str]) -> bytes:
+    return (json.dumps({"schema_version": 1, "checksums": checksums}, sort_keys=True, indent=2) + "\n").encode("utf-8")
 
 
 def _unsafe(name: str) -> bool:
     path = PurePosixPath(name)
-    return path.is_absolute() or ".." in path.parts or ":" in name.split("/", 1)[0]
+    return not name or path.is_absolute() or ".." in path.parts or ":" in name.split("/", 1)[0]
 
 
 def _secret_path(path: Path) -> bool:
-    return path.name.lower() in {".env", ".env.local", "secrets.json"} or "secret" in path.name.lower()
+    lowered = path.name.lower()
+    return lowered in {".env", ".env.local", "secrets.json", "credentials.json"} or "secret" in lowered or "credential" in lowered
+
+
+def _transient_path(path: Path) -> bool:
+    parts = [part.lower() for part in path.parts]
+    transient = {"logs", "log", "build", "dist", "__pycache__", ".pytest_cache", ".venv", "venv", "cache", "caches"}
+    stable = {"data", "configs", "models", "exports", "version", "changelog"}
+    transient_indexes = [index for index, part in enumerate(parts) if part in transient]
+    stable_indexes = [index for index, part in enumerate(parts) if part in stable]
+    if stable_indexes and transient_indexes and max(stable_indexes) > max(transient_indexes):
+        return False
+    return bool(transient_indexes) or path.suffix.lower() in {".pyc", ".tmp"}
 
 
 def _archive_name(path: Path) -> str:
     parts = list(path.parts)
-    for marker in ("configs", "data", "models", "logs", "exports"):
+    for marker in ("configs", "data", "models", "version", "changelog", "exports"):
         if marker in parts:
             return Path(*parts[parts.index(marker) :]).as_posix()
     return path.name
