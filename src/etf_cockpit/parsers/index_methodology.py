@@ -1,10 +1,34 @@
+"""Deterministic index-methodology evidence importer."""
+
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from pathlib import Path
+import re
 
 from etf_cockpit.parsers.contracts import ParseResult, ParseWarning, _sha256_file
+
+
+PARSER_VERSION = "2.0"
+_KNOWN_PROVIDERS = {
+    "ftse russell",
+    "lseg",
+    "msci",
+    "s&p",
+    "s&p dow jones",
+    "stoxx",
+    "solactive",
+    "nasdaq",
+    "dow jones",
+    "ice",
+    "index provider",
+}
+_CRITICAL_WARNINGS = {
+    "methodology_version_missing",
+    "methodology_date_missing",
+    "unknown_provider",
+    "unknown_index",
+}
 
 
 @dataclass(frozen=True)
@@ -21,41 +45,131 @@ class IndexMethodologyRecord:
     confidence: str
     warnings: tuple[str, ...]
     source_sha256: str
+    schema_version: int = 2
+    manual_review: bool = False
+    score_eligible: bool = False
 
 
 def parse_index_methodology(path: Path, provider: str) -> ParseResult[IndexMethodologyRecord]:
-    source_sha = _sha256_file(path) if path.exists() else ""
-    try:
-        import pdfplumber
+    """Parse index rules while retaining missing/conflicting evidence states."""
 
-        with pdfplumber.open(path) as pdf:
-            pages = [(page.extract_text() or "") for page in pdf.pages]
-    except Exception as exc:
-        code = "empty_document" if path.exists() and path.read_bytes().startswith(b"%PDF") else "pdf_read_failed"
-        message = "Methodology contains no extractable text" if code == "empty_document" else f"Could not read methodology: {type(exc).__name__}"
-        return ParseResult((), (ParseWarning(code, message, "error"),), "index_methodology", "1.0", source_sha, False)
+    candidate = Path(path)
+    source_sha = _sha256_file(candidate) if candidate.exists() and candidate.is_file() else ""
+    pages, read_warning = _read_pages(candidate)
+    if read_warning is not None:
+        return ParseResult((), (read_warning,), "index_methodology", PARSER_VERSION, source_sha, False)
+    source_pages = tuple(index for index, text in enumerate(pages, start=1) if text.strip())
+    if not source_pages:
+        empty_code = "empty_document" if candidate.read_bytes()[:4] == b"%PDF" else "image_only_document"
+        return ParseResult(
+            (),
+            (ParseWarning(empty_code, "Methodology contains no extractable text; manual review is required", "error", "document"),),
+            "index_methodology",
+            PARSER_VERSION,
+            source_sha,
+            False,
+        )
+
     text = "\n".join(pages)
-    if not text.strip():
-        return ParseResult((), (ParseWarning("empty_document", "Methodology contains no extractable text", "error"),), "index_methodology", "1.0", source_sha, False)
-    version_match = re.search(r"\bv(\d+(?:\.\d+)*)\b", text, flags=re.IGNORECASE)
-    date_match = re.search(r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})", text, flags=re.IGNORECASE)
-    series_match = re.search(r"(FTSE Global Equity Index Series)", text, flags=re.IGNORECASE)
-    review_terms = tuple(sorted(set(line.strip() for line in text.splitlines() if "review" in line.lower() or "rebalance" in line.lower())))[:12]
-    eligibility = tuple(sorted(set(line.strip() for line in text.splitlines() if "inclusion criteria" in line.lower() or "eligible" in line.lower())))[:12]
-    weighting = tuple(sorted(set(line.strip() for line in text.splitlines() if "weight" in line.lower())))[:12]
-    caps = tuple(sorted(set(line.strip() for line in text.splitlines() if "cap" in line.lower())))[:12]
+    provider_value = str(provider or "").strip()
+    warnings: list[ParseWarning] = []
+    provider_key = provider_value.casefold()
+    if provider_key not in _KNOWN_PROVIDERS and not any(item in provider_key for item in _KNOWN_PROVIDERS if item):
+        warnings.append(ParseWarning("unknown_provider", f"Index methodology provider is not recognised: {provider_value or 'missing'}", "warning", "document"))
+
+    version_match = re.search(r"\bv\s*(\d+(?:\.\d+)*)\b", text, flags=re.IGNORECASE)
+    date_match = re.search(
+        r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if version_match is None:
+        warnings.append(_warning("methodology_version_missing", "Methodology version is unavailable", text, pages, "ground rules"))
+    if date_match is None:
+        warnings.append(ParseWarning("methodology_date_missing", "Methodology document date is unavailable", "warning", "document"))
+
+    series_match = re.search(r"([A-Z][A-Za-z&.\-/ ]{2,100}Index(?: Series)?)(?=\s+v?\d|\n|,)", text)
+    if series_match is None:
+        warnings.append(ParseWarning("unknown_index", "Index series could not be identified", "warning", "document"))
+        index_series = ""
+    else:
+        index_series = " ".join(series_match.group(1).split()).strip()
+    if not re.search(r"\b(?:FTSE|MSCI|S&P|STOXX|Solactive|Nasdaq|Dow Jones|ICE)\b", text, flags=re.IGNORECASE):
+        if not any(item.code == "unknown_index" for item in warnings):
+            warnings.append(ParseWarning("unknown_index", "Index series is not from a recognised index family", "warning", "document"))
+    if re.search(r"conflict(?:s|ing)?\s+with\s+holdings|holdings\s+conflict", text, flags=re.IGNORECASE):
+        warnings.append(ParseWarning("methodology_holdings_conflict", "Methodology and holdings evidence conflict; manual review is required", "warning", _location(text, pages, "conflict")))
+
+    eligibility = _rules(text, ("inclusion", "eligib", "screen", "security"))
+    weighting = _rules(text, ("weight", "capitalisation", "capitalization"))
+    review_terms = _rules(text, ("review", "rebalance", "reconstitution"))
+    caps = _rules(text, ("cap", "capping", "maximum weight"))
+    record_warnings = tuple(item.code for item in warnings)
+    complete = bool(version_match and date_match and index_series and not warnings)
     record = IndexMethodologyRecord(
-        provider=provider,
-        index_series=series_match.group(1) if series_match else "Unknown index series",
+        provider=provider_value,
+        index_series=index_series or "Unknown index series",
         version=None if version_match is None else version_match.group(1),
         document_date=None if date_match is None else f"{date_match.group(1)} {date_match.group(2)}",
         eligibility_rules=eligibility,
         weighting_rules=weighting,
         review_frequency=review_terms[0] if review_terms else None,
         caps=caps,
-        source_pages=tuple(index + 1 for index, page in enumerate(pages) if page.strip())[:20],
-        confidence="high" if version_match and series_match else "partial",
-        warnings=(),
+        source_pages=source_pages,
+        confidence="high" if complete else "partial",
+        warnings=record_warnings,
         source_sha256=source_sha,
+        manual_review=bool(warnings),
+        score_eligible=complete,
     )
-    return ParseResult((record,), (), "index_methodology", "1.0", source_sha, True)
+    success = not any(item.code in _CRITICAL_WARNINGS for item in warnings)
+    return ParseResult((record,), tuple(warnings), "index_methodology", PARSER_VERSION, source_sha, success)
+
+
+def _read_pages(path: Path) -> tuple[list[str], ParseWarning | None]:
+    if not path.exists() or not path.is_file():
+        return [], ParseWarning("pdf_read_failed", "Methodology file is unavailable", "error", "document")
+    try:
+        import pdfplumber
+    except Exception as exc:
+        return [], ParseWarning(
+            "pdf_read_failed",
+            f"Could not read methodology: optional pdfplumber dependency is unavailable ({type(exc).__name__})",
+            "error",
+            "document",
+        )
+    try:
+        with pdfplumber.open(path) as pdf:
+            return [_normalise_page(page.extract_text() or "") for page in pdf.pages], None
+    except Exception as exc:
+        if path.read_bytes()[:4] == b"%PDF":
+            return [], ParseWarning("empty_document", "Methodology contains no extractable text", "error", "document")
+        return [], ParseWarning("pdf_read_failed", f"Could not read methodology: {type(exc).__name__}", "error", "document")
+
+
+def _normalise_page(value: str) -> str:
+    return "\n".join(" ".join(line.split()) for line in str(value).splitlines() if line.strip())
+
+
+def _rules(text: str, terms: tuple[str, ...], limit: int = 20) -> tuple[str, ...]:
+    rows: list[str] = []
+    for raw in text.splitlines():
+        value = " ".join(raw.split()).strip()
+        if value and any(term in value.casefold() for term in terms):
+            if value not in rows:
+                rows.append(value[:500])
+    return tuple(rows[:limit])
+
+
+def _location(text: str, pages: list[str], term: str) -> str:
+    for index, page in enumerate(pages, start=1):
+        if term.casefold() in page.casefold():
+            return f"page {index}"
+    return "document"
+
+
+def _warning(code: str, message: str, text: str, pages: list[str], term: str) -> ParseWarning:
+    return ParseWarning(code, message, "warning", _location(text, pages, term))
+
+
+__all__ = ["PARSER_VERSION", "IndexMethodologyRecord", "parse_index_methodology"]

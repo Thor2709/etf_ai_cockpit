@@ -69,6 +69,69 @@ def test_instrument_detail_disclosure_panel_is_honest_when_inventory_is_missing(
     assert panel["holdings"]["status"] == "unavailable"
 
 
+def test_instrument_detail_disclosure_panel_surfaces_parsed_kid_and_methodology_provenance() -> None:
+    from etf_cockpit.app.selectors.instrument_detail import build_etf_disclosure_panel
+
+    snapshot = build_snapshot()
+    instrument_id = snapshot.config.universe.enabled_ids[0]
+    model = build_instrument_detail(
+        snapshot,
+        instrument_id,
+        document_registry=pd.DataFrame(),
+        holdings=pd.DataFrame(),
+        kid_records=pd.DataFrame(
+            {
+                "instrument_id": [instrument_id],
+                "source_id": ["parsed:kid:test"],
+                "source_sha256": ["a" * 64],
+                "parser_version": ["2.0"],
+                "source_pages": ["[1, 2]"],
+                "product": ["Example ETF"],
+                "isin": ["IE000Q4J3CW6"],
+                "manufacturer": ["Vanguard"],
+                "sri": [4],
+                "cost_fields": ['{"entry_costs": "EUR 0"}'],
+                "holding_period_years": [5],
+                "scenarios": ['["moderate"]'],
+                "document_date": ["2026-04-14"],
+                "extraction_confidence": ["high"],
+                "warnings": ["[]"],
+                "manual_review": [False],
+                "score_eligible": [True],
+                "success": [True],
+            }
+        ),
+        methodology_records=pd.DataFrame(
+            {
+                "instrument_id": [instrument_id],
+                "source_id": ["parsed:methodology:test"],
+                "source_sha256": ["b" * 64],
+                "parser_version": ["2.0"],
+                "source_pages": ["[1, 3]"],
+                "provider": ["FTSE Russell"],
+                "index_series": ["FTSE Global Equity Index Series"],
+                "version": ["14.2"],
+                "document_date": ["July 2026"],
+                "eligibility_rules": ['["Eligible securities"]'],
+                "weighting_rules": ['["Capitalisation weighting"]'],
+                "review_frequency": ["Quarterly review"],
+                "caps": ['["5% cap"]'],
+                "confidence": ["high"],
+                "warnings": ["[]"],
+                "manual_review": [False],
+                "score_eligible": [True],
+                "success": [True],
+            }
+        ),
+    )
+    panel = build_etf_disclosure_panel(model)
+    assert panel["kid"]["sri"] == 4
+    assert panel["kid"]["source_pages"] == [1, 2]
+    assert panel["kid"]["source_sha256"] == "a" * 64
+    assert panel["methodology"]["version"] == "14.2"
+    assert panel["methodology"]["provider"] == "FTSE Russell"
+
+
 def test_legacy_etf_detail_renders_controlled_empty_state_without_scores() -> None:
     snapshot = build_snapshot()
     empty_snapshot = replace(snapshot, signals=[], latest_features=pd.DataFrame())

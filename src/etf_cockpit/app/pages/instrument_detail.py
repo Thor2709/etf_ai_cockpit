@@ -21,7 +21,11 @@ def render_etf_disclosure_panel(model: InstrumentDetailViewModel) -> ft.Control:
         ]
         holdings = disclosure.get("holdings", {})
         holdings_line = "Holdings: " + ", ".join(f"{key}={holdings.get(key, 'unavailable')}" for key in ("completeness", "freshness", "confidence", "source", "authority", "as_of"))
-        body = ft.Column([ft.Text(line, color=theme.MUTED, selectable=True, size=11) for line in [*document_lines, holdings_line] or ["No local disclosure rows are available."]], spacing=4)
+        kid = disclosure.get("kid", {})
+        methodology = disclosure.get("methodology", {})
+        kid_line = "KID: " + ", ".join(f"{key}={kid.get(key, 'unavailable')}" for key in ("status", "sri", "holding_period_years", "document_date", "extraction_confidence", "source_pages", "warnings", "source_sha256", "parser_version"))
+        methodology_line = "Methodology: " + ", ".join(f"{key}={methodology.get(key, 'unavailable')}" for key in ("status", "provider", "index_series", "version", "document_date", "confidence", "source_pages", "warnings", "source_sha256", "parser_version"))
+        body = ft.Column([ft.Text(line, color=theme.MUTED, selectable=True, size=11) for line in [*document_lines, holdings_line, kid_line, methodology_line] or ["No local disclosure rows are available."]], spacing=4)
     return panel(ft.Column([section_header("ETF disclosure evidence", "Document inventory and normalised holdings quality for the selected instrument; unavailable values stay explicit."), body], spacing=8))
 
 

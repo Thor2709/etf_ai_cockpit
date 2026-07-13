@@ -7,6 +7,7 @@ import pandas as pd
 
 from etf_cockpit.data.fund_documents import build_document_inventory, read_document_registry
 from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
+from etf_cockpit.data.parsed_disclosures import read_index_methodology_records, read_priips_kid_records
 from etf_cockpit.services import CockpitSnapshot
 
 
@@ -27,6 +28,8 @@ def _etf_disclosure_panel(
     *,
     document_registry: pd.DataFrame | None = None,
     holdings: pd.DataFrame | None = None,
+    kid_records: pd.DataFrame | None = None,
+    methodology_records: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     registry = document_registry.copy() if isinstance(document_registry, pd.DataFrame) else read_document_registry()
     if not registry.empty and "instrument_id" in registry.columns:
@@ -75,14 +78,64 @@ def _etf_disclosure_panel(
             "authority": row.get("authority", "unavailable"),
             "score_eligible": row.get("score_eligible", False),
         }
+    kid_frame = kid_records.copy() if isinstance(kid_records, pd.DataFrame) else read_priips_kid_records()
+    methodology_frame = methodology_records.copy() if isinstance(methodology_records, pd.DataFrame) else read_index_methodology_records()
+    kid = _parsed_kid_panel(kid_frame, instrument_id)
+    methodology = _parsed_methodology_panel(methodology_frame, instrument_id)
     has_registered_document = any(row["coverage_status"] in {"available", "imported", "mapped"} for row in document_rows)
-    return {"status": "available" if has_registered_document else "unavailable", "document_inventory": document_rows, "holdings": holdings_summary}
+    return {
+        "status": "available" if has_registered_document or kid["status"] == "available" or methodology["status"] == "available" else "unavailable",
+        "document_inventory": document_rows,
+        "holdings": holdings_summary,
+        "kid": kid,
+        "methodology": methodology,
+    }
+
+
+def _parsed_kid_panel(frame: pd.DataFrame, instrument_id: str) -> dict[str, Any]:
+    return _parsed_panel(frame, instrument_id, "kid", ("product", "isin", "manufacturer", "sri", "cost_fields", "holding_period_years", "scenarios", "document_date", "extraction_confidence"))
+
+
+def _parsed_methodology_panel(frame: pd.DataFrame, instrument_id: str) -> dict[str, Any]:
+    return _parsed_panel(frame, instrument_id, "methodology", ("provider", "index_series", "version", "document_date", "eligibility_rules", "weighting_rules", "review_frequency", "caps", "confidence"))
+
+
+def _parsed_panel(frame: pd.DataFrame, instrument_id: str, kind: str, fields: tuple[str, ...]) -> dict[str, Any]:
+    if frame.empty or "instrument_id" not in frame.columns:
+        return {"status": "unavailable", "manual_review": True, "message": f"Parsed {kind} evidence unavailable; manual review required."}
+    scoped = frame[frame["instrument_id"].astype(str).eq(str(instrument_id))]
+    if scoped.empty:
+        return {"status": "unavailable", "manual_review": True, "message": f"Parsed {kind} evidence unavailable; manual review required."}
+    row = scoped.sort_values("imported_at", kind="stable").iloc[-1] if "imported_at" in scoped.columns else scoped.iloc[-1]
+    payload: dict[str, Any] = {field: row.get(field) for field in fields}
+    payload.update({field: row.get(field) for field in ("source_pages", "warnings") if field in row.index})
+    for field in ("source_pages", "warnings", "cost_fields", "scenarios", "eligibility_rules", "weighting_rules", "caps"):
+        value = payload.get(field)
+        if isinstance(value, str):
+            try:
+                import json
+                payload[field] = json.loads(value)
+            except (TypeError, ValueError):
+                payload[field] = [value] if field != "cost_fields" else {"raw": value}
+    payload.update(
+        {
+            "status": "available" if bool(row.get("success")) and not bool(row.get("manual_review")) and str(row.get("freshness_status", "ok")) not in {"stale_block", "missing_or_pending", "unknown"} else "manual_review",
+            "source_id": row.get("source_id", "unavailable"),
+            "source_sha256": row.get("source_sha256", "unavailable"),
+            "parser_version": row.get("parser_version", "unavailable"),
+            "manual_review": bool(row.get("manual_review", True)),
+            "score_eligible": bool(row.get("score_eligible", False)),
+            "source_authority": row.get("source_authority", "issuer_document"),
+            "freshness_status": row.get("freshness_status", "unknown"),
+        }
+    )
+    return payload
 
 
 def build_etf_disclosure_panel(model: InstrumentDetailViewModel) -> dict[str, Any]:
     """Return the reusable ETF disclosure model shown on Instrument Detail."""
     value = model.sections.get("etf_disclosures")
-    return value if isinstance(value, dict) else {"status": "unavailable", "document_inventory": [], "holdings": {"status": "unavailable"}}
+    return value if isinstance(value, dict) else {"status": "unavailable", "document_inventory": [], "holdings": {"status": "unavailable"}, "kid": {"status": "unavailable"}, "methodology": {"status": "unavailable"}}
 
 
 def build_instrument_detail(
@@ -91,6 +144,8 @@ def build_instrument_detail(
     *,
     document_registry: pd.DataFrame | None = None,
     holdings: pd.DataFrame | None = None,
+    kid_records: pd.DataFrame | None = None,
+    methodology_records: pd.DataFrame | None = None,
 ) -> InstrumentDetailViewModel:
     identity = next((item for item in snapshot.config.universe.etfs if item.id == instrument_id), None)
     if identity is None:
@@ -109,7 +164,7 @@ def build_instrument_detail(
             "risk": "ready" if signal is not None else "unavailable",
             "attribution": "available from evidence ledger where present",
             "fundamentals": "unavailable unless sourced",
-            "etf_disclosures": _etf_disclosure_panel(instrument_id, document_registry=document_registry, holdings=holdings),
+            "etf_disclosures": _etf_disclosure_panel(instrument_id, document_registry=document_registry, holdings=holdings, kid_records=kid_records, methodology_records=methodology_records),
             "news": "unavailable unless timestamp-validated",
             "forecasts": "available from valid forecast rows",
             "backtests": "available from local backtest report",
