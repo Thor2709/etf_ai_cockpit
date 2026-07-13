@@ -10,6 +10,7 @@ from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
 from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH, latest_fundamental_rows, load_fundamental_evidence
 from etf_cockpit.data.news_context import NEWS_CLEAN_PATH, load_news_items, sort_news_items
 from etf_cockpit.data.parsed_disclosures import read_index_methodology_records, read_priips_kid_records
+from etf_cockpit.data.trust_artifacts import FEATURE_DRIVERS_PATH
 from etf_cockpit.services import CockpitSnapshot
 
 
@@ -22,7 +23,30 @@ class InstrumentDetailViewModel:
     sections: dict[str, Any]
 
 
-_SECTION_NAMES = ("identity", "price", "scores", "risk", "attribution", "fundamentals", "etf_disclosures", "news", "forecasts", "backtests", "history", "journal", "run_changes")
+_SECTION_NAMES = ("identity", "price", "scores", "feature_drivers", "risk", "attribution", "fundamentals", "etf_disclosures", "news", "forecasts", "backtests", "history", "journal", "run_changes")
+
+
+def _feature_driver_panel(instrument_id: str) -> dict[str, Any]:
+    try:
+        frame = pd.read_parquet(FEATURE_DRIVERS_PATH) if FEATURE_DRIVERS_PATH.exists() else pd.DataFrame()
+    except Exception:
+        frame = pd.DataFrame()
+    if frame.empty or "instrument_id" not in frame.columns:
+        return {"status": "unavailable", "rows": [], "message": "Feature drivers unavailable; no local component history is registered.", "execution_allowed": False}
+    scoped = frame[frame["instrument_id"].astype(str).eq(str(instrument_id))].copy()
+    if scoped.empty:
+        return {"status": "unavailable", "rows": [], "message": "Feature drivers unavailable for this instrument.", "execution_allowed": False}
+    rows = scoped.to_dict(orient="records")
+    return {
+        "status": "available",
+        "rows": rows,
+        "top_positive": [row for row in rows if str(row.get("direction", "")) == "positive"][:3],
+        "top_negative": [row for row in rows if str(row.get("direction", "")) == "negative"][:3],
+        "missing_or_na": [row for row in rows if str(row.get("direction", "")) == "missing"],
+        "low_authority": [row for row in rows if "low_authority" in str(row.get("flags", ""))],
+        "stale_or_partial": [row for row in rows if any(flag in str(row.get("flags", "")) for flag in ("stale", "partial"))],
+        "execution_allowed": False,
+    }
 
 
 def _fundamentals_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
@@ -225,6 +249,7 @@ def build_instrument_detail(
             "identity": "ready",
             "price": {"rows": len(price_rows), "as_of": str(price_rows["date"].max()) if not price_rows.empty and "date" in price_rows.columns else "unavailable"},
             "scores": "ready" if signal is not None else "unavailable",
+            "feature_drivers": _feature_driver_panel(instrument_id),
             "risk": "ready" if signal is not None else "unavailable",
             "attribution": "available from evidence ledger where present",
             "fundamentals": _fundamentals_panel(instrument_id, fundamentals),

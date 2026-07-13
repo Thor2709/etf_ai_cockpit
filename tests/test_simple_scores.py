@@ -9,6 +9,7 @@ import pytest
 from etf_cockpit.parsers.priips_kid import PriipsKidRecord
 from etf_cockpit.app.router import build_shell
 from etf_cockpit.app.components.simple_scores import _component_row, simple_score_grouped_sections, simple_score_tiles
+from etf_cockpit.app.components.simple_scores import _score_history_panel
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.paths import RAW_DIR
@@ -712,6 +713,20 @@ def test_simple_score_grouped_sections_render_required_labels_and_sparebanken_is
     assert "Sparebanken - Norwegian savings-bank equity-certificate issuers" in text
     assert "AURG - Aurskog Sparebank" in text
     assert "ISIN needs_verification" in text
+
+
+@pytest.mark.parametrize(
+    ("rows", "expected"),
+    [
+        ([], "No score history available yet"),
+        ([{"final_combined_score_10": 6.0}], "One snapshot"),
+        ([{"final_combined_score_10": 6.0}, {"final_combined_score_10": 7.0}], "Latest 7.0/10 | Previous 6.0/10 | Delta +1.0"),
+    ],
+)
+def test_score_history_panel_renders_no_one_and_multi_snapshot_states(rows, expected) -> None:
+    panel = _score_history_panel(SimpleNamespace(), rows)
+
+    assert expected in "\n".join(_control_texts(panel))
 
 
 def _control_texts(control: object) -> list[str]:

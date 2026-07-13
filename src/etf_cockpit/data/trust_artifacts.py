@@ -40,6 +40,7 @@ from etf_cockpit.data.parsed_disclosures import (
     METHODOLOGY_COLUMNS,
     PRIIPS_KID_RECORDS_PATH,
 )
+from etf_cockpit.signals.feature_drivers import build_feature_drivers
 
 PROVIDER_PROBE_PATH = CLEAN_DIR / "provider_probe_results.parquet"
 IDENTITY_PATH = CLEAN_DIR / "instrument_identity.parquet"
@@ -208,6 +209,16 @@ SCORE_HISTORY_COLUMNS = [
     "evidence_quality_10",
     "risk_friction_10",
     "final_combined_score_10",
+    "rank",
+    "score_rank",
+    "warnings",
+    "freshness_status",
+    "model_available",
+    "model_availability",
+    "forecast_status",
+    "news_inventory",
+    "backtest_trust",
+    "portfolio_risk",
     "final_label",
     "final_action",
     "reason_short",
@@ -215,6 +226,7 @@ SCORE_HISTORY_COLUMNS = [
     "blocked_by",
     "source_snapshot_hash",
     "score_schema_version",
+    "execution_allowed",
 ]
 
 SCORE_METRIC_HISTORY_COLUMNS = [
@@ -231,9 +243,11 @@ SCORE_METRIC_HISTORY_COLUMNS = [
     "as_of_date",
     "freshness_status",
     "authority_label",
+    "execution_allowed",
 ]
 
 FEATURE_DRIVER_COLUMNS = [
+    "instrument",
     "instrument_id",
     "component",
     "source_id",
@@ -245,6 +259,11 @@ FEATURE_DRIVER_COLUMNS = [
     "source_dataset",
     "as_of_date",
     "freshness_status",
+    "classification",
+    "authority_classification",
+    "freshness_classification",
+    "flags",
+    "execution_allowed",
 ]
 
 CORRELATION_CLUSTER_COLUMNS = [
@@ -309,6 +328,7 @@ def write_trust_artifacts_for_scores(
     scoreboard: pd.DataFrame,
     prices: pd.DataFrame | None = None,
 ) -> dict[str, Path]:
+    scores = list(scores)
     now = _utc_now()
     run_id = f"score_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}_{uuid.uuid4().hex[:8]}"
     refresh_static_trust_artifacts(config)
@@ -662,6 +682,16 @@ def append_score_history(scores: Iterable[Any], *, run_id: str, created_at: str)
                 "evidence_quality_10": getattr(score, "evidence_quality_10", None),
                 "risk_friction_10": getattr(score, "risk_friction_10", None),
                 "final_combined_score_10": getattr(score, "final_score_10", None),
+                "rank": getattr(score, "rank", None),
+                "score_rank": getattr(score, "score_rank", getattr(score, "rank", None)),
+                "warnings": "|".join(str(item) for item in (getattr(score, "warnings", []) or [])),
+                "freshness_status": _score_freshness(score),
+                "model_available": _model_available(score),
+                "model_availability": _model_availability(score),
+                "forecast_status": _forecast_status(score),
+                "news_inventory": getattr(score, "news_inventory", None),
+                "backtest_trust": getattr(score, "backtest_trust_label", "not_evaluated"),
+                "portfolio_risk": getattr(score, "portfolio_fit_label", "not_evaluated"),
                 "final_label": getattr(score, "final_label", ""),
                 "final_action": getattr(score, "final_action", ""),
                 "reason_short": getattr(score, "one_line_reason", ""),
@@ -669,6 +699,7 @@ def append_score_history(scores: Iterable[Any], *, run_id: str, created_at: str)
                 "blocked_by": "|".join(getattr(score, "warnings", []) or []),
                 "source_snapshot_hash": _score_snapshot_hash(score),
                 "score_schema_version": "simple_scores_v3_groups",
+                "execution_allowed": False,
             }
         )
     new_frame = pd.DataFrame(rows, columns=SCORE_HISTORY_COLUMNS)
@@ -696,6 +727,7 @@ def append_score_metric_history(scores: Iterable[Any], *, run_id: str, created_a
                     "as_of_date": getattr(score, "latest_date", ""),
                     "freshness_status": _freshness_from_date(str(getattr(score, "latest_date", ""))),
                     "authority_label": getattr(component, "authority", ""),
+                    "execution_allowed": False,
                 }
             )
     new_frame = pd.DataFrame(rows, columns=SCORE_METRIC_HISTORY_COLUMNS)
@@ -703,30 +735,8 @@ def append_score_metric_history(scores: Iterable[Any], *, run_id: str, created_a
 
 
 def write_feature_drivers(scores: Iterable[Any]) -> Path:
-    rows: list[dict[str, Any]] = []
-    for score in scores:
-        for component in getattr(score, "components", []) or []:
-            score_value = getattr(component, "score_10", None)
-            source_id = _component_source_id(component)
-            direction = "missing"
-            if score_value is not None:
-                direction = "positive" if score_value >= 6.5 else "negative" if score_value < 4.0 else "mixed"
-            rows.append(
-                {
-                    "instrument_id": getattr(score, "display_id", ""),
-                    "component": getattr(component, "key", ""),
-                    "source_id": source_id,
-                    "raw_metric": getattr(component, "raw_score", None),
-                    "normalised_score": score_value,
-                    "direction": direction,
-                    "authority": getattr(component, "authority", ""),
-                    "driver_text": getattr(component, "why", ""),
-                    "source_dataset": _source_dataset(source_id),
-                    "as_of_date": getattr(score, "latest_date", ""),
-                    "freshness_status": _freshness_from_date(str(getattr(score, "latest_date", ""))),
-                }
-            )
-    return _write_dual(pd.DataFrame(rows, columns=FEATURE_DRIVER_COLUMNS), FEATURE_DRIVERS_PATH)
+    frame = build_feature_drivers(scores)
+    return _write_dual(frame.reindex(columns=FEATURE_DRIVER_COLUMNS), FEATURE_DRIVERS_PATH)
 
 
 def write_correlation_clusters(prices: pd.DataFrame | None) -> Path:
@@ -1317,6 +1327,45 @@ def _score_snapshot_hash(score: Any) -> str:
         ],
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _score_freshness(score: Any) -> str:
+    statuses = [
+        str(getattr(component, "freshness_status", "") or "")
+        for component in getattr(score, "components", []) or []
+        if str(getattr(component, "freshness_status", "") or "")
+    ]
+    if any(status in {"stale", "stale_block"} for status in statuses):
+        return "stale"
+    if any(status in {"partial", "warning", "unknown", "missing_or_pending"} for status in statuses):
+        return "partial"
+    return statuses[0] if statuses else _freshness_from_date(str(getattr(score, "latest_date", "")))
+
+
+def _model_available(score: Any) -> bool | None:
+    versions = getattr(score, "model_versions_used", None)
+    if isinstance(versions, dict) and versions:
+        return any(str(value or "").casefold() not in {"", "unavailable", "none"} for value in versions.values())
+    label = str(getattr(score, "model_authority_label", "") or "").casefold()
+    if not label:
+        return None
+    return "unavailable" not in label and "not" not in label
+
+
+def _model_availability(score: Any) -> str:
+    available = _model_available(score)
+    if available is True:
+        return "available"
+    if available is False:
+        return "unavailable"
+    return "unknown"
+
+
+def _forecast_status(score: Any) -> str:
+    versions = getattr(score, "model_versions_used", None)
+    if isinstance(versions, dict) and versions:
+        return "available" if _model_available(score) else "unavailable"
+    return "unknown"
 
 
 def _freshness_from_date(value: str) -> str:
