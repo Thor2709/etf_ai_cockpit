@@ -73,3 +73,42 @@ the focused UI/news/instrument bundle and the full affected Task 16 bundle
 passed, with Ruff, compileall and diff checks clean. Details and added tests
 are in `.ai_worklog/task-16-fix2-report.md`. Independent re-review of this
 surface fix is required before integration.
+
+## Fix 4-6 and final independent review
+
+Fix 4 added the read-only Fundamentals Screener route and acceptance metadata;
+Fix 5 made fundamentals and news selection chronological and persisted
+sector-relative comparison evidence; Fix 6 routed audit-export inventories
+through the same canonical chronological loaders before truncation. RED/GREEN
+evidence and focused checks are recorded in `.ai_worklog/task-16-fix4-report.md`,
+`.ai_worklog/task-16-fix5-report.md` and `.ai_worklog/task-16-fix6-report.md`.
+
+Fresh independent review of `be1a867..cd7aea5` approved both specification
+compliance and code quality. No Critical or Important findings remain. A
+non-blocking Minor recommendation remains to add an ambiguity regression for
+mixed-direction headlines; it is recorded for final triage and does not change
+authority or closure status.
+
+Fresh post-fix evidence:
+
+```text
+pytest -q <Task 16 affected bundle> -k "not static_trust_artifacts_cover_providers_and_identity"
+all selected tests passed
+
+pytest -q tests/test_release_hardening.py
+all selected tests passed
+
+ruff check <affected Task 16 source and tests>
+All checks passed
+
+python -m compileall -q src tests
+exit 0
+
+git diff --check be1a867..cd7aea5
+exit 0
+```
+
+The repository-wide baseline still has the documented package-inventory,
+simple-score fixture and static identity fixture failures; strict release,
+package, browser/computer-use and clean-first-run gates remain
+closure-pending.
