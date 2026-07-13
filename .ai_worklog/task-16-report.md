@@ -55,3 +55,14 @@ fixture/package/universe failures outside Task 16: `tests/scope_boundary/test_pa
 `tests/test_simple_scores.py` tests, and
 `tests/test_trust_critical_artifacts.py::test_static_trust_artifacts_cover_providers_and_identity`.
 Task 16 focused tests remained green; this is not a full-suite pass.
+
+## Independent review and UI fix checkpoint
+
+The first fresh reviewer approved the storage/provider paths but rejected the
+task for four missing user-facing requirements: Dashboard digest, evidence-
+driven contradiction panel, complete News & Context provenance and Backtests
+point-in-time warnings. Those paths were implemented in the parent fix pass;
+the focused UI/news/instrument bundle and the full affected Task 16 bundle
+passed, with Ruff, compileall and diff checks clean. Details and added tests
+are in `.ai_worklog/task-16-fix2-report.md`. Independent re-review of this
+surface fix is required before integration.

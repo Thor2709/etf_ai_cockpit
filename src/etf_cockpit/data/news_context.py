@@ -185,6 +185,57 @@ def load_news_items(path: Path = NEWS_CLEAN_PATH) -> pd.DataFrame:
     return _read_clean(Path(path))
 
 
+def build_news_contradiction_rows(news: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
+    """Compare explicit headline direction with the next deterministic close.
+
+    Only unambiguous direction words and dated price rows are compared.  No
+    sentiment is inferred from free text; unsupported rows remain absent from
+    the contradiction set and are shown as unavailable by the UI.
+    """
+
+    columns = ["news_id", "instrument_id", "headline", "headline_direction", "price_direction", "reason"]
+    if news.empty or prices.empty:
+        return pd.DataFrame(columns=columns)
+    required = {"instrument_id", "published_at", "headline"}
+    if not required <= set(news.columns) or not {"instrument_id", "date", "adjusted_close"} <= set(prices.columns):
+        return pd.DataFrame(columns=columns)
+    price_frame = prices.copy()
+    price_frame["date"] = pd.to_datetime(price_frame["date"], errors="coerce").dt.date
+    price_frame["adjusted_close"] = pd.to_numeric(price_frame["adjusted_close"], errors="coerce")
+    price_frame = price_frame.dropna(subset=["date", "adjusted_close"])
+    rows: list[dict[str, object]] = []
+    positive = ("up", "rise", "gain", "higher", "surge", "rally")
+    negative = ("down", "fall", "loss", "lower", "drop", "selloff")
+    for _, item in news.iterrows():
+        headline = str(item.get("headline", ""))
+        lowered = headline.casefold()
+        headline_direction = "up" if any(word in lowered for word in positive) else "down" if any(word in lowered for word in negative) else "unknown"
+        if headline_direction == "unknown":
+            continue
+        published = pd.to_datetime(item.get("published_at"), errors="coerce")
+        if pd.isna(published):
+            continue
+        instrument = str(item.get("instrument_id", "")).strip()
+        scoped = price_frame[price_frame["instrument_id"].astype(str).eq(instrument)].sort_values("date")
+        prior = scoped[scoped["date"] <= published.date()]
+        following = scoped[scoped["date"] > published.date()]
+        if prior.empty or following.empty:
+            continue
+        change = float(following.iloc[0]["adjusted_close"]) - float(prior.iloc[-1]["adjusted_close"])
+        price_direction = "up" if change > 0 else "down" if change < 0 else "flat"
+        if price_direction in {"flat", headline_direction}:
+            continue
+        rows.append({
+            "news_id": str(item.get("news_id", "")),
+            "instrument_id": instrument,
+            "headline": headline,
+            "headline_direction": headline_direction,
+            "price_direction": price_direction,
+            "reason": "Explicit headline direction disagrees with the next dated deterministic close.",
+        })
+    return pd.DataFrame(rows, columns=columns)
+
+
 def _invalid(status: str, reason: str) -> NewsValidation:
     return NewsValidation(status, False, reason, context_only=True, executable_authority=False, available_at_decision_time=False, timestamp_confidence="invalid")
 
@@ -279,6 +330,7 @@ __all__ = [
     "NewsItem",
     "NewsPersistenceResult",
     "NewsValidation",
+    "build_news_contradiction_rows",
     "load_news_items",
     "persist_news_items",
     "persist_news",

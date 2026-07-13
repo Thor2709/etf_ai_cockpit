@@ -3,8 +3,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
+import pandas as pd
 
-from etf_cockpit.data.news_context import NewsItem, validate_news_item
+from etf_cockpit.data.news_context import NewsItem, build_news_contradiction_rows, validate_news_item
 
 
 def test_news_after_decision_time_is_rejected_from_backtest() -> None:
@@ -113,3 +114,17 @@ def test_news_atomic_failure_preserves_existing_generation_without_orphan_raw(tm
     assert clean_path.read_bytes() == before
     assert audit_path.read_bytes() == audit_before
     assert {path.name: path.read_bytes() for path in (tmp_path / "raw").glob("*.json")} == raw_before
+
+
+def test_news_contradictions_compare_explicit_headline_direction_with_next_close() -> None:
+    news = pd.DataFrame([
+        {"news_id": "n7", "instrument_id": "MSFT", "headline": "MSFT shares rise after results", "published_at": "2026-07-10T10:00:00+00:00"},
+    ])
+    prices = pd.DataFrame([
+        {"instrument_id": "MSFT", "date": "2026-07-10", "adjusted_close": 100.0},
+        {"instrument_id": "MSFT", "date": "2026-07-11", "adjusted_close": 95.0},
+    ])
+    contradictions = build_news_contradiction_rows(news, prices)
+    assert len(contradictions) == 1
+    assert contradictions.iloc[0]["headline_direction"] == "up"
+    assert contradictions.iloc[0]["price_direction"] == "down"
