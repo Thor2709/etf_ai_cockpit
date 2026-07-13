@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import inspect
 
 from etf_cockpit.app.components import charts, tables
 from etf_cockpit.data.export_tables import table_columns
@@ -46,3 +47,11 @@ def test_chart_descriptors_expose_observable_series_data() -> None:
     equity = charts.equity_drawdown_chart(pd.DataFrame({"date": ["2026-07-01"], "equity": [1.0], "drawdown": [0.0]}))
     assert equity.data["equity"] == (1.0,)
     assert equity.data["drawdown"] == (0.0,)
+
+
+def test_backtests_page_connects_real_chart_and_accessible_table_helpers() -> None:
+    from etf_cockpit.app.pages.backtests import backtests_page
+
+    source = inspect.getsource(backtests_page)
+    assert "history_chart" in source
+    assert "accessible_table" in source

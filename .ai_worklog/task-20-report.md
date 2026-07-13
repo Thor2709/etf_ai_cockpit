@@ -135,6 +135,55 @@ python -m compileall -q src tests
 git diff --check
 ```
 
+## Final blocker follow-up
+
+Fresh review identified additional acceptance gaps. The final follow-up now:
+
+- commits the checksum-bound preview frame for broker imports without rereading
+  a mutable source path;
+- merges ETF holdings by instrument, retaining existing instruments;
+- rejects RSS feed URL-list shapes during preview unless parsed item fields are
+  present;
+- rejects unsupported non-numeric known schema versions;
+- reads the live decision journal under `data/` and the canonical derived
+  scoreboard for watchlist exports; and
+- connects the history chart and accessible searchable/sortable table helpers
+  to the Backtests page.
+
+Final scoped validation:
+
+```powershell
+python -m pytest tests/test_button_contracts.py tests/test_accessibility_contracts.py tests/test_import_export.py tests/test_backup_restore.py tests/test_accessible_tables.py tests/test_flet_startup.py tests/test_task18_ui.py tests/test_risk_analytics.py -q
+# 68 passed
+
+python -m ruff check src/etf_cockpit/data/import_export.py src/etf_cockpit/data/ingest_broker.py src/etf_cockpit/data/backup_restore.py src/etf_cockpit/app/pages/import_export.py src/etf_cockpit/app/pages/backtests.py tests/test_import_export.py tests/test_backup_restore.py tests/test_accessible_tables.py
+python -m compileall -q src tests
+git diff --check
+```
+
 The full repository suite, packaged build and browser/computer-use visual
 checks remain outside this fix pass and were not run here. No issue closure
 state was changed.
+
+## Button-contract follow-up
+
+The post-fix inventory initially reported five uncovered source patterns:
+`backtests.export-equity-drawdown`, `import-export.create-backup`,
+`import-export.export-*`, `import-export.restore-validate` and
+`risk.export-limits`. The export controls are now explicit keyed controls (one
+per approved category), and `configs/ui_acceptance.yaml` declares each control
+with its route, callback and controlled success/error signals.
+
+Validation:
+
+```powershell
+python -m pytest tests/test_button_contracts.py tests/test_accessibility_contracts.py -q
+# 6 passed
+
+python -m pytest tests/test_import_export.py tests/test_backup_restore.py tests/test_accessible_tables.py tests/test_flet_startup.py tests/test_task18_ui.py tests/test_risk_analytics.py -q
+# 57 passed
+
+python -m ruff check src/etf_cockpit/app/pages/import_export.py
+python -m compileall -q src tests
+git diff --check
+```

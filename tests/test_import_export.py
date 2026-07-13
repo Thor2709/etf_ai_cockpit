@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import inspect
 
 import pandas as pd
 import pytest
@@ -82,6 +83,18 @@ def test_approved_import_shapes_validate_and_commit_only_after_preview(tmp_path:
     assert result.execution_allowed is False
 
 
+def test_etf_holdings_import_retains_existing_instruments(tmp_path: Path) -> None:
+    destination = tmp_path / "data" / "clean" / "fund_holdings.parquet"
+    destination.parent.mkdir(parents=True)
+    pd.DataFrame({"instrument_id": ["OTHER"], "security": ["Issuer B"], "weight": [1.0]}).to_parquet(destination, index=False)
+    source = tmp_path / "holdings.csv"
+    pd.DataFrame({"as_of_date": ["2026-07-10"], "etf_id": ["VWCE"], "holding_name": ["Issuer A"], "ticker": ["A"], "weight": [1.0]}).to_csv(source, index=False)
+    preview = validate_import("etf_holdings", source)
+    result = ImportService(tmp_path).commit(preview.preview_id)
+    saved = pd.read_parquet(result.destination)
+    assert set(saved["instrument_id"].astype(str)) == {"OTHER", "VWCE"}
+
+
 def test_export_result_reports_path_and_controlled_failure(tmp_path: Path) -> None:
     destination = tmp_path / "scoreboard.csv"
     result = export_table("scoreboard", pd.DataFrame({"score": [1]}), destination)
@@ -110,6 +123,16 @@ def test_broker_import_uses_canonical_current_holdings_csv(tmp_path: Path) -> No
     assert result.destination == tmp_path / "data" / "portfolios" / "current_holdings.csv"
     assert result.destination.exists()
     assert not (tmp_path / "data" / "portfolios" / "current_holdings.parquet").exists()
+
+
+def test_broker_commit_uses_checksum_bound_preview_frame_not_mutated_source(tmp_path: Path) -> None:
+    source = tmp_path / "broker.csv"
+    original = {"as_of_date": ["2026-07-10"], "etf_id": ["VWCE"], "units": [2.0], "market_price": [100.0], "market_value_eur": [200.0], "current_weight": [1.0]}
+    pd.DataFrame(original).to_csv(source, index=False)
+    preview = validate_import("broker", source)
+    pd.DataFrame({**original, "units": [99.0]}).to_csv(source, index=False)
+    result = ImportService(tmp_path).commit(preview.preview_id)
+    assert float(pd.read_csv(result.destination).loc[0, "units"]) == 2.0
 
 
 def test_candidate_import_preserves_runtime_yahoo_csv_contract(tmp_path: Path) -> None:
@@ -174,9 +197,8 @@ def test_rss_feed_url_list_needs_parsed_items_before_commit(tmp_path: Path) -> N
     source = tmp_path / "feeds.csv"
     pd.DataFrame({"feed_url": ["https://example.test/feed.xml"]}).to_csv(source, index=False)
     preview = validate_import("rss_list", source)
-    assert preview.valid is True
-    with pytest.raises(ValueError, match="parsed headline"):
-        ImportService(tmp_path).commit(preview.preview_id)
+    assert preview.valid is False
+    assert any("parsed" in error for error in preview.errors)
 
 
 def test_news_import_persists_canonical_context_provenance(tmp_path: Path) -> None:
@@ -202,3 +224,11 @@ def test_news_import_persists_canonical_context_provenance(tmp_path: Path) -> No
     assert {"news_id", "context_only", "executable_authority", "item_checksum"}.issubset(saved.columns)
     assert bool(saved.loc[0, "context_only"]) is True
     assert bool(saved.loc[0, "executable_authority"]) is False
+
+
+def test_export_sources_use_live_data_journal_and_canonical_watchlist_store() -> None:
+    from etf_cockpit.app.pages.import_export import import_export_page
+
+    source = inspect.getsource(import_export_page)
+    assert "root=DATA_DIR" in source
+    assert "scoreboard.parquet" in source

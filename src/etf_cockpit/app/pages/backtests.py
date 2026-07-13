@@ -5,7 +5,8 @@ import pandas as pd
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import metric_card, panel, section_header
-from etf_cockpit.app.components.charts import equity_drawdown_chart
+from etf_cockpit.app.components.charts import equity_drawdown_chart, history_chart
+from etf_cockpit.app.components.tables import accessible_table
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import EXPORTS_DIR
 from etf_cockpit.data.export_tables import export_table
@@ -44,33 +45,6 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
             spacing=14,
             scroll=ft.ScrollMode.AUTO,
         )
-    rows = []
-    for _, row in report.results.iterrows():
-        rows.append(
-            ft.DataRow(
-                cells=[
-                    ft.DataCell(ft.Text(row["strategy_name"], color=theme.TEXT, size=12)),
-                    ft.DataCell(ft.Text(f"{row['cagr']:.1%}", color=theme.TEXT, size=12)),
-                    ft.DataCell(ft.Text(f"{row['volatility']:.1%}", color=theme.TEXT, size=12)),
-                    ft.DataCell(ft.Text(f"{row['sharpe']:.2f}", color=theme.TEXT, size=12)),
-                    ft.DataCell(ft.Text(f"{row['sortino']:.2f}", color=theme.TEXT, size=12)),
-                    ft.DataCell(ft.Text(f"{row['max_drawdown']:.1%}", color=theme.TEXT, size=12)),
-                    ft.DataCell(ft.Text(f"{row['calmar']:.2f}", color=theme.TEXT, size=12)),
-                    ft.DataCell(ft.Text(f"{row['turnover']:.2f}", color=theme.TEXT, size=12)),
-                    ft.DataCell(ft.Text(f"EUR {row['cost_drag']:.2f}", color=theme.TEXT, size=12)),
-                    ft.DataCell(ft.Text(str(int(row["n_walk_forward_periods"])), color=theme.TEXT, size=12)),
-                    ft.DataCell(ft.Text(str(int(row["trade_count"])), color=theme.TEXT, size=12)),
-                    ft.DataCell(ft.Text(_format_number(row.get("return_hit_rate"), percent=True), color=theme.TEXT, size=12)),
-                    ft.DataCell(ft.Text(_format_number(row.get("payoff_ratio")), color=theme.TEXT, size=12)),
-                    ft.DataCell(ft.Text(_format_number(row.get("expected_value_per_period"), percent=True), color=theme.TEXT, size=12)),
-                    ft.DataCell(ft.Text(str(row.get("payoff_asymmetry_warning", "n/a")), color=theme.TEXT, size=12)),
-                    ft.DataCell(ft.Text(_format_number(row["average_trade_eur"], money=True), color=theme.TEXT, size=12)),
-                    ft.DataCell(ft.Text(_format_number(row["turnover_annualised"]), color=theme.TEXT, size=12)),
-                    ft.DataCell(ft.Text(_format_number(row["worst_12m_return"], percent=True), color=theme.TEXT, size=12)),
-                    ft.DataCell(ft.Text(str(row["backtest_quality"]), color=theme.TEXT, size=12)),
-                ]
-            )
-        )
     signal_rows = report.results[report.results["strategy_name"] == "signal_strategy"]
     if signal_rows.empty:
         return ft.Column(
@@ -92,6 +66,8 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
     signal = signal_rows.iloc[0]
     equity_frame = _equity_drawdown_frame(report.equity_curves)
     chart_descriptor = equity_drawdown_chart(equity_frame)
+    price_chart_descriptor = history_chart(state.snapshot.prices, title="Adjusted-price history")
+    strategy_table = accessible_table(report.results, table_id="backtests.strategy-results")
     export_status = ft.Text("CSV exports show the destination path and controlled failure state.", color=theme.MUTED, selectable=True)
 
     def export_backtest(_event: ft.ControlEvent) -> None:
@@ -150,36 +126,14 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
                 ft.Column(
                     [
                         section_header("Strategy diagnostics", "After-cost results versus buy-and-hold, equal-weight, momentum-only and trend-only baselines."),
-                        ft.DataTable(
-                            columns=[
-                                ft.DataColumn(ft.Text("Strategy")),
-                                ft.DataColumn(ft.Text("CAGR")),
-                                ft.DataColumn(ft.Text("Vol")),
-                                ft.DataColumn(ft.Text("Sharpe")),
-                                ft.DataColumn(ft.Text("Sortino")),
-                                ft.DataColumn(ft.Text("Max DD")),
-                                ft.DataColumn(ft.Text("Calmar")),
-                                ft.DataColumn(ft.Text("Turnover")),
-                                ft.DataColumn(ft.Text("Costs")),
-                                ft.DataColumn(ft.Text("WF periods")),
-                                ft.DataColumn(ft.Text("Trades")),
-                                ft.DataColumn(ft.Text("Hit rate")),
-                                ft.DataColumn(ft.Text("Payoff")),
-                                ft.DataColumn(ft.Text("EV/period")),
-                                ft.DataColumn(ft.Text("Payoff warning")),
-                                ft.DataColumn(ft.Text("Avg trade")),
-                                ft.DataColumn(ft.Text("Ann turnover")),
-                                ft.DataColumn(ft.Text("Worst 12m")),
-                                ft.DataColumn(ft.Text("Quality")),
-                            ],
-                            rows=rows,
-                        ),
+                        strategy_table.control,
+                        ft.Text(f"{strategy_table.search_label}; sortable columns: {', '.join(strategy_table.sortable_columns)}", color=theme.MUTED, selectable=True),
                     ],
                     scroll=ft.ScrollMode.AUTO,
                 ),
                 expand=True,
             ),
-            panel(ft.Column([section_header("Equity and drawdown evidence", "The curve is descriptive backtest evidence only; it cannot authorise broker execution."), chart_descriptor.control, ft.Row([ft.OutlinedButton("Export equity/drawdown CSV", key="backtests.export-equity-drawdown", icon=ft.Icons.DOWNLOAD, on_click=export_backtest)]), export_status], spacing=8)),
+            panel(ft.Column([section_header("Price, equity and drawdown evidence", "Adjusted-price history and backtest curves are descriptive evidence only; they cannot authorise broker execution."), price_chart_descriptor.control, chart_descriptor.control, ft.Row([ft.OutlinedButton("Export equity/drawdown CSV", key="backtests.export-equity-drawdown", icon=ft.Icons.DOWNLOAD, on_click=export_backtest)]), export_status], spacing=8)),
             panel(ft.Column([section_header("Backtest quality", "Walk-forward and overfitting diagnostics for the scoring method."), ft.Text("\n".join(diagnostics), color=theme.MUTED, selectable=True)])),
             panel(
                 ft.Column(

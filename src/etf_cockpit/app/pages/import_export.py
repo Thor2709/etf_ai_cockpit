@@ -8,10 +8,10 @@ import pandas as pd
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
-from etf_cockpit.core.paths import CONFIG_DIR, DATA_DIR, ROOT
+from etf_cockpit.core.paths import CONFIG_DIR, DATA_DIR, DERIVED_DIR, ROOT
 from etf_cockpit.data.backup_restore import commit_restore, create_backup, validate_restore
 from etf_cockpit.data.decision_journal import DecisionJournal, JournalIntegrityError
-from etf_cockpit.data.export_tables import APPROVED_EXPORT_CATEGORIES, export_table
+from etf_cockpit.data.export_tables import export_table
 from etf_cockpit.data.import_export import ImportService, ImportPreview, validate_import
 
 
@@ -136,14 +136,20 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
                 return frame
             return pd.DataFrame([getattr(signal, "__dict__", {}) for signal in getattr(state.snapshot, "signals", ())])
         if category == "watchlist":
-            rows = [getattr(signal, "__dict__", {}) for signal in getattr(state.snapshot, "signals", ()) if getattr(signal, "final_label", "") == "watchlist"]
+            scoreboard_path = DERIVED_DIR / "scoreboard.parquet"
+            if scoreboard_path.exists():
+                frame = pd.read_parquet(scoreboard_path)
+                if "final_label" in frame.columns:
+                    return frame.loc[frame["final_label"].astype(str).isin({"watchlist", "mixed_evidence_review", "hold_context"})].copy()
+                return frame.iloc[0:0].copy()
+            rows = [getattr(signal, "__dict__", {}) for signal in getattr(state.snapshot, "signals", ()) if getattr(signal, "action", "") in {"watchlist", "hold_context"}]
             return pd.DataFrame(rows)
         if category == "paper_trade_journal":
             path = ROOT / "data" / "derived" / "paper_trades.parquet"
             return pd.read_parquet(path) if path.exists() else None
         if category == "decision_journal":
             try:
-                return pd.DataFrame([entry.model_dump(mode="json") for entry in DecisionJournal().list_entries(root=ROOT)])
+                return pd.DataFrame([entry.model_dump(mode="json") for entry in DecisionJournal().list_entries(root=DATA_DIR)])
             except JournalIntegrityError:
                 return None
         if category == "plan_issues_snapshot":
@@ -175,7 +181,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
     return ft.Column(
         [
             panel(ft.Column([section_header("Import and Export Centre", "Preview and validate local evidence before any commit. All actions remain non-executable."), ft.Text("execution_allowed=false", color=theme.AMBER), ft.Row([import_type, path_field, ft.OutlinedButton("Choose and preview", key="import-export.import", icon=ft.Icons.UPLOAD_FILE, on_click=open_import)], wrap=True), ft.Row([commit_button], wrap=True), preview_text], spacing=10)),
-            panel(ft.Column([section_header("Exports", "Scoreboard, audit packet, watchlist, journals, plan/issues snapshot and analytical tables use explicit local paths."), ft.Row([export_path, *[ft.OutlinedButton(f"Export {category.replace('_', ' ')}", key=f"import-export.export-{category}", icon=ft.Icons.DOWNLOAD, on_click=lambda _event, value=category: export_category(value)) for category in APPROVED_EXPORT_CATEGORIES]], wrap=True), ft.Text("Export status and destination are shown above; unavailable sources are reported without writing placeholders.", color=theme.MUTED, selectable=True)], spacing=10)),
+            panel(ft.Column([section_header("Exports", "Scoreboard, audit packet, watchlist, journals, plan/issues snapshot and analytical tables use explicit local paths."), ft.Row([export_path, ft.OutlinedButton("Export scoreboard", key="import-export.export-scoreboard", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("scoreboard")), ft.OutlinedButton("Export audit packet", key="import-export.export-audit-packet", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("audit_packet")), ft.OutlinedButton("Export watchlist", key="import-export.export-watchlist", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("watchlist")), ft.OutlinedButton("Export paper-trade journal", key="import-export.export-paper-trade-journal", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("paper_trade_journal")), ft.OutlinedButton("Export decision journal", key="import-export.export-decision-journal", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("decision_journal")), ft.OutlinedButton("Export plan/issues snapshot", key="import-export.export-plan-issues-snapshot", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("plan_issues_snapshot"))], wrap=True), ft.Text("Export status and destination are shown above; unavailable sources are reported without writing placeholders.", color=theme.MUTED, selectable=True)], spacing=10)),
             panel(ft.Column([section_header("Backup and Restore", "Validate a restore preview before an explicit commit; cancel leaves the destination unchanged."), ft.Row([backup_path, ft.OutlinedButton("Create backup", key="import-export.create-backup", icon=ft.Icons.ARCHIVE, on_click=backup)], wrap=True), ft.Row([restore_path, ft.OutlinedButton("Validate restore preview", key="import-export.restore-validate", icon=ft.Icons.RESTORE, on_click=validate_restore_preview), restore_commit_button, restore_cancel_button], wrap=True), restore_status], spacing=10)),
             ft.Text(state.last_message, color=theme.MUTED, selectable=True),
         ],

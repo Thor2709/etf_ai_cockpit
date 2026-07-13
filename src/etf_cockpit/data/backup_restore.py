@@ -197,7 +197,9 @@ def _validate_payload_schema(name: str, data: bytes) -> str | None:
         try:
             numeric = float(str(value).strip())
         except (TypeError, ValueError):
-            continue
+            if re.fullmatch(r"[A-Za-z0-9_.-]+\.v[0-9]+", str(value).strip()):
+                continue
+            return f"unsupported_schema_version:{name}:{value}"
         if not 0 < numeric <= 4:
             return f"unsupported_schema_version:{name}:{value}"
     return None

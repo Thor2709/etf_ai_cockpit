@@ -129,9 +129,9 @@ class ImportService:
         destination = self._destination(preview)
         frame = preview.frame.copy(deep=True)
         if preview.import_type == "broker":
-            from etf_cockpit.data.ingest_broker import import_holdings_csv
+            from etf_cockpit.data.ingest_broker import import_holdings_frame
 
-            import_holdings_csv(preview.path, destination=destination)
+            import_holdings_frame(frame, destination=destination)
             committed = pd.read_csv(destination)
         elif preview.import_type == "candidate":
             committed = _normalise_candidate_frame(frame)
@@ -161,7 +161,7 @@ class ImportService:
             )
             committed = pd.read_parquet(destination)
         elif preview.import_type == "etf_holdings":
-            from etf_cockpit.data.fund_holdings import _write_holdings_frame, normalise_holdings
+            from etf_cockpit.data.fund_holdings import _merge_holdings_frame, _read_existing_holdings, _write_holdings_frame, normalise_holdings
 
             date_column = _first_column(frame, ("as_of", "as_of_date", "date", "holdings_date", "report_date"))
             instrument_column = _first_column(frame, ("instrument_id", "etf_id", "parent_etf_id", "isin", "fund_isin", "ticker"))
@@ -178,7 +178,8 @@ class ImportService:
             holdings_frame = result.frame.copy()
             if "schema_version" not in holdings_frame.columns:
                 holdings_frame.insert(0, "schema_version", 1)
-            _write_holdings_frame(holdings_frame, destination=destination)
+            merged = _merge_holdings_frame(_read_existing_holdings(destination), holdings_frame, instrument_id)
+            _write_holdings_frame(merged, destination=destination)
             committed = pd.read_parquet(destination)
         else:
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -254,6 +255,8 @@ def _validate_frame(import_type: str, frame: pd.DataFrame) -> tuple[list[str], l
             feed_column = _first_column(frame, ("feed_url", "rss_url", "source_url"))
             if feed_column is None or _blank_values(frame[feed_column]).any() or not _valid_urls(frame[feed_column]):
                 errors.append("invalid_feed_url")
+            elif _first_column(frame, ("headline", "title")) is None:
+                errors.append("rss_feed_list_requires_parsed_items")
         headline_column = _first_column(frame, ("headline", "title"))
         if not rss_list and (headline_column is None or _blank_values(frame[headline_column]).any()):
             errors.append("empty_headline")

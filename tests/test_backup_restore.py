@@ -93,3 +93,20 @@ def test_restore_rejects_unsupported_known_payload_schema_before_writes(tmp_path
     assert any("schema" in error for error in preview.errors)
     destination = tmp_path / "restored"
     assert not destination.exists()
+
+
+def test_restore_rejects_non_numeric_known_payload_schema_version(tmp_path: Path) -> None:
+    import json
+    import zipfile
+
+    archive = tmp_path / "non-numeric-schema.zip"
+    payload_name = "configs/settings.json"
+    payload = json.dumps({"schema_version": "future", "safe": True}).encode("utf-8")
+    checksums = {payload_name: __import__("hashlib").sha256(payload).hexdigest()}
+    manifest = json.dumps({"schema_version": 1, "checksums": checksums}, sort_keys=True, indent=2).encode("utf-8") + b"\n"
+    with zipfile.ZipFile(archive, "w") as z:
+        z.writestr(payload_name, payload)
+        z.writestr("manifest.json", manifest)
+    preview = validate_restore(archive)
+    assert preview.valid is False
+    assert any("schema" in error for error in preview.errors)
