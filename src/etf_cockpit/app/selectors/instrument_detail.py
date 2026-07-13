@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Any, Mapping
 
 import pandas as pd
@@ -10,7 +11,8 @@ from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
 from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH, latest_fundamental_rows, load_fundamental_evidence
 from etf_cockpit.data.news_context import NEWS_CLEAN_PATH, load_news_items, sort_news_items
 from etf_cockpit.data.parsed_disclosures import read_index_methodology_records, read_priips_kid_records
-from etf_cockpit.data.trust_artifacts import FEATURE_DRIVERS_PATH
+from etf_cockpit.data.trust_artifacts import BENCHMARK_ATTRIBUTION_PATH, CORRELATION_CLUSTERS_PATH, FEATURE_DRIVERS_PATH
+from etf_cockpit.core.paths import DERIVED_DIR
 from etf_cockpit.services import CockpitSnapshot
 
 
@@ -24,6 +26,7 @@ class InstrumentDetailViewModel:
 
 
 _SECTION_NAMES = ("identity", "price", "scores", "feature_drivers", "risk", "attribution", "fundamentals", "etf_disclosures", "news", "forecasts", "backtests", "history", "journal", "run_changes")
+SCOREBOARD_PATH = DERIVED_DIR / "scoreboard.parquet"
 
 
 def _feature_driver_panel(instrument_id: str) -> dict[str, Any]:
@@ -272,6 +275,50 @@ def build_etf_disclosure_panel(model: InstrumentDetailViewModel) -> dict[str, An
     return value if isinstance(value, dict) else {"status": "unavailable", "document_inventory": [], "holdings": {"status": "unavailable"}, "kid": {"status": "unavailable"}, "methodology": {"status": "unavailable"}}
 
 
+def _friction_panel(instrument_id: str) -> dict[str, Any]:
+    fields = ("gross_expected_edge_bps", "estimated_total_cost_bps", "net_expected_edge_bps", "edge_to_cost_ratio")
+    empty = {field: None for field in fields}
+    empty.update({"cost_stress_scenario": "unavailable", "status": "unavailable", "execution_allowed": False})
+    if not SCOREBOARD_PATH.exists():
+        return empty
+    try:
+        frame = pd.read_parquet(SCOREBOARD_PATH)
+    except Exception:
+        return empty
+    id_column = next((column for column in ("display_id", "instrument_id", "etf_id") if column in frame.columns), None)
+    if id_column is None:
+        return empty
+    rows = frame[frame[id_column].astype(str).eq(str(instrument_id))]
+    if rows.empty:
+        return empty
+    row = rows.iloc[-1]
+    def _finite(value: object) -> float | None:
+        try:
+            number = float(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+        return number if math.isfinite(number) else None
+
+    result = {field: _finite(row.get(field)) if field in row.index else None for field in fields}
+    scenario = row.get("cost_stress_scenario")
+    try:
+        scenario_is_non_finite = isinstance(scenario, (int, float)) and not math.isfinite(float(scenario))
+    except (TypeError, ValueError):
+        scenario_is_non_finite = False
+    if scenario_is_non_finite or pd.isna(scenario):
+        scenario_text = "unavailable"
+    else:
+        scenario_text = str(scenario).strip() or "unavailable"
+    result.update(
+        {
+            "cost_stress_scenario": scenario_text,
+            "status": "available" if any(result[field] is not None for field in fields) else "unavailable",
+            "execution_allowed": False,
+        }
+    )
+    return result
+
+
 def build_instrument_detail(
     snapshot: CockpitSnapshot,
     instrument_id: str,
@@ -288,6 +335,8 @@ def build_instrument_detail(
         return InstrumentDetailViewModel(instrument_id, instrument_id, "unavailable", {"instrument_id": instrument_id}, {name: "unavailable" for name in _SECTION_NAMES})
     signal = next((item for item in snapshot.signals if item.etf_id == instrument_id), None)
     price_rows = snapshot.prices[snapshot.prices.get("etf_id", "") == instrument_id] if not snapshot.prices.empty and "etf_id" in snapshot.prices.columns else snapshot.prices.iloc[0:0]
+    derived = _derived_evidence_panel(instrument_id)
+    friction = _friction_panel(instrument_id)
     return InstrumentDetailViewModel(
         instrument_id,
         identity.name,
@@ -296,10 +345,10 @@ def build_instrument_detail(
         {
             "identity": "ready",
             "price": {"rows": len(price_rows), "as_of": str(price_rows["date"].max()) if not price_rows.empty and "date" in price_rows.columns else "unavailable"},
-            "scores": "ready" if signal is not None else "unavailable",
+            "scores": {"status": "ready" if signal is not None else "unavailable", "crowding": derived["crowding"], "friction": friction, "execution_allowed": False},
             "feature_drivers": _feature_driver_panel(instrument_id),
-            "risk": "ready" if signal is not None else "unavailable",
-            "attribution": "available from evidence ledger where present",
+            "risk": {"status": "ready" if signal is not None else "unavailable", "crowding": derived["crowding"], "friction": friction, "execution_allowed": False},
+            "attribution": {**derived["attribution"], "execution_allowed": False},
             "fundamentals": _fundamentals_panel(instrument_id, fundamentals),
             "etf_disclosures": _etf_disclosure_panel(instrument_id, document_registry=document_registry, holdings=holdings, kid_records=kid_records, methodology_records=methodology_records),
             "news": _news_panel(instrument_id, news),
@@ -310,3 +359,29 @@ def build_instrument_detail(
             "run_changes": "available from local run history",
         },
     )
+
+
+def _derived_evidence_panel(instrument_id: str) -> dict[str, dict[str, Any]]:
+    """Load persisted crowding/attribution evidence without recalculating UI authority."""
+
+    crowding: dict[str, Any] = {"status": "unavailable", "message": "Correlation cluster evidence is unavailable.", "execution_allowed": False}
+    attribution: dict[str, Any] = {"status": "unavailable", "message": "Benchmark attribution evidence is unavailable.", "sector_attribution_status": "N/A", "execution_allowed": False}
+    try:
+        if CORRELATION_CLUSTERS_PATH.exists():
+            frame = pd.read_parquet(CORRELATION_CLUSTERS_PATH)
+            if "instrument_id" in frame.columns:
+                rows = frame[frame["instrument_id"].astype(str).eq(str(instrument_id))]
+                if not rows.empty:
+                    crowding = {**rows.iloc[-1].to_dict(), "status": str(rows.iloc[-1].get("status", "available")), "execution_allowed": False}
+    except Exception:
+        pass
+    try:
+        if BENCHMARK_ATTRIBUTION_PATH.exists():
+            frame = pd.read_parquet(BENCHMARK_ATTRIBUTION_PATH)
+            if "instrument_id" in frame.columns:
+                rows = frame[frame["instrument_id"].astype(str).eq(str(instrument_id))]
+                if not rows.empty:
+                    attribution = {**rows.iloc[-1].to_dict(), "status": str(rows.iloc[-1].get("status", "available")), "execution_allowed": False}
+    except Exception:
+        pass
+    return {"crowding": crowding, "attribution": attribution}

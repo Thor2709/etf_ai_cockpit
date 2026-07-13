@@ -41,6 +41,7 @@ from etf_cockpit.data.parsed_disclosures import (
     PRIIPS_KID_RECORDS_PATH,
 )
 from etf_cockpit.signals.feature_drivers import build_feature_drivers
+from etf_cockpit.features.crowding import build_correlation_clusters
 
 PROVIDER_PROBE_PATH = CLEAN_DIR / "provider_probe_results.parquet"
 IDENTITY_PATH = CLEAN_DIR / "instrument_identity.parquet"
@@ -219,6 +220,13 @@ SCORE_HISTORY_COLUMNS = [
     "news_inventory",
     "backtest_trust",
     "portfolio_risk",
+    "gross_expected_edge_bps",
+    "estimated_total_cost_bps",
+    "net_expected_edge_bps",
+    "edge_to_cost_ratio",
+    "cost_stress_scenario",
+    "friction_status",
+    "friction_reason",
     "final_label",
     "final_action",
     "reason_short",
@@ -277,6 +285,21 @@ CORRELATION_CLUSTER_COLUMNS = [
     "crowding_warning",
     "calculation_window_days",
     "as_of_date",
+    "sector",
+    "theme",
+    "theme_warning",
+    "sample_size",
+    "pair_sample_size",
+    "ranking_weight",
+    "cluster_weight",
+    "cluster_risk_contribution",
+    "ranking_coverage",
+    "top_ranked_concentration",
+    "top_ranked_theme_concentration",
+    "top_ranked_theme_warning",
+    "source_dataset",
+    "status",
+    "execution_allowed",
 ]
 
 BENCHMARK_ATTRIBUTION_COLUMNS = [
@@ -292,6 +315,30 @@ BENCHMARK_ATTRIBUTION_COLUMNS = [
     "sector_theme_warning",
     "source_dataset",
     "as_of_date",
+    "sector_return",
+    "sector_relative_return",
+    "sector_beta",
+    "sector_correlation",
+    "sector_alpha_proxy",
+    "sector_attribution_status",
+    "attribution_sample_size",
+    "attribution_source_dataset",
+    "theme_return",
+    "theme_relative_return",
+    "theme_beta",
+    "theme_correlation",
+    "theme_alpha_proxy",
+    "theme_attribution_status",
+    "theme_sample_size",
+    "gross_expected_edge_bps",
+    "estimated_total_cost_bps",
+    "net_expected_edge_bps",
+    "edge_to_cost_ratio",
+    "cost_stress_scenario",
+    "friction_status",
+    "friction_reason",
+    "status",
+    "execution_allowed",
 ]
 
 
@@ -330,6 +377,7 @@ def write_trust_artifacts_for_scores(
     prices: pd.DataFrame | None = None,
 ) -> dict[str, Path]:
     scores = list(scores)
+    ranked_instruments = [str(getattr(score, "display_id", "")) for score in scores[:10]]
     now = _utc_now()
     run_id = f"score_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}_{uuid.uuid4().hex[:8]}"
     refresh_static_trust_artifacts(config)
@@ -339,7 +387,12 @@ def write_trust_artifacts_for_scores(
         "score_history": append_score_history(scores, run_id=run_id, created_at=now),
         "score_metric_history": append_score_metric_history(scores, run_id=run_id, created_at=now),
         "feature_drivers": write_feature_drivers(scores),
-        "correlation_clusters": write_correlation_clusters(prices),
+        "correlation_clusters": write_correlation_clusters(
+            prices,
+            _configured_metadata(config),
+            ranked_instruments=ranked_instruments,
+            weights={instrument_id: 1.0 for instrument_id in ranked_instruments},
+        ),
         "benchmark_attribution": write_benchmark_attribution(scoreboard),
     }
     log_event(
@@ -711,6 +764,13 @@ def append_score_history(scores: Iterable[Any], *, run_id: str, created_at: str)
                 "news_inventory": getattr(score, "news_inventory", None) if getattr(score, "news_inventory", None) is not None else "unavailable",
                 "backtest_trust": getattr(score, "backtest_trust_label", None) or "unavailable",
                 "portfolio_risk": getattr(score, "portfolio_fit_label", None) or "unavailable",
+                "gross_expected_edge_bps": getattr(score, "gross_expected_edge_bps", None),
+                "estimated_total_cost_bps": getattr(score, "estimated_total_cost_bps", None),
+                "net_expected_edge_bps": getattr(score, "net_expected_edge_bps", None),
+                "edge_to_cost_ratio": getattr(score, "edge_to_cost_ratio", None),
+                "cost_stress_scenario": getattr(score, "cost_stress_scenario", "unavailable"),
+                "friction_status": getattr(score, "friction_status", "unavailable"),
+                "friction_reason": getattr(score, "friction_reason", "Friction-adjusted edge unavailable."),
                 "final_label": getattr(score, "final_label", ""),
                 "final_action": getattr(score, "final_action", ""),
                 "reason_short": getattr(score, "one_line_reason", ""),
@@ -768,39 +828,50 @@ def write_feature_drivers(scores: Iterable[Any]) -> Path:
     return _write_dual(frame.reindex(columns=FEATURE_DRIVER_COLUMNS), FEATURE_DRIVERS_PATH)
 
 
-def write_correlation_clusters(prices: pd.DataFrame | None) -> Path:
-    if prices is None or prices.empty or not {"etf_id", "date", "adjusted_close"}.issubset(prices.columns):
-        return _write_dual(pd.DataFrame(columns=CORRELATION_CLUSTER_COLUMNS), CORRELATION_CLUSTERS_PATH)
-    frame = prices.copy()
-    frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
-    frame = frame.dropna(subset=["date", "adjusted_close"])
-    if frame.empty:
-        return _write_dual(pd.DataFrame(columns=CORRELATION_CLUSTER_COLUMNS), CORRELATION_CLUSTERS_PATH)
-    pivot = frame.pivot_table(index="date", columns="etf_id", values="adjusted_close").sort_index().tail(260)
-    returns = pivot.pct_change(fill_method=None).dropna(how="all")
-    if returns.empty:
-        return _write_dual(pd.DataFrame(columns=CORRELATION_CLUSTER_COLUMNS), CORRELATION_CLUSTERS_PATH)
-    corr = returns.corr(min_periods=30)
-    benchmark_id = str(corr.columns[0]) if len(corr.columns) else ""
-    rows = []
-    for instrument_id in corr.columns:
-        peer_values = corr[instrument_id].drop(labels=[instrument_id], errors="ignore").dropna()
-        avg_peer = float(peer_values.mean()) if not peer_values.empty else None
-        benchmark_corr = None if not benchmark_id or benchmark_id not in corr.index else _safe_float(corr.loc[instrument_id, benchmark_id])
-        crowding = "high_correlation_cluster_warning" if avg_peer is not None and avg_peer >= 0.80 else "no_cluster_warning"
-        rows.append(
-            {
-                "instrument_id": str(instrument_id),
-                "cluster_id": "high_corr" if crowding.startswith("high") else "mixed",
-                "cluster_label": "High correlation cluster" if crowding.startswith("high") else "Mixed/low correlation",
-                "benchmark_id": benchmark_id,
-                "correlation_to_benchmark": benchmark_corr,
-                "average_peer_correlation": avg_peer,
-                "crowding_warning": crowding,
-                "calculation_window_days": int(len(returns)),
-                "as_of_date": returns.index.max().date().isoformat(),
-            }
-        )
+def write_correlation_clusters(
+    prices: pd.DataFrame | None,
+    metadata: dict[str, object] | None = None,
+    *,
+    window: int = 120,
+    ranked_instruments: list[str] | None = None,
+    weights: dict[str, float] | None = None,
+) -> Path:
+    report = build_correlation_clusters(
+        prices if isinstance(prices, pd.DataFrame) else pd.DataFrame(),
+        metadata or {},
+        window=window,
+        ranked_instruments=ranked_instruments,
+        weights=weights,
+    )
+    rows = [
+        {
+            "instrument_id": row.instrument_id,
+            "cluster_id": row.cluster_id,
+            "cluster_label": row.cluster_label,
+            "benchmark_id": "",
+            "correlation_to_benchmark": None,
+            "average_peer_correlation": row.average_peer_correlation,
+            "crowding_warning": row.crowding_warning,
+            "calculation_window_days": report.window,
+            "as_of_date": row.as_of,
+            "sector": row.sector,
+            "theme": row.theme,
+            "theme_warning": row.theme_warning,
+            "sample_size": row.sample_size,
+            "pair_sample_size": row.pair_sample_size,
+            "ranking_weight": row.ranking_weight,
+            "cluster_weight": row.cluster_weight,
+            "cluster_risk_contribution": row.cluster_risk_contribution,
+            "ranking_coverage": row.ranking_coverage,
+            "top_ranked_concentration": row.top_ranked_concentration,
+            "top_ranked_theme_concentration": row.top_ranked_theme_concentration,
+            "top_ranked_theme_warning": row.top_ranked_theme_warning,
+            "source_dataset": row.source_dataset,
+            "status": report.status,
+            "execution_allowed": False,
+        }
+        for row in report.rows
+    ]
     return _write_dual(pd.DataFrame(rows, columns=CORRELATION_CLUSTER_COLUMNS), CORRELATION_CLUSTERS_PATH)
 
 
@@ -821,11 +892,45 @@ def write_benchmark_attribution(scoreboard: pd.DataFrame) -> Path:
                 "alpha_proxy": row.get("alpha_proxy"),
                 "alpha_t_stat": row.get("alpha_t_stat"),
                 "sector_theme_warning": row.get("sector_theme_warning"),
+                "sector_return": row.get("sector_return"),
+                "sector_relative_return": row.get("sector_relative_return"),
+                "sector_beta": row.get("sector_beta"),
+                "sector_correlation": row.get("sector_correlation"),
+                "sector_alpha_proxy": row.get("sector_alpha_proxy"),
+                "sector_attribution_status": row.get("sector_attribution_status", "N/A"),
+                "attribution_sample_size": row.get("attribution_sample_size"),
+                "attribution_source_dataset": row.get("attribution_source_dataset", "adjusted_price_returns"),
+                "theme_return": row.get("theme_return"),
+                "theme_relative_return": row.get("theme_relative_return"),
+                "theme_beta": row.get("theme_beta"),
+                "theme_correlation": row.get("theme_correlation"),
+                "theme_alpha_proxy": row.get("theme_alpha_proxy"),
+                "theme_attribution_status": row.get("theme_attribution_status", "N/A"),
+                "theme_sample_size": row.get("theme_sample_size"),
+                "gross_expected_edge_bps": row.get("gross_expected_edge_bps"),
+                "estimated_total_cost_bps": row.get("estimated_total_cost_bps"),
+                "net_expected_edge_bps": row.get("net_expected_edge_bps"),
+                "edge_to_cost_ratio": row.get("edge_to_cost_ratio"),
+                "cost_stress_scenario": row.get("cost_stress_scenario"),
+                "friction_status": row.get("friction_status", "unavailable"),
+                "friction_reason": row.get("friction_reason", "Friction-adjusted edge unavailable."),
                 "source_dataset": "derived_scoreboard",
                 "as_of_date": row.get("latest_price_date"),
+                "status": row.get("analysis_status", "unavailable"),
+                "execution_allowed": False,
             }
         )
     return _write_dual(pd.DataFrame(rows, columns=BENCHMARK_ATTRIBUTION_COLUMNS), BENCHMARK_ATTRIBUTION_PATH)
+
+
+def _configured_metadata(config: AppConfig | None) -> dict[str, object]:
+    if config is None:
+        return {}
+    return {
+        etf.id: {"sector": etf.sector, "theme": etf.theme}
+        for etf in config.universe.etfs
+        if etf.id in config.universe.enabled_ids
+    }
 
 
 def write_optional_source_inventories(config: AppConfig, identity: pd.DataFrame) -> dict[str, Path]:

@@ -15,6 +15,7 @@ from etf_cockpit.core.config import load_config
 from etf_cockpit.core.paths import RAW_DIR
 from etf_cockpit.services import build_snapshot
 from etf_cockpit.signals import simple_scores as simple_scores_module
+from etf_cockpit.signals.friction_edge import estimate_friction_edge
 from etf_cockpit.signals.simple_scores import (
     SimpleScoreComponent,
     _evidence_maturity,
@@ -500,6 +501,28 @@ def test_scoreboard_frame_contains_quality_and_authority_columns() -> None:
     assert "model_contamination_risk" in frame.columns
     assert "model_authority_reason" in frame.columns
     assert "calibration_required" in frame.columns
+
+
+def test_score_friction_fields_equal_selected_friction_edge_calculator_output() -> None:
+    components = [
+        SimpleScoreComponent(
+            "liquidity_cost", "Liquidity", 7.0, 0.4, "OK", "", "", "", as_of_date="2026-07-10", freshness_status="ok"
+        )
+    ]
+    fields = simple_scores_module._friction_edge_fields(
+        8.0,
+        components,
+        volatility=0.2,
+        costs={"low": 5.0, "base": 15.0, "high": 30.0},
+        scenario="high",
+    )
+    expected = estimate_friction_edge(8.0, 0.2, {"low": 5.0, "base": 15.0, "high": 30.0}, "high")
+
+    assert fields["gross_expected_edge_bps"] == expected.gross_bps
+    assert fields["estimated_total_cost_bps"] == expected.cost_bps
+    assert fields["net_expected_edge_bps"] == expected.net_bps
+    assert fields["edge_to_cost_ratio"] == expected.edge_to_cost_ratio
+    assert fields["cost_stress_scenario"] == "high"
 
 
 def test_model_backtest_validity_marks_uncalibrated_optional_models_unverified() -> None:

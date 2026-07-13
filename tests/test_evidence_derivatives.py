@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from etf_cockpit.features.regime import build_benchmark_attribution_lookup, build_market_regime, build_portfolio_fit_lookup
@@ -115,6 +116,108 @@ def test_benchmark_attribution_short_history_is_pending() -> None:
 
     assert attribution["ALT"]["instrument_return"] is None
     assert "pending" in attribution["ALT"]["label"].lower()
+
+
+def test_benchmark_attribution_uses_same_overlapping_horizon_for_instrument_and_benchmark() -> None:
+    dates = pd.bdate_range("2025-01-01", periods=140)
+    rows = []
+    for index, dt in enumerate(dates):
+        rows.append({"date": dt, "etf_id": "BENCH", "adjusted_close": 100.0 + index})
+        if index >= 40:
+            rows.append({"date": dt, "etf_id": "ALT", "adjusted_close": 200.0 + (index - 40) * 2.0})
+    prices = pd.DataFrame(rows)
+
+    attribution = build_benchmark_attribution_lookup(prices, window=120, benchmark_id="BENCH")
+    alt = attribution["ALT"]
+    # ALT overlaps the benchmark from its first clean date; the displayed
+    # return must not use an instrument-only horizon that starts elsewhere.
+    assert alt["instrument_return"] == round((398.0 / 200.0) - 1.0, 4)
+
+
+def test_theme_only_metadata_maps_to_configured_theme_peers() -> None:
+    dates = pd.bdate_range("2025-01-01", periods=140)
+    rows = []
+    for index, dt in enumerate(dates):
+        rows.extend(
+            [
+                {"date": dt, "etf_id": "BENCH", "adjusted_close": 100.0 + index * 0.2},
+                {"date": dt, "etf_id": "AI_A", "adjusted_close": 100.0 + index * 0.3},
+                {"date": dt, "etf_id": "AI_B", "adjusted_close": 100.0 + index * 0.25},
+            ]
+        )
+    prices = pd.DataFrame(rows)
+
+    attribution = build_benchmark_attribution_lookup(
+        prices,
+        window=120,
+        benchmark_id="BENCH",
+        metadata={
+            "AI_A": {"theme": "AI"},
+            "AI_B": {"theme": "AI"},
+        },
+    )
+
+    assert attribution["AI_A"]["theme_attribution_status"] == "available"
+    assert attribution["AI_A"]["theme_relative_return"] is not None
+    assert attribution["AI_A"]["theme_alpha_proxy"] is not None
+    assert attribution["AI_A"]["sector_attribution_status"] == "N/A"
+
+
+def test_peer_attribution_does_not_forward_fill_a_single_peer_observation() -> None:
+    dates = pd.bdate_range("2025-01-01", periods=140)
+    rows = []
+    for index, dt in enumerate(dates):
+        rows.append({"date": dt, "etf_id": "BENCH", "adjusted_close": 100.0 + index * 0.2})
+        rows.append({"date": dt, "etf_id": "ALT", "adjusted_close": 100.0 + index * 0.3})
+        if index == 0:
+            rows.append({"date": dt, "etf_id": "PEER", "adjusted_close": 100.0})
+    prices = pd.DataFrame(rows)
+
+    attribution = build_benchmark_attribution_lookup(
+        prices,
+        window=120,
+        benchmark_id="BENCH",
+        metadata={"ALT": {"sector": "Technology"}, "PEER": {"sector": "Technology"}},
+    )
+
+    assert attribution["ALT"]["sector_attribution_status"] == "N/A"
+    assert attribution["ALT"]["sector_sample_size"] == 0
+
+
+def test_sparse_price_compatibility_keeps_regime_and_portfolio_forward_fill_but_not_peer_attribution() -> None:
+    dates = pd.bdate_range("2025-01-01", periods=260)
+    rows = []
+    for index, dt in enumerate(dates):
+        rows.append({"date": dt, "etf_id": "BENCH", "adjusted_close": 100.0 + index * 0.20})
+        if not 180 <= index < 210:
+            rows.append({"date": dt, "etf_id": "ALT", "adjusted_close": 100.0 + index * 0.35})
+        if index == 0:
+            rows.append({"date": dt, "etf_id": "PEER", "adjusted_close": 100.0})
+    prices = pd.DataFrame(rows)
+
+    regime_prices = prices[prices["etf_id"].isin(["BENCH", "ALT"])]
+    regime = build_market_regime(regime_prices)
+    fit = build_portfolio_fit_lookup(regime_prices)
+    attribution = build_benchmark_attribution_lookup(
+        prices,
+        window=120,
+        benchmark_id="BENCH",
+        metadata={"ALT": {"sector": "Technology"}, "PEER": {"sector": "Technology"}},
+    )
+    pivot = regime_prices.pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
+    forward_filled_returns = pivot.ffill().pct_change(fill_method=None)
+    expected_regime_volatility = float(
+        forward_filled_returns.tail(60).std(skipna=True).median() * np.sqrt(252)
+    )
+    expected_fit_returns = forward_filled_returns.tail(252).dropna(how="all")
+    expected_fit_joined = pd.concat(
+        [expected_fit_returns["BENCH"], expected_fit_returns["ALT"]], axis=1, join="inner"
+    ).dropna()
+
+    assert regime["median_volatility_60d_ann"] == round(expected_regime_volatility, 4)
+    assert fit["BENCH"]["correlation_to_benchmark"] == round(float(expected_fit_joined.corr().iloc[0, 1]), 4)
+    assert attribution["ALT"]["sector_attribution_status"] == "N/A"
+    assert attribution["ALT"]["sector_sample_size"] == 0
 
 
 def test_strategy_template_library_assigns_stock_and_etf_templates() -> None:

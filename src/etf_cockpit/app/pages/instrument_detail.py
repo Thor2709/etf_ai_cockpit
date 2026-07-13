@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import flet as ft
 
 from etf_cockpit.app import theme
@@ -120,18 +122,49 @@ def _render_feature_driver_panel(panel_data: object) -> ft.Control:
     )
 
 
+def _render_crowding_attribution_panel(sections: dict[str, object]) -> ft.Control:
+    scores = sections.get("scores") if isinstance(sections.get("scores"), dict) else {}
+    attribution = sections.get("attribution") if isinstance(sections.get("attribution"), dict) else {}
+    crowding = scores.get("crowding") if isinstance(scores.get("crowding"), dict) else {}
+    friction = scores.get("friction") if isinstance(scores.get("friction"), dict) else {}
+
+    def _bps(value: object) -> str:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return "N/A"
+        return "N/A" if not math.isfinite(number) else f"{number:.2f} bps"
+
+    def _ratio(value: object) -> str:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return "N/A"
+        return "N/A" if not math.isfinite(number) else f"{number:.2f}"
+
+    lines = [
+        f"Crowding: {crowding.get('crowding_warning', 'N/A')} | cluster {crowding.get('cluster_label', 'N/A')} | peer corr {crowding.get('average_peer_correlation', 'N/A')} | risk contribution {crowding.get('cluster_risk_contribution', 'N/A')} | coverage {crowding.get('ranking_coverage', 'N/A')} | pair sample {crowding.get('pair_sample_size', 'N/A')} / row sample {crowding.get('sample_size', 'N/A')} | top-theme concentration {crowding.get('top_ranked_theme_concentration', 'N/A')} | top-theme warning {crowding.get('top_ranked_theme_warning', 'N/A')} | as of {crowding.get('as_of_date', 'N/A')}",
+        f"Broad benchmark: beta {attribution.get('benchmark_beta', 'N/A')} | corr {attribution.get('benchmark_correlation', 'N/A')} | alpha {attribution.get('alpha_proxy', 'N/A')}",
+        f"Sector-relative: return {attribution.get('sector_relative_return', 'N/A')} | alpha {attribution.get('sector_alpha_proxy', 'N/A')} | status {attribution.get('sector_attribution_status', 'N/A')} | theme-relative return {attribution.get('theme_relative_return', 'N/A')} | theme alpha {attribution.get('theme_alpha_proxy', 'N/A')} | theme status {attribution.get('theme_attribution_status', 'N/A')} | source {attribution.get('source_dataset', 'N/A')}",
+        f"Gross edge: {_bps(friction.get('gross_expected_edge_bps'))} | Estimated cost: {_bps(friction.get('estimated_total_cost_bps'))} | Net edge: {_bps(friction.get('net_expected_edge_bps'))} | Edge/cost: {_ratio(friction.get('edge_to_cost_ratio'))} | Cost scenario: {friction.get('cost_stress_scenario', 'unavailable')} | status {friction.get('status', 'unavailable')}",
+        "These diagnostics are descriptive evidence only; execution_allowed=false.",
+    ]
+    return panel(ft.Column([section_header("Crowding and attribution", "Configured sector/theme metadata and clean adjusted-price evidence; unavailable values remain N/A."), *[ft.Text(line, color=theme.MUTED, size=11, selectable=True) for line in lines]], spacing=5))
+
+
 def instrument_detail_page(_page: ft.Page, state: AppState) -> ft.Control:
     selected = state.selected_etf
     model = build_instrument_detail(state.snapshot, selected)
     rows = [
         ft.Row([ft.Text(name, color=theme.TEXT, width=160), ft.Text(str(value), color=theme.MUTED, selectable=True)], spacing=8)
         for name, value in model.sections.items()
-        if name != "feature_drivers"
+        if name not in {"feature_drivers", "scores", "risk", "attribution"}
     ]
     return ft.Column(
         [
             panel(ft.Column([section_header(f"Instrument Detail: {model.display_name}", "Canonical identity, score evidence, data freshness and unavailable states are shown without recalculating authority in the UI."), ft.Text(str(model.identity), color=theme.MUTED, selectable=True)], spacing=8)),
             _render_feature_driver_panel(model.sections.get("feature_drivers")),
+            _render_crowding_attribution_panel(model.sections),
             render_etf_disclosure_panel(model),
             render_news_context_panel(model),
             panel(ft.Column(rows, spacing=8)),

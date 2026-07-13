@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import flet as ft
 
 from etf_cockpit.app import theme
@@ -7,6 +9,17 @@ from etf_cockpit.app.components.cards import evidence_chip, panel, section_heade
 from etf_cockpit.app.components.flet_compat import border_all
 from etf_cockpit.data.trust_artifacts import load_score_history_summary
 from etf_cockpit.signals.simple_scores import SCORE_LEGEND, SimpleInstrumentScore, SimpleScoreComponent, group_simple_scores
+
+
+def _is_crowding_warning_state(value: object) -> bool:
+    """Return whether a crowding state represents an explicit warning."""
+
+    state = "" if value is None else str(value).strip().casefold()
+    if not state or state.startswith("no_"):
+        return False
+    if state in {"n/a", "na", "none", "null", "nan", "<na>", "unavailable", "partial", "pending"}:
+        return False
+    return not state.endswith("_unavailable")
 
 
 def simple_score_legend() -> ft.Control:
@@ -161,6 +174,11 @@ def _score_tile(item: SimpleInstrumentScore, history_rows: list[dict[str, object
                         evidence_chip("Corr", _number_badge(item.benchmark_correlation), _benchmark_colour(item)),
                         evidence_chip("Alpha proxy", _pct_badge(item.alpha_proxy), _alpha_colour(item.alpha_proxy)),
                         evidence_chip("Sector/theme", _sector_theme_badge(item), theme.AMBER if "warning" in item.sector_theme_warning.lower() else theme.CYAN),
+                        evidence_chip(
+                            "Crowding",
+                            item.crowding_warning,
+                            theme.AMBER if _is_crowding_warning_state(item.crowding_warning) else theme.CYAN,
+                        ),
                     ],
                     spacing=8,
                     wrap=True,
@@ -177,6 +195,21 @@ def _score_tile(item: SimpleInstrumentScore, history_rows: list[dict[str, object
                 ),
                 ft.Text(f"Cost scenario: {item.cost_stress_scenario}", color=theme.MUTED, size=11),
                 ft.Text(item.benchmark_attribution_label, color=theme.MUTED, size=11),
+                ft.Text(
+                    f"Sector-relative: {_pct_badge(item.sector_relative_return)} | alpha {_pct_badge(item.sector_alpha_proxy)} | status {item.sector_attribution_status}",
+                    color=theme.MUTED,
+                    size=11,
+                ),
+                ft.Text(
+                    f"Theme-relative: {_pct_badge(item.theme_relative_return)} | alpha {_pct_badge(item.theme_alpha_proxy)} | status {item.theme_attribution_status}",
+                    color=theme.MUTED,
+                    size=11,
+                ),
+                ft.Text(
+                    f"Crowding cluster: {item.crowding_cluster_label} | peers {item.crowding_average_peer_correlation if item.crowding_average_peer_correlation is not None else 'N/A'} | risk contribution {item.crowding_cluster_risk_contribution if item.crowding_cluster_risk_contribution is not None else 'N/A'} | coverage {item.crowding_ranking_coverage if item.crowding_ranking_coverage is not None else 'N/A'} | pair sample {item.crowding_pair_sample_size if item.crowding_pair_sample_size is not None else 'N/A'} / row sample {item.crowding_sample_size if item.crowding_sample_size is not None else 'N/A'} | top-theme concentration {item.crowding_top_ranked_theme_concentration if item.crowding_top_ranked_theme_concentration is not None else 'N/A'} | top-theme warning {item.crowding_top_ranked_theme_warning} | as of {item.crowding_as_of or 'N/A'}",
+                    color=theme.MUTED,
+                    size=11,
+                ),
                 ft.Text(item.sector_theme_warning, color=theme.MUTED, size=11),
                 ft.Row(
                     [
@@ -402,29 +435,45 @@ def _pct_badge(value: float | None) -> str:
 
 
 def _number_badge(value: float | None) -> str:
-    return "N/A" if value is None else f"{value:.2f}"
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return "N/A"
+    return "N/A" if not math.isfinite(number) else f"{number:.2f}"
 
 
 def _bps_badge(value: float | None) -> str:
-    return "N/A" if value is None else f"{value:+.1f} bps"
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return "N/A"
+    return "N/A" if not math.isfinite(number) else f"{number:+.1f} bps"
 
 
 def _edge_colour(value: float | None) -> str:
-    if value is None:
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
         return theme.MUTED
-    if value > 0:
+    if not math.isfinite(number):
+        return theme.MUTED
+    if number > 0:
         return theme.GREEN
-    if value < 0:
+    if number < 0:
         return theme.AMBER
     return theme.CYAN
 
 
 def _ratio_colour(value: float | None) -> str:
-    if value is None:
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
         return theme.MUTED
-    if value >= 2.5:
+    if not math.isfinite(number):
+        return theme.MUTED
+    if number >= 2.5:
         return theme.GREEN
-    if value >= 1.0:
+    if number >= 1.0:
         return theme.AMBER
     return theme.RED
 

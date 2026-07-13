@@ -20,6 +20,7 @@ from etf_cockpit.data.news_context import NEWS_CLEAN_PATH, load_news_items
 from etf_cockpit.data.universe_store import support_decision
 from etf_cockpit.data.yfinance_provider import yfinance_symbol_map_from_config
 from etf_cockpit.data.universe_store import load_universe
+from etf_cockpit.features.crowding import ClusterReport, build_correlation_clusters
 from etf_cockpit.features.regime import build_benchmark_attribution_lookup, build_market_regime, build_portfolio_fit_lookup
 from etf_cockpit.models.calibration import calibration_lookup, evaluate_forecast_calibration, load_forecast_history
 from etf_cockpit.models.forecast_scores import (
@@ -42,6 +43,7 @@ from etf_cockpit.signals.research_states import (
     research_state_for_legacy_action,
 )
 from etf_cockpit.signals.strategy_templates import strategy_template_frame, strategy_template_labels, template_description
+from etf_cockpit.signals.friction_edge import estimate_friction_edge
 
 
 SCORE_LEGEND = (
@@ -278,6 +280,38 @@ class SimpleInstrumentScore:
     net_expected_edge_bps: float | None = None
     edge_to_cost_ratio: float | None = None
     cost_stress_scenario: str = "not_evaluated"
+    crowding_cluster_id: str | None = None
+    crowding_cluster_label: str = "Correlation clustering unavailable"
+    crowding_warning: str = "correlation_clustering_unavailable"
+    crowding_average_peer_correlation: float | None = None
+    crowding_sample_size: int | None = None
+    crowding_as_of: str | None = None
+    crowding_source_dataset: str = "adjusted_price_returns"
+    crowding_pair_sample_size: int | None = None
+    crowding_cluster_weight: float | None = None
+    crowding_cluster_risk_contribution: float | None = None
+    crowding_ranking_coverage: float | None = None
+    crowding_top_ranked_concentration: float | None = None
+    crowding_top_ranked_theme_concentration: float | None = None
+    crowding_top_ranked_theme_warning: str = "no_theme_concentration_warning"
+    sector_return: float | None = None
+    sector_relative_return: float | None = None
+    sector_beta: float | None = None
+    sector_correlation: float | None = None
+    sector_alpha_proxy: float | None = None
+    sector_attribution_status: str = "N/A"
+    attribution_sample_size: int | None = None
+    attribution_as_of: str | None = None
+    attribution_source_dataset: str = "adjusted_price_returns"
+    theme_return: float | None = None
+    theme_relative_return: float | None = None
+    theme_beta: float | None = None
+    theme_correlation: float | None = None
+    theme_alpha_proxy: float | None = None
+    theme_attribution_status: str = "N/A"
+    theme_sample_size: int | None = None
+    friction_status: str = "unavailable"
+    friction_reason: str = "Friction-adjusted edge unavailable."
     # v2 public authority fields.  ``final_action`` is retained solely as an
     # internal compatibility seam and is omitted by ``to_v2_dict``.
     research_state: ResearchState = ResearchState.MANUAL_REVIEW
@@ -516,7 +550,13 @@ def build_simple_instrument_scores(
     regime = build_market_regime(prices, candidate_report)
     portfolio_fit = build_portfolio_fit_lookup(prices)
     benchmark_id = config.universe.enabled_ids[0] if config.universe.enabled_ids else None
-    benchmark_attribution = build_benchmark_attribution_lookup(prices, benchmark_id=benchmark_id)
+    metadata = {
+        etf.id: {"sector": etf.sector, "theme": etf.theme}
+        for etf in config.universe.etfs
+        if etf.id in config.universe.enabled_ids
+    }
+    benchmark_attribution = build_benchmark_attribution_lookup(prices, benchmark_id=benchmark_id, metadata=metadata)
+    crowding = build_correlation_clusters(prices, metadata)
     backtest_trust = _backtest_trust_lookup(universe_revision=universe_revision)
     universe_scores = build_universe_simple_scores(
         config,
@@ -527,6 +567,7 @@ def build_simple_instrument_scores(
         regime=regime,
         portfolio_fit=portfolio_fit,
         benchmark_attribution=benchmark_attribution,
+        crowding=crowding,
         backtest_trust=backtest_trust,
     )
     candidate_scores = build_candidate_simple_scores(
@@ -540,6 +581,17 @@ def build_simple_instrument_scores(
         [*universe_scores, *candidate_scores],
         key=lambda item: (item.final_score_10 is None, -(item.final_score_10 or -1.0), item.display_id),
     )
+    # Concentration evidence is intentionally scoped to an explicit top-ranked
+    # cohort. Including every scored row with equal weight would turn the
+    # crowding summary into a universe average unrelated to the ranked ideas.
+    ranked_instruments = [score.display_id for score in scores[:10]]
+    ranked_crowding = build_correlation_clusters(
+        prices,
+        metadata,
+        ranked_instruments=ranked_instruments,
+        weights={instrument_id: 1.0 for instrument_id in ranked_instruments},
+    )
+    ranked_crowding_lookup = {row.instrument_id: row for row in ranked_crowding.rows}
     news_inventory = _news_inventory_lookup()
     ranked = [
         replace(
@@ -548,10 +600,47 @@ def build_simple_instrument_scores(
             score_rank=index,
             news_inventory=news_inventory.get(score.display_id),
             forecast_status=_forecast_status_for_components(score.components),
+            **_crowding_fields_for_score(ranked_crowding_lookup.get(score.display_id)),
         )
         for index, score in enumerate(scores, start=1)
     ]
     return [_attach_authority(score) for score in ranked]
+
+
+def _crowding_fields_for_score(row: object | None) -> dict[str, object]:
+    if row is None:
+        return {
+            "crowding_cluster_id": None,
+            "crowding_cluster_label": "Correlation clustering unavailable",
+            "crowding_warning": "correlation_clustering_unavailable",
+            "crowding_average_peer_correlation": None,
+            "crowding_sample_size": None,
+            "crowding_as_of": None,
+            "crowding_source_dataset": "adjusted_price_returns",
+            "crowding_pair_sample_size": None,
+            "crowding_cluster_weight": None,
+            "crowding_cluster_risk_contribution": None,
+            "crowding_ranking_coverage": None,
+            "crowding_top_ranked_concentration": None,
+            "crowding_top_ranked_theme_concentration": None,
+            "crowding_top_ranked_theme_warning": "no_theme_concentration_warning",
+        }
+    return {
+        "crowding_cluster_id": getattr(row, "cluster_id", None),
+        "crowding_cluster_label": getattr(row, "cluster_label", "Correlation cluster"),
+        "crowding_warning": getattr(row, "crowding_warning", "no_cluster_warning"),
+        "crowding_average_peer_correlation": getattr(row, "average_peer_correlation", None),
+        "crowding_sample_size": getattr(row, "sample_size", None),
+        "crowding_as_of": getattr(row, "as_of", None),
+        "crowding_source_dataset": getattr(row, "source_dataset", "adjusted_price_returns"),
+        "crowding_pair_sample_size": getattr(row, "pair_sample_size", None),
+        "crowding_cluster_weight": getattr(row, "cluster_weight", None),
+        "crowding_cluster_risk_contribution": getattr(row, "cluster_risk_contribution", None),
+        "crowding_ranking_coverage": getattr(row, "ranking_coverage", None),
+        "crowding_top_ranked_concentration": getattr(row, "top_ranked_concentration", None),
+        "crowding_top_ranked_theme_concentration": getattr(row, "top_ranked_theme_concentration", None),
+        "crowding_top_ranked_theme_warning": getattr(row, "top_ranked_theme_warning", "no_theme_concentration_warning"),
+    }
 
 
 def _news_inventory_lookup() -> dict[str, int]:
@@ -734,6 +823,38 @@ def simple_scoreboard_frame(
             "net_expected_edge_bps": score.net_expected_edge_bps,
             "edge_to_cost_ratio": score.edge_to_cost_ratio,
             "cost_stress_scenario": score.cost_stress_scenario,
+            "crowding_cluster_id": score.crowding_cluster_id,
+            "crowding_cluster_label": score.crowding_cluster_label,
+            "crowding_warning": score.crowding_warning,
+            "crowding_average_peer_correlation": score.crowding_average_peer_correlation,
+            "crowding_sample_size": score.crowding_sample_size,
+            "crowding_as_of": score.crowding_as_of,
+            "crowding_source_dataset": score.crowding_source_dataset,
+            "crowding_pair_sample_size": score.crowding_pair_sample_size,
+            "crowding_cluster_weight": score.crowding_cluster_weight,
+            "crowding_cluster_risk_contribution": score.crowding_cluster_risk_contribution,
+            "crowding_ranking_coverage": score.crowding_ranking_coverage,
+            "crowding_top_ranked_concentration": score.crowding_top_ranked_concentration,
+            "crowding_top_ranked_theme_concentration": score.crowding_top_ranked_theme_concentration,
+            "crowding_top_ranked_theme_warning": score.crowding_top_ranked_theme_warning,
+            "sector_return": score.sector_return,
+            "sector_relative_return": score.sector_relative_return,
+            "sector_beta": score.sector_beta,
+            "sector_correlation": score.sector_correlation,
+            "sector_alpha_proxy": score.sector_alpha_proxy,
+            "sector_attribution_status": score.sector_attribution_status,
+            "attribution_sample_size": score.attribution_sample_size,
+            "attribution_as_of": score.attribution_as_of,
+            "attribution_source_dataset": score.attribution_source_dataset,
+            "theme_return": score.theme_return,
+            "theme_relative_return": score.theme_relative_return,
+            "theme_beta": score.theme_beta,
+            "theme_correlation": score.theme_correlation,
+            "theme_alpha_proxy": score.theme_alpha_proxy,
+            "theme_attribution_status": score.theme_attribution_status,
+            "theme_sample_size": score.theme_sample_size,
+            "friction_status": score.friction_status,
+            "friction_reason": score.friction_reason,
             "valid_components": score.valid_component_count,
             "total_components": score.total_component_count,
             "source_quality": "research_grade_yfinance",
@@ -777,6 +898,7 @@ def build_universe_simple_scores(
     portfolio_fit: dict[str, dict[str, object]] | None = None,
     benchmark_attribution: dict[str, dict[str, object]] | None = None,
     backtest_trust: dict[str, dict[str, object]] | None = None,
+    crowding: ClusterReport | None = None,
 ) -> list[SimpleInstrumentScore]:
     raw_forecast_scores = forecast_component_maps(forecasts)
     forecast_details = forecast_score_details(forecasts)
@@ -791,6 +913,7 @@ def build_universe_simple_scores(
     portfolio_fit = portfolio_fit or {}
     benchmark_attribution = benchmark_attribution or {}
     backtest_trust = backtest_trust or {}
+    crowding_lookup = {row.instrument_id: row for row in (crowding.rows if crowding else ())}
     output: list[SimpleInstrumentScore] = []
 
     enabled_ids = set(config.universe.enabled_ids)
@@ -854,6 +977,7 @@ def build_universe_simple_scores(
         calibration_info = _calibration_info(calibration_by_id, signal.etf_id)
         fit_info = _portfolio_fit_info(portfolio_fit, signal.etf_id)
         attribution_info = _benchmark_attribution_info(benchmark_attribution, signal.etf_id)
+        crowding_info = _crowding_info(crowding_lookup, signal.etf_id)
         trust_info = _backtest_trust_info(backtest_trust, signal.etf_id, candidate=False)
         maturity = _evidence_maturity(
             rows=quality_info.get("rows"),
@@ -927,13 +1051,48 @@ def build_universe_simple_scores(
                 alpha_proxy=_safe_float(attribution_info.get("alpha_proxy")),
                 alpha_t_stat=_safe_float(attribution_info.get("alpha_t_stat")),
                 benchmark_attribution_label=str(attribution_info["label"]),
+                crowding_cluster_id=crowding_info["cluster_id"],
+                crowding_cluster_label=crowding_info["cluster_label"],
+                crowding_warning=crowding_info["crowding_warning"],
+                crowding_average_peer_correlation=crowding_info["average_peer_correlation"],
+                crowding_sample_size=crowding_info["sample_size"],
+                crowding_as_of=crowding_info["as_of"],
+                crowding_source_dataset=crowding_info["source_dataset"],
+                crowding_pair_sample_size=crowding_info["pair_sample_size"],
+                crowding_cluster_weight=crowding_info["cluster_weight"],
+                crowding_cluster_risk_contribution=crowding_info["cluster_risk_contribution"],
+                crowding_ranking_coverage=crowding_info["ranking_coverage"],
+                crowding_top_ranked_concentration=crowding_info["top_ranked_concentration"],
+                crowding_top_ranked_theme_concentration=crowding_info["top_ranked_theme_concentration"],
+                crowding_top_ranked_theme_warning=crowding_info["top_ranked_theme_warning"],
+                sector_return=_safe_float(attribution_info.get("sector_return")),
+                sector_relative_return=_safe_float(attribution_info.get("sector_relative_return")),
+                sector_beta=_safe_float(attribution_info.get("sector_beta")),
+                sector_correlation=_safe_float(attribution_info.get("sector_correlation")),
+                sector_alpha_proxy=_safe_float(attribution_info.get("sector_alpha_proxy")),
+                sector_attribution_status=str(attribution_info.get("sector_attribution_status", "N/A")),
+                attribution_sample_size=_safe_int(attribution_info.get("sample_size")),
+                attribution_as_of=_noneable_str(attribution_info.get("as_of")),
+                attribution_source_dataset=str(attribution_info.get("source_dataset") or "adjusted_price_returns"),
+                theme_return=_safe_float(attribution_info.get("theme_return")),
+                theme_relative_return=_safe_float(attribution_info.get("theme_relative_return")),
+                theme_beta=_safe_float(attribution_info.get("theme_beta")),
+                theme_correlation=_safe_float(attribution_info.get("theme_correlation")),
+                theme_alpha_proxy=_safe_float(attribution_info.get("theme_alpha_proxy")),
+                theme_attribution_status=str(attribution_info.get("theme_attribution_status", "N/A")),
+                theme_sample_size=_safe_int(attribution_info.get("theme_sample_size")),
                 sector_theme_warning=_sector_theme_warning(identity),
                 backtest_validity=str(validity["backtest_validity"]),
                 model_contamination_risk=str(validity["model_contamination_risk"]),
                 model_authority_reason=str(validity["model_authority_reason"]),
                 calibration_required=bool(validity["calibration_required"]),
                 forecast_status=_forecast_status_for_components(components),
-                **_friction_edge_fields(evidence_score, components),
+                **_friction_edge_fields(
+                    evidence_score,
+                    components,
+                    volatility=_safe_float(signal.supporting_metrics.get("vol_60d_ann")),
+                    costs=_configured_friction_costs(config, signal.etf_id),
+                ),
             )
         )
     for etf_id in config.universe.enabled_ids:
@@ -1123,7 +1282,11 @@ def build_candidate_simple_scores(
                 model_authority_reason=str(validity["model_authority_reason"]),
                 calibration_required=bool(validity["calibration_required"]),
                 forecast_status=_forecast_status_for_components(components),
-                **_friction_edge_fields(evidence_score, components),
+                **_friction_edge_fields(
+                    evidence_score,
+                    components,
+                    volatility=_safe_float(row.get("volatility_60d_ann")),
+                ),
             )
         )
     return output
@@ -1814,7 +1977,15 @@ def _component_score_map(components: list[SimpleScoreComponent]) -> dict[str, fl
     return {component.key: component.score_10 for component in components}
 
 
-def _friction_edge_fields(evidence_score: float | None, components: list[SimpleScoreComponent]) -> dict[str, object]:
+def _friction_edge_fields(
+    evidence_score: float | None,
+    components: list[SimpleScoreComponent],
+    *,
+    volatility: float | None = None,
+    costs: dict[str, float] | None = None,
+    scenario: str = "base",
+) -> dict[str, object]:
+    selected_scenario = str(scenario or "base").strip().lower()
     if evidence_score is None:
         return {
             "gross_expected_edge_bps": None,
@@ -1822,26 +1993,34 @@ def _friction_edge_fields(evidence_score: float | None, components: list[SimpleS
             "net_expected_edge_bps": None,
             "edge_to_cost_ratio": None,
             "cost_stress_scenario": "not_available_no_score",
+            "friction_status": "unavailable",
+            "friction_reason": "Friction-adjusted edge unavailable because the evidence score is missing.",
         }
-    liquidity = next((component for component in components if component.key == "liquidity_cost"), None)
-    liquidity_score = liquidity.score_10 if liquidity is not None else None
-    gross_edge = round((float(evidence_score) - 5.0) * 40.0, 1)
-    cost_penalty = 12.0
-    if liquidity_score is None:
-        cost_penalty = 25.0
-    elif liquidity_score < 4.0:
-        cost_penalty = 30.0
-    elif liquidity_score < 6.5:
-        cost_penalty = 18.0
-    net_edge = round(gross_edge - cost_penalty, 1)
-    ratio = None if cost_penalty <= 0 else round(gross_edge / cost_penalty, 2)
+    result = estimate_friction_edge(evidence_score, volatility, costs, selected_scenario)
     return {
-        "gross_expected_edge_bps": gross_edge,
-        "estimated_total_cost_bps": cost_penalty,
-        "net_expected_edge_bps": net_edge,
-        "edge_to_cost_ratio": ratio,
-        "cost_stress_scenario": "heuristic_score_to_edge_proxy_not_trade_authority",
+        "gross_expected_edge_bps": result.gross_bps,
+        "estimated_total_cost_bps": result.cost_bps,
+        "net_expected_edge_bps": result.net_bps,
+        "edge_to_cost_ratio": result.edge_to_cost_ratio,
+        "cost_stress_scenario": result.scenario,
+        "friction_status": result.status,
+        "friction_reason": result.reason,
     }
+
+
+def _configured_friction_costs(config: AppConfig, instrument_id: str) -> dict[str, float] | None:
+    costs = getattr(config, "costs", None)
+    model = getattr(costs, "cost_model", None)
+    if model is None:
+        return None
+    per_instrument = getattr(costs, "per_etf", {}).get(str(instrument_id), {})
+    spread = _safe_float(per_instrument.get("spread_bps", getattr(model, "default_spread_bps", None)))
+    slippage = _safe_float(per_instrument.get("slippage_bps", getattr(model, "default_slippage_bps", None)))
+    fx = _safe_float(getattr(model, "fx_conversion_bps", 0.0))
+    if spread is None or slippage is None or fx is None:
+        return None
+    base = max(0.0, spread + slippage + fx)
+    return {"low": base * 0.75, "base": base, "high": base * 1.5}
 
 
 def _calibration_info(lookup: dict[str, dict[str, object]], instrument_id: str) -> dict[str, object]:
@@ -1894,8 +2073,61 @@ def _benchmark_attribution_info(lookup: dict[str, dict[str, object]], instrument
             "correlation_to_benchmark": None,
             "alpha_proxy": None,
             "alpha_t_stat": None,
+            "sector_return": None,
+            "sector_relative_return": None,
+            "sector_beta": None,
+            "sector_correlation": None,
+            "sector_alpha_proxy": None,
+            "sector_attribution_status": "N/A",
+            "theme_return": None,
+            "theme_relative_return": None,
+            "theme_beta": None,
+            "theme_correlation": None,
+            "theme_alpha_proxy": None,
+            "theme_attribution_status": "N/A",
+            "theme_sample_size": None,
+            "sample_size": None,
+            "as_of": None,
+            "source_dataset": "adjusted_price_returns",
         }
     return info
+
+
+def _crowding_info(lookup: dict[str, object], instrument_id: str) -> dict[str, object]:
+    row = lookup.get(str(instrument_id))
+    if row is None:
+        return {
+            "cluster_id": None,
+            "cluster_label": "Correlation clustering unavailable",
+            "crowding_warning": "correlation_clustering_unavailable",
+            "average_peer_correlation": None,
+            "sample_size": None,
+            "pair_sample_size": None,
+            "cluster_weight": None,
+            "cluster_risk_contribution": None,
+            "ranking_coverage": None,
+            "top_ranked_concentration": None,
+            "top_ranked_theme_concentration": None,
+            "top_ranked_theme_warning": "no_theme_concentration_warning",
+            "as_of": None,
+            "source_dataset": "adjusted_price_returns",
+        }
+    return {
+        "cluster_id": getattr(row, "cluster_id", None),
+        "cluster_label": getattr(row, "cluster_label", "Correlation cluster"),
+        "crowding_warning": getattr(row, "crowding_warning", "no_cluster_warning"),
+        "average_peer_correlation": getattr(row, "average_peer_correlation", None),
+        "sample_size": getattr(row, "sample_size", None),
+        "pair_sample_size": getattr(row, "pair_sample_size", None),
+        "cluster_weight": getattr(row, "cluster_weight", None),
+        "cluster_risk_contribution": getattr(row, "cluster_risk_contribution", None),
+        "ranking_coverage": getattr(row, "ranking_coverage", None),
+        "top_ranked_concentration": getattr(row, "top_ranked_concentration", None),
+        "top_ranked_theme_concentration": getattr(row, "top_ranked_theme_concentration", None),
+        "top_ranked_theme_warning": getattr(row, "top_ranked_theme_warning", "no_theme_concentration_warning"),
+        "as_of": getattr(row, "as_of", None),
+        "source_dataset": getattr(row, "source_dataset", "adjusted_price_returns"),
+    }
 
 
 def _cache_revision_matches(path: Path, universe_revision: str) -> bool:
