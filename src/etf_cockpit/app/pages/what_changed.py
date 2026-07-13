@@ -44,7 +44,10 @@ def what_changed_page(_page: ft.Page, _state: AppState) -> ft.Control:
         width=210,
     )
     changed_only = ft.Checkbox(label="Changed only", key="what-changed.filter.changed-only", value=False)
-    table_container = ft.Column(scroll=ft.ScrollMode.AUTO)
+    # Keep the comparison vertically scrollable with the page.  Per-instrument
+    # cards below use responsive rows so narrow windows never need a wide
+    # twelve-column table or horizontal scrolling.
+    table_container = ft.Column()
 
     def _changed(change, dimension: str) -> bool:
         if dimension == "all":
@@ -67,33 +70,50 @@ def what_changed_page(_page: ft.Page, _state: AppState) -> ft.Control:
             if dimension != "all" and not _changed(change, dimension):
                 continue
             visible.append(change)
-        rows = []
+        cards = []
         for change in visible:
-            rows.append(
-                ft.DataRow(
-                    cells=[
-                        ft.DataCell(ft.Text(change.instrument_id, color=theme.TEXT)),
-                        ft.DataCell(ft.Text("N/A" if change.score_delta is None else f"{change.score_delta:+.1f}", color=theme.CYAN)),
-                        ft.DataCell(ft.Text("N/A" if change.score_rank_delta is None else f"{change.score_rank_delta:+.0f}", color=theme.CYAN)),
-                        ft.DataCell(ft.Text("yes" if change.warnings_changed else "no", color=theme.AMBER if change.warnings_changed else theme.GREEN)),
-                        ft.DataCell(ft.Text("yes" if change.freshness_changed else "no", color=theme.AMBER if change.freshness_changed else theme.GREEN)),
-                        ft.DataCell(ft.Text("yes" if change.model_availability_changed else "no", color=theme.AMBER if change.model_availability_changed else theme.GREEN)),
-                        ft.DataCell(ft.Text("yes" if change.forecast_changed else "no", color=theme.AMBER if change.forecast_changed else theme.GREEN)),
-                        ft.DataCell(ft.Text("yes" if change.news_inventory_changed else "no", color=theme.AMBER if change.news_inventory_changed else theme.GREEN)),
-                        ft.DataCell(ft.Text("yes" if change.backtest_trust_changed else "no", color=theme.AMBER if change.backtest_trust_changed else theme.GREEN)),
-                        ft.DataCell(ft.Text("yes" if change.portfolio_risk_changed else "no", color=theme.AMBER if change.portfolio_risk_changed else theme.GREEN)),
-                        ft.DataCell(ft.Text(change.current_action or "unavailable", color=theme.MUTED)),
-                        ft.DataCell(ft.Text(change.summary, color=theme.MUTED, max_lines=3)),
-                    ]
+            dimensions = (
+                ("Score delta", "N/A" if change.score_delta is None else f"{change.score_delta:+.1f}", theme.CYAN),
+                ("Rank delta", "N/A" if change.score_rank_delta is None else f"{change.score_rank_delta:+.0f}", theme.CYAN),
+                ("Warnings", "yes" if change.warnings_changed else "no", theme.AMBER if change.warnings_changed else theme.GREEN),
+                ("Freshness", "yes" if change.freshness_changed else "no", theme.AMBER if change.freshness_changed else theme.GREEN),
+                ("Model availability", "yes" if change.model_availability_changed else "no", theme.AMBER if change.model_availability_changed else theme.GREEN),
+                ("Forecasts", "yes" if change.forecast_changed else "no", theme.AMBER if change.forecast_changed else theme.GREEN),
+                ("News inventory", "yes" if change.news_inventory_changed else "no", theme.AMBER if change.news_inventory_changed else theme.GREEN),
+                ("Backtest trust", "yes" if change.backtest_trust_changed else "no", theme.AMBER if change.backtest_trust_changed else theme.GREEN),
+                ("Portfolio risk", "yes" if change.portfolio_risk_changed else "no", theme.AMBER if change.portfolio_risk_changed else theme.GREEN),
+                ("Current action", change.current_action or "unavailable", theme.MUTED),
+            )
+            metric_controls = [
+                ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Text(label, color=theme.MUTED, size=10),
+                            ft.Text(value, color=colour, size=12, weight=ft.FontWeight.BOLD),
+                        ],
+                        spacing=2,
+                    ),
+                    col={"xs": 6, "sm": 4, "md": 3},
+                    padding=4,
+                )
+                for label, value, colour in dimensions
+            ]
+            cards.append(
+                panel(
+                    ft.Column(
+                        [
+                            ft.Text(change.instrument_id, color=theme.TEXT, weight=ft.FontWeight.BOLD),
+                            ft.ResponsiveRow(metric_controls, spacing=4, run_spacing=2),
+                            ft.Text(change.summary, color=theme.MUTED, size=11),
+                        ],
+                        spacing=6,
+                    ),
+                    padding=10,
                 )
             )
-        headers = (
-            "Instrument", "Score delta", "Rank delta", "Warnings", "Freshness", "Model availability",
-            "Forecasts", "News inventory", "Backtest trust", "Portfolio risk", "Current action", "Summary",
-        )
         table_container.controls = [
             ft.Text(f"{len(visible)} instrument(s) shown", color=theme.MUTED, size=11),
-            ft.DataTable(columns=[ft.DataColumn(ft.Text(label, color=theme.TEXT)) for label in headers], rows=rows),
+            *cards,
         ] if visible else [ft.Text("No instruments match the selected filters.", color=theme.MUTED)]
         try:
             if _page is not None:

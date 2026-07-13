@@ -253,7 +253,11 @@ def append_score_run(
     ).hexdigest()
     frame["snapshot_hash"] = snapshot_hash
     frame = frame[_COLUMNS]
-    existing = _read_history_raw(path)
+    # Read through the compatibility normaliser before touching newer
+    # columns.  Stores written before v2 may omit snapshot_hash and several
+    # comparison dimensions; duplicate detection must not make those stores
+    # unreadable or raise a KeyError.
+    existing = _normalise_history_frame(_read_history_raw(path))
     duplicate = (
         existing.loc[
             existing["run_id"].astype(str).eq(str(run_id))

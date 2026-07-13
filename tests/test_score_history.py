@@ -118,6 +118,54 @@ def test_score_history_replaces_changed_snapshot_for_same_run_without_duplicate_
     assert float(history.iloc[0]["final_combined_score_10"]) == 6.0
 
 
+def test_score_history_append_normalises_legacy_store_before_duplicate_detection(tmp_path) -> None:
+    path = tmp_path / "data" / "derived" / "score_history.parquet"
+    path.parent.mkdir(parents=True)
+    pd.DataFrame(
+        [
+            {
+                "run_id": "legacy-run",
+                "run_completed_at": "2026-07-10",
+                "instrument_id": "A",
+                "final_combined_score_10": 7.0,
+                "final_action": "watchlist",
+                "blocked_by": "",
+            }
+        ]
+    ).to_parquet(path, index=False)
+
+    first = append_score_run(
+        pd.DataFrame(
+            {
+                "instrument_id": ["A"],
+                "final_combined_score_10": [7.0],
+                "final_action": ["watchlist"],
+            }
+        ),
+        "legacy-run",
+        "2026-07-10",
+        root=tmp_path,
+    )
+    second = append_score_run(
+        pd.DataFrame(
+            {
+                "instrument_id": ["A"],
+                "final_combined_score_10": [7.0],
+                "final_action": ["watchlist"],
+            }
+        ),
+        "legacy-run",
+        "2026-07-10",
+        root=tmp_path,
+    )
+
+    history = score_history_frame(root=tmp_path)
+    assert first.rows_written == 1
+    assert second.rows_written == 0
+    assert len(history) == 1
+    assert history.iloc[0]["snapshot_hash"] == first.snapshot_hash
+
+
 def test_score_history_reader_drops_malformed_rows(tmp_path) -> None:
     path = tmp_path / "data" / "derived" / "score_history.parquet"
     path.parent.mkdir(parents=True)

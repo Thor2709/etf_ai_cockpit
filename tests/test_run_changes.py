@@ -17,6 +17,19 @@ def test_run_comparison_reports_score_action_and_warning_changes() -> None:
     assert report.changes[0].action_changed is True
 
 
+def test_run_comparison_malformed_frame_without_run_id_returns_empty_report() -> None:
+    frame = pd.DataFrame(
+        [{"instrument_id": "A", "final_combined_score_10": 7.0, "final_action": "watchlist"}]
+    )
+
+    report = compare_runs(frame, "new", "old")
+
+    assert report.current_run_id == "new"
+    assert report.previous_run_id == "old"
+    assert report.changes == ()
+    assert report.summary == "Run new has no comparable instrument rows."
+
+
 def test_history_is_informational_not_action_authority() -> None:
     frame = pd.DataFrame([{ "run_id": "old", "instrument_id": "A", "final_combined_score_10": 9.0, "final_action": "manual_review", "blocked_by": "identity_conflict"}])
     report = compare_runs(frame, "old", None)

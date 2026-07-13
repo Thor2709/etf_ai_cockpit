@@ -318,7 +318,14 @@ def _numeric_delta(current: Any, previous: Any) -> float | None:
 def _safe_frame(frame: pd.DataFrame) -> pd.DataFrame:
     if not isinstance(frame, pd.DataFrame) or frame.empty:
         return pd.DataFrame(columns=["run_id", "instrument_id"])
-    return frame.copy()
+    result = frame.copy()
+    # A malformed non-empty legacy frame can omit either identity column.  Add
+    # aligned unavailable values so boolean selection remains index-safe and
+    # comparison deterministically yields an empty report for named runs.
+    for column in ("run_id", "instrument_id"):
+        if column not in result.columns:
+            result[column] = pd.Series("", index=result.index, dtype=object)
+    return result
 
 
 def _first(row: Mapping[str, Any], *names: str) -> Any:
