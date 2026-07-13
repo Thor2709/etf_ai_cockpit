@@ -9,7 +9,7 @@ import pytest
 from etf_cockpit.app import router
 from etf_cockpit.app.router import PAGES, _page_route, navigate_to
 from etf_cockpit.app.pages.instrument_detail import _render_crowding_attribution_panel, _render_evidence_section, instrument_detail_page
-from etf_cockpit.app.selectors.instrument_detail import _attribution_panel, _derived_evidence_panel, _etf_disclosure_panel, _feature_driver_panel, _friction_panel, _fundamentals_panel, _instrument_rows, _parsed_panel, _run_changes_panel, _safe_bool, build_instrument_detail
+from etf_cockpit.app.selectors.instrument_detail import _attribution_panel, _backtest_panel, _derived_evidence_panel, _etf_disclosure_panel, _feature_driver_panel, _friction_panel, _fundamentals_panel, _instrument_rows, _news_item_record, _parsed_panel, _run_changes_panel, _safe_bool, _score_panel, build_instrument_detail
 from etf_cockpit.backtest.engine import BacktestReport
 from etf_cockpit.app.components.simple_scores import simple_score_grouped_sections
 from etf_cockpit.core.config import ETFConfig
@@ -108,6 +108,7 @@ def test_instrument_detail_route_and_legacy_etf_compatibility(monkeypatch) -> No
     assert instrument_detail_route("VWCE") == "/instrument/VWCE"
     assert _page_route("/instrument/VWCE") == "/instrument"
     assert PAGES["/etf"][0] == "Instrument Detail"
+    assert PAGES["/etf"][1] is instrument_detail_page
 
     class Page:
         route = "/"
@@ -513,14 +514,101 @@ def test_instrument_detail_exposes_functional_export_control_and_disabled_state(
     export = next(item for item in _walk(control) if getattr(item, "key", "") == "instrument-detail.export-evidence")
 
     assert export.disabled is False
+    assert getattr(export, "content", "") == "Export audit evidence"
     export.on_click(None)
     assert calls == [True]
+    rendered = "\n".join(_text_values(control))
+    assert "Exported audit evidence" in rendered
+    assert "instrument evidence" not in rendered.casefold()
 
     unavailable_state = type("State", (), {"snapshot": snapshot, "selected_etf": "missing", "last_export_path": None, "last_message": "Ready"})()
     unavailable = instrument_detail_page(None, unavailable_state)
     disabled_export = next(item for item in _walk(unavailable) if getattr(item, "key", "") == "instrument-detail.export-evidence")
     assert disabled_export.disabled is True
     assert "unavailable" in "\n".join(_text_values(unavailable)).casefold()
+
+
+def test_news_item_record_nullable_provenance_fails_closed() -> None:
+    item = _news_item_record(
+        {
+            "source_url": pd.NA,
+            "url": pd.NA,
+            "published_at": pd.NaT,
+            "ingested_at": pd.NaT,
+            "provider_name": pd.NA,
+            "provider": pd.NA,
+            "credibility": pd.NA,
+            "instrument_mapping_method": pd.NA,
+            "available_at_decision_time": pd.NA,
+            "timestamp_status": pd.NA,
+            "timestamp_confidence": pd.NA,
+        }
+    )
+
+    assert item["source_url"] == "unavailable"
+    assert item["published_at"] == "unavailable"
+    assert item["ingested_at"] == "unavailable"
+    assert item["provider_name"] == "unavailable"
+    assert item["credibility"] == "unverified"
+    assert item["instrument_mapping_method"] == "unavailable"
+    assert item["available_at_decision_time"] is False
+    assert item["timestamp_status"] == "unavailable"
+
+
+def test_score_panel_nullable_scoreboard_and_signal_values_fail_closed() -> None:
+    class Signal:
+        blocked_by = pd.NA
+        authority_decision = type("Decision", (), {"gates": [type("Gate", (), {"passed": pd.NA, "gate_id": pd.NA})()]})()
+        total_score = pd.NA
+        research_state = pd.NA
+        reason_long = pd.NA
+        warnings = pd.NA
+
+    panel = _score_panel(
+        Signal(),
+        {
+            "final_label": pd.NA,
+            "final_action": pd.NA,
+            "one_line_reason": pd.NA,
+            "reason": pd.NA,
+            "freshness_status": pd.NA,
+        },
+        {"crowding": {}, "attribution": {}},
+        {},
+    )
+
+    assert panel["status"] == "manual_review"
+    assert panel["final_label"] == "manual_review"
+    assert panel["final_reason"] == "Score reason unavailable."
+    assert panel["freshness"] == "unavailable"
+    assert panel["signal_score"] is None
+    assert panel["blocked_gates"] == ["unavailable"]
+    assert panel["warnings"] == []
+
+
+def test_backtest_panel_nullable_quality_fails_closed() -> None:
+    snapshot = build_snapshot()
+    custom = replace(
+        snapshot,
+        backtest=BacktestReport(
+            results=pd.DataFrame(),
+            equity_curves=pd.DataFrame(),
+            trade_log=pd.DataFrame([{"instrument_id": "VWCE", "trade_id": "trade-1"}]),
+            signal_log=pd.DataFrame([{"instrument_id": "VWCE", "signal_id": "signal-1"}]),
+            ai_added_value=False,
+        ),
+    )
+
+    panel = _backtest_panel(
+        custom,
+        "VWCE",
+        {"backtest_trust_label": pd.NA, "backtest_validity": pd.NA},
+    )
+
+    assert panel["status"] == "manual_review"
+    assert panel["trust"] == "unavailable"
+    assert panel["signal_rows"]
+    assert panel["trade_rows"]
 
 
 def test_evidence_sections_render_source_authority_and_conflict_badges() -> None:

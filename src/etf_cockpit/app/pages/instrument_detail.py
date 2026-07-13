@@ -247,9 +247,9 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
         state.selected_etf = selected
     model = build_instrument_detail(state.snapshot, selected)
     export_status = ft.Text(
-        "Instrument evidence export unavailable for this selection."
+        "Audit evidence export unavailable for this selection."
         if model.status == "unavailable" or not callable(getattr(state, "export_audit_packet", None))
-        else str(getattr(state, "last_export_path", "") or "No instrument evidence export has been created in this session."),
+        else str(getattr(state, "last_export_path", "") or "No audit evidence export has been created in this session."),
         color=theme.MUTED,
         selectable=True,
     )
@@ -257,18 +257,18 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
 
     def export_instrument_evidence(_event: ft.ControlEvent) -> None:
         if not export_available:
-            export_status.value = "Instrument evidence export unavailable: canonical evidence or export capability is missing."
+            export_status.value = "Audit evidence export unavailable: canonical evidence or export capability is missing."
         else:
             try:
                 path = state.export_audit_packet()
-                export_status.value = f"Exported instrument evidence: {path}"
+                export_status.value = f"Exported audit evidence: {path}"
             except Exception as exc:
-                export_status.value = f"Instrument evidence export failed: {type(exc).__name__}. No score authority changed."
+                export_status.value = f"Audit evidence export failed: {type(exc).__name__}. No score authority changed."
         if page is not None and hasattr(page, "update"):
             page.update()
 
     export_control = ft.OutlinedButton(
-        "Export instrument evidence",
+        "Export audit evidence",
         key="instrument-detail.export-evidence",
         icon=ft.Icons.DOWNLOAD,
         disabled=not export_available,

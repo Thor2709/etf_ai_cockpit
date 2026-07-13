@@ -14,7 +14,6 @@ from etf_cockpit.app.pages.errors_recovery import errors_recovery_page
 from etf_cockpit.app.pages.onboarding import onboarding_page
 from etf_cockpit.app.pages.universe_manager import universe_manager_page
 from etf_cockpit.app.pages.what_changed import what_changed_page
-from etf_cockpit.app.pages.etf_detail import etf_detail_page
 from etf_cockpit.app.pages.instrument_detail import instrument_detail_page
 from etf_cockpit.app.pages.import_export import import_export_page
 from etf_cockpit.app.pages.system_map import system_map_page
@@ -41,7 +40,7 @@ PAGES = {
     "/signals": ("Scores", signals_page),
     "/screener": ("Fundamentals Screener", screener_page),
     "/risk": ("Risk Evidence", risk_page),
-    "/etf": ("Instrument Detail", etf_detail_page),
+    "/etf": ("Instrument Detail", instrument_detail_page),
     "/backtests": ("Backtests", backtests_page),
     "/chatgpt": ("Audit Notes", chatgpt_audit_page),
     "/providers": ("Provider Status", provider_status_page),

@@ -163,6 +163,19 @@ def _safe_bool(value: object, default: bool = False) -> bool:
     return default
 
 
+def _safe_sequence(value: object) -> tuple[object, ...]:
+    """Return an iterable value without evaluating nullable scalars as booleans."""
+
+    if _is_missing_scalar(value):
+        return ()
+    if isinstance(value, (str, bytes)):
+        return (value,)
+    try:
+        return tuple(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return ()
+
+
 def _load_parquet(path: object) -> pd.DataFrame:
     try:
         candidate = path
@@ -341,14 +354,14 @@ def _news_item_record(row: Mapping[str, Any]) -> dict[str, Any]:
     item = dict(row)
     item.update(
         {
-            "source_url": item.get("source_url") or item.get("url") or "unavailable",
-            "published_at": item.get("published_at") or "unavailable",
-            "ingested_at": item.get("ingested_at") or "unavailable",
-            "provider_name": item.get("provider_name") or item.get("provider") or "unavailable",
-            "credibility": item.get("credibility") or "unverified",
-            "instrument_mapping_method": item.get("instrument_mapping_method") or "unavailable",
-            "available_at_decision_time": bool(item.get("available_at_decision_time", False)),
-            "timestamp_status": item.get("timestamp_status") or item.get("timestamp_confidence") or "unavailable",
+            "source_url": _first_value(item, ("source_url", "url")),
+            "published_at": _value_or(item.get("published_at"), "unavailable"),
+            "ingested_at": _value_or(item.get("ingested_at"), "unavailable"),
+            "provider_name": _first_value(item, ("provider_name", "provider")),
+            "credibility": _value_or(item.get("credibility"), "unverified"),
+            "instrument_mapping_method": _value_or(item.get("instrument_mapping_method"), "unavailable"),
+            "available_at_decision_time": _safe_bool(item.get("available_at_decision_time"), default=False),
+            "timestamp_status": _first_value(item, ("timestamp_status", "timestamp_confidence")),
             "context_only": True,
             "executable_authority": False,
         }
@@ -637,26 +650,35 @@ def _scoreboard_row(instrument_id: str) -> dict[str, Any]:
 def _score_panel(signal: Any, scoreboard: Mapping[str, Any], derived: Mapping[str, Any], friction: Mapping[str, Any]) -> dict[str, Any]:
     if signal is None and not scoreboard:
         return _unavailable("Score evidence unavailable for this instrument.") | {"crowding": derived["crowding"], "friction": friction}
-    gates: list[str] = [str(value) for value in (getattr(signal, "blocked_by", ()) or ())]
+    gates: list[str] = []
+    for value in _safe_sequence(getattr(signal, "blocked_by", ())):
+        gate_id = _normalise_identifier(value)
+        if gate_id is not None and gate_id not in gates:
+            gates.append(gate_id)
     decision = getattr(signal, "authority_decision", None)
-    for gate in getattr(decision, "gates", ()) or ():
-        if not bool(getattr(gate, "passed", True)) and str(getattr(gate, "gate_id", "")) not in gates:
-            gates.append(str(getattr(gate, "gate_id", "")))
+    for gate in _safe_sequence(getattr(decision, "gates", ())):
+        gate_id = _normalise_identifier(getattr(gate, "gate_id", None)) or "unavailable"
+        if not _safe_bool(getattr(gate, "passed", True), default=False) and gate_id not in gates:
+            gates.append(gate_id)
     evidence_score = next((_safe_float(scoreboard.get(key)) for key in ("evidence_score_10", "evidence_score", "final_combined_score_10") if _safe_float(scoreboard.get(key)) is not None), None)
     quality = next((_safe_float(scoreboard.get(key)) for key in ("evidence_quality_10", "evidence_quality") if _safe_float(scoreboard.get(key)) is not None), None)
-    label = str(scoreboard.get("final_label") or scoreboard.get("final_action") or getattr(signal, "research_state", "manual_review"))
-    reason = str(scoreboard.get("one_line_reason") or scoreboard.get("reason") or getattr(signal, "reason_long", "Score reason unavailable."))
+    label_value = _first_value(scoreboard, ("final_label", "final_action"), fallback=None)
+    label = str(_value_or(label_value if label_value is not None else getattr(signal, "research_state", None), "manual_review"))
+    reason_value = _first_value(scoreboard, ("one_line_reason", "reason"), fallback=None)
+    reason = str(_value_or(reason_value if reason_value is not None else getattr(signal, "reason_long", None), "Score reason unavailable."))
+    signal_score = _safe_float(getattr(signal, "total_score", None))
+    status = "available" if any(value is not None for value in (evidence_score, quality, signal_score)) else "manual_review"
     return {
-        "status": "available",
+        "status": status,
         "evidence_score": evidence_score,
         "evidence_quality": quality,
-        "signal_score": _safe_float(getattr(signal, "total_score", None)),
+        "signal_score": signal_score,
         "final_label": label,
         "final_reason": reason,
         "reason": reason,
         "blocked_gates": gates,
-        "warnings": list(getattr(signal, "warnings", ()) or ()),
-        "freshness": scoreboard.get("freshness_status", "unavailable"),
+        "warnings": list(_safe_sequence(getattr(signal, "warnings", ()))),
+        "freshness": _value_or(scoreboard.get("freshness_status"), "unavailable"),
         "crowding": derived["crowding"],
         "friction": friction,
         "execution_allowed": False,
@@ -729,11 +751,12 @@ def _backtest_panel(snapshot: CockpitSnapshot, instrument_id: str, scoreboard: M
     report = getattr(snapshot, "backtest", None)
     signal_log = _instrument_rows(getattr(report, "signal_log", None), instrument_id)
     trade_log = _instrument_rows(getattr(report, "trade_log", None), instrument_id)
-    quality = scoreboard.get("backtest_trust_label") or scoreboard.get("backtest_validity")
+    quality = _first_value(scoreboard, ("backtest_trust_label", "backtest_validity"), fallback=None)
     if signal_log.empty and trade_log.empty and quality is None:
-        return _unavailable("Backtest trust unavailable for this instrument.") | {"signal_rows": [], "trade_rows": []}
+        return _unavailable("Backtest trust unavailable for this instrument.") | {"trust": "unavailable", "signal_rows": [], "trade_rows": []}
     metadata_source = scoreboard or (signal_log.iloc[-1] if not signal_log.empty else trade_log.iloc[-1])
-    return {"status": "available", "trust": quality or "available", "signal_rows": signal_log.to_dict("records"), "trade_rows": trade_log.to_dict("records"), "execution_allowed": False, **_provenance_fields(metadata_source)}
+    trust = _value_or(quality, "unavailable")
+    return {"status": "available" if quality is not None else "manual_review", "trust": trust, "signal_rows": signal_log.to_dict("records"), "trade_rows": trade_log.to_dict("records"), "execution_allowed": False, **_provenance_fields(metadata_source)}
 
 
 def _paper_trade_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
