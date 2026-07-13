@@ -1,6 +1,6 @@
 # ETF AI Cockpit Programme Index
 
-> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6, Wave 3 Tasks 7-9 and Wave 4 Tasks 10-16 are independently approved, merged and post-merge verified. Task 10 is closed locally and synchronised to GitHub Issue #81; Tasks 11-16 are implementation-complete with their owning issues still closure-pending strict release/package/audit/export/browser/clean-first-run evidence. The next dependency-valid implementation is Task 17, Score History, Run Comparison and Feature Drivers.
+> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6, Wave 3 Tasks 7-9 and Wave 4 Tasks 10-17 are independently approved, merged and post-merge verified. Task 10 is closed locally and synchronised to GitHub Issue #81; Tasks 11-17 are implementation-complete with their owning issues still closure-pending strict release/package/audit/export/browser/clean-first-run evidence. The next dependency-valid implementation is Task 18, Crowding, Sector/Theme Attribution and Friction-Adjusted Edge.
 
 **Binding inputs:**
 
@@ -305,3 +305,16 @@ Critical or Important findings. `ISSUE-0023`, `ISSUE-0025`, `ISSUE-0054` and
 full release/package, audit/export, clean-first-run and browser/computer-use
 evidence is not yet fresh. Continue with Task 17, Score History, Run
 Comparison and Feature Drivers.
+
+Wave 4 Task 17, Score History, Run Comparison and Feature Drivers, is
+implemented and independently approved through PR 187 at merge commit
+`265b798` (implementation head `e83edfc`). Canonical score and metric history,
+complete-run replacement, legacy compatibility, deterministic run comparison,
+feature-driver classifications and the Scores/Dashboard/What Changed/
+Instrument Detail consumers are present. Four bounded fix/review cycles ended
+with fresh SPEC and CODE approval and no Critical or Important findings;
+focused verification passed 38 tests with Ruff, compileall and diff checks.
+`ISSUE-0067`, `ISSUE-0034` and `ISSUE-0047` remain open as
+implementation-complete/closure-pending because strict package/browser,
+audit/export and clean-first-run evidence is not yet fresh. Continue with
+Task 18, Crowding, Sector/Theme Attribution and Friction-Adjusted Edge.

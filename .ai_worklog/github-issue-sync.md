@@ -259,3 +259,21 @@ authoritative ledgers as part of remote synchronisation.
   UPDATEV2-0022 and UPDATEV2-0028; reconciliation still passes because the
   dated/latest-state resolver agrees with the mapped states. The committed
   local issue ledger and approved specification remain authoritative.
+
+## Ledger refresh after Wave 4 Task 17 - 2026-07-13
+
+- Authenticated `python scripts/sync_github_issues.py --apply` completed with
+  exit 0 after PR 187 merged Task 17. The run reported 98 canonical records,
+  77 local open and 21 local closed records, matching 77/21 mapped GitHub
+  states; all local IDs were unique, mappings valid, states agreed and no
+  duplicate action was required.
+- `ISSUE-0067` maps to GitHub Issue #137, `ISSUE-0034` to #80 and
+  `ISSUE-0047` to #99. Their managed bodies mirror the local
+  implementation-complete/closure-pending status; no issue was closed because
+  strict package/browser, audit/export and clean-first-run evidence remains
+  outstanding.
+- `issues/github_issue_map.json` and `issues/github_issue_sync_report.json`
+  are the deterministic read-back evidence. The known historical contradiction
+  for `ISSUE-0067` remains recorded by the resolver; reconciliation passes.
+  The committed local issue ledger and approved specification remain
+  authoritative.

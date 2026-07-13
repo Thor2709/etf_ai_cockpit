@@ -7,9 +7,9 @@
 | Field | Value |
 |---|---|
 | Updated | 2026-07-13 |
-| Active phase | Wave 4 Task 16 implementation complete and merged; `ISSUE-0023`, `ISSUE-0025`, `ISSUE-0054` and `ISSUE-0055` plus earlier Wave 4 issues closure-pending strict release/audit/browser/clean-first-run evidence; Task 17 next |
+| Active phase | Wave 4 Task 17 implementation complete and merged; `ISSUE-0067`, `ISSUE-0034` and `ISSUE-0047` plus earlier Wave 4 issues closure-pending strict release/audit/browser/clean-first-run evidence; Task 18 next |
 | Active plan | `docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md` |
-| Git state | PR 186 merged Task 16 into `main` at `3143678`; documentation and GitHub reconciliation are committed through `0d1c593`; local `main` matches `origin/main` and is clean |
+| Git state | PR 187 merged Task 17 into `main` at `265b798`; implementation head `e83edfc`; local `main` matches `origin/main` and is clean |
 | Existing closure state | Task 11 issues `ISSUE-0068`, `ISSUE-0018`, `ISSUE-0017` and `ISSUE-0056` are implementation-complete but closure-pending final release/browser/clean-first-run evidence; `ISSUE-0035` is closed locally and on GitHub Issue #81 |
 | Fresh baseline | Task 10 focused 16 and affected 40 passed; compileall/Ruff/source smoke passed; portable build, native/portable smoke, semantic focus, export and authoritative full suite passed; package-inventory rerun passed after removing the merged worktree |
 | Pre-existing type state | recorded mypy failure caused by external stubs and existing typing debt; no new failure attributed |
@@ -23,7 +23,7 @@
 | 1 | governance | Tasks 1-6 independently approved and merged; Task 7 integrated | Task 6 WorkflowController/session trace paths plus Task 7 source-linked UI inventory, controlled recovery and timing/cache evidence | continue with Wave 3 Task 8 Canonical Data Contracts and Provider Registry |
 | 2 | registry and universe | Not started | `UniverseRecord`/optimistic revision/atomic save present | registry dry-run and validator RED suite |
 | 3 | DATA-05 | Not started | no live seed verification has been performed in this programme | retrieve current official identity evidence and write failing seed-contract tests |
-| 4 | storage and evidence | Task 10 closed and synchronised; Tasks 11-16 implementation-complete and merged; fourteen issues closure-pending | Task 16 focused fundamentals/news/provider/UI/audit tests passed; six fix/review cycles ended with fresh independent SPEC/CODE PASS, PR 186 merged at `3143678`; strict package/audit/browser/clean-first-run evidence remains open | begin Task 17: Score History, Run Comparison and Feature Drivers |
+| 4 | storage and evidence | Task 10 closed and synchronised; Tasks 11-17 implementation-complete and merged; seventeen issues closure-pending | Task 17 focused score-history/run-comparison/driver/UI bundle 38 passed; four fix/review cycles ended with fresh independent SPEC/CODE PASS, PR 187 merged at `265b798`; strict package/audit/browser/clean-first-run evidence remains open | begin Task 18: Crowding, Sector/Theme Attribution and Friction-Adjusted Edge |
 | 5 | domain and scoring | Not started | source-aware deterministic scorer present; first-enabled benchmark and legacy ensemble remain | template/benchmark/champion RED suite |
 | 6 | AI and validation | Not started | optional adapter foundations present; authority/caching/validation seams remain | strict forecast-state and fold/trial RED suite |
 | 7 | portfolio | Not started | static holdings/allocation foundation present | immutable ledger RED suite |
@@ -323,5 +323,30 @@ release-hardening tests, optional-provider/UI contracts, Ruff, compileall and
 diff checks passed. The complete repository/package/browser/clean-first-run
 closure gates remain pending; known baseline fixture/package failures are not
 attributed to Task 16. A Minor mixed-direction headline ambiguity recommendation
-is recorded for final triage. The next dependency-valid implementation is
-Wave 4 Task 17, Score History, Run Comparison and Feature Drivers.
+is recorded for final triage. Task 17 is now implemented and merged; its
+three owning issues remain open for strict closure evidence. The next
+dependency-valid implementation is Wave 4 Task 18, Crowding, Sector/Theme
+Attribution and Friction-Adjusted Edge.
+
+### Wave 4 Task 17 integration checkpoint - 2026-07-13
+
+Task 17 implemented canonical local score history and metric history with
+idempotent run/snapshot publication, production empty-run replacement,
+legacy-store compatibility and atomic parquet/CSV mirrors. Run comparison
+covers score/rank, warnings, freshness, model availability, forecasts, news
+inventory, backtest trust and portfolio risk, including previous-only
+instruments. Feature drivers expose required provenance, authority and
+freshness classifications. Scores expanded rows, Dashboard, What Changed and
+Instrument Detail expose the informational outputs; What Changed uses compact
+responsive cards without the prior wide table.
+
+RED/GREEN and review evidence is recorded in `.ai_worklog/task-17-report.md`
+and `.ai_worklog/task-17-fix1-report.md` through
+`.ai_worklog/task-17-fix4-report.md`. Fresh focused verification passed 38
+tests; Ruff, compileall and diff checks passed. The fresh independent reviewer
+approved SPECIFICATION and CODE QUALITY with no Critical or Important findings
+at `e83edfc`. PR 187
+(`https://github.com/Thor2709/etf_ai_cockpit/pull/187`) merged into `main` at
+`265b798`. The owning issues remain open and closure-pending strict
+package/browser, audit/export and clean-first-run evidence; Task 18 is the
+next dependency-valid implementation.

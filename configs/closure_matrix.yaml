@@ -21,6 +21,13 @@ issues:
   title: Local score history and per-instrument score evolution mini charts
   wave: 7
   status: still_open
+  implementation_checkpoint: merged_pr_187_265b798; implementation_head_e83edfc; closure_pending_strict_release_audit_export_browser_clean_first_run
+  implementation_evidence:
+  - .ai_worklog/task-17-report.md
+  - .ai_worklog/task-17-fix1-report.md
+  - .ai_worklog/task-17-fix2-report.md
+  - .ai_worklog/task-17-fix3-report.md
+  - .ai_worklog/task-17-fix4-report.md
   criteria:
   - criterion_id: ISSUE-0067-R01
     text: 'Acceptance criteria: Each completed score-generation run appends a new local score snapshot for every scored ETF/stock.'
@@ -2664,6 +2671,13 @@ issues:
   title: What changed since last run page
   wave: 7
   status: still_open
+  implementation_checkpoint: merged_pr_187_265b798; implementation_head_e83edfc; closure_pending_strict_release_audit_export_browser_clean_first_run
+  implementation_evidence:
+  - .ai_worklog/task-17-report.md
+  - .ai_worklog/task-17-fix1-report.md
+  - .ai_worklog/task-17-fix2-report.md
+  - .ai_worklog/task-17-fix3-report.md
+  - .ai_worklog/task-17-fix4-report.md
   criteria:
   - criterion_id: ISSUE-0034-R01
     text: 'Acceptance criteria: Compare score changes, rank changes, new/removed warnings, freshness changes, model availability changes, forecast changes, news changes,
@@ -3716,6 +3730,13 @@ issues:
   title: Feature-driver explanations for every evidence component
   wave: 7
   status: still_open
+  implementation_checkpoint: merged_pr_187_265b798; implementation_head_e83edfc; closure_pending_strict_release_audit_export_browser_clean_first_run
+  implementation_evidence:
+  - .ai_worklog/task-17-report.md
+  - .ai_worklog/task-17-fix1-report.md
+  - .ai_worklog/task-17-fix2-report.md
+  - .ai_worklog/task-17-fix3-report.md
+  - .ai_worklog/task-17-fix4-report.md
   criteria:
   - criterion_id: ISSUE-0047-R01
     text: 'Acceptance criteria: Table fields `instrument`, `component`, `raw_metric`, `normalised_score`, `direction`, `authority`, `driver_text`, `source_dataset`,

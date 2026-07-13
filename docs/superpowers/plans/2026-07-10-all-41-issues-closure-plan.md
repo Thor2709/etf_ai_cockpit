@@ -1001,8 +1001,13 @@ default. Fresh independent review approved specification compliance and code
 quality with no Critical or Important findings. The strict release/package,
 clean-first-run, audit-export, browser/computer-use and full-suite baseline
 gates remain pending; the Task 16 owning issues stay open and closure-pending.
-The next dependency-valid implementation is Task 17, Score History, Run
-Comparison and Feature Drivers.
+Task 17, Score History, Run Comparison and Feature Drivers, is implemented
+and merged through PR 187 at `265b798` (implementation head `e83edfc`) after
+four bounded fix/review cycles. Fresh focused verification passed 38 tests;
+Ruff, compileall and diff checks passed. The three owning issues remain open
+and closure-pending strict release, audit/export, packaged/browser and
+clean-first-run evidence. The next dependency-valid implementation is Task
+18, Crowding, Sector/Theme Attribution and Friction-Adjusted Edge.
 
 ---
 
@@ -1021,25 +1026,36 @@ Comparison and Feature Drivers.
 - `compare_runs(current_run_id, previous_run_id) -> RunChangeReport`.
 - `build_feature_drivers(scores, ledger) -> pd.DataFrame` emits required driver schema.
 
-- [ ] **Step 1: Write idempotency and no-authority tests**
+- [x] **Step 1: Write idempotency and no-authority tests**
 
 Cover no history, one run, multiple runs, duplicate run replacement, malformed rows, score/component deltas and proof that historical trend/driver text cannot alter current action.
 
-- [ ] **Step 2: Extract existing history/driver logic**
+- [x] **Step 2: Extract existing history/driver logic**
 
 Preserve wrapper functions in `trust_artifacts.py`; migrate current Parquet data through Task 3 migration version 4.
 
-- [ ] **Step 3: Implement complete run comparison**
+- [x] **Step 3: Implement complete run comparison**
 
 Compare scores/ranks, warnings, freshness, model availability, forecasts, news inventory, backtest trust and portfolio risk. Generate structured changes plus plain-English summaries from deterministic templates.
 
-- [ ] **Step 4: Add history and What Changed UI**
+- [x] **Step 4: Add history and What Changed UI**
 
 Expanded score rows show chart, latest/previous/delta and no-history guidance. `/what-changed` shows filters and dashboard digest without horizontal scrolling.
 
 - [ ] **Step 5: Verify history UI/export**
 
 Create two deterministic runs, verify deltas, screenshots and audit history/change entries in source and packaged UI.
+
+Task 17 implementation checkpoint (2026-07-13): the canonical score-history
+and metric-history writers, complete-run replacement and compatibility
+normalisation are implemented; run comparison covers all required dimensions;
+feature-driver classifications and Scores, Dashboard, What Changed and
+Instrument Detail consumers are integrated. Fix/review reports are recorded
+in `.ai_worklog/task-17-fix1-report.md` through
+`.ai_worklog/task-17-fix4-report.md`. Independent review at `e83edfc` approved
+specification compliance and code quality with no Critical or Important
+findings. Step 5 remains unchecked because fresh packaged/browser, screenshot,
+audit/export and clean-first-run evidence has not yet been generated.
 
 ---
 

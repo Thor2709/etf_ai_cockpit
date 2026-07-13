@@ -183,7 +183,7 @@ Selected-issue close rule: none of these issues may be moved to `issues/closed.m
 
 ## ISSUE-0067 - Local score history and per-instrument score evolution mini charts
 
-**Status:** Open, partial; Task 8 implementation is integrated on its branch, but the full package, browser, audit-manifest and closure-matrix gates remain pending. Historical evidence in `evidence/final/*-wave4.md` is retained as a rejected/partial checkpoint.
+**Status:** Open, implementation complete through Wave 4 Task 17 / PR 187; strict package, browser, audit/export, clean-first-run and closure-matrix gates remain pending. Historical evidence in `evidence/final/*-wave4.md` is retained as a rejected/partial checkpoint.
 **Type:** Scores / Storage / UI / Explainability  
 **Priority:** P0/P1  
 **Evidence grade:** High  
@@ -1149,7 +1149,7 @@ schema_version
 
 ## ISSUE-0034 - What changed since last run page
 
-**Status:** Open  
+**Status:** Open, implementation complete through Wave 4 Task 17 / PR 187; strict package, browser, audit/export, clean-first-run and closure-matrix gates remain pending.
 **Type:** UX / Analysis  
 **Priority:** P1  
 **Evidence grade:** High  
@@ -1354,7 +1354,7 @@ schema_version
 
 ## ISSUE-0047 - Feature-driver explanations for every evidence component
 
-**Status:** Open  
+**Status:** Open, implementation complete through Wave 4 Task 17 / PR 187; strict package, browser, audit/export, clean-first-run and closure-matrix gates remain pending.
 **Type:** Explainability / UI  
 **Priority:** P1  
 **Evidence grade:** Moderate  
