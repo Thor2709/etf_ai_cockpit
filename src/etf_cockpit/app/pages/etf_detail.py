@@ -7,8 +7,8 @@ from etf_cockpit.app.components.cards import metric_card, panel, section_header
 from etf_cockpit.app.components.simple_scores import score_colour
 from etf_cockpit.app.components.risk_badges import risk_badge
 from etf_cockpit.app.state import AppState
-from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH, load_fundamental_evidence
-from etf_cockpit.data.news_context import NEWS_CLEAN_PATH, load_news_items
+from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH, latest_fundamental_rows, load_fundamental_evidence
+from etf_cockpit.data.news_context import NEWS_CLEAN_PATH, load_news_items, sort_news_items
 from etf_cockpit.models.forecast_scores import forecast_score_details
 from etf_cockpit.signals.simple_scores import decision_from_score, raw_to_score_10
 
@@ -147,7 +147,7 @@ def _fundamentals_panel(instrument_id: str) -> ft.Control:
     frame = load_fundamental_evidence(FUNDAMENTAL_CLEAN_PATH)
     if frame.empty or "instrument_id" not in frame.columns:
         return panel(ft.Column([section_header("Fundamentals unavailable", "Five-section fundamentals are optional context and cannot authorise an action."), ft.Text("No local fundamentals record is available; missing data is not treated as bad data.", color=theme.MUTED, selectable=True)]))
-    scoped = frame[frame["instrument_id"].astype(str).eq(str(instrument_id))]
+    scoped = latest_fundamental_rows(frame[frame["instrument_id"].astype(str).eq(str(instrument_id))])
     if scoped.empty:
         return panel(ft.Column([section_header("Fundamentals unavailable", "No source-matched record is available for this instrument."), ft.Text("Manual review required; deterministic price scores remain unchanged.", color=theme.MUTED, selectable=True)]))
     row = scoped.iloc[-1]
@@ -158,7 +158,7 @@ def _fundamentals_panel(instrument_id: str) -> ft.Control:
     lines.extend([
         f"Eligibility: {row.get('eligibility', 'not_score_eligible')}",
         f"Source: {row.get('source', row.get('source_authority', 'unavailable'))} | as of {row.get('as_of_date', 'unavailable')}",
-        f"Missing: {row.get('missing_fields', 'none') or 'none'} | Sector-relative: {row.get('sector_relative_status', 'unavailable')}",
+        f"Missing: {row.get('missing_fields', 'none') or 'none'} | Sector-relative: {row.get('sector_relative_status', 'unavailable')} | value={row.get('sector_relative_value', 'unavailable')} | peer={row.get('sector_relative_peer', 'unavailable')} | benchmark={row.get('sector_relative_benchmark', 'unavailable')} | delta={row.get('sector_relative_delta', 'unavailable')} | limitation={row.get('sector_relative_limitation', 'No sector-relative comparison evidence supplied.')}",
         f"Limitations: {row.get('limitations', 'unavailable')}",
         "executable_authority=false",
     ])
@@ -169,7 +169,7 @@ def _news_panel(instrument_id: str) -> ft.Control:
     frame = load_news_items(NEWS_CLEAN_PATH)
     if frame.empty or "instrument_id" not in frame.columns:
         return panel(ft.Column([section_header("News & context unavailable", "News is point-in-time validated context only."), ft.Text("No local news source is available. Ambiguous/current-only items are excluded from backtests.", color=theme.MUTED, selectable=True)]))
-    scoped = frame[frame["instrument_id"].astype(str).eq(str(instrument_id))]
+    scoped = sort_news_items(frame[frame["instrument_id"].astype(str).eq(str(instrument_id))])
     if scoped.empty:
         return panel(ft.Column([section_header("News & context unavailable", "No source-mapped news is available for this instrument."), ft.Text("Manual review required; news cannot change deterministic scores.", color=theme.MUTED, selectable=True)]))
     rows = []

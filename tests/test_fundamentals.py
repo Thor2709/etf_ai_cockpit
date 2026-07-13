@@ -55,6 +55,28 @@ def test_fundamentals_report_staleness_sector_and_vendor_limitations() -> None:
     assert evidence.limitations
 
 
+def test_sector_relative_comparison_preserves_peer_benchmark_delta_and_limitation() -> None:
+    evidence = build_fundamental_evidence(
+        _complete_claims(),
+        "MSFT",
+        "2026-07-10",
+        sector_relative={
+            "value": 8.2,
+            "peer": "Technology large-cap peers",
+            "benchmark": "MSCI World Information Technology",
+            "delta": 1.4,
+            "limitation": "Peer set is provider-defined.",
+        },
+    )
+
+    assert evidence.sector_relative_status == "available"
+    assert evidence.sector_relative_value == 8.2
+    assert evidence.sector_relative_peer == "Technology large-cap peers"
+    assert evidence.sector_relative_benchmark == "MSCI World Information Technology"
+    assert evidence.sector_relative_delta == 1.4
+    assert evidence.sector_relative_limitation == "Peer set is provider-defined."
+
+
 def test_fundamentals_persistence_is_idempotent_and_raw_immutable(tmp_path) -> None:
     from etf_cockpit.data.fundamentals import persist_fundamental_evidence
 
@@ -96,3 +118,21 @@ def test_fundamental_atomic_failure_preserves_existing_clean_generation(tmp_path
     assert clean_path.read_bytes() == before
     assert audit_path.read_bytes() == audit_before
     assert {path.name: path.read_bytes() for path in (tmp_path / "raw").glob("*.json")} == raw_before
+
+
+def test_fundamental_persistence_orders_generations_by_as_of_date(tmp_path) -> None:
+    from etf_cockpit.data.fundamentals import load_fundamental_evidence, persist_fundamental_evidence
+
+    clean_path = tmp_path / "clean.parquet"
+    persist_fundamental_evidence(
+        build_fundamental_evidence({**_complete_claims(), "growth": 9.0}, "MSFT", "2026-07-12"),
+        raw_dir=tmp_path / "raw",
+        clean_path=clean_path,
+    )
+    persist_fundamental_evidence(
+        build_fundamental_evidence({**_complete_claims(), "growth": 8.0}, "MSFT", "2026-07-11"),
+        raw_dir=tmp_path / "raw",
+        clean_path=clean_path,
+    )
+
+    assert list(load_fundamental_evidence(clean_path)["as_of_date"]) == ["2026-07-11", "2026-07-12"]

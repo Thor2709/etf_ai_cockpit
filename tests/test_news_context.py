@@ -116,6 +116,26 @@ def test_news_atomic_failure_preserves_existing_generation_without_orphan_raw(tm
     assert {path.name: path.read_bytes() for path in (tmp_path / "raw").glob("*.json")} == raw_before
 
 
+def test_news_persistence_orders_generations_by_published_then_ingested_time(tmp_path) -> None:
+    from etf_cockpit.data.news_context import load_news_items, persist_news_items
+
+    clean_path = tmp_path / "clean.parquet"
+    newer = NewsItem(
+        "newer", "MSFT", "source", "vendor", "Newer", "2026-07-12T10:00:00+00:00",
+        "2026-07-12T10:05:00+00:00", "https://example.invalid/newer", "medium",
+        instrument_mapping_method="ticker", available_at_decision_time=True,
+    )
+    older = NewsItem(
+        "older", "MSFT", "source", "vendor", "Older", "2026-07-11T10:00:00+00:00",
+        "2026-07-11T10:05:00+00:00", "https://example.invalid/older", "medium",
+        instrument_mapping_method="ticker", available_at_decision_time=True,
+    )
+    persist_news_items([newer], raw_dir=tmp_path / "raw", clean_path=clean_path)
+    persist_news_items([older], raw_dir=tmp_path / "raw", clean_path=clean_path)
+
+    assert list(load_news_items(clean_path)["news_id"]) == ["older", "newer"]
+
+
 def test_news_contradictions_compare_explicit_headline_direction_with_next_close() -> None:
     news = pd.DataFrame([
         {"news_id": "n7", "instrument_id": "MSFT", "headline": "MSFT shares rise after results", "published_at": "2026-07-10T10:00:00+00:00"},

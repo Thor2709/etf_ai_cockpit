@@ -10,7 +10,7 @@ import pandas as pd
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, metric_card, panel, section_header
 from etf_cockpit.app.state import AppState
-from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH, load_fundamental_evidence
+from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH, latest_fundamental_rows, load_fundamental_evidence
 
 
 _FUNDAMENTAL_FIELDS = (
@@ -30,7 +30,7 @@ def screener_page(_page: ft.Page, _state: AppState) -> ft.Control:
     if "instrument_id" not in frame.columns:
         frame = pd.DataFrame()
     if "instrument_id" in frame.columns:
-        frame = frame.sort_values("instrument_id", kind="stable").reset_index(drop=True)
+        frame = latest_fundamental_rows(frame)
 
     rows = _table_rows(frame)
     available_count = sum(_has_five_values(row) for _, row in frame.iterrows()) if not frame.empty else 0
@@ -144,6 +144,11 @@ def _table_rows(frame: pd.DataFrame) -> list[ft.DataRow]:
             ft.DataCell(ft.Text(_display(record.get("warnings"), fallback="none recorded"), color=theme.AMBER if _is_value(record.get("warnings")) else theme.MUTED, size=11, selectable=True)),
             ft.DataCell(ft.Text(_display(record.get("limitations"), fallback="unavailable"), color=theme.MUTED, size=11, selectable=True)),
             ft.DataCell(ft.Text(_display(record.get("sector_relative_status"), fallback="unavailable"), color=theme.CYAN if _is_value(record.get("sector_relative_status")) else theme.MUTED, size=11, selectable=True)),
+            ft.DataCell(ft.Text(_display(record.get("sector_relative_value"), fallback="unavailable"), color=theme.CYAN if _is_value(record.get("sector_relative_value")) else theme.MUTED, size=11, selectable=True)),
+            ft.DataCell(ft.Text(_display(record.get("sector_relative_peer"), fallback="unavailable"), color=theme.MUTED, size=11, selectable=True)),
+            ft.DataCell(ft.Text(_display(record.get("sector_relative_benchmark"), fallback="unavailable"), color=theme.MUTED, size=11, selectable=True)),
+            ft.DataCell(ft.Text(_display(record.get("sector_relative_delta"), fallback="unavailable"), color=theme.CYAN if _is_value(record.get("sector_relative_delta")) else theme.MUTED, size=11, selectable=True)),
+            ft.DataCell(ft.Text(_display(record.get("sector_relative_limitation"), fallback="No sector-relative comparison evidence supplied."), color=theme.MUTED, size=11, selectable=True)),
             ft.DataCell(ft.Text("false", color=theme.GREEN, size=11, selectable=True)),
         ]
         rows.append(ft.DataRow(cells=cells))
@@ -161,6 +166,11 @@ def _column_labels() -> tuple[str, ...]:
         "Warnings",
         "Limitations",
         "Sector-relative",
+        "Sector value",
+        "Sector peer",
+        "Sector benchmark",
+        "Sector delta",
+        "Sector limitation",
         "Executable authority",
     )
 

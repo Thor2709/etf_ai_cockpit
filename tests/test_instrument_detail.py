@@ -196,3 +196,65 @@ def test_instrument_detail_news_panel_renders_complete_provenance_and_authority_
         "executable_authority=false",
     ):
         assert expected in rendered
+
+
+def test_instrument_detail_selects_latest_fundamentals_by_as_of_not_checksum() -> None:
+    snapshot = build_snapshot()
+    instrument_id = snapshot.config.universe.enabled_ids[0]
+    model = build_instrument_detail(
+        snapshot,
+        instrument_id,
+        fundamentals=pd.DataFrame(
+            [
+                {
+                    "instrument_id": instrument_id,
+                    "as_of_date": "2026-07-12",
+                    "evidence_checksum": "0" * 64,
+                    "eligibility": "eligible",
+                    "score_eligible": True,
+                    "source": "vendor",
+                },
+                {
+                    "instrument_id": instrument_id,
+                    "as_of_date": "2026-07-11",
+                    "evidence_checksum": "f" * 64,
+                    "eligibility": "eligible",
+                    "score_eligible": True,
+                    "source": "vendor",
+                },
+            ]
+        ),
+    )
+
+    assert model.sections["fundamentals"]["as_of"] == "2026-07-12"
+
+
+def test_instrument_detail_news_is_sorted_by_published_then_ingested_time() -> None:
+    snapshot = build_snapshot()
+    instrument_id = snapshot.config.universe.enabled_ids[0]
+    model = build_instrument_detail(
+        snapshot,
+        instrument_id,
+        news=pd.DataFrame(
+            [
+                {
+                    "news_id": "newer",
+                    "instrument_id": instrument_id,
+                    "headline": "Newer headline",
+                    "published_at": "2026-07-12T10:00:00+00:00",
+                    "ingested_at": "2026-07-12T10:01:00+00:00",
+                    "item_checksum": "0" * 64,
+                },
+                {
+                    "news_id": "older",
+                    "instrument_id": instrument_id,
+                    "headline": "Older headline",
+                    "published_at": "2026-07-11T10:00:00+00:00",
+                    "ingested_at": "2026-07-11T10:01:00+00:00",
+                    "item_checksum": "f" * 64,
+                },
+            ]
+        ),
+    )
+
+    assert [item["news_id"] for item in model.sections["news"]["items"]] == ["older", "newer"]

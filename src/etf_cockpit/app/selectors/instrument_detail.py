@@ -7,8 +7,8 @@ import pandas as pd
 
 from etf_cockpit.data.fund_documents import build_document_inventory, read_document_registry
 from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
-from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH, load_fundamental_evidence
-from etf_cockpit.data.news_context import NEWS_CLEAN_PATH, load_news_items
+from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH, latest_fundamental_rows, load_fundamental_evidence
+from etf_cockpit.data.news_context import NEWS_CLEAN_PATH, load_news_items, sort_news_items
 from etf_cockpit.data.parsed_disclosures import read_index_methodology_records, read_priips_kid_records
 from etf_cockpit.services import CockpitSnapshot
 
@@ -29,7 +29,7 @@ def _fundamentals_panel(instrument_id: str, frame: pd.DataFrame | None = None) -
     source = frame if isinstance(frame, pd.DataFrame) else load_fundamental_evidence(FUNDAMENTAL_CLEAN_PATH)
     if source.empty or "instrument_id" not in source.columns:
         return {"status": "unavailable", "message": "Fundamental evidence unavailable; no complete local five-section record is registered.", "score_eligible": False}
-    scoped = source[source["instrument_id"].astype(str).eq(str(instrument_id))]
+    scoped = latest_fundamental_rows(source[source["instrument_id"].astype(str).eq(str(instrument_id))])
     if scoped.empty:
         return {"status": "unavailable", "message": "Fundamental evidence unavailable for this instrument.", "score_eligible": False}
     row = scoped.iloc[-1]
@@ -44,6 +44,11 @@ def _fundamentals_panel(instrument_id: str, frame: pd.DataFrame | None = None) -
         "warnings": str(row.get("warnings", "")),
         "limitations": str(row.get("limitations", "unavailable")),
         "sector_relative_status": row.get("sector_relative_status", "unavailable"),
+        "sector_relative_value": row.get("sector_relative_value", "unavailable"),
+        "sector_relative_peer": row.get("sector_relative_peer", "unavailable"),
+        "sector_relative_benchmark": row.get("sector_relative_benchmark", "unavailable"),
+        "sector_relative_delta": row.get("sector_relative_delta", "unavailable"),
+        "sector_relative_limitation": row.get("sector_relative_limitation", "No sector-relative comparison evidence supplied."),
         "executable_authority": False,
     }
 
@@ -52,7 +57,7 @@ def _news_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[s
     source = frame if isinstance(frame, pd.DataFrame) else load_news_items(NEWS_CLEAN_PATH)
     if source.empty or "instrument_id" not in source.columns:
         return {"status": "unavailable", "message": "News unavailable; no timestamp-validated local items are registered.", "items": [], "context_only": True, "executable_authority": False}
-    scoped = source[source["instrument_id"].astype(str).eq(str(instrument_id))]
+    scoped = sort_news_items(source[source["instrument_id"].astype(str).eq(str(instrument_id))])
     if scoped.empty:
         return {"status": "unavailable", "message": "News unavailable for this instrument.", "items": [], "context_only": True, "executable_authority": False}
     items = [_news_item_record(row) for row in scoped.tail(20).to_dict("records")]

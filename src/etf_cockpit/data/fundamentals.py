@@ -22,7 +22,7 @@ from etf_cockpit.core.paths import CLEAN_DIR, RAW_DIR
 from etf_cockpit.data.provenance import sha256_dataframe
 
 
-FUNDAMENTAL_SCHEMA_VERSION = "fundamental_evidence.v2"
+FUNDAMENTAL_SCHEMA_VERSION = "fundamental_evidence.v3"
 FUNDAMENTAL_CLEAN_PATH = CLEAN_DIR / "fundamentals.parquet"
 FUNDAMENTAL_RAW_DIR = RAW_DIR / "fundamentals"
 _FIELDS = ("valuation", "profitability", "leverage", "growth", "shareholder_return")
@@ -46,6 +46,11 @@ class FundamentalEvidence:
     source_authority: str
     sections: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     sector_relative_status: str = "unavailable"
+    sector_relative_value: float | None = None
+    sector_relative_peer: str = ""
+    sector_relative_benchmark: str = ""
+    sector_relative_delta: float | None = None
+    sector_relative_limitation: str = "No sector-relative comparison evidence supplied."
     source: str = "vendor"
     limitations: tuple[str, ...] = ()
     stale_fields: tuple[str, ...] = ()
@@ -127,8 +132,9 @@ def build_fundamental_evidence(
         warnings.append("stale_fundamentals")
     if missing:
         warnings.append("missing_fundamental_fields")
-    sector_status = "available" if sector_relative else "unavailable"
-    if sector_relative is None:
+    sector_data = _normalise_sector_relative(sector_relative)
+    sector_status = "available" if sector_data["status"] == "available" else "unavailable"
+    if sector_status == "unavailable":
         warnings.append("sector_relative_unavailable")
 
     authority = str(source_authority or source or "vendor_unofficial").strip().lower() or "vendor_unofficial"
@@ -151,6 +157,11 @@ def build_fundamental_evidence(
         source_authority=authority,
         sections=sections,
         sector_relative_status=sector_status,
+        sector_relative_value=sector_data["value"],
+        sector_relative_peer=sector_data["peer"],
+        sector_relative_benchmark=sector_data["benchmark"],
+        sector_relative_delta=sector_data["delta"],
+        sector_relative_limitation=sector_data["limitation"],
         source=source_name,
         limitations=limitations,
         stale_fields=tuple(stale_fields),
@@ -181,7 +192,7 @@ def persist_fundamental_evidence(
     combined = pd.concat([existing, pd.DataFrame([row])], ignore_index=True)
     if not combined.empty:
         combined = combined.drop_duplicates(subset=["instrument_id", "evidence_checksum"], keep="last")
-        combined = combined.sort_values(["instrument_id", "evidence_checksum"], kind="stable").reset_index(drop=True)
+        combined = sort_fundamental_evidence(combined)
     audit_payload = {
         "schema_version": FUNDAMENTAL_SCHEMA_VERSION,
         "dataset_type": "fundamentals",
@@ -192,6 +203,14 @@ def persist_fundamental_evidence(
         "source_authority": evidence.source_authority,
         "executable_authority": False,
         "limitations": list(evidence.limitations),
+        "sector_relative": {
+            "status": evidence.sector_relative_status,
+            "value": evidence.sector_relative_value,
+            "peer": evidence.sector_relative_peer or "unavailable",
+            "benchmark": evidence.sector_relative_benchmark or "unavailable",
+            "delta": evidence.sector_relative_delta,
+            "limitation": evidence.sector_relative_limitation,
+        },
     }
     csv_path = clean_path.with_suffix(".csv")
     requests = [
@@ -242,7 +261,77 @@ def merge_fundamental_sources(*sources: Mapping[str, object]) -> dict[str, objec
 
 
 def load_fundamental_evidence(path: Path = FUNDAMENTAL_CLEAN_PATH) -> pd.DataFrame:
-    return _read_clean(Path(path))
+    return sort_fundamental_evidence(_read_clean(Path(path)))
+
+
+def sort_fundamental_evidence(frame: pd.DataFrame) -> pd.DataFrame:
+    """Return deterministic chronological fundamentals without mutating ``frame``."""
+
+    if not isinstance(frame, pd.DataFrame) or frame.empty:
+        return frame.copy() if isinstance(frame, pd.DataFrame) else pd.DataFrame()
+    result = frame.copy()
+    result["_as_of_sort"] = pd.to_datetime(result.get("as_of_date", pd.Series(index=result.index)), errors="coerce")
+    result["_instrument_sort"] = result.get("instrument_id", pd.Series(index=result.index)).astype(str)
+    result["_checksum_sort"] = result.get("evidence_checksum", pd.Series(index=result.index)).astype(str)
+    result = result.sort_values(
+        ["_as_of_sort", "_instrument_sort", "_checksum_sort"],
+        kind="stable",
+        na_position="first",
+    )
+    return result.drop(columns=["_as_of_sort", "_instrument_sort", "_checksum_sort"]).reset_index(drop=True)
+
+
+def latest_fundamental_rows(frame: pd.DataFrame) -> pd.DataFrame:
+    """Select one latest deterministic evidence row per instrument."""
+
+    ordered = sort_fundamental_evidence(frame)
+    if ordered.empty or "instrument_id" not in ordered.columns:
+        return ordered
+    return ordered.groupby(ordered["instrument_id"].astype(str), sort=True, as_index=False, group_keys=False).tail(1).reset_index(drop=True)
+
+
+def _normalise_sector_relative(value: Mapping[str, object] | None) -> dict[str, object]:
+    if not isinstance(value, Mapping) or not value:
+        return {
+            "status": "unavailable",
+            "value": None,
+            "peer": "unavailable",
+            "benchmark": "unavailable",
+            "delta": None,
+            "limitation": "No sector-relative comparison evidence supplied.",
+        }
+    def _number(*keys: str) -> float | None:
+        for key in keys:
+            raw = value.get(key)
+            if raw is None or (isinstance(raw, str) and not raw.strip()):
+                continue
+            try:
+                number = float(raw)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(number):
+                return number
+        return None
+    def _text(*keys: str) -> str:
+        for key in keys:
+            raw = str(value.get(key) or "").strip()
+            if raw:
+                return raw
+        return "unavailable"
+    peer = _text("peer", "peer_group", "peer_set", "peer_label")
+    benchmark = _text("benchmark", "benchmark_id", "benchmark_label")
+    comparison_value = _number("value", "instrument_value", "comparison_value", "metric_value")
+    delta = _number("delta", "relative_delta", "difference", "alpha")
+    limitation = _text("limitation", "limitations", "reason")
+    meaningful = comparison_value is not None or delta is not None or peer != "unavailable" or benchmark != "unavailable"
+    return {
+        "status": "available" if meaningful else "unavailable",
+        "value": comparison_value,
+        "peer": peer,
+        "benchmark": benchmark,
+        "delta": delta,
+        "limitation": limitation if limitation != "unavailable" else "No sector-relative comparison evidence supplied.",
+    }
 
 
 def _evidence_payload(evidence: FundamentalEvidence) -> dict[str, Any]:
@@ -268,6 +357,11 @@ def _clean_row(evidence: FundamentalEvidence, checksum: str) -> dict[str, Any]:
         "warnings": "|".join(evidence.warnings),
         "stale_fields": "|".join(evidence.stale_fields),
         "sector_relative_status": evidence.sector_relative_status,
+        "sector_relative_value": evidence.sector_relative_value,
+        "sector_relative_peer": evidence.sector_relative_peer or "unavailable",
+        "sector_relative_benchmark": evidence.sector_relative_benchmark or "unavailable",
+        "sector_relative_delta": evidence.sector_relative_delta,
+        "sector_relative_limitation": evidence.sector_relative_limitation,
         "source": evidence.source,
         "source_authority": evidence.source_authority,
         "limitations": "|".join(evidence.limitations),
@@ -285,6 +379,19 @@ def _read_clean(path: Path) -> pd.DataFrame:
         frame = pd.read_parquet(path)
         if "executable_authority" in frame.columns:
             frame["executable_authority"] = False
+        defaults: dict[str, object] = {
+            "sector_relative_status": "unavailable",
+            "sector_relative_value": None,
+            "sector_relative_peer": "unavailable",
+            "sector_relative_benchmark": "unavailable",
+            "sector_relative_delta": None,
+            "sector_relative_limitation": "No sector-relative comparison evidence supplied.",
+        }
+        for column, default in defaults.items():
+            if column not in frame.columns:
+                frame[column] = default
+            elif default is not None:
+                frame[column] = frame[column].fillna(default)
         return frame
     except Exception:
         return pd.DataFrame()
@@ -340,8 +447,10 @@ __all__ = [
     "FundamentalPersistenceResult",
     "build_fundamental_evidence",
     "load_fundamental_evidence",
+    "latest_fundamental_rows",
     "merge_fundamental_sources",
     "persist_fundamental_evidence",
     "persist_fundamentals",
+    "sort_fundamental_evidence",
     "write_fundamental_evidence",
 ]

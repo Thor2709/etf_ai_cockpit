@@ -103,3 +103,39 @@ def test_screener_empty_clean_store_is_explicit_unavailable(monkeypatch) -> None
     assert "Fundamentals unavailable" in text
     assert "no canonical rows" in text
     assert "missing metrics are not inferred or scored" in text
+
+
+def test_screener_renders_sector_relative_comparison_values_and_limitation(monkeypatch) -> None:
+    from etf_cockpit.app.pages import screener
+
+    frame = pd.DataFrame(
+        [
+            {
+                "instrument_id": "MSFT",
+                "valuation": 7.0,
+                "profitability": 8.0,
+                "leverage": 5.0,
+                "growth": 9.0,
+                "shareholder_return": 6.0,
+                "eligibility": "eligible",
+                "source": "vendor",
+                "as_of_date": "2026-07-10",
+                "sector_relative_status": "available",
+                "sector_relative_value": 8.2,
+                "sector_relative_peer": "Technology large-cap peers",
+                "sector_relative_benchmark": "MSCI World Information Technology",
+                "sector_relative_delta": 1.4,
+                "sector_relative_limitation": "Peer set is provider-defined.",
+            }
+        ]
+    )
+    monkeypatch.setattr(screener, "load_fundamental_evidence", lambda _path: frame)
+    snapshot = build_snapshot()
+    state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
+
+    text = _visible_text(screener.screener_page(None, state))
+
+    assert "Technology large-cap peers" in text
+    assert "MSCI World Information Technology" in text
+    assert "1.4" in text
+    assert "Peer set is provider-defined." in text

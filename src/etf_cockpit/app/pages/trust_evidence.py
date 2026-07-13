@@ -10,9 +10,9 @@ from etf_cockpit.app.components.cards import evidence_chip, panel, section_heade
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import STATEMENT_FACTS_PATH
 from etf_cockpit.data.fund_documents import import_etf_document
-from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH
+from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH, sort_fundamental_evidence
 from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH, import_etf_holdings_with_document
-from etf_cockpit.data.news_context import build_news_contradiction_rows, load_news_items
+from etf_cockpit.data.news_context import build_news_contradiction_rows, load_news_items, sort_news_items
 from etf_cockpit.data.parsed_disclosures import (
     INDEX_METHODOLOGY_RECORDS_PATH,
     PRIIPS_KID_RECORDS_PATH,
@@ -473,7 +473,12 @@ def _table_panel(label: str, path: Path, columns: list[str]) -> ft.Control:
 def _read_frame(path: Path) -> pd.DataFrame:
     try:
         if path.exists():
-            return pd.read_parquet(path)
+            frame = pd.read_parquet(path)
+            if "published_at" in frame.columns or "ingested_at" in frame.columns:
+                return sort_news_items(frame).iloc[::-1].reset_index(drop=True)
+            if "as_of_date" in frame.columns and "instrument_id" in frame.columns:
+                return sort_fundamental_evidence(frame).iloc[::-1].reset_index(drop=True)
+            return frame
     except Exception:
         pass
     return pd.DataFrame()

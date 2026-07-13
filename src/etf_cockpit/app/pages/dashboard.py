@@ -12,7 +12,7 @@ from etf_cockpit.app.components.cards import evidence_chip, metric_card, panel, 
 from etf_cockpit.app.components.simple_scores import score_colour, simple_score_grouped_sections, simple_score_legend
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import FORECASTS_DIR
-from etf_cockpit.data.news_context import NEWS_CLEAN_PATH, load_news_items
+from etf_cockpit.data.news_context import NEWS_CLEAN_PATH, load_news_items, sort_news_items
 from etf_cockpit.models.forecast_scores import filter_forecasts_for_universe, load_latest_forecasts
 from etf_cockpit.signals.simple_scores import SimpleInstrumentScore, build_simple_instrument_scores
 
@@ -78,7 +78,7 @@ def dashboard_page(page: ft.Page, state: AppState) -> ft.Control:
 def _news_digest(page: ft.Page, state: AppState) -> ft.Control:
     """Show the latest canonical news context without granting authority."""
 
-    frame = load_news_items(NEWS_CLEAN_PATH)
+    frame = sort_news_items(load_news_items(NEWS_CLEAN_PATH))
     if frame.empty:
         body: ft.Control = ft.Text("News unavailable; no timestamp-validated local context is registered.", color=theme.MUTED, selectable=True)
     else:

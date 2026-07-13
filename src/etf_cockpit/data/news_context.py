@@ -156,7 +156,7 @@ def persist_news_items(
     combined = pd.concat([existing, pd.DataFrame(rows)], ignore_index=True)
     if not combined.empty:
         combined = combined.drop_duplicates(subset=["news_id", "item_checksum"], keep="last")
-        combined = combined.sort_values(["news_id", "item_checksum"], kind="stable").reset_index(drop=True)
+        combined = sort_news_items(combined)
     audit_payload = {
         "schema_version": NEWS_SCHEMA_VERSION,
         "dataset_type": "news_context",
@@ -183,7 +183,25 @@ def persist_news_items(
 
 
 def load_news_items(path: Path = NEWS_CLEAN_PATH) -> pd.DataFrame:
-    return _read_clean(Path(path))
+    return sort_news_items(_read_clean(Path(path)))
+
+
+def sort_news_items(frame: pd.DataFrame) -> pd.DataFrame:
+    """Return news ordered by publication/ingestion time and stable identity."""
+
+    if not isinstance(frame, pd.DataFrame) or frame.empty:
+        return frame.copy() if isinstance(frame, pd.DataFrame) else pd.DataFrame()
+    result = frame.copy()
+    result["_published_sort"] = pd.to_datetime(result.get("published_at", pd.Series(index=result.index)), errors="coerce", utc=True)
+    result["_ingested_sort"] = pd.to_datetime(result.get("ingested_at", pd.Series(index=result.index)), errors="coerce", utc=True)
+    result["_news_id_sort"] = result.get("news_id", pd.Series(index=result.index)).astype(str)
+    result["_checksum_sort"] = result.get("item_checksum", pd.Series(index=result.index)).astype(str)
+    result = result.sort_values(
+        ["_published_sort", "_ingested_sort", "_news_id_sort", "_checksum_sort"],
+        kind="stable",
+        na_position="first",
+    )
+    return result.drop(columns=["_published_sort", "_ingested_sort", "_news_id_sort", "_checksum_sort"]).reset_index(drop=True)
 
 
 def build_news_contradiction_rows(news: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
@@ -337,6 +355,7 @@ __all__ = [
     "load_news_items",
     "persist_news_items",
     "persist_news",
+    "sort_news_items",
     "write_news_items",
     "validate_news_item",
 ]
