@@ -127,6 +127,18 @@
     "connector": "authenticated GitHub connector",
     "local_git_sync_limitation": "normal git credential acquisition fails with SEC_E_NO_CREDENTIALS"
   },
+  "task21_remote_sync": {
+    "local_issue_id": "UPDATEV2-0028",
+    "github_issue_number": 168,
+    "local_state": "open",
+    "observed_github_state": "open",
+    "required_action": "none",
+    "implementation_head": "21e3d0a",
+    "pull_request": "https://github.com/Thor2709/etf_ai_cockpit/pull/191",
+    "merge_commit": "6e6406d58db89ae19398e2abf15d0670e3350560",
+    "connector_readback": "passed",
+    "connector": "authenticated GitHub connector required; normal git credentials unavailable"
+  },
   "unresolved_contradictions": [
     {
       "local_issue_id": "ISSUE-0067",

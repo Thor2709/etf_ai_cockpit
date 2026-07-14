@@ -636,7 +636,7 @@ schema_version
 
 ## UPDATEV2-0028 - Report/audit packet expansion for providers, filings, ETF docs and candles (original update ISSUE-0028)
 
-**Status:** Open  
+**Status:** Open - implementation complete; closure pending strict archive/export, package and browser evidence
 **Type:** Audit / Export  
 **Priority:** P1  
 **Evidence grade:** High  

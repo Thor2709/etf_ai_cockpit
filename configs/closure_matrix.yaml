@@ -1547,7 +1547,13 @@ issues:
 - issue_id: UPDATEV2-0028
   title: Report/audit packet expansion for providers, filings, ETF docs and candles (original update ISSUE-0028)
   wave: 8
-  status: closed
+  status: implementation_complete_closure_pending
+  implementation_checkpoint: task21_head_5270d60; closure_pending_strict_archive_export_package_browser
+  implementation_evidence:
+  - .ai_worklog/task-21-report.md
+  - .ai_worklog/task-21-fix-report.md
+  - .ai_worklog/task-21-brief.md
+  - tests/test_complete_audit_packet.py
   criteria:
   - criterion_id: UPDATEV2-0028-R01
     text: 'Acceptance criteria: Audit ZIP contains provider status, filing inventory, ETF document inventory, conflicts and candle evidence.'

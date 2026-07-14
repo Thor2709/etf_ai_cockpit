@@ -1201,23 +1201,38 @@ gates remain explicitly pending. `ISSUE-0036`, `ISSUE-0041`, `ISSUE-0042` and
 - Manifest declares required path, schema version, source authority, SHA-256 and unavailable policy for each artefact.
 - `validate_audit_archive(path) -> AuditValidationReport` verifies required entries and checksums.
 
-- [ ] **Step 1: Write failing complete-manifest test**
+- [x] **Step 1: Write failing complete-manifest test**
 
 Require provider states, identities, statement facts/inventory, ETF documents/holdings/KID/methodology, news validation, conflicts, ledger/components, score/history/changes, drivers, clusters, attribution, edge/cost, health, workflow/session, configs, issue dossiers and checksum manifest.
 
-- [ ] **Step 2: Extend export deterministically**
+- [x] **Step 2: Extend export deterministically**
 
 Include every available canonical artefact; when optional evidence is genuinely unavailable, include a schema-valid unavailable record with reason, not an omitted file or invented row.
 
-- [ ] **Step 3: Harden redaction and external import**
+- [x] **Step 3: Harden redaction and external import**
 
 Scan archive content for configured secrets and common key patterns. Imported external audit remains a note with `executable_authority=false` and cannot alter scores/actions/configuration.
 
-- [ ] **Step 4: UI and extraction proof**
+- [x] **Step 4: UI and extraction proof**
 
 Export through source and packaged UI, show included artefacts/output path, extract to a temporary verification directory and validate every checksum.
 
 - [ ] **Step 5: Wave 8 audit checkpoint**
+
+**Implementation checkpoint 2026-07-14:** Task 21 implementation head
+`5270d60` (worktree documentation head `21e3d0a`) is independently approved for specification compliance and code
+quality. The exporter declares the complete canonical artefact set, writes
+root and evidence checksum manifests with explicit self-hash exclusion,
+records deterministic source-unique unavailable markers, and preserves
+`execution_allowed=false`/`executable_authority=false` for imported notes.
+Validation rejects incomplete strict manifests, malformed checksum maps,
+secret-bearing content, unlisted files and unsafe extraction paths. Bundled
+compileall and diff checks passed. Pytest, Ruff, live archive/export, package
+and browser evidence are unavailable in this environment; Step 5 and the
+owning issue therefore remain closure-pending. PR 191 merged the reviewed
+branch into remote `main` at `6e6406d58db89ae19398e2abf15d0670e3350560`, and
+GitHub Issue #168 was reopened and updated through the authenticated
+connector. Task 22 is now active.
 
 Store archive, extracted manifest report, secret-scan result and browser/computer-use evidence under `evidence/wave8/audit/`.
 

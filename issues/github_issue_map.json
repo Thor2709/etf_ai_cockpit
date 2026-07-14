@@ -1258,16 +1258,16 @@
       "title": "UI workflow/button reliability and progress indicators (original update ISSUE-0027)"
     },
     {
-      "action": "unchanged",
+      "action": "update",
       "github_issue_number": 168,
-      "github_state": "closed",
+      "github_state": "open",
       "github_url": "https://github.com/Thor2709/etf_ai_cockpit/issues/168",
-      "last_synchronised_commit": "da271bc20502526a2a5247e9c0af41ff0f42287b",
+      "last_synchronised_commit": "6e6406d58db89ae19398e2abf15d0670e3350560",
       "local_issue_id": "UPDATEV2-0028",
-      "local_state": "closed",
-      "source_checksum": "f760feba55103ba3ba863d670510cd6a4df6c6e9bfa49e5b4e38fc9eac8c05a6",
-      "source_file": "issues/closed.md",
-      "source_location": "issues/closed.md:596",
+      "local_state": "open",
+      "source_checksum": "68a3b9a35a6328f354574c2ca68b2be5a8097203bfb9a2ecbb9b48ff96d14f3a",
+      "source_file": "issues/open.md",
+      "source_location": "issues/open.md:637",
       "title": "Report/audit packet expansion for providers, filings, ETF docs and candles"
     },
     {

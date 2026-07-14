@@ -321,3 +321,13 @@ authoritative ledgers as part of remote synchronisation.
   post-checkpoint issue-body refresh is pending credential restoration.
 - The local ledger and approved specification remain authoritative. No issue
   state was silently changed and no GitHub issue was deleted.
+### Task 21 synchronisation completed - 2026-07-14
+
+`UPDATEV2-0028` is implementation-complete locally at Task 21 head `21e3d0a`
+but remains open and closure-pending strict archive/export, package and
+browser evidence. PR #191 was merged into remote `main` at
+`6e6406d58db89ae19398e2abf15d0670e3350560`; authenticated connector readback
+reopened and updated GitHub Issue #168, which is now open and matches the
+authoritative local ledger. Normal local Git synchronisation remains blocked
+by `SEC_E_NO_CREDENTIALS`; the remote connector is the source of the remote
+merge and issue readback evidence.
