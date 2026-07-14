@@ -107,3 +107,11 @@ matrix, remote integration and issue transitions are not yet complete. No issue
 is moved to `issues/closed.md` by this bounded checkpoint.
 
 `execution_allowed` remains `false`.
+
+## Post-merge lint correction - 2026-07-15
+
+The fresh post-merge scoped Ruff run identified one unused fixture variable in
+`tests/test_trust_critical_artifacts.py`. The variable was removed without
+changing the test contract. The trust-artifact focused suite passed after the
+correction, as did the scoped Ruff check, compileall and diff check. This is a
+test-quality correction only; no product authority or issue state changed.
