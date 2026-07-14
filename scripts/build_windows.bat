@@ -10,10 +10,25 @@ set NATIVE_DIST=%NATIVE_OUT_ROOT%\%APPNAME%
 set NATIVE_PACK_READY=0
 set BUILD_SMOKE_MODE=portable-native
 
+set "VENV_BACKUP_STAMP=%date%_%time%"
+set "VENV_BACKUP_STAMP=%VENV_BACKUP_STAMP:/=-%"
+set "VENV_BACKUP_STAMP=%VENV_BACKUP_STAMP::=-%"
+set "VENV_BACKUP_STAMP=%VENV_BACKUP_STAMP: =0%"
+set "VENV_BACKUP_STAMP=%VENV_BACKUP_STAMP:.=-%"
+set "VENV_BACKUP_DIR=backups\venv_broken_%VENV_BACKUP_STAMP%"
+
 if exist ".venv\Scripts\python.exe" (
   ".venv\Scripts\python.exe" -c "import sys, numpy, pandas, flet; assert sys.version_info >= (3, 11)" >nul 2>nul
   if errorlevel 1 (
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "$stamp=Get-Date -Format 'yyyyMMdd_HHmmss'; New-Item -ItemType Directory -Force -Path 'backups' | Out-Null; Move-Item -LiteralPath '.venv' -Destination ('backups\\venv_broken_' + $stamp)"
+    if not exist "backups" mkdir "backups"
+    if exist "!VENV_BACKUP_DIR!" (
+      set "VENV_BACKUP_DIR=!VENV_BACKUP_DIR!_!RANDOM!"
+    )
+    move ".venv" "!VENV_BACKUP_DIR!" >nul
+    if errorlevel 1 (
+      echo ERROR: Could not archive broken .venv.
+      exit /b 1
+    )
   )
 )
 
@@ -175,7 +190,7 @@ exit /b 0
   echo     start "" "%%URL%%"
   echo     exit /b 0
   echo   ^)
-  echo   powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Sleep -Seconds 1" ^>nul 2^>nul
+  echo   timeout /t 1 /nobreak ^>nul 2^>nul
   echo ^)
   echo echo Packaged executable did not start the local web UI.
   echo pause

@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from etf_cockpit.data.universe_store import (
+    SPAREBANKEN_ROWS,
     UniverseRecord,
     UniverseRevisionConflict,
     add_record,
@@ -20,7 +21,7 @@ from etf_cockpit.data.universe_store import (
     save_universe,
     validate_universe,
 )
-from etf_cockpit.core.config import load_config
+from etf_cockpit.core.config import _load_universe_config, load_config
 from etf_cockpit.app.pages.universe_manager import filter_records
 
 
@@ -147,6 +148,42 @@ def test_secondary_nong_is_replaced_by_authoritative_sparebanken_fallback(tmp_pa
     assert nong[0].tier == "sparebanken"
     assert nong[0].name == "SpareBank 1 Nord-Norge"
     assert sum(row.tier == "sparebanken" for row in result.records) == 15
+
+
+def test_sparebanken_yaml_and_legacy_import_paths_have_identical_identity(tmp_path: Path) -> None:
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir(parents=True)
+    source_yaml = Path(__file__).resolve().parents[1] / "configs" / "universe.yaml"
+    shutil.copyfile(source_yaml, config_dir / "universe.yaml")
+
+    without_candidates = _load_universe_config(config_dir)
+    candidates_dir = tmp_path / "data" / "raw" / "trade_candidates"
+    candidates_dir.mkdir(parents=True)
+    (candidates_dir / "yahoo_trade_candidates_20260714.csv").write_text(
+        "instrument_id,name,ticker,analysis_tier\n", encoding="utf-8"
+    )
+    with_candidates = _load_universe_config(config_dir)
+
+    expected = {
+        instrument_id: (name, ticker, None if _isin == "needs_verification" else _isin)
+        for name, instrument_id, ticker, _isin in SPAREBANKEN_ROWS
+    }
+    for config in (without_candidates, with_candidates):
+        actual = {
+            record.id: (record.name, record.ticker, record.isin)
+            for record in config.etfs
+            if record.id in expected
+        }
+        assert actual == expected
+    assert {
+        record.id: (record.name, record.ticker, record.isin)
+        for record in without_candidates.etfs
+        if record.id in expected
+    } == {
+        record.id: (record.name, record.ticker, record.isin)
+        for record in with_candidates.etfs
+        if record.id in expected
+    }
 
 
 def test_leveraged_inverse_state_round_trips_and_is_not_score_eligible(tmp_path: Path) -> None:

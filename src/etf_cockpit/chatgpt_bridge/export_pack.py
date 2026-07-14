@@ -168,6 +168,59 @@ def _signal_rows(signals: Iterable[SignalResult], config: AppConfig) -> list[dic
     return rows
 
 
+def _audit_portfolio_holdings(
+    config: AppConfig,
+    allocation: pd.DataFrame,
+    holdings: pd.DataFrame | None = None,
+) -> list[dict[str, object]]:
+    """Include every enabled instrument in the audit allocation export.
+
+    Targets intentionally cover only instruments with approved target weights.
+    The audit packet is configuration-complete, so enabled instruments without
+    a target or current holding are represented by explicit zero weights rather
+    than being silently omitted.
+    """
+
+    columns = ["etf_id", "name", "current_weight", "target_weight", "drift", "role", "region", "sector", "currency"]
+    by_id = {
+        str(row["etf_id"]): row
+        for _, row in allocation.iterrows()
+        if row.get("etf_id") is not None
+    }
+    universe = config.universe.by_id()
+    holding_by_id: dict[str, pd.Series] = {}
+    if isinstance(holdings, pd.DataFrame) and not holdings.empty and "etf_id" in holdings.columns:
+        for _, holding in holdings.iterrows():
+            etf_id = str(holding.get("etf_id") or "").strip()
+            if etf_id:
+                holding_by_id[etf_id] = holding
+    rows: list[dict[str, object]] = []
+    for etf_id in config.universe.configured_enabled_ids:
+        row = by_id.get(str(etf_id))
+        if row is not None:
+            rows.append({column: row.get(column) for column in columns})
+            continue
+        etf = universe.get(str(etf_id))
+        holding = holding_by_id.get(str(etf_id))
+        raw_current_weight = holding.get("current_weight") if holding is not None else None
+        parsed_current_weight = pd.to_numeric(raw_current_weight, errors="coerce")
+        current_weight = float(parsed_current_weight) if pd.notna(parsed_current_weight) else 0.0
+        rows.append(
+            {
+                "etf_id": str(etf_id),
+                "name": etf.name if etf else str(etf_id),
+                "current_weight": current_weight,
+                "target_weight": 0.0,
+                "drift": current_weight,
+                "role": etf.role if etf else "unknown",
+                "region": etf.region if etf else None,
+                "sector": etf.sector if etf else None,
+                "currency": etf.currency if etf else config.targets.base_currency,
+            }
+        )
+    return rows
+
+
 def export_review_pack(
     config: AppConfig,
     holdings: pd.DataFrame,
@@ -186,9 +239,7 @@ def export_review_pack(
         "base_currency": config.targets.base_currency,
         "portfolio_value": float(holdings["market_value_eur"].sum()),
         "cash_weight": max(0.0, 1.0 - float(holdings["current_weight"].sum())),
-        "holdings": allocation[
-            ["etf_id", "name", "current_weight", "target_weight", "drift", "role", "region", "sector", "currency"]
-        ].to_dict(orient="records"),
+        "holdings": _audit_portfolio_holdings(config, allocation, holdings),
         "risk_limits": config.risks.portfolio_limits.model_dump(),
     }
     (export_dir / "00_prompt.md").write_text(CHATGPT_REVIEW_PROMPT, encoding="utf-8")
@@ -439,7 +490,14 @@ def _write_audit_manifest(export_dir: Path, derived_manifest: dict[str, object],
         if candidate.is_file():
             pass
         elif allow_unavailable:
-            marker_name = "session_log_unavailable.txt" if path.endswith("/session.jsonl") else f"{Path(path).stem}_{hashlib.sha256(path.encode()).hexdigest()[:10]}_unavailable.txt"
+            if path.endswith("/session.jsonl"):
+                marker_name = "session_log_unavailable.txt"
+            elif path == "evidence_export/candle_context.csv":
+                # Preserve the established audit-packet marker name used by
+                # downstream readers while keeping the manifest explicit.
+                marker_name = "candle_context_unavailable.txt"
+            else:
+                marker_name = f"{Path(path).stem}_{hashlib.sha256(path.encode()).hexdigest()[:10]}_unavailable.txt"
             marker = f"{Path(path).with_name(marker_name)}".replace("\\", "/")
             marker_path = export_dir / marker
             if not marker_path.is_file():

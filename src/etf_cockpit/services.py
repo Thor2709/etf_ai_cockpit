@@ -858,7 +858,8 @@ def _build_snapshot(force_sample: bool = False) -> CockpitSnapshot:
         prices = prices[prices["etf_id"].astype(str).isin(current_ids)].copy()
     holdings = load_holdings()
     if not holdings.empty and "etf_id" in holdings:
-        holdings = holdings[holdings["etf_id"].astype(str).isin(current_ids)].copy()
+        configured_ids = set(config.universe.configured_enabled_ids)
+        holdings = holdings[holdings["etf_id"].astype(str).isin(configured_ids)].copy()
     holdings_for_validation = holdings if not holdings.empty else None
     data_report = data_service.validate_prices(prices, holdings=holdings_for_validation)
     feature_service = FeatureService(config)

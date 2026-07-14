@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-    "updated_at": "2026-07-13T15:20:00+10:00",
+    "updated_at": "2026-07-14T20:45:00+10:00",
   "active_programme": {
     "name": "2026-07-11-etf-ai-cockpit-approved-programme",
     "programme_index": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-programme-index.md",
     "progress_ledger": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-progress-ledger.md",
-    "phase": "wave5_task20_merged_closure_pending_task21_starting",
-    "next_task": "Wave 5, Task 21: Complete Audit Packet and Non-Executable External Audit Import",
+    "phase": "wave5_task22_reconciliation_review_approved_pending_integration",
+    "next_task": "Wave 5, Task 22: Full Verification, Bug Hunt and Independent Review",
     "git_repository": true,
-    "git_branch": "main",
+    "git_branch": "wave5/task22-reconciliation",
     "baseline": {
       "pytest": 0,
       "ruff": 0,
@@ -801,5 +801,6 @@
     ,"The next dependency-valid implementation is Wave 5 Task 21, Complete Audit Packet and Non-Executable External Audit Import."
     ,"Task 21 worktree checkout triggered a Windows git.exe native memory-read error after metadata creation; root cause is isolated to the checkout phase. The verified c495ee0 tree was populated safely with git archive and the worktree index refreshed with git reset --mixed. Active branch wave5/task21-audit uses .worktrees/TASK21~1; fresh implementer dispatched."
     ,"Wave 5 Task 21 final head 5270d60 passed fresh independent SPEC/CODE review with no Critical or Important findings. Dual checksum manifests, strict complete-audit canonical validation, unique unavailable markers, traversal containment and non-executable import authority are recorded in .ai_worklog/task-21-report.md and task-21-fix-report.md. Bundled compileall and diff checks passed; pytest, Ruff, live archive/export, package and browser evidence remain unavailable. Task 22 is next; UPDATEV2-0028 remains implementation-complete and closure-pending."
+    ,"2026-07-14 Task 22 semantic reconciliation is staged on wave5/task22-reconciliation from origin/main 6e6406d. Obsolete Task 20/21 commits were not replayed. Fresh regression tests corrected Sparebanken YAML identity parity and plain Cancel rejection on explicit order-control calls. Focused affected tests and 20 repeated Windows recovery runs pass; compileall and Ruff/package/browser gates remain pending or unavailable. Fresh independent re-review is required before commit."
   ]
 }

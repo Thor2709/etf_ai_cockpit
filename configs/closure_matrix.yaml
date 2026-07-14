@@ -1547,7 +1547,7 @@ issues:
 - issue_id: UPDATEV2-0028
   title: Report/audit packet expansion for providers, filings, ETF docs and candles (original update ISSUE-0028)
   wave: 8
-  status: implementation_complete_closure_pending
+  status: still_open
   implementation_checkpoint: task21_head_5270d60; closure_pending_strict_archive_export_package_browser
   implementation_evidence:
   - .ai_worklog/task-21-report.md
@@ -3003,7 +3003,7 @@ issues:
 - issue_id: ISSUE-0036
   title: Import/export centre
   wave: 7
-  status: implementation_complete_closure_pending
+  status: still_open
   implementation_checkpoint:
     implementation_head: 1542e65
     pull_request: https://github.com/Thor2709/etf_ai_cockpit/pull/190
@@ -3335,7 +3335,7 @@ issues:
 - issue_id: ISSUE-0041
   title: Accessibility, responsive layout and table usability
   wave: 7
-  status: implementation_complete_closure_pending
+  status: still_open
   implementation_checkpoint:
     implementation_head: 1542e65
     pull_request: https://github.com/Thor2709/etf_ai_cockpit/pull/190
@@ -3452,7 +3452,7 @@ issues:
 - issue_id: ISSUE-0042
   title: Charts, tables and CSV export improvements
   wave: 7
-  status: implementation_complete_closure_pending
+  status: still_open
   implementation_checkpoint:
     implementation_head: 1542e65
     pull_request: https://github.com/Thor2709/etf_ai_cockpit/pull/190
@@ -3569,7 +3569,7 @@ issues:
 - issue_id: ISSUE-0044
   title: Backup, restore, version and changelog
   wave: 7
-  status: implementation_complete_closure_pending
+  status: still_open
   implementation_checkpoint:
     implementation_head: 1542e65
     pull_request: https://github.com/Thor2709/etf_ai_cockpit/pull/190

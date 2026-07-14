@@ -7,11 +7,11 @@
 | Field | Value |
 |---|---|
 | Updated | 2026-07-14 |
-| Active phase | Wave 5 Task 21 implementation complete and independently approved; `UPDATEV2-0028` remains closure-pending strict runtime/export/package/browser evidence; Task 22 next |
+| Active phase | Wave 5 Task 22 semantic reconciliation staged; fresh independent re-review pending; Task 23 deferred |
 | Active plan | `docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md` |
-| Git state | Task 21 branch `wave5/task21-audit` is clean at `5270d60`; GitHub connector integration is pending because local Git credentials fail with `SEC_E_NO_CREDENTIALS` |
+| Git state | Reconciliation branch `wave5/task22-reconciliation` is based on `origin/main` `6e6406d`; staged changes are under fresh review; GitHub connector integration remains pending because local Git credentials fail with `SEC_E_NO_CREDENTIALS` |
 | Existing closure state | Task 11 issues `ISSUE-0068`, `ISSUE-0018`, `ISSUE-0017` and `ISSUE-0056` are implementation-complete but closure-pending final release/browser/clean-first-run evidence; `ISSUE-0035` is closed locally and on GitHub Issue #81 |
-| Fresh baseline | Task 21 bundled compileall and diff checks passed; pytest/Ruff/export/package/browser runtime checks are unavailable in the isolated worktree and remain closure-pending |
+| Fresh baseline | Task 22 affected bundle, 20 repeated recovery runs, cached compileall and staged diff checks passed; Ruff, full-suite, package and browser evidence remain pending or unavailable |
 | Pre-existing type state | recorded mypy failure caused by external stubs and existing typing debt; no new failure attributed |
 | Known historical evidence limitation | Existing package/browser evidence predates this programme and cannot close new work |
 
@@ -433,3 +433,54 @@ and CODE PASS with no Critical or Important findings. Pytest, Ruff, live
 archive/export, package and browser evidence remain unavailable in this
 environment, so `UPDATEV2-0028` remains implementation-complete and
 closure-pending. The next dependency-valid task is Task 22 Full Verification.
+### Wave 5 Task 22 semantic reconciliation and review-fix checkpoint - 2026-07-14
+
+The reconciliation worktree `wave5/task22-reconciliation` is based on
+`origin/main` at `6e6406d58db89ae19398e2abf15d0670e3350560`. Obsolete and
+patch-equivalent Task 20/21 commits were not replayed. The staged Task 22
+change set contains only the verified backup metadata, deterministic recovery,
+audit/export compatibility, configured-universe, simple-score, release-contract
+and execution-boundary work, together with their durable evidence.
+
+The first independent reconciliation review found two Important defects. Tests
+were written first and observed RED: the repository YAML produced five
+Sparebanken identity mismatches versus `SPAREBANKEN_ROWS`, and a plain
+`Cancel` passed through an explicit `order_control(...)` call. The YAML source
+identities and tickers were corrected, and the boundary scanner now rejects
+plain `Cancel` for order/trade controls while preserving generic dialog cancel
+actions. The focused parity, boundary and affected regression tests now pass.
+
+Fresh evidence on the corrected staged tree includes:
+
+- focused parity and execution-boundary tests: pass;
+- affected operations, trust-export, backup/restore, release-contract,
+  scope-boundary and simple-score bundle: pass;
+- 20 repeated Windows concurrent-writer recovery runs: pass;
+- cached CPython `compileall -q src`: pass;
+- staged diff check: pass.
+
+Ruff is unavailable in the cached environment, the repository virtual
+environment is inaccessible, and native/package/browser/full-suite evidence is
+not yet fresh. No issue has been moved between `issues/open.md` and
+`issues/closed.md`; Task 22 and all later closure gates remain open. A fresh
+independent re-review is pending before the reconciliation commit. Task 23
+must not begin until this Task 22 base is approved and committed.
+
+### Wave 5 Task 22 reconciliation review approval checkpoint - 2026-07-14
+
+The staged `wave5/task22-reconciliation` checkpoint remains based on
+`origin/main` `6e6406d`; obsolete Task 20/21 history was not replayed. Fresh
+RED-GREEN fixes now cover audit holding fidelity through `_build_snapshot`,
+Sparebanken name/ticker/ISIN parity across both universe loader paths, and
+exclusion of unresolved ISIN placeholders from reference identity maps while
+pending score presentation retains the visible `needs_verification` marker.
+The focused reconciliation bundle passed, 20 repeated atomic writer recovery
+runs passed, compileall and staged diff checks passed, and a fresh independent
+review approved specification compliance and code quality with no Critical or
+Important findings. The cached full suite still has 11 recorded
+pre-existing/environment/deferred failures (accessible Flet page attachment,
+long-worktree Windows path-length atomic test, and Task 19 fixtures). Ruff,
+package/native/browser and clean-first-run evidence remain unavailable or
+pending. Task 22 is not closed and no issue ledger transition has been made;
+the next task remains Task 22 integration and full closure evidence, with Task
+23 deferred.

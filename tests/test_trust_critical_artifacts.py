@@ -16,7 +16,129 @@ from etf_cockpit.core.config import load_config
 from etf_cockpit.core import session_log
 from etf_cockpit.data import trust_artifacts as trust
 from etf_cockpit.services import build_snapshot
+from etf_cockpit import services as services_module
 from etf_cockpit.signals.simple_scores import SimpleScoreComponent, build_simple_instrument_scores, simple_scoreboard_frame
+
+
+def test_audit_allocation_includes_enabled_manual_review_instruments() -> None:
+    normal = SimpleNamespace(
+        id="NORMAL",
+        name="Normal instrument",
+        role="watchlist",
+        region="Europe",
+        sector="Technology",
+        currency="EUR",
+    )
+    manual = SimpleNamespace(
+        id="MANUAL",
+        name="Manual review instrument",
+        role="watchlist",
+        region="Europe",
+        sector="Derivatives",
+        currency="EUR",
+    )
+    config = SimpleNamespace(
+        universe=SimpleNamespace(
+            etfs=[normal, manual],
+            enabled_ids=["NORMAL"],
+            configured_enabled_ids=["NORMAL", "MANUAL"],
+            by_id=lambda: {"NORMAL": normal, "MANUAL": manual},
+        ),
+        targets=SimpleNamespace(base_currency="EUR"),
+    )
+    allocation = pd.DataFrame(
+        [{
+            "etf_id": "NORMAL",
+            "name": "Normal instrument",
+            "current_weight": 0.2,
+            "target_weight": 0.2,
+            "drift": 0.0,
+            "role": "watchlist",
+            "region": "Europe",
+            "sector": "Technology",
+            "currency": "EUR",
+        }]
+    )
+
+    rows = export_module._audit_portfolio_holdings(config, allocation)
+
+    assert [row["etf_id"] for row in rows] == ["NORMAL", "MANUAL"]
+    assert rows[1]["current_weight"] == 0.0
+    assert rows[1]["target_weight"] == 0.0
+
+
+def test_audit_allocation_preserves_untargeted_enabled_holding_weight() -> None:
+    manual = SimpleNamespace(
+        id="MANUAL",
+        name="Manual review instrument",
+        role="watchlist",
+        region="Europe",
+        sector="Derivatives",
+        currency="EUR",
+    )
+    config = SimpleNamespace(
+        universe=SimpleNamespace(
+            etfs=[manual],
+            enabled_ids=[],
+            configured_enabled_ids=["MANUAL"],
+            by_id=lambda: {"MANUAL": manual},
+        ),
+        targets=SimpleNamespace(base_currency="EUR"),
+    )
+    allocation = pd.DataFrame(columns=["etf_id", "current_weight", "target_weight", "drift"])
+    holdings = pd.DataFrame([{"etf_id": "MANUAL", "current_weight": 0.35}])
+
+    rows = export_module._audit_portfolio_holdings(config, allocation, holdings)
+
+    assert rows == [{
+        "etf_id": "MANUAL",
+        "name": "Manual review instrument",
+        "current_weight": 0.35,
+        "target_weight": 0.0,
+        "drift": 0.35,
+        "role": "watchlist",
+        "region": "Europe",
+        "sector": "Derivatives",
+        "currency": "EUR",
+    }]
+
+
+def test_snapshot_retains_configured_manual_holdings_for_audit_export(monkeypatch) -> None:
+    manual = SimpleNamespace(id="MANUAL", name="Manual review instrument")
+    config = SimpleNamespace(
+        universe=SimpleNamespace(
+            enabled_ids=[],
+            configured_enabled_ids=["MANUAL"],
+        )
+    )
+    holdings = pd.DataFrame([{"etf_id": "MANUAL", "current_weight": 0.35}])
+
+    class FakeDataService:
+        def __init__(self, _config):
+            pass
+
+        def update_prices(self, force_sample=False):
+            return None
+
+        def load_prices(self):
+            return pd.DataFrame(columns=["etf_id", "date"])
+
+        def validate_prices(self, prices, holdings=None):
+            return SimpleNamespace(as_of_date=None, issues=[])
+
+    monkeypatch.setattr(services_module, "configure_logging", lambda: None)
+    monkeypatch.setattr(services_module, "ensure_project_dirs", lambda: None)
+    monkeypatch.setattr(services_module, "load_config", lambda: config)
+    monkeypatch.setattr(services_module, "DataService", FakeDataService)
+    monkeypatch.setattr(services_module, "load_holdings", lambda: holdings.copy())
+    monkeypatch.setattr(services_module, "_current_universe_revision", lambda: "revision")
+    monkeypatch.setattr(services_module, "model_availability", lambda _config: {"timesfm": False, "toto": False})
+    monkeypatch.setattr(services_module, "model_diagnostics", lambda _config: [])
+    monkeypatch.setattr(services_module, "load_latest_forecasts", lambda **_kwargs: pd.DataFrame())
+
+    snapshot = services_module._build_snapshot()
+
+    assert snapshot.holdings.to_dict(orient="records") == [{"etf_id": "MANUAL", "current_weight": 0.35}]
 
 
 def test_correlation_cluster_writer_preserves_nominal_window_and_observed_sample(tmp_path, monkeypatch) -> None:
@@ -518,7 +640,7 @@ def test_audit_export_includes_trust_critical_evidence_and_session_log(tmp_path,
     assert "evidence_export/source_conflicts.csv" in names
     assert "evidence_export/source_conflicts.json" in names
     assert "evidence_export/statement_facts.csv" in names
-    expected_ids = set(state.snapshot.config.universe.enabled_ids)
+    expected_ids = set(state.snapshot.config.universe.configured_enabled_ids)
     actual_ids = [str(item["etf_id"]) for item in portfolio_summary["holdings"]]
     assert set(actual_ids) == expected_ids
     assert len(actual_ids) == len(set(actual_ids))
