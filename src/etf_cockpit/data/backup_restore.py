@@ -12,6 +12,12 @@ from pathlib import Path, PurePosixPath
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group
 
 
+# Named schemas are intentionally allow-listed.  A future-looking label such
+# as ``cockpit.v999`` must not be treated as compatible merely because it has a
+# version-shaped suffix; it may carry fields this runtime cannot interpret.
+_SUPPORTED_NAMED_SCHEMA_VERSIONS = {"cockpit.v1"}
+
+
 @dataclass(frozen=True)
 class BackupManifest:
     archive: Path
@@ -197,7 +203,8 @@ def _validate_payload_schema(name: str, data: bytes) -> str | None:
         try:
             numeric = float(str(value).strip())
         except (TypeError, ValueError):
-            if re.fullmatch(r"[A-Za-z0-9_.-]+\.v[0-9]+", str(value).strip()):
+            named = str(value).strip()
+            if named in _SUPPORTED_NAMED_SCHEMA_VERSIONS:
                 continue
             return f"unsupported_schema_version:{name}:{value}"
         if not 0 < numeric <= 4:

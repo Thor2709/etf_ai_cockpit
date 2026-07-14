@@ -126,6 +126,13 @@ class ImportService:
             raise ValueError("A valid import preview is required before commit")
         if _frame_checksum(preview.frame) != preview.checksum:
             raise ValueError("Import preview is stale or mutated; checksum verification failed")
+        # Re-run the safety contract on the checksum-bound frame.  Callers can
+        # construct ImportPreview values directly, so commit must not trust a
+        # stale/under-validated preview and accidentally misattribute holdings
+        # or point-in-time news.
+        validation_errors, _ = _validate_frame(preview.import_type, preview.frame)
+        if validation_errors:
+            raise ValueError("Import preview failed validation: " + "; ".join(validation_errors))
         destination = self._destination(preview)
         frame = preview.frame.copy(deep=True)
         if preview.import_type == "broker":
@@ -208,7 +215,10 @@ def _validate_frame(import_type: str, frame: pd.DataFrame) -> tuple[list[str], l
     if frame.empty:
         return ["empty_file"], warnings
     columns = {str(column).strip().lower() for column in frame.columns}
-    rss_list = import_type == "news" and _first_column(frame, ("feed_url", "rss_url", "source_url")) is not None
+    # A source_url belongs to an already parsed news item.  Only feed_url/rss_url
+    # represent an RSS list; treating source_url as a feed would let URL-only
+    # rows bypass the headline/publication contract.
+    rss_list = import_type == "news" and _first_column(frame, ("feed_url", "rss_url")) is not None
     required_groups = () if rss_list else _REQUIRED.get(import_type, ())
     for group in required_groups:
         if not columns.intersection(group):
@@ -241,6 +251,14 @@ def _validate_frame(import_type: str, frame: pd.DataFrame) -> tuple[list[str], l
         if weight is not None and (pd.to_numeric(frame[weight], errors="coerce") > 1).any():
             errors.append(f"invalid_weight:{weight}")
     if import_type == "etf_holdings":
+        instrument_column = _first_column(frame, ("instrument_id", "etf_id", "parent_etf_id", "isin", "fund_isin", "ticker"))
+        if instrument_column is not None:
+            instrument_values = frame[instrument_column].astype("string").str.strip()
+            distinct_instruments = instrument_values[instrument_values.notna() & instrument_values.ne("")].unique()
+            if len(distinct_instruments) == 0:
+                errors.append(f"empty_instrument_id:{instrument_column}")
+            elif len(distinct_instruments) > 1:
+                errors.append(f"multiple_instruments_not_allowed:{instrument_column}")
         weight = _first_column(frame, ("weight", "weight_decimal", "weight_percent", "weight_pct"))
         if weight is not None:
             values = pd.to_numeric(frame[weight], errors="coerce")
@@ -258,6 +276,14 @@ def _validate_frame(import_type: str, frame: pd.DataFrame) -> tuple[list[str], l
             elif _first_column(frame, ("headline", "title")) is None:
                 errors.append("rss_feed_list_requires_parsed_items")
         headline_column = _first_column(frame, ("headline", "title"))
+        publication_column = _first_column(frame, ("published_at", "published_date", "date", "as_of_date", "timestamp"))
+        # Parsed news rows are only useful for point-in-time context when their
+        # headline/source URL is paired with a non-blank publication timestamp.
+        if headline_column is not None and _first_column(frame, ("source_url", "url", "link")) is not None:
+            if publication_column is None:
+                errors.append("missing_publication_timestamp")
+            elif _blank_values(frame[publication_column]).any():
+                errors.append(f"blank_publication_timestamp:{publication_column}")
         if not rss_list and (headline_column is None or _blank_values(frame[headline_column]).any()):
             errors.append("empty_headline")
         if not rss_list:

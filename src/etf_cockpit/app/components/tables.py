@@ -22,6 +22,8 @@ class AccessibleTable:
     frame: pd.DataFrame
     search_callback: object
     sort_callback: object
+    search_control: ft.TextField
+    status_control: ft.Text
 
     def search(self, query: str) -> pd.DataFrame:
         return self.search_callback(query)
@@ -39,17 +41,12 @@ def accessible_table(
 ) -> AccessibleTable:
     data = frame.copy() if isinstance(frame, pd.DataFrame) else pd.DataFrame()
     columns = tuple(str(column) for column in data.columns)
-    rows = [
-        ft.DataRow(cells=[ft.DataCell(ft.Text("" if pd.isna(value) else str(value), selectable=True)) for value in row])
-        for row in data.itertuples(index=False, name=None)
-    ]
-    control = ft.DataTable(
-        columns=[ft.DataColumn(ft.Text(column, tooltip=f"Sort by {column}")) for column in columns],
-        rows=rows,
-        data_row_min_height=36,
-        data_row_max_height=56,
-        column_spacing=14,
-    )
+
+    def _rows(view: pd.DataFrame) -> list[ft.DataRow]:
+        return [
+            ft.DataRow(cells=[ft.DataCell(ft.Text("" if pd.isna(value) else str(value), selectable=True)) for value in row])
+            for row in view.itertuples(index=False, name=None)
+        ]
 
     def search_callback(query: str) -> pd.DataFrame:
         text = str(query or "").strip().casefold()
@@ -63,6 +60,52 @@ def accessible_table(
             return data.copy()
         return data.sort_values(column, ascending=bool(ascending), kind="stable", na_position="last").reset_index(drop=True)
 
+    status_control = ft.Text(f"{len(data)} rows; status is shown as text", selectable=True)
+
+    def _update_view(view: pd.DataFrame) -> None:
+        control.rows = _rows(view)
+        status_control.value = f"{len(view)} rows; status is shown as text"
+
+    def _search_changed(event: ft.ControlEvent) -> None:
+        query = getattr(event, "data", None)
+        if query is None:
+            query = search_control.value
+        _update_view(search_callback(str(query or "")))
+
+    search_control = ft.TextField(
+        label=f"Search {table_id}" if searchable else "",
+        visible=searchable,
+        dense=True,
+        on_change=_search_changed if searchable else None,
+    )
+
+    def _sort_event(column: str):
+        def callback(event: ft.ControlEvent) -> None:
+            ascending = bool(getattr(event, "ascending", True))
+            _update_view(sort_callback(column, ascending))
+
+        return callback
+
+    table_columns: list[ft.DataColumn] = []
+    for column in columns:
+        callback = _sort_event(column) if sortable else None
+        try:
+            table_columns.append(ft.DataColumn(ft.Text(column, tooltip=f"Sort by {column}"), on_sort=callback))
+        except TypeError:
+            # Keep compatibility with older Flet releases while preserving
+            # truthful callback metadata for accessibility and tests.
+            data_column = ft.DataColumn(ft.Text(column, tooltip=f"Sort by {column}"))
+            data_column.on_sort = callback
+            table_columns.append(data_column)
+
+    control = ft.DataTable(
+        columns=table_columns,
+        rows=_rows(data),
+        data_row_min_height=36,
+        data_row_max_height=56,
+        column_spacing=14,
+    )
+
     return AccessibleTable(
         control=control,
         table_id=str(table_id),
@@ -72,6 +115,8 @@ def accessible_table(
         frame=data,
         search_callback=search_callback,
         sort_callback=sort_callback,
+        search_control=search_control,
+        status_control=status_control,
     )
 
 

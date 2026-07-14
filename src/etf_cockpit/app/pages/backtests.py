@@ -67,6 +67,7 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
     equity_frame = _equity_drawdown_frame(report.equity_curves)
     chart_descriptor = equity_drawdown_chart(equity_frame)
     price_chart_descriptor = history_chart(state.snapshot.prices, title="Adjusted-price history")
+    recent_evidence = chart_descriptor.data
     strategy_table = accessible_table(report.results, table_id="backtests.strategy-results")
     export_status = ft.Text("CSV exports show the destination path and controlled failure state.", color=theme.MUTED, selectable=True)
 
@@ -76,6 +77,15 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
             export_status.value = f"Export complete: {result.destination} ({result.rows} rows)."
         else:
             export_status.value = f"Export failed: {result.error}; previous output preserved."
+        export_status.color = theme.GREEN if result.ok else theme.RED
+        _page.update()
+
+    def export_strategy_results(_event: ft.ControlEvent) -> None:
+        result = export_table("backtest_strategy_results", strategy_table.frame, EXPORTS_DIR / "backtest_strategy_results.csv")
+        if result.ok:
+            export_status.value = f"Export complete: {result.destination} ({result.rows} rows)."
+        else:
+            export_status.value = f"Export unavailable: {result.error}; no placeholder written."
         export_status.color = theme.GREEN if result.ok else theme.RED
         _page.update()
     diagnostics = [
@@ -126,14 +136,16 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
                 ft.Column(
                     [
                         section_header("Strategy diagnostics", "After-cost results versus buy-and-hold, equal-weight, momentum-only and trend-only baselines."),
+                        strategy_table.search_control,
                         strategy_table.control,
+                        strategy_table.status_control,
                         ft.Text(f"{strategy_table.search_label}; sortable columns: {', '.join(strategy_table.sortable_columns)}", color=theme.MUTED, selectable=True),
                     ],
                     scroll=ft.ScrollMode.AUTO,
                 ),
                 expand=True,
             ),
-            panel(ft.Column([section_header("Price, equity and drawdown evidence", "Adjusted-price history and backtest curves are descriptive evidence only; they cannot authorise broker execution."), price_chart_descriptor.control, chart_descriptor.control, ft.Row([ft.OutlinedButton("Export equity/drawdown CSV", key="backtests.export-equity-drawdown", icon=ft.Icons.DOWNLOAD, on_click=export_backtest)]), export_status], spacing=8)),
+            panel(ft.Column([section_header("Price, equity and drawdown evidence", "Adjusted-price history and backtest curves are descriptive evidence only; they cannot authorise broker execution."), price_chart_descriptor.control, chart_descriptor.control, ft.Text(f"Recent evidence series: {', '.join(recent_evidence) or 'unavailable'}", color=theme.MUTED, selectable=True), ft.Row([ft.OutlinedButton("Export strategy results CSV", key="backtests.export-strategy-results", icon=ft.Icons.DOWNLOAD, on_click=export_strategy_results), ft.OutlinedButton("Export equity/drawdown CSV", key="backtests.export-equity-drawdown", icon=ft.Icons.DOWNLOAD, on_click=export_backtest)]), export_status], spacing=8)),
             panel(ft.Column([section_header("Backtest quality", "Walk-forward and overfitting diagnostics for the scoring method."), ft.Text("\n".join(diagnostics), color=theme.MUTED, selectable=True)])),
             panel(
                 ft.Column(

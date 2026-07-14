@@ -135,6 +135,26 @@ python -m compileall -q src tests
 git diff --check
 ```
 
+## Final blocker follow-up (Wave5 review corrections)
+
+The follow-up review corrections add fail-closed guards for mixed-parent ETF
+holdings previews, news rows that omit a publication timestamp, and named
+restore payload schemas outside the explicit `cockpit.v1` allow-list. The
+Backtests strategy-results table now exposes a visible search field, live sort
+callbacks and a truthful CSV export; history/equity descriptors render recent
+value rows rather than only row-count text. Risk evidence exports now report
+unavailable canonical sources without writing placeholders. Stale
+`import-export.backup-restore` metadata was removed and import/restore
+commit/cancel controls were registered in `configs/ui_acceptance.yaml`.
+Settings now records the `ISSUE-0044` packaged-app update workflow and checksum
+plan.
+
+The focused Python pytest command was attempted with the repository `.venv`
+but Windows returned `Access denied` when creating the interpreter process
+from this sandbox; Ruff and compileall use the same unavailable interpreter.
+Source diff inspection and `git diff --check` remain available; parent review
+must rerun the focused pytest, Ruff and compileall gates before integration.
+
 ## Final blocker follow-up
 
 Fresh review identified additional acceptance gaps. The final follow-up now:

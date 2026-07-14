@@ -450,6 +450,24 @@ def risk_page(_page: ft.Page, state: AppState) -> ft.Control:
         export_status.color = theme.GREEN if result.ok else theme.RED
         _page.update()
 
+    def export_risk_frame(table_id: str, frame: pd.DataFrame, filename: str) -> None:
+        result = export_table(table_id, frame if not frame.empty else None, EXPORTS_DIR / filename)
+        export_status.value = f"Export {'complete' if result.ok else 'unavailable'}: {result.destination}; {result.error or f'{result.rows} rows'}."
+        export_status.color = theme.GREEN if result.ok else theme.AMBER
+        _page.update()
+
+    def export_allocation(_event: ft.ControlEvent) -> None:
+        export_risk_frame("risk_allocation", allocation, "risk_allocation.csv")
+
+    def export_holdings(_event: ft.ControlEvent) -> None:
+        export_risk_frame("risk_holdings", imported_holdings, "risk_holdings.csv")
+
+    def export_correlation(_event: ft.ControlEvent) -> None:
+        export_risk_frame("risk_correlation", correlation.reset_index(), "risk_correlation.csv")
+
+    def export_drawdown(_event: ft.ControlEvent) -> None:
+        export_risk_frame("risk_drawdown", contribution, "risk_drawdown.csv")
+
     return ft.Column(
         [
             ft.Row(
@@ -483,7 +501,7 @@ def risk_page(_page: ft.Page, state: AppState) -> ft.Control:
             _crowding_attribution_panel(),
             _friction_edge_panel(),
             _drawdown_table(contribution),
-            panel(ft.Column([section_header("Risk evidence export", "CSV output is local-only and does not trigger execution."), ft.Row([ft.OutlinedButton("Export risk limits CSV", key="risk.export-limits", icon=ft.Icons.DOWNLOAD, on_click=export_limits)]), export_status], spacing=8)),
+            panel(ft.Column([section_header("Risk evidence export", "CSV output is local-only and does not trigger execution. Empty canonical sources report unavailable and do not write placeholders."), ft.Row([ft.OutlinedButton("Export risk limits CSV", key="risk.export-limits", icon=ft.Icons.DOWNLOAD, on_click=export_limits), ft.OutlinedButton("Export allocation CSV", key="risk.export-allocation", icon=ft.Icons.DOWNLOAD, on_click=export_allocation), ft.OutlinedButton("Export holdings CSV", key="risk.export-holdings", icon=ft.Icons.DOWNLOAD, on_click=export_holdings), ft.OutlinedButton("Export correlation CSV", key="risk.export-correlation", icon=ft.Icons.DOWNLOAD, on_click=export_correlation), ft.OutlinedButton("Export drawdown CSV", key="risk.export-drawdown", icon=ft.Icons.DOWNLOAD, on_click=export_drawdown)], wrap=True), export_status], spacing=8)),
         ],
         expand=True,
         spacing=14,

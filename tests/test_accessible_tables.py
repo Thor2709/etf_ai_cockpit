@@ -38,6 +38,9 @@ def test_accessible_table_search_and_sort_callbacks_are_functional() -> None:
     assert callable(table.sort_callback)
     assert table.search("A")["instrument_id"].tolist() == ["A"]
     assert table.sort("instrument_id")["instrument_id"].tolist() == ["A", "B"]
+    assert table.search_control is not None
+    assert callable(table.search_control.on_change)
+    assert any(callable(column.on_sort) for column in table.control.columns)
 
 
 def test_chart_descriptors_expose_observable_series_data() -> None:
@@ -55,3 +58,13 @@ def test_backtests_page_connects_real_chart_and_accessible_table_helpers() -> No
     source = inspect.getsource(backtests_page)
     assert "history_chart" in source
     assert "accessible_table" in source
+    assert "recent_evidence" in source
+
+
+def test_settings_page_documents_issue_0044_packaged_update_workflow() -> None:
+    from etf_cockpit.app.pages.settings import settings_page
+
+    source = inspect.getsource(settings_page)
+    assert "ISSUE-0044" in source
+    assert "packaged-app update workflow" in source
+    assert "checksum" in source

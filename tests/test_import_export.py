@@ -95,6 +95,29 @@ def test_etf_holdings_import_retains_existing_instruments(tmp_path: Path) -> Non
     assert set(saved["instrument_id"].astype(str)) == {"OTHER", "VWCE"}
 
 
+def test_etf_holdings_preview_rejects_mixed_parent_instruments(tmp_path: Path) -> None:
+    source = tmp_path / "mixed-holdings.csv"
+    pd.DataFrame(
+        {
+            "as_of_date": ["2026-07-10", "2026-07-10"],
+            "etf_id": ["VWCE", "EUNL"],
+            "holding_name": ["Issuer A", "Issuer B"],
+            "weight": [0.5, 0.5],
+        }
+    ).to_csv(source, index=False)
+    preview = validate_import("etf_holdings", source)
+    assert preview.valid is False
+    assert any("instrument" in error or "single" in error for error in preview.errors)
+
+
+def test_news_preview_rejects_headline_source_url_without_publication_date(tmp_path: Path) -> None:
+    source = tmp_path / "undated-news.csv"
+    pd.DataFrame({"headline": ["Headline"], "source_url": ["https://example.test/news"]}).to_csv(source, index=False)
+    preview = validate_import("news", source)
+    assert preview.valid is False
+    assert any("published" in error or "date" in error for error in preview.errors)
+
+
 def test_export_result_reports_path_and_controlled_failure(tmp_path: Path) -> None:
     destination = tmp_path / "scoreboard.csv"
     result = export_table("scoreboard", pd.DataFrame({"score": [1]}), destination)
