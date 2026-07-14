@@ -7,11 +7,11 @@
 | Field | Value |
 |---|---|
 | Updated | 2026-07-14 |
-| Active phase | Wave 5 Task 22 Step 1 evidence recorded but blocked by missing venv tooling, PowerShell crash and pending independent review; `UPDATEV2-0028` remains implementation-complete and closure-pending strict runtime/export/package/browser evidence |
+| Active phase | Wave 5 Task 22 verification evidence recorded but blocked by missing venv/Flet tooling, PowerShell crash and pending independent review; `UPDATEV2-0028` remains implementation-complete and closure-pending strict runtime/export/package/browser evidence |
 | Active plan | `docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md` |
 | Git state | Task 21 branch `wave5/task21-audit` merged through PR 191 at remote `main` commit `6e6406d58db89ae19398e2abf15d0670e3350560`; local Git sync remains unavailable because credentials fail with `SEC_E_NO_CREDENTIALS` |
 | Existing closure state | Task 11 issues `ISSUE-0068`, `ISSUE-0018`, `ISSUE-0017` and `ISSUE-0056` are implementation-complete but closure-pending final release/browser/clean-first-run evidence; `ISSUE-0035` is closed locally and on GitHub Issue #81 |
-| Fresh baseline | Task 21 bundled compileall and diff checks passed; Task 22 commit `f26b622` records bundled compileall pass, blocked venv pytest/Ruff/mypy, PowerShell `0xe0434352`, blocked Windows build and no package; independent Task 22 review remains pending |
+| Fresh baseline | Task 21 bundled compileall and diff checks passed; Task 22 commit `fc713ca` records bundled compileall pass, blocked venv pytest/Ruff/mypy, PowerShell `0xe0434352`, blocked Windows build, missing-Flet source smoke and no package; independent Task 22 review remains pending |
 | Pre-existing type state | recorded mypy failure caused by external stubs and existing typing debt; no new failure attributed |
 | Known historical evidence limitation | Existing package/browser evidence predates this programme and cannot close new work |
 
@@ -440,12 +440,13 @@ with its static/schema/secret/dependency evidence manifest.
 
 ## Wave 5 Task 22 Step 1 checkpoint - 2026-07-14
 
-Task 22 branch `wave5/task22-verification` records evidence at `f26b622`.
+Task 22 branch `wave5/task22-verification` records evidence at `fc713ca`.
 Bundled Python compileall and diff checks pass. The repository venv Python,
 pytest, Ruff and mypy checks are blocked by missing or denied executables;
 PowerShell crashes with Windows exception `0xe0434352` before the clean
 environment script runs; the Windows build cannot find `py`/`python` and
-produces no package. The authoritative local secret scan found no credential
+produces no package. Bundled source smoke also fails before readiness because
+`flet` is absent. The authoritative local secret scan found no credential
 value, while absent generated/package roots remain unavailable. Fresh
 independent reviewer dispatches did not return within the environment window,
 so Task 22 Step 1 is not approved or integrated and no issue closure is
