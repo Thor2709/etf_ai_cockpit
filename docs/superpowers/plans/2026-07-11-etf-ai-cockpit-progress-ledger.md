@@ -7,11 +7,11 @@
 | Field | Value |
 |---|---|
 | Updated | 2026-07-14 |
-| Active phase | Wave 5 Task 22 full verification active; `UPDATEV2-0028` remains implementation-complete and closure-pending strict runtime/export/package/browser evidence |
+| Active phase | Wave 5 Task 22 Step 1 evidence recorded but blocked by missing venv tooling, PowerShell crash and pending independent review; `UPDATEV2-0028` remains implementation-complete and closure-pending strict runtime/export/package/browser evidence |
 | Active plan | `docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md` |
 | Git state | Task 21 branch `wave5/task21-audit` merged through PR 191 at remote `main` commit `6e6406d58db89ae19398e2abf15d0670e3350560`; local Git sync remains unavailable because credentials fail with `SEC_E_NO_CREDENTIALS` |
 | Existing closure state | Task 11 issues `ISSUE-0068`, `ISSUE-0018`, `ISSUE-0017` and `ISSUE-0056` are implementation-complete but closure-pending final release/browser/clean-first-run evidence; `ISSUE-0035` is closed locally and on GitHub Issue #81 |
-| Fresh baseline | Task 21 bundled compileall and diff checks passed; pytest/Ruff/export/package/browser runtime checks are unavailable in the isolated worktree and remain closure-pending; Task 22 verification manifest is now the active evidence target |
+| Fresh baseline | Task 21 bundled compileall and diff checks passed; Task 22 commit `f26b622` records bundled compileall pass, blocked venv pytest/Ruff/mypy, PowerShell `0xe0434352`, blocked Windows build and no package; independent Task 22 review remains pending |
 | Pre-existing type state | recorded mypy failure caused by external stubs and existing typing debt; no new failure attributed |
 | Known historical evidence limitation | Existing package/browser evidence predates this programme and cannot close new work |
 
@@ -24,7 +24,7 @@
 | 2 | registry and universe | Not started | `UniverseRecord`/optimistic revision/atomic save present | registry dry-run and validator RED suite |
 | 3 | DATA-05 | Not started | no live seed verification has been performed in this programme | retrieve current official identity evidence and write failing seed-contract tests |
 | 4 | storage and evidence | Task 10 closed and synchronised; Tasks 11-17 implementation-complete and merged; seventeen issues closure-pending | Task 17 focused score-history/run-comparison/driver/UI bundle 38 passed; four fix/review cycles ended with fresh independent SPEC/CODE PASS, PR 187 merged at `265b798`; strict package/audit/browser/clean-first-run evidence remains open | continue closure evidence while Wave 5 proceeds |
-| 5 | domain and scoring | Tasks 18-21 implementation-complete and merged/approved; `ISSUE-0052`, `ISSUE-0059`, `ISSUE-0064`, `ISSUE-0019`, `ISSUE-0036`, `ISSUE-0041`, `ISSUE-0042`, `ISSUE-0044` and `UPDATEV2-0028` closure-pending | Task 21 head `5270d60` passed fresh SPEC/CODE review; PR 191 merged at `6e6406d58db89ae19398e2abf15d0670e3350560`; compileall and diff checks passed; pytest, Ruff, export/package/browser evidence remains unavailable | Task 22 Step 1: static, schema, secret and dependency checks |
+| 5 | domain and scoring | Tasks 18-21 implementation-complete and merged/approved; `ISSUE-0052`, `ISSUE-0059`, `ISSUE-0064`, `ISSUE-0019`, `ISSUE-0036`, `ISSUE-0041`, `ISSUE-0042`, `ISSUE-0044` and `UPDATEV2-0028` closure-pending | Task 21 head `5270d60` passed fresh SPEC/CODE review; PR 191 merged at `6e6406d58db89ae19398e2abf15d0670e3350560`; Task 22 `f26b622` records bundled compileall pass, blocked venv checks, PowerShell crash and blocked build; independent review pending | Restore verification tooling and complete Task 22 Step 1 review |
 | 5 | domain and scoring | Not started | source-aware deterministic scorer present; first-enabled benchmark and legacy ensemble remain | template/benchmark/champion RED suite |
 | 6 | AI and validation | Not started | optional adapter foundations present; authority/caching/validation seams remain | strict forecast-state and fold/trial RED suite |
 | 7 | portfolio | Not started | static holdings/allocation foundation present | immutable ledger RED suite |
@@ -437,3 +437,16 @@ closure-pending. PR 191 merged the reviewed branch into remote `main` at
 updated GitHub Issue #168. Local Git synchronisation remains blocked by
 `SEC_E_NO_CREDENTIALS`. Task 22 Full Verification is now active, beginning
 with its static/schema/secret/dependency evidence manifest.
+
+## Wave 5 Task 22 Step 1 checkpoint - 2026-07-14
+
+Task 22 branch `wave5/task22-verification` records evidence at `f26b622`.
+Bundled Python compileall and diff checks pass. The repository venv Python,
+pytest, Ruff and mypy checks are blocked by missing or denied executables;
+PowerShell crashes with Windows exception `0xe0434352` before the clean
+environment script runs; the Windows build cannot find `py`/`python` and
+produces no package. The authoritative local secret scan found no credential
+value, while absent generated/package roots remain unavailable. Fresh
+independent reviewer dispatches did not return within the environment window,
+so Task 22 Step 1 is not approved or integrated and no issue closure is
+claimed. Exact evidence is in the branch manifest and report.
