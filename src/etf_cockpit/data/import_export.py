@@ -80,7 +80,9 @@ _DESTINATION_NAMES = {
     "candidate": Path("data/raw/trade_candidates"),
     "manual_notes": Path("data/clean/manual_news.parquet"),
     "manual_news": Path("data/clean/manual_news.parquet"),
-    "news": Path("data/clean/news.parquet"),
+    # Keep imports on the canonical point-in-time news ledger consumed by
+    # ``news_context.load_news_items`` and the dashboard/scoring surfaces.
+    "news": Path("data/clean/news_context.parquet"),
     "etf_metadata": Path("data/clean/etf_metadata.parquet"),
     "etf_holdings": Path("data/clean/etf_holdings.parquet"),
     "prices": Path("data/clean/prices.parquet"),

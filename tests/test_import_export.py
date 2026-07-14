@@ -10,6 +10,8 @@ import pytest
 from etf_cockpit.data import export_tables, import_export
 from etf_cockpit.data.export_tables import export_table
 from etf_cockpit.data.import_export import ImportService, validate_import
+from etf_cockpit.data.news_context import NEWS_CLEAN_PATH, load_news_items
+from etf_cockpit.core.paths import ROOT
 
 
 def test_import_requires_preview_before_commit_and_exports_table(tmp_path: Path) -> None:
@@ -255,7 +257,7 @@ def test_rss_feed_list_index_cannot_escape_raw_directory(tmp_path: Path) -> None
 
 
 def test_news_commit_fails_closed_when_existing_ledger_is_corrupt(tmp_path: Path) -> None:
-    clean_path = tmp_path / "data" / "clean" / "news.parquet"
+    clean_path = tmp_path / "data" / "clean" / "news_context.parquet"
     clean_path.parent.mkdir(parents=True)
     corrupt_bytes = b"not a parquet ledger"
     clean_path.write_bytes(corrupt_bytes)
@@ -278,7 +280,7 @@ def test_news_commit_fails_closed_when_existing_ledger_is_corrupt(tmp_path: Path
 
 
 def test_rss_feed_commit_fails_closed_when_existing_ledger_is_corrupt(tmp_path: Path) -> None:
-    clean_path = tmp_path / "data" / "clean" / "news.parquet"
+    clean_path = tmp_path / "data" / "clean" / "news_context.parquet"
     clean_path.parent.mkdir(parents=True)
     corrupt_bytes = b"not a parquet ledger"
     clean_path.write_bytes(corrupt_bytes)
@@ -361,6 +363,33 @@ def test_news_import_persists_canonical_context_provenance(tmp_path: Path) -> No
     assert {"news_id", "context_only", "executable_authority", "item_checksum"}.issubset(saved.columns)
     assert bool(saved.loc[0, "context_only"]) is True
     assert bool(saved.loc[0, "executable_authority"]) is False
+
+
+def test_news_import_routes_to_news_clean_path_and_consumer_reads_rows(tmp_path: Path) -> None:
+    source = tmp_path / "news.csv"
+    pd.DataFrame(
+        {
+            "news_id": ["canonical-news"],
+            "instrument_id": ["VWCE"],
+            "source": ["rss"],
+            "provider": ["feed"],
+            "headline": ["Markets rise"],
+            "published_at": ["2026-07-10T12:00:00+00:00"],
+            "ingested_at": ["2026-07-10T12:01:00+00:00"],
+            "url": ["https://example.test/canonical-news"],
+            "instrument_mapping_method": ["manual"],
+            "available_at_decision_time": [True],
+        }
+    ).to_csv(source, index=False)
+
+    preview = validate_import("news", source)
+    result = ImportService(tmp_path).commit(preview.preview_id)
+
+    canonical_relative = NEWS_CLEAN_PATH.relative_to(ROOT)
+    assert result.destination == tmp_path / canonical_relative
+    loaded = load_news_items(result.destination)
+    assert set(loaded["news_id"].astype(str)) == {"canonical-news"}
+    assert set(loaded["instrument_id"].astype(str)) == {"VWCE"}
 
 
 def test_news_import_parses_string_false_without_fabricating_availability(tmp_path: Path) -> None:
@@ -479,7 +508,7 @@ def test_parsed_news_explicit_availability_with_ambiguous_metadata_is_ineligible
 
 @pytest.mark.parametrize("import_type", ["news", "rss_list"])
 def test_news_commits_reject_readable_malformed_canonical_ledger_before_writes(tmp_path: Path, import_type: str) -> None:
-    clean_path = tmp_path / "data" / "clean" / "news.parquet"
+    clean_path = tmp_path / "data" / "clean" / "news_context.parquet"
     clean_path.parent.mkdir(parents=True)
     malformed = pd.DataFrame({"news_id": ["old"], "item_checksum": ["checksum"]})
     malformed.to_parquet(clean_path, index=False)

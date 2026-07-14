@@ -294,3 +294,27 @@ be started; the parent worktree must run them with its available runtime.
 
 Parent worktree should rerun the focused Task 20 bundle, scoped Ruff,
 compileall and `git diff --check` before integration.
+
+## Final canonical news-ledger correction
+
+The news import destination now uses the existing `NEWS_CLEAN_PATH` contract
+(`data/clean/news_context.parquet`) relative to the supplied import root. No
+`news.parquet` alias is created. Parsed-news and RSS feed-list commits
+therefore continue through the strict canonical-ledger read and atomic
+publication path, preserving context-only and `executable_authority=false`
+fields. The regression suite now checks the destination against
+`NEWS_CLEAN_PATH`, reads it through `load_news_items`, and targets the same
+canonical path for corrupt-ledger containment tests.
+
+Validation in this worktree:
+
+```text
+git diff --check  # passed
+python -m pytest tests/test_import_export.py -q  # unavailable: no Python executable on PATH
+python -m ruff check src/etf_cockpit/data/import_export.py tests/test_import_export.py  # unavailable: no Python/Ruff executable on PATH
+python -m compileall -q src tests  # unavailable: no Python executable on PATH
+```
+
+The parent worktree must rerun the focused pytest, Ruff and compileall gates
+with its available runtime before integration. `execution_allowed=false`
+remains unchanged.
