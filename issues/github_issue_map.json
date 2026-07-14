@@ -1,7 +1,7 @@
 {
   "apply_mode": true,
   "duplicate_actions": [],
-  "generated_at_utc": "2026-07-13T13:08:24Z",
+  "generated_at_utc": "2026-07-14T02:00:34Z",
   "github_inventory": {
     "remote_count_before_sync": 166
   },
@@ -478,14 +478,14 @@
       "title": "Data health centre"
     },
     {
-      "action": "unchanged",
+      "action": "update",
       "github_issue_number": 83,
       "github_state": "open",
       "github_url": "https://github.com/Thor2709/etf_ai_cockpit/issues/83",
-      "last_synchronised_commit": "da271bc20502526a2a5247e9c0af41ff0f42287b",
+      "last_synchronised_commit": "61f6aa3144d5d1eb28d57052c09a88acb5529bcc",
       "local_issue_id": "ISSUE-0036",
       "local_state": "open",
-      "source_checksum": "cf785adb194a6d4505c754fa3998d9075d187197d05cdd579e7f882153ad328e",
+      "source_checksum": "7a6794975291a10e79b353db7ee7f1dbee9207ad09a6cc3f4bce3bc001c28ade",
       "source_file": "issues/open.md",
       "source_location": "issues/open.md:1177",
       "title": "Import/export centre"
@@ -543,27 +543,27 @@
       "title": "Error handling and recovery centre"
     },
     {
-      "action": "unchanged",
+      "action": "update",
       "github_issue_number": 91,
       "github_state": "open",
       "github_url": "https://github.com/Thor2709/etf_ai_cockpit/issues/91",
-      "last_synchronised_commit": "da271bc20502526a2a5247e9c0af41ff0f42287b",
+      "last_synchronised_commit": "61f6aa3144d5d1eb28d57052c09a88acb5529bcc",
       "local_issue_id": "ISSUE-0041",
       "local_state": "open",
-      "source_checksum": "cf785adb194a6d4505c754fa3998d9075d187197d05cdd579e7f882153ad328e",
+      "source_checksum": "7a6794975291a10e79b353db7ee7f1dbee9207ad09a6cc3f4bce3bc001c28ade",
       "source_file": "issues/open.md",
       "source_location": "issues/open.md:1262",
       "title": "Accessibility, responsive layout and table usability"
     },
     {
-      "action": "unchanged",
+      "action": "update",
       "github_issue_number": 92,
       "github_state": "open",
       "github_url": "https://github.com/Thor2709/etf_ai_cockpit/issues/92",
-      "last_synchronised_commit": "da271bc20502526a2a5247e9c0af41ff0f42287b",
+      "last_synchronised_commit": "61f6aa3144d5d1eb28d57052c09a88acb5529bcc",
       "local_issue_id": "ISSUE-0042",
       "local_state": "open",
-      "source_checksum": "cf785adb194a6d4505c754fa3998d9075d187197d05cdd579e7f882153ad328e",
+      "source_checksum": "7a6794975291a10e79b353db7ee7f1dbee9207ad09a6cc3f4bce3bc001c28ade",
       "source_file": "issues/open.md",
       "source_location": "issues/open.md:1279",
       "title": "Charts, tables and CSV export improvements"
@@ -582,14 +582,14 @@
       "title": "User manual, glossary and in-app explanations"
     },
     {
-      "action": "unchanged",
+      "action": "update",
       "github_issue_number": 95,
       "github_state": "open",
       "github_url": "https://github.com/Thor2709/etf_ai_cockpit/issues/95",
-      "last_synchronised_commit": "da271bc20502526a2a5247e9c0af41ff0f42287b",
+      "last_synchronised_commit": "61f6aa3144d5d1eb28d57052c09a88acb5529bcc",
       "local_issue_id": "ISSUE-0044",
       "local_state": "open",
-      "source_checksum": "cf785adb194a6d4505c754fa3998d9075d187197d05cdd579e7f882153ad328e",
+      "source_checksum": "7a6794975291a10e79b353db7ee7f1dbee9207ad09a6cc3f4bce3bc001c28ade",
       "source_file": "issues/open.md",
       "source_location": "issues/open.md:1313",
       "title": "Backup, restore, version and changelog"
@@ -1299,7 +1299,7 @@
   ],
   "repository": "Thor2709/etf_ai_cockpit",
   "schema_version": "1.1",
-  "source_commit": "da271bc20502526a2a5247e9c0af41ff0f42287b",
+  "source_commit": "b34b54b",
   "unresolved_contradictions": [
     {
       "local_issue_id": "ISSUE-0067",

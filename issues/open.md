@@ -1176,7 +1176,7 @@ remain open; do not close this issue until those gates have fresh evidence.
 
 ## ISSUE-0036 - Import/export centre
 
-**Status:** Open  
+**Status:** Implementation complete; closure pending
 **Type:** Data / UX  
 **Priority:** P1/P2  
 **Evidence grade:** Moderate/High  
@@ -1261,7 +1261,7 @@ remain open; do not close this issue until those gates have fresh evidence.
 
 ## ISSUE-0041 - Accessibility, responsive layout and table usability
 
-**Status:** Open  
+**Status:** Implementation complete; closure pending
 **Type:** UI Quality  
 **Priority:** P1/P2  
 **Evidence grade:** Moderate/High  
@@ -1278,7 +1278,7 @@ remain open; do not close this issue until those gates have fresh evidence.
 
 ## ISSUE-0042 - Charts, tables and CSV export improvements
 
-**Status:** Open  
+**Status:** Implementation complete; closure pending
 **Type:** UI / Export  
 **Priority:** P1/P2  
 **Evidence grade:** Moderate/High  
@@ -1312,7 +1312,7 @@ remain open; do not close this issue until those gates have fresh evidence.
 
 ## ISSUE-0044 - Backup, restore, version and changelog
 
-**Status:** Open  
+**Status:** Implementation complete; closure pending
 **Type:** Reliability / Release  
 **Priority:** P1/P2  
 **Evidence grade:** Moderate/High  
@@ -1744,12 +1744,12 @@ This section records the hands-off run against `docs\superpowers\plans\2026-07-0
 | `ISSUE-0018` | Implementation complete, closure pending | Task 11 added watchlist/universe CRUD, search, tier tabs, persistence and downstream cache/score integration; final release/browser closure evidence remains pending. |
 | `ISSUE-0040` | Still open, partial | Launcher errors are clearer, but a full error handling and recovery centre was not implemented. |
 | `ISSUE-0039` | Still open, partial | Port/cache/rebuild reliability improved; no full performance and caching audit was completed. |
-| `ISSUE-0036` | Still open, deferred | Import/export centre was not implemented in this run. |
-| `ISSUE-0044` | Still open, partial | Versioned alternate portable output helps rebuild reproducibility; backup/restore/changelog UI remains open. |
-| `ISSUE-0041` | Still open, partial | Visual layout was browser-checked; semantic accessibility and responsive table work remain open. |
+| `ISSUE-0036` | Implementation complete, closure pending | Task 20 provides preview-before-commit imports, canonical news/RSS context-only ingestion, atomic publication and central exports. Strict runtime pytest, audit/export, package and browser/computer-use evidence remains pending. |
+| `ISSUE-0044` | Implementation complete, closure pending | Task 20 provides checksum-backed backup/restore validation, approved restore roots, version/changelog metadata and controlled Settings/Import-Export states. Strict runtime pytest, package and backup/restore smoke evidence remains pending. |
+| `ISSUE-0041` | Implementation complete, closure pending | Task 20 adds accessible tables with search/sort status, labels, visible non-colour states and responsive constraints. Fresh packaged/browser/computer-use and keyboard/focus evidence remains pending. |
 | `ISSUE-0017` | Implementation complete, closure pending | Task 11 added local-first onboarding, validated ticker handling and active-state reload; clean first-run/package/browser closure evidence remains pending. |
 | `ISSUE-0019` | Still open, partial | Row expansion works; proper instrument detail page scope remains open. |
-| `ISSUE-0042` | Still open, deferred | Charts/tables/CSV export improvements were not implemented. |
+| `ISSUE-0042` | Implementation complete, closure pending | Task 20 adds visible price/history and equity/drawdown tables/charts plus controlled CSV exports for major analytical surfaces. Strict runtime, package and browser/computer-use evidence remains pending. |
 | `ISSUE-0056` | Implementation complete, closure pending | Task 11 added explicit support decisions, unsupported/high-risk score/provider boundaries and warnings; final UI/package closure evidence remains pending. |
 | `ISSUE-0034` | Still open, deferred | What-changed-since-last-run page was not implemented. |
 

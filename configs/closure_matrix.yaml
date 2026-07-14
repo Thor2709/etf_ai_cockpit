@@ -2997,7 +2997,14 @@ issues:
 - issue_id: ISSUE-0036
   title: Import/export centre
   wave: 7
-  status: still_open
+  status: implementation_complete_closure_pending
+  implementation_checkpoint:
+    implementation_head: 1542e65
+    pull_request: https://github.com/Thor2709/etf_ai_cockpit/pull/190
+    merge_commit: 61f6aa3144d5d1eb28d57052c09a88acb5529bcc
+    review: .ai_worklog/task-20-review-final7.md
+    static_checks: [ruff_passed, compileall_passed, diff_check_passed]
+    pending_gates: [runtime_pytest, audit_export, build, browser, computer_use, clean_first_run]
   criteria:
   - criterion_id: ISSUE-0036-R01
     text: 'Acceptance criteria: Import broker CSV, candidate CSV, manual notes, ETF holdings, news CSV/RSS list.'
@@ -3322,7 +3329,14 @@ issues:
 - issue_id: ISSUE-0041
   title: Accessibility, responsive layout and table usability
   wave: 7
-  status: still_open
+  status: implementation_complete_closure_pending
+  implementation_checkpoint:
+    implementation_head: 1542e65
+    pull_request: https://github.com/Thor2709/etf_ai_cockpit/pull/190
+    merge_commit: 61f6aa3144d5d1eb28d57052c09a88acb5529bcc
+    review: .ai_worklog/task-20-review-final7.md
+    static_checks: [ruff_passed, compileall_passed, diff_check_passed]
+    pending_gates: [runtime_pytest, build, browser, computer_use, keyboard_focus, clean_first_run]
   criteria:
   - criterion_id: ISSUE-0041-R01
     text: 'Acceptance criteria: Desktop and narrow/mobile layout work.'
@@ -3432,7 +3446,14 @@ issues:
 - issue_id: ISSUE-0042
   title: Charts, tables and CSV export improvements
   wave: 7
-  status: still_open
+  status: implementation_complete_closure_pending
+  implementation_checkpoint:
+    implementation_head: 1542e65
+    pull_request: https://github.com/Thor2709/etf_ai_cockpit/pull/190
+    merge_commit: 61f6aa3144d5d1eb28d57052c09a88acb5529bcc
+    review: .ai_worklog/task-20-review-final7.md
+    static_checks: [ruff_passed, compileall_passed, diff_check_passed]
+    pending_gates: [runtime_pytest, audit_export, build, browser, computer_use, clean_first_run]
   criteria:
   - criterion_id: ISSUE-0042-R01
     text: 'Acceptance criteria: Price chart or recent price table per instrument.'
@@ -3542,7 +3563,14 @@ issues:
 - issue_id: ISSUE-0044
   title: Backup, restore, version and changelog
   wave: 7
-  status: still_open
+  status: implementation_complete_closure_pending
+  implementation_checkpoint:
+    implementation_head: 1542e65
+    pull_request: https://github.com/Thor2709/etf_ai_cockpit/pull/190
+    merge_commit: 61f6aa3144d5d1eb28d57052c09a88acb5529bcc
+    review: .ai_worklog/task-20-review-final7.md
+    static_checks: [ruff_passed, compileall_passed, diff_check_passed]
+    pending_gates: [runtime_pytest, audit_export, build, browser, computer_use, clean_first_run]
   criteria:
   - criterion_id: ISSUE-0044-R01
     text: 'Acceptance criteria: Backup local data/configs.'

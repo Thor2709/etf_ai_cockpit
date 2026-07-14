@@ -1,6 +1,6 @@
 # ETF AI Cockpit Programme Index
 
-> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6, Wave 3 Tasks 7-9 and Wave 4 Tasks 10-19 are independently approved, merged and post-merge verified. Task 10 is closed locally and synchronised to GitHub Issue #81; Tasks 11-19 are implementation-complete with their owning issues still closure-pending strict release/package/audit/export/browser/clean-first-run evidence. The next dependency-valid implementation is Task 20, Import/Export, Backup/Restore, Charts and Accessible Tables.
+> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6, Wave 3 Tasks 7-9 and Wave 4 Tasks 10-20 are independently approved, merged and post-merge verified. Task 10 is closed locally and synchronised to GitHub Issue #81; Tasks 11-20 are implementation-complete with their owning issues still closure-pending strict release/package/audit/export/browser/clean-first-run evidence. Task 20 is merged through PR 190 at GitHub merge commit `61f6aa3144d5d1eb28d57052c09a88acb5529bcc`; the next dependency-valid implementation is Task 21, Complete Audit Packet and Non-Executable External Audit Import.
 
 **Binding inputs:**
 
@@ -331,3 +331,15 @@ Comprehensive Instrument Detail, is now merged via PR 189 at `da271bc` with
 implementation head `89f4644`; `ISSUE-0019` remains implementation-complete
 and closure-pending the same strict gates. Continue with Task 20,
 Import/Export, Backup/Restore, Charts and Accessible Tables.
+### Wave 5 Task 20 implementation checkpoint - 2026-07-14
+
+Task 20 (Import/Export, Backup/Restore, Charts and Accessible Tables) completed
+Steps 1-4 on implementation head `1542e65` after the final independent review
+approved specification compliance and code quality. PR 190 was merged to
+GitHub `main` at `61f6aa3144d5d1eb28d57052c09a88acb5529bcc`. The four owning
+issues (`ISSUE-0036`, `ISSUE-0041`, `ISSUE-0042`, `ISSUE-0044`) remain open and
+closure-pending because the strict package, browser/computer-use, runtime
+pytest, audit/export and final release gates are not yet fresh. The next
+dependency-valid implementation is Task 21, Complete Audit Packet and
+Non-Executable External Audit Import. `execution_allowed=false` remains
+unchanged.

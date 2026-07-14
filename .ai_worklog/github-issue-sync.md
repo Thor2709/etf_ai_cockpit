@@ -305,3 +305,19 @@ authoritative ledgers as part of remote synchronisation.
 - The next synchronisation run is required after this durable ledger update;
   the local issue ledger remains authoritative and GitHub Issue #23 must stay
   open with the managed implementation checkpoint.
+
+## Ledger refresh after Wave 5 Task 20 - 2026-07-14
+
+- Task 20 merged through PR 190 to GitHub `main` at
+  `61f6aa3144d5d1eb28d57052c09a88acb5529bcc` after final independent review.
+  `ISSUE-0036`, `ISSUE-0041`, `ISSUE-0042` and `ISSUE-0044` remain open with
+  implementation-complete/closure-pending status; none is eligible for closure
+  until strict runtime, package, audit/export, browser/computer-use and
+  clean-first-run gates are fresh.
+- The normal local sync script cannot be rerun in this environment because the
+  local Git credential helper fails with `SEC_E_NO_CREDENTIALS`; the
+  authenticated GitHub connector was used for PR creation and merge. The prior
+  mapping/report therefore remain the last complete local reconciliation, and a
+  post-checkpoint issue-body refresh is pending credential restoration.
+- The local ledger and approved specification remain authoritative. No issue
+  state was silently changed and no GitHub issue was deleted.

@@ -1150,25 +1150,41 @@ Navigate from representative ETF, stock and Sparebanken score rows; expand all s
 - `export_table(table_id, frame, destination) -> ExportResult`.
 - `create_backup(paths, destination) -> BackupManifest`; `validate_restore(archive) -> RestorePreview`; `commit_restore(preview) -> RestoreResult`.
 
-- [ ] **Step 1: Write preview-before-commit and round-trip tests**
+- [x] **Step 1: Write preview-before-commit and round-trip tests**
 
 Test broker/candidate/notes/holdings/news imports; reject invalid files before commit; export every major table; backup/restore checksums; wrong schema/zip traversal/corrupt archive; preserve current state on failure.
 
-- [ ] **Step 2: Implement central operations service**
+- [x] **Step 2: Implement central operations service**
 
 Reuse Task 3 atomic I/O and migrations. Backup includes data/configs/version/changelog and manifest, excludes secrets and transient build/log caches unless explicitly selected.
 
-- [ ] **Step 3: Build Import/Export UI**
+- [x] **Step 3: Build Import/Export UI**
 
 File picker -> validation preview -> explicit commit -> result path. Export controls show output path and controlled errors. Settings shows app version, last rebuild timestamp, data root and changelog.
 
-- [ ] **Step 4: Improve tables/charts/accessibility**
+- [x] **Step 4: Improve tables/charts/accessibility**
 
 Add search/sort where useful, explicit labels/tooltips, keyboard focus where Flet permits, non-colour status text, desktop/mobile constraints, price/history and backtest equity/drawdown charts, and CSV exports.
 
 - [ ] **Step 5: Computer-use acceptance**
 
 Use Windows computer use for file picker imports, export save paths, backup creation, restore preview/cancel/commit, keyboard navigation and responsive screenshots. Verify no overlap, clipping or unreadable controls.
+
+**Task 20 implementation checkpoint (2026-07-14):** Steps 1-4 are implemented on
+`wave5/task20-import-export`, independently reviewed through the final fresh
+review at implementation head `1542e65`, and integrated through PR 190. GitHub
+merge commit is `61f6aa3144d5d1eb28d57052c09a88acb5529bcc`. The canonical news
+import path is `data/clean/news_context.parquet`; import previews, atomic
+publication, strict ledger validation, RSS context-only evidence, restore-root
+allow-listing, checksums, version/changelog metadata, visible analytical
+tables/charts and controlled exports are covered by the implementation and
+review evidence in `.ai_worklog/task-20-report.md` and
+`.ai_worklog/task-20-review-final7.md`. Scoped Ruff, bundled compileall and
+`git diff --check` passed. The repository venv pytest process is unavailable in
+this Windows environment (`Access is denied`); the bundled interpreter cannot
+load the venv's CPython 3.13 NumPy binaries, so runtime, package and browser
+gates remain explicitly pending. `ISSUE-0036`, `ISSUE-0041`, `ISSUE-0042` and
+`ISSUE-0044` remain open and closure-pending. Step 5 is not complete.
 
 ---
 

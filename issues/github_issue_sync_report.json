@@ -101,7 +101,7 @@
   ],
   "apply_mode": true,
   "duplicate_actions": [],
-  "generated_at_utc": "2026-07-13T13:08:24Z",
+  "generated_at_utc": "2026-07-14T02:00:34Z",
   "reconciliation": {
     "all_local_ids_unique": true,
     "all_mappings_have_github_issue": true,
@@ -115,7 +115,18 @@
   },
   "repository": "Thor2709/etf_ai_cockpit",
   "schema_version": "1.0",
-  "source_commit": "da271bc20502526a2a5247e9c0af41ff0f42287b",
+  "source_commit": "b34b54b",
+  "task20_remote_updates": {
+    "issues": {
+      "ISSUE-0036": {"github_issue_number": 83, "state": "open", "body_updated": true},
+      "ISSUE-0041": {"github_issue_number": 91, "state": "open", "body_updated": true},
+      "ISSUE-0042": {"github_issue_number": 92, "state": "open", "body_updated": true},
+      "ISSUE-0044": {"github_issue_number": 95, "state": "open", "body_updated": true}
+    },
+    "remote_commit": "61f6aa3144d5d1eb28d57052c09a88acb5529bcc",
+    "connector": "authenticated GitHub connector",
+    "local_git_sync_limitation": "normal git credential acquisition fails with SEC_E_NO_CREDENTIALS"
+  },
   "unresolved_contradictions": [
     {
       "local_issue_id": "ISSUE-0067",
