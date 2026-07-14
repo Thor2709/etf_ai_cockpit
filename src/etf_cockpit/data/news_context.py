@@ -130,6 +130,10 @@ def persist_news_items(
     item_tuple = tuple(items)
     if not item_tuple:
         raise ValueError("At least one news item is required.")
+    # Read the current canonical generation before creating raw outputs.  A
+    # corrupt or malformed ledger must fail closed rather than being treated as
+    # empty and replaced by a clean-looking generation.
+    existing = _read_clean_strict(clean_path)
     raw_dir.mkdir(parents=True, exist_ok=True)
     raw_paths: list[Path] = []
     raw_requests: list[AtomicWriteRequest] = []
@@ -152,7 +156,6 @@ def persist_news_items(
         rows.append(_clean_row(item, validation, checksum, raw_path))
         validations.append({"news_id": item.news_id, **asdict(validation), "executable_authority": False})
 
-    existing = _read_clean(clean_path)
     combined = pd.concat([existing, pd.DataFrame(rows)], ignore_index=True)
     if not combined.empty:
         combined = combined.drop_duplicates(subset=["news_id", "item_checksum"], keep="last")
@@ -323,6 +326,46 @@ def _read_clean(path: Path) -> pd.DataFrame:
         return frame
     except Exception:
         return pd.DataFrame()
+
+
+def _read_clean_strict(path: Path) -> pd.DataFrame:
+    """Read an existing canonical ledger, rejecting unreadable generations."""
+
+    if not path.exists():
+        return pd.DataFrame()
+    try:
+        frame = pd.read_parquet(path)
+    except Exception as exc:
+        raise ValueError(f"Canonical news ledger cannot be read: {path}") from exc
+    # A readable Parquet file is not necessarily a canonical news ledger.
+    # Require the fields needed to revalidate point-in-time provenance and
+    # authority before appending a new generation.  A small set of aliases is
+    # accepted for ledgers produced by earlier writers, but authority fields
+    # themselves are never defaulted on the strict path.
+    required_groups = (
+        ("schema_version",),
+        ("news_id",),
+        ("item_checksum",),
+        ("published_at",),
+        ("ingested_at",),
+        ("available_at_decision_time",),
+        ("backtest_eligible",),
+        ("context_only",),
+        ("executable_authority",),
+        ("timestamp_confidence", "timestamp_status"),
+        ("instrument_id",),
+        ("instrument_mapping_method",),
+        ("source_url", "url"),
+        ("provider_name", "provider"),
+        ("source_authority", "source"),
+        ("raw_path",),
+    )
+    missing = ["/".join(group) for group in required_groups if not set(group).intersection(frame.columns)]
+    if missing:
+        raise ValueError(f"Canonical news ledger has unsupported schema; missing: {', '.join(missing)}")
+    frame["context_only"] = True
+    frame["executable_authority"] = False
+    return frame
 
 
 def _frame_checksum(frame: pd.DataFrame) -> str:
