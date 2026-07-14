@@ -104,7 +104,6 @@ def test_audit_allocation_preserves_untargeted_enabled_holding_weight() -> None:
 
 
 def test_snapshot_retains_configured_manual_holdings_for_audit_export(monkeypatch) -> None:
-    manual = SimpleNamespace(id="MANUAL", name="Manual review instrument")
     config = SimpleNamespace(
         universe=SimpleNamespace(
             enabled_ids=[],
