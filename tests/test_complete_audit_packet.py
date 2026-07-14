@@ -5,7 +5,48 @@ import json
 import zipfile
 from pathlib import Path
 
-from etf_cockpit.chatgpt_bridge.audit_packet import validate_audit_archive
+from etf_cockpit.chatgpt_bridge.audit_packet import extract_and_validate_audit_archive, validate_audit_archive
+from etf_cockpit.chatgpt_bridge import export_pack
+
+
+COMPLETE_AUDIT_ARTEFACTS = {
+    "evidence_export/provider_probe_results.csv",
+    "evidence_export/instrument_identity.csv",
+    "evidence_export/statement_facts.csv",
+    "evidence_export/filings_statements.csv",
+    "evidence_export/fund_documents.csv",
+    "evidence_export/fund_holdings.csv",
+    "evidence_export/etf_disclosures.csv",
+    "evidence_export/priips_kid_records.csv",
+    "evidence_export/index_methodology_records.csv",
+    "evidence_export/news_context.csv",
+    "evidence_export/news_timestamp_validation.csv",
+    "evidence_export/source_conflicts.csv",
+    "evidence_export/evidence_ledger.csv",
+    "evidence_export/score_components.csv",
+    "evidence_export/score_history.csv",
+    "evidence_export/score_metric_history.csv",
+    "evidence_export/feature_drivers.csv",
+    "evidence_export/correlation_clusters.csv",
+    "evidence_export/benchmark_attribution.csv",
+    "evidence_export/data_health.csv",
+    "evidence_export/session.jsonl",
+    "evidence_export/workflow.jsonl",
+    "evidence_export/configs/data_providers_redacted.json",
+    "evidence_export/configs/audit_manifest.yaml",
+    "evidence_export/project_docs/issue_dossiers.json",
+    "evidence_export/checksum_manifest.json",
+    "checksum_manifest.json",
+}
+
+
+def test_generated_audit_manifest_declares_complete_canonical_artefact_set(tmp_path: Path) -> None:
+    export_pack._write_audit_manifest(tmp_path, {}, {})
+    manifest = json.loads((tmp_path / "audit_manifest.json").read_text(encoding="utf-8"))
+    required = {str(item["path"]) for item in manifest["required"]}
+    assert COMPLETE_AUDIT_ARTEFACTS <= required
+    for item in manifest["required"]:
+        assert {"path", "schema_version", "source_authority", "sha256", "allow_unavailable"} <= set(item)
 
 
 def test_audit_archive_manifest_checksums_and_unavailable_policy(tmp_path: Path) -> None:
@@ -125,3 +166,67 @@ def test_allowed_unavailable_path_without_marker_fails(tmp_path: Path) -> None:
 
     assert report.valid is False
     assert "unavailable_marker_missing:candle_context_unavailable.txt" in report.missing
+
+
+def test_strict_manifest_rejects_missing_schema_and_checksum(tmp_path: Path) -> None:
+    archive_path = tmp_path / "strict-invalid.zip"
+    manifest = {
+        "schema_version": 1,
+        "contract": "complete-audit-v1",
+        "required": [{"path": "session.jsonl", "allow_unavailable": False}],
+        "checksums": {},
+    }
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("session.jsonl", b"session")
+        archive.writestr("audit_manifest.json", json.dumps(manifest))
+    report = validate_audit_archive(archive_path)
+    assert report.valid is False
+    assert "required_field_missing:schema_version" in report.missing
+    assert "required_sha_missing:session.jsonl" in report.checksum_errors
+
+
+def test_strict_manifest_requires_complete_canonical_paths_and_object_checksums(tmp_path: Path) -> None:
+    archive_path = tmp_path / "strict-empty.zip"
+    manifest = {
+        "schema_version": 1,
+        "contract": "complete-audit-v1",
+        "required": [],
+        "checksums": [],
+    }
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("audit_manifest.json", json.dumps(manifest))
+    report = validate_audit_archive(archive_path)
+    assert report.valid is False
+    assert "checksums_not_object" in report.missing
+    assert "canonical_required_missing:checksum_manifest.json" in report.missing
+
+
+def test_archive_extraction_rejects_path_traversal(tmp_path: Path) -> None:
+    archive_path = tmp_path / "traversal.zip"
+    payload = b"safe"
+    digest = hashlib.sha256(payload).hexdigest()
+    manifest = {
+        "schema_version": 1,
+        "required": [{
+            "path": "safe.txt",
+            "allow_unavailable": False,
+            "sha256": digest,
+        }],
+        "checksums": {"safe.txt": digest, "../outside.txt": hashlib.sha256(b"unsafe").hexdigest()},
+    }
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("safe.txt", payload)
+        archive.writestr("../outside.txt", b"unsafe")
+        archive.writestr("audit_manifest.json", json.dumps(manifest))
+    report = extract_and_validate_audit_archive(archive_path, tmp_path / "extract")
+    assert report.valid is False
+    assert "extract_path_traversal" in report.checksum_errors
+
+
+def test_unavailable_markers_are_unique_for_same_stem(tmp_path: Path) -> None:
+    manifest: dict[str, object] = {}
+    export_pack._copy_evidence_file(tmp_path / "news_context.csv", tmp_path / "evidence", manifest)
+    export_pack._copy_evidence_file(tmp_path / "news_context.parquet", tmp_path / "evidence", manifest)
+    included = list(manifest["included"])
+    assert len(included) == 2
+    assert len(set(included)) == 2
