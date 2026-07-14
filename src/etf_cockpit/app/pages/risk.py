@@ -13,6 +13,8 @@ from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH, normalise_holding
 from etf_cockpit.data.trust_artifacts import CORRELATION_CLUSTERS_PATH, BENCHMARK_ATTRIBUTION_PATH
 from etf_cockpit.data.reference_data import load_reference_dataset
 from etf_cockpit.core.paths import DERIVED_DIR
+from etf_cockpit.core.paths import EXPORTS_DIR
+from etf_cockpit.data.export_tables import export_table
 from etf_cockpit.portfolio.allocation import allocation_frame, exposure_summary
 from etf_cockpit.portfolio.risk_analytics import drawdown_contribution, exposure_limit_report, return_correlation_matrix, underlying_holdings_exposure
 
@@ -440,6 +442,32 @@ def risk_page(_page: ft.Page, state: AppState) -> ft.Control:
     imported_holdings = _load_holdings_evidence()
     eligible_holdings = _exposure_eligible_holdings(imported_holdings)
     top_contributor = contribution.iloc[0]["etf_id"] if not contribution.empty else "n/a"
+    export_status = ft.Text("Risk tables show text status independent of colour.", color=theme.MUTED, selectable=True)
+
+    def export_limits(_event: ft.ControlEvent) -> None:
+        result = export_table("risk_limits", limit_report, EXPORTS_DIR / "risk_limits.csv")
+        export_status.value = f"Export {'complete' if result.ok else 'failed'}: {result.destination}; {result.error or f'{result.rows} rows'}."
+        export_status.color = theme.GREEN if result.ok else theme.RED
+        _page.update()
+
+    def export_risk_frame(table_id: str, frame: pd.DataFrame, filename: str) -> None:
+        result = export_table(table_id, frame if not frame.empty else None, EXPORTS_DIR / filename)
+        export_status.value = f"Export {'complete' if result.ok else 'unavailable'}: {result.destination}; {result.error or f'{result.rows} rows'}."
+        export_status.color = theme.GREEN if result.ok else theme.AMBER
+        _page.update()
+
+    def export_allocation(_event: ft.ControlEvent) -> None:
+        export_risk_frame("risk_allocation", allocation, "risk_allocation.csv")
+
+    def export_holdings(_event: ft.ControlEvent) -> None:
+        export_risk_frame("risk_holdings", imported_holdings, "risk_holdings.csv")
+
+    def export_correlation(_event: ft.ControlEvent) -> None:
+        export_risk_frame("risk_correlation", correlation.reset_index(), "risk_correlation.csv")
+
+    def export_drawdown(_event: ft.ControlEvent) -> None:
+        export_risk_frame("risk_drawdown", contribution, "risk_drawdown.csv")
+
     return ft.Column(
         [
             ft.Row(
@@ -473,6 +501,7 @@ def risk_page(_page: ft.Page, state: AppState) -> ft.Control:
             _crowding_attribution_panel(),
             _friction_edge_panel(),
             _drawdown_table(contribution),
+            panel(ft.Column([section_header("Risk evidence export", "CSV output is local-only and does not trigger execution. Empty canonical sources report unavailable and do not write placeholders."), ft.Row([ft.OutlinedButton("Export risk limits CSV", key="risk.export-limits", icon=ft.Icons.DOWNLOAD, on_click=export_limits), ft.OutlinedButton("Export allocation CSV", key="risk.export-allocation", icon=ft.Icons.DOWNLOAD, on_click=export_allocation), ft.OutlinedButton("Export holdings CSV", key="risk.export-holdings", icon=ft.Icons.DOWNLOAD, on_click=export_holdings), ft.OutlinedButton("Export correlation CSV", key="risk.export-correlation", icon=ft.Icons.DOWNLOAD, on_click=export_correlation), ft.OutlinedButton("Export drawdown CSV", key="risk.export-drawdown", icon=ft.Icons.DOWNLOAD, on_click=export_drawdown)], wrap=True), export_status], spacing=8)),
         ],
         expand=True,
         spacing=14,
