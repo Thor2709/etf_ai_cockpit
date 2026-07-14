@@ -220,3 +220,32 @@ python -m ruff check src/etf_cockpit/app/pages/import_export.py
 python -m compileall -q src tests
 git diff --check
 ```
+
+## Final reviewer blocker correction - news provenance
+
+### RED
+
+Added focused regression coverage for a parsed news row with a
+timezone-aware publication timestamp but no ingestion or availability fields,
+and for an explicit `available_at_decision_time=true` claim without an
+ingestion timestamp.  The available Python command paths were attempted, but
+this sandbox could not start Python (`python` is not installed on PATH and the
+repository `.venv` executable returned Windows `Access denied`).
+
+### GREEN/refactor
+
+- News imports no longer substitute `published_at` for missing `ingested_at`;
+  the canonical news validator therefore persists an empty ingestion value and
+  marks the row unavailable/backtest-ineligible.
+- Missing or unparseable availability defaults to `False`; explicit string
+  `"false"` remains false.  Explicit positive availability now requires an
+  ingestion column and fails closed when it is absent, preserving the
+  context-only RSS/feed-list contract.
+- Accessible-table search treats user text literally (`regex=False`), so
+  punctuation cannot raise a regex error; callback-driven filtering refreshes
+  visible rows and the text status through `control.update()`.
+
+### Pending verification
+
+Parent worktree should rerun the two focused news tests, the full Task 20
+focused bundle, Ruff, compileall and `git diff --check` before integration.

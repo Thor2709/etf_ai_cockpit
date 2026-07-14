@@ -281,6 +281,7 @@ def _validate_frame(import_type: str, frame: pd.DataFrame) -> tuple[list[str], l
             if invalid.any():
                 errors.append(f"invalid_weight:{weight}")
     if import_type == "news":
+        availability_column = _first_column(frame, ("available_at_decision_time", "available_at_decision", "available"))
         for boolean_names in (
             ("available_at_decision_time", "available_at_decision", "available"),
             ("current_only",),
@@ -302,6 +303,14 @@ def _validate_frame(import_type: str, frame: pd.DataFrame) -> tuple[list[str], l
         ingested_column = _first_column(frame, ("ingested_at", "ingested_date"))
         if ingested_column is not None and any(not _timezone_aware(value) for value in frame[ingested_column]):
             errors.append(f"naive_ingested_timezone:{ingested_column}")
+        # An explicit positive availability claim is an intent to use the
+        # item at decision time.  It must be backed by an explicit,
+        # timezone-aware ingestion timestamp; otherwise fail closed rather
+        # than manufacturing provenance from the publication timestamp.
+        if availability_column is not None:
+            explicit_available = frame[availability_column].map(_parse_boolean)
+            if explicit_available.eq(True).any() and ingested_column is None:
+                errors.append("missing_ingested_timestamp_for_eligibility")
         # Parsed news rows are only useful for point-in-time context when their
         # headline/source URL is paired with a non-blank publication timestamp.
         if headline_column is not None and _first_column(frame, ("source_url", "url", "link")) is not None:
@@ -396,10 +405,22 @@ def _news_items(frame: pd.DataFrame):
                 provider=str(row.get("provider", row.get("provider_name", "manual_local_file"))),
                 headline=str(row.get("headline", row.get("title", "")) or "").strip(),
                 published_at=published,
-                ingested_at=_timestamp_text(row.get("ingested_at", published)),
+                # Do not infer ingestion from publication.  A missing
+                # ingestion timestamp is retained as unavailable, allowing
+                # the canonical news validator to keep the item
+                # context-only and backtest-ineligible.
+                ingested_at=_timestamp_text(row.get("ingested_at", row.get("ingested_date", ""))),
                 url=url,
                 instrument_mapping_method=str(row.get("instrument_mapping_method", "manual")),
-                available_at_decision_time=_parse_boolean(row.get("available_at_decision_time", True)),
+                available_at_decision_time=(
+                    _parse_boolean(
+                        row.get(
+                            "available_at_decision_time",
+                            row.get("available_at_decision", row.get("available", False)),
+                        )
+                    )
+                    is True
+                ),
                 credibility=str(row.get("credibility", "unverified")),
                 current_only=bool(_parse_boolean(row.get("current_only", False))),
                 revised=bool(_parse_boolean(row.get("revised", False))),

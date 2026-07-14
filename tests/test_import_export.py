@@ -318,6 +318,39 @@ def test_news_import_parses_string_false_without_fabricating_availability(tmp_pa
     assert bool(saved.loc[0, "backtest_eligible"]) is False
 
 
+def test_news_import_without_ingestion_or_availability_is_context_only(tmp_path: Path) -> None:
+    source = tmp_path / "context-only-news.csv"
+    pd.DataFrame(
+        {
+            "published_at": ["2026-07-10T12:00:00+00:00"],
+            "headline": ["Headline"],
+            "url": ["https://example.test/news"],
+        }
+    ).to_csv(source, index=False)
+    preview = validate_import("news", source)
+    assert preview.valid is True, preview.errors
+    result = ImportService(tmp_path).commit(preview.preview_id)
+    saved = pd.read_parquet(result.destination)
+    assert saved.loc[0, "ingested_at"] in {"", None}
+    assert bool(saved.loc[0, "available_at_decision_time"]) is False
+    assert bool(saved.loc[0, "backtest_eligible"]) is False
+
+
+def test_news_import_explicit_true_without_ingestion_fails_closed(tmp_path: Path) -> None:
+    source = tmp_path / "ineligible-news.csv"
+    pd.DataFrame(
+        {
+            "published_at": ["2026-07-10T12:00:00+00:00"],
+            "headline": ["Headline"],
+            "url": ["https://example.test/news"],
+            "available_at_decision_time": ["true"],
+        }
+    ).to_csv(source, index=False)
+    preview = validate_import("news", source)
+    assert preview.valid is False
+    assert any("ingest" in error for error in preview.errors)
+
+
 def test_export_sources_use_live_data_journal_and_canonical_watchlist_store() -> None:
     from etf_cockpit.app.pages.import_export import import_export_page
 

@@ -52,7 +52,10 @@ def accessible_table(
         text = str(query or "").strip().casefold()
         if not text:
             return data.copy()
-        mask = data.astype("string").apply(lambda column: column.str.casefold().str.contains(text, na=False)).any(axis=1)
+        # Search text is user input, not a regular expression.  Treating it
+        # literally keeps punctuation such as ``[`` and ``(`` safe and
+        # predictable while still matching case-insensitively.
+        mask = data.astype("string").apply(lambda column: column.str.casefold().str.contains(text, na=False, regex=False)).any(axis=1)
         return data.loc[mask].copy()
 
     def sort_callback(column: str, ascending: bool = True) -> pd.DataFrame:

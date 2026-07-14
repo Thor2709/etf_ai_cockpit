@@ -62,6 +62,24 @@ def test_accessible_table_callbacks_refresh_visible_control_and_status() -> None
     assert updates[-1] == 2
 
 
+def test_accessible_table_search_treats_regex_punctuation_literally_and_updates() -> None:
+    from types import SimpleNamespace
+
+    frame = pd.DataFrame({"label": ["A[1]", "A(2)", "plain"]})
+    table = tables.accessible_table(frame, table_id="risk")
+    updates: list[int] = []
+    table.control.update = lambda: updates.append(len(table.control.rows))
+
+    table.search_control.on_change(SimpleNamespace(data="["))
+    assert table.control.rows and len(table.control.rows) == 1
+    assert table.status_control.value.startswith("1 rows")
+
+    table.search_control.on_change(SimpleNamespace(data="("))
+    assert len(table.control.rows) == 1
+    assert table.status_control.value.startswith("1 rows")
+    assert updates == [1, 1]
+
+
 def test_chart_descriptors_expose_observable_series_data() -> None:
     history = charts.history_chart(pd.DataFrame({"date": ["2026-07-01"], "adjusted_close": [101.5]}))
     assert history.available is True
