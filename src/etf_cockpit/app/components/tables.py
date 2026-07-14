@@ -71,6 +71,9 @@ def accessible_table(
         update = getattr(control, "update", None)
         if callable(update):
             update()
+        status_update = getattr(status_control, "update", None)
+        if callable(status_update):
+            status_update()
 
     def _search_changed(event: ft.ControlEvent) -> None:
         query = getattr(event, "data", None)

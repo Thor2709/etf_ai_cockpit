@@ -50,16 +50,20 @@ def test_accessible_table_callbacks_refresh_visible_control_and_status() -> None
     table = tables.accessible_table(frame, table_id="risk")
     updates: list[int] = []
     table.control.update = lambda: updates.append(len(table.control.rows))
+    status_updates: list[str] = []
+    table.status_control.update = lambda: status_updates.append(table.status_control.value)
 
     table.search_control.on_change(SimpleNamespace(data="A"))
     assert len(table.control.rows) == 1
     assert table.status_control.value.startswith("1 rows")
     assert updates == [1]
+    assert status_updates == ["1 rows; status is shown as text"]
 
     table.control.columns[0].on_sort(SimpleNamespace(ascending=False))
     assert len(table.control.rows) == 2
     assert table.status_control.value.startswith("2 rows")
     assert updates[-1] == 2
+    assert status_updates[-1] == "2 rows; status is shown as text"
 
 
 def test_accessible_table_search_treats_regex_punctuation_literally_and_updates() -> None:

@@ -98,6 +98,10 @@ def validate_import(import_type: str, path: Path) -> ImportPreview:
         preview = ImportPreview(preview_id, resolved_type, source, False, 0, (), (f"read_failed:{type(exc).__name__}:{exc}",), pd.DataFrame())
         _PREVIEWS[preview_id] = preview
         return preview
+    # Import semantics depend on row order, not a caller-controlled index.
+    # Reset it before binding the preview checksum so an index can never become
+    # a filesystem path component during commit.
+    frame = frame.reset_index(drop=True)
     errors, warnings = _validate_frame(resolved_type, frame)
     checksum = _frame_checksum(frame)
     preview = ImportPreview(preview_id, resolved_type, source, not errors, len(frame), tuple(map(str, frame.columns)), tuple(errors), frame.copy(), tuple(warnings), checksum)
@@ -367,7 +371,9 @@ def _read_rss(path: Path) -> pd.DataFrame:
 
 
 def _frame_checksum(frame: pd.DataFrame) -> str:
-    payload = frame.sort_index(axis=1).to_json(orient="records", date_format="iso", date_unit="ns")
+    # Index labels are transport metadata rather than import content.  Ignore
+    # them explicitly while preserving the validated row ordering in records.
+    payload = frame.reset_index(drop=True).sort_index(axis=1).to_json(orient="records", date_format="iso", date_unit="ns")
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -472,16 +478,17 @@ def _is_feed_list(frame: pd.DataFrame) -> bool:
 def _persist_feed_list(frame: pd.DataFrame, *, raw_dir: Path, clean_path: Path, audit_path: Path) -> None:
     """Persist local RSS feed URLs as context-only evidence, without fetching."""
 
-    from etf_cockpit.data.news_context import NEWS_SCHEMA_VERSION
+    from etf_cockpit.data.news_context import NEWS_SCHEMA_VERSION, _read_clean_strict
 
     feed_column = _first_column(frame, ("feed_url", "rss_url"))
     if feed_column is None:
         raise ValueError("RSS feed list requires a feed_url column")
+    existing = _read_clean_strict(clean_path)
     raw_dir.mkdir(parents=True, exist_ok=True)
     rows: list[dict[str, object]] = []
     raw_requests: list[AtomicWriteRequest] = []
     raw_paths: list[str] = []
-    for index, row in frame.iterrows():
+    for ordinal, (_, row) in enumerate(frame.iterrows()):
         feed_url = str(row[feed_column]).strip()
         provider = str(row.get("provider", row.get("provider_name", "rss_local_list")) or "rss_local_list").strip() or "rss_local_list"
         payload = {
@@ -493,14 +500,14 @@ def _persist_feed_list(frame: pd.DataFrame, *, raw_dir: Path, clean_path: Path, 
             "executable_authority": False,
         }
         checksum = hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
-        raw_path = raw_dir / f"feed-{index}-{checksum}.json"
+        raw_path = raw_dir / f"feed-{ordinal}-{checksum}.json"
         raw_paths.append(str(raw_path))
         if not raw_path.exists():
             raw_requests.append(AtomicWriteRequest(raw_path, (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8"), lambda path: json.loads(path.read_text(encoding="utf-8"))))
         rows.append(
             {
                 "schema_version": NEWS_SCHEMA_VERSION,
-                "news_id": f"feed-{index}-{checksum[:12]}",
+                "news_id": f"feed-{ordinal}-{checksum[:12]}",
                 "instrument_id": "portfolio",
                 "headline": "",
                 "feed_url": feed_url,
@@ -523,12 +530,6 @@ def _persist_feed_list(frame: pd.DataFrame, *, raw_dir: Path, clean_path: Path, 
                 "item_checksum": checksum,
             }
         )
-    existing = pd.DataFrame()
-    if clean_path.exists():
-        try:
-            existing = pd.read_parquet(clean_path)
-        except Exception:
-            existing = pd.DataFrame()
     combined = pd.concat([existing, pd.DataFrame(rows)], ignore_index=True)
     if not combined.empty:
         subset = [column for column in ("news_id", "item_checksum") if column in combined.columns]

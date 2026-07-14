@@ -198,6 +198,25 @@ The full repository suite, packaged build and browser/computer-use visual
 checks remain outside this fix pass and were not run here. No issue closure
 state was changed.
 
+## Final safety follow-up
+
+Fresh review blockers were addressed without changing authority boundaries:
+
+- RSS feed evidence filenames now use deterministic zero-based ordinals and
+  import previews reset index labels before checksum binding; row ordering
+  remains checksum-bound.
+- Canonical news ledgers are read strictly before raw or clean publication.
+  Corrupt parquet or unsupported ledger schema raises and leaves the existing
+  bytes and output directory unchanged for both parsed-news and feed-list
+  imports.
+- Accessible table view updates refresh both the data table and the textual
+  status control when either exposes an update callback.
+
+Adversarial tests cover malicious Parquet indices, corrupt parsed-news and RSS
+ledgers, and status-control callback refresh. Python/Ruff were unavailable in
+this sandbox (`python` and `ruff` not found); `git diff --check` passed. Parent
+worktree should run the focused Task 20 tests and scoped Ruff/compileall gates.
+
 ## Button-contract follow-up
 
 The post-fix inventory initially reported five uncovered source patterns:

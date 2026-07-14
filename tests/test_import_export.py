@@ -231,6 +231,68 @@ def test_rss_feed_url_list_commits_safe_feed_evidence_without_network(tmp_path: 
     assert bool(saved.loc[0, "executable_authority"]) is False
 
 
+def test_rss_feed_list_index_cannot_escape_raw_directory(tmp_path: Path) -> None:
+    source = tmp_path / "feeds-index.parquet"
+    frame = pd.DataFrame(
+        {"feed_url": ["https://example.test/one.xml", "https://example.test/two.xml"]},
+        index=["../outside", "nested\\..\\escape"],
+    )
+    frame.to_parquet(source)
+
+    preview = validate_import("rss_list", source)
+    assert preview.valid is True, preview.errors
+    result = ImportService(tmp_path).commit(preview.preview_id)
+
+    raw_dir = tmp_path / "data" / "raw" / "news_context"
+    raw_paths = [Path(path) for path in pd.read_parquet(result.destination)["raw_path"]]
+    assert all(path.parent == raw_dir for path in raw_paths)
+    assert {path.name.split("-")[0] for path in raw_paths} == {"feed"}
+    assert any(path.name.startswith("feed-0-") for path in raw_paths)
+    assert any(path.name.startswith("feed-1-") for path in raw_paths)
+    assert not (tmp_path / "data" / "raw" / "outside").exists()
+    assert not (tmp_path / "data" / "raw" / "news_context" / "nested").exists()
+
+
+def test_news_commit_fails_closed_when_existing_ledger_is_corrupt(tmp_path: Path) -> None:
+    clean_path = tmp_path / "data" / "clean" / "news.parquet"
+    clean_path.parent.mkdir(parents=True)
+    corrupt_bytes = b"not a parquet ledger"
+    clean_path.write_bytes(corrupt_bytes)
+    source = tmp_path / "news.csv"
+    pd.DataFrame(
+        {
+            "published_at": ["2026-07-10T12:00:00+00:00"],
+            "headline": ["Headline"],
+            "url": ["https://example.test/news"],
+        }
+    ).to_csv(source, index=False)
+
+    preview = validate_import("news", source)
+    assert preview.valid is True, preview.errors
+    with pytest.raises((ValueError, RuntimeError), match="ledger|parquet|read|corrupt"):
+        ImportService(tmp_path).commit(preview.preview_id)
+
+    assert clean_path.read_bytes() == corrupt_bytes
+    assert not clean_path.with_suffix(".csv").exists()
+
+
+def test_rss_feed_commit_fails_closed_when_existing_ledger_is_corrupt(tmp_path: Path) -> None:
+    clean_path = tmp_path / "data" / "clean" / "news.parquet"
+    clean_path.parent.mkdir(parents=True)
+    corrupt_bytes = b"not a parquet ledger"
+    clean_path.write_bytes(corrupt_bytes)
+    source = tmp_path / "feeds.csv"
+    pd.DataFrame({"feed_url": ["https://example.test/feed.xml"]}).to_csv(source, index=False)
+
+    preview = validate_import("rss_list", source)
+    assert preview.valid is True, preview.errors
+    with pytest.raises((ValueError, RuntimeError), match="ledger|parquet|read|corrupt"):
+        ImportService(tmp_path).commit(preview.preview_id)
+
+    assert clean_path.read_bytes() == corrupt_bytes
+    assert not (tmp_path / "data" / "raw" / "news_context").exists()
+
+
 def test_news_import_rejects_ambiguous_availability_boolean(tmp_path: Path) -> None:
     source = tmp_path / "ambiguous-news.csv"
     pd.DataFrame(

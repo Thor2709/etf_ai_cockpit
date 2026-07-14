@@ -130,6 +130,10 @@ def persist_news_items(
     item_tuple = tuple(items)
     if not item_tuple:
         raise ValueError("At least one news item is required.")
+    # Read the current canonical generation before creating raw outputs.  A
+    # corrupt or malformed ledger must fail closed rather than being treated as
+    # empty and replaced by a clean-looking generation.
+    existing = _read_clean_strict(clean_path)
     raw_dir.mkdir(parents=True, exist_ok=True)
     raw_paths: list[Path] = []
     raw_requests: list[AtomicWriteRequest] = []
@@ -152,7 +156,6 @@ def persist_news_items(
         rows.append(_clean_row(item, validation, checksum, raw_path))
         validations.append({"news_id": item.news_id, **asdict(validation), "executable_authority": False})
 
-    existing = _read_clean(clean_path)
     combined = pd.concat([existing, pd.DataFrame(rows)], ignore_index=True)
     if not combined.empty:
         combined = combined.drop_duplicates(subset=["news_id", "item_checksum"], keep="last")
@@ -323,6 +326,28 @@ def _read_clean(path: Path) -> pd.DataFrame:
         return frame
     except Exception:
         return pd.DataFrame()
+
+
+def _read_clean_strict(path: Path) -> pd.DataFrame:
+    """Read an existing canonical ledger, rejecting unreadable generations."""
+
+    if not path.exists():
+        return pd.DataFrame()
+    try:
+        frame = pd.read_parquet(path)
+    except Exception as exc:
+        raise ValueError(f"Canonical news ledger cannot be read: {path}") from exc
+    required = {"news_id", "item_checksum"}
+    missing = required.difference(frame.columns)
+    if missing:
+        missing_text = ", ".join(sorted(missing))
+        raise ValueError(f"Canonical news ledger has unsupported schema; missing: {missing_text}")
+    for column, default in (("context_only", True), ("executable_authority", False)):
+        if column not in frame.columns:
+            frame[column] = default
+    frame["context_only"] = True
+    frame["executable_authority"] = False
+    return frame
 
 
 def _frame_checksum(frame: pd.DataFrame) -> str:
