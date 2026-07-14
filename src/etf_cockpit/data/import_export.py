@@ -430,6 +430,13 @@ def _news_items(frame: pd.DataFrame):
                 credibility=str(row.get("credibility", "unverified")),
                 current_only=bool(_parse_boolean(row.get("current_only", False))),
                 revised=bool(_parse_boolean(row.get("revised", False))),
+                # Preserve explicit timestamp metadata from parsed providers.
+                # Missing values retain the NewsItem compatibility defaults,
+                # while explicit ambiguous/unknown values remain visible to
+                # validate_news_item and therefore fail closed.
+                timezone_name=_metadata_text(row.get("timezone_name"), "UTC"),
+                timezone=_metadata_optional_text(row.get("timezone")),
+                timestamp_confidence=_metadata_text(row.get("timestamp_confidence"), "exact"),
             )
         )
     return items
@@ -440,6 +447,20 @@ def _timestamp_text(value: object) -> str:
     if pd.isna(parsed):
         return ""
     return parsed.isoformat()
+
+
+def _metadata_text(value: object, default: str) -> str:
+    if value is None or pd.isna(value):
+        return default
+    text = str(value).strip()
+    return text if text else default
+
+
+def _metadata_optional_text(value: object) -> str | None:
+    if value is None or pd.isna(value):
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def _parse_boolean(value: object) -> bool | None:

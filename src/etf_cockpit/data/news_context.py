@@ -337,14 +337,32 @@ def _read_clean_strict(path: Path) -> pd.DataFrame:
         frame = pd.read_parquet(path)
     except Exception as exc:
         raise ValueError(f"Canonical news ledger cannot be read: {path}") from exc
-    required = {"news_id", "item_checksum"}
-    missing = required.difference(frame.columns)
+    # A readable Parquet file is not necessarily a canonical news ledger.
+    # Require the fields needed to revalidate point-in-time provenance and
+    # authority before appending a new generation.  A small set of aliases is
+    # accepted for ledgers produced by earlier writers, but authority fields
+    # themselves are never defaulted on the strict path.
+    required_groups = (
+        ("schema_version",),
+        ("news_id",),
+        ("item_checksum",),
+        ("published_at",),
+        ("ingested_at",),
+        ("available_at_decision_time",),
+        ("backtest_eligible",),
+        ("context_only",),
+        ("executable_authority",),
+        ("timestamp_confidence", "timestamp_status"),
+        ("instrument_id",),
+        ("instrument_mapping_method",),
+        ("source_url", "url"),
+        ("provider_name", "provider"),
+        ("source_authority", "source"),
+        ("raw_path",),
+    )
+    missing = ["/".join(group) for group in required_groups if not set(group).intersection(frame.columns)]
     if missing:
-        missing_text = ", ".join(sorted(missing))
-        raise ValueError(f"Canonical news ledger has unsupported schema; missing: {missing_text}")
-    for column, default in (("context_only", True), ("executable_authority", False)):
-        if column not in frame.columns:
-            frame[column] = default
+        raise ValueError(f"Canonical news ledger has unsupported schema; missing: {', '.join(missing)}")
     frame["context_only"] = True
     frame["executable_authority"] = False
     return frame

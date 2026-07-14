@@ -25,6 +25,7 @@ class BackupManifest:
     schema_version: int = 1
     manifest_checksum: str = ""
     excluded: tuple[str, ...] = ()
+    execution_allowed: bool = False
 
 
 @dataclass(frozen=True)
@@ -75,7 +76,7 @@ def create_backup(paths: list[Path], destination: Path, *, include_transient: bo
         temp_path.replace(destination)
     finally:
         temp_path.unlink(missing_ok=True)
-    return BackupManifest(destination, checksums, 1, manifest_checksum, tuple(excluded))
+    return BackupManifest(destination, checksums, 1, manifest_checksum, tuple(excluded), False)
 
 
 def validate_restore(archive_path: Path) -> RestorePreview:

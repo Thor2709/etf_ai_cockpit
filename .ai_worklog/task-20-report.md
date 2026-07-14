@@ -268,3 +268,29 @@ repository `.venv` executable returned Windows `Access denied`).
 
 Parent worktree should rerun the two focused news tests, the full Task 20
 focused bundle, Ruff, compileall and `git diff --check` before integration.
+
+## Final reviewer blocker correction - timestamp and canonical schema gates
+
+### RED
+
+Added focused tests for parsed-news timestamp metadata propagation and
+fail-closed validation (`timestamp_confidence=ambiguous` and
+`timezone_name=unknown`), explicit availability claims with ambiguous
+metadata, readable malformed canonical ledgers for both parsed-news and RSS
+imports, and the `BackupManifest.execution_allowed` authority field. The
+tests were not runnable in this sandbox because no Python interpreter could
+be started; the parent worktree must run them with its available runtime.
+
+### GREEN/refactor
+
+- `_news_items` now preserves explicit `timestamp_confidence` and
+  `timezone_name`/`timezone` values so `validate_news_item` rejects ambiguous
+  or unknown metadata instead of applying exact/UTC defaults.
+- `_read_clean_strict` now requires the canonical point-in-time,
+  provenance and authority columns (with compatibility aliases) before any
+  parsed-news or RSS writes; malformed readable ledgers fail closed.
+- `BackupManifest` reports an explicit `execution_allowed=False` field while
+  preserving `RestoreResult` and existing authority boundaries.
+
+Parent worktree should rerun the focused Task 20 bundle, scoped Ruff,
+compileall and `git diff --check` before integration.

@@ -18,6 +18,7 @@ def test_backup_restore_round_trip_and_manifest_checksums(tmp_path: Path) -> Non
     assert result.restored == 1
     assert (destination / "configs" / "settings.yaml").read_text(encoding="utf-8") == "safe: true\n"
     assert manifest.checksums
+    assert manifest.execution_allowed is False
 
 
 def test_restore_rejects_zip_traversal(tmp_path: Path) -> None:

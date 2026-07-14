@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 import inspect
 
@@ -411,6 +412,96 @@ def test_news_import_explicit_true_without_ingestion_fails_closed(tmp_path: Path
     preview = validate_import("news", source)
     assert preview.valid is False
     assert any("ingest" in error for error in preview.errors)
+
+
+@pytest.mark.parametrize(
+    ("metadata", "expected_timezone", "expected_confidence"),
+    [
+        ({"timestamp_confidence": "ambiguous"}, "UTC", "ambiguous"),
+        ({"timestamp_confidence": "exact", "timezone_name": "unknown"}, "unknown", "exact"),
+    ],
+)
+def test_parsed_news_preserves_explicit_timestamp_metadata_and_fails_closed(
+    tmp_path: Path,
+    metadata: dict[str, str],
+    expected_timezone: str,
+    expected_confidence: str,
+) -> None:
+    from etf_cockpit.data.import_export import _news_items
+    from etf_cockpit.data.news_context import validate_news_item
+
+    row = {
+        "news_id": "metadata-news",
+        "instrument_id": "VWCE",
+        "source": "rss",
+        "provider": "feed",
+        "headline": "Headline",
+        "published_at": "2026-07-10T12:00:00+00:00",
+        "ingested_at": "2026-07-10T12:01:00+00:00",
+        "url": "https://example.test/news",
+        "instrument_mapping_method": "manual",
+        "available_at_decision_time": True,
+        **metadata,
+    }
+    item = _news_items(pd.DataFrame([row]))[0]
+    assert item.timezone_name == expected_timezone
+    assert item.timestamp_confidence == expected_confidence
+    validation = validate_news_item(item, datetime(2026, 7, 10, 13, tzinfo=timezone.utc))
+    assert validation.backtest_eligible is False
+    assert validation.status == "ambiguous_timestamp"
+
+
+def test_parsed_news_explicit_availability_with_ambiguous_metadata_is_ineligible(tmp_path: Path) -> None:
+    source = tmp_path / "ambiguous-news.csv"
+    pd.DataFrame(
+        {
+            "news_id": ["ambiguous-available"],
+            "instrument_id": ["VWCE"],
+            "source": ["rss"],
+            "provider": ["feed"],
+            "headline": ["Headline"],
+            "published_at": ["2026-07-10T12:00:00+00:00"],
+            "ingested_at": ["2026-07-10T12:01:00+00:00"],
+            "url": ["https://example.test/news"],
+            "instrument_mapping_method": ["manual"],
+            "available_at_decision_time": [True],
+            "timestamp_confidence": ["ambiguous"],
+        }
+    ).to_csv(source, index=False)
+    preview = validate_import("news", source)
+    assert preview.valid is True, preview.errors
+    result = ImportService(tmp_path).commit(preview.preview_id)
+    saved = pd.read_parquet(result.destination)
+    assert bool(saved.loc[0, "available_at_decision_time"]) is False
+    assert bool(saved.loc[0, "backtest_eligible"]) is False
+    assert saved.loc[0, "timestamp_confidence"] != "exact"
+
+
+@pytest.mark.parametrize("import_type", ["news", "rss_list"])
+def test_news_commits_reject_readable_malformed_canonical_ledger_before_writes(tmp_path: Path, import_type: str) -> None:
+    clean_path = tmp_path / "data" / "clean" / "news.parquet"
+    clean_path.parent.mkdir(parents=True)
+    malformed = pd.DataFrame({"news_id": ["old"], "item_checksum": ["checksum"]})
+    malformed.to_parquet(clean_path, index=False)
+    before = clean_path.read_bytes()
+    if import_type == "rss_list":
+        source = tmp_path / "feeds.csv"
+        pd.DataFrame({"feed_url": ["https://example.test/feed.xml"]}).to_csv(source, index=False)
+    else:
+        source = tmp_path / "news.csv"
+        pd.DataFrame(
+            {
+                "published_at": ["2026-07-10T12:00:00+00:00"],
+                "headline": ["Headline"],
+                "url": ["https://example.test/news"],
+            }
+        ).to_csv(source, index=False)
+    preview = validate_import(import_type, source)
+    assert preview.valid is True, preview.errors
+    with pytest.raises(ValueError, match="schema|ledger"):
+        ImportService(tmp_path).commit(preview.preview_id)
+    assert clean_path.read_bytes() == before
+    assert not (tmp_path / "data" / "raw" / "news_context").exists()
 
 
 def test_export_sources_use_live_data_journal_and_canonical_watchlist_store() -> None:
