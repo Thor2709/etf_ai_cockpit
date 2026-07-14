@@ -202,7 +202,7 @@ def _scope_identifier_rows(frame: pd.DataFrame, instrument_id: str) -> tuple[pd.
     populated = identifiers.notna().any(axis=1)
     matches = identifiers.eq(target).any(axis=1)
     contradictory = identifiers.apply(
-        lambda row: any(value is not None and value != target for value in row),
+        lambda row: any(not _is_missing_scalar(value) and value != target for value in row),
         axis=1,
     ) & matches
     malformed = ~populated
@@ -277,7 +277,7 @@ def _instrument_rows(frame: object, instrument_id: str, *, columns: tuple[str, .
     )
     matches = identifiers.eq(target).any(axis=1)
     contradictory = identifiers.apply(
-        lambda row: any(value is not None and value != target for value in row),
+        lambda row: any(not _is_missing_scalar(value) and value != target for value in row),
         axis=1,
     )
     return source.loc[matches & ~contradictory].copy()

@@ -661,6 +661,9 @@ def test_friction_panel_malformed_scenarios_fail_closed_without_crashing(tmp_pat
             }
         ]
     )
+    # Keep malformed containers as objects under pandas 3's Arrow-backed
+    # string inference; otherwise lists/arrays are silently stringified.
+    frame["cost_stress_scenario"] = frame["cost_stress_scenario"].astype(object)
     frame.at[0, "cost_stress_scenario"] = scenario
     scoreboard_path = tmp_path / "scoreboard.parquet"
     scoreboard_path.touch()
@@ -686,6 +689,7 @@ def test_parsed_panel_malformed_freshness_metadata_fails_closed(freshness) -> No
             "imported_at": ["2026-07-10"],
         }
     )
+    frame["freshness_status"] = frame["freshness_status"].astype(object)
     frame.at[0, "freshness_status"] = freshness
 
     panel = _parsed_panel(frame, "VWCE", "kid", ("product",))
