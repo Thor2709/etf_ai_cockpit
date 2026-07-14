@@ -14,6 +14,8 @@ Observed blockers:
   produced;
 - fresh independent review dispatches did not return within the available
   environment window.
+- a workspace-local pip bootstrap for pytest/Ruff/mypy timed out without
+  producing an artefact, so it did not alter tracked or production dependencies.
 
 No secrets were printed, no product code or authority boundary changed, and
 `execution_allowed=false` remains in force. The exact command records and
