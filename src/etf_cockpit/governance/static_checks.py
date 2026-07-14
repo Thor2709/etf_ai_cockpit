@@ -37,6 +37,7 @@ _EXCLUDED_DIRECTORIES = frozenset(
         ".ruff_cache",
         ".tox",
         ".venv",
+        ".venv_check",
         "__pycache__",
     }
 )
@@ -157,9 +158,10 @@ _ORDER_ENDPOINT_RE = re.compile(r"(?i)(?:^|/)(?:orders?|order-entry)(?:[/?#]|$)"
 _UI_ORDER_CONTROL_RE = re.compile(
     r"(?i)^\s*(?:place|submit|execute|send|cancel|replace)\s+(?:a\s+)?(?:broker\s+)?order\b"
     r"|^\s*(?:buy|sell)\s+(?:now|order)\b"
-    r"|^\s*(?:buy|submit|cancel|replace)\s*$"
+    r"|^\s*(?:buy|submit|replace)\s*$"
 )
-_UI_SHORT_ORDER_CONTROL_RE = re.compile(r"(?i)^\s*(?:buy|submit|cancel|replace)\s*$")
+_UI_SHORT_ORDER_CONTROL_RE = re.compile(r"(?i)^\s*(?:buy|submit|replace)\s*$")
+_UI_CANCEL_LABEL_RE = re.compile(r"(?i)^\s*cancel\s*$")
 _PROHIBITED_CREDENTIAL_NAME_RE = re.compile(
     r"(?i)(?:broker|order|execution).*(?:api[_-]?key|secret|token|password|private[_-]?key)"
     r"|(?:api[_-]?key|secret|token|password|private[_-]?key).*(?:broker|order|execution)"
@@ -337,6 +339,21 @@ def _ui_control_target(targets: Sequence[str]) -> bool:
     return False
 
 
+def _ui_order_context(targets: Sequence[str]) -> bool:
+    """Return whether an assigned UI control is explicitly order-related.
+
+    A generic dialog may legitimately expose a plain ``Cancel`` action.  A
+    control whose target name identifies an order or trade remains prohibited,
+    even when its visible label is only ``Cancel``.
+    """
+
+    for target in targets:
+        normalised = _normalise_symbol(target)
+        if any(part in normalised.split("_") for part in ("order", "orders", "trade", "trades")):
+            return True
+    return False
+
+
 def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
     try:
         tree = ast.parse(text, filename=str(path))
@@ -462,9 +479,11 @@ def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
                     )
             if ui_path and value is not None:
                 for literal in _literal_strings(value):
-                    if _UI_ORDER_CONTROL_RE.search(literal) and (
+                    order_label = _UI_ORDER_CONTROL_RE.search(literal) and (
                         not _UI_SHORT_ORDER_CONTROL_RE.search(literal) or _ui_control_target(targets)
-                    ):
+                    )
+                    cancel_order_label = _UI_CANCEL_LABEL_RE.search(literal) and _ui_order_context(targets)
+                    if order_label or cancel_order_label:
                         violations.append(
                             _violation(
                                 root,
@@ -498,7 +517,10 @@ def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
                 for marker in ("button", "order_control", "trade_control")
             ):
                 for literal in _literal_strings(node):
-                    if _UI_SHORT_ORDER_CONTROL_RE.search(literal):
+                    if _UI_SHORT_ORDER_CONTROL_RE.search(literal) or (
+                        _UI_CANCEL_LABEL_RE.search(literal)
+                        and _ui_order_context((function_name,))
+                    ):
                         violations.append(
                             _violation(
                                 root,

@@ -1069,3 +1069,13 @@
 - Removed the merged Task 10 worktree so the package-inventory boundary check
   scans only the production repository; generated market data and schema-marker
   artefacts remain excluded from Git.
+## 2026-07-15 Task 23 bounded release-candidate changes
+
+- Narrowed detached Flet update suppression to the recognised unmounted-control
+  message and added propagation regressions for unrelated runtime failures.
+- Added nullable-identifier and malformed-metadata fixture hardening.
+- Updated the canonical PyInstaller spec, Windows version resource and batch
+  package path for `0.1.0rc1`, with dynamic dependency discovery and runtime DLL
+  collection.
+- Added durable Task 23 report, plan, ledger and run-state checkpoint. No issue
+  was moved between the canonical open and closed ledgers.

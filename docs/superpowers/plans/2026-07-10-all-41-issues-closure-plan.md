@@ -1416,3 +1416,62 @@ The final response must report:
 - Closure evaluator result: 4 ready, 37 still open. The three reopened records `ISSUE-0069`, `UPDATEV2-0022` and `UPDATEV2-0028` now meet all current evaluator gates and were moved to closed; `ISSUE-0035` was already closed. Task 23 is therefore complete as a partial, evidence-backed closure, not as an all-41 closure.
 - Strict parser/provider workflows and every other non-ready record remain open. No documentation-only or shared-evidence shortcut was used to close them.
 - Durable state is in `RUN_STATE.json`, `RUN_LOG.md`, `.ai_worklog\*` and `HANDOFF.md`. No Git repository exists and no commit was created.
+
+## 2026-07-14 Semantic reconciliation checkpoint
+
+- Reconciliation branch `wave5/task22-reconciliation` is based on
+  `origin/main` at `6e6406d`; obsolete Task 20/21 implementation commits were
+  not replayed.
+- Task 22 source/configuration changes and the two current defect fixes are
+  staged and have passed the focused operations, trust-export,
+  backup/restore, release-contract, scope-boundary and simple-score bundle.
+- Twenty repeated Windows concurrent-writer recovery runs passed; cached
+  CPython compileall passed. Ruff, repository-venv typing and native/package/
+  browser gates remain explicitly unavailable or pending and are not marked
+  passed.
+- Task 23 table/identity changes remain deferred until this Task 22 base is
+  independently reviewed and committed.
+
+The first reconciliation reviewer identified two Important blockers. Test-first
+regressions observed the expected RED failures for canonical Sparebanken
+identity parity and plain `Cancel` passed to an explicit order-control call.
+The YAML identities/ticker now match `SPAREBANKEN_ROWS`, and the static boundary
+scanner rejects the explicit order/trade call while leaving generic dialog
+cancel actions permitted. The corrected focused tests pass; fresh independent
+re-review is pending before the reconciliation commit.
+
+### Task 22 local commit checkpoint - 2026-07-14
+
+The reconciliation was independently re-reviewed and committed locally as
+`59d2393dcdaa9b19d436fcb5890ee0da15666196` on
+`wave5/task22-reconciliation`, based on the verified `origin/main` commit
+`6e6406d58db89ae19398e2abf15d0670e3350560`. Obsolete Task 20/21 commits were
+not replayed and the original Task 22 worktree remains recoverable. Focused
+tests, repeated Windows recovery, compileall and diff checks passed. The fresh
+full suite recorded 11 baseline/environment-specific failures; Ruff,
+native/package/browser and clean-first-run gates remain pending. GitHub push,
+PR integration and issue synchronisation are blocked in this Codex environment
+by system Git `SEC_E_NO_CREDENTIALS`; no Task 22 issue transition has been made
+and Task 23 has not started.
+
+### Task 23 bounded release-candidate checkpoint - 2026-07-15
+
+Task 23 resumed on `wave5/task23-working` from the reconciled Task 22
+checkpoint. The bounded implementation fixes are independently approved:
+detached Flet updates now suppress only the recognised unmounted-control
+message and unrelated runtime failures propagate; nullable instrument
+identifiers fail closed; malformed metadata fixtures remain assignable. The
+canonical PyInstaller spec and Windows batch path now target `0.1.0rc1`,
+discover dependencies dynamically, carry required runtime DLLs and apply
+application version metadata.
+
+Fresh evidence: the focused Task 23 bundle, authoritative `pytest tests -q`,
+compileall, scoped Ruff and diff checks exited zero. The reviewed native
+onedir build and complete portable ZIP were extracted outside the repository;
+the packaged launcher reached HTTP 200 on port 8649 and the executable reports
+ProductVersion `0.1.0rc1`. The canonical batch build itself remains
+unverified because the repository `.venv` cannot be created or accessed under
+the current Windows ACL/ensurepip environment. Rendered browser/computer-use,
+clean-first-run matrix, full issue dossiers/evaluator, remote integration and
+issue transitions remain pending. Task 23 is implementation-complete but
+closure-pending; no issue transition is claimed.

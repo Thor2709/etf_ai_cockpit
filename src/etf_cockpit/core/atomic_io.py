@@ -387,6 +387,16 @@ def _recover_lock(lock: Path) -> bool:
             resolved_lock.parent.relative_to(recovery_root.resolve())
         except ValueError:
             return False
+        lock_owner = lock_payload.get("owner_pid")
+        if type(lock_owner) is not int:
+            return False
+        # A live owner still has the journal open for atomic replacement.  Do
+        # not read it while the writer is publishing a lifecycle state: on
+        # Windows, that read can hold a sharing-denied handle and make the
+        # writer's replace fail with WinError 5.  Only stale owners need the
+        # journal validation and recovery path below.
+        if _pid_alive(lock_owner):
+            return False
         journal_payload = json.loads(journal_path.read_text(encoding="utf-8"))
         if not isinstance(journal_payload, dict):
             return False
@@ -399,7 +409,6 @@ def _recover_lock(lock: Path) -> bool:
             Path(str(value)).resolve() for value in lock_paths if isinstance(value, str)
         }:
             return False
-        lock_owner = lock_payload.get("owner_pid")
         journal_owner = journal_payload.get("owner_pid")
         if type(lock_owner) is not int or type(journal_owner) is not int:
             return False

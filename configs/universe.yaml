@@ -352,3 +352,734 @@ etfs:
     max_weight: 1.0
     min_history_days: 504
     enabled: true
+  - id: AIR
+    name: Airbus SE
+    isin: needs_verification
+    ticker: AIR.PA
+    provider_symbol: AIR.PA
+    exchange: unverified
+    currency: EUR
+    asset_class: equity
+    instrument_type: stock
+    analysis_tier: secondary
+    data_policy: yfinance_only
+    region: Europe
+    sector: Industrials
+    theme: Aerospace
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: BA
+    name: Boeing Co
+    isin: needs_verification
+    ticker: BA
+    provider_symbol: BA
+    exchange: unverified
+    currency: USD
+    asset_class: equity
+    instrument_type: stock
+    analysis_tier: secondary
+    data_policy: yfinance_only
+    region: United States
+    sector: Industrials
+    theme: Aerospace
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: BRK_B
+    name: Berkshire Hathaway Inc Class B
+    isin: needs_verification
+    ticker: BRK-B
+    provider_symbol: BRK-B
+    exchange: unverified
+    currency: USD
+    asset_class: equity
+    instrument_type: stock
+    analysis_tier: secondary
+    data_policy: yfinance_only
+    region: United States
+    sector: Financials
+    theme: Diversified financials
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: AM
+    name: Amazon.com Inc
+    isin: needs_verification
+    ticker: AMZN
+    provider_symbol: AMZN
+    exchange: unverified
+    currency: USD
+    asset_class: equity
+    instrument_type: stock
+    analysis_tier: secondary
+    data_policy: yfinance_only
+    region: United States
+    sector: Consumer discretionary
+    theme: Digital platforms
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: IDR
+    name: Indra Sistemas SA
+    isin: needs_verification
+    ticker: IDR.MC
+    provider_symbol: IDR.MC
+    exchange: unverified
+    currency: EUR
+    asset_class: equity
+    instrument_type: stock
+    analysis_tier: secondary
+    data_policy: yfinance_only
+    region: Europe
+    sector: Technology
+    theme: Defence technology
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: KOG
+    name: Kongsberg Gruppen ASA
+    isin: needs_verification
+    ticker: KOG.OL
+    provider_symbol: KOG.OL
+    exchange: unverified
+    currency: NOK
+    asset_class: equity
+    instrument_type: stock
+    analysis_tier: secondary
+    data_policy: yfinance_only
+    region: Europe
+    sector: Industrials
+    theme: Defence technology
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: KMAR
+    name: Kempower Oyj
+    isin: needs_verification
+    ticker: KEMPOWR.HE
+    provider_symbol: KEMPOWR.HE
+    exchange: unverified
+    currency: EUR
+    asset_class: equity
+    instrument_type: stock
+    analysis_tier: secondary
+    data_policy: yfinance_only
+    region: Europe
+    sector: Industrials
+    theme: Electrification
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: LDO
+    name: Leonardo SpA
+    isin: needs_verification
+    ticker: LDO.MI
+    provider_symbol: LDO.MI
+    exchange: unverified
+    currency: EUR
+    asset_class: equity
+    instrument_type: stock
+    analysis_tier: secondary
+    data_policy: yfinance_only
+    region: Europe
+    sector: Industrials
+    theme: Defence technology
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: MSFT
+    name: Microsoft Corp
+    isin: needs_verification
+    ticker: MSFT
+    provider_symbol: MSFT
+    exchange: unverified
+    currency: USD
+    asset_class: equity
+    instrument_type: stock
+    analysis_tier: secondary
+    data_policy: yfinance_only
+    region: United States
+    sector: Technology
+    theme: Software and cloud
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: RR
+    name: Rolls-Royce Holdings plc
+    isin: needs_verification
+    ticker: RR.L
+    provider_symbol: RR.L
+    exchange: unverified
+    currency: GBP
+    asset_class: equity
+    instrument_type: stock
+    analysis_tier: secondary
+    data_policy: yfinance_only
+    region: Europe
+    sector: Industrials
+    theme: Aerospace
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: SAAB_B
+    name: Saab AB ser. B
+    isin: needs_verification
+    ticker: SAAB-B.ST
+    provider_symbol: SAAB-B.ST
+    exchange: unverified
+    currency: SEK
+    asset_class: equity
+    instrument_type: stock
+    analysis_tier: secondary
+    data_policy: yfinance_only
+    region: Europe
+    sector: Industrials
+    theme: Defence technology
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: SBNOR
+    name: Sparebanken Norge
+    isin: needs_verification
+    ticker: SBNOR.OL
+    provider_symbol: SBNOR.OL
+    exchange: unverified
+    currency: NOK
+    asset_class: equity
+    instrument_type: stock
+    analysis_tier: secondary
+    data_policy: yfinance_only
+    region: Europe
+    sector: Banks
+    theme: Nordic financials
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: HO
+    name: Hochtief AG
+    isin: needs_verification
+    ticker: HOT.DE
+    provider_symbol: HOT.DE
+    exchange: unverified
+    currency: EUR
+    asset_class: equity
+    instrument_type: stock
+    analysis_tier: secondary
+    data_policy: yfinance_only
+    region: Europe
+    sector: Industrials
+    theme: Infrastructure
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: TKA
+    name: thyssenkrupp AG
+    isin: needs_verification
+    ticker: TKA.DE
+    provider_symbol: TKA.DE
+    exchange: unverified
+    currency: EUR
+    asset_class: equity
+    instrument_type: stock
+    analysis_tier: secondary
+    data_policy: yfinance_only
+    region: Europe
+    sector: Industrials
+    theme: Materials and engineering
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: TKMS
+    name: thyssenkrupp Marine Systems GmbH
+    isin: needs_verification
+    ticker: TKMS.DE
+    provider_symbol: TKMS.DE
+    exchange: unverified
+    currency: EUR
+    asset_class: equity
+    instrument_type: stock
+    analysis_tier: secondary
+    data_policy: yfinance_only
+    region: Europe
+    sector: Industrials
+    theme: Defence technology
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: CBUK
+    name: Cairn Homes plc
+    isin: needs_verification
+    ticker: CRN.L
+    provider_symbol: CRN.L
+    exchange: unverified
+    currency: GBP
+    asset_class: equity
+    instrument_type: stock
+    analysis_tier: secondary
+    data_policy: yfinance_only
+    region: Europe
+    sector: Consumer discretionary
+    theme: European housing
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: SEC0
+    name: SECO SpA
+    isin: needs_verification
+    ticker: IOT.MI
+    provider_symbol: IOT.MI
+    exchange: unverified
+    currency: EUR
+    asset_class: equity
+    instrument_type: stock
+    analysis_tier: secondary
+    data_policy: yfinance_only
+    region: Europe
+    sector: Technology
+    theme: Edge computing
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: JEDI
+    name: JDE Peet's NV
+    isin: needs_verification
+    ticker: JDEP.AS
+    provider_symbol: JDEP.AS
+    exchange: unverified
+    currency: EUR
+    asset_class: equity
+    instrument_type: stock
+    analysis_tier: secondary
+    data_policy: yfinance_only
+    region: Europe
+    sector: Consumer staples
+    theme: Branded beverages
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: EUNK
+    name: iShares Core MSCI Europe UCITS ETF
+    isin: needs_verification
+    ticker: EUNK.DE
+    provider_symbol: EUNK.DE
+    exchange: unverified
+    currency: EUR
+    asset_class: equity
+    instrument_type: etf
+    analysis_tier: secondary
+    data_policy: yfinance_only
+    region: Europe
+    sector: Broad
+    theme: Europe broad equity
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: SPCX
+    name: SPDR MSCI Europe UCITS ETF
+    isin: needs_verification
+    ticker: SPCX.DE
+    provider_symbol: SPCX.DE
+    exchange: unverified
+    currency: EUR
+    asset_class: equity
+    instrument_type: etf
+    analysis_tier: secondary
+    data_policy: yfinance_only
+    region: Europe
+    sector: Broad
+    theme: Europe broad equity
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: SXRV_NASDAQ100
+    name: iShares NASDAQ 100 UCITS ETF
+    isin: needs_verification
+    ticker: SXRV.DE
+    provider_symbol: SXRV.DE
+    exchange: unverified
+    currency: EUR
+    asset_class: equity
+    instrument_type: etf
+    analysis_tier: secondary
+    data_policy: yfinance_only
+    region: United States
+    sector: Broad
+    theme: Nasdaq 100
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: VFEM
+    name: Vanguard FTSE Emerging Markets UCITS ETF
+    isin: needs_verification
+    ticker: VFEM.L
+    provider_symbol: VFEM.L
+    exchange: unverified
+    currency: GBP
+    asset_class: equity
+    instrument_type: etf
+    analysis_tier: secondary
+    data_policy: yfinance_only
+    region: Emerging markets
+    sector: Broad
+    theme: Emerging-market equity
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: VUSA
+    name: Vanguard S&P 500 UCITS ETF
+    isin: needs_verification
+    ticker: VUSA.L
+    provider_symbol: VUSA.L
+    exchange: unverified
+    currency: GBP
+    asset_class: equity
+    instrument_type: etf
+    analysis_tier: secondary
+    data_policy: yfinance_only
+    region: United States
+    sector: Broad
+    theme: S&P 500
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: EUDF
+    name: iShares MSCI Europe Quality Dividend UCITS ETF
+    isin: needs_verification
+    ticker: EUDF.DE
+    provider_symbol: EUDF.DE
+    exchange: unverified
+    currency: EUR
+    asset_class: equity
+    instrument_type: etf
+    analysis_tier: secondary
+    data_policy: yfinance_only
+    region: Europe
+    sector: Broad
+    theme: Europe dividend equity
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: XAIX
+    name: Xtrackers Artificial Intelligence and Big Data UCITS ETF
+    isin: needs_verification
+    ticker: XAIX.DE
+    provider_symbol: XAIX.DE
+    exchange: unverified
+    currency: EUR
+    asset_class: equity
+    instrument_type: etf
+    analysis_tier: secondary
+    data_policy: yfinance_only
+    region: Global
+    sector: Technology
+    theme: Artificial intelligence
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: EXUS
+    name: iShares MSCI World ex-USA UCITS ETF
+    isin: needs_verification
+    ticker: EXUS.DE
+    provider_symbol: EXUS.DE
+    exchange: unverified
+    currency: EUR
+    asset_class: equity
+    instrument_type: etf
+    analysis_tier: secondary
+    data_policy: yfinance_only
+    region: Global ex-USA
+    sector: Broad
+    theme: Global developed equity ex-USA
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: XDWU
+    name: Xtrackers MSCI World UCITS ETF
+    isin: needs_verification
+    ticker: XDWU.DE
+    provider_symbol: XDWU.DE
+    exchange: unverified
+    currency: EUR
+    asset_class: equity
+    instrument_type: etf
+    analysis_tier: secondary
+    data_policy: yfinance_only
+    region: Global
+    sector: Broad
+    theme: Global developed equity
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: RABO
+    name: Rabobank equity certificate
+    isin: needs_verification
+    ticker: RABO.OL
+    provider_symbol: RABO.OL
+    exchange: unverified
+    currency: EUR
+    asset_class: equity
+    instrument_type: certificate
+    analysis_tier: secondary
+    data_policy: yfinance_only
+    region: Europe
+    sector: Banks
+    theme: Nordic financials
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: AURG
+    name: Aurskog Sparebank
+    isin: needs_verification
+    ticker: AURG.OL
+    provider_symbol: AURG.OL
+    exchange: OSE
+    currency: NOK
+    asset_class: equity
+    instrument_type: equity_certificate
+    analysis_tier: sparebanken
+    data_policy: yfinance_only
+    region: Norway
+    sector: Banks
+    theme: Norwegian savings-bank equity certificates
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: HELG
+    name: Helgeland Sparebank
+    isin: NO0010029804
+    ticker: HELG.OL
+    provider_symbol: HELG.OL
+    exchange: OSE
+    currency: NOK
+    asset_class: equity
+    instrument_type: equity_certificate
+    analysis_tier: sparebanken
+    data_policy: yfinance_only
+    region: Norway
+    sector: Banks
+    theme: Norwegian savings-bank equity certificates
+    role: watchlist
+    isin_status: verified
+    enabled: true
+  - id: HSPG
+    name: Høland og Setskog Sparebank
+    isin: NO0010012636
+    ticker: HSPG.OL
+    provider_symbol: HSPG.OL
+    exchange: OSE
+    currency: NOK
+    asset_class: equity
+    instrument_type: equity_certificate
+    analysis_tier: sparebanken
+    data_policy: yfinance_only
+    region: Norway
+    sector: Banks
+    theme: Norwegian savings-bank equity certificates
+    role: watchlist
+    isin_status: verified
+    enabled: true
+  - id: SOGN
+    name: Sogn Sparebank
+    isin: needs_verification
+    ticker: SOGN.OL
+    provider_symbol: SOGN.OL
+    exchange: OSE
+    currency: NOK
+    asset_class: equity
+    instrument_type: equity_certificate
+    analysis_tier: sparebanken
+    data_policy: yfinance_only
+    region: Norway
+    sector: Banks
+    theme: Norwegian savings-bank equity certificates
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: JAEREN
+    name: Jæren Sparebank
+    isin: NO0010359433
+    ticker: JAEREN.OL
+    provider_symbol: JAEREN.OL
+    exchange: OSE
+    currency: NOK
+    asset_class: equity
+    instrument_type: equity_certificate
+    analysis_tier: sparebanken
+    data_policy: yfinance_only
+    region: Norway
+    sector: Banks
+    theme: Norwegian savings-bank equity certificates
+    role: watchlist
+    isin_status: verified
+    enabled: true
+  - id: MELG
+    name: Melhus Sparebank
+    isin: needs_verification
+    ticker: MELG.OL
+    provider_symbol: MELG.OL
+    exchange: OSE
+    currency: NOK
+    asset_class: equity
+    instrument_type: equity_certificate
+    analysis_tier: sparebanken
+    data_policy: yfinance_only
+    region: Norway
+    sector: Banks
+    theme: Norwegian savings-bank equity certificates
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: SADG
+    name: Sandnes Sparebank
+    isin: needs_verification
+    ticker: SADG.OL
+    provider_symbol: SADG.OL
+    exchange: OSE
+    currency: NOK
+    asset_class: equity
+    instrument_type: equity_certificate
+    analysis_tier: sparebanken
+    data_policy: yfinance_only
+    region: Norway
+    sector: Banks
+    theme: Norwegian savings-bank equity certificates
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: SKUE
+    name: Skue Sparebank
+    isin: needs_verification
+    ticker: SKUE.OL
+    provider_symbol: SKUE.OL
+    exchange: OSE
+    currency: NOK
+    asset_class: equity
+    instrument_type: equity_certificate
+    analysis_tier: sparebanken
+    data_policy: yfinance_only
+    region: Norway
+    sector: Banks
+    theme: Norwegian savings-bank equity certificates
+    role: watchlist
+    isin_status: needs_verification
+    enabled: true
+  - id: NONG
+    name: SpareBank 1 Nord-Norge
+    isin: NO0006000801
+    ticker: NONG.OL
+    provider_symbol: NONG.OL
+    exchange: OSE
+    currency: NOK
+    asset_class: equity
+    instrument_type: equity_certificate
+    analysis_tier: sparebanken
+    data_policy: yfinance_only
+    region: Norway
+    sector: Banks
+    theme: Norwegian savings-bank equity certificates
+    role: watchlist
+    isin_status: verified
+    enabled: true
+  - id: RING
+    name: SpareBank 1 Ringerike Hadeland
+    isin: NO0006390400
+    ticker: RING.OL
+    provider_symbol: RING.OL
+    exchange: OSE
+    currency: NOK
+    asset_class: equity
+    instrument_type: equity_certificate
+    analysis_tier: sparebanken
+    data_policy: yfinance_only
+    region: Norway
+    sector: Banks
+    theme: Norwegian savings-bank equity certificates
+    role: watchlist
+    isin_status: verified
+    enabled: true
+  - id: MING
+    name: SpareBank 1 SMN
+    isin: NO0006390301
+    ticker: MING.OL
+    provider_symbol: MING.OL
+    exchange: OSE
+    currency: NOK
+    asset_class: equity
+    instrument_type: equity_certificate
+    analysis_tier: sparebanken
+    data_policy: yfinance_only
+    region: Norway
+    sector: Banks
+    theme: Norwegian savings-bank equity certificates
+    role: watchlist
+    isin_status: verified
+    enabled: true
+  - id: SOAG
+    name: SpareBank 1 Østfold Akershus
+    isin: NO0010285562
+    ticker: SOAG.OL
+    provider_symbol: SOAG.OL
+    exchange: OSE
+    currency: NOK
+    asset_class: equity
+    instrument_type: equity_certificate
+    analysis_tier: sparebanken
+    data_policy: yfinance_only
+    region: Norway
+    sector: Banks
+    theme: Norwegian savings-bank equity certificates
+    role: watchlist
+    isin_status: verified
+    enabled: true
+  - id: SPOL
+    name: SpareBank 1 Østlandet
+    isin: NO0010751910
+    ticker: SPOL.OL
+    provider_symbol: SPOL.OL
+    exchange: OSE
+    currency: NOK
+    asset_class: equity
+    instrument_type: equity_certificate
+    analysis_tier: sparebanken
+    data_policy: yfinance_only
+    region: Norway
+    sector: Banks
+    theme: Norwegian savings-bank equity certificates
+    role: watchlist
+    isin_status: verified
+    enabled: true
+  - id: MORG
+    name: Sparebanken Møre
+    isin: NO0006390004
+    ticker: MORG.OL
+    provider_symbol: MORG.OL
+    exchange: OSE
+    currency: NOK
+    asset_class: equity
+    instrument_type: equity_certificate
+    analysis_tier: sparebanken
+    data_policy: yfinance_only
+    region: Norway
+    sector: Banks
+    theme: Norwegian savings-bank equity certificates
+    role: watchlist
+    isin_status: verified
+    enabled: true
+  - id: SPOG
+    name: Sparebanken Øst
+    isin: NO0006222009
+    ticker: SPOG.OL
+    provider_symbol: SPOG.OL
+    exchange: OSE
+    currency: NOK
+    asset_class: equity
+    instrument_type: equity_certificate
+    analysis_tier: sparebanken
+    data_policy: yfinance_only
+    region: Norway
+    sector: Banks
+    theme: Norwegian savings-bank equity certificates
+    role: watchlist
+    isin_status: verified
+    enabled: true

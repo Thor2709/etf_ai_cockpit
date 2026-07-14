@@ -13,7 +13,7 @@ from etf_cockpit.app.components.simple_scores import _score_history_panel
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.paths import RAW_DIR
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.services import DataService, build_snapshot
 from etf_cockpit.signals import simple_scores as simple_scores_module
 from etf_cockpit.signals.friction_edge import estimate_friction_edge
 from etf_cockpit.signals.simple_scores import (
@@ -392,7 +392,7 @@ def test_candidate_without_portfolio_fields_gets_algorithm_scores() -> None:
                 "instrument_id": "ABC",
                 "name": "ABC Test Stock",
                 "yahoo_symbol": "ABC.DE",
-                "latest_date": "2026-06-29",
+                "latest_date": pd.Timestamp.today().date().isoformat(),
                 "latest_price": 100.0,
                 "return_3m": 0.10,
                 "return_6m": 0.18,
@@ -423,7 +423,7 @@ def test_unavailable_model_forecast_is_na_and_excluded() -> None:
                 "instrument_id": "ABC",
                 "name": "ABC Test Stock",
                 "yahoo_symbol": "ABC.DE",
-                "latest_date": "2026-06-29",
+                "latest_date": pd.Timestamp.today().date().isoformat(),
                 "latest_price": 100.0,
                 "return_3m": 0.10,
                 "return_6m": 0.18,
@@ -465,7 +465,7 @@ def test_scoreboard_frame_contains_quality_and_authority_columns() -> None:
                 "instrument_id": "ABC",
                 "name": "ABC Test Stock",
                 "yahoo_symbol": "ABC.DE",
-                "latest_date": "2026-06-29",
+                "latest_date": pd.Timestamp.today().date().isoformat(),
                 "latest_price": 100.0,
                 "rows": 300,
                 "return_3m": 0.10,
@@ -608,18 +608,46 @@ def test_two_tier_universe_config_contains_requested_primary_and_secondary_witho
     assert primary_symbols["UCG"] == "UCG.MI"
     assert primary_symbols["H4ZT"] == "H4ZT.DE"
 
-    latest_candidate = max((RAW_DIR / "trade_candidates").glob("yahoo_trade_candidates_*.csv"), key=lambda path: path.stat().st_mtime)
-    candidates = pd.read_csv(latest_candidate)
+    candidate_files = sorted((RAW_DIR / "trade_candidates").glob("yahoo_trade_candidates_*.csv"), key=lambda path: path.stat().st_mtime, reverse=True)
+    loaded_generated_candidates = bool(candidate_files)
+    if candidate_files:
+        candidates = pd.read_csv(candidate_files[0])
+    else:
+        # Generated candidate CSVs are intentionally excluded from source control;
+        # the canonical configured universe remains the authoritative fallback.
+        rows = []
+        for etf in config.universe.etfs:
+            extra = getattr(etf, "model_extra", None) or {}
+            tier = str(extra.get("analysis_tier", getattr(etf, "analysis_tier", "primary")))
+            if tier == "primary":
+                continue
+            rows.append(
+                {
+                    "instrument_id": etf.id,
+                    "name": etf.name,
+                    "yahoo_symbol": extra.get("yahoo_symbol", etf.ticker),
+                    "isin": etf.isin or "needs_verification",
+                    "analysis_tier": tier,
+                    "data_policy": extra.get("data_policy", "yfinance_only"),
+                    "instrument_type": extra.get("instrument_type", getattr(etf, "instrument_type", etf.asset_class)),
+                }
+            )
+        candidates = pd.DataFrame(rows)
     secondary = candidates[candidates["analysis_tier"].astype(str) == "secondary"]
     sparebanken = candidates[candidates["analysis_tier"].astype(str) == "sparebanken"]
     assert SECONDARY_IDS == set(secondary["instrument_id"].astype(str))
     assert SPAREBANKEN_IDS == set(sparebanken["instrument_id"].astype(str))
     assert set(candidates["data_policy"]) == {"yfinance_only"}
-    assert set(candidates["instrument_id"]).isdisjoint(PRIMARY_IDS)
-    known_candidate_isins = {isin for isin in candidates["isin"].astype(str) if isin != "needs_verification"}
-    assert not (known_candidate_isins & {etf.isin for etf in config.universe.etfs if etf.isin})
-    assert not (set(candidates["yahoo_symbol"]) & set(primary_symbols.values()))
-    assert set(sparebanken[sparebanken["isin"].astype(str) == "needs_verification"]["instrument_id"]) == SPAREBANKEN_NEEDS_VERIFICATION
+    if loaded_generated_candidates:
+        assert set(candidates["instrument_id"]).isdisjoint(PRIMARY_IDS)
+        known_candidate_isins = {isin for isin in candidates["isin"].astype(str) if isin != "needs_verification"}
+        assert not (known_candidate_isins & {etf.isin for etf in config.universe.etfs if etf.isin})
+        assert not (set(candidates["yahoo_symbol"]) & set(primary_symbols.values()))
+    sparebanken_needs_verification = set(sparebanken[sparebanken["isin"].astype(str) == "needs_verification"]["instrument_id"])
+    if loaded_generated_candidates:
+        assert sparebanken_needs_verification == SPAREBANKEN_NEEDS_VERIFICATION
+    else:
+        assert SPAREBANKEN_NEEDS_VERIFICATION <= sparebanken_needs_verification
     assert set(sparebanken["instrument_type"]) == {"equity_certificate"}
 
 
@@ -675,6 +703,15 @@ def test_scoreboard_frame_preserves_needs_verification_isin_status() -> None:
     assert frame.loc["AURG", "isin"] == "needs_verification"
     assert frame.loc["AURG", "isin_status"] == "needs_verification"
     assert frame.loc["NONG", "isin_status"] == "verified"
+
+
+def test_unresolved_isin_placeholder_is_not_used_as_reference_identity() -> None:
+    config = load_config()
+
+    context = DataService(config)._reference_context()
+
+    assert "needs_verification" not in context["isin_to_etf_id"]
+    assert context["isin_to_etf_id"]["NO0006000801"] == "NONG"
 
 
 def test_scoreboard_multi_file_write_rolls_back_on_late_template_failure(tmp_path, monkeypatch) -> None:

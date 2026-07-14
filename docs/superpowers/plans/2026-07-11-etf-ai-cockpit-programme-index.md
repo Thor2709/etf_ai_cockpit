@@ -1,6 +1,6 @@
 # ETF AI Cockpit Programme Index
 
-> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6, Wave 3 Tasks 7-9 and Wave 4 Tasks 10-19 are independently approved, merged and post-merge verified. Task 10 is closed locally and synchronised to GitHub Issue #81; Tasks 11-19 are implementation-complete with their owning issues still closure-pending strict release/package/audit/export/browser/clean-first-run evidence. The next dependency-valid implementation is Task 20, Import/Export, Backup/Restore, Charts and Accessible Tables.
+> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6, Wave 3 Tasks 7-9 and Wave 4 Tasks 10-21 are independently approved, merged and post-merge verified. Task 10 is closed locally and synchronised to GitHub Issue #81; Tasks 11-21 are implementation-complete with their owning issues still closure-pending strict release/package/audit/export/browser/clean-first-run evidence. Wave 5 Task 22 is under semantic reconciliation review on `wave5/task22-reconciliation`; Task 23 is deferred until the reconciled Task 22 base is approved and committed.
 
 **Binding inputs:**
 
@@ -331,3 +331,60 @@ Comprehensive Instrument Detail, is now merged via PR 189 at `da271bc` with
 implementation head `89f4644`; `ISSUE-0019` remains implementation-complete
 and closure-pending the same strict gates. Continue with Task 20,
 Import/Export, Backup/Restore, Charts and Accessible Tables.
+
+### Wave 5 Task 22 semantic reconciliation checkpoint - 2026-07-14
+
+The clean reconciliation branch `wave5/task22-reconciliation` is based on
+`origin/main` `6e6406d`. Patch-equivalent and obsolete Task 20/21 commits were
+excluded; only genuine Task 22 source, configuration, tests and evidence were
+transferred. The first independent review identified and blocked on five
+Sparebanken identity mismatches in the canonical YAML and a plain `Cancel`
+gap for explicit order-control calls. Test-first regressions now pass after
+correcting the five YAML identities/ticker and extending the fail-closed
+boundary scan. A fresh independent re-review is pending. Task 23 remains
+deferred until Task 22 is approved and committed; no issue ledger transition
+has been made.
+
+### Wave 5 Task 22 reconciliation review approval checkpoint - 2026-07-14
+
+The semantic reconciliation checkpoint remains based on `origin/main`
+`6e6406d`; obsolete Task 20/21 commits were not replayed. Review-fix cycles
+now cover configured manual-holding retention through the real snapshot path,
+non-zero untargeted audit weights, canonical Sparebanken name/ticker/ISIN
+parity, and exclusion of unresolved ISIN placeholders from reference identity
+maps while pending score output retains the visible marker. Focused tests, 20
+repeated atomic recovery runs, compileall and staged diff checks pass. A fresh
+independent reviewer approved specification compliance and code quality with
+no Critical or Important findings. The cached full suite still records 11
+pre-existing/environment/deferred failures; Ruff, package/native/browser and
+clean-first-run evidence remain pending. Task 22 is not closed, no issue
+ledger transition has been made, and Task 23 remains deferred until the
+reconciled checkpoint is integrated and its remaining closure gates pass.
+
+### Wave 5 Task 22 reconciliation local commit checkpoint - 2026-07-14
+
+The independently approved reconciliation was committed locally as
+`59d2393dcdaa9b19d436fcb5890ee0da15666196` on
+`wave5/task22-reconciliation`, one normal commit ahead of the verified
+`origin/main` base `6e6406d58db89ae19398e2abf15d0670e3350560`. The commit contains
+only the reviewed Task 22 reconciliation and durable evidence; no Task 20/21
+obsolete commit was replayed, and the original Task 22 worktree remains
+recoverable. System GitHub authentication inside Codex still fails with
+`SEC_E_NO_CREDENTIALS`; branch push, pull request integration and GitHub issue
+synchronisation are therefore pending authenticated PowerShell execution.
+The fresh full suite recorded 11 baseline/environment-specific failures and no
+Task 22-specific failure. Task 22 remains open and Task 23 has not started.
+
+### Wave 5 Task 23 bounded release-candidate checkpoint - 2026-07-15
+
+Task 23 resumed on `wave5/task23-working` from the reconciled Task 22
+checkpoint. The bounded table/identity/fixture fixes and the reproducible
+`0.1.0rc1` PyInstaller packaging path have fresh independent approval. The
+focused and authoritative full test suites, compileall, scoped Ruff and diff
+checks passed. A reviewed native onedir build and complete portable ZIP were
+extracted outside the repository and the packaged launcher returned HTTP 200.
+The canonical batch build remains unverified because the repository virtual
+environment is inaccessible under the current Windows ACL/ensurepip state.
+Full issue dossiers/evaluator, rendered browser/computer-use, clean-first-run,
+remote integration and issue transitions remain pending; Task 23 is
+implementation-complete but closure-pending.

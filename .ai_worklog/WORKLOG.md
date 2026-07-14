@@ -1472,3 +1472,15 @@ Ruff, source, native and portable smoke checks. The nested Task 10 worktree
 was removed so the production package-inventory scan no longer traverses it.
 GitHub Issue #81 remains to be read back as closed before Task 11 begins;
 `execution_allowed=false` remains unchanged.
+## 2026-07-15 Task 23 bounded release-candidate checkpoint
+
+Task 23's bounded table/identity/fixture fixes and the reproducible `0.1.0rc1`
+PyInstaller path were independently re-reviewed and approved. The focused and
+authoritative full pytest suites, compileall, scoped Ruff and diff checks
+exited zero. A reviewed native onedir build and complete portable ZIP were
+extracted outside the repository; the packaged launcher returned HTTP 200 on
+port 8649. The repository `.venv` remains inaccessible under the current
+Windows ACL/ensurepip state, so the canonical batch build is unverified.
+Full issue dossiers/evaluator, rendered browser/computer-use, clean-first-run,
+remote integration and issue transitions remain pending. See
+`.ai_worklog/task-23-report.md`.
