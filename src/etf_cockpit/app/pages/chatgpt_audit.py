@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import flet as ft
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
+from etf_cockpit.chatgpt_bridge.audit_packet import extract_and_validate_audit_archive
 from etf_cockpit.audit.local_llm import (
     build_local_audit_context,
     check_local_llm_status,
@@ -28,8 +30,13 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
         page.update()
         try:
             path = state.export_audit_packet()
-            state.finish_activity(f"Exported audit packet: {path}", output_path=path)
-            output.value = f"Exported: {path}"
+            with TemporaryDirectory(prefix="audit_verify_") as verification_dir:
+                report = extract_and_validate_audit_archive(path, Path(verification_dir))
+            if not report.valid:
+                raise ValueError(f"Audit packet validation failed: missing={report.missing}, checksums={report.checksum_errors}, secrets={report.secret_findings}")
+            message = f"Exported: {path} ({len(report.included)} artefacts; checksums validated; execution_allowed=false)"
+            state.finish_activity(message, output_path=path)
+            output.value = message
         except Exception as exc:
             state.fail_activity("Export audit packet", exc, retry_callback=state.export_audit_packet)
             output.value = state.last_message

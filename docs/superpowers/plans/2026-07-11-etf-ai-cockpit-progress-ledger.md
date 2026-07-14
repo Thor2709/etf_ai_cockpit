@@ -6,12 +6,12 @@
 
 | Field | Value |
 |---|---|
-| Updated | 2026-07-13 |
-| Active phase | Wave 5 Task 19 implementation complete and merged; `ISSUE-0019` plus earlier issues closure-pending strict release/audit/browser/clean-first-run evidence; Task 20 next |
+| Updated | 2026-07-14 |
+| Active phase | Wave 5 Task 21 implementation complete and independently approved; `UPDATEV2-0028` remains closure-pending strict runtime/export/package/browser evidence; Task 22 next |
 | Active plan | `docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md` |
-| Git state | PR 189 merged Task 19 into `main` at `da271bc`; implementation head `89f4644`; local `main` matches `origin/main` and is clean |
+| Git state | Task 21 branch `wave5/task21-audit` is clean at `5270d60`; GitHub connector integration is pending because local Git credentials fail with `SEC_E_NO_CREDENTIALS` |
 | Existing closure state | Task 11 issues `ISSUE-0068`, `ISSUE-0018`, `ISSUE-0017` and `ISSUE-0056` are implementation-complete but closure-pending final release/browser/clean-first-run evidence; `ISSUE-0035` is closed locally and on GitHub Issue #81 |
-| Fresh baseline | Task 10 focused 16 and affected 40 passed; compileall/Ruff/source smoke passed; portable build, native/portable smoke, semantic focus, export and authoritative full suite passed; package-inventory rerun passed after removing the merged worktree |
+| Fresh baseline | Task 21 bundled compileall and diff checks passed; pytest/Ruff/export/package/browser runtime checks are unavailable in the isolated worktree and remain closure-pending |
 | Pre-existing type state | recorded mypy failure caused by external stubs and existing typing debt; no new failure attributed |
 | Known historical evidence limitation | Existing package/browser evidence predates this programme and cannot close new work |
 
@@ -24,7 +24,7 @@
 | 2 | registry and universe | Not started | `UniverseRecord`/optimistic revision/atomic save present | registry dry-run and validator RED suite |
 | 3 | DATA-05 | Not started | no live seed verification has been performed in this programme | retrieve current official identity evidence and write failing seed-contract tests |
 | 4 | storage and evidence | Task 10 closed and synchronised; Tasks 11-17 implementation-complete and merged; seventeen issues closure-pending | Task 17 focused score-history/run-comparison/driver/UI bundle 38 passed; four fix/review cycles ended with fresh independent SPEC/CODE PASS, PR 187 merged at `265b798`; strict package/audit/browser/clean-first-run evidence remains open | continue closure evidence while Wave 5 proceeds |
-| 5 | domain and scoring | Tasks 18-19 implementation-complete and merged; `ISSUE-0052`, `ISSUE-0059`, `ISSUE-0064` and `ISSUE-0019` closure-pending | Task 19 focused instrument-detail bundle passed fresh post-merge; nine fix/review cycles ended with fresh independent SPEC/CODE approval, PR 189 merged at `da271bc`, implementation head `89f4644`; strict package/audit/browser/clean-first-run evidence remains open | begin Task 20: Import/Export, Backup/Restore, Charts and Accessible Tables |
+| 5 | domain and scoring | Tasks 18-21 implementation-complete and merged/approved; `ISSUE-0052`, `ISSUE-0059`, `ISSUE-0064`, `ISSUE-0019`, `ISSUE-0036`, `ISSUE-0041`, `ISSUE-0042`, `ISSUE-0044` and `UPDATEV2-0028` closure-pending | Task 21 head `5270d60` passed fresh SPEC/CODE review; compileall and diff checks passed; pytest, Ruff, export/package/browser evidence remains unavailable | begin Task 22: Full Verification, Bug Hunt and Independent Review |
 | 5 | domain and scoring | Not started | source-aware deterministic scorer present; first-enabled benchmark and legacy ensemble remain | template/benchmark/champion RED suite |
 | 6 | AI and validation | Not started | optional adapter foundations present; authority/caching/validation seams remain | strict forecast-state and fold/trial RED suite |
 | 7 | portfolio | Not started | static holdings/allocation foundation present | immutable ledger RED suite |
@@ -396,3 +396,40 @@ at `89f4644`. PR 189
 package, audit/export, browser/computer-use, keyboard/focus/responsive and
 clean-first-run evidence. The next dependency-valid implementation is Task 20,
 Import/Export, Backup/Restore, Charts and Accessible Tables.
+
+### Wave 5 Task 20 integration checkpoint - 2026-07-14
+
+Task 20 Steps 1-4 are implementation-complete on `wave5/task20-import-export`,
+with final implementation head `1542e65` and fresh independent approval in
+`.ai_worklog/task-20-review-final7.md`. PR 190 was merged remotely to `main` at
+`61f6aa3144d5d1eb28d57052c09a88acb5529bcc`. Scoped Ruff, bundled compileall
+and `git diff --check` passed; the repository venv pytest process is blocked by
+Windows access denial and the bundled interpreter cannot load the venv NumPy
+binaries. The four owning issues remain open and closure-pending strict runtime,
+release/package, audit/export, browser/computer-use and clean-first-run gates.
+The next dependency-valid implementation is Task 21, Complete Audit Packet and
+Non-Executable External Audit Import.
+
+### Wave 5 Task 21 integration checkpoint - 2026-07-14
+
+Task 21 implementation for `UPDATEV2-0028` is complete on branch
+`wave5/task21-audit` at final head `5270d60`. The complete-audit contract now
+declares provider, identity, statements, ETF documents/holdings/KID/
+methodology, news validation, conflicts, evidence ledger, score history and
+components, drivers, clusters, attribution, edge/cost, Data Health,
+workflow/session, redacted configuration, issue dossiers and both checksum
+manifest copies. Missing optional evidence is represented by deterministic,
+source-unique unavailable markers. External import remains a non-executable
+note with `execution_allowed=false` and cannot change scores, actions or
+configuration. Archive validation enforces canonical required paths, strict
+record fields, SHA-256 maps, secret scanning, unlisted-file detection and
+extraction containment.
+
+RED/GREEN and review evidence is recorded in `.ai_worklog/task-21-report.md`,
+`.ai_worklog/task-21-fix-report.md`, `.ai_worklog/task-21-brief.md` and the
+focused `tests/test_complete_audit_packet.py` additions. Bundled compileall
+and diff checks passed. The final fresh closure reviewer returned SPEC PASS
+and CODE PASS with no Critical or Important findings. Pytest, Ruff, live
+archive/export, package and browser evidence remain unavailable in this
+environment, so `UPDATEV2-0028` remains implementation-complete and
+closure-pending. The next dependency-valid task is Task 22 Full Verification.

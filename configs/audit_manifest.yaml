@@ -1,10 +1,32 @@
 version: 1
 required:
-  - {path: session.jsonl, allow_unavailable: false}
-  - {path: evidence_export/trust_critical_manifest.json, allow_unavailable: true}
-  - {path: configs/data_providers_redacted.json, allow_unavailable: false}
-  - {path: project_docs/issues/open.md, allow_unavailable: false}
-  - {path: evidence_export/governance/policy_checksums.json, allow_unavailable: false}
+  - {path: evidence_export/provider_probe_results.csv, schema_version: 1, source_authority: provider, allow_unavailable: true}
+  - {path: evidence_export/instrument_identity.csv, schema_version: 1, source_authority: identity, allow_unavailable: true}
+  - {path: evidence_export/statement_facts.csv, schema_version: 1, source_authority: official_regulator, allow_unavailable: true}
+  - {path: evidence_export/filings_statements.csv, schema_version: 1, source_authority: official_regulator, allow_unavailable: true}
+  - {path: evidence_export/fund_documents.csv, schema_version: 1, source_authority: issuer_document, allow_unavailable: true}
+  - {path: evidence_export/fund_holdings.csv, schema_version: 1, source_authority: issuer_document, allow_unavailable: true}
+  - {path: evidence_export/etf_disclosures.csv, schema_version: 1, source_authority: issuer_document, allow_unavailable: true}
+  - {path: evidence_export/priips_kid_records.csv, schema_version: 1, source_authority: issuer_document, allow_unavailable: true}
+  - {path: evidence_export/index_methodology_records.csv, schema_version: 1, source_authority: issuer_document, allow_unavailable: true}
+  - {path: evidence_export/news_context.csv, schema_version: 1, source_authority: context_only, allow_unavailable: true}
+  - {path: evidence_export/news_timestamp_validation.csv, schema_version: 1, source_authority: context_only, allow_unavailable: true}
+  - {path: evidence_export/source_conflicts.csv, schema_version: 1, source_authority: evidence, allow_unavailable: true}
+  - {path: evidence_export/evidence_ledger.csv, schema_version: 1, source_authority: derived, allow_unavailable: true}
+  - {path: evidence_export/score_components.csv, schema_version: 1, source_authority: derived, allow_unavailable: true}
+  - {path: evidence_export/score_history.csv, schema_version: 1, source_authority: derived, allow_unavailable: true}
+  - {path: evidence_export/score_metric_history.csv, schema_version: 1, source_authority: derived, allow_unavailable: true}
+  - {path: evidence_export/feature_drivers.csv, schema_version: 1, source_authority: derived, allow_unavailable: true}
+  - {path: evidence_export/correlation_clusters.csv, schema_version: 1, source_authority: derived, allow_unavailable: true}
+  - {path: evidence_export/benchmark_attribution.csv, schema_version: 1, source_authority: derived, allow_unavailable: true}
+  - {path: evidence_export/edge_cost.csv, schema_version: 1, source_authority: derived, allow_unavailable: true}
+  - {path: evidence_export/data_health.csv, schema_version: 1, source_authority: derived, allow_unavailable: true}
+  - {path: evidence_export/session.jsonl, schema_version: 1, source_authority: workflow, allow_unavailable: true}
+  - {path: evidence_export/workflow.jsonl, schema_version: 1, source_authority: workflow, allow_unavailable: true}
+  - {path: evidence_export/configs/data_providers_redacted.json, schema_version: 1, source_authority: configuration, allow_unavailable: false}
+  - {path: evidence_export/configs/audit_manifest.yaml, schema_version: 1, source_authority: configuration, allow_unavailable: true}
+  - {path: evidence_export/project_docs/issue_dossiers.json, schema_version: 1, source_authority: issue_dossier, allow_unavailable: true}
+  - {path: checksum_manifest.json, schema_version: 1, source_authority: audit, allow_unavailable: false}
 governance:
   schema_version: "1.0"
   policy_checksum_manifest: evidence/governance/policy_checksums.json

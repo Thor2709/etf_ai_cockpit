@@ -5,8 +5,8 @@
     "name": "2026-07-11-etf-ai-cockpit-approved-programme",
     "programme_index": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-programme-index.md",
     "progress_ledger": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-progress-ledger.md",
-    "phase": "wave5_task19_merged_closure_pending_task20_starting",
-    "next_task": "Wave 5, Task 20: Import/Export, Backup/Restore, Charts and Accessible Tables",
+    "phase": "wave5_task20_merged_closure_pending_task21_starting",
+    "next_task": "Wave 5, Task 21: Complete Audit Packet and Non-Executable External Audit Import",
     "git_repository": true,
     "git_branch": "main",
     "baseline": {
@@ -761,8 +761,8 @@
       "closure_evaluator": {"exit_code": 1, "ready": 4, "still_open": 38, "issue_count": 42, "expected_nonzero": true}
     }
   },
-  "first_unpassed_criterion": "Task 11-17 issues still require fresh strict release/audit-export/clean-first-run/browser/computer-use evidence and final closure-matrix evaluation",
-  "next_command": "Create the isolated Wave 5 Task 20 worktree/branch from origin/main and dispatch a fresh implementer and independent reviewer for Import/Export, Backup/Restore, Charts and Accessible Tables",
+  "first_unpassed_criterion": "Task 21 Step 5 and UPDATEV2-0028 still require fresh archive/export, package, browser/computer-use and closure-matrix evidence; Task 22 is next",
+  "next_command": "Create the isolated Wave 5 Task 22 verification worktree from the verified Task 21 head and dispatch the next dependency-valid implementation/review work",
   "notes": [
     "No Git initialisation or commit occurred before the independently approved Task 2 boundary; the user now authorises local baseline Git setup and optional private GitHub push only.",
     "Closure status is evaluator-backed: 4/42 ready and 38 still open; do not close remaining issues without their complete dossiers.",
@@ -797,6 +797,9 @@
     ,"Wave 4 Task 17 is independently approved and integrated through PR 187 at merge commit 265b798 with implementation head e83edfc; ISSUE-0067, ISSUE-0034 and ISSUE-0047 remain open/closure-pending strict release, audit/export, browser and clean-first-run evidence."
     ,"Wave 5 Task 18 was independently approved through six bounded fix/review cycles and merged by PR 188 at 3e3b02e with implementation head 0a5e0a6; ISSUE-0052, ISSUE-0059 and ISSUE-0064 remain closure-pending strict release/package/audit/export/browser/clean-first-run evidence."
     ,"Wave 5 Task 19 was independently approved and merged through PR 189 at da271bc with implementation head 89f4644; ISSUE-0019 remains closure-pending strict release/package/audit/export/browser/clean-first-run evidence."
-    ,"The next dependency-valid implementation is Wave 5 Task 20, Import/Export, Backup/Restore, Charts and Accessible Tables."
+    ,"Wave 5 Task 20 was independently approved at implementation head 1542e65 and merged through PR 190 to GitHub main at 61f6aa3144d5d1eb28d57052c09a88acb5529bcc; ISSUE-0036, ISSUE-0041, ISSUE-0042 and ISSUE-0044 remain open and closure-pending strict runtime, release/package, audit/export, browser/computer-use and clean-first-run evidence."
+    ,"The next dependency-valid implementation is Wave 5 Task 21, Complete Audit Packet and Non-Executable External Audit Import."
+    ,"Task 21 worktree checkout triggered a Windows git.exe native memory-read error after metadata creation; root cause is isolated to the checkout phase. The verified c495ee0 tree was populated safely with git archive and the worktree index refreshed with git reset --mixed. Active branch wave5/task21-audit uses .worktrees/TASK21~1; fresh implementer dispatched."
+    ,"Wave 5 Task 21 final head 5270d60 passed fresh independent SPEC/CODE review with no Critical or Important findings. Dual checksum manifests, strict complete-audit canonical validation, unique unavailable markers, traversal containment and non-executable import authority are recorded in .ai_worklog/task-21-report.md and task-21-fix-report.md. Bundled compileall and diff checks passed; pytest, Ruff, live archive/export, package and browser evidence remain unavailable. Task 22 is next; UPDATEV2-0028 remains implementation-complete and closure-pending."
   ]
 }
