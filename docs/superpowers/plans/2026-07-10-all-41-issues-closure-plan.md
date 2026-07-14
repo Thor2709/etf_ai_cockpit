@@ -1439,3 +1439,17 @@ The YAML identities/ticker now match `SPAREBANKEN_ROWS`, and the static boundary
 scanner rejects the explicit order/trade call while leaving generic dialog
 cancel actions permitted. The corrected focused tests pass; fresh independent
 re-review is pending before the reconciliation commit.
+
+### Task 22 local commit checkpoint - 2026-07-14
+
+The reconciliation was independently re-reviewed and committed locally as
+`59d2393dcdaa9b19d436fcb5890ee0da15666196` on
+`wave5/task22-reconciliation`, based on the verified `origin/main` commit
+`6e6406d58db89ae19398e2abf15d0670e3350560`. Obsolete Task 20/21 commits were
+not replayed and the original Task 22 worktree remains recoverable. Focused
+tests, repeated Windows recovery, compileall and diff checks passed. The fresh
+full suite recorded 11 baseline/environment-specific failures; Ruff,
+native/package/browser and clean-first-run gates remain pending. GitHub push,
+PR integration and issue synchronisation are blocked in this Codex environment
+by system Git `SEC_E_NO_CREDENTIALS`; no Task 22 issue transition has been made
+and Task 23 has not started.

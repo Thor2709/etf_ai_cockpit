@@ -484,3 +484,17 @@ package/native/browser and clean-first-run evidence remain unavailable or
 pending. Task 22 is not closed and no issue ledger transition has been made;
 the next task remains Task 22 integration and full closure evidence, with Task
 23 deferred.
+
+### Wave 5 Task 22 local commit and remote-auth checkpoint - 2026-07-14
+
+The reviewed reconciliation was committed locally as
+`59d2393dcdaa9b19d436fcb5890ee0da15666196` on `wave5/task22-reconciliation`,
+based on `origin/main` `6e6406d58db89ae19398e2abf15d0670e3350560`. The commit
+contains the reviewed Task 22 source, configuration, tests and evidence only;
+obsolete Task 20/21 commits were not replayed and the original Task 22
+worktree remains intact. The fresh full suite finished with 11 failures matching
+the recorded baseline/environment classification; no Task 22-specific failure
+was found. System GitHub authentication from this Codex environment still
+fails with `SEC_E_NO_CREDENTIALS`, so branch push, PR integration and issue
+synchronisation cannot be truthfully marked complete. Task 22 remains open;
+Task 23 has not started.

@@ -360,3 +360,17 @@ pre-existing/environment/deferred failures; Ruff, package/native/browser and
 clean-first-run evidence remain pending. Task 22 is not closed, no issue
 ledger transition has been made, and Task 23 remains deferred until the
 reconciled checkpoint is integrated and its remaining closure gates pass.
+
+### Wave 5 Task 22 reconciliation local commit checkpoint - 2026-07-14
+
+The independently approved reconciliation was committed locally as
+`59d2393dcdaa9b19d436fcb5890ee0da15666196` on
+`wave5/task22-reconciliation`, one normal commit ahead of the verified
+`origin/main` base `6e6406d58db89ae19398e2abf15d0670e3350560`. The commit contains
+only the reviewed Task 22 reconciliation and durable evidence; no Task 20/21
+obsolete commit was replayed, and the original Task 22 worktree remains
+recoverable. System GitHub authentication inside Codex still fails with
+`SEC_E_NO_CREDENTIALS`; branch push, pull request integration and GitHub issue
+synchronisation are therefore pending authenticated PowerShell execution.
+The fresh full suite recorded 11 baseline/environment-specific failures and no
+Task 22-specific failure. Task 22 remains open and Task 23 has not started.
