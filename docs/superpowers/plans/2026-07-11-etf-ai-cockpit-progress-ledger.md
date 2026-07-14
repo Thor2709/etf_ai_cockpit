@@ -11,7 +11,7 @@
 | Active plan | `docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md` |
 | Git state | Task 21 branch `wave5/task21-audit` merged through PR 191 at remote `main` commit `6e6406d58db89ae19398e2abf15d0670e3350560`; local Git sync remains unavailable because credentials fail with `SEC_E_NO_CREDENTIALS` |
 | Existing closure state | Task 11 issues `ISSUE-0068`, `ISSUE-0018`, `ISSUE-0017` and `ISSUE-0056` are implementation-complete but closure-pending final release/browser/clean-first-run evidence; `ISSUE-0035` is closed locally and on GitHub Issue #81 |
-| Fresh baseline | Task 21 bundled compileall and diff checks passed; Task 22 commit `1860224` records bundled compileall pass, blocked venv pytest/Ruff/mypy, PowerShell `0xe0434352`, blocked Windows build, missing-Flet source smoke and no package; independent Task 22 review remains unavailable |
+| Fresh baseline | Task 21 bundled compileall and diff checks passed; Task 22 commit `dbbc10e` records bundled compileall pass, blocked venv pytest/Ruff/mypy, PowerShell `0xe0434352`, blocked Windows build, missing-Flet source smoke and no package; independent Task 22 review remains unavailable |
 | Pre-existing type state | recorded mypy failure caused by external stubs and existing typing debt; no new failure attributed |
 | Known historical evidence limitation | Existing package/browser evidence predates this programme and cannot close new work |
 
@@ -440,7 +440,7 @@ with its static/schema/secret/dependency evidence manifest.
 
 ## Wave 5 Task 22 Step 1 checkpoint - 2026-07-14
 
-Task 22 branch `wave5/task22-verification` records evidence at `1860224`.
+Task 22 branch `wave5/task22-verification` records evidence at `dbbc10e`.
 Bundled Python compileall and diff checks pass. The repository venv Python,
 pytest, Ruff and mypy checks are blocked by missing or denied executables;
 PowerShell crashes with Windows exception `0xe0434352` before the clean
