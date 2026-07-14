@@ -1453,3 +1453,25 @@ native/package/browser and clean-first-run gates remain pending. GitHub push,
 PR integration and issue synchronisation are blocked in this Codex environment
 by system Git `SEC_E_NO_CREDENTIALS`; no Task 22 issue transition has been made
 and Task 23 has not started.
+
+### Task 23 bounded release-candidate checkpoint - 2026-07-15
+
+Task 23 resumed on `wave5/task23-working` from the reconciled Task 22
+checkpoint. The bounded implementation fixes are independently approved:
+detached Flet updates now suppress only the recognised unmounted-control
+message and unrelated runtime failures propagate; nullable instrument
+identifiers fail closed; malformed metadata fixtures remain assignable. The
+canonical PyInstaller spec and Windows batch path now target `0.1.0rc1`,
+discover dependencies dynamically, carry required runtime DLLs and apply
+application version metadata.
+
+Fresh evidence: the focused Task 23 bundle, authoritative `pytest tests -q`,
+compileall, scoped Ruff and diff checks exited zero. The reviewed native
+onedir build and complete portable ZIP were extracted outside the repository;
+the packaged launcher reached HTTP 200 on port 8649 and the executable reports
+ProductVersion `0.1.0rc1`. The canonical batch build itself remains
+unverified because the repository `.venv` cannot be created or accessed under
+the current Windows ACL/ensurepip environment. Rendered browser/computer-use,
+clean-first-run matrix, full issue dossiers/evaluator, remote integration and
+issue transitions remain pending. Task 23 is implementation-complete but
+closure-pending; no issue transition is claimed.

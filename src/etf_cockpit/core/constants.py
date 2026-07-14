@@ -13,4 +13,4 @@ ALLOWED_ROLES = (
     "watchlist",
 )
 TRADING_DAYS_PER_YEAR = 252
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.1.0rc1"

@@ -104,6 +104,24 @@ def test_accessible_table_does_not_mask_unrelated_runtime_errors() -> None:
         table.search_control.on_change(SimpleNamespace(data="["))
 
 
+def test_accessible_table_only_masks_exact_detached_control_error() -> None:
+    from types import SimpleNamespace
+
+    frame = pd.DataFrame({"label": ["A[1]"]})
+    table = tables.accessible_table(frame, table_id="risk")
+    table.control.update = lambda: (_ for _ in ()).throw(
+        RuntimeError("Control must be added to the page first")
+    )
+    table.search_control.on_change(SimpleNamespace(data="["))
+
+    table = tables.accessible_table(frame, table_id="risk")
+    table.control.update = lambda: (_ for _ in ()).throw(
+        RuntimeError("Control must be added to the page first: persistence failed")
+    )
+    with pytest.raises(RuntimeError, match="persistence failed"):
+        table.search_control.on_change(SimpleNamespace(data="["))
+
+
 def test_chart_descriptors_expose_observable_series_data() -> None:
     history = charts.history_chart(pd.DataFrame({"date": ["2026-07-01"], "adjusted_close": [101.5]}))
     assert history.available is True

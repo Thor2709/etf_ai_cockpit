@@ -37,6 +37,7 @@ _EXCLUDED_DIRECTORIES = frozenset(
         ".ruff_cache",
         ".tox",
         ".venv",
+        ".venv_check",
         "__pycache__",
     }
 )

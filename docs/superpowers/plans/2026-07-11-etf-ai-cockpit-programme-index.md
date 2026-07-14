@@ -374,3 +374,17 @@ recoverable. System GitHub authentication inside Codex still fails with
 synchronisation are therefore pending authenticated PowerShell execution.
 The fresh full suite recorded 11 baseline/environment-specific failures and no
 Task 22-specific failure. Task 22 remains open and Task 23 has not started.
+
+### Wave 5 Task 23 bounded release-candidate checkpoint - 2026-07-15
+
+Task 23 resumed on `wave5/task23-working` from the reconciled Task 22
+checkpoint. The bounded table/identity/fixture fixes and the reproducible
+`0.1.0rc1` PyInstaller packaging path have fresh independent approval. The
+focused and authoritative full test suites, compileall, scoped Ruff and diff
+checks passed. A reviewed native onedir build and complete portable ZIP were
+extracted outside the repository and the packaged launcher returned HTTP 200.
+The canonical batch build remains unverified because the repository virtual
+environment is inaccessible under the current Windows ACL/ensurepip state.
+Full issue dossiers/evaluator, rendered browser/computer-use, clean-first-run,
+remote integration and issue transitions remain pending; Task 23 is
+implementation-complete but closure-pending.

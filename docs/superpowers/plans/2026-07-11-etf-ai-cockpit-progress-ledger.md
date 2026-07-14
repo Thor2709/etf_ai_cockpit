@@ -498,3 +498,22 @@ was found. System GitHub authentication from this Codex environment still
 fails with `SEC_E_NO_CREDENTIALS`, so branch push, PR integration and issue
 synchronisation cannot be truthfully marked complete. Task 22 remains open;
 Task 23 has not started.
+
+### Wave 5 Task 23 bounded release-candidate checkpoint - 2026-07-15
+
+Task 23 is active on `wave5/task23-working`, based on the reconciled Task 22
+checkpoint `ff75414`. The detached-control, nullable-identifier and malformed
+fixture fixes are independently re-reviewed and approved. The canonical
+PyInstaller spec and Windows batch path now target `0.1.0rc1` and apply
+reproducible application metadata. Focused tests, the authoritative full
+pytest suite, compileall, scoped Ruff and diff checks all exited zero. The
+reviewed native onedir output and complete portable ZIP were extracted outside
+the repository; the packaged launcher returned HTTP 200 on port 8649 and the
+executable ProductVersion is `0.1.0rc1`.
+
+The repository `.venv` cannot be created/accessed under the current Windows
+ACL/ensurepip environment, so the canonical batch build is explicitly
+unverified. Rendered browser/computer-use, clean-first-run package matrix,
+full 41-issue dossier/evaluator, remote integration and issue transitions are
+still pending. Task 23 is implementation-complete but closure-pending; no
+issue is moved to `issues/closed.md`.

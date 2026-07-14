@@ -1,6 +1,6 @@
-# Wave 5 Task 23 bounded verification-fix report
+# Wave 5 Task 23 bounded verification-fix and release-candidate report
 
-Date: 2026-07-14
+Date: 2026-07-15
 Branch: `wave5/task23-working`
 Worktree: `etf_ai_cockpit/.worktrees/TASK22-RECONCILIATION`
 Base: `ff75414` (local Task 22 reconciliation checkpoint)
@@ -10,21 +10,17 @@ Base: `ff75414` (local Task 22 reconciliation checkpoint)
 This checkpoint addresses verified defects exposed while completing the Task 22
 full-suite and Task 23 closure preparation: detached Flet controls in headless
 table filtering, nullable identity values in contradictory-identifier checks,
-and pandas Arrow-backed fixture assignment for malformed metadata cases. No
-product scope, authority, scoring, execution or DATA-05 coverage was changed.
+pandas Arrow-backed fixture assignment for malformed metadata cases, and the
+reproducible Windows RC packaging path. No product scope, authority, scoring,
+execution or DATA-05 coverage was changed.
 
 ## RED evidence
 
-Command:
-
-```text
-PYTHONPATH=src; cached-python -m pytest tests/test_accessible_tables.py::test_accessible_table_search_treats_regex_punctuation_literally_and_updates tests/test_task19_instrument_detail.py::test_instrument_rows_reject_foreign_and_contradictory_supported_ids_with_nullable_values tests/test_task19_instrument_detail.py::test_friction_panel_malformed_scenarios_fail_closed_without_crashing tests/test_task19_instrument_detail.py::test_parsed_panel_malformed_freshness_metadata_fails_closed -q --tb=short
-```
-
-Observed exit code: `1`. The detached Flet update raised `Control must be
-added to the page first`; nullable identity rows were incorrectly filtered;
-malformed scenario/freshness cases either produced an available/high result or
-failed during Arrow string assignment.
+The focused behavioural bundle was run before the fixes and exited `1`: the
+detached Flet update raised `Control must be added to the page first`, nullable
+identity rows were incorrectly filtered, and malformed scenario/freshness cases
+either produced an available/high result or failed during Arrow string
+assignment.
 
 The independent-review regression was then run before its implementation fix:
 
@@ -44,7 +40,10 @@ Applied the smallest changes:
 - treat pandas missing scalars as absent when evaluating contradictory
   instrument identifiers;
 - keep malformed scenario and freshness fixture columns as object dtype before
-  injecting list/array/non-string values.
+  injecting list/array/non-string values;
+- make the canonical PyInstaller spec and Windows batch path reproducible for
+  the `0.1.0rc1` release candidate, including runtime DLLs, hidden imports and
+  application version metadata.
 
 Focused verification:
 
@@ -57,21 +56,54 @@ Result: exit code `0` (all collected tests passed).
 Additional checks:
 
 ```text
+cached-python -m pytest tests -q --tb=short
 cached-python -m compileall -q src tests
+ruff check src/etf_cockpit/app/components/tables.py src/etf_cockpit/app/selectors/instrument_detail.py tests/test_accessible_tables.py tests/test_task19_instrument_detail.py
 system-git diff --check
 ```
 
-Both passed. The fresh full suite after the first Task 23 fixes completed with
-one failure only: the known long-worktree Windows `WinError 3` ambiguous-news
-atomic replacement test. The same test passes in the short-path Task 22
-worktree; no Task 23-specific failure remains.
+The final authoritative suite exited `0` (`build/full-task23-final2.log`,
+`build/full-task23-final2.exit`), compileall, scoped Ruff and diff checks also
+exited `0`. Only the repository's existing Pandas/deprecation warnings were
+reported.
 
-## Review state
+## Release-candidate evidence
 
-The first fresh independent reviewer rejected the broad RuntimeError filter as
-Important and required propagation regressions. That finding was reproduced by
-the RED test above and fixed. A fresh re-review is in progress. No commit,
-issue transition, package claim or closure claim is made until re-review and
-remaining Task 23 gates pass.
+- `ETF_AI_Cockpit.spec` discovers package paths at build time, carries
+  NumPy/SciPy/Pandas/PyArrow runtime DLLs, includes the required Pandas hidden
+  import, excludes optional model and desktop-only modules, and uses
+  `packaging/windows_version_info.txt` for application metadata.
+- `scripts/build_windows.bat` targets `0.1.0rc1`, invokes the repository
+  PyInstaller spec and applies the version resource. It could not be executed
+  in this environment because the repository `.venv` is inaccessible
+  (`ensurepip`/ACL failure); this is recorded as unverified, not as a pass.
+- Reviewed onedir native build:
+  `build/flet_dist_release_final/ETF_AI_Cockpit`, approximately 578 MB,
+  executable SHA-256
+  `339B20194C2AE0FF0238A2437B0504081005F328E7F725ABCC0F940571B08BF1`,
+  Windows ProductVersion `0.1.0rc1`.
+- Complete documented portable archive:
+  `build/ETF_AI_Cockpit_Portable_v0.1.0rc1.zip`, 254,392,741 bytes, SHA-256
+  `A282F48A53844848E7FD42A3712F1F405B6A189A11EB8CE7FA547F9BDBD35ABD`.
+  Extracted outside the repository into
+  `release_test_task23_rc1_final_20260714`; extraction produced 3,271 files
+  and the packaged launcher returned HTTP 200 on port 8649 without the repo
+  virtual environment.
+- Optional model and credential-dependent functions remain explicitly
+  unavailable/setup-required; `execution_allowed` remains `false`.
+
+## Review state and closure boundary
+
+The first fresh independent reviewers rejected the broad RuntimeError filter and
+the unreproducible release boundary. Those findings were reproduced by RED
+tests and fixed. Fresh reviewer Planck re-reviewed the stable current tree and
+approved specification compliance and code quality with no Critical,
+Important or Minor findings. The review noted only non-blocking mixed-line-ending
+noise.
+
+Task 23 remains implementation-complete but closure-pending: the full 41-issue
+dossier/evaluator, rendered browser/computer-use matrix, clean first-run package
+matrix, remote integration and issue transitions are not yet complete. No issue
+is moved to `issues/closed.md` by this bounded checkpoint.
 
 `execution_allowed` remains `false`.

@@ -1333,3 +1333,19 @@ Post-merge Task 10 verification on `main`:
 - Known baseline: `tests/test_simple_scores.py` remains blocked when the ignored generated `data/raw/trade_candidates/yahoo_trade_candidates_*.csv` fixture is absent; this is pre-existing and not a Task 11 regression.
 - Review: fresh independent review of `b864184..b7a0f5c` approved specification compliance and code quality; no Critical or Important findings. One Minor fail-closed API recommendation is recorded in `.ai_worklog/task-11-report.md`.
 - Integration: PR 181 merged into `main` at `2eae5dea8dd1d789dd000383901e591ee4645d83`; post-merge focused checks and source smoke passed.
+## 2026-07-15 Task 23 release-candidate verification
+
+- Focused accessible-table/instrument-detail bundle: exit 0.
+- Authoritative `pytest tests -q --tb=short`: exit 0, warnings only.
+- `python -m compileall -q src tests`: exit 0.
+- Scoped Ruff over changed source/tests: exit 0.
+- `git diff --check`: exit 0.
+- Reviewed native onedir executable: ProductVersion `0.1.0rc1`, SHA-256
+  `339B20194C2AE0FF0238A2437B0504081005F328E7F725ABCC0F940571B08BF1`.
+- Portable ZIP extracted outside the repository and launched without the repo
+  virtual environment; HTTP 200 on port 8649. ZIP SHA-256
+  `A282F48A53844848E7FD42A3712F1F405B6A189A11EB8CE7FA547F9BDBD35ABD`.
+- Canonical `scripts/build_windows.bat` is unverified because `.venv` cannot be
+  created/accessed under the current Windows ACL/ensurepip environment.
+- Rendered browser/computer-use, clean-first-run package matrix and complete
+  41-issue closure evaluator remain pending and are not marked passed.
