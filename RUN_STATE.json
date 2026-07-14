@@ -799,5 +799,6 @@
     ,"Wave 5 Task 19 was independently approved and merged through PR 189 at da271bc with implementation head 89f4644; ISSUE-0019 remains closure-pending strict release/package/audit/export/browser/clean-first-run evidence."
     ,"Wave 5 Task 20 was independently approved at implementation head 1542e65 and merged through PR 190 to GitHub main at 61f6aa3144d5d1eb28d57052c09a88acb5529bcc; ISSUE-0036, ISSUE-0041, ISSUE-0042 and ISSUE-0044 remain open and closure-pending strict runtime, release/package, audit/export, browser/computer-use and clean-first-run evidence."
     ,"The next dependency-valid implementation is Wave 5 Task 21, Complete Audit Packet and Non-Executable External Audit Import."
+    ,"Task 21 worktree checkout triggered a Windows git.exe native memory-read error after metadata creation; root cause is isolated to the checkout phase. The verified c495ee0 tree was populated safely with git archive and the worktree index refreshed with git reset --mixed. Active branch wave5/task21-audit uses .worktrees/TASK21~1; fresh implementer dispatched."
   ]
 }
