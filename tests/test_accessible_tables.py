@@ -43,6 +43,25 @@ def test_accessible_table_search_and_sort_callbacks_are_functional() -> None:
     assert any(callable(column.on_sort) for column in table.control.columns)
 
 
+def test_accessible_table_callbacks_refresh_visible_control_and_status() -> None:
+    from types import SimpleNamespace
+
+    frame = pd.DataFrame({"instrument_id": ["B", "A"], "status": ["blocked", "ok"]})
+    table = tables.accessible_table(frame, table_id="risk")
+    updates: list[int] = []
+    table.control.update = lambda: updates.append(len(table.control.rows))
+
+    table.search_control.on_change(SimpleNamespace(data="A"))
+    assert len(table.control.rows) == 1
+    assert table.status_control.value.startswith("1 rows")
+    assert updates == [1]
+
+    table.control.columns[0].on_sort(SimpleNamespace(ascending=False))
+    assert len(table.control.rows) == 2
+    assert table.status_control.value.startswith("2 rows")
+    assert updates[-1] == 2
+
+
 def test_chart_descriptors_expose_observable_series_data() -> None:
     history = charts.history_chart(pd.DataFrame({"date": ["2026-07-01"], "adjusted_close": [101.5]}))
     assert history.available is True

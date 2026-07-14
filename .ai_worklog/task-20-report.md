@@ -135,6 +135,19 @@ python -m compileall -q src tests
 git diff --check
 ```
 
+## Final review correction pass
+
+This pass adds the approved RSS feed-list evidence path without network calls,
+explicit Boolean parsing and timezone-aware publication checks, approved
+restore payload roots, and visible table callback refreshes. Backup selection
+now references the repository's actual `pyproject.toml` version metadata and
+`.ai_worklog/CHANGES.md`; Settings displays those same paths. Focused RED
+tests cover feed-only commits, malformed/ambiguous news values, unapproved
+restore entries, metadata archive names and Flet control update spies.
+
+Validation is pending the parent worktree's available Python runtime; source
+diff and `git diff --check` are available here.
+
 ## Final blocker follow-up (Wave5 review corrections)
 
 The follow-up review corrections add fail-closed guards for mixed-parent ETF

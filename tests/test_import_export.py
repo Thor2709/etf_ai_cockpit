@@ -216,12 +216,63 @@ def test_rss_list_import_requires_valid_feed_url(tmp_path: Path, feed_url: str) 
     assert preview.valid is False
 
 
-def test_rss_feed_url_list_needs_parsed_items_before_commit(tmp_path: Path) -> None:
+def test_rss_feed_url_list_commits_safe_feed_evidence_without_network(tmp_path: Path) -> None:
     source = tmp_path / "feeds.csv"
-    pd.DataFrame({"feed_url": ["https://example.test/feed.xml"]}).to_csv(source, index=False)
+    pd.DataFrame({"feed_url": ["https://example.test/feed.xml"], "provider": ["rss"]}).to_csv(source, index=False)
     preview = validate_import("rss_list", source)
+    assert preview.valid is True, preview.errors
+    result = ImportService(tmp_path).commit(preview.preview_id)
+    saved = pd.read_parquet(result.destination)
+    assert result.rows == 1
+    assert result.execution_allowed is False
+    assert saved.loc[0, "source_url"] == "https://example.test/feed.xml"
+    assert saved.loc[0, "feed_url"] == "https://example.test/feed.xml"
+    assert bool(saved.loc[0, "context_only"]) is True
+    assert bool(saved.loc[0, "executable_authority"]) is False
+
+
+def test_news_import_rejects_ambiguous_availability_boolean(tmp_path: Path) -> None:
+    source = tmp_path / "ambiguous-news.csv"
+    pd.DataFrame(
+        {
+            "published_at": ["2026-07-10T12:00:00+00:00"],
+            "headline": ["Headline"],
+            "url": ["https://example.test/news"],
+            "available_at_decision_time": ["sometimes"],
+        }
+    ).to_csv(source, index=False)
+    preview = validate_import("news", source)
     assert preview.valid is False
-    assert any("parsed" in error for error in preview.errors)
+    assert any("boolean" in error for error in preview.errors)
+
+
+def test_news_import_rejects_ambiguous_revised_boolean(tmp_path: Path) -> None:
+    source = tmp_path / "ambiguous-revised-news.csv"
+    pd.DataFrame(
+        {
+            "published_at": ["2026-07-10T12:00:00+00:00"],
+            "headline": ["Headline"],
+            "url": ["https://example.test/news"],
+            "revised": ["unclear"],
+        }
+    ).to_csv(source, index=False)
+    preview = validate_import("news", source)
+    assert preview.valid is False
+    assert any("boolean" in error for error in preview.errors)
+
+
+def test_news_import_rejects_naive_publication_timestamp(tmp_path: Path) -> None:
+    source = tmp_path / "naive-news.csv"
+    pd.DataFrame(
+        {
+            "published_at": ["2026-07-10T12:00:00"],
+            "headline": ["Headline"],
+            "url": ["https://example.test/news"],
+        }
+    ).to_csv(source, index=False)
+    preview = validate_import("news", source)
+    assert preview.valid is False
+    assert any("timezone" in error or "published" in error for error in preview.errors)
 
 
 def test_news_import_persists_canonical_context_provenance(tmp_path: Path) -> None:
@@ -249,9 +300,38 @@ def test_news_import_persists_canonical_context_provenance(tmp_path: Path) -> No
     assert bool(saved.loc[0, "executable_authority"]) is False
 
 
+def test_news_import_parses_string_false_without_fabricating_availability(tmp_path: Path) -> None:
+    source = tmp_path / "false-news.csv"
+    pd.DataFrame(
+        {
+            "published_at": ["2026-07-10T12:00:00+00:00"],
+            "headline": ["Headline"],
+            "url": ["https://example.test/news"],
+            "available_at_decision_time": ["false"],
+        }
+    ).to_csv(source, index=False)
+    preview = validate_import("news", source)
+    assert preview.valid is True, preview.errors
+    result = ImportService(tmp_path).commit(preview.preview_id)
+    saved = pd.read_parquet(result.destination)
+    assert bool(saved.loc[0, "available_at_decision_time"]) is False
+    assert bool(saved.loc[0, "backtest_eligible"]) is False
+
+
 def test_export_sources_use_live_data_journal_and_canonical_watchlist_store() -> None:
     from etf_cockpit.app.pages.import_export import import_export_page
 
     source = inspect.getsource(import_export_page)
     assert "root=DATA_DIR" in source
     assert "scoreboard.parquet" in source
+    assert "pyproject.toml" in source
+    assert ".ai_worklog" in source
+
+
+def test_settings_references_actual_version_and_changelog_files() -> None:
+    from etf_cockpit.app.pages.settings import settings_page
+
+    source = inspect.getsource(settings_page)
+    assert "pyproject.toml" in source
+    assert ".ai_worklog" in source
+    assert "CHANGELOG.md" not in source

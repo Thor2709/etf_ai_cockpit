@@ -65,6 +65,9 @@ def accessible_table(
     def _update_view(view: pd.DataFrame) -> None:
         control.rows = _rows(view)
         status_control.value = f"{len(view)} rows; status is shown as text"
+        update = getattr(control, "update", None)
+        if callable(update):
+            update()
 
     def _search_changed(event: ft.ControlEvent) -> None:
         query = getattr(event, "data", None)

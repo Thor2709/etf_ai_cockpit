@@ -29,6 +29,24 @@ def test_restore_rejects_zip_traversal(tmp_path: Path) -> None:
     assert validate_restore(archive).valid is False
 
 
+def test_restore_rejects_unapproved_repository_payload_roots(tmp_path: Path) -> None:
+    import hashlib
+    import json
+    import zipfile
+
+    archive = tmp_path / "unapproved.zip"
+    payload_name = "src/main.py"
+    payload = b"print('not a restore payload')\n"
+    checksums = {payload_name: hashlib.sha256(payload).hexdigest()}
+    manifest = json.dumps({"schema_version": 1, "checksums": checksums}, sort_keys=True, indent=2).encode("utf-8") + b"\n"
+    with zipfile.ZipFile(archive, "w") as z:
+        z.writestr(payload_name, payload)
+        z.writestr("manifest.json", manifest)
+    preview = validate_restore(archive)
+    assert preview.valid is False
+    assert any("unapproved" in error for error in preview.errors)
+
+
 def test_backup_manifest_is_deterministic_and_excludes_secret_and_caches(tmp_path: Path) -> None:
     data = tmp_path / "data" / "prices.csv"
     data.parent.mkdir(parents=True)
@@ -74,6 +92,16 @@ def test_backup_scans_contents_and_records_secret_exclusions(tmp_path: Path) -> 
     assert "configs/settings.yaml" not in manifest.checksums
     with __import__("zipfile").ZipFile(archive) as z:
         assert all("super-secret-token" not in value.decode("utf-8", "ignore") for value in (z.read(name) for name in z.namelist()))
+
+
+def test_backup_manifest_keeps_actual_version_and_changelog_metadata_paths(tmp_path: Path) -> None:
+    version = tmp_path / "pyproject.toml"
+    changelog = tmp_path / ".ai_worklog" / "CHANGES.md"
+    changelog.parent.mkdir(parents=True)
+    version.write_text("[project]\nversion = '0.1.0'\n", encoding="utf-8")
+    changelog.write_text("# Changes\n", encoding="utf-8")
+    manifest = create_backup([version, changelog], tmp_path / "metadata.zip")
+    assert set(manifest.checksums) == {"pyproject.toml", ".ai_worklog/CHANGES.md"}
 
 
 def test_restore_rejects_unsupported_known_payload_schema_before_writes(tmp_path: Path) -> None:

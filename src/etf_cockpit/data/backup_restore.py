@@ -93,6 +93,8 @@ def validate_restore(archive_path: Path) -> RestorePreview:
                 if name != "manifest.json":
                     if _unsafe(name):
                         errors.append(f"unsafe_path:{name}")
+                    elif not _approved_payload_root(name):
+                        errors.append(f"unapproved_path:{name}")
                     entries.append(name)
             if "manifest.json" not in names:
                 errors.append("manifest_missing")
@@ -110,6 +112,9 @@ def validate_restore(archive_path: Path) -> RestorePreview:
                     for name, expected in checksums.items():
                         if _unsafe(name):
                             errors.append(f"unsafe_path:{name}")
+                            continue
+                        if not _approved_payload_root(name):
+                            errors.append(f"unapproved_path:{name}")
                             continue
                         try:
                             actual = hashlib.sha256(archive.read(name)).hexdigest()
@@ -161,6 +166,19 @@ def _manifest_payload(checksums: dict[str, str], excluded: list[str] | tuple[str
 def _unsafe(name: str) -> bool:
     path = PurePosixPath(name)
     return not name or path.is_absolute() or ".." in path.parts or ":" in name.split("/", 1)[0]
+
+
+def _approved_payload_root(name: str) -> bool:
+    """Allow only user data/configuration and explicit release metadata."""
+
+    normalised = str(name).replace("\\", "/").strip("/").casefold()
+    if not normalised or normalised == "manifest.json":
+        return normalised == "manifest.json"
+    if normalised.startswith(("data/", "configs/", "version/", "changelog/")):
+        return True
+    if normalised == ".ai_worklog/changes.md":
+        return True
+    return normalised in {"pyproject.toml", "version", "version.txt", "version.json", "changelog.md", "changes.md"}
 
 
 def _secret_path(path: Path) -> bool:
@@ -225,6 +243,10 @@ def _transient_path(path: Path) -> bool:
 
 def _archive_name(path: Path) -> str:
     parts = list(path.parts)
+    lowered = [part.casefold() for part in parts]
+    if ".ai_worklog" in lowered:
+        index = lowered.index(".ai_worklog")
+        return Path(*parts[index:]).as_posix()
     for marker in ("configs", "data", "models", "version", "changelog", "exports"):
         if marker in parts:
             return Path(*parts[parts.index(marker) :]).as_posix()

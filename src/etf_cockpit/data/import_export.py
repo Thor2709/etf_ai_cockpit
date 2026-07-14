@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,7 +11,7 @@ import uuid
 
 import pandas as pd
 
-from etf_cockpit.core.atomic_io import atomic_write_bytes, parquet_payload, validate_parquet_file
+from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_bytes, atomic_write_group, parquet_payload, validate_parquet_file
 
 
 @dataclass(frozen=True)
@@ -158,14 +159,20 @@ class ImportService:
         elif preview.import_type == "news":
             from etf_cockpit.data.news_context import persist_news_items
 
-            if _first_column(frame, ("feed_url", "rss_url")) is not None and _first_column(frame, ("headline", "title")) is None:
-                raise ValueError("RSS feed URL lists require parsed headline/date/url items before commit")
-            persist_news_items(
-                _news_items(frame),
-                raw_dir=self.root / "data" / "raw" / "news_context",
-                clean_path=destination,
-                audit_path=destination.with_name("news_context_audit.json"),
-            )
+            if _is_feed_list(frame):
+                _persist_feed_list(
+                    frame,
+                    raw_dir=self.root / "data" / "raw" / "news_context",
+                    clean_path=destination,
+                    audit_path=destination.with_name("news_context_audit.json"),
+                )
+            else:
+                persist_news_items(
+                    _news_items(frame),
+                    raw_dir=self.root / "data" / "raw" / "news_context",
+                    clean_path=destination,
+                    audit_path=destination.with_name("news_context_audit.json"),
+                )
             committed = pd.read_parquet(destination)
         elif preview.import_type == "etf_holdings":
             from etf_cockpit.data.fund_holdings import _merge_holdings_frame, _read_existing_holdings, _write_holdings_frame, normalise_holdings
@@ -228,6 +235,11 @@ def _validate_frame(import_type: str, frame: pd.DataFrame) -> tuple[list[str], l
     date_columns = ("date", "as_of_date", "published_at", "published_date", "factsheet_date", "holdings_date", "report_date", "timestamp")
     for name in date_columns:
         if name in columns:
+            # News publication fields must be checked without ``utc=True``;
+            # that option silently localises naive values and fabricates
+            # provenance.  The news-specific branch below enforces offsets.
+            if import_type == "news" and name in {"published_at", "published_date", "date", "as_of_date", "timestamp"}:
+                continue
             actual = next(column for column in frame.columns if str(column).strip().lower() == name)
             if pd.to_datetime(frame[actual], errors="coerce", utc=True).isna().any():
                 errors.append(f"invalid_date:{actual}")
@@ -269,14 +281,27 @@ def _validate_frame(import_type: str, frame: pd.DataFrame) -> tuple[list[str], l
             if invalid.any():
                 errors.append(f"invalid_weight:{weight}")
     if import_type == "news":
+        for boolean_names in (
+            ("available_at_decision_time", "available_at_decision", "available"),
+            ("current_only",),
+            ("revised",),
+            ("context_only",),
+            ("executable_authority",),
+        ):
+            boolean_column = _first_column(frame, boolean_names)
+            if boolean_column is not None and any(_parse_boolean(value) is None for value in frame[boolean_column]):
+                errors.append(f"invalid_boolean:{boolean_column}")
         if rss_list:
             feed_column = _first_column(frame, ("feed_url", "rss_url", "source_url"))
             if feed_column is None or _blank_values(frame[feed_column]).any() or not _valid_urls(frame[feed_column]):
                 errors.append("invalid_feed_url")
-            elif _first_column(frame, ("headline", "title")) is None:
-                errors.append("rss_feed_list_requires_parsed_items")
         headline_column = _first_column(frame, ("headline", "title"))
         publication_column = _first_column(frame, ("published_at", "published_date", "date", "as_of_date", "timestamp"))
+        if publication_column is not None and any(not _timezone_aware(value) for value in frame[publication_column]):
+            errors.append(f"naive_publication_timezone:{publication_column}")
+        ingested_column = _first_column(frame, ("ingested_at", "ingested_date"))
+        if ingested_column is not None and any(not _timezone_aware(value) for value in frame[ingested_column]):
+            errors.append(f"naive_ingested_timezone:{ingested_column}")
         # Parsed news rows are only useful for point-in-time context when their
         # headline/source URL is paired with a non-blank publication timestamp.
         if headline_column is not None and _first_column(frame, ("source_url", "url", "link")) is not None:
@@ -284,9 +309,11 @@ def _validate_frame(import_type: str, frame: pd.DataFrame) -> tuple[list[str], l
                 errors.append("missing_publication_timestamp")
             elif _blank_values(frame[publication_column]).any():
                 errors.append(f"blank_publication_timestamp:{publication_column}")
-        if not rss_list and (headline_column is None or _blank_values(frame[headline_column]).any()):
+        if headline_column is not None and publication_column is not None and _blank_values(frame[publication_column]).any():
+            errors.append(f"blank_publication_timestamp:{publication_column}")
+        if headline_column is not None and (not rss_list or _first_column(frame, ("url", "source_url", "link")) is not None) and _blank_values(frame[headline_column]).any():
             errors.append("empty_headline")
-        if not rss_list:
+        if not rss_list or headline_column is not None:
             url_column = _first_column(frame, ("url", "source_url", "link"))
             if url_column is None or _blank_values(frame[url_column]).any() or not _valid_urls(frame[url_column]):
                 errors.append("invalid_news_url")
@@ -372,18 +399,138 @@ def _news_items(frame: pd.DataFrame):
                 ingested_at=_timestamp_text(row.get("ingested_at", published)),
                 url=url,
                 instrument_mapping_method=str(row.get("instrument_mapping_method", "manual")),
-                available_at_decision_time=bool(row.get("available_at_decision_time", True)),
+                available_at_decision_time=_parse_boolean(row.get("available_at_decision_time", True)),
                 credibility=str(row.get("credibility", "unverified")),
+                current_only=bool(_parse_boolean(row.get("current_only", False))),
+                revised=bool(_parse_boolean(row.get("revised", False))),
             )
         )
     return items
 
 
 def _timestamp_text(value: object) -> str:
-    parsed = pd.to_datetime(value, errors="coerce", utc=True)
+    parsed = pd.to_datetime(value, errors="coerce")
     if pd.isna(parsed):
         return ""
     return parsed.isoformat()
+
+
+def _parse_boolean(value: object) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if value is None or pd.isna(value):
+        return None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if value == 1:
+            return True
+        if value == 0:
+            return False
+        return None
+    normalised = str(value).strip().casefold()
+    if normalised in {"true", "t", "yes", "y", "on", "1"}:
+        return True
+    if normalised in {"false", "f", "no", "n", "off", "0"}:
+        return False
+    return None
+
+
+def _timezone_aware(value: object) -> bool:
+    if value is None or pd.isna(value):
+        return False
+    try:
+        parsed = pd.Timestamp(value)
+    except (TypeError, ValueError):
+        return False
+    return parsed.tzinfo is not None and parsed.utcoffset() is not None
+
+
+def _is_feed_list(frame: pd.DataFrame) -> bool:
+    return _first_column(frame, ("feed_url", "rss_url")) is not None and _first_column(frame, ("headline", "title")) is None
+
+
+def _persist_feed_list(frame: pd.DataFrame, *, raw_dir: Path, clean_path: Path, audit_path: Path) -> None:
+    """Persist local RSS feed URLs as context-only evidence, without fetching."""
+
+    from etf_cockpit.data.news_context import NEWS_SCHEMA_VERSION
+
+    feed_column = _first_column(frame, ("feed_url", "rss_url"))
+    if feed_column is None:
+        raise ValueError("RSS feed list requires a feed_url column")
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    rows: list[dict[str, object]] = []
+    raw_requests: list[AtomicWriteRequest] = []
+    raw_paths: list[str] = []
+    for index, row in frame.iterrows():
+        feed_url = str(row[feed_column]).strip()
+        provider = str(row.get("provider", row.get("provider_name", "rss_local_list")) or "rss_local_list").strip() or "rss_local_list"
+        payload = {
+            "schema_version": NEWS_SCHEMA_VERSION,
+            "dataset_type": "rss_feed_list",
+            "feed_url": feed_url,
+            "provider_name": provider,
+            "context_only": True,
+            "executable_authority": False,
+        }
+        checksum = hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+        raw_path = raw_dir / f"feed-{index}-{checksum}.json"
+        raw_paths.append(str(raw_path))
+        if not raw_path.exists():
+            raw_requests.append(AtomicWriteRequest(raw_path, (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8"), lambda path: json.loads(path.read_text(encoding="utf-8"))))
+        rows.append(
+            {
+                "schema_version": NEWS_SCHEMA_VERSION,
+                "news_id": f"feed-{index}-{checksum[:12]}",
+                "instrument_id": "portfolio",
+                "headline": "",
+                "feed_url": feed_url,
+                "source_url": feed_url,
+                "source": "rss",
+                "provider": provider,
+                "provider_name": provider,
+                "published_at": "",
+                "ingested_at": "",
+                "instrument_mapping_method": "unavailable",
+                "available_at_decision_time": False,
+                "timestamp_confidence": "unknown",
+                "timestamp_status": "feed_list",
+                "backtest_eligible": False,
+                "credibility": "unverified",
+                "source_authority": "community",
+                "context_only": True,
+                "executable_authority": False,
+                "raw_path": str(raw_path),
+                "item_checksum": checksum,
+            }
+        )
+    existing = pd.DataFrame()
+    if clean_path.exists():
+        try:
+            existing = pd.read_parquet(clean_path)
+        except Exception:
+            existing = pd.DataFrame()
+    combined = pd.concat([existing, pd.DataFrame(rows)], ignore_index=True)
+    if not combined.empty:
+        subset = [column for column in ("news_id", "item_checksum") if column in combined.columns]
+        if subset:
+            combined = combined.drop_duplicates(subset=subset, keep="last")
+    audit = {
+        "schema_version": NEWS_SCHEMA_VERSION,
+        "dataset_type": "rss_feed_list",
+        "raw_paths": raw_paths,
+        "clean_path": str(clean_path),
+        "rows": len(combined),
+        "context_only": True,
+        "executable_authority": False,
+    }
+    csv_path = clean_path.with_suffix(".csv")
+    atomic_write_group(
+        (
+            AtomicWriteRequest(clean_path, parquet_payload(combined), validate_parquet_file),
+            AtomicWriteRequest(csv_path, combined.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
+            AtomicWriteRequest(audit_path, (json.dumps(audit, sort_keys=True, indent=2) + "\n").encode("utf-8"), lambda path: json.loads(path.read_text(encoding="utf-8"))),
+            *raw_requests,
+        )
+    )
 
 
 def _blank_values(values: pd.Series) -> pd.Series:
