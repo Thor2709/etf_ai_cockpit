@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 import inspect
+import pytest
 
 from etf_cockpit.app.components import charts, tables
 from etf_cockpit.data.export_tables import table_columns
@@ -82,6 +83,43 @@ def test_accessible_table_search_treats_regex_punctuation_literally_and_updates(
     assert len(table.control.rows) == 1
     assert table.status_control.value.startswith("1 rows")
     assert updates == [1, 1]
+
+
+def test_accessible_table_does_not_mask_unrelated_runtime_errors() -> None:
+    from types import SimpleNamespace
+
+    frame = pd.DataFrame({"label": ["A[1]"]})
+    table = tables.accessible_table(frame, table_id="risk")
+    table.control.update = lambda: (_ for _ in ()).throw(
+        RuntimeError("cache was added to the page but persistence failed")
+    )
+    with pytest.raises(RuntimeError, match="persistence failed"):
+        table.search_control.on_change(SimpleNamespace(data="["))
+
+    table = tables.accessible_table(frame, table_id="risk")
+    table.status_control.update = lambda: (_ for _ in ()).throw(
+        RuntimeError("status update added to the page but persistence failed")
+    )
+    with pytest.raises(RuntimeError, match="persistence failed"):
+        table.search_control.on_change(SimpleNamespace(data="["))
+
+
+def test_accessible_table_only_masks_exact_detached_control_error() -> None:
+    from types import SimpleNamespace
+
+    frame = pd.DataFrame({"label": ["A[1]"]})
+    table = tables.accessible_table(frame, table_id="risk")
+    table.control.update = lambda: (_ for _ in ()).throw(
+        RuntimeError("Control must be added to the page first")
+    )
+    table.search_control.on_change(SimpleNamespace(data="["))
+
+    table = tables.accessible_table(frame, table_id="risk")
+    table.control.update = lambda: (_ for _ in ()).throw(
+        RuntimeError("Control must be added to the page first: persistence failed")
+    )
+    with pytest.raises(RuntimeError, match="persistence failed"):
+        table.search_control.on_change(SimpleNamespace(data="["))
 
 
 def test_chart_descriptors_expose_observable_series_data() -> None:

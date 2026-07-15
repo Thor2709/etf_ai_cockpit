@@ -239,6 +239,11 @@ def _transient_path(path: Path) -> bool:
     stable_indexes = [index for index, part in enumerate(parts) if part in stable]
     if stable_indexes and transient_indexes and max(stable_indexes) > max(transient_indexes):
         return False
+    # Explicitly selected release metadata remains stable even when pytest or
+    # another caller places it below a transient ancestor such as ``logs``.
+    metadata_name = _archive_name(path).casefold()
+    if metadata_name in {"pyproject.toml", "version", "version.txt", "version.json", "changelog.md", "changes.md", ".ai_worklog/changes.md"}:
+        return False
     return bool(transient_indexes) or path.suffix.lower() in {".pyc", ".tmp"}
 
 

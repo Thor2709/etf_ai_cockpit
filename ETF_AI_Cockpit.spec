@@ -1,19 +1,48 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from importlib.util import find_spec
+from pathlib import Path
+
+
+def package_directory(name):
+    origin = find_spec(name).origin
+    if not origin or origin == 'built-in':
+        raise RuntimeError(f'Could not locate package {name!r} for packaging.')
+    return Path(origin).resolve().parent
+
+
+flet_web_directory = package_directory('flet_web')
+flet_directory = package_directory('flet')
+# PyInstaller executes spec files in a namespace without ``__file__`` on
+# current Python/PyInstaller combinations.  SPECPATH is supplied by the
+# builder; the cwd fallback keeps direct spec evaluation deterministic.
+spec_root = Path(globals().get('SPECPATH', Path.cwd())).resolve()
+version_file = spec_root / 'packaging' / 'windows_version_info.txt'
+runtime_binaries = []
+for package_name in ('numpy', 'scipy', 'pandas', 'pyarrow'):
+    directory = package_directory(package_name).parent / f'{package_name}.libs'
+    runtime_binaries.extend((str(path), '.') for path in directory.glob('*.dll'))
+
 
 a = Analysis(
     ['src\\etf_cockpit\\main.py'],
-    pathex=[],
-    binaries=[],
-    datas=[('configs', 'configs'), ('models/lightgbm', 'models/lightgbm'), ('models/cached', 'models/cached'), ('.venv/Lib/site-packages/flet_web/web', 'flet_web/web')],
-    hiddenimports=['flet_web', 'flet_web.patch_index', 'flet_web.uploads', 'flet_web.fastapi', 'flet_web.fastapi.app', 'flet_web.fastapi.flet_app', 'flet_web.fastapi.flet_app_manager', 'flet_web.fastapi.flet_fastapi', 'flet_web.fastapi.flet_oauth', 'flet_web.fastapi.oauth_state', 'flet_web.fastapi.serve_fastapi_web_app', 'fastapi', 'fastapi.staticfiles', 'starlette', 'starlette.middleware.base', 'uvicorn', 'uvicorn.loops.auto', 'uvicorn.lifespan.on', 'uvicorn.protocols.http.auto', 'uvicorn.protocols.websockets.websockets_sansio_impl', 'yfinance', 'curl_cffi', 'bs4', 'peewee', 'multitasking', 'platformdirs'],
+    pathex=['src', str(flet_web_directory.parent)],
+    binaries=runtime_binaries,
+    datas=[('configs', 'configs'), ('models/lightgbm', 'models/lightgbm'), ('models/cached', 'models/cached'), (str(flet_web_directory), 'flet_web'), (str(flet_directory / 'controls' / 'material' / 'icons.json'), 'flet/controls/material')],
+    hiddenimports=['flet_web', 'flet_web.patch_index', 'flet_web.uploads', 'flet_web.fastapi', 'flet_web.fastapi.app', 'flet_web.fastapi.flet_app', 'flet_web.fastapi.flet_app_manager', 'flet_web.fastapi.flet_fastapi', 'flet_web.fastapi.flet_oauth', 'flet_web.fastapi.oauth_state', 'flet_web.fastapi.serve_fastapi_web_app', 'fastapi', 'fastapi.staticfiles', 'starlette', 'starlette.middleware.base', 'uvicorn', 'uvicorn.loops.auto', 'uvicorn.lifespan.on', 'uvicorn.protocols.http.auto', 'uvicorn.protocols.websockets.websockets_sansio_impl', 'yfinance', 'curl_cffi', 'bs4', 'peewee', 'multitasking', 'platformdirs', 'pandas._libs._cyutility'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['torch', 'transformers', 'timesfm', 'toto2', 'tensorflow', 'onnxruntime', 'torchaudio', 'torchvision', 'gluonts', 'einops', 'jaxtyping', 'accelerate', 'flet_desktop'],
     noarchive=False,
     optimize=0,
 )
+# This release runs Flet's local web view. The desktop client payload is not
+# used by that mode and its generated font tree is a known PyInstaller copy
+# race on Windows; keep the web package deterministic by excluding it from
+# the collected payload as well as from module analysis above.
+a.datas = [entry for entry in a.datas if 'flet_desktop' not in str(entry[0]).lower() and 'flet_desktop' not in str(entry[1]).lower()]
+a.binaries = [entry for entry in a.binaries if 'flet_desktop' not in str(entry[0]).lower() and 'flet_desktop' not in str(entry[1]).lower()]
 pyz = PYZ(a.pure)
 
 exe = EXE(
@@ -32,7 +61,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    version='C:\\Users\\thor2\\AppData\\Local\\Temp\\71b070ff-2d64-4fdc-95cc-c3541792ead2',
+    version=str(version_file),
 )
 coll = COLLECT(
     exe,

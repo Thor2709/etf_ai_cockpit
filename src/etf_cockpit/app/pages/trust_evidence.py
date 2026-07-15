@@ -374,14 +374,10 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
                 if parsed is None:
                     result.value = "Methodology import requires a readable PDF."
                 else:
+                    stored_holdings = _read_frame(FUND_HOLDINGS_PATH)
                     holdings = pd.DataFrame()
-                    if FUND_HOLDINGS_PATH.exists():
-                        try:
-                            stored_holdings = pd.read_parquet(FUND_HOLDINGS_PATH)
-                            if "instrument_id" in stored_holdings.columns:
-                                holdings = stored_holdings.loc[stored_holdings["instrument_id"].astype(str).eq(instrument_id)].copy()
-                        except Exception:
-                            holdings = pd.DataFrame()
+                    if "instrument_id" in stored_holdings.columns:
+                        holdings = stored_holdings.loc[stored_holdings["instrument_id"].astype(str).eq(instrument_id)].copy()
                     from etf_cockpit.parsers.index_methodology import apply_methodology_holdings_assessment
 
                     parsed = apply_methodology_holdings_assessment(parsed, holdings)
@@ -471,16 +467,21 @@ def _table_panel(label: str, path: Path, columns: list[str]) -> ft.Control:
 
 
 def _read_frame(path: Path) -> pd.DataFrame:
-    try:
-        if path.exists():
-            frame = pd.read_parquet(path)
+    candidates = [path, path.with_suffix(".csv")]
+    for candidate in candidates:
+        if not candidate.exists():
+            continue
+        try:
+            frame = pd.read_parquet(candidate) if candidate.suffix.lower() == ".parquet" else pd.read_csv(candidate)
+            if frame.empty and candidate.suffix.lower() == ".parquet":
+                continue
             if "published_at" in frame.columns or "ingested_at" in frame.columns:
                 return sort_news_items(frame).iloc[::-1].reset_index(drop=True)
             if "as_of_date" in frame.columns and "instrument_id" in frame.columns:
                 return sort_fundamental_evidence(frame).iloc[::-1].reset_index(drop=True)
             return frame
-    except Exception:
-        pass
+        except Exception:
+            continue
     return pd.DataFrame()
 
 

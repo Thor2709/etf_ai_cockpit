@@ -163,6 +163,50 @@ def test_short_ui_order_labels_and_scalar_order_urls_are_rejected(tmp_path: Path
     assert not any(item.path == "safe.py" for item in report.violations)
 
 
+def test_cancel_dialog_button_is_not_an_order_control(tmp_path: Path) -> None:
+    dialog_path = tmp_path / "src" / "etf_cockpit" / "app" / "dialog.py"
+    dialog_path.parent.mkdir(parents=True)
+    dialog_path.write_text(
+        "import flet as ft\n"
+        "dialog = ft.AlertDialog(actions=[ft.TextButton('Cancel')])\n",
+        encoding="utf-8",
+    )
+    checker = _checker()
+    report = checker(tmp_path) if checker else None
+    assert report is not None
+    assert report.result == "pass"
+
+
+def test_plain_cancel_label_on_order_control_is_rejected(tmp_path: Path) -> None:
+    order_path = tmp_path / "src" / "etf_cockpit" / "app" / "order_dialog.py"
+    order_path.parent.mkdir(parents=True)
+    order_path.write_text(
+        "import flet as ft\n"
+        "order_cancel_button = ft.TextButton('Cancel')\n",
+        encoding="utf-8",
+    )
+    checker = _checker()
+    report = checker(tmp_path) if checker else None
+    assert report is not None
+    assert report.result == "fail"
+    assert any(item.code == "PROHIBITED_UI_ORDER_CONTROL" for item in report.violations)
+
+
+def test_plain_cancel_label_on_explicit_order_control_call_is_rejected(tmp_path: Path) -> None:
+    order_path = tmp_path / "src" / "etf_cockpit" / "app" / "order_controls.py"
+    order_path.parent.mkdir(parents=True)
+    order_path.write_text(
+        "def render(order_control):\n"
+        "    return order_control('Cancel')\n",
+        encoding="utf-8",
+    )
+    checker = _checker()
+    report = checker(tmp_path) if checker else None
+    assert report is not None
+    assert report.result == "fail"
+    assert any(item.code == "PROHIBITED_UI_ORDER_CONTROL" for item in report.violations)
+
+
 def test_dynamic_broker_imports_and_variant_dependency_manifests_are_rejected(tmp_path: Path) -> None:
     (tmp_path / "loader.py").write_text(
         "import importlib\nsdk = importlib.import_module('broker_sdk')\n", encoding="utf-8"

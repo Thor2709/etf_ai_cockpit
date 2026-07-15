@@ -2,7 +2,7 @@
 
 This file tracks unresolved work for the AI Evidence Cockpit / ETF AI Portfolio Cockpit. It is synchronised with `plan.md` and `issues/closed.md`.
 
-Closure update 2026-07-11: `ISSUE-0069`, `UPDATEV2-0022` and `UPDATEV2-0028` passed the current source, tests, UI, export, rebuild and Chrome evidence gates and were moved to `issues/closed.md`. Their detailed sections below are retained as historical acceptance records and are no longer active open work.
+Closure update 2026-07-15: `ISSUE-0069`, `UPDATEV2-0022` and `UPDATEV2-0028` passed their applicable source, tests, UI, export, rebuild and browser evidence gates and are recorded in `issues/closed.md`. Historical acceptance references below are not active open work.
 
 Wave 0 Task 2 checkpoint 2026-07-11: the session-trace operational-authority regression was independently approved, including workflow single-trace persistence, recovery, redaction and Diagnostics visibility. No open tracker record changed state; `DATA-05` remains `still_open`, and the next implementation task is Wave 0 Task 3.
 
@@ -161,7 +161,7 @@ The user selected the following 21 issues for direct implementation as one stage
 | 18 | `ISSUE-0052` | P1 | Correlation clustering and factor/theme crowding warnings. |
 | 19 | `ISSUE-0059` | P1/P2 | Broad and sector/theme-relative benchmark attribution. |
 | 20 | `ISSUE-0064` | P1 | Friction-adjusted gross/net edge and edge-to-cost estimates. |
-| 21 | `UPDATEV2-0028` | P0/P1 | **Closed 2026-07-11:** manifest, candle unavailable marker, conflicts, full holdings, export and Chrome evidence passed. |
+| 21 | `UPDATEV2-0028` | P0/P1 | **Closed 2026-07-15:** manifest, candle unavailable marker, conflicts, full holdings, export and browser evidence passed. |
 
 Required durable stores:
 
@@ -379,23 +379,6 @@ schema_version
 **Plan.md update requirement:** Preserve SEC as P0 official US source.  
 **Close criteria:** Common close criteria plus offline cached import fixture.
 
-## UPDATEV2-0013 - European ESEF/iXBRL filing importer (original update ISSUE-0013)
-
-**Status:** Open - implementation complete; closure pending strict package, audit/export, clean-first-run and browser/computer-use evidence
-**Type:** European Filings  
-**Priority:** P0  
-**Evidence grade:** High  
-**Source URLs:** `updatev2.md`; https://www.esma.europa.eu/issuer-disclosure/electronic-reporting; https://www.xbrl.org/the-standard/what/ixbrl/  
-**Problem:** European investing is core; ESEF/iXBRL is the European analogue to structured official filings.  
-**Why it matters:** Vendor fundamentals cannot substitute for official European filings.  
-**Proposed implementation:** Add `providers/eu_esef_provider.py`, manual ESEF ZIP/XHTML import, Arelle or equivalent parser evaluation, `services/ixbrl_parser.py`, `services/ifrs_statement_mapper.py`, raw storage under `data/raw/filings/eu_esef/`, facts in `data/clean/statement_facts.parquet` and parse warnings.  
-**Acceptance criteria:** Manual ESEF import works offline; raw filing preserved with checksum; XHTML/iXBRL facts extracted where parseable; IFRS concepts map only when clear; extensions retained and warned; official ESEF facts outrank vendor data.  
-**UI requirement:** Filings & Statements import flow and parse/mapping warning panel.  
-**Tests required:** Minimal iXBRL fixture, missing taxonomy package, duplicate facts, extension concepts and canonical IFRS mapping.  
-**Rebuild requirement:** Full release gate before close.  
-**Plan.md update requirement:** Preserve ESEF manual importer as P0/P1.  
-**Close criteria:** Common close criteria plus audit export of ESEF source/facts.
-
 ## UPDATEV2-0014 - France DILA and Netherlands AFM OAM discovery adapters (original update ISSUE-0014)
 
 **Status:** Open  
@@ -412,40 +395,6 @@ schema_version
 **Rebuild requirement:** Full release gate before close.  
 **Plan.md update requirement:** Keep ESAP as future, OAMs as current optional discovery.  
 **Close criteria:** Common close criteria plus cached mocked discovery.
-
-## UPDATEV2-0015 - ETF disclosure registry (original update ISSUE-0015)
-
-**Status:** Open - implementation complete; closure pending strict package, audit/export, clean-first-run and browser/computer-use evidence
-**Type:** ETF Evidence  
-**Priority:** P0  
-**Evidence grade:** High  
-**Source URLs:** `updatev2.md`; UCITS, PRIIPs, SFDR sources listed in `REPORT.md`.  
-**Problem:** ETF filings are a document stack: prospectus, KID, reports, factsheet, holdings, methodology, SFDR and lending/collateral documents.  
-**Why it matters:** ETF evidence cannot be price-only.  
-**Proposed implementation:** Add `services/etf_document_registry.py`, `data/clean/fund_documents.parquet`, ETF Disclosures UI panel and document import controls.  
-**Acceptance criteria:** Every ETF row shows document inventory; missing KID/factsheet/holdings/index docs visible; stale holdings cap evidence quality; document checksums/dates stored; audit packet includes inventory.  
-**UI requirement:** ETF Disclosures page and Instrument Detail ETF document panel.  
-**Tests required:** Complete docs, missing KID, stale holdings, duplicate document versions and bad date/checksum.  
-**Rebuild requirement:** Full release gate before close.  
-**Plan.md update requirement:** Preserve ETF disclosure stack.  
-**Close criteria:** Common close criteria plus audit inventory export.
-
-## UPDATEV2-0016 - ETF holdings normaliser (original update ISSUE-0016)
-
-**Status:** Open - implementation complete; closure pending strict package, audit/export, clean-first-run and browser/computer-use evidence
-**Type:** ETF Evidence / Holdings  
-**Priority:** P0  
-**Evidence grade:** High  
-**Source URLs:** `updatev2.md`; UCITS/ETF disclosure sources.  
-**Problem:** yfinance top holdings are partial and inconsistent; issuer holdings should be preferred.  
-**Why it matters:** ETF exposure quality depends on actual holdings.  
-**Proposed implementation:** Add `services/fund_holdings_normalizer.py`; extend ETF holdings import; add sum-of-weights validation, partial/full holdings label and holdings confidence score.  
-**Acceptance criteria:** Full holdings around 100% OK; partial top holdings labelled partial; stale holdings cap evidence quality; invalid weights block current exposure scoring; holdings feed Risk page underlying exposure.  
-**UI requirement:** ETF Disclosures and Risk pages show holdings completeness/freshness/confidence.  
-**Tests required:** CSV/XLSX fixture, partial top holdings, weight sum under 80%, weight sum over 105%, missing ISIN/ticker.  
-**Rebuild requirement:** Full release gate before close.  
-**Plan.md update requirement:** Preserve holdings validation thresholds.  
-**Close criteria:** Common close criteria plus source-backed exposure output.
 
 ## UPDATEV2-0017 - PRIIPs KID parser (original update ISSUE-0017)
 
@@ -633,23 +582,6 @@ schema_version
 **Rebuild requirement:** Full release gate before close.  
 **Plan.md update requirement:** Keep process-button progress wording examples.  
 **Close criteria:** Common close criteria plus user-perspective Chrome/browser verification.
-
-## UPDATEV2-0028 - Report/audit packet expansion for providers, filings, ETF docs and candles (original update ISSUE-0028)
-
-**Status:** Open - implementation complete; closure pending strict archive/export, package and browser evidence
-**Type:** Audit / Export  
-**Priority:** P1  
-**Evidence grade:** High  
-**Source URLs:** `updatev2.md`.  
-**Problem:** External review is not reproducible unless the audit packet includes new evidence sources.  
-**Why it matters:** Provider status, filings, ETF docs, conflicts and candle evidence must be exported.  
-**Proposed implementation:** Extend audit packet builder; add manifest entries; include checksums/source authority; include human-readable Markdown summary.  
-**Acceptance criteria:** Audit ZIP contains provider status, filing inventory, ETF document inventory, conflicts and candle evidence; external audit import remains non-executable.  
-**UI requirement:** Audit page/export status shows included artefacts and output path.  
-**Tests required:** Audit manifest, missing optional providers, conflict report export and large holdings export.  
-**Rebuild requirement:** Full release gate before close.  
-**Plan.md update requirement:** Keep REPORT/audit expansion requirements.  
-**Close criteria:** Common close criteria plus inspected ZIP contents.
 
 ## UPDATEV2-0029 - Rebuild/test/update discipline automation (original update ISSUE-0029)
 

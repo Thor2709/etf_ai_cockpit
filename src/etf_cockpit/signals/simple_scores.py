@@ -1312,17 +1312,18 @@ def _latest_candidate_input_frame(directory: Path = RAW_DIR / "trade_candidates"
 
 def _pending_configured_score(identity, yahoo_symbol: str) -> SimpleInstrumentScore:
     asset_type = _display_asset_type(identity)
+    analysis_tier = str(_config_extra(identity, "analysis_tier", "primary"))
     return SimpleInstrumentScore(
         instrument_key=f"configured:{identity.id}",
         display_id=identity.id,
-        source_group=PRIMARY_TIER_LABEL,
+        source_group=source_group_for_analysis_tier(analysis_tier),
         asset_type=asset_type,
         name=identity.name,
         yahoo_symbol=yahoo_symbol,
         latest_date="pending refresh",
         latest_price=None,
-        isin=identity.isin,
-        analysis_tier=str(_config_extra(identity, "analysis_tier", "primary")),
+        isin=identity.isin or "needs_verification",
+        analysis_tier=analysis_tier,
         data_policy=str(_config_extra(identity, "data_policy", "yfinance_now_multi_provider_later")),
         final_score_10=None,
         decision="Pending Refresh",
@@ -1338,7 +1339,7 @@ def _pending_configured_score(identity, yahoo_symbol: str) -> SimpleInstrumentSc
         backtest_trust_label="Backtest pending",
         model_calibration_label="Calibration pending",
         market_regime_label="Regime unavailable until refreshed",
-        portfolio_fit_label="Primary tier portfolio context pending until yfinance data is refreshed.",
+        portfolio_fit_label=_pending_candidate_portfolio_label(source_group_for_analysis_tier(analysis_tier)),
         strategy_template_label="pending_refresh",
         strategy_template_descriptions="Run the workflow buttons to calculate algorithms and optional model confirmation.",
         evidence_maturity_state="pending_refresh",
@@ -1436,6 +1437,8 @@ def _display_asset_type(identity) -> str:
         return "Certificate"
     if value == "stock":
         return "Stock"
+    if value in {"equity_certificate", "equity certificate"}:
+        return "Equity certificate"
     return "ETF" if "etf" in value else "Stock" if value == "equity" else value.title() or "Instrument"
 
 

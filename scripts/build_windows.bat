@@ -3,17 +3,32 @@ setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0\.."
 
 set APPNAME=ETF_AI_Cockpit
-set OUTDIR=build\ETF_AI_Cockpit_Portable_v0.1.0
-set NATIVE_OUT_ROOT=build\flet_dist
+set OUTDIR=build\ETF_AI_Cockpit_Portable_v0.1.0rc1
+set NATIVE_OUT_ROOT=build\flet_dist_rc1
 set NATIVE_OUT_ROOT_FILE=build\native_outdir.txt
 set NATIVE_DIST=%NATIVE_OUT_ROOT%\%APPNAME%
 set NATIVE_PACK_READY=0
 set BUILD_SMOKE_MODE=portable-native
 
+set "VENV_BACKUP_STAMP=%date%_%time%"
+set "VENV_BACKUP_STAMP=%VENV_BACKUP_STAMP:/=-%"
+set "VENV_BACKUP_STAMP=%VENV_BACKUP_STAMP::=-%"
+set "VENV_BACKUP_STAMP=%VENV_BACKUP_STAMP: =0%"
+set "VENV_BACKUP_STAMP=%VENV_BACKUP_STAMP:.=-%"
+set "VENV_BACKUP_DIR=backups\venv_broken_%VENV_BACKUP_STAMP%"
+
 if exist ".venv\Scripts\python.exe" (
   ".venv\Scripts\python.exe" -c "import sys, numpy, pandas, flet; assert sys.version_info >= (3, 11)" >nul 2>nul
   if errorlevel 1 (
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "$stamp=Get-Date -Format 'yyyyMMdd_HHmmss'; New-Item -ItemType Directory -Force -Path 'backups' | Out-Null; Move-Item -LiteralPath '.venv' -Destination ('backups\\venv_broken_' + $stamp)"
+    if not exist "backups" mkdir "backups"
+    if exist "!VENV_BACKUP_DIR!" (
+      set "VENV_BACKUP_DIR=!VENV_BACKUP_DIR!_!RANDOM!"
+    )
+    move ".venv" "!VENV_BACKUP_DIR!" >nul
+    if errorlevel 1 (
+      echo ERROR: Could not archive broken .venv.
+      exit /b 1
+    )
   )
 )
 
@@ -33,7 +48,7 @@ if errorlevel 1 exit /b 1
 ".venv\Scripts\pip.exe" install -r requirements-parsers.txt
 if errorlevel 1 exit /b 1
 
-if exist ".venv\Scripts\flet.exe" (
+if exist ".venv\Scripts\pyinstaller.exe" (
   ".venv\Scripts\python.exe" -c "import PyInstaller" >nul 2>nul
   if errorlevel 1 (
     echo PyInstaller is not installed; skipping Flet native pack and creating portable launcher folder.
@@ -42,18 +57,15 @@ if exist ".venv\Scripts\flet.exe" (
     if errorlevel 1 exit /b 1
     set /p NATIVE_OUT_ROOT=<"%NATIVE_OUT_ROOT_FILE%"
     set NATIVE_DIST=!NATIVE_OUT_ROOT!\%APPNAME%
-    ".venv\Scripts\flet.exe" pack src\etf_cockpit\main.py ^
-      --name %APPNAME% ^
-      --onedir ^
-      --distpath "!NATIVE_OUT_ROOT!" ^
-      --add-data configs:configs ^
-      --add-data models/lightgbm:models/lightgbm ^
-      --add-data models/cached:models/cached ^
-      --add-data .venv/Lib/site-packages/flet_web/web:flet_web/web ^
-      --hidden-import flet_web flet_web.patch_index flet_web.uploads flet_web.fastapi flet_web.fastapi.app flet_web.fastapi.flet_app flet_web.fastapi.flet_app_manager flet_web.fastapi.flet_fastapi flet_web.fastapi.flet_oauth flet_web.fastapi.oauth_state flet_web.fastapi.serve_fastapi_web_app fastapi fastapi.staticfiles starlette starlette.middleware.base uvicorn uvicorn.loops.auto uvicorn.lifespan.on uvicorn.protocols.http.auto uvicorn.protocols.websockets.websockets_sansio_impl yfinance curl_cffi bs4 peewee multitasking platformdirs ^
-      -y
+    set "PYTHONPATH=%CD%\src;%PYTHONPATH%"
+    ".venv\Scripts\pyinstaller.exe" --noconfirm --clean --distpath "!NATIVE_OUT_ROOT!" ETF_AI_Cockpit.spec
     if errorlevel 1 (
       echo ERROR: Flet native pack failed. The portable folder was not refreshed from a stale native build.
+      exit /b 1
+    )
+    ".venv\Scripts\pyi-set_version.exe" packaging\windows_version_info.txt "!NATIVE_DIST!\%APPNAME%.exe"
+    if errorlevel 1 (
+      echo ERROR: Could not apply application version metadata to the native executable.
       exit /b 1
     )
     if exist "!NATIVE_DIST!\%APPNAME%.exe" set NATIVE_PACK_READY=1
@@ -73,6 +85,7 @@ xcopy /e /i /y configs "%OUTDIR%\configs" >nul
 xcopy /e /i /y scripts "%OUTDIR%\scripts" >nul
 mkdir "%OUTDIR%\data"
 if exist data\backtests xcopy /e /i /y data\backtests "%OUTDIR%\data\backtests" >nul
+if exist data\audit_packets xcopy /e /i /y data\audit_packets "%OUTDIR%\data\audit_packets" >nul
 if exist data\clean xcopy /e /i /y data\clean "%OUTDIR%\data\clean" >nul
 if exist data\derived xcopy /e /i /y data\derived "%OUTDIR%\data\derived" >nul
 if exist data\features xcopy /e /i /y data\features "%OUTDIR%\data\features" >nul
@@ -90,6 +103,8 @@ copy README_FIRST_RUN.md "%OUTDIR%\README_FIRST_RUN.md" >nul
 copy requirements.txt "%OUTDIR%\requirements.txt" >nul
 copy requirements-parsers.txt "%OUTDIR%\requirements-parsers.txt" >nul
 copy requirements-models.txt "%OUTDIR%\requirements-models.txt" >nul
+if exist CHANGELOG.md copy CHANGELOG.md "%OUTDIR%\CHANGELOG.md" >nul
+if exist RELEASE_NOTES.md copy RELEASE_NOTES.md "%OUTDIR%\RELEASE_NOTES.md" >nul
 
 if "%NATIVE_PACK_READY%"=="1" (
   mkdir "%OUTDIR%\native"
@@ -175,7 +190,7 @@ exit /b 0
   echo     start "" "%%URL%%"
   echo     exit /b 0
   echo   ^)
-  echo   powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Sleep -Seconds 1" ^>nul 2^>nul
+  echo   timeout /t 1 /nobreak ^>nul 2^>nul
   echo ^)
   echo echo Packaged executable did not start the local web UI.
   echo pause

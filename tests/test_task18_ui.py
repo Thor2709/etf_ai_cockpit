@@ -87,6 +87,64 @@ def test_risk_page_renders_cost_edge_fields_and_unavailable_state(tmp_path, monk
     assert "unavailable" in unavailable.lower()
 
 
+def test_risk_holdings_quality_panel_exposes_row_summary_for_packaged_accessibility() -> None:
+    from etf_cockpit.app.pages import risk as page_module
+
+    holdings = pd.DataFrame(
+        {
+            "instrument_id": ["VWCE"],
+            "as_of_date": ["2026-05-31"],
+            "completeness": ["partial"],
+            "freshness": ["fresh"],
+            "confidence": [0.55],
+            "authority": ["issuer"],
+            "score_eligible": [False],
+        }
+    )
+
+    rendered = "\n".join(_text_values(page_module._holdings_quality_panel(holdings)))
+
+    assert "VWCE" in rendered
+    assert "2026-05-31" in rendered
+    assert "partial" in rendered
+    assert "score_eligible=False" in rendered
+
+
+def test_etf_disclosures_table_reads_csv_mirror_when_parquet_is_unavailable(tmp_path, monkeypatch) -> None:
+    from etf_cockpit.app.pages import trust_evidence as page_module
+
+    parquet_path = tmp_path / "fund_holdings.parquet"
+    csv_path = tmp_path / "fund_holdings.csv"
+    pd.DataFrame(
+        [{
+            "instrument_id": "VWCE",
+            "as_of_date": "2026-05-31",
+            "source": "issuer",
+            "completeness": "partial",
+            "freshness": "fresh",
+            "confidence": 0.55,
+            "authority": "issuer",
+            "score_eligible": False,
+            "source_id": "issuer:vanguard:vwce",
+        }]
+    ).to_csv(csv_path, index=False)
+
+    monkeypatch.setattr(page_module, "FUND_HOLDINGS_PATH", parquet_path)
+    frame = page_module._read_frame(parquet_path)
+
+    assert frame.to_dict(orient="records") == [{
+        "instrument_id": "VWCE",
+        "as_of_date": "2026-05-31",
+        "source": "issuer",
+        "completeness": "partial",
+        "freshness": "fresh",
+        "confidence": 0.55,
+        "authority": "issuer",
+        "score_eligible": False,
+        "source_id": "issuer:vanguard:vwce",
+    }]
+
+
 def test_risk_friction_panel_formats_non_finite_edge_values_as_unavailable(tmp_path, monkeypatch) -> None:
     from etf_cockpit.app.pages import risk as page_module
 

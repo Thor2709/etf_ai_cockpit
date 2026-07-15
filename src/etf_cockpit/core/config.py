@@ -303,7 +303,18 @@ def _load_universe_config(config_dir: Path) -> UniverseConfig:
                     for row in imported.records
                 ]
             )
-        return UniverseConfig(**payload)
+        normalised_etfs = []
+        for raw in payload.get("etfs", ()):
+            if not isinstance(raw, dict):
+                normalised_etfs.append(raw)
+                continue
+            row = dict(raw)
+            raw_isin = str(row.get("isin") or "").strip().lower()
+            isin_status = str(row.get("isin_status") or "").strip().lower()
+            if isin_status == "needs_verification" or raw_isin in {"", "unknown", "needs_verification"}:
+                row["isin"] = None
+            normalised_etfs.append(row)
+        return UniverseConfig(**{**payload, "etfs": normalised_etfs})
     try:
         payload = _read_json(persisted)
         records = payload.get("records")

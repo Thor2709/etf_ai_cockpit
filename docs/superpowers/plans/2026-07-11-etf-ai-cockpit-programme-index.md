@@ -1,6 +1,6 @@
 # ETF AI Cockpit Programme Index
 
-> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6, Wave 3 Tasks 7-9 and Wave 4 Tasks 10-20 are independently approved, merged and post-merge verified. Task 10 is closed locally and synchronised to GitHub Issue #81; Tasks 11-20 are implementation-complete with their owning issues still closure-pending strict release/package/audit/export/browser/clean-first-run evidence. Task 20 is merged through PR 190 at GitHub merge commit `61f6aa3144d5d1eb28d57052c09a88acb5529bcc`; the next dependency-valid implementation is Task 21, Complete Audit Packet and Non-Executable External Audit Import.
+> **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6, Wave 3 Tasks 7-9 and Wave 4 Tasks 10-21 are independently approved, merged and post-merge verified. Task 10 is closed locally and synchronised to GitHub Issue #81; Tasks 11-21 are implementation-complete with their owning issues still closure-pending strict release/package/audit/export/browser/clean-first-run evidence. Wave 5 Task 22 is under semantic reconciliation review on `wave5/task22-reconciliation`; Task 23 is deferred until the reconciled Task 22 base is approved and committed.
 
 **Binding inputs:**
 
@@ -267,18 +267,20 @@ remains open as implementation-complete/closure-pending because strict release,
 audit/export, clean-first-run and browser/computer-use evidence is not yet
 fresh.
 
-Wave 4 Task 14, ETF Document Registry and Holdings Normaliser, is implemented
-and independently approved through PR 184 at merge commit
-`49abaf4907f81ab2798a394d11cf2ddaf5d3b031` (head `a7cb185`). The versioned
-document registry, explicit missing inventory, fail-closed issuer/vendor
-holdings eligibility, atomic four-file imports, ETF Disclosures/Risk panels,
-Instrument Detail disclosure panel and UI acceptance contracts are present.
-Focused Task 14/Risk/Instrument Detail/trust registration/button tests, Ruff,
-compileall and diff checks pass; the known unrelated trust identity fixture
-threshold remains documented. `UPDATEV2-0015` and `UPDATEV2-0016` remain open
-until strict release, audit/export, clean-first-run and browser/computer-use
-evidence is fresh. Continue with Task 15, PRIIPs KID and Index Methodology
-Parsers.
+Wave 4 Task 14, ETF Document Registry and Holdings Normaliser, is closed on
+branch `wave5/task23-final-records` after the final package, audit/export,
+clean-first-run and browser evidence refresh. The versioned registry, explicit
+missing inventory, fail-closed issuer/vendor holdings eligibility, atomic
+four-file imports, ETF Disclosures/Risk panels and Instrument Detail disclosure
+panel remain present. Final manifests for `UPDATEV2-0015` and `UPDATEV2-0016`
+pass every named gate; the independent reviewer `/root/task14_review_final`
+returned SPEC PASS and CODE PASS with no findings. The canonical audit ZIP is
+valid with SHA-256
+`5fb4d1f05cc2446d59ffec9cbdeca6f6b71a50f517e75dc3bd70cf7fbe36f994`, and the
+two local issue records have moved to `issues/closed.md`. GitHub Issues #155
+and #156 are closed and synchronised through PR #201, merged at
+`bc85b731c88f00d77d703c70e005ff8520ca5acc`. The next
+dependency-valid work is Task 15, PRIIPs KID and Index Methodology Parsers.
 
 Wave 4 Task 15, PRIIPs KID and Index Methodology Parsers, is implemented and
 independently approved through PR 185 at merge commit
@@ -331,15 +333,60 @@ Comprehensive Instrument Detail, is now merged via PR 189 at `da271bc` with
 implementation head `89f4644`; `ISSUE-0019` remains implementation-complete
 and closure-pending the same strict gates. Continue with Task 20,
 Import/Export, Backup/Restore, Charts and Accessible Tables.
-### Wave 5 Task 20 implementation checkpoint - 2026-07-14
 
-Task 20 (Import/Export, Backup/Restore, Charts and Accessible Tables) completed
-Steps 1-4 on implementation head `1542e65` after the final independent review
-approved specification compliance and code quality. PR 190 was merged to
-GitHub `main` at `61f6aa3144d5d1eb28d57052c09a88acb5529bcc`. The four owning
-issues (`ISSUE-0036`, `ISSUE-0041`, `ISSUE-0042`, `ISSUE-0044`) remain open and
-closure-pending because the strict package, browser/computer-use, runtime
-pytest, audit/export and final release gates are not yet fresh. The next
-dependency-valid implementation is Task 21, Complete Audit Packet and
-Non-Executable External Audit Import. `execution_allowed=false` remains
-unchanged.
+### Wave 5 Task 22 semantic reconciliation checkpoint - 2026-07-14
+
+The clean reconciliation branch `wave5/task22-reconciliation` is based on
+`origin/main` `6e6406d`. Patch-equivalent and obsolete Task 20/21 commits were
+excluded; only genuine Task 22 source, configuration, tests and evidence were
+transferred. The first independent review identified and blocked on five
+Sparebanken identity mismatches in the canonical YAML and a plain `Cancel`
+gap for explicit order-control calls. Test-first regressions now pass after
+correcting the five YAML identities/ticker and extending the fail-closed
+boundary scan. A fresh independent re-review is pending. Task 23 remains
+deferred until Task 22 is approved and committed; no issue ledger transition
+has been made.
+
+### Wave 5 Task 22 reconciliation review approval checkpoint - 2026-07-14
+
+The semantic reconciliation checkpoint remains based on `origin/main`
+`6e6406d`; obsolete Task 20/21 commits were not replayed. Review-fix cycles
+now cover configured manual-holding retention through the real snapshot path,
+non-zero untargeted audit weights, canonical Sparebanken name/ticker/ISIN
+parity, and exclusion of unresolved ISIN placeholders from reference identity
+maps while pending score output retains the visible marker. Focused tests, 20
+repeated atomic recovery runs, compileall and staged diff checks pass. A fresh
+independent reviewer approved specification compliance and code quality with
+no Critical or Important findings. The cached full suite still records 11
+pre-existing/environment/deferred failures; Ruff, package/native/browser and
+clean-first-run evidence remain pending. Task 22 is not closed, no issue
+ledger transition has been made, and Task 23 remains deferred until the
+reconciled checkpoint is integrated and its remaining closure gates pass.
+
+### Wave 5 Task 22 reconciliation local commit checkpoint - 2026-07-14
+
+The independently approved reconciliation was committed locally as
+`59d2393dcdaa9b19d436fcb5890ee0da15666196` on
+`wave5/task22-reconciliation`, one normal commit ahead of the verified
+`origin/main` base `6e6406d58db89ae19398e2abf15d0670e3350560`. The commit contains
+only the reviewed Task 22 reconciliation and durable evidence; no Task 20/21
+obsolete commit was replayed, and the original Task 22 worktree remains
+recoverable. System GitHub authentication inside Codex still fails with
+`SEC_E_NO_CREDENTIALS`; branch push, pull request integration and GitHub issue
+synchronisation are therefore pending authenticated PowerShell execution.
+The fresh full suite recorded 11 baseline/environment-specific failures and no
+Task 22-specific failure. Task 22 remains open and Task 23 has not started.
+
+### Wave 5 Task 23 bounded release-candidate checkpoint - 2026-07-15
+
+Task 23 resumed on `wave5/task23-working` from the reconciled Task 22
+checkpoint. The bounded table/identity/fixture fixes and the reproducible
+`0.1.0rc1` PyInstaller packaging path have fresh independent approval. The
+focused and authoritative full test suites, compileall, scoped Ruff and diff
+checks passed. A reviewed native onedir build and complete portable ZIP were
+extracted outside the repository and the packaged launcher returned HTTP 200.
+The canonical batch build remains unverified because the repository virtual
+environment is inaccessible under the current Windows ACL/ensurepip state.
+Full issue dossiers/evaluator, rendered browser/computer-use, clean-first-run,
+remote integration and issue transitions remain pending; Task 23 is
+implementation-complete but closure-pending.

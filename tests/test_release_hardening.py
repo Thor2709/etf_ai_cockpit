@@ -682,15 +682,20 @@ def test_valid_forecast_rows_become_model_score_inputs() -> None:
     assert scores["timesfm"] == {}
 
 
-def test_audit_export_contains_validation_and_risk_gate_reports() -> None:
+def test_audit_export_contains_validation_and_risk_gate_reports(tmp_path, monkeypatch) -> None:
     state = AppState.load()
+    canonical_path = export_module.AUDIT_PACKETS_DIR / (
+        f"audit_packet_{state.snapshot.data_report.as_of_date:%Y-%m-%d}.zip"
+    )
+    canonical_before = canonical_path.read_bytes() if canonical_path.exists() else None
+    monkeypatch.setattr(export_module, "CHATGPT_EXPORTS_DIR", tmp_path / "audit_packets")
     zip_path = state.export_audit_packet()
 
     with zipfile.ZipFile(zip_path) as archive:
         names = set(archive.namelist())
         signal_table = pd.read_csv(archive.open("02_signal_table.csv"))
 
-    assert zip_path.parent.name == "audit_packets"
+    assert zip_path.parent == tmp_path / "audit_packets"
     assert zip_path.stem.startswith("audit_packet_")
     assert "10_validation_report.json" in names
     assert "11_risk_gate_report.json" in names
@@ -706,6 +711,7 @@ def test_audit_export_contains_validation_and_risk_gate_reports() -> None:
         "cost_stress_warning",
         "cost_stress_assumptions",
     } <= set(signal_table.columns)
+    assert (canonical_path.read_bytes() if canonical_path.exists() else None) == canonical_before
 
 
 def test_audit_export_includes_imported_manual_news_notes(tmp_path, monkeypatch) -> None:

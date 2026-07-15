@@ -38,6 +38,9 @@ from etf_cockpit.data.trust_artifacts import (
     SOURCE_CONFLICTS_PATH,
 )
 from etf_cockpit.data.parsed_disclosures import INDEX_METHODOLOGY_RECORDS_PATH, PRIIPS_KID_RECORDS_PATH
+from etf_cockpit.data.fund_documents import FUND_DOCUMENTS_PATH
+from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
+from etf_cockpit.data.health import build_data_health, export_data_health
 from etf_cockpit.governance.product_scope import (
     load_feature_registry,
     load_gate_policy,
@@ -52,6 +55,42 @@ from etf_cockpit.portfolio.allocation import allocation_frame
 CHATGPT_EXPORTS_DIR = AUDIT_PACKETS_DIR
 CANDLE_CONTEXT_PATH = DERIVED_DIR / "candle_context.parquet"
 GOVERNANCE_CHECKSUMS_PATH = ROOT / "evidence" / "governance" / "policy_checksums.json"
+
+
+# Canonical artefacts required in every external audit packet.  Paths are
+# archive-relative and may be represented by an explicit unavailable marker
+# when an optional local source is absent.  The records are deliberately
+# declarative so the manifest remains auditable without importing UI state.
+_COMPLETE_AUDIT_REQUIRED: tuple[tuple[str, str, bool], ...] = (
+    ("evidence_export/provider_probe_results.csv", "provider", True),
+    ("evidence_export/instrument_identity.csv", "identity", True),
+    ("evidence_export/statement_facts.csv", "official_regulator", True),
+    ("evidence_export/filings_statements.csv", "official_regulator", True),
+    ("evidence_export/fund_documents.csv", "issuer_document", True),
+    ("evidence_export/fund_holdings.csv", "issuer_document", True),
+    ("evidence_export/etf_disclosures.csv", "issuer_document", True),
+    ("evidence_export/priips_kid_records.csv", "issuer_document", True),
+    ("evidence_export/index_methodology_records.csv", "issuer_document", True),
+    ("evidence_export/news_context.csv", "context_only", True),
+    ("evidence_export/news_timestamp_validation.csv", "context_only", True),
+    ("evidence_export/source_conflicts.csv", "evidence", True),
+    ("evidence_export/evidence_ledger.csv", "derived", True),
+    ("evidence_export/score_components.csv", "derived", True),
+    ("evidence_export/score_history.csv", "derived", True),
+    ("evidence_export/score_metric_history.csv", "derived", True),
+    ("evidence_export/feature_drivers.csv", "derived", True),
+    ("evidence_export/correlation_clusters.csv", "derived", True),
+    ("evidence_export/benchmark_attribution.csv", "derived", True),
+    ("evidence_export/edge_cost.csv", "derived", True),
+    ("evidence_export/data_health.csv", "derived", True),
+    ("evidence_export/session.jsonl", "workflow", True),
+    ("evidence_export/workflow.jsonl", "workflow", True),
+    ("evidence_export/configs/data_providers_redacted.json", "configuration", False),
+    ("evidence_export/configs/audit_manifest.yaml", "configuration", True),
+    ("evidence_export/project_docs/issue_dossiers.json", "issue_dossier", True),
+    ("evidence_export/checksum_manifest.json", "audit", False),
+    ("checksum_manifest.json", "audit", False),
+)
 
 SIGNAL_TABLE_COLUMNS = [
     "etf_id",
@@ -129,6 +168,59 @@ def _signal_rows(signals: Iterable[SignalResult], config: AppConfig) -> list[dic
     return rows
 
 
+def _audit_portfolio_holdings(
+    config: AppConfig,
+    allocation: pd.DataFrame,
+    holdings: pd.DataFrame | None = None,
+) -> list[dict[str, object]]:
+    """Include every enabled instrument in the audit allocation export.
+
+    Targets intentionally cover only instruments with approved target weights.
+    The audit packet is configuration-complete, so enabled instruments without
+    a target or current holding are represented by explicit zero weights rather
+    than being silently omitted.
+    """
+
+    columns = ["etf_id", "name", "current_weight", "target_weight", "drift", "role", "region", "sector", "currency"]
+    by_id = {
+        str(row["etf_id"]): row
+        for _, row in allocation.iterrows()
+        if row.get("etf_id") is not None
+    }
+    universe = config.universe.by_id()
+    holding_by_id: dict[str, pd.Series] = {}
+    if isinstance(holdings, pd.DataFrame) and not holdings.empty and "etf_id" in holdings.columns:
+        for _, holding in holdings.iterrows():
+            etf_id = str(holding.get("etf_id") or "").strip()
+            if etf_id:
+                holding_by_id[etf_id] = holding
+    rows: list[dict[str, object]] = []
+    for etf_id in config.universe.configured_enabled_ids:
+        row = by_id.get(str(etf_id))
+        if row is not None:
+            rows.append({column: row.get(column) for column in columns})
+            continue
+        etf = universe.get(str(etf_id))
+        holding = holding_by_id.get(str(etf_id))
+        raw_current_weight = holding.get("current_weight") if holding is not None else None
+        parsed_current_weight = pd.to_numeric(raw_current_weight, errors="coerce")
+        current_weight = float(parsed_current_weight) if pd.notna(parsed_current_weight) else 0.0
+        rows.append(
+            {
+                "etf_id": str(etf_id),
+                "name": etf.name if etf else str(etf_id),
+                "current_weight": current_weight,
+                "target_weight": 0.0,
+                "drift": current_weight,
+                "role": etf.role if etf else "unknown",
+                "region": etf.region if etf else None,
+                "sector": etf.sector if etf else None,
+                "currency": etf.currency if etf else config.targets.base_currency,
+            }
+        )
+    return rows
+
+
 def export_review_pack(
     config: AppConfig,
     holdings: pd.DataFrame,
@@ -147,9 +239,7 @@ def export_review_pack(
         "base_currency": config.targets.base_currency,
         "portfolio_value": float(holdings["market_value_eur"].sum()),
         "cash_weight": max(0.0, 1.0 - float(holdings["current_weight"].sum())),
-        "holdings": allocation[
-            ["etf_id", "name", "current_weight", "target_weight", "drift", "role", "region", "sector", "currency"]
-        ].to_dict(orient="records"),
+        "holdings": _audit_portfolio_holdings(config, allocation, holdings),
         "risk_limits": config.risks.portfolio_limits.model_dump(),
     }
     (export_dir / "00_prompt.md").write_text(CHATGPT_REVIEW_PROMPT, encoding="utf-8")
@@ -270,6 +360,23 @@ def export_review_pack(
     (export_dir / "13_fx_inventory.json").write_text(json.dumps(fx_inventory, indent=2, default=str), encoding="utf-8")
     derived_manifest = _export_derived_evidence(export_dir)
     evidence_manifest = _export_trust_critical_evidence(export_dir, config)
+    edge_cost_path = export_dir / "evidence_export" / "edge_cost.csv"
+    edge_cost_path.parent.mkdir(parents=True, exist_ok=True)
+    edge_columns = [
+        column
+        for column in (
+            "etf_id", "expected_edge_bps", "estimated_cost_bps", "edge_to_cost_ratio",
+            "cost_low_bps", "cost_base_bps", "cost_high_bps", "edge_to_cost_low",
+            "edge_to_cost_base", "edge_to_cost_high", "cost_stress_warning",
+            "cost_stress_assumptions", "execution_allowed",
+        )
+        if column in signal_table.columns
+    ]
+    signal_table[edge_columns].to_csv(edge_cost_path, index=False)
+    _include_file(edge_cost_path, "edge_cost.csv", evidence_manifest)
+    trust_manifest_path = export_dir / "evidence_export" / "trust_critical_manifest.json"
+    trust_manifest_path.write_text(json.dumps(evidence_manifest, indent=2, default=str), encoding="utf-8")
+    _include_file(trust_manifest_path, "trust_critical_manifest.json", evidence_manifest)
     combined = [
         "# Combined External Audit Packet",
         "",
@@ -355,41 +462,74 @@ def _write_audit_manifest(export_dir: Path, derived_manifest: dict[str, object],
     governance_payload["policy_checksums"] = policy_checksums
     governance_path.write_text(json.dumps(governance_payload, indent=2, sort_keys=True), encoding="utf-8")
 
-    required = [
-        {
-            "path": "evidence_export/session.jsonl",
-            "allow_unavailable": True,
-            "unavailable_marker": "evidence_export/session_log_unavailable.txt",
-        },
-        {"path": "evidence_export/trust_critical_manifest.json", "allow_unavailable": False},
-        {"path": "evidence_export/configs/data_providers_redacted.json", "allow_unavailable": False},
-        {
-            "path": "evidence_export/project_docs/open.md",
-            "allow_unavailable": True,
-            "unavailable_marker": "evidence_export/project_docs/open_unavailable.txt",
-        },
-        {
-            "path": "evidence_export/candle_context.csv",
-            "allow_unavailable": True,
-            "unavailable_marker": "evidence_export/candle_context_unavailable.txt",
-        },
-        {
-            "path": "evidence_export/source_conflicts.csv",
-            "allow_unavailable": True,
-            "unavailable_marker": "evidence_export/source_conflicts_unavailable.txt",
-        },
-        {"path": "01_portfolio_summary.json", "allow_unavailable": False},
-        {"path": "evidence_export/governance/policy_checksums.json", "allow_unavailable": False},
+    # Keep the older core packet entries while extending it with the complete
+    # canonical set.  A path may only be unavailable when a marker was
+    # explicitly written, so no optional source is silently omitted.
+    required_specs = [
+        *[(path, authority, allow) for path, authority, allow in _COMPLETE_AUDIT_REQUIRED],
+        ("evidence_export/trust_critical_manifest.json", "evidence", False),
+        ("evidence_export/governance/policy_checksums.json", "governance", False),
+        ("01_portfolio_summary.json", "user_record", False),
+        ("evidence_export/candle_context.csv", "derived", True),
+        ("evidence_export/project_docs/open.md", "issue_dossier", True),
+        ("evidence_export/source_conflicts.csv", "evidence", True),
     ]
-    checksums: dict[str, str] = {}
-    for path in export_dir.rglob("*"):
-        if path.is_file() and path.name != "audit_manifest.json":
-            digest = hashlib.sha256(path.read_bytes()).hexdigest()
-            checksums[str(path.relative_to(export_dir)).replace("\\", "/")] = digest
+    deduped_specs = list(dict.fromkeys(required_specs))
+
+    required: list[dict[str, object]] = []
+    # Unavailable markers must exist before either checksum manifest is
+    # generated. Their payloads are then covered by both manifests.
+    for path, authority, allow_unavailable in deduped_specs:
+        record: dict[str, object] = {
+            "path": path,
+            "schema_version": 1,
+            "source_authority": authority,
+            "allow_unavailable": bool(allow_unavailable),
+        }
+        candidate = export_dir / Path(path)
+        if candidate.is_file():
+            pass
+        elif allow_unavailable:
+            if path.endswith("/session.jsonl"):
+                marker_name = "session_log_unavailable.txt"
+            elif path == "evidence_export/candle_context.csv":
+                # Preserve the established audit-packet marker name used by
+                # downstream readers while keeping the manifest explicit.
+                marker_name = "candle_context_unavailable.txt"
+            else:
+                marker_name = f"{Path(path).stem}_{hashlib.sha256(path.encode()).hexdigest()[:10]}_unavailable.txt"
+            marker = f"{Path(path).with_name(marker_name)}".replace("\\", "/")
+            marker_path = export_dir / marker
+            if not marker_path.is_file():
+                marker_path = _write_unavailable_marker(marker_path, candidate, evidence_manifest)
+            record["unavailable_marker"] = marker_path.relative_to(export_dir).as_posix()
+            record["unavailable_reason"] = "source_not_available"
+        required.append(record)
+
+    # The checksum manifests intentionally exclude themselves and each other;
+    # this avoids an impossible recursive self-hash while making the exclusion
+    # explicit and machine-checkable.  The audit manifest below covers both
+    # checksum-manifest files by their ordinary archive-relative hashes.
+    _write_checksum_manifests(export_dir)
+    checksums = _collect_checksums(export_dir)
+    for checksum_path in ("checksum_manifest.json", "evidence_export/checksum_manifest.json"):
+        checksum_file = export_dir / checksum_path
+        if checksum_file.is_file():
+            checksums[checksum_path] = _sha256_file(checksum_file)
+    for item in required:
+        item_path = str(item["path"])
+        if item_path in checksums:
+            item["sha256"] = checksums[item_path]
+        elif item.get("unavailable_marker"):
+            marker = str(item["unavailable_marker"])
+            item["sha256"] = checksums.get(marker, "")
+        else:
+            item["sha256"] = ""
     (export_dir / "audit_manifest.json").write_text(
         json.dumps(
             {
                 "schema_version": 1,
+                "contract": "complete-audit-v1",
                 "required": required,
                 "checksums": checksums,
                 "derived": derived_manifest,
@@ -463,6 +603,8 @@ def _export_trust_critical_evidence(export_dir: Path, config: AppConfig) -> dict
         BENCHMARK_ATTRIBUTION_PATH,
         FILINGS_STATEMENTS_PATH,
         STATEMENT_FACTS_PATH,
+        FUND_DOCUMENTS_PATH,
+        FUND_HOLDINGS_PATH,
         ETF_DISCLOSURES_PATH,
         PRIIPS_KID_RECORDS_PATH,
         INDEX_METHODOLOGY_RECORDS_PATH,
@@ -484,8 +626,7 @@ def _export_trust_critical_evidence(export_dir: Path, config: AppConfig) -> dict
         _include_file(session_destination, "session.jsonl", manifest)
     else:
         marker = evidence_root / "session_log_unavailable.txt"
-        marker.write_text(f"Current session log unavailable at {SESSION_LOG_PATH}\n", encoding="utf-8")
-        _include_file(marker, "session_log_unavailable.txt", manifest)
+        _write_unavailable_marker(marker, SESSION_LOG_PATH, manifest, reason="session_log_unavailable")
 
     config_root = evidence_root / "configs"
     config_root.mkdir(parents=True, exist_ok=True)
@@ -493,7 +634,7 @@ def _export_trust_critical_evidence(export_dir: Path, config: AppConfig) -> dict
         json.dumps(config.data_providers.redacted(), indent=2, default=str),
         encoding="utf-8",
     )
-    for filename in ("universe.yaml", "portfolio_targets.yaml", "risk_limits.yaml", "costs.yaml", "model_settings.yaml", "ui_settings.yaml"):
+    for filename in ("universe.yaml", "portfolio_targets.yaml", "risk_limits.yaml", "costs.yaml", "model_settings.yaml", "ui_settings.yaml", "audit_manifest.yaml"):
         source = CONFIG_DIR / filename
         if source.exists():
             target = config_root / filename
@@ -512,21 +653,126 @@ def _export_trust_critical_evidence(export_dir: Path, config: AppConfig) -> dict
             _include_file(target, f"project_docs/{source.name}", manifest)
         else:
             marker = docs_root / f"{source.stem}_unavailable.txt"
-            marker.write_text(f"{source} is unavailable. Missing project documentation was not invented.\n", encoding="utf-8")
-            _include_file(marker, f"project_docs/{marker.name}", manifest)
-            manifest["missing"].append(str(source.relative_to(ROOT)) if source.is_relative_to(ROOT) else str(source))
+            _write_unavailable_marker(marker, source, manifest, reason="project_document_unavailable")
+
+    _export_issue_dossiers(docs_root, manifest)
+    _export_health_evidence(export_dir, config, manifest)
+    _copy_optional_output(ROOT / "logs" / "workflow.jsonl", evidence_root, "workflow.jsonl", manifest)
 
     (evidence_root / "trust_critical_manifest.json").write_text(json.dumps(manifest, indent=2, default=str), encoding="utf-8")
     _include_file(evidence_root / "trust_critical_manifest.json", "trust_critical_manifest.json", manifest)
     return manifest
 
 
+def _copy_optional_output(source: Path, evidence_root: Path, arcname: str, manifest: dict[str, object]) -> None:
+    """Copy one optional local output while recording a machine-readable gap."""
+
+    target = evidence_root / arcname
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if source.exists() and source.is_file():
+        target.write_bytes(source.read_bytes())
+        _include_file(target, arcname, manifest)
+        return
+    marker = target.with_name(f"{target.stem}_unavailable.txt")
+    _write_unavailable_marker(marker, source, manifest)
+
+
+def _write_unavailable_marker(marker: Path, source: Path, manifest: dict[str, object], *, reason: str | None = None) -> Path:
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": 1,
+        "status": "unavailable",
+        "path": str(source),
+        "reason": reason or "source_not_available",
+        "source_authority": "unknown",
+        "executable_authority": False,
+    }
+    marker.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    evidence_root = next((parent for parent in marker.parents if parent.name == "evidence_export"), None)
+    archive_root = evidence_root.parent if evidence_root is not None else marker.parents[1]
+    _include_file(marker, marker.relative_to(archive_root).as_posix(), manifest)
+    manifest.setdefault("missing", []).append(str(source))
+    return marker
+
+
+def _export_issue_dossiers(docs_root: Path, manifest: dict[str, object]) -> None:
+    """Persist issue files and a deterministic inventory for external review."""
+
+    issues_root = ROOT / "issues"
+    records: list[dict[str, object]] = []
+    if issues_root.exists():
+        for source in sorted(path for path in issues_root.rglob("*") if path.is_file()):
+            relative = source.relative_to(issues_root).as_posix()
+            target = docs_root / "issues" / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(source.read_bytes())
+            arcname = target.relative_to(docs_root.parent).as_posix()
+            _include_file(target, arcname, manifest)
+            records.append({"path": arcname, "sha256": _sha256_file(target), "source": relative})
+    inventory = docs_root / "issue_dossiers.json"
+    inventory.write_text(
+        json.dumps({"schema_version": 1, "status": "available" if records else "unavailable", "dossiers": records, "executable_authority": False}, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    _include_file(inventory, "project_docs/issue_dossiers.json", manifest)
+    if not records:
+        manifest.setdefault("missing", []).append(str(issues_root))
+
+
+def _collect_checksums(export_dir: Path) -> dict[str, str]:
+    checksums: dict[str, str] = {}
+    for path in export_dir.rglob("*"):
+        if path.is_file() and path.name not in {"audit_manifest.json", "checksum_manifest.json"}:
+            checksums[str(path.relative_to(export_dir)).replace("\\", "/")] = _sha256_file(path)
+    return checksums
+
+
+def _write_checksum_manifests(export_dir: Path) -> None:
+    """Write deterministic root and evidence copies without recursive self-hashes."""
+
+    payload = {
+        "schema_version": 1,
+        "contract": "complete-audit-v1",
+        "self_hash_excluded": True,
+        "execution_allowed": False,
+        "checksums": _collect_checksums(export_dir),
+    }
+    encoded = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    root_manifest = export_dir / "checksum_manifest.json"
+    evidence_manifest = export_dir / "evidence_export" / "checksum_manifest.json"
+    evidence_manifest.parent.mkdir(parents=True, exist_ok=True)
+    root_manifest.write_text(encoded, encoding="utf-8")
+    evidence_manifest.write_text(encoded, encoding="utf-8")
+
+
+def _export_health_evidence(export_dir: Path, config: AppConfig, manifest: dict[str, object]) -> None:
+    target = export_dir / "evidence_export" / "data_health.csv"
+    try:
+        report = build_data_health(config, ROOT)
+        export_data_health(report, target)
+        _include_file(target, "data_health.csv", manifest)
+    except Exception as exc:
+        _write_unavailable_marker(target.with_name("data_health_unavailable.txt"), target, manifest, reason=f"health_export_failed:{type(exc).__name__}")
+
+
 def _copy_evidence_file(source_path: Path, evidence_root: Path, manifest: dict[str, object]) -> None:
+    if source_path.suffix.lower() == ".parquet" and not source_path.exists():
+        csv_mirror = source_path.with_suffix(".csv")
+        if csv_mirror.exists():
+            target = evidence_root / csv_mirror.name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(csv_mirror.read_bytes())
+            _include_file(target, target.name, manifest)
+            return
     if not source_path.exists():
-        marker = evidence_root / f"{source_path.stem}_unavailable.txt"
-        marker.write_text(f"{source_path} is unavailable. Missing optional evidence was not invented.\n", encoding="utf-8")
-        _include_file(marker, marker.name, manifest)
-        manifest.setdefault("missing", []).append(str(source_path))
+        relative = source_path.as_posix()
+        try:
+            relative = source_path.resolve().relative_to(ROOT.resolve()).as_posix()
+        except ValueError:
+            pass
+        digest = hashlib.sha256(relative.encode("utf-8")).hexdigest()[:10]
+        marker = evidence_root / f"{source_path.stem}_{digest}_unavailable.txt"
+        _write_unavailable_marker(marker, source_path, manifest)
         return
     if source_path.suffix == ".parquet":
         try:
@@ -539,9 +785,21 @@ def _copy_evidence_file(source_path: Path, evidence_root: Path, manifest: dict[s
             _include_file(json_target, json_target.name, manifest)
             return
         except Exception as exc:
-            marker = evidence_root / f"{source_path.stem}_export_failed.txt"
-            marker.write_text(f"Could not export {source_path}: {exc}\n", encoding="utf-8")
-            _include_file(marker, marker.name, manifest)
+            csv_mirror = source_path.with_suffix(".csv")
+            if csv_mirror.exists():
+                target = evidence_root / csv_mirror.name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(csv_mirror.read_bytes())
+                _include_file(target, target.name, manifest)
+                return
+            relative = source_path.as_posix()
+            try:
+                relative = source_path.resolve().relative_to(ROOT.resolve()).as_posix()
+            except ValueError:
+                pass
+            digest = hashlib.sha256(relative.encode("utf-8")).hexdigest()[:10]
+            marker = evidence_root / f"{source_path.stem}_{digest}_export_failed.txt"
+            _write_unavailable_marker(marker, source_path, manifest, reason=f"export_failed:{type(exc).__name__}")
             return
     target = evidence_root / source_path.name
     target.write_bytes(source_path.read_bytes())
@@ -553,10 +811,7 @@ def _copy_evidence_tree(source_root: Path, destination_root: Path, manifest: dic
 
     if not source_root.exists():
         marker = destination_root.parent / f"{destination_root.name}_unavailable.txt"
-        marker.parent.mkdir(parents=True, exist_ok=True)
-        marker.write_text(f"{source_root} is unavailable. Missing optional raw evidence was not invented.\n", encoding="utf-8")
-        _include_file(marker, marker.relative_to(destination_root.parent).as_posix(), manifest)
-        manifest.setdefault("missing", []).append(str(source_root))
+        _write_unavailable_marker(marker, source_root, manifest)
         return
     for source in sorted(path for path in source_root.rglob("*") if path.is_file()):
         relative = source.relative_to(source_root)

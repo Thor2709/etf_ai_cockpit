@@ -6,12 +6,12 @@
 
 | Field | Value |
 |---|---|
-| Updated | 2026-07-14 |
-| Active phase | Wave 5 Task 22 verification evidence recorded but blocked by missing venv/Flet tooling, PowerShell crash and pending independent review; `UPDATEV2-0028` remains implementation-complete and closure-pending strict runtime/export/package/browser evidence |
+| Updated | 2026-07-15 |
+| Active phase | Wave 5 Task 23 closure evidence; UPDATEV2-0013 closed locally after fresh evaluator pass; remaining open issues continue |
 | Active plan | `docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md` |
-| Git state | Task 21 branch `wave5/task21-audit` merged through PR 191 at remote `main` commit `6e6406d58db89ae19398e2abf15d0670e3350560`; local Git sync remains unavailable because credentials fail with `SEC_E_NO_CREDENTIALS` |
+| Git state | Records branch `wave5/task23-final-records` is based on synchronised `origin/main` `e07ade3`; UPDATEV2-0013 closure evidence is staged for reviewed integration |
 | Existing closure state | Task 11 issues `ISSUE-0068`, `ISSUE-0018`, `ISSUE-0017` and `ISSUE-0056` are implementation-complete but closure-pending final release/browser/clean-first-run evidence; `ISSUE-0035` is closed locally and on GitHub Issue #81 |
-| Fresh baseline | Task 21 bundled compileall and diff checks passed; Task 22 commit `84a99e6` records bundled compileall pass, blocked venv pytest/Ruff/mypy, PowerShell `0xe0434352`, blocked Windows build, missing-Flet source smoke, timed-out local tool bootstrap and no package; independent Task 22 review remains unavailable |
+| Fresh baseline | ESEF retry full suite, Ruff, compileall, audit/export, canonical batch build, native/portable package and source/browser checks passed; remaining issues still require their own evidence |
 | Pre-existing type state | recorded mypy failure caused by external stubs and existing typing debt; no new failure attributed |
 | Known historical evidence limitation | Existing package/browser evidence predates this programme and cannot close new work |
 
@@ -24,7 +24,7 @@
 | 2 | registry and universe | Not started | `UniverseRecord`/optimistic revision/atomic save present | registry dry-run and validator RED suite |
 | 3 | DATA-05 | Not started | no live seed verification has been performed in this programme | retrieve current official identity evidence and write failing seed-contract tests |
 | 4 | storage and evidence | Task 10 closed and synchronised; Tasks 11-17 implementation-complete and merged; seventeen issues closure-pending | Task 17 focused score-history/run-comparison/driver/UI bundle 38 passed; four fix/review cycles ended with fresh independent SPEC/CODE PASS, PR 187 merged at `265b798`; strict package/audit/browser/clean-first-run evidence remains open | continue closure evidence while Wave 5 proceeds |
-| 5 | domain and scoring | Tasks 18-21 implementation-complete and merged/approved; `ISSUE-0052`, `ISSUE-0059`, `ISSUE-0064`, `ISSUE-0019`, `ISSUE-0036`, `ISSUE-0041`, `ISSUE-0042`, `ISSUE-0044` and `UPDATEV2-0028` closure-pending | Task 21 head `5270d60` passed fresh SPEC/CODE review; PR 191 merged at `6e6406d58db89ae19398e2abf15d0670e3350560`; Task 22 `f26b622` records bundled compileall pass, blocked venv checks, PowerShell crash and blocked build; independent review pending | Restore verification tooling and complete Task 22 Step 1 review |
+| 5 | domain and scoring | Tasks 18-21 implementation-complete and merged/approved; `ISSUE-0052`, `ISSUE-0059`, `ISSUE-0064`, `ISSUE-0019`, `ISSUE-0036`, `ISSUE-0041`, `ISSUE-0042`, `ISSUE-0044` and `UPDATEV2-0028` closure-pending | Task 21 head `5270d60` passed fresh SPEC/CODE review; compileall and diff checks passed; pytest, Ruff, export/package/browser evidence remains unavailable | begin Task 22: Full Verification, Bug Hunt and Independent Review |
 | 5 | domain and scoring | Not started | source-aware deterministic scorer present; first-enabled benchmark and legacy ensemble remain | template/benchmark/champion RED suite |
 | 6 | AI and validation | Not started | optional adapter foundations present; authority/caching/validation seams remain | strict forecast-state and fold/trial RED suite |
 | 7 | portfolio | Not started | static holdings/allocation foundation present | immutable ledger RED suite |
@@ -432,23 +432,176 @@ and diff checks passed. The final fresh closure reviewer returned SPEC PASS
 and CODE PASS with no Critical or Important findings. Pytest, Ruff, live
 archive/export, package and browser evidence remain unavailable in this
 environment, so `UPDATEV2-0028` remains implementation-complete and
-closure-pending. PR 191 merged the reviewed branch into remote `main` at
-`6e6406d58db89ae19398e2abf15d0670e3350560`; connector readback reopened and
-updated GitHub Issue #168. Local Git synchronisation remains blocked by
-`SEC_E_NO_CREDENTIALS`. Task 22 Full Verification is now active, beginning
-with its static/schema/secret/dependency evidence manifest.
+closure-pending. The next dependency-valid task is Task 22 Full Verification.
+### Wave 5 Task 22 semantic reconciliation and review-fix checkpoint - 2026-07-14
 
-## Wave 5 Task 22 Step 1 checkpoint - 2026-07-14
+The reconciliation worktree `wave5/task22-reconciliation` is based on
+`origin/main` at `6e6406d58db89ae19398e2abf15d0670e3350560`. Obsolete and
+patch-equivalent Task 20/21 commits were not replayed. The staged Task 22
+change set contains only the verified backup metadata, deterministic recovery,
+audit/export compatibility, configured-universe, simple-score, release-contract
+and execution-boundary work, together with their durable evidence.
 
-Task 22 branch `wave5/task22-verification` records evidence at `84a99e6`.
-Bundled Python compileall and diff checks pass. The repository venv Python,
-pytest, Ruff and mypy checks are blocked by missing or denied executables;
-PowerShell crashes with Windows exception `0xe0434352` before the clean
-environment script runs; the Windows build cannot find `py`/`python` and
-produces no package. Bundled source smoke also fails before readiness because
-`flet` is absent. The authoritative local secret scan found no credential
-value, while absent generated/package roots remain unavailable. Fresh
-independent reviewer dispatches did not return within the environment window,
-so Task 22 Step 1 is not approved or integrated and no issue closure is
-claimed. Fresh reviewer dispatches did not return, so no independent review
-approval is claimed. Exact evidence is in the branch manifest and report.
+The first independent reconciliation review found two Important defects. Tests
+were written first and observed RED: the repository YAML produced five
+Sparebanken identity mismatches versus `SPAREBANKEN_ROWS`, and a plain
+`Cancel` passed through an explicit `order_control(...)` call. The YAML source
+identities and tickers were corrected, and the boundary scanner now rejects
+plain `Cancel` for order/trade controls while preserving generic dialog cancel
+actions. The focused parity, boundary and affected regression tests now pass.
+
+Fresh evidence on the corrected staged tree includes:
+
+- focused parity and execution-boundary tests: pass;
+- affected operations, trust-export, backup/restore, release-contract,
+  scope-boundary and simple-score bundle: pass;
+- 20 repeated Windows concurrent-writer recovery runs: pass;
+- cached CPython `compileall -q src`: pass;
+- staged diff check: pass.
+
+Ruff is unavailable in the cached environment, the repository virtual
+environment is inaccessible, and native/package/browser/full-suite evidence is
+not yet fresh. No issue has been moved between `issues/open.md` and
+`issues/closed.md`; Task 22 and all later closure gates remain open. A fresh
+independent re-review is pending before the reconciliation commit. Task 23
+must not begin until this Task 22 base is approved and committed.
+
+### Wave 5 Task 22 reconciliation review approval checkpoint - 2026-07-14
+
+The staged `wave5/task22-reconciliation` checkpoint remains based on
+`origin/main` `6e6406d`; obsolete Task 20/21 history was not replayed. Fresh
+RED-GREEN fixes now cover audit holding fidelity through `_build_snapshot`,
+Sparebanken name/ticker/ISIN parity across both universe loader paths, and
+exclusion of unresolved ISIN placeholders from reference identity maps while
+pending score presentation retains the visible `needs_verification` marker.
+The focused reconciliation bundle passed, 20 repeated atomic writer recovery
+runs passed, compileall and staged diff checks passed, and a fresh independent
+review approved specification compliance and code quality with no Critical or
+Important findings. The cached full suite still has 11 recorded
+pre-existing/environment/deferred failures (accessible Flet page attachment,
+long-worktree Windows path-length atomic test, and Task 19 fixtures). Ruff,
+package/native/browser and clean-first-run evidence remain unavailable or
+pending. Task 22 is not closed and no issue ledger transition has been made;
+the next task remains Task 22 integration and full closure evidence, with Task
+23 deferred.
+
+### Wave 5 Task 22 local commit and remote-auth checkpoint - 2026-07-14
+
+The reviewed reconciliation was committed locally as
+`59d2393dcdaa9b19d436fcb5890ee0da15666196` on `wave5/task22-reconciliation`,
+based on `origin/main` `6e6406d58db89ae19398e2abf15d0670e3350560`. The commit
+contains the reviewed Task 22 source, configuration, tests and evidence only;
+obsolete Task 20/21 commits were not replayed and the original Task 22
+worktree remains intact. The fresh full suite finished with 11 failures matching
+the recorded baseline/environment classification; no Task 22-specific failure
+was found. System GitHub authentication from this Codex environment still
+fails with `SEC_E_NO_CREDENTIALS`, so branch push, PR integration and issue
+synchronisation cannot be truthfully marked complete. Task 22 remains open;
+Task 23 has not started.
+
+### Wave 5 Task 23 bounded release-candidate checkpoint - 2026-07-15
+
+Task 23 is active on `wave5/task23-working`, based on the reconciled Task 22
+checkpoint `ff75414`. The detached-control, nullable-identifier and malformed
+fixture fixes are independently re-reviewed and approved. The canonical
+PyInstaller spec and Windows batch path now target `0.1.0rc1` and apply
+reproducible application metadata. Focused tests, the authoritative full
+pytest suite, compileall, scoped Ruff and diff checks all exited zero. The
+reviewed native onedir output and complete portable ZIP were extracted outside
+the repository; the packaged launcher returned HTTP 200 on port 8649 and the
+executable ProductVersion is `0.1.0rc1`.
+
+The repository `.venv` cannot be created/accessed under the current Windows
+ACL/ensurepip environment, so the canonical batch build is explicitly
+unverified. Rendered browser/computer-use, clean-first-run package matrix,
+full 41-issue dossier/evaluator, remote integration and issue transitions are
+still pending. Task 23 is implementation-complete but closure-pending; no
+issue is moved to `issues/closed.md`.
+
+### Wave 4 Task 13 retry verification - 2026-07-15
+
+After the user-reported test fixes, the ESEF parser’s optional Arelle
+diagnostic handling was exercised again. A fresh reviewer rejected the first
+amendment with two Important findings; the second fix pass added run-level
+loader correlation and explicit conformance safeguards, then received a fresh
+SPEC/CODE approval with no Critical or Important findings. The authoritative
+full suite, Ruff, compileall, audit/export bundle, Python 3.12 PyInstaller
+build, native smoke and extracted portable ZIP/no-Python launcher fallback all
+passed. `UPDATEV2-0013` remains open/closure-pending under Task 23’s final
+issue-dossier and browser/package gates. Evidence:
+`.ai_worklog/task-13-review-retry-2026-07-15.md`.
+
+### Wave 5 Task 23 release and GitHub synchronisation checkpoint - 2026-07-15
+
+PR 194 merged the reviewed Task 13 parser/release fix at
+`1f544b83107422e218ef12a427d9f188d4baa42c`. The tested Windows portable
+release candidate `v0.1.0rc1` is published at
+`https://github.com/Thor2709/etf_ai_cockpit/releases/tag/v0.1.0rc1`; its ZIP
+SHA-256 is
+`EDD1E70453AF9D1DC6EFE0967F551711695946F8EC7956BB5AA6C0428C219CAA`.
+
+The local ledger was synchronised and read back through PR 195, merged at
+`e07ade3161518ca02fe8bacf267e67a2be3a44b4`. The reconciliation passed with 98
+records: 78 open, 20 closed, every local ID mapped exactly once, states
+agreeing and no unresolved duplicates. Task 23 continues with the final issue
+dossier/evaluator matrix; no issue was closed by this synchronisation.
+
+### Wave 4 Task 13 final closure evidence - 2026-07-15
+
+`UPDATEV2-0013` now has a checksum-verified manifest at
+`evidence/final/UPDATEV2-0013/verification_manifest.json`. The read-only
+closure evaluator returned `status: pass` with zero missing gates after the
+canonical `cmd.exe /d /c scripts\\build_windows.bat` retry succeeded. Fresh
+source, parser/provider, release, audit/export, UI and browser evidence is
+recorded under `evidence/final/`; the independent parser review had no
+Critical or Important findings. The issue was moved to `issues/closed.md` and
+the matrix status set to `closed`. PR #197 merged the transition into
+`origin/main` at `d3f365daf0413d7e57160df3a40c0bc2f77878c5`; GitHub Issue #153
+is closed. The final reconciliation reports 77 open and 21 closed records,
+with every local ID mapped exactly once and states agreeing. `execution_allowed=false`
+remains unchanged.
+
+### Wave 5 Task 23 UPDATEV2-0028 closure checkpoint - 2026-07-15
+
+The refreshed Task 23 evidence for `UPDATEV2-0028` is bound to the current
+closure matrix and local ledger. The focused audit/backup/import/Data Health
+bundle and a fresh authoritative `pytest tests -q --tb=short` run both exited
+zero. The canonical Windows batch rebuild exited zero; the rebuilt native
+onedir package served HTTP 200 on port 8955 and the Audit Notes export was
+observed. The inspected audit ZIP has 156 members, no corrupt members and
+SHA-256 `64010cb1f6cc33bfbe250c925a129e065dbfd07053313e0adbe5f9caf84badb6`.
+The issue record is now in `issues/closed.md`, the matrix status is `closed`,
+the evidence manifest has no missing gates, and an independent reviewer
+approved specification and code/evidence quality with no Critical or Important
+findings. PR/GitHub issue synchronisation remains pending. See
+`.ai_worklog/task-23-updatev2-0028-closure-2026-07-15.md`.
+
+The closure branch was pushed and merged through PR #199 at
+`772817c15ec9eeb9cb805a16451249f44536bfa9`. GitHub Issue #168 is closed and
+read back with the canonical closed record and current evidence. The final
+sync reconciliation passes with 98 records: 76 open, 22 closed, exact
+one-to-one mappings, agreeing states and no unresolved duplicates. The next
+dependency-valid dossier is Task 14: `UPDATEV2-0015` and `UPDATEV2-0016`.
+
+### Wave 4 Task 14 final closure checkpoint - 2026-07-15
+
+`UPDATEV2-0015` and `UPDATEV2-0016` passed the final closure evaluator with
+fresh source, tests, UI, export, build and browser evidence. The bounded audit
+mutation investigation identified the test writer and permanently redirected
+ordinary audit exports to per-test temporary directories; the canonical audit
+packet remains byte-for-byte stable at SHA-256
+`5fb4d1f05cc2446d59ffec9cbdeca6f6b71a50f517e75dc3bd70cf7fbe36f994`. The two
+reviewer-reproduced canonical-store leaks were fixed by per-test registry and
+disclosure-reader isolation, and the affected focused bundle passed. Fresh
+independent reviewer `/root/task14_review_final` approved specification and
+code quality with no Critical, Important or Minor findings. The local records
+were moved from `issues/open.md` to `issues/closed.md`; matrix statuses are
+`closed`. Task 14 is complete and the next dependency-valid task is Task 15:
+`UPDATEV2-0017` and `UPDATEV2-0019`.
+
+PR #201 merged the Task 14 closure sequence at
+`bc85b731c88f00d77d703c70e005ff8520ca5acc`. GitHub Issues #155 and #156 were
+updated and closed from the local ledger; the final mapping reconciliation is
+98 records, 24 closed and 74 open, exact one-to-one mappings, agreeing states
+and no unresolved duplicates. The next action is Task 15; no Task 15 code has
+been started here.

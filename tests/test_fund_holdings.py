@@ -121,6 +121,27 @@ def test_risk_exposure_fails_closed_when_holdings_metadata_is_missing(missing: s
     assert eligible.empty
 
 
+def test_risk_recomputes_persisted_holdings_freshness_at_consumption_time() -> None:
+    from etf_cockpit.app.pages import risk as risk_page_module
+
+    persisted = pd.DataFrame(
+        {
+            "instrument_id": ["VWCE"],
+            "security": ["Issuer holding"],
+            "weight": [1.0],
+            "as_of_date": ["2025-01-01"],
+            "score_eligible": [True],
+            "authority": ["issuer"],
+            "freshness": ["fresh"],
+            "completeness": ["full"],
+        }
+    )
+
+    eligible = risk_page_module._exposure_eligible_holdings(persisted)
+
+    assert eligible.empty
+
+
 def test_missing_security_identity_is_invalid_and_requires_manual_review() -> None:
     result = normalise_holdings(pd.DataFrame({"weight": [1.0]}), "VWCE", "2026-07-10", "issuer", today="2026-07-11")
     assert result.completeness == "invalid"
@@ -333,6 +354,138 @@ def test_risk_holdings_loader_keeps_legacy_vendor_context_when_canonical_exists(
     vendor = loaded.loc[loaded["instrument_id"] == "LYP6"].iloc[0]
     assert vendor["authority"] == "vendor"
     assert bool(vendor["score_eligible"]) is False
+
+
+def test_risk_holdings_loader_uses_csv_mirror_when_parquet_engine_is_unavailable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    canonical = tmp_path / "fund_holdings.parquet"
+    pd.DataFrame(
+        {
+            "instrument_id": ["VWCE"],
+            "as_of_date": ["2026-07-10"],
+            "completeness": ["partial"],
+            "freshness": ["fresh"],
+            "confidence": [0.55],
+            "authority": ["issuer"],
+            "score_eligible": [False],
+        }
+    ).to_csv(canonical.with_suffix(".csv"), index=False)
+    canonical.write_bytes(b"placeholder")
+    monkeypatch.setattr(risk_page_module, "FUND_HOLDINGS_PATH", canonical)
+    monkeypatch.setattr(risk_page_module, "load_reference_dataset", lambda _dataset: pd.DataFrame())
+    monkeypatch.setattr(risk_page_module.pd, "read_parquet", lambda *_args, **_kwargs: (_ for _ in ()).throw(ImportError("pyarrow unavailable")))
+
+    loaded = risk_page_module._load_holdings_evidence()
+
+    assert loaded.loc[0, "instrument_id"] == "VWCE"
+    assert loaded.loc[0, "completeness"] == "partial"
+
+
+def test_risk_holdings_loader_resolves_portable_root_when_imported_path_is_stale(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    portable_root = tmp_path / "portable"
+    clean = portable_root / "data" / "clean"
+    clean.mkdir(parents=True)
+    pd.DataFrame(
+        {
+            "instrument_id": ["VWCE"],
+            "as_of_date": ["2026-07-10"],
+            "completeness": ["partial"],
+            "freshness": ["fresh"],
+            "confidence": [0.55],
+            "authority": ["issuer"],
+            "score_eligible": [False],
+        }
+    ).to_csv(clean / "fund_holdings.csv", index=False)
+    monkeypatch.setenv("ETF_COCKPIT_ROOT", str(portable_root))
+    monkeypatch.setattr(risk_page_module, "FUND_HOLDINGS_PATH", tmp_path / "source-tree" / "data" / "clean" / "fund_holdings.parquet")
+    monkeypatch.setattr(risk_page_module, "load_reference_dataset", lambda _dataset: pd.DataFrame())
+    monkeypatch.setattr(risk_page_module.pd, "read_parquet", lambda *_args, **_kwargs: (_ for _ in ()).throw(ImportError("pyarrow unavailable")))
+
+    loaded = risk_page_module._load_holdings_evidence()
+
+    assert loaded.loc[0, "instrument_id"] == "VWCE"
+    assert loaded.loc[0, "authority"] == "issuer"
+
+
+def test_risk_holdings_loader_uses_nonempty_csv_when_packaged_parquet_is_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    canonical = tmp_path / "fund_holdings.parquet"
+    canonical.write_bytes(b"packaged placeholder")
+    pd.DataFrame(
+        {
+            "instrument_id": ["VWCE"],
+            "as_of_date": ["2026-07-10"],
+            "completeness": ["partial"],
+            "freshness": ["fresh"],
+            "confidence": [0.55],
+            "authority": ["issuer"],
+            "score_eligible": [False],
+        }
+    ).to_csv(canonical.with_suffix(".csv"), index=False)
+    monkeypatch.setattr(risk_page_module, "FUND_HOLDINGS_PATH", canonical)
+    monkeypatch.setattr(risk_page_module, "load_reference_dataset", lambda _dataset: pd.DataFrame())
+    monkeypatch.setattr(risk_page_module.pd, "read_parquet", lambda *_args, **_kwargs: pd.DataFrame())
+
+    loaded = risk_page_module._load_holdings_evidence()
+
+    assert loaded.loc[0, "instrument_id"] == "VWCE"
+
+
+def test_risk_exposure_eligibility_fails_closed_on_malformed_persisted_date() -> None:
+    holdings = pd.DataFrame(
+        [{
+            "instrument_id": "VWCE",
+            "as_of_date": "not-a-date",
+            "completeness": "full",
+            "freshness": "fresh",
+            "confidence": 0.9,
+            "authority": "issuer",
+            "score_eligible": True,
+        }]
+    )
+
+    eligible = risk_page_module._exposure_eligible_holdings(holdings)
+
+    assert eligible.empty
+
+
+def test_risk_exposure_eligibility_fails_closed_on_out_of_range_persisted_date() -> None:
+    holdings = pd.DataFrame(
+        [{
+            "instrument_id": "VWCE",
+            "as_of_date": "2999-01-01",
+            "completeness": "full",
+            "freshness": "fresh",
+            "confidence": 0.9,
+            "authority": "issuer",
+            "score_eligible": True,
+        }]
+    )
+
+    eligible = risk_page_module._exposure_eligible_holdings(holdings)
+
+    assert eligible.empty
+
+
+def test_risk_holdings_quality_marks_malformed_persisted_date_invalid() -> None:
+    from etf_cockpit.app.pages.risk import _refresh_holdings_freshness
+
+    refreshed = _refresh_holdings_freshness(
+        pd.DataFrame(
+            [{
+                "instrument_id": "VWCE",
+                "as_of_date": "not-a-date",
+                "completeness": "full",
+                "freshness": "fresh",
+                "confidence": 0.9,
+                "score_eligible": True,
+            }]
+        )
+    )
+
+    row = refreshed.iloc[0]
+    assert row["freshness"] == "invalid"
+    assert row["completeness"] == "invalid"
+    assert bool(row["score_eligible"]) is False
+    assert float(row["confidence"]) == 0.0
 
 
 def test_combined_holdings_import_leaves_holdings_and_registry_unchanged_when_registry_stage_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

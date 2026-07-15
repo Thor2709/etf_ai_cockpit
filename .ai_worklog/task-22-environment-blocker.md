@@ -14,10 +14,15 @@ Observed blockers:
   produced;
 - fresh independent review dispatches did not return within the available
   environment window.
-- a workspace-local pip bootstrap for pytest/Ruff/mypy timed out without
-  producing an artefact, so it did not alter tracked or production dependencies.
 
 No secrets were printed, no product code or authority boundary changed, and
 `execution_allowed=false` remains in force. The exact command records and
 digests are in the Task 22 branch manifest and report. The next safe action is
 to restore permitted verification tooling and obtain the independent review.
+
+Additional reconciliation evidence: the ambiguous-news atomic-group test
+passes in the original short-path Task 22 worktree but fails in the
+`TASK22-RECONCILIATION` worktree with Windows `WinError 3` while replacing a
+staged raw-news file under the pytest temporary root. This is a reproducible
+path-length/environment limitation of the long worktree path; it is recorded
+as unverified here rather than treated as a Task 22 pass.

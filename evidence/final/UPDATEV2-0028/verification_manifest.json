@@ -1,0 +1,162 @@
+{
+  "issue_id": "UPDATEV2-0028",
+  "requirement_version": "2",
+  "verification_policy_version": "1.0",
+  "generated_at": "2026-07-15T03:31:47.301785Z",
+  "source_hash": "1406b50a8275de179c0afca95653c42481db103db0e5beda5b77f40c9c6fe092",
+  "environment_hash": "92d7950f655410515a5c3d8b0d89a50c20c620a3da5c8f130fd8fedfeca085db",
+  "runs": [
+    {
+      "verification_run_id": "updatev2-0028-source-20260715",
+      "verification_type": "source",
+      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m compileall -q src",
+      "source_hash": "1406b50a8275de179c0afca95653c42481db103db0e5beda5b77f40c9c6fe092",
+      "environment_hash": "92d7950f655410515a5c3d8b0d89a50c20c620a3da5c8f130fd8fedfeca085db",
+      "result": "pass",
+      "exit_code": 0,
+      "output_paths": [
+        "source/UPDATEV2-0028.md"
+      ],
+      "output_checksums": [
+        "68b8ce283e87494304b1b79db52565a39d68ac769a26374e40914c456bfec589"
+      ],
+      "issue_ids": [
+        "UPDATEV2-0028"
+      ],
+      "gates": [
+        "source"
+      ]
+    },
+    {
+      "verification_run_id": "updatev2-0028-tests-20260715",
+      "verification_type": "tests",
+      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m pytest tests -q",
+      "source_hash": "1406b50a8275de179c0afca95653c42481db103db0e5beda5b77f40c9c6fe092",
+      "environment_hash": "92d7950f655410515a5c3d8b0d89a50c20c620a3da5c8f130fd8fedfeca085db",
+      "result": "pass",
+      "exit_code": 0,
+      "output_paths": [
+        "tests/UPDATEV2-0028.md"
+      ],
+      "output_checksums": [
+        "cf91b8cea3ef83847ceaae623fc813d12759b2cb331d5b871490fc98b7faa913"
+      ],
+      "issue_ids": [
+        "UPDATEV2-0028"
+      ],
+      "gates": [
+        "tests"
+      ]
+    },
+    {
+      "verification_run_id": "updatev2-0028-ui-20260715",
+      "verification_type": "ui",
+      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m pytest tests/test_flet_startup.py -q",
+      "source_hash": "1406b50a8275de179c0afca95653c42481db103db0e5beda5b77f40c9c6fe092",
+      "environment_hash": "92d7950f655410515a5c3d8b0d89a50c20c620a3da5c8f130fd8fedfeca085db",
+      "result": "pass",
+      "exit_code": 0,
+      "output_paths": [
+        "ui/UPDATEV2-0028.md"
+      ],
+      "output_checksums": [
+        "7993a8b1d19eadd9a884f49008819d19e861d135d8c8ee63244593711d378b74"
+      ],
+      "issue_ids": [
+        "UPDATEV2-0028"
+      ],
+      "gates": [
+        "ui"
+      ],
+      "screenshot": {
+        "path": "browser/UPDATEV2-0028-audit-packaged.png",
+        "sha256": "f72ce1afd1b8398224db38343a983ed7af88f3f27b6e0d3ad25c56056a62b1fd",
+        "width": 1036,
+        "height": 850
+      }
+    },
+    {
+      "verification_run_id": "updatev2-0028-export-20260715",
+      "verification_type": "export",
+      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m pytest tests/test_trust_critical_artifacts.py -q",
+      "source_hash": "1406b50a8275de179c0afca95653c42481db103db0e5beda5b77f40c9c6fe092",
+      "environment_hash": "92d7950f655410515a5c3d8b0d89a50c20c620a3da5c8f130fd8fedfeca085db",
+      "result": "pass",
+      "exit_code": 0,
+      "output_paths": [
+        "export/UPDATEV2-0028.md"
+      ],
+      "output_checksums": [
+        "385e2689aecccce640e2a27871aae68e28824250b0072345a917390683ca396c"
+      ],
+      "issue_ids": [
+        "UPDATEV2-0028"
+      ],
+      "gates": [
+        "export"
+      ]
+    },
+    {
+      "verification_run_id": "updatev2-0028-build-20260715",
+      "verification_type": "build",
+      "command": "cmd.exe /d /c scripts\\build_windows.bat",
+      "source_hash": "1406b50a8275de179c0afca95653c42481db103db0e5beda5b77f40c9c6fe092",
+      "environment_hash": "92d7950f655410515a5c3d8b0d89a50c20c620a3da5c8f130fd8fedfeca085db",
+      "result": "pass",
+      "exit_code": 0,
+      "output_paths": [
+        "build/UPDATEV2-0028.md"
+      ],
+      "output_checksums": [
+        "0daaca245f9486cc97d458c8bcdce8751e4c7b207b70f2a98f9e0a3a91d6e6cc"
+      ],
+      "issue_ids": [
+        "UPDATEV2-0028"
+      ],
+      "gates": [
+        "build"
+      ],
+      "screenshot": {
+        "path": "browser/UPDATEV2-0028-audit-packaged.png",
+        "sha256": "f72ce1afd1b8398224db38343a983ed7af88f3f27b6e0d3ad25c56056a62b1fd",
+        "width": 1036,
+        "height": 850
+      }
+    },
+    {
+      "verification_run_id": "updatev2-0028-browser-20260715",
+      "verification_type": "browser",
+      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_app.py --mode source",
+      "source_hash": "1406b50a8275de179c0afca95653c42481db103db0e5beda5b77f40c9c6fe092",
+      "environment_hash": "92d7950f655410515a5c3d8b0d89a50c20c620a3da5c8f130fd8fedfeca085db",
+      "result": "pass",
+      "exit_code": 0,
+      "output_paths": [
+        "browser/UPDATEV2-0028.md",
+        "browser/UPDATEV2-0028-audit-packaged.png"
+      ],
+      "output_checksums": [
+        "b6d03405041376b9810adbd82686809155dc7a0e586825de190ae809990ed59c",
+        "f72ce1afd1b8398224db38343a983ed7af88f3f27b6e0d3ad25c56056a62b1fd"
+      ],
+      "issue_ids": [
+        "UPDATEV2-0028"
+      ],
+      "gates": [
+        "browser"
+      ],
+      "screenshot": {
+        "path": "browser/UPDATEV2-0028-audit-packaged.png",
+        "sha256": "f72ce1afd1b8398224db38343a983ed7af88f3f27b6e0d3ad25c56056a62b1fd",
+        "width": 1036,
+        "height": 850
+      }
+    }
+  ],
+  "review": {
+    "builder": "task23-0028-evidence-refresh",
+    "independent_reviewer": "/root/updatev2_0028_reviewer",
+    "review_result": "approved",
+    "review_evidence": ".ai_worklog/task-23-updatev2-0028-closure-2026-07-15.md"
+  }
+}

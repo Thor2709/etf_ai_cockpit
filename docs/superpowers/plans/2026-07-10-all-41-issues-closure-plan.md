@@ -853,7 +853,7 @@ Lazy-import Arelle, enforce timeout in a child process, collect facts/messages i
 
 Filings page supports local package picker and public API discovery/download. Show validation severity, extensions, mapping confidence and source authority.
 
-- [ ] **Step 5: Verify all strict gates**
+- [x] **Step 5: Verify all strict gates**
 
 Run parser/property/fuzz tests, UI import, clean store, conflict resolution, audit export, source and packaged browser/computer-use checks. Keep issue open if Arelle cannot parse the official fixture.
 
@@ -897,24 +897,19 @@ Full/current issuer holdings receive issuer authority; yfinance top holdings rem
 
 Show document type/date/checksum/source, holdings completeness/freshness/confidence, missing requirements and exposure contribution.
 
-- [ ] **Step 5: Verify import/export/package**
+- [x] **Step 5: Verify import/export/package**
 
 Use real issuer holdings where publicly available or a real downloaded issuer CSV; if unavailable for the selected ETF, use the existing imported issuer file as UI proof but do not claim live coverage. Verify audit inventory and packaged panels.
 
-**Task 14 implementation checkpoint - 2026-07-13:** Steps 1-4 are implemented
-and independently approved on branch `wave4/task14-fund-docs`, head commit
-`a7cb185`, merged through PR 184 at merge commit
-`49abaf4907f81ab2798a394d11cf2ddaf5d3b031`. The registry and holdings stores
-preserve checksums, source IDs, explicit missing rows, authority and eligibility
-boundaries; local document and CSV/XLSX holdings imports use fail-closed
-validation and atomic four-file publication; ETF Disclosures, Risk and
-Instrument Detail surfaces are wired and the two new UI controls are
-acceptance-covered. Focused Task 14/Risk/Instrument Detail/trust
-registration/button tests passed, scoped Ruff, compileall and diff checks
-passed, and the fresh independent reviewer returned SPEC PASS, CODE PASS and
-READY with no findings. `UPDATEV2-0015` and `UPDATEV2-0016` remain open as
-implementation-complete/closure-pending for strict audit/export, package,
-clean-first-run and browser/computer-use evidence; Step 5 is not yet passed.
+**Task 14 closure checkpoint - 2026-07-15:** Steps 1-5 are complete on branch
+`wave5/task23-final-records`. The final manifests for `UPDATEV2-0015` and
+`UPDATEV2-0016` report `status=pass` with no missing gates or limitations after
+the clean packaged route checks, immutable audit ZIP validation and fresh
+independent review `/root/task14_review_final` (SPEC PASS, CODE PASS, no
+Critical/Important/Minor findings). Test isolation was corrected so ordinary
+tests use per-test temporary stores and cannot read or rewrite canonical
+audit/registry artefacts. The two local issue records are now closed and the
+next dependency-valid work is Task 15 (`UPDATEV2-0017`, `UPDATEV2-0019`).
 
 ---
 
@@ -1220,7 +1215,7 @@ Export through source and packaged UI, show included artefacts/output path, extr
 - [ ] **Step 5: Wave 8 audit checkpoint**
 
 **Implementation checkpoint 2026-07-14:** Task 21 implementation head
-`5270d60` (worktree documentation head `21e3d0a`) is independently approved for specification compliance and code
+`5270d60` is independently approved for specification compliance and code
 quality. The exporter declares the complete canonical artefact set, writes
 root and evidence checksum manifests with explicit self-hash exclusion,
 records deterministic source-unique unavailable markers, and preserves
@@ -1229,10 +1224,7 @@ Validation rejects incomplete strict manifests, malformed checksum maps,
 secret-bearing content, unlisted files and unsafe extraction paths. Bundled
 compileall and diff checks passed. Pytest, Ruff, live archive/export, package
 and browser evidence are unavailable in this environment; Step 5 and the
-owning issue therefore remain closure-pending. PR 191 merged the reviewed
-branch into remote `main` at `6e6406d58db89ae19398e2abf15d0670e3350560`, and
-GitHub Issue #168 was reopened and updated through the authenticated
-connector. Task 22 is now active.
+owning issue therefore remain closure-pending. Task 22 is next.
 
 Store archive, extracted manifest report, secret-scan result and browser/computer-use evidence under `evidence/wave8/audit/`.
 
@@ -1419,3 +1411,118 @@ The final response must report:
 - Closure evaluator result: 4 ready, 37 still open. The three reopened records `ISSUE-0069`, `UPDATEV2-0022` and `UPDATEV2-0028` now meet all current evaluator gates and were moved to closed; `ISSUE-0035` was already closed. Task 23 is therefore complete as a partial, evidence-backed closure, not as an all-41 closure.
 - Strict parser/provider workflows and every other non-ready record remain open. No documentation-only or shared-evidence shortcut was used to close them.
 - Durable state is in `RUN_STATE.json`, `RUN_LOG.md`, `.ai_worklog\*` and `HANDOFF.md`. No Git repository exists and no commit was created.
+
+## 2026-07-14 Semantic reconciliation checkpoint
+
+- Reconciliation branch `wave5/task22-reconciliation` is based on
+  `origin/main` at `6e6406d`; obsolete Task 20/21 implementation commits were
+  not replayed.
+- Task 22 source/configuration changes and the two current defect fixes are
+  staged and have passed the focused operations, trust-export,
+  backup/restore, release-contract, scope-boundary and simple-score bundle.
+- Twenty repeated Windows concurrent-writer recovery runs passed; cached
+  CPython compileall passed. Ruff, repository-venv typing and native/package/
+  browser gates remain explicitly unavailable or pending and are not marked
+  passed.
+- Task 23 table/identity changes remain deferred until this Task 22 base is
+  independently reviewed and committed.
+
+The first reconciliation reviewer identified two Important blockers. Test-first
+regressions observed the expected RED failures for canonical Sparebanken
+identity parity and plain `Cancel` passed to an explicit order-control call.
+The YAML identities/ticker now match `SPAREBANKEN_ROWS`, and the static boundary
+scanner rejects the explicit order/trade call while leaving generic dialog
+cancel actions permitted. The corrected focused tests pass; fresh independent
+re-review is pending before the reconciliation commit.
+
+### Task 22 local commit checkpoint - 2026-07-14
+
+The reconciliation was independently re-reviewed and committed locally as
+`59d2393dcdaa9b19d436fcb5890ee0da15666196` on
+`wave5/task22-reconciliation`, based on the verified `origin/main` commit
+`6e6406d58db89ae19398e2abf15d0670e3350560`. Obsolete Task 20/21 commits were
+not replayed and the original Task 22 worktree remains recoverable. Focused
+tests, repeated Windows recovery, compileall and diff checks passed. The fresh
+full suite recorded 11 baseline/environment-specific failures; Ruff,
+native/package/browser and clean-first-run gates remain pending. GitHub push,
+PR integration and issue synchronisation are blocked in this Codex environment
+by system Git `SEC_E_NO_CREDENTIALS`; no Task 22 issue transition has been made
+and Task 23 has not started.
+
+### Task 23 bounded release-candidate checkpoint - 2026-07-15
+
+Task 23 resumed on `wave5/task23-working` from the reconciled Task 22
+checkpoint. The bounded implementation fixes are independently approved:
+detached Flet updates now suppress only the recognised unmounted-control
+message and unrelated runtime failures propagate; nullable instrument
+identifiers fail closed; malformed metadata fixtures remain assignable. The
+canonical PyInstaller spec and Windows batch path now target `0.1.0rc1`,
+discover dependencies dynamically, carry required runtime DLLs and apply
+application version metadata.
+
+Fresh evidence: the focused Task 23 bundle, authoritative `pytest tests -q`,
+compileall, scoped Ruff and diff checks exited zero. The reviewed native
+onedir build and complete portable ZIP were extracted outside the repository;
+the packaged launcher reached HTTP 200 on port 8649 and the executable reports
+ProductVersion `0.1.0rc1`. The canonical batch build itself remains
+unverified because the repository `.venv` cannot be created or accessed under
+the current Windows ACL/ensurepip environment. Rendered browser/computer-use,
+clean-first-run matrix, full issue dossiers/evaluator, remote integration and
+issue transitions remain pending. Task 23 is implementation-complete but
+closure-pending; no issue transition is claimed.
+
+### Task 13 parser/release retry checkpoint - 2026-07-15
+
+The repaired Arelle diagnostic boundary was independently re-reviewed after
+two Important findings. Typed loader exceptions now survive the worker
+boundary; missing-reference diagnostics are downgraded only when correlated
+with a loader limitation from the same validation run and explicit
+conformance failures remain blocking. The full authoritative pytest suite,
+project Ruff, compileall, audit/export bundle, Python 3.12 PyInstaller build,
+native smoke and a fresh extracted portable ZIP with the no-Python launcher
+fallback all passed. The final Task 23 dossier added a fresh canonical batch
+build run, source/UI/browser renders, checksums and an independent closure
+manifest; `scripts/verify_issue.py UPDATEV2-0013 --evidence-root evidence\\final
+--matrix-path configs\\closure_matrix.yaml` returned `status: pass` with no
+missing gates.
+
+### Task 23 release and issue synchronisation checkpoint - 2026-07-15
+
+The reviewed Task 13 correction is merged through PR 194 at
+`1f544b83107422e218ef12a427d9f188d4baa42c`. The tested portable Windows
+release candidate `v0.1.0rc1` is published with ZIP SHA-256
+`EDD1E70453AF9D1DC6EFE0967F551711695946F8EC7956BB5AA6C0428C219CAA`.
+The authoritative local issue ledger was synchronised through PR 195 at
+`e07ade3161518ca02fe8bacf267e67a2be3a44b4`; the read-back inventory reports 98
+records, 78 open, 20 closed, exact one-to-one mappings and no unresolved
+duplicates. The evaluator still reports missing gates for the remaining open
+issues, so Task 23 closure work continues and no false issue transition is
+made.
+
+### Task 13 issue closure checkpoint - 2026-07-15
+
+`UPDATEV2-0013` passed the full closure evaluator with fresh source, tests,
+UI, export, build and browser evidence. Its local issue record was moved from
+`issues/open.md` to `issues/closed.md`, and the closure matrix status is
+`closed`. The transition is committed as `be1b88426961da93d32d86f3d718bc7429415591`,
+reviewed through PR #197 and merged into `origin/main` at
+`d3f365daf0413d7e57160df3a40c0bc2f77878c5`; GitHub Issue #153 is closed after
+the reconciliation inventory passed with 77 open and 21 closed records.
+
+### Task 23 UPDATEV2-0028 closure evidence refresh - 2026-07-15
+
+The earlier missing candle/build/browser proof was regenerated against the
+current package. `UPDATEV2-0028` now has a fresh strict manifest with source,
+tests, UI, export, build and browser checksums; the current 156-member archive
+contains explicit candle-unavailable markers and passes ZIP integrity checks.
+The fresh full suite and canonical Windows batch build both exited zero, and
+the native package returned HTTP 200 on port 8955. The canonical open issue
+record was transitioned to `issues/closed.md` after matrix and evidence paths
+were reconciled. A fresh independent reviewer approved specification and
+code/evidence quality with no Critical or Important findings. Normal PR
+integration completed through PR #199, merged at
+`772817c15ec9eeb9cb805a16451249f44536bfa9`; GitHub Issue #168 is closed and
+synchronised. The reconciliation read back 98 records (76 open, 22 closed),
+exact mappings, agreeing states and no unresolved duplicates. Continue with
+Task 14, ETF Document Registry and Holdings Normaliser
+(`UPDATEV2-0015`, `UPDATEV2-0016`).

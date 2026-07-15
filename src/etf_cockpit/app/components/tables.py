@@ -65,15 +65,30 @@ def accessible_table(
 
     status_control = ft.Text(f"{len(data)} rows; status is shown as text", selectable=True)
 
+    def _is_detached_control_error(exc: RuntimeError) -> bool:
+        return " ".join(str(exc).casefold().split()).endswith("control must be added to the page first")
+
     def _update_view(view: pd.DataFrame) -> None:
         control.rows = _rows(view)
         status_control.value = f"{len(view)} rows; status is shown as text"
         update = getattr(control, "update", None)
         if callable(update):
-            update()
+            try:
+                update()
+            except RuntimeError as exc:
+                # Flet controls can be filtered before they are mounted on a
+                # page (for example in headless tests).  The in-memory view
+                # is still updated; a mounted page will redraw on its normal
+                # event loop.
+                if not _is_detached_control_error(exc):
+                    raise
         status_update = getattr(status_control, "update", None)
         if callable(status_update):
-            status_update()
+            try:
+                status_update()
+            except RuntimeError as exc:
+                if not _is_detached_control_error(exc):
+                    raise
 
     def _search_changed(event: ft.ControlEvent) -> None:
         query = getattr(event, "data", None)
