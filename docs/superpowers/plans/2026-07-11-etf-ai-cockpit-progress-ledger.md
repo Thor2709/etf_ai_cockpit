@@ -530,3 +530,18 @@ build, native smoke and extracted portable ZIP/no-Python launcher fallback all
 passed. `UPDATEV2-0013` remains open/closure-pending under Task 23’s final
 issue-dossier and browser/package gates. Evidence:
 `.ai_worklog/task-13-review-retry-2026-07-15.md`.
+
+### Wave 5 Task 23 release and GitHub synchronisation checkpoint - 2026-07-15
+
+PR 194 merged the reviewed Task 13 parser/release fix at
+`1f544b83107422e218ef12a427d9f188d4baa42c`. The tested Windows portable
+release candidate `v0.1.0rc1` is published at
+`https://github.com/Thor2709/etf_ai_cockpit/releases/tag/v0.1.0rc1`; its ZIP
+SHA-256 is
+`EDD1E70453AF9D1DC6EFE0967F551711695946F8EC7956BB5AA6C0428C219CAA`.
+
+The local ledger was synchronised and read back through PR 195, merged at
+`e07ade3161518ca02fe8bacf267e67a2be3a44b4`. The reconciliation passed with 98
+records: 78 open, 20 closed, every local ID mapped exactly once, states
+agreeing and no unresolved duplicates. Task 23 continues with the final issue
+dossier/evaluator matrix; no issue was closed by this synchronisation.
