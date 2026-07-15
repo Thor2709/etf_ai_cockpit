@@ -853,7 +853,7 @@ Lazy-import Arelle, enforce timeout in a child process, collect facts/messages i
 
 Filings page supports local package picker and public API discovery/download. Show validation severity, extensions, mapping confidence and source authority.
 
-- [ ] **Step 5: Verify all strict gates**
+- [x] **Step 5: Verify all strict gates**
 
 Run parser/property/fuzz tests, UI import, clean store, conflict resolution, audit export, source and packaged browser/computer-use checks. Keep issue open if Arelle cannot parse the official fixture.
 
@@ -1485,9 +1485,11 @@ with a loader limitation from the same validation run and explicit
 conformance failures remain blocking. The full authoritative pytest suite,
 project Ruff, compileall, audit/export bundle, Python 3.12 PyInstaller build,
 native smoke and a fresh extracted portable ZIP with the no-Python launcher
-fallback all passed. `UPDATEV2-0013` remains open because final issue dossiers,
-closure-evaluator evidence and the complete browser/package matrix are owned
-by Task 23 closure gates; no issue transition is made here.
+fallback all passed. The final Task 23 dossier added a fresh canonical batch
+build run, source/UI/browser renders, checksums and an independent closure
+manifest; `scripts/verify_issue.py UPDATEV2-0013 --evidence-root evidence\\final
+--matrix-path configs\\closure_matrix.yaml` returned `status: pass` with no
+missing gates.
 
 ### Task 23 release and issue synchronisation checkpoint - 2026-07-15
 
@@ -1501,3 +1503,11 @@ records, 78 open, 20 closed, exact one-to-one mappings and no unresolved
 duplicates. The evaluator still reports missing gates for the remaining open
 issues, so Task 23 closure work continues and no false issue transition is
 made.
+
+### Task 13 issue closure checkpoint - 2026-07-15
+
+`UPDATEV2-0013` passed the full closure evaluator with fresh source, tests,
+UI, export, build and browser evidence. Its local issue record was moved from
+`issues/open.md` to `issues/closed.md`, and the closure matrix status is
+`closed`. The transition is committed on the Task 23 records branch and
+remains subject to normal reviewed integration into `main`.

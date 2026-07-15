@@ -379,23 +379,6 @@ schema_version
 **Plan.md update requirement:** Preserve SEC as P0 official US source.  
 **Close criteria:** Common close criteria plus offline cached import fixture.
 
-## UPDATEV2-0013 - European ESEF/iXBRL filing importer (original update ISSUE-0013)
-
-**Status:** Open - implementation complete; closure pending strict package, audit/export, clean-first-run and browser/computer-use evidence
-**Type:** European Filings  
-**Priority:** P0  
-**Evidence grade:** High  
-**Source URLs:** `updatev2.md`; https://www.esma.europa.eu/issuer-disclosure/electronic-reporting; https://www.xbrl.org/the-standard/what/ixbrl/  
-**Problem:** European investing is core; ESEF/iXBRL is the European analogue to structured official filings.  
-**Why it matters:** Vendor fundamentals cannot substitute for official European filings.  
-**Proposed implementation:** Add `providers/eu_esef_provider.py`, manual ESEF ZIP/XHTML import, Arelle or equivalent parser evaluation, `services/ixbrl_parser.py`, `services/ifrs_statement_mapper.py`, raw storage under `data/raw/filings/eu_esef/`, facts in `data/clean/statement_facts.parquet` and parse warnings.  
-**Acceptance criteria:** Manual ESEF import works offline; raw filing preserved with checksum; XHTML/iXBRL facts extracted where parseable; IFRS concepts map only when clear; extensions retained and warned; official ESEF facts outrank vendor data.  
-**UI requirement:** Filings & Statements import flow and parse/mapping warning panel.  
-**Tests required:** Minimal iXBRL fixture, missing taxonomy package, duplicate facts, extension concepts and canonical IFRS mapping.  
-**Rebuild requirement:** Full release gate before close.  
-**Plan.md update requirement:** Preserve ESEF manual importer as P0/P1.  
-**Close criteria:** Common close criteria plus audit export of ESEF source/facts.
-
 ## UPDATEV2-0014 - France DILA and Netherlands AFM OAM discovery adapters (original update ISSUE-0014)
 
 **Status:** Open  

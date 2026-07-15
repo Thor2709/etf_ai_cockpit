@@ -616,6 +616,18 @@ record while final integration and local/GitHub synchronisation are pending.
 
 ## 2026-07-11 Final Follow-Up Closures
 
+### UPDATEV2-0013 - European ESEF/iXBRL filing importer
+
+**Status:** Closed 2026-07-15
+**Closure evidence:** `evidence/final/UPDATEV2-0013/verification_manifest.json` (verification status `pass`; source hash `51fa32b5f63fd2f28572caed241db1dc6bde56e8a8e82afd452486f8471b4e1d`; environment hash `92d7950f655410515a5c3d8b0d89a50c20c620a3da5c8f130fd8fedfeca085db`).
+**Principal files:** `src/etf_cockpit/parsers/esef_ixbrl.py`, `src/etf_cockpit/data/esef_provider.py`, `tests/test_esef_ixbrl_parser.py`, `tests/test_esef_provider.py`, `ETF_AI_Cockpit.spec`, `scripts/build_windows.bat`, `configs/closure_matrix.yaml`.
+**Implementation:** Offline manual ESEF import preserves raw filing checksums, extracts parseable facts, retains extension concepts with warnings, maps only clear IFRS concepts, and keeps official ESEF authority separate from vendor evidence. Arelle package-loader diagnostics are downgraded only when correlated with the same-run offline loader limitation; explicit conformance failures remain blocking.
+**Migration/compatibility:** Existing parser/provider contracts and unavailable states remain compatible; no score, model-authority, portfolio-target or execution-scope changes were made.
+**Verification:** `python -m pytest tests -q --tb=short` passed; focused ESEF/provider/release tests passed; `python -m ruff check src tests` passed; `python -m compileall -q src tests` passed; `cmd.exe /d /c scripts\\build_windows.bat` passed; source smoke passed; native onedir and extracted portable ZIP smoke passed; Filings & Statements source/browser render evidence is recorded; audit/export trust tests passed.
+**Failure/recovery evidence:** Arelle loader failures, missing taxonomy/package diagnostics, duplicate facts, extension concepts and explicit conformance errors are covered by parser tests; no execution authority is introduced.
+**Independent review:** Fresh `/root/task13_review` review approved specification compliance and code quality after two fix passes; no Critical or Important findings remained. Closure evaluator `scripts/verify_issue.py UPDATEV2-0013 --evidence-root evidence\\final --matrix-path configs\\closure_matrix.yaml` returned `status: pass`, with no missing gates.
+**Integration:** Verification branch `wave5/task23-final-records`; integration commit and pull request are recorded when this evidence transition is merged. `execution_allowed=false` remains unchanged.
+
 These records supersede the rejected 2026-07-10 checkpoints above. They were moved only after the closure matrix reported `ready=true` with checksum-verified current source, tests, UI, export, build and browser evidence.
 
 ### ISSUE-0069 - Single-file session action logging and diagnostics trace

@@ -2,7 +2,7 @@
 
 ## Scope
 
-This checkpoint records a defect-correction and verification pass for the ESEF/iXBRL parser and the Windows release path. `UPDATEV2-0013` remains open because the programme closure rules require final issue dossiers, audit/export evidence and the complete packaged/browser matrix in the later closure task.
+This checkpoint records a defect-correction and verification pass for the ESEF/iXBRL parser and the Windows release path. The later closure dossier is now complete: `UPDATEV2-0013` passed the checksum-verified closure evaluator and was moved to `issues/closed.md` on 2026-07-15.
 
 ## RED-GREEN-REFACTOR evidence
 
@@ -28,4 +28,4 @@ This checkpoint records a defect-correction and verification pass for the ESEF/i
 
 ## Closure position
 
-The parser and release regression is implementation-complete and independently approved. The issue remains open/closure-pending because the approved closure gate is owned by the later full issue-dossier/evaluator task; no issue ledger transition is made in this checkpoint. `execution_allowed=false` is unchanged.
+The parser and release regression is implementation-complete and independently approved. Fresh source, tests, UI, export, build and browser evidence is recorded in `evidence/final/UPDATEV2-0013/`; `scripts/verify_issue.py UPDATEV2-0013 --evidence-root evidence\\final --matrix-path configs\\closure_matrix.yaml` returned `status: pass` with no missing gates. `execution_allowed=false` is unchanged; no unapproved scope or authority changed.
