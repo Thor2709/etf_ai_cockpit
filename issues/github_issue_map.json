@@ -1264,10 +1264,10 @@
       "github_url": "https://github.com/Thor2709/etf_ai_cockpit/issues/168",
       "last_synchronised_commit": "be1b88426961da93d32d86f3d718bc7429415591",
       "local_issue_id": "UPDATEV2-0028",
-      "local_state": "open",
-      "source_checksum": "2e1552f1a490a484317e3c87ccd3e1f11ba3347839e3a99ae6673066c8e44961",
-      "source_file": "issues/open.md",
-      "source_location": "issues/open.md:620",
+      "local_state": "closed",
+      "source_checksum": "e2642aa2c7202d3b9df66abdcf74e3c955edfcd9de0bce852bbb1bff43b356f5",
+      "source_file": "issues/closed.md",
+      "source_location": "issues/closed.md:651",
       "title": "Report/audit packet expansion for providers, filings, ETF docs and candles"
     },
     {

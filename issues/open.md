@@ -2,7 +2,7 @@
 
 This file tracks unresolved work for the AI Evidence Cockpit / ETF AI Portfolio Cockpit. It is synchronised with `plan.md` and `issues/closed.md`.
 
-Closure update 2026-07-11: `ISSUE-0069`, `UPDATEV2-0022` and `UPDATEV2-0028` passed the current source, tests, UI, export, rebuild and Chrome evidence gates and were moved to `issues/closed.md`. Their detailed sections below are retained as historical acceptance records and are no longer active open work.
+Closure update 2026-07-15: `ISSUE-0069`, `UPDATEV2-0022` and `UPDATEV2-0028` passed their applicable source, tests, UI, export, rebuild and browser evidence gates and are recorded in `issues/closed.md`. Historical acceptance references below are not active open work.
 
 Wave 0 Task 2 checkpoint 2026-07-11: the session-trace operational-authority regression was independently approved, including workflow single-trace persistence, recovery, redaction and Diagnostics visibility. No open tracker record changed state; `DATA-05` remains `still_open`, and the next implementation task is Wave 0 Task 3.
 
@@ -161,7 +161,7 @@ The user selected the following 21 issues for direct implementation as one stage
 | 18 | `ISSUE-0052` | P1 | Correlation clustering and factor/theme crowding warnings. |
 | 19 | `ISSUE-0059` | P1/P2 | Broad and sector/theme-relative benchmark attribution. |
 | 20 | `ISSUE-0064` | P1 | Friction-adjusted gross/net edge and edge-to-cost estimates. |
-| 21 | `UPDATEV2-0028` | P0/P1 | **Closed 2026-07-11:** manifest, candle unavailable marker, conflicts, full holdings, export and Chrome evidence passed. |
+| 21 | `UPDATEV2-0028` | P0/P1 | **Closed 2026-07-15:** manifest, candle unavailable marker, conflicts, full holdings, export and browser evidence passed. |
 
 Required durable stores:
 
@@ -616,23 +616,6 @@ schema_version
 **Rebuild requirement:** Full release gate before close.  
 **Plan.md update requirement:** Keep process-button progress wording examples.  
 **Close criteria:** Common close criteria plus user-perspective Chrome/browser verification.
-
-## UPDATEV2-0028 - Report/audit packet expansion for providers, filings, ETF docs and candles (original update ISSUE-0028)
-
-**Status:** Open - implementation complete; closure pending strict archive/export, package and browser evidence  
-**Type:** Audit / Export  
-**Priority:** P1  
-**Evidence grade:** High  
-**Source URLs:** `updatev2.md`.  
-**Problem:** External review is not reproducible unless the audit packet includes new evidence sources.  
-**Why it matters:** Provider status, filings, ETF docs, conflicts and candle evidence must be exported.  
-**Proposed implementation:** Extend audit packet builder; add manifest entries; include checksums/source authority; include human-readable Markdown summary.  
-**Acceptance criteria:** Audit ZIP contains provider status, filing inventory, ETF document inventory, conflicts and candle evidence; external audit import remains non-executable.  
-**UI requirement:** Audit page/export status shows included artefacts and output path.  
-**Tests required:** Audit manifest, missing optional providers, conflict report export and large holdings export.  
-**Rebuild requirement:** Full release gate before close.  
-**Plan.md update requirement:** Keep REPORT/audit expansion requirements.  
-**Close criteria:** Common close criteria plus inspected ZIP contents.
 
 ## UPDATEV2-0029 - Rebuild/test/update discipline automation (original update ISSUE-0029)
 
