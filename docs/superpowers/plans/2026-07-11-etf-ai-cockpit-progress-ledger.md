@@ -560,3 +560,18 @@ the matrix status set to `closed`. PR #197 merged the transition into
 is closed. The final reconciliation reports 77 open and 21 closed records,
 with every local ID mapped exactly once and states agreeing. `execution_allowed=false`
 remains unchanged.
+
+### Wave 5 Task 23 UPDATEV2-0028 closure checkpoint - 2026-07-15
+
+The refreshed Task 23 evidence for `UPDATEV2-0028` is bound to the current
+closure matrix and local ledger. The focused audit/backup/import/Data Health
+bundle and a fresh authoritative `pytest tests -q --tb=short` run both exited
+zero. The canonical Windows batch rebuild exited zero; the rebuilt native
+onedir package served HTTP 200 on port 8955 and the Audit Notes export was
+observed. The inspected audit ZIP has 156 members, no corrupt members and
+SHA-256 `64010cb1f6cc33bfbe250c925a129e065dbfd07053313e0adbe5f9caf84badb6`.
+The issue record is now in `issues/closed.md`, the matrix status is `closed`,
+the evidence manifest has no missing gates, and an independent reviewer
+approved specification and code/evidence quality with no Critical or Important
+findings. PR/GitHub issue synchronisation remains pending. See
+`.ai_worklog/task-23-updatev2-0028-closure-2026-07-15.md`.

@@ -1575,8 +1575,8 @@ issues:
 - issue_id: UPDATEV2-0028
   title: Report/audit packet expansion for providers, filings, ETF docs and candles (original update ISSUE-0028)
   wave: 8
-  status: still_open
-  implementation_checkpoint: task21_head_5270d60; closure_pending_strict_archive_export_package_browser
+  status: closed
+  implementation_checkpoint: task21_head_5270d60; strict_archive_export_package_browser_verified_2026-07-15
   implementation_evidence:
   - .ai_worklog/task-21-report.md
   - .ai_worklog/task-21-fix-report.md
@@ -1590,12 +1590,12 @@ issues:
     - tests
     - export
     evidence_paths: &updatev2_0028_wave4_evidence
-    - source/UPDATEV2-0028-wave4.md
-    - tests/UPDATEV2-0028-wave4.md
-    - ui/UPDATEV2-0028-wave4.md
-    - export/UPDATEV2-0028-wave4.md
-    - build/UPDATEV2-0028-wave4.md
-    - browser/UPDATEV2-0028-wave4.md
+    - source/UPDATEV2-0028.md
+    - tests/UPDATEV2-0028.md
+    - ui/UPDATEV2-0028.md
+    - export/UPDATEV2-0028.md
+    - build/UPDATEV2-0028.md
+    - browser/UPDATEV2-0028.md
   - criterion_id: UPDATEV2-0028-R02
     text: external audit import remains non-executable.
     required_gates: *id023

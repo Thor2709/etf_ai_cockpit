@@ -1513,3 +1513,16 @@ UI, export, build and browser evidence. Its local issue record was moved from
 reviewed through PR #197 and merged into `origin/main` at
 `d3f365daf0413d7e57160df3a40c0bc2f77878c5`; GitHub Issue #153 is closed after
 the reconciliation inventory passed with 77 open and 21 closed records.
+
+### Task 23 UPDATEV2-0028 closure evidence refresh - 2026-07-15
+
+The earlier missing candle/build/browser proof was regenerated against the
+current package. `UPDATEV2-0028` now has a fresh strict manifest with source,
+tests, UI, export, build and browser checksums; the current 156-member archive
+contains explicit candle-unavailable markers and passes ZIP integrity checks.
+The fresh full suite and canonical Windows batch build both exited zero, and
+the native package returned HTTP 200 on port 8955. The canonical open issue
+record was transitioned to `issues/closed.md` after matrix and evidence paths
+were reconciled. A fresh independent reviewer approved specification and
+code/evidence quality with no Critical or Important findings. Normal PR and
+GitHub Issue #168 synchronisation remain pending before integration.

@@ -650,11 +650,11 @@ The follow-up excludes unknown source prefixes from score eligibility and record
 
 ### UPDATEV2-0028 - Report/audit packet expansion for providers, filings, ETF docs and candles
 
-**Status:** Closed 2026-07-11  
-**Dossier:** `evidence/final/issues/UPDATEV2-0028.json`  
-**Current evidence:** `evidence/final/source/UPDATEV2-0028-wave4.md`, `tests/UPDATEV2-0028-wave4.md`, `ui/UPDATEV2-0028-wave4.md`, `export/UPDATEV2-0028-wave4.md`, `build/UPDATEV2-0028-wave4.md`, `browser/UPDATEV2-0028-wave4.md`.
+**Status:** Closed 2026-07-15
+**Dossier:** `evidence/final/UPDATEV2-0028/verification_manifest.json`
+**Current evidence:** `evidence/final/source/UPDATEV2-0028.md`, `tests/UPDATEV2-0028.md`, `ui/UPDATEV2-0028.md`, `export/UPDATEV2-0028.md`, `build/UPDATEV2-0028.md`, `browser/UPDATEV2-0028.md`.
 
-The follow-up made candle/conflict artefacts explicit in the manifest, required a complete holdings summary, and verified non-executable audit import plus secret/checksum validation. Missing optional evidence remains explicitly unavailable rather than invented.
+The follow-up made candle/conflict artefacts explicit in the manifest, required a complete holdings summary, and verified non-executable audit import plus secret/checksum validation. Fresh evidence inspected the 156-member ZIP (`64010cb1f6cc33bfbe250c925a129e065dbfd07053313e0adbe5f9caf84badb6`), including explicit candle-unavailable markers. Missing optional evidence remains explicitly unavailable rather than invented. The closure evaluator passed after independent review; integration and GitHub synchronisation are recorded in the follow-up checkpoint.
 
 ### ISSUE-0035 - Data health centre
 

@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-    "updated_at": "2026-07-15T12:48:00+10:00",
+    "updated_at": "2026-07-15T13:35:00+10:00",
   "active_programme": {
     "name": "2026-07-11-etf-ai-cockpit-approved-programme",
     "programme_index": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-programme-index.md",
     "progress_ledger": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-progress-ledger.md",
     "phase": "wave5_task23_issue_closure_continuation",
-    "next_task": "Evaluate ISSUE-0035 closure evidence, then continue dependency-valid dossiers from current origin/main",
+    "next_task": "Commit and integrate UPDATEV2-0028, synchronise GitHub Issue #168, then evaluate Task14 issues UPDATEV2-0015 and UPDATEV2-0016",
     "git_repository": true,
     "git_branch": "wave5/task23-final-records",
     "baseline": {
@@ -731,8 +731,8 @@
   "implementation_foundations": [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
   "issue_counts": {
     "reviewed": 42,
-    "ready": 2,
-    "still_open": 40
+     "ready": 3,
+     "still_open": 39
   },
   "last_checkpoint": {
     "name": "wave5_task23_updatev2_0013_integrated_and_synced",
@@ -764,7 +764,7 @@
   "task_23_checkpoint": {
     "branch": "wave5/task23-final-records",
     "base": "ff75414",
-    "working_tree": "clean_after_reviewed_integration_and_issue_sync",
+    "working_tree": "closure evidence verified; integration pending",
     "report": ".ai_worklog/task-23-report.md",
     "review": {"reviewer": "Planck", "specification": "approved", "code_quality": "approved", "critical": 0, "important": 0, "minor": 0},
     "focused_tests_exit_code": 0,
@@ -774,12 +774,12 @@
     "diff_check_exit_code": 0,
     "native_build": "current_worktree_rebuilt_with_python312_pyinstaller_and_packaged_browser_render_passed; canonical_batch_exit_0",
     "portable_zip": {"path": "build/ETF_AI_Cockpit_Portable_v0.1.0rc1.zip", "sha256": "A282F48A53844848E7FD42A3712F1F405B6A189A11EB8CE7FA547F9BDBD35ABD", "launcher_http": 200, "port": 8649},
-    "issue_state": "UPDATEV2-0013_closed_and_merged; remaining_records_open_or_previously_closed",
-    "closure": {"issue_id": "UPDATEV2-0013", "status": "pass", "manifest": "evidence/final/UPDATEV2-0013/verification_manifest.json", "source_hash": "51fa32b5f63fd2f28572caed241db1dc6bde56e8a8e82afd452486f8471b4e1d", "packaged_browser_screenshot": "evidence/final/browser/UPDATEV2-0013-filings-packaged.png", "review": "approved by /root/task13_closure_review", "pull_request": "https://github.com/Thor2709/etf_ai_cockpit/pull/197", "merge_commit": "d3f365daf0413d7e57160df3a40c0bc2f77878c5", "github_issue": "https://github.com/Thor2709/etf_ai_cockpit/issues/153", "github_sync": "passed; local open=77 closed=21; states agree; no unresolved duplicates"},
+    "issue_state": "UPDATEV2-0013_closed_and_merged; UPDATEV2-0028_local_closed_pending_integration; remaining_records_open_or_previously_closed",
+    "closure": {"issue_id": "UPDATEV2-0013", "status": "pass", "manifest": "evidence/final/UPDATEV2-0013/verification_manifest.json", "source_hash": "51fa32b5f63fd2f28572caed241db1dc6bde56e8a8e82afd452486f8471b4e1d", "packaged_browser_screenshot": "evidence/final/browser/UPDATEV2-0013-filings-packaged.png", "review": "approved by /root/task13_closure_review", "pull_request": "https://github.com/Thor2709/etf_ai_cockpit/pull/197", "merge_commit": "d3f365daf0413d7e57160df3a40c0bc2f77878c5", "github_issue": "https://github.com/Thor2709/etf_ai_cockpit/issues/153", "github_sync": "pending; local open=76 closed=22 after UPDATEV2-0028 local closure"},
     "execution_allowed": false
   },
   "first_unpassed_criterion": "Remaining open issue dossiers and DATA-05 coverage",
-  "next_command": "Run fresh closure verification and independent review for ISSUE-0035, then select the next dependency-valid open issue",
+  "next_command": "Commit and integrate UPDATEV2-0028, synchronise GitHub Issue #168, then evaluate Task14 ETF document registry and holdings normaliser issues UPDATEV2-0015 and UPDATEV2-0016",
   "notes": [
     "No Git initialisation or commit occurred before the independently approved Task 2 boundary; the user now authorises local baseline Git setup and optional private GitHub push only.",
     "Closure status is evaluator-backed: 4/42 ready and 38 still open; do not close remaining issues without their complete dossiers.",
@@ -824,5 +824,6 @@
      ,"2026-07-15 Task 13 retry: fresh independent review approved the correlated Arelle diagnostic fix with no Critical or Important findings. Full pytest, full Ruff, compileall, audit/export bundle, Python 3.12 PyInstaller build, native smoke and extracted portable ZIP/no-Python fallback passed. UPDATEV2-0013 remains open/closure-pending under Task 23 final gates; see .ai_worklog/task-13-review-retry-2026-07-15.md."
      ,"2026-07-15 PR 194 merged the reviewed ESEF loader fix at 1f544b83107422e218ef12a427d9f188d4baa42c; PR 195 merged the authoritative GitHub issue-map/report synchronisation at e07ade3161518ca02fe8bacf267e67a2be3a44b4. Reconciliation read-back passed for 98 records: 78 open, 20 closed, all mapped exactly once, states agreeing and no unresolved duplicates."
      ,"2026-07-15 release v0.1.0rc1 published at https://github.com/Thor2709/etf_ai_cockpit/releases/tag/v0.1.0rc1 with tested portable ZIP SHA-256 EDD1E70453AF9D1DC6EFE0967F551711695946F8EC7956BB5AA6C0428C219CAA (259856181 bytes); extracted native and no-Python fallback smoke passed. Final issue closure remains pending evaluator evidence."
+    ,"2026-07-15 UPDATEV2-0028 closure evidence refresh: fresh focused and full pytest, canonical Windows build, native HTTP 200/package browser and ZIP integrity checks passed; independent reviewer approved SPEC/CODE with no Critical or Important findings; local issue closed, PR and GitHub Issue #168 synchronisation pending."
   ]
 }
