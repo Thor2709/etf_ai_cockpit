@@ -555,5 +555,8 @@ canonical `cmd.exe /d /c scripts\\build_windows.bat` retry succeeded. Fresh
 source, parser/provider, release, audit/export, UI and browser evidence is
 recorded under `evidence/final/`; the independent parser review had no
 Critical or Important findings. The issue was moved to `issues/closed.md` and
-the matrix status set to `closed`; integration and remote issue read-back are
-the next actions. `execution_allowed=false` remains unchanged.
+the matrix status set to `closed`. PR #197 merged the transition into
+`origin/main` at `d3f365daf0413d7e57160df3a40c0bc2f77878c5`; GitHub Issue #153
+is closed. The final reconciliation reports 77 open and 21 closed records,
+with every local ID mapped exactly once and states agreeing. `execution_allowed=false`
+remains unchanged.

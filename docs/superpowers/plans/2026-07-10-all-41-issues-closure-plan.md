@@ -1509,5 +1509,7 @@ made.
 `UPDATEV2-0013` passed the full closure evaluator with fresh source, tests,
 UI, export, build and browser evidence. Its local issue record was moved from
 `issues/open.md` to `issues/closed.md`, and the closure matrix status is
-`closed`. The transition is committed on the Task 23 records branch and
-remains subject to normal reviewed integration into `main`.
+`closed`. The transition is committed as `be1b88426961da93d32d86f3d718bc7429415591`,
+reviewed through PR #197 and merged into `origin/main` at
+`d3f365daf0413d7e57160df3a40c0bc2f77878c5`; GitHub Issue #153 is closed after
+the reconciliation inventory passed with 77 open and 21 closed records.
