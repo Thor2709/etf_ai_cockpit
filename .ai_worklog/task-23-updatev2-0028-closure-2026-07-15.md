@@ -14,7 +14,7 @@
 - [x] Evidence paths, checksums, source hash and Python 3.12 environment hash are bound in `evidence/final/UPDATEV2-0028/verification_manifest.json`.
 - [x] The canonical local issue record was moved from `issues/open.md` to `issues/closed.md`; the matrix status and checkpoint now agree.
 - [x] Fresh independent specification/code review approval: `/root/updatev2_0028_reviewer`, SPEC PASS and CODE/EVIDENCE PASS; no Critical or Important findings.
-- [ ] PR integration into `origin/main` and GitHub Issue #168 synchronisation.
+- [x] PR #199 merged into `origin/main` at `772817c15ec9eeb9cb805a16451249f44536bfa9`; GitHub Issue #168 is closed and synchronised.
 
 ## RED-GREEN-REFACTOR evidence
 
@@ -26,9 +26,20 @@ The source implementation and prior Task 21 regression tests were already presen
 C:\Users\thor2\AppData\Local\Programs\Python\Python312\python.exe -m pytest tests/test_complete_audit_packet.py tests/test_backup_restore.py tests/test_import_export.py tests/test_data_health.py tests/test_release_hardening.py -q --tb=short  # exit 0
 C:\Users\thor2\AppData\Local\Programs\Python\Python312\python.exe -m pytest tests -q --tb=short  # exit 0; evidence/final/tests/UPDATEV2-0028-full-suite.txt
 cmd.exe /d /c scripts\\build_windows.bat  # exit 0
-C:\Users\thor2\AppData\Local\Programs\Python\Python312\python.exe scripts/verify_issue.py UPDATEV2-0028 --evidence-root evidence/final --matrix-path configs/closure_matrix.yaml  # pass after review metadata
+C:\Users\thor2\AppData\Local\Programs\Python\Python312\python.exe scripts/verify_issue.py UPDATEV2-0028 --evidence-root evidence/final --matrix-path configs/closure_matrix.yaml  # pass
+C:\Users\thor2\AppData\Local\Programs\Python\Python312\python.exe scripts/sync_github_issues.py --apply  # reconciliation pass: 76 open, 22 closed, states agree
 ```
 
 ## Scope and authority
 
 No score weights, model authority, portfolio target, research threshold, data coverage or execution scope changed. `execution_allowed=false` remains true as a safety invariant (execution is disabled). No broker or autonomous trading capability was introduced.
+
+## Integration
+
+Branch `wave5/task23-final-records` was pushed normally and merged through
+[PR #199](https://github.com/Thor2709/etf_ai_cockpit/pull/199). The resulting
+merge commit is `772817c15ec9eeb9cb805a16451249f44536bfa9`. GitHub Issue #168
+was read back as closed with the canonical local-ID marker, current closed
+record, manifest path and archive checksum. The synchronisation report proves
+98 mapped records: 76 local/open and 22 local/closed, matching GitHub states,
+with no unresolved duplicates.

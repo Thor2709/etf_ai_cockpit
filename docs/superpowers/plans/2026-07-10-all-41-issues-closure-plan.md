@@ -1524,5 +1524,10 @@ The fresh full suite and canonical Windows batch build both exited zero, and
 the native package returned HTTP 200 on port 8955. The canonical open issue
 record was transitioned to `issues/closed.md` after matrix and evidence paths
 were reconciled. A fresh independent reviewer approved specification and
-code/evidence quality with no Critical or Important findings. Normal PR and
-GitHub Issue #168 synchronisation remain pending before integration.
+code/evidence quality with no Critical or Important findings. Normal PR
+integration completed through PR #199, merged at
+`772817c15ec9eeb9cb805a16451249f44536bfa9`; GitHub Issue #168 is closed and
+synchronised. The reconciliation read back 98 records (76 open, 22 closed),
+exact mappings, agreeing states and no unresolved duplicates. Continue with
+Task 14, ETF Document Registry and Holdings Normaliser
+(`UPDATEV2-0015`, `UPDATEV2-0016`).
