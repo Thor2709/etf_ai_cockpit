@@ -517,3 +517,16 @@ unverified. Rendered browser/computer-use, clean-first-run package matrix,
 full 41-issue dossier/evaluator, remote integration and issue transitions are
 still pending. Task 23 is implementation-complete but closure-pending; no
 issue is moved to `issues/closed.md`.
+
+### Wave 4 Task 13 retry verification - 2026-07-15
+
+After the user-reported test fixes, the ESEF parser’s optional Arelle
+diagnostic handling was exercised again. A fresh reviewer rejected the first
+amendment with two Important findings; the second fix pass added run-level
+loader correlation and explicit conformance safeguards, then received a fresh
+SPEC/CODE approval with no Critical or Important findings. The authoritative
+full suite, Ruff, compileall, audit/export bundle, Python 3.12 PyInstaller
+build, native smoke and extracted portable ZIP/no-Python launcher fallback all
+passed. `UPDATEV2-0013` remains open/closure-pending under Task 23’s final
+issue-dossier and browser/package gates. Evidence:
+`.ai_worklog/task-13-review-retry-2026-07-15.md`.

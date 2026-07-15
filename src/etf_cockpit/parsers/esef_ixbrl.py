@@ -162,12 +162,15 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
             arelle_ok = False
             warnings.append(ParseWarning("arelle_validation", f"Arelle validation failed: {type(exc).__name__}: {exc}", "error"))
             validation_messages = ()
+        loader_limitation = _has_arelle_loader_limitation(validation_messages)
         for message in validation_messages:
             severity = str(message.get("severity") or "warning")
             code = str(message.get("code") or "arelle_validation")
+            text = str(message.get("message") or "Arelle validation message")
+            if _is_nonfatal_arelle_diagnostic(code, text, loader_limitation=loader_limitation):
+                severity = "warning"
             if severity.lower() in {"error", "fatal"}:
                 code = "arelle_validation"
-            text = str(message.get("message") or "Arelle validation message")
             warnings.append(ParseWarning(code, text, severity))
             if severity.lower() in {"error", "fatal"}:
                 arelle_ok = False
@@ -273,6 +276,52 @@ def _safe_sha(path: Path) -> str:
         return ""
 
 
+def _has_arelle_loader_limitation(messages: tuple[dict[str, str], ...]) -> bool:
+    """Return whether this validation run recorded a bounded loader limitation."""
+
+    for message in messages:
+        code = str(message.get("code") or "").strip().lower()
+        text = str(message.get("message") or "")
+        if code in {"ioerror", "filenotloadable", "webcache:retrievalerror", "arelle:notvalidated"}:
+            return True
+        if code == "exception:attributeerror" and "formulaoptions" in text.lower():
+            return True
+    return False
+
+
+def _is_nonfatal_arelle_diagnostic(code: str, message: str, *, loader_limitation: bool = False) -> bool:
+    """Classify validator limitations that do not invalidate local facts.
+
+    Arelle is optional and its report-package/XHTML loader can emit errors for
+    missing remote taxonomy references or package formats it cannot validate as
+    a standalone instance.  The bounded local parser has already validated the
+    archive and extracted facts, so these diagnostics remain visible as
+    warnings rather than discarding otherwise usable offline evidence.  Other
+    validation errors remain blocking.
+    """
+
+    normalised_code = code.strip().lower()
+    if normalised_code in {
+        "ioerror",
+        "filenotloadable",
+        "webcache:retrievalerror",
+        "arelle:notvalidated",
+    }:
+        return True
+    if normalised_code == "ix11.12.1.2:missingreferences":
+        # A report package can be parsed locally while Arelle cannot retrieve
+        # an external taxonomy in offline mode.  Only a correlated loader
+        # diagnostic permits this rule to become a warning; a standalone
+        # conformance error remains blocking.
+        lowered_message = message.lower()
+        explicit_conformance = any(
+            marker in lowered_message
+            for marker in ("required reference", "submitted report", "local reference", "schema definition")
+        )
+        return loader_limitation and not explicit_conformance
+    return normalised_code == "exception:attributeerror" and "formulaoptions" in message.lower()
+
+
 def _arelle_available() -> bool:
     return importlib.util.find_spec("arelle") is not None
 
@@ -308,7 +357,13 @@ def _run_arelle_validation(path: Path, timeout_seconds: float = 8.0) -> tuple[di
             else:
                 normalised.append({"code": "arelle_message", "severity": "warning", "message": str(message)})
         return tuple(normalised)
-    return ({"code": "arelle_validation", "severity": "error", "message": str(result.get("message", "Arelle validation failed"))},)
+    return (
+        {
+            "code": str(result.get("code") or "arelle_validation"),
+            "severity": "error",
+            "message": str(result.get("message", "Arelle validation failed")),
+        },
+    )
 
 
 def _arelle_worker(path: str, messages: multiprocessing.Queue[dict[str, object]]) -> None:
@@ -348,7 +403,13 @@ def _arelle_worker(path: str, messages: multiprocessing.Queue[dict[str, object]]
         else:
             messages.put({"status": "ok", "messages": captured})
     except Exception as exc:
-        messages.put({"status": "error", "message": f"{type(exc).__name__}: {exc}"})
+        messages.put(
+            {
+                "status": "error",
+                "code": f"exception:{type(exc).__name__}",
+                "message": f"{type(exc).__name__}: {exc}",
+            }
+        )
 
 
 class _ArelleLogHandler(logging.Handler):

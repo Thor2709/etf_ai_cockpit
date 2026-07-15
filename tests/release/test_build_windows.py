@@ -29,3 +29,9 @@ def test_broken_venv_backup_remains_timestamped_and_package_gates_are_intact() -
     assert "etf_ai_cockpit.spec" in lowered
     assert "pyi-set_version.exe" in lowered
     assert "if errorlevel 1 exit /b 1" in lowered
+
+
+def test_pyinstaller_spec_resolves_resources_without_relying_on_missing_file() -> None:
+    spec = (ROOT / "ETF_AI_Cockpit.spec").read_text(encoding="utf-8")
+
+    assert "globals().get('SPECPATH'" in spec or 'globals().get("SPECPATH"' in spec

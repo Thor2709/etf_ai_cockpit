@@ -12,7 +12,11 @@ def package_directory(name):
 
 
 flet_web_directory = package_directory('flet_web')
-version_file = Path(__file__).resolve().parent / 'packaging' / 'windows_version_info.txt'
+# PyInstaller executes spec files in a namespace without ``__file__`` on
+# current Python/PyInstaller combinations.  SPECPATH is supplied by the
+# builder; the cwd fallback keeps direct spec evaluation deterministic.
+spec_root = Path(globals().get('SPECPATH', Path.cwd())).resolve()
+version_file = spec_root / 'packaging' / 'windows_version_info.txt'
 runtime_binaries = []
 for package_name in ('numpy', 'scipy', 'pandas', 'pyarrow'):
     directory = package_directory(package_name).parent / f'{package_name}.libs'
