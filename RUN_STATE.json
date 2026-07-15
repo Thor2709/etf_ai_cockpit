@@ -782,11 +782,14 @@
     "branch": "wave5/task23-final-records",
     "worktree": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK23-FINAL-RECORDS",
     "issues": ["UPDATEV2-0015", "UPDATEV2-0016"],
-    "status": "locally_closed_pending_integration",
+    "status": "integrated_and_synchronised",
     "verifier": "scripts/verify_issue.py returned status=pass for both issues; missing_gates=[]",
     "review": "/root/task14_review_final SPEC PASS CODE PASS; no Critical/Important/Minor findings",
     "audit_sha256": "5fb4d1f05cc2446d59ffec9cbdeca6f6b71a50f517e75dc3bd70cf7fbe36f994",
-    "next_action": "Commit reviewed Task14 transition, push branch, create/merge PR, synchronise GitHub Issues #155/#156, verify origin/main, then start Task15"
+    "pull_request": "https://github.com/Thor2709/etf_ai_cockpit/pull/201",
+    "merge_commit": "bc85b731c88f00d77d703c70e005ff8520ca5acc",
+    "github_issues": {"UPDATEV2-0015": {"number": 155, "state": "closed"}, "UPDATEV2-0016": {"number": 156, "state": "closed"}},
+    "next_action": "Verify origin/main and start Task15 UPDATEV2-0017/UPDATEV2-0019"
   },
   "first_unpassed_criterion": "Remaining open issue dossiers and DATA-05 coverage",
   "next_command": "Integrate Task14 closure for UPDATEV2-0015 and UPDATEV2-0016, synchronise GitHub, then start Task15 UPDATEV2-0017/UPDATEV2-0019",

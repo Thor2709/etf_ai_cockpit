@@ -1,7 +1,7 @@
 {
   "apply_mode": true,
   "duplicate_actions": [],
-  "generated_at_utc": "2026-07-15T13:46:25Z",
+  "generated_at_utc": "2026-07-15T13:54:30Z",
   "github_inventory": {
     "remote_count_before_sync": 166
   },
@@ -15,10 +15,10 @@
     "all_mappings_have_github_issue": true,
     "local_closed_count": 24,
     "local_open_count": 74,
-    "mapped_closed_count": 22,
-    "mapped_open_count": 76,
-    "passes": false,
-    "states_agree": false,
+    "mapped_closed_count": 24,
+    "mapped_open_count": 74,
+    "passes": true,
+    "states_agree": true,
     "unresolved_duplicates": []
   },
   "records": [
@@ -1089,11 +1089,11 @@
       "title": "France DILA and Netherlands AFM OAM discovery adapters (original update ISSUE-0014)"
     },
     {
-      "action": "close",
+      "action": "updated_and_closed",
       "github_issue_number": 155,
-      "github_state": "open",
+      "github_state": "closed",
       "github_url": "https://github.com/Thor2709/etf_ai_cockpit/issues/155",
-      "last_synchronised_commit": "958df9c31fdada581bf5e3cf909a76f0eec76733",
+      "last_synchronised_commit": "bc85b731c88f00d77d703c70e005ff8520ca5acc",
       "local_issue_id": "UPDATEV2-0015",
       "local_state": "closed",
       "source_checksum": "20ce7d66217b8a31a4ea534d3f0ec5b8a6bce8bde537897b72c55b46519845d5",
@@ -1102,11 +1102,11 @@
       "title": "ETF disclosure registry (original update ISSUE-0015)"
     },
     {
-      "action": "close",
+      "action": "updated_and_closed",
       "github_issue_number": 156,
-      "github_state": "open",
+      "github_state": "closed",
       "github_url": "https://github.com/Thor2709/etf_ai_cockpit/issues/156",
-      "last_synchronised_commit": "958df9c31fdada581bf5e3cf909a76f0eec76733",
+      "last_synchronised_commit": "bc85b731c88f00d77d703c70e005ff8520ca5acc",
       "local_issue_id": "UPDATEV2-0016",
       "local_state": "closed",
       "source_checksum": "20ce7d66217b8a31a4ea534d3f0ec5b8a6bce8bde537897b72c55b46519845d5",

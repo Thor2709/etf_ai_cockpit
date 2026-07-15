@@ -277,7 +277,9 @@ pass every named gate; the independent reviewer `/root/task14_review_final`
 returned SPEC PASS and CODE PASS with no findings. The canonical audit ZIP is
 valid with SHA-256
 `5fb4d1f05cc2446d59ffec9cbdeca6f6b71a50f517e75dc3bd70cf7fbe36f994`, and the
-two local issue records have moved to `issues/closed.md`. The next
+two local issue records have moved to `issues/closed.md`. GitHub Issues #155
+and #156 are closed and synchronised through PR #201, merged at
+`bc85b731c88f00d77d703c70e005ff8520ca5acc`. The next
 dependency-valid work is Task 15, PRIIPs KID and Index Methodology Parsers.
 
 Wave 4 Task 15, PRIIPs KID and Index Methodology Parsers, is implemented and
