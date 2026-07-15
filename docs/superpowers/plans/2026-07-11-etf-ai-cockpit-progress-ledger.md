@@ -6,12 +6,12 @@
 
 | Field | Value |
 |---|---|
-| Updated | 2026-07-14 |
-| Active phase | Wave 5 Task 22 semantic reconciliation staged; fresh independent re-review pending; Task 23 deferred |
+| Updated | 2026-07-15 |
+| Active phase | Wave 5 Task 23 closure evidence; UPDATEV2-0013 closed locally after fresh evaluator pass; remaining open issues continue |
 | Active plan | `docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md` |
-| Git state | Reconciliation branch `wave5/task22-reconciliation` is based on `origin/main` `6e6406d`; staged changes are under fresh review; GitHub connector integration remains pending because local Git credentials fail with `SEC_E_NO_CREDENTIALS` |
+| Git state | Records branch `wave5/task23-final-records` is based on synchronised `origin/main` `e07ade3`; UPDATEV2-0013 closure evidence is staged for reviewed integration |
 | Existing closure state | Task 11 issues `ISSUE-0068`, `ISSUE-0018`, `ISSUE-0017` and `ISSUE-0056` are implementation-complete but closure-pending final release/browser/clean-first-run evidence; `ISSUE-0035` is closed locally and on GitHub Issue #81 |
-| Fresh baseline | Task 22 affected bundle, 20 repeated recovery runs, cached compileall and staged diff checks passed; Ruff, full-suite, package and browser evidence remain pending or unavailable |
+| Fresh baseline | ESEF retry full suite, Ruff, compileall, audit/export, canonical batch build, native/portable package and source/browser checks passed; remaining issues still require their own evidence |
 | Pre-existing type state | recorded mypy failure caused by external stubs and existing typing debt; no new failure attributed |
 | Known historical evidence limitation | Existing package/browser evidence predates this programme and cannot close new work |
 
@@ -545,3 +545,15 @@ The local ledger was synchronised and read back through PR 195, merged at
 records: 78 open, 20 closed, every local ID mapped exactly once, states
 agreeing and no unresolved duplicates. Task 23 continues with the final issue
 dossier/evaluator matrix; no issue was closed by this synchronisation.
+
+### Wave 4 Task 13 final closure evidence - 2026-07-15
+
+`UPDATEV2-0013` now has a checksum-verified manifest at
+`evidence/final/UPDATEV2-0013/verification_manifest.json`. The read-only
+closure evaluator returned `status: pass` with zero missing gates after the
+canonical `cmd.exe /d /c scripts\\build_windows.bat` retry succeeded. Fresh
+source, parser/provider, release, audit/export, UI and browser evidence is
+recorded under `evidence/final/`; the independent parser review had no
+Critical or Important findings. The issue was moved to `issues/closed.md` and
+the matrix status set to `closed`; integration and remote issue read-back are
+the next actions. `execution_allowed=false` remains unchanged.
