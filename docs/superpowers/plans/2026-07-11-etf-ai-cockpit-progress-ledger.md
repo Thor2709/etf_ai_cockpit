@@ -582,3 +582,19 @@ read back with the canonical closed record and current evidence. The final
 sync reconciliation passes with 98 records: 76 open, 22 closed, exact
 one-to-one mappings, agreeing states and no unresolved duplicates. The next
 dependency-valid dossier is Task 14: `UPDATEV2-0015` and `UPDATEV2-0016`.
+
+### Wave 4 Task 14 final closure checkpoint - 2026-07-15
+
+`UPDATEV2-0015` and `UPDATEV2-0016` passed the final closure evaluator with
+fresh source, tests, UI, export, build and browser evidence. The bounded audit
+mutation investigation identified the test writer and permanently redirected
+ordinary audit exports to per-test temporary directories; the canonical audit
+packet remains byte-for-byte stable at SHA-256
+`5fb4d1f05cc2446d59ffec9cbdeca6f6b71a50f517e75dc3bd70cf7fbe36f994`. The two
+reviewer-reproduced canonical-store leaks were fixed by per-test registry and
+disclosure-reader isolation, and the affected focused bundle passed. Fresh
+independent reviewer `/root/task14_review_final` approved specification and
+code quality with no Critical, Important or Minor findings. The local records
+were moved from `issues/open.md` to `issues/closed.md`; matrix statuses are
+`closed`. Task 14 is complete and the next dependency-valid task is Task 15:
+`UPDATEV2-0017` and `UPDATEV2-0019`.

@@ -243,13 +243,25 @@ def _safe_sequence(value: object) -> tuple[object, ...]:
 
 
 def _load_parquet(path: object) -> pd.DataFrame:
-    try:
-        candidate = path
-        if candidate is None or not candidate.exists():  # type: ignore[union-attr]
-            return pd.DataFrame()
-        return pd.read_parquet(candidate)  # type: ignore[arg-type]
-    except Exception:
+    candidate = path
+    if candidate is None:
         return pd.DataFrame()
+    candidates = [candidate]
+    try:
+        candidates.append(candidate.with_suffix(".csv"))  # type: ignore[union-attr]
+    except (AttributeError, TypeError, ValueError):
+        pass
+    for source in candidates:
+        try:
+            if not source.exists():  # type: ignore[union-attr]
+                continue
+            frame = pd.read_parquet(source) if source.suffix.lower() == ".parquet" else pd.read_csv(source)  # type: ignore[union-attr]
+            if frame.empty and source.suffix.lower() == ".parquet":
+                continue
+            return frame
+        except Exception:
+            continue
+    return pd.DataFrame()
 
 
 def _instrument_rows(frame: object, instrument_id: str, *, columns: tuple[str, ...] = _CANONICAL_ID_COLUMNS) -> pd.DataFrame:
@@ -482,10 +494,7 @@ def _etf_disclosure_panel(
         )
 
     if holdings is None:
-        try:
-            holdings = pd.read_parquet(FUND_HOLDINGS_PATH) if FUND_HOLDINGS_PATH.exists() else pd.DataFrame()
-        except Exception:
-            holdings = pd.DataFrame()
+        holdings = _load_parquet(FUND_HOLDINGS_PATH)
     holdings_frame = holdings.copy() if isinstance(holdings, pd.DataFrame) else pd.DataFrame()
     holdings_manual_review = False
     holdings_message = ""

@@ -267,18 +267,18 @@ remains open as implementation-complete/closure-pending because strict release,
 audit/export, clean-first-run and browser/computer-use evidence is not yet
 fresh.
 
-Wave 4 Task 14, ETF Document Registry and Holdings Normaliser, is implemented
-and independently approved through PR 184 at merge commit
-`49abaf4907f81ab2798a394d11cf2ddaf5d3b031` (head `a7cb185`). The versioned
-document registry, explicit missing inventory, fail-closed issuer/vendor
-holdings eligibility, atomic four-file imports, ETF Disclosures/Risk panels,
-Instrument Detail disclosure panel and UI acceptance contracts are present.
-Focused Task 14/Risk/Instrument Detail/trust registration/button tests, Ruff,
-compileall and diff checks pass; the known unrelated trust identity fixture
-threshold remains documented. `UPDATEV2-0015` and `UPDATEV2-0016` remain open
-until strict release, audit/export, clean-first-run and browser/computer-use
-evidence is fresh. Continue with Task 15, PRIIPs KID and Index Methodology
-Parsers.
+Wave 4 Task 14, ETF Document Registry and Holdings Normaliser, is closed on
+branch `wave5/task23-final-records` after the final package, audit/export,
+clean-first-run and browser evidence refresh. The versioned registry, explicit
+missing inventory, fail-closed issuer/vendor holdings eligibility, atomic
+four-file imports, ETF Disclosures/Risk panels and Instrument Detail disclosure
+panel remain present. Final manifests for `UPDATEV2-0015` and `UPDATEV2-0016`
+pass every named gate; the independent reviewer `/root/task14_review_final`
+returned SPEC PASS and CODE PASS with no findings. The canonical audit ZIP is
+valid with SHA-256
+`5fb4d1f05cc2446d59ffec9cbdeca6f6b71a50f517e75dc3bd70cf7fbe36f994`, and the
+two local issue records have moved to `issues/closed.md`. The next
+dependency-valid work is Task 15, PRIIPs KID and Index Methodology Parsers.
 
 Wave 4 Task 15, PRIIPs KID and Index Methodology Parsers, is implemented and
 independently approved through PR 185 at merge commit

@@ -1,0 +1,3 @@
+# UPDATEV2-0016 UI gate
+
+The packaged Risk route `http://127.0.0.1:8977/risk` rendered the portfolio guardrail table and imported issuer holdings-quality status in the established dark research-cockpit shell. Browser semantics exposed `VWCE: as_of 2026-05-31 | completeness=partial | freshness=fresh | confidence=0.55 | authority=issuer | score_eligible=False`; malformed and out-of-range persisted dates are marked invalid and excluded without crashing. The ETF Disclosures and Instrument Detail routes expose holdings-source and import controls and read the CSV mirror when parquet is unavailable. Screenshot: `evidence/final/browser/UPDATEV2-0015-0016-risk-holdings-panel-final.png` (SHA-256 `a7570e519063971b88e99835dd7837b93cf58ba028f8760a7e4dd0de0433cb47`).

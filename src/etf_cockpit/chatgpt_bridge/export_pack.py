@@ -756,6 +756,14 @@ def _export_health_evidence(export_dir: Path, config: AppConfig, manifest: dict[
 
 
 def _copy_evidence_file(source_path: Path, evidence_root: Path, manifest: dict[str, object]) -> None:
+    if source_path.suffix.lower() == ".parquet" and not source_path.exists():
+        csv_mirror = source_path.with_suffix(".csv")
+        if csv_mirror.exists():
+            target = evidence_root / csv_mirror.name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(csv_mirror.read_bytes())
+            _include_file(target, target.name, manifest)
+            return
     if not source_path.exists():
         relative = source_path.as_posix()
         try:
@@ -777,6 +785,13 @@ def _copy_evidence_file(source_path: Path, evidence_root: Path, manifest: dict[s
             _include_file(json_target, json_target.name, manifest)
             return
         except Exception as exc:
+            csv_mirror = source_path.with_suffix(".csv")
+            if csv_mirror.exists():
+                target = evidence_root / csv_mirror.name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(csv_mirror.read_bytes())
+                _include_file(target, target.name, manifest)
+                return
             relative = source_path.as_posix()
             try:
                 relative = source_path.resolve().relative_to(ROOT.resolve()).as_posix()

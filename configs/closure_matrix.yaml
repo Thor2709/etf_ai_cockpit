@@ -824,7 +824,11 @@ issues:
 - issue_id: UPDATEV2-0015
   title: ETF disclosure registry (original update ISSUE-0015)
   wave: 6
-  status: still_open
+  status: closed
+  implementation_checkpoint: task14_final_evidence_2026-07-15; independent_review_approved; verifier_pass
+  implementation_evidence:
+  - evidence/final/UPDATEV2-0015/verification_manifest.json
+  - .ai_worklog/task-14-updatev2-0015-0016-closure-2026-07-15.md
   criteria:
   - criterion_id: UPDATEV2-0015-R01
     text: 'Acceptance criteria: Every ETF row shows document inventory.'
@@ -833,7 +837,13 @@ issues:
     - tests
     - ui
     - export
-    evidence_paths: &id010 []
+    evidence_paths: &id010
+    - source/UPDATEV2-0015.md
+    - tests/UPDATEV2-0015.md
+    - ui/UPDATEV2-0015.md
+    - export/UPDATEV2-0015.md
+    - build/UPDATEV2-0015.md
+    - browser/UPDATEV2-0015.md
   - criterion_id: UPDATEV2-0015-R02
     text: missing KID/factsheet/holdings/index docs visible.
     required_gates: *id009
@@ -856,14 +866,14 @@ issues:
     - source
     - tests
     - ui
-    evidence_paths: []
+    evidence_paths: *id010
   - criterion_id: UPDATEV2-0015-R07
     text: 'Tests required: Complete docs, missing KID, stale holdings, duplicate document versions and bad date/checksum.'
     required_gates:
     - source
     - tests
     - ui
-    evidence_paths: []
+    evidence_paths: *id010
   - criterion_id: UPDATEV2-0015-R08
     text: 'Rebuild requirement: Full release gate before close.'
     required_gates:
@@ -871,14 +881,14 @@ issues:
     - tests
     - ui
     - build
-    evidence_paths: []
+    evidence_paths: *id010
   - criterion_id: UPDATEV2-0015-R09
     text: 'Plan.md update requirement: Preserve ETF disclosure stack.'
     required_gates:
     - source
     - tests
     - ui
-    evidence_paths: []
+    evidence_paths: *id010
   - criterion_id: UPDATEV2-0015-R10
     text: 'Close criteria: Common close criteria plus audit inventory export.'
     required_gates:
@@ -887,51 +897,55 @@ issues:
     - ui
     - export
     - browser
-    evidence_paths: []
+    evidence_paths: *id010
   - criterion_id: UPDATEV2-0015-C-SOURCE
     text: Implemented in source or explicitly documented as architecture/research-only.
     required_gates:
     - source
-    evidence_paths: []
+    evidence_paths: *id010
   - criterion_id: UPDATEV2-0015-C-UI
     text: Visible in the app UI where user-facing.
     required_gates:
     - ui
-    evidence_paths: []
+    evidence_paths: *id010
   - criterion_id: UPDATEV2-0015-C-TESTS
     text: Relevant tests added or updated.
     required_gates:
     - tests
-    evidence_paths: []
+    evidence_paths: *id010
   - criterion_id: UPDATEV2-0015-C-EXPORT
     text: Audit/export output updated where relevant.
     required_gates:
     - export
-    evidence_paths: []
+    evidence_paths: *id010
   - criterion_id: UPDATEV2-0015-C-TRACKERS
     text: Plan and issue trackers updated.
     required_gates:
     - source
-    evidence_paths: []
+    evidence_paths: *id010
   - criterion_id: UPDATEV2-0015-C-BUILD
     text: Package rebuilt with recorded command/result.
     required_gates:
     - build
-    evidence_paths: []
+    evidence_paths: *id010
   - criterion_id: UPDATEV2-0015-C-BROWSER
     text: Rebuilt app starts and local UI smoke test passes.
     required_gates:
     - browser
-    evidence_paths: []
+    evidence_paths: *id010
   - criterion_id: UPDATEV2-0015-C-LIMITS
     text: Remaining limitations recorded.
     required_gates:
     - source
-    evidence_paths: []
+    evidence_paths: *id010
 - issue_id: UPDATEV2-0016
   title: ETF holdings normaliser (original update ISSUE-0016)
   wave: 6
-  status: still_open
+  status: closed
+  implementation_checkpoint: task14_final_evidence_2026-07-15; independent_review_approved; verifier_pass
+  implementation_evidence:
+  - evidence/final/UPDATEV2-0016/verification_manifest.json
+  - .ai_worklog/task-14-updatev2-0015-0016-closure-2026-07-15.md
   criteria:
   - criterion_id: UPDATEV2-0016-R01
     text: 'Acceptance criteria: Full holdings around 100% OK.'
@@ -939,7 +953,13 @@ issues:
     - source
     - tests
     - ui
-    evidence_paths: &id012 []
+    evidence_paths: &id012
+    - source/UPDATEV2-0016.md
+    - tests/UPDATEV2-0016.md
+    - ui/UPDATEV2-0016.md
+    - export/UPDATEV2-0016.md
+    - build/UPDATEV2-0016.md
+    - browser/UPDATEV2-0016.md
   - criterion_id: UPDATEV2-0016-R02
     text: partial top holdings labelled partial.
     required_gates: *id011
@@ -962,7 +982,7 @@ issues:
     - source
     - tests
     - ui
-    evidence_paths: []
+    evidence_paths: *id012
   - criterion_id: UPDATEV2-0016-R07
     text: 'Tests required: CSV/XLSX fixture, partial top holdings, weight sum under 80%, weight sum over 105%, missing ISIN/ticker.'
     required_gates:
@@ -970,7 +990,7 @@ issues:
     - tests
     - ui
     - export
-    evidence_paths: []
+    evidence_paths: *id012
   - criterion_id: UPDATEV2-0016-R08
     text: 'Rebuild requirement: Full release gate before close.'
     required_gates:
@@ -978,14 +998,14 @@ issues:
     - tests
     - ui
     - build
-    evidence_paths: []
+    evidence_paths: *id012
   - criterion_id: UPDATEV2-0016-R09
     text: 'Plan.md update requirement: Preserve holdings validation thresholds.'
     required_gates:
     - source
     - tests
     - ui
-    evidence_paths: []
+    evidence_paths: *id012
   - criterion_id: UPDATEV2-0016-R10
     text: 'Close criteria: Common close criteria plus source-backed exposure output.'
     required_gates:
@@ -993,47 +1013,47 @@ issues:
     - tests
     - ui
     - browser
-    evidence_paths: []
+    evidence_paths: *id012
   - criterion_id: UPDATEV2-0016-C-SOURCE
     text: Implemented in source or explicitly documented as architecture/research-only.
     required_gates:
     - source
-    evidence_paths: []
+    evidence_paths: *id012
   - criterion_id: UPDATEV2-0016-C-UI
     text: Visible in the app UI where user-facing.
     required_gates:
     - ui
-    evidence_paths: []
+    evidence_paths: *id012
   - criterion_id: UPDATEV2-0016-C-TESTS
     text: Relevant tests added or updated.
     required_gates:
     - tests
-    evidence_paths: []
+    evidence_paths: *id012
   - criterion_id: UPDATEV2-0016-C-EXPORT
     text: Audit/export output updated where relevant.
     required_gates:
     - export
-    evidence_paths: []
+    evidence_paths: *id012
   - criterion_id: UPDATEV2-0016-C-TRACKERS
     text: Plan and issue trackers updated.
     required_gates:
     - source
-    evidence_paths: []
+    evidence_paths: *id012
   - criterion_id: UPDATEV2-0016-C-BUILD
     text: Package rebuilt with recorded command/result.
     required_gates:
     - build
-    evidence_paths: []
+    evidence_paths: *id012
   - criterion_id: UPDATEV2-0016-C-BROWSER
     text: Rebuilt app starts and local UI smoke test passes.
     required_gates:
     - browser
-    evidence_paths: []
+    evidence_paths: *id012
   - criterion_id: UPDATEV2-0016-C-LIMITS
     text: Remaining limitations recorded.
     required_gates:
     - source
-    evidence_paths: []
+    evidence_paths: *id012
 - issue_id: UPDATEV2-0017
   title: PRIIPs KID parser (original update ISSUE-0017)
   wave: 6
