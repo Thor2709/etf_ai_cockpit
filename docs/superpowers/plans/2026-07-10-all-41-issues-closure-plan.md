@@ -1488,3 +1488,16 @@ native smoke and a fresh extracted portable ZIP with the no-Python launcher
 fallback all passed. `UPDATEV2-0013` remains open because final issue dossiers,
 closure-evaluator evidence and the complete browser/package matrix are owned
 by Task 23 closure gates; no issue transition is made here.
+
+### Task 23 release and issue synchronisation checkpoint - 2026-07-15
+
+The reviewed Task 13 correction is merged through PR 194 at
+`1f544b83107422e218ef12a427d9f188d4baa42c`. The tested portable Windows
+release candidate `v0.1.0rc1` is published with ZIP SHA-256
+`EDD1E70453AF9D1DC6EFE0967F551711695946F8EC7956BB5AA6C0428C219CAA`.
+The authoritative local issue ledger was synchronised through PR 195 at
+`e07ade3161518ca02fe8bacf267e67a2be3a44b4`; the read-back inventory reports 98
+records, 78 open, 20 closed, exact one-to-one mappings and no unresolved
+duplicates. The evaluator still reports missing gates for the remaining open
+issues, so Task 23 closure work continues and no false issue transition is
+made.

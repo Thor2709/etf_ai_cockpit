@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-    "updated_at": "2026-07-15T10:40:00+10:00",
+    "updated_at": "2026-07-15T11:25:00+10:00",
   "active_programme": {
     "name": "2026-07-11-etf-ai-cockpit-approved-programme",
     "programme_index": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-programme-index.md",
@@ -778,7 +778,7 @@
     "execution_allowed": false
   },
   "first_unpassed_criterion": "Task 23 final issue dossiers, closure evaluator, rendered browser/computer-use and clean-first-run package matrix",
-  "next_command": "Integrate the reviewed Task 13 parser/release fix onto the latest origin/main without replaying patch-equivalent Task 22/23 history, then continue the Task 23 closure matrix",
+  "next_command": "Continue Task 23 issue dossiers and closure evidence from origin/main e07ade3161518ca02fe8bacf267e67a2be3a44b4; do not close issues whose evaluator gates are missing",
   "notes": [
     "No Git initialisation or commit occurred before the independently approved Task 2 boundary; the user now authorises local baseline Git setup and optional private GitHub push only.",
     "Closure status is evaluator-backed: 4/42 ready and 38 still open; do not close remaining issues without their complete dossiers.",
@@ -821,5 +821,7 @@
      ,"2026-07-15 Task 23 bounded release-candidate checkpoint: independent re-review approved the current table/identity fixes and release spec. Full pytest, compileall, scoped Ruff and diff checks exited 0. Reviewed native onedir and complete portable ZIP launch reached HTTP 200 outside the repository; canonical batch rebuild, rendered browser/computer-use, clean-first-run matrix, full issue dossiers/evaluator, remote integration and issue transitions remain pending."
      ,"2026-07-15 post-merge verification found one unused test fixture variable; removing it restored the scoped Ruff gate. Trust-artifact focused tests, compileall and diff checks passed. The fix is ready for a normal follow-up integration commit; no issue state changed."
      ,"2026-07-15 Task 13 retry: fresh independent review approved the correlated Arelle diagnostic fix with no Critical or Important findings. Full pytest, full Ruff, compileall, audit/export bundle, Python 3.12 PyInstaller build, native smoke and extracted portable ZIP/no-Python fallback passed. UPDATEV2-0013 remains open/closure-pending under Task 23 final gates; see .ai_worklog/task-13-review-retry-2026-07-15.md."
+     ,"2026-07-15 PR 194 merged the reviewed ESEF loader fix at 1f544b83107422e218ef12a427d9f188d4baa42c; PR 195 merged the authoritative GitHub issue-map/report synchronisation at e07ade3161518ca02fe8bacf267e67a2be3a44b4. Reconciliation read-back passed for 98 records: 78 open, 20 closed, all mapped exactly once, states agreeing and no unresolved duplicates."
+     ,"2026-07-15 release v0.1.0rc1 published at https://github.com/Thor2709/etf_ai_cockpit/releases/tag/v0.1.0rc1 with tested portable ZIP SHA-256 EDD1E70453AF9D1DC6EFE0967F551711695946F8EC7956BB5AA6C0428C219CAA (259856181 bytes); extracted native and no-Python fallback smoke passed. Final issue closure remains pending evaluator evidence."
   ]
 }
