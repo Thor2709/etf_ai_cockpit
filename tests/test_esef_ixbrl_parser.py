@@ -123,6 +123,60 @@ def test_arelle_validation_failure_is_serialised_and_blocks_import(tmp_path: Pat
     assert "broken rule" in warning.message
 
 
+def test_nonfatal_arelle_package_diagnostics_do_not_block_offline_facts(monkeypatch) -> None:
+    """Optional validator diagnostics must not discard facts that parsed offline."""
+
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: True)
+    monkeypatch.setattr(
+        esef_ixbrl,
+        "_run_arelle_validation",
+        lambda _path, _timeout_seconds: (
+            {"code": "IOerror", "severity": "error", "message": "package archive is not a standalone instance"},
+            {"code": "ix11.12.1.2:missingReferences", "severity": "error", "message": "missing reference emitted after offline taxonomy retrieval"},
+            {"code": "exception:AttributeError", "severity": "error", "message": "formulaOptions is unavailable in this Arelle release"},
+        ),
+    )
+
+    result = parse_esef_package(FIXTURE)
+
+    assert result.success is True
+    assert result.records
+    assert {warning.severity for warning in result.warnings if warning.code in {"IOerror", "ix11.12.1.2:missingReferences", "exception:AttributeError"}} == {"warning"}
+
+
+def test_missing_reference_conformance_error_remains_blocking(monkeypatch) -> None:
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: True)
+    monkeypatch.setattr(
+        esef_ixbrl,
+        "_run_arelle_validation",
+        lambda _path, _timeout_seconds: (
+            {"code": "ix11.12.1.2:missingReferences", "severity": "error", "message": "required reference is missing from the submitted report"},
+        ),
+    )
+
+    result = parse_esef_package(FIXTURE)
+
+    assert result.success is False
+    assert any(warning.severity == "error" and warning.code == "arelle_validation" for warning in result.warnings)
+
+
+def test_correlated_loader_error_does_not_downgrade_explicit_conformance_failure(monkeypatch) -> None:
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: True)
+    monkeypatch.setattr(
+        esef_ixbrl,
+        "_run_arelle_validation",
+        lambda _path, _timeout_seconds: (
+            {"code": "webCache:retrievalError", "severity": "error", "message": "remote taxonomy unavailable offline"},
+            {"code": "ix11.12.1.2:missingReferences", "severity": "error", "message": "required reference is missing from the submitted report"},
+        ),
+    )
+
+    result = parse_esef_package(FIXTURE)
+
+    assert result.success is False
+    assert any(warning.severity == "error" and warning.code == "arelle_validation" for warning in result.warnings)
+
+
 def test_arelle_validation_timeout_is_controlled_and_does_not_grant_authority(tmp_path: Path, monkeypatch) -> None:
     package = tmp_path / "timeout.xbri"
     _write_context_package(package)

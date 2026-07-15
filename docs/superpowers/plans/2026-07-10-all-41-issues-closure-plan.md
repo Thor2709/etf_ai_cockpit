@@ -1475,3 +1475,16 @@ the current Windows ACL/ensurepip environment. Rendered browser/computer-use,
 clean-first-run matrix, full issue dossiers/evaluator, remote integration and
 issue transitions remain pending. Task 23 is implementation-complete but
 closure-pending; no issue transition is claimed.
+
+### Task 13 parser/release retry checkpoint - 2026-07-15
+
+The repaired Arelle diagnostic boundary was independently re-reviewed after
+two Important findings. Typed loader exceptions now survive the worker
+boundary; missing-reference diagnostics are downgraded only when correlated
+with a loader limitation from the same validation run and explicit
+conformance failures remain blocking. The full authoritative pytest suite,
+project Ruff, compileall, audit/export bundle, Python 3.12 PyInstaller build,
+native smoke and a fresh extracted portable ZIP with the no-Python launcher
+fallback all passed. `UPDATEV2-0013` remains open because final issue dossiers,
+closure-evaluator evidence and the complete browser/package matrix are owned
+by Task 23 closure gates; no issue transition is made here.

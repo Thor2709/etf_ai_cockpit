@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-    "updated_at": "2026-07-14T21:30:00+10:00",
+    "updated_at": "2026-07-15T10:40:00+10:00",
   "active_programme": {
     "name": "2026-07-11-etf-ai-cockpit-approved-programme",
     "programme_index": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-programme-index.md",
@@ -8,7 +8,7 @@
     "phase": "wave5_task23_bounded_release_candidate_closure_pending",
     "next_task": "Wave 5, Task 22 integration and closure synchronisation, then Task 23 final issue dossiers/evaluator",
     "git_repository": true,
-    "git_branch": "wave5/task22-reconciliation",
+    "git_branch": "wave5/task23-working",
     "baseline": {
       "pytest": 0,
       "ruff": 0,
@@ -777,8 +777,8 @@
     "issue_state": "all_issue_records_remain_open_or_previously_closed; no_transition",
     "execution_allowed": false
   },
-  "first_unpassed_criterion": "Task 22 branch integration/issue synchronisation, then Task 23 full 41-issue dossiers, closure evaluator, rendered browser/computer-use and clean-first-run package matrix",
-  "next_command": "Verify the current Task 23 worktree diff and commit only intended source, tests, packaging metadata and durable records; exclude generated build archives and helper scripts",
+  "first_unpassed_criterion": "Task 23 final issue dossiers, closure evaluator, rendered browser/computer-use and clean-first-run package matrix",
+  "next_command": "Integrate the reviewed Task 13 parser/release fix onto the latest origin/main without replaying patch-equivalent Task 22/23 history, then continue the Task 23 closure matrix",
   "notes": [
     "No Git initialisation or commit occurred before the independently approved Task 2 boundary; the user now authorises local baseline Git setup and optional private GitHub push only.",
     "Closure status is evaluator-backed: 4/42 ready and 38 still open; do not close remaining issues without their complete dossiers.",
@@ -818,7 +818,8 @@
     ,"Task 21 worktree checkout triggered a Windows git.exe native memory-read error after metadata creation; root cause is isolated to the checkout phase. The verified c495ee0 tree was populated safely with git archive and the worktree index refreshed with git reset --mixed. Active branch wave5/task21-audit uses .worktrees/TASK21~1; fresh implementer dispatched."
     ,"Wave 5 Task 21 final head 5270d60 passed fresh independent SPEC/CODE review with no Critical or Important findings. Dual checksum manifests, strict complete-audit canonical validation, unique unavailable markers, traversal containment and non-executable import authority are recorded in .ai_worklog/task-21-report.md and task-21-fix-report.md. Bundled compileall and diff checks passed; pytest, Ruff, live archive/export, package and browser evidence remain unavailable. Task 22 is next; UPDATEV2-0028 remains implementation-complete and closure-pending."
     ,"2026-07-14 Task 22 semantic reconciliation was independently approved and committed locally as 59d2393 on wave5/task22-reconciliation from origin/main 6e6406d. Obsolete Task 20/21 commits were not replayed. Focused affected tests, 20 repeated Windows recovery runs and compileall passed; the fresh full suite recorded 11 baseline/environment-specific failures. System GitHub authentication inside Codex remains blocked by SEC_E_NO_CREDENTIALS, so push/PR/issue synchronisation is pending manual authenticated PowerShell execution. Task 22 remains open and no issue ledger transition was made."
-    ,"2026-07-15 Task 23 bounded release-candidate checkpoint: independent re-review approved the current table/identity fixes and release spec. Full pytest, compileall, scoped Ruff and diff checks exited 0. Reviewed native onedir and complete portable ZIP launch reached HTTP 200 outside the repository; canonical batch rebuild, rendered browser/computer-use, clean-first-run matrix, full issue dossiers/evaluator, remote integration and issue transitions remain pending."
-    ,"2026-07-15 post-merge verification found one unused test fixture variable; removing it restored the scoped Ruff gate. Trust-artifact focused tests, compileall and diff checks passed. The fix is ready for a normal follow-up integration commit; no issue state changed."
+     ,"2026-07-15 Task 23 bounded release-candidate checkpoint: independent re-review approved the current table/identity fixes and release spec. Full pytest, compileall, scoped Ruff and diff checks exited 0. Reviewed native onedir and complete portable ZIP launch reached HTTP 200 outside the repository; canonical batch rebuild, rendered browser/computer-use, clean-first-run matrix, full issue dossiers/evaluator, remote integration and issue transitions remain pending."
+     ,"2026-07-15 post-merge verification found one unused test fixture variable; removing it restored the scoped Ruff gate. Trust-artifact focused tests, compileall and diff checks passed. The fix is ready for a normal follow-up integration commit; no issue state changed."
+     ,"2026-07-15 Task 13 retry: fresh independent review approved the correlated Arelle diagnostic fix with no Critical or Important findings. Full pytest, full Ruff, compileall, audit/export bundle, Python 3.12 PyInstaller build, native smoke and extracted portable ZIP/no-Python fallback passed. UPDATEV2-0013 remains open/closure-pending under Task 23 final gates; see .ai_worklog/task-13-review-retry-2026-07-15.md."
   ]
 }
