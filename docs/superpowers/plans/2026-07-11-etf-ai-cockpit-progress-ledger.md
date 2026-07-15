@@ -575,3 +575,10 @@ the evidence manifest has no missing gates, and an independent reviewer
 approved specification and code/evidence quality with no Critical or Important
 findings. PR/GitHub issue synchronisation remains pending. See
 `.ai_worklog/task-23-updatev2-0028-closure-2026-07-15.md`.
+
+The closure branch was pushed and merged through PR #199 at
+`772817c15ec9eeb9cb805a16451249f44536bfa9`. GitHub Issue #168 is closed and
+read back with the canonical closed record and current evidence. The final
+sync reconciliation passes with 98 records: 76 open, 22 closed, exact
+one-to-one mappings, agreeing states and no unresolved duplicates. The next
+dependency-valid dossier is Task 14: `UPDATEV2-0015` and `UPDATEV2-0016`.

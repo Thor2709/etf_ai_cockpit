@@ -593,7 +593,7 @@ The implementation remains present, but the earlier closure was rejected because
 
 The ledger evidence remains useful, but the earlier closure was rejected because persisted `score_components` rows lack a direct `source_id`/provenance field and the expanded component UI does not expose it. Keep the canonical issue open until source IDs are carried through source, UI, tests and export.
 
-### UPDATEV2-0028 - Report/audit packet expansion for providers, filings, ETF docs and candles
+### Historical rejected checkpoint - UPDATEV2-0028 - Report/audit packet expansion for providers, filings, ETF docs and candles
 
 **Status:** Reopened 2026-07-10 after independent review; retained as a rejected closure checkpoint.  
 **Dossier:** `evidence/final/issues/UPDATEV2-0028.json`  
