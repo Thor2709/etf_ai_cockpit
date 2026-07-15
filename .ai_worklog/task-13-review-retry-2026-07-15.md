@@ -29,3 +29,13 @@ This checkpoint records a defect-correction and verification pass for the ESEF/i
 ## Closure position
 
 The parser and release regression is implementation-complete and independently approved. Fresh source, tests, UI, export, build and browser evidence is recorded in `evidence/final/UPDATEV2-0013/`; `scripts/verify_issue.py UPDATEV2-0013 --evidence-root evidence\\final --matrix-path configs\\closure_matrix.yaml` returned `status: pass` with no missing gates. `execution_allowed=false` is unchanged; no unapproved scope or authority changed.
+
+## Final integration and synchronisation
+
+The final independent closure re-review passed specification compliance and
+code/evidence quality with no Critical or Important findings. Commit
+`be1b88426961da93d32d86f3d718bc7429415591` was merged by PR #197 into
+`origin/main` at `d3f365daf0413d7e57160df3a40c0bc2f77878c5`. GitHub Issue #153
+was closed and read back through the synchronisation tool. Reconciliation
+passed with 77 local open records and 21 closed records, one mapping per local
+ID, agreeing states and no unresolved duplicates.

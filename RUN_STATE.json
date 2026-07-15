@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-    "updated_at": "2026-07-15T12:05:00+10:00",
+    "updated_at": "2026-07-15T12:48:00+10:00",
   "active_programme": {
     "name": "2026-07-11-etf-ai-cockpit-approved-programme",
     "programme_index": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-programme-index.md",
     "progress_ledger": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-progress-ledger.md",
     "phase": "wave5_task23_issue_closure_continuation",
-    "next_task": "Continue dependency-valid closure dossiers from current origin/main after integrating UPDATEV2-0013",
+    "next_task": "Evaluate ISSUE-0035 closure evidence, then continue dependency-valid dossiers from current origin/main",
     "git_repository": true,
     "git_branch": "wave5/task23-final-records",
     "baseline": {
@@ -723,9 +723,9 @@
   "git_repository": true,
   "git_branch": "wave5/task23-final-records",
   "progress_percent": 47,
-  "wave": 4,
-  "task": 12,
-  "step": 1,
+  "wave": 5,
+  "task": 23,
+  "step": 5,
   "completed_tasks": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
   "completed_governance_tasks": [1, 2, 3, 4, 5, 6],
   "implementation_foundations": [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
@@ -735,8 +735,8 @@
     "still_open": 40
   },
   "last_checkpoint": {
-    "name": "wave4_task13_closed_task23_continuing",
-    "result": "UPDATEV2-0013 passed fresh source, tests, UI, export, build and packaged-browser evidence; the strict verifier returned status pass with zero missing gates and the local issue record moved to issues/closed.md. Continue dependency-valid closure dossiers; execution_allowed remains false.",
+    "name": "wave5_task23_updatev2_0013_integrated_and_synced",
+    "result": "UPDATEV2-0013 passed fresh source, tests, UI, export, build and packaged-browser evidence; independent closure review passed, PR 197 merged at d3f365daf0413d7e57160df3a40c0bc2f77878c5, GitHub Issue 153 closed, and reconciliation passed with 77 open and 21 closed local records. Continue dependency-valid closure dossiers; execution_allowed remains false.",
     "evidence": [
       ".ai_worklog/task8-brief.md",
       ".ai_worklog/task8-report.md",
@@ -753,18 +753,18 @@
       "windows_build": {"exit_code": 0, "native": "not_applicable: PyInstaller unavailable", "portable_outdir": "build/ETF_AI_Cockpit_Portable_v0.1.0_20260713_012732"},
       "package_smoke": {"exit_code": 0, "modes": ["portable-source-launcher"], "native": "not_applicable: PyInstaller unavailable"},
       "browser": {"exit_code": 0, "route": "/providers", "default_sha256": "84B81F9774A3DBA208DD0E73B6F4443A4EAE69EC39D0AC9490DC4ED2D3B39D98", "mobile_sha256": "49FD7480D63DA8877ACC61FFBDD0E2AEB799E4453C18473DC5DB1EDFCAA4DBB6"},
-      "current_commit": "3e3b02e",
+      "current_commit": "d3f365daf0413d7e57160df3a40c0bc2f77878c5",
       "origin_main_matches": true,
       "main_matches_origin": true,
       "working_tree_clean": true,
-      "issue_state": "open",
-      "closure_evaluator": {"exit_code": 1, "ready": 4, "still_open": 38, "issue_count": 42, "expected_nonzero": true}
+      "issue_state": "UPDATEV2-0013 closed and synchronised",
+      "closure_evaluator": {"exit_code": 1, "ready": 2, "still_open": 40, "issue_count": 42, "expected_nonzero": true}
     }
   },
   "task_23_checkpoint": {
     "branch": "wave5/task23-final-records",
     "base": "ff75414",
-    "working_tree": "dirty_with_intended_release_and_durable-record_changes",
+    "working_tree": "clean_after_reviewed_integration_and_issue_sync",
     "report": ".ai_worklog/task-23-report.md",
     "review": {"reviewer": "Planck", "specification": "approved", "code_quality": "approved", "critical": 0, "important": 0, "minor": 0},
     "focused_tests_exit_code": 0,
@@ -774,12 +774,12 @@
     "diff_check_exit_code": 0,
     "native_build": "current_worktree_rebuilt_with_python312_pyinstaller_and_packaged_browser_render_passed; canonical_batch_exit_0",
     "portable_zip": {"path": "build/ETF_AI_Cockpit_Portable_v0.1.0rc1.zip", "sha256": "A282F48A53844848E7FD42A3712F1F405B6A189A11EB8CE7FA547F9BDBD35ABD", "launcher_http": 200, "port": 8649},
-    "issue_state": "UPDATEV2-0013_closed_locally_after_strict_verifier_pass; remaining_records_open_or_previously_closed",
-    "closure": {"issue_id": "UPDATEV2-0013", "status": "pass", "manifest": "evidence/final/UPDATEV2-0013/verification_manifest.json", "source_hash": "51fa32b5f63fd2f28572caed241db1dc6bde56e8a8e82afd452486f8471b4e1d", "packaged_browser_screenshot": "evidence/final/browser/UPDATEV2-0013-filings-packaged.png", "review": "fresh closure evidence re-review pending"},
+    "issue_state": "UPDATEV2-0013_closed_and_merged; remaining_records_open_or_previously_closed",
+    "closure": {"issue_id": "UPDATEV2-0013", "status": "pass", "manifest": "evidence/final/UPDATEV2-0013/verification_manifest.json", "source_hash": "51fa32b5f63fd2f28572caed241db1dc6bde56e8a8e82afd452486f8471b4e1d", "packaged_browser_screenshot": "evidence/final/browser/UPDATEV2-0013-filings-packaged.png", "review": "approved by /root/task13_closure_review", "pull_request": "https://github.com/Thor2709/etf_ai_cockpit/pull/197", "merge_commit": "d3f365daf0413d7e57160df3a40c0bc2f77878c5", "github_issue": "https://github.com/Thor2709/etf_ai_cockpit/issues/153", "github_sync": "passed; local open=77 closed=21; states agree; no unresolved duplicates"},
     "execution_allowed": false
   },
-  "first_unpassed_criterion": "Remaining open issue dossiers, independent closure review, remote integration and DATA-05 coverage",
-  "next_command": "Finish the fresh UPDATEV2-0013 closure review, commit and integrate the local transition, synchronise its GitHub Issue, then select the next dependency-valid open issue",
+  "first_unpassed_criterion": "Remaining open issue dossiers and DATA-05 coverage",
+  "next_command": "Run fresh closure verification and independent review for ISSUE-0035, then select the next dependency-valid open issue",
   "notes": [
     "No Git initialisation or commit occurred before the independently approved Task 2 boundary; the user now authorises local baseline Git setup and optional private GitHub push only.",
     "Closure status is evaluator-backed: 4/42 ready and 38 still open; do not close remaining issues without their complete dossiers.",
