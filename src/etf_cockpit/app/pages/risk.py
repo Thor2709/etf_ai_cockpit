@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import math
+import os
+from pathlib import Path
 
 import pandas as pd
 import flet as ft
@@ -121,14 +123,20 @@ def _holdings_quality_panel(holdings: pd.DataFrame) -> ft.Control:
             )
         )
     columns = [column for column in ("instrument_id", "as_of_date", "completeness", "freshness", "confidence", "authority", "score_eligible") if column in holdings.columns]
+    unique_rows = holdings.drop_duplicates(subset=["instrument_id"])
     rows = [
-        ft.DataRow(cells=[ft.DataCell(ft.Text(str(row.get(column, "")), color=theme.TEXT if column in {"instrument_id", "completeness"} else theme.MUTED, size=11, selectable=True)) for column in columns])
-        for _, row in holdings.drop_duplicates(subset=["instrument_id"]).iterrows()
+        ft.DataRow(cells=[ft.DataCell(ft.Text(str(row.get(column, "")), color=theme.TEXT if column in {"instrument_id", "completeness"} else theme.MUTED, size=11)) for column in columns])
+        for _, row in unique_rows.iterrows()
+    ]
+    summaries = [
+        f"{row.get('instrument_id', 'N/A')}: as_of {row.get('as_of_date', 'N/A')} | completeness={row.get('completeness', 'N/A')} | freshness={row.get('freshness', 'N/A')} | confidence={row.get('confidence', 'N/A')} | authority={row.get('authority', 'N/A')} | score_eligible={row.get('score_eligible', 'N/A')}"
+        for _, row in unique_rows.iterrows()
     ]
     return panel(
         ft.Column(
             [
                 section_header("ETF holdings evidence", "Issuer full/current holdings can support exposure; vendor partial, stale and invalid rows remain context-only."),
+                *[ft.Text(summary, color=theme.MUTED, size=11) for summary in summaries],
                 ft.DataTable(
                     columns=[ft.DataColumn(ft.Text(column, color=theme.TEXT, size=11)) for column in columns],
                     rows=rows,
@@ -141,16 +149,78 @@ def _holdings_quality_panel(holdings: pd.DataFrame) -> ft.Control:
     )
 
 
+def _refresh_holdings_freshness(holdings: pd.DataFrame, *, stale_after_days: int = 90) -> pd.DataFrame:
+    """Recompute persisted holding freshness before rendering or scoring."""
+
+    if holdings.empty or "as_of_date" not in holdings.columns:
+        return holdings
+    refreshed = holdings.copy()
+    as_of = pd.to_datetime(refreshed["as_of_date"], errors="coerce", utc=True)
+    today = pd.Timestamp.now(tz="UTC").normalize()
+    age_days = (today - as_of.dt.normalize()).dt.days
+    invalid = as_of.isna()
+    stale = as_of.notna() & age_days.gt(max(0, int(stale_after_days)))
+    future = as_of.notna() & age_days.lt(0)
+    if "freshness" in refreshed.columns:
+        refreshed.loc[invalid, "freshness"] = "invalid"
+        refreshed.loc[stale, "freshness"] = "stale"
+        refreshed.loc[future, "freshness"] = "invalid"
+    if "completeness" in refreshed.columns:
+        refreshed.loc[invalid, "completeness"] = "invalid"
+        full_stale = stale & refreshed["completeness"].astype(str).str.strip().str.lower().eq("full")
+        refreshed.loc[full_stale, "completeness"] = "stale"
+    if "score_eligible" in refreshed.columns:
+        refreshed.loc[invalid | stale | future, "score_eligible"] = False
+    if "confidence" in refreshed.columns:
+        confidence = pd.to_numeric(refreshed["confidence"], errors="coerce")
+        refreshed.loc[invalid, "confidence"] = 0.0
+        refreshed.loc[stale, "confidence"] = confidence.loc[stale].clip(upper=0.25)
+        refreshed.loc[future, "confidence"] = 0.0
+    return refreshed
+
+
+def _holdings_file_candidates() -> tuple[Path, ...]:
+    """Return canonical holdings paths, including the runtime portable root."""
+
+    candidates = [FUND_HOLDINGS_PATH]
+    env_root = os.getenv("ETF_COCKPIT_ROOT", "").strip()
+    if env_root:
+        candidates.append(Path(env_root) / "data" / "clean" / "fund_holdings.parquet")
+    candidates.append(Path.cwd() / "data" / "clean" / "fund_holdings.parquet")
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        resolved = candidate.expanduser()
+        if resolved not in seen:
+            seen.add(resolved)
+            unique.append(resolved)
+    return tuple(unique)
+
+
 def _load_holdings_evidence() -> pd.DataFrame:
     canonical = pd.DataFrame()
-    try:
-        if FUND_HOLDINGS_PATH.exists():
-            canonical = pd.read_parquet(FUND_HOLDINGS_PATH)
-    except Exception:
-        canonical = pd.DataFrame()
+    for holdings_path in _holdings_file_candidates():
+        try:
+            csv_path = holdings_path.with_suffix(".csv")
+            if not holdings_path.exists() and not csv_path.exists():
+                continue
+            try:
+                canonical = pd.read_parquet(holdings_path)
+            except Exception:
+                # Portable builds may have a usable CSV mirror even when the
+                # optional parquet engine cannot load a bundled binary.
+                if csv_path.exists():
+                    canonical = pd.read_csv(csv_path)
+            if canonical.empty:
+                if csv_path.exists():
+                    canonical = pd.read_csv(csv_path)
+            if not canonical.empty:
+                break
+        except Exception:
+            canonical = pd.DataFrame()
     legacy = load_reference_dataset("etf_holdings")
     if legacy.empty or not {"etf_id", "weight"}.issubset(legacy.columns):
-        return canonical if not canonical.empty else legacy
+        return _refresh_holdings_freshness(canonical if not canonical.empty else legacy)
     # Reference-data imports pre-date the normalised fund store. Adapt them in
     # memory so existing holdings remain visible while issuer/vendor and
     # freshness eligibility are still enforced by the normaliser.
@@ -164,17 +234,17 @@ def _load_holdings_evidence() -> pd.DataFrame:
             rows.append(adapted.frame)
     legacy_context = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
     if canonical.empty:
-        return legacy_context
+        return _refresh_holdings_freshness(legacy_context)
     if legacy_context.empty:
-        return canonical
-    return pd.concat([canonical, legacy_context], ignore_index=True, sort=False)
+        return _refresh_holdings_freshness(canonical)
+    return _refresh_holdings_freshness(pd.concat([canonical, legacy_context], ignore_index=True, sort=False))
 
 
 def _exposure_eligible_holdings(holdings: pd.DataFrame) -> pd.DataFrame:
     required = {"score_eligible", "authority", "freshness", "completeness"}
     if holdings.empty or not required.issubset(holdings.columns):
         return pd.DataFrame(columns=holdings.columns)
-    eligible = holdings.copy()
+    eligible = _refresh_holdings_freshness(holdings)
     eligible = eligible[
         eligible["score_eligible"].map(_as_bool)
         & eligible["authority"].astype(str).str.strip().str.lower().eq("issuer")
@@ -182,8 +252,10 @@ def _exposure_eligible_holdings(holdings: pd.DataFrame) -> pd.DataFrame:
         & eligible["completeness"].astype(str).str.strip().str.lower().eq("full")
     ]
     if "as_of_date" in eligible.columns:
-        as_of = pd.to_datetime(eligible["as_of_date"], errors="coerce")
-        eligible = eligible[as_of.notna() & (as_of.dt.date <= pd.Timestamp.now(tz="UTC").date())]
+        as_of = pd.to_datetime(eligible["as_of_date"], errors="coerce", utc=True)
+        today = pd.Timestamp.now(tz="UTC").normalize()
+        valid_as_of = as_of.notna() & as_of.le(today)
+        eligible = eligible[valid_as_of]
     return eligible
 
 

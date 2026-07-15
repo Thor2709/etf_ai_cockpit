@@ -42,6 +42,16 @@ def test_initialise_page_renders_default_route_without_route_change_event() -> N
     assert page.update_count >= 1
 
 
+def test_frozen_runtime_resolves_callable_flet_app_when_namespace_is_module(monkeypatch) -> None:
+    """PyInstaller can expose ``flet.app`` as its module rather than function."""
+    module = object()
+    monkeypatch.setattr(flet_app.ft, "app", module)
+
+    resolved = flet_app._resolve_flet_app()
+
+    assert callable(resolved)
+
+
 def test_activity_entries_persist_to_local_run_log(tmp_path, monkeypatch) -> None:
     activity_path = tmp_path / "activity_log.jsonl"
     monkeypatch.setattr(app_state_module, "ACTIVITY_LOG_PATH", activity_path)

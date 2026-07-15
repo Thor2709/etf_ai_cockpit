@@ -1,24 +1,24 @@
 {
   "apply_mode": true,
   "duplicate_actions": [],
-  "generated_at_utc": "2026-07-15T03:42:12Z",
+  "generated_at_utc": "2026-07-15T13:46:25Z",
   "github_inventory": {
     "remote_count_before_sync": 166
   },
   "local_counts": {
-    "closed": 22,
-    "open": 76
+    "closed": 24,
+    "open": 74
   },
   "local_ledger_policy": "One canonical record per stable ID. The committed local ledger and approved specification are authoritative; GitHub is a synchronised mirror.",
   "reconciliation": {
     "all_local_ids_unique": true,
     "all_mappings_have_github_issue": true,
-    "local_closed_count": 22,
-    "local_open_count": 76,
+    "local_closed_count": 24,
+    "local_open_count": 74,
     "mapped_closed_count": 22,
     "mapped_open_count": 76,
-    "passes": true,
-    "states_agree": true,
+    "passes": false,
+    "states_agree": false,
     "unresolved_duplicates": []
   },
   "records": [
@@ -1089,29 +1089,29 @@
       "title": "France DILA and Netherlands AFM OAM discovery adapters (original update ISSUE-0014)"
     },
     {
-      "action": "unchanged",
+      "action": "close",
       "github_issue_number": 155,
       "github_state": "open",
       "github_url": "https://github.com/Thor2709/etf_ai_cockpit/issues/155",
       "last_synchronised_commit": "958df9c31fdada581bf5e3cf909a76f0eec76733",
       "local_issue_id": "UPDATEV2-0015",
-      "local_state": "open",
-      "source_checksum": "5030648184e72b2de75cdbc750589f9fc208920fef1c9dde98e810f9756219c3",
-      "source_file": "issues/open.md",
-      "source_location": "issues/open.md:399",
+      "local_state": "closed",
+      "source_checksum": "20ce7d66217b8a31a4ea534d3f0ec5b8a6bce8bde537897b72c55b46519845d5",
+      "source_file": "issues/closed.md",
+      "source_location": "issues/closed.md:687",
       "title": "ETF disclosure registry (original update ISSUE-0015)"
     },
     {
-      "action": "unchanged",
+      "action": "close",
       "github_issue_number": 156,
       "github_state": "open",
       "github_url": "https://github.com/Thor2709/etf_ai_cockpit/issues/156",
       "last_synchronised_commit": "958df9c31fdada581bf5e3cf909a76f0eec76733",
       "local_issue_id": "UPDATEV2-0016",
-      "local_state": "open",
-      "source_checksum": "5030648184e72b2de75cdbc750589f9fc208920fef1c9dde98e810f9756219c3",
-      "source_file": "issues/open.md",
-      "source_location": "issues/open.md:416",
+      "local_state": "closed",
+      "source_checksum": "20ce7d66217b8a31a4ea534d3f0ec5b8a6bce8bde537897b72c55b46519845d5",
+      "source_file": "issues/closed.md",
+      "source_location": "issues/closed.md:700",
       "title": "ETF holdings normaliser (original update ISSUE-0016)"
     },
     {

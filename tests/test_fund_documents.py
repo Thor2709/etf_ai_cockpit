@@ -147,7 +147,11 @@ def test_document_registry_backfills_blank_source_id_from_provenance(tmp_path: P
     assert stored.loc[0, "source_id"].startswith("funddoc:")
 
 
-def test_trust_artifact_inventory_emits_missing_rows_for_each_configured_instrument() -> None:
+def test_trust_artifact_inventory_emits_missing_rows_for_each_configured_instrument(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Keep this missing-registry contract test isolated from generated developer data.
+    monkeypatch.setattr(trust_artifacts, "FUND_DOCUMENTS_PATH", tmp_path / "missing_fund_documents.parquet")
     inventory = trust_artifacts._etf_disclosure_inventory(pd.DataFrame({"instrument_id": ["VWCE", "LYP6"]}))
     assert len(inventory) == 2 * len(DOCUMENT_TYPES)
     assert inventory["coverage_status"].eq("missing").all()

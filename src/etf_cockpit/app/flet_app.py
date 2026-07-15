@@ -26,6 +26,16 @@ _STDIO_HANDLES = []
 _FLET_STATIC_TEMP_COUNTER = count()
 
 
+def _resolve_flet_app():
+    """Return Flet's callable app entry point in source and frozen runtimes."""
+    app = getattr(ft, "app", None)
+    if callable(app):
+        return app
+    from flet.app import app as frozen_app
+
+    return frozen_app
+
+
 class _FletStaticTempfile:
     @staticmethod
     def mkdtemp(*_args: object, **_kwargs: object) -> str:
@@ -205,7 +215,7 @@ def run() -> None:
     try:
         if view_setting in {"desktop", "flet_app"}:
             init_session_log(clear=True, build_mode="desktop", port=port, route="/")
-        ft.app(target=main, view=view, host="127.0.0.1", port=port)
+        _resolve_flet_app()(target=main, view=view, host="127.0.0.1", port=port)
     except Exception:
         _startup_log("ft.app failed\n" + traceback.format_exc())
         raise

@@ -12,6 +12,7 @@ def package_directory(name):
 
 
 flet_web_directory = package_directory('flet_web')
+flet_directory = package_directory('flet')
 # PyInstaller executes spec files in a namespace without ``__file__`` on
 # current Python/PyInstaller combinations.  SPECPATH is supplied by the
 # builder; the cwd fallback keeps direct spec evaluation deterministic.
@@ -27,7 +28,7 @@ a = Analysis(
     ['src\\etf_cockpit\\main.py'],
     pathex=['src', str(flet_web_directory.parent)],
     binaries=runtime_binaries,
-    datas=[('configs', 'configs'), ('models/lightgbm', 'models/lightgbm'), ('models/cached', 'models/cached'), (str(flet_web_directory), 'flet_web')],
+    datas=[('configs', 'configs'), ('models/lightgbm', 'models/lightgbm'), ('models/cached', 'models/cached'), (str(flet_web_directory), 'flet_web'), (str(flet_directory / 'controls' / 'material' / 'icons.json'), 'flet/controls/material')],
     hiddenimports=['flet_web', 'flet_web.patch_index', 'flet_web.uploads', 'flet_web.fastapi', 'flet_web.fastapi.app', 'flet_web.fastapi.flet_app', 'flet_web.fastapi.flet_app_manager', 'flet_web.fastapi.flet_fastapi', 'flet_web.fastapi.flet_oauth', 'flet_web.fastapi.oauth_state', 'flet_web.fastapi.serve_fastapi_web_app', 'fastapi', 'fastapi.staticfiles', 'starlette', 'starlette.middleware.base', 'uvicorn', 'uvicorn.loops.auto', 'uvicorn.lifespan.on', 'uvicorn.protocols.http.auto', 'uvicorn.protocols.websockets.websockets_sansio_impl', 'yfinance', 'curl_cffi', 'bs4', 'peewee', 'multitasking', 'platformdirs', 'pandas._libs._cyutility'],
     hookspath=[],
     hooksconfig={},

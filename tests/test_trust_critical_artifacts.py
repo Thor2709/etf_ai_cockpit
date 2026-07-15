@@ -668,3 +668,17 @@ def test_audit_export_includes_trust_critical_evidence_and_session_log(tmp_path,
     assert "statement_facts.csv" in evidence_manifest["included"]
     assert evidence_manifest["checksums"]["statement_facts.csv"] == hashlib.sha256(statement_facts_bytes).hexdigest()
     assert "combined_review_packet.md" in manifest["checksums"]
+
+
+def test_audit_evidence_uses_csv_mirror_when_parquet_is_missing(tmp_path) -> None:
+    parquet_path = tmp_path / "fund_holdings.parquet"
+    csv_path = tmp_path / "fund_holdings.csv"
+    pd.DataFrame([{"instrument_id": "VWCE", "completeness": "partial", "score_eligible": False}]).to_csv(csv_path, index=False)
+    evidence_root = tmp_path / "evidence_export"
+    manifest = {"included": [], "missing": [], "checksums": {}}
+
+    export_module._copy_evidence_file(parquet_path, evidence_root, manifest)
+
+    assert (evidence_root / "fund_holdings.csv").exists()
+    assert "fund_holdings.csv" in manifest["included"]
+    assert not any("unavailable" in str(item) for item in manifest["missing"])

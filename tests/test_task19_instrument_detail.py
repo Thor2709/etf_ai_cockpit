@@ -137,6 +137,12 @@ def test_instrument_detail_missing_or_corrupt_optional_stores_are_explicitly_una
         path = tmp_path / f"{name}.parquet"
         path.write_bytes(b"not parquet")
         monkeypatch.setattr(selector, name, path)
+    # The disclosure selector imports these readers directly.  Redirect them to
+    # empty per-test frames so canonical generated registries cannot leak into an
+    # unavailable-store test.
+    monkeypatch.setattr(selector, "read_document_registry", lambda: pd.DataFrame())
+    monkeypatch.setattr(selector, "read_priips_kid_records", lambda: pd.DataFrame())
+    monkeypatch.setattr(selector, "read_index_methodology_records", lambda: pd.DataFrame())
 
     model = build_instrument_detail(snapshot, "VWCE")
     for key in ("fundamentals", "news", "etf_disclosures"):
@@ -144,6 +150,33 @@ def test_instrument_detail_missing_or_corrupt_optional_stores_are_explicitly_una
     assert model.sections["scores"]["execution_allowed"] is False
     assert model.sections["paper_trades"]["status"] == "unavailable"
     assert model.sections["journal"]["status"] == "unavailable"
+
+
+def test_instrument_detail_reads_holdings_csv_mirror_when_parquet_is_unavailable(tmp_path, monkeypatch) -> None:
+    import etf_cockpit.app.selectors.instrument_detail as selector
+
+    parquet_path = tmp_path / "fund_holdings.parquet"
+    csv_path = tmp_path / "fund_holdings.csv"
+    pd.DataFrame(
+        [{
+            "instrument_id": "VWCE",
+            "holding_symbol": "NVDA",
+            "weight": 0.12,
+            "as_of_date": "2026-05-31",
+            "completeness": "partial",
+            "freshness": "fresh",
+            "confidence": 0.55,
+            "source": "issuer",
+            "authority": "issuer",
+            "score_eligible": False,
+        }]
+    ).to_csv(csv_path, index=False)
+    monkeypatch.setattr(selector, "FUND_HOLDINGS_PATH", parquet_path)
+
+    model = build_instrument_detail(build_snapshot(), "VWCE")
+
+    assert model.sections["etf_disclosures"]["holdings"]["status"] == "available"
+    assert model.sections["etf_disclosures"]["holdings"]["rows"][0]["holding_symbol"] == "NVDA"
 
 
 def test_instrument_detail_route_and_legacy_etf_compatibility(monkeypatch) -> None:

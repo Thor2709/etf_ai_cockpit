@@ -897,24 +897,19 @@ Full/current issuer holdings receive issuer authority; yfinance top holdings rem
 
 Show document type/date/checksum/source, holdings completeness/freshness/confidence, missing requirements and exposure contribution.
 
-- [ ] **Step 5: Verify import/export/package**
+- [x] **Step 5: Verify import/export/package**
 
 Use real issuer holdings where publicly available or a real downloaded issuer CSV; if unavailable for the selected ETF, use the existing imported issuer file as UI proof but do not claim live coverage. Verify audit inventory and packaged panels.
 
-**Task 14 implementation checkpoint - 2026-07-13:** Steps 1-4 are implemented
-and independently approved on branch `wave4/task14-fund-docs`, head commit
-`a7cb185`, merged through PR 184 at merge commit
-`49abaf4907f81ab2798a394d11cf2ddaf5d3b031`. The registry and holdings stores
-preserve checksums, source IDs, explicit missing rows, authority and eligibility
-boundaries; local document and CSV/XLSX holdings imports use fail-closed
-validation and atomic four-file publication; ETF Disclosures, Risk and
-Instrument Detail surfaces are wired and the two new UI controls are
-acceptance-covered. Focused Task 14/Risk/Instrument Detail/trust
-registration/button tests passed, scoped Ruff, compileall and diff checks
-passed, and the fresh independent reviewer returned SPEC PASS, CODE PASS and
-READY with no findings. `UPDATEV2-0015` and `UPDATEV2-0016` remain open as
-implementation-complete/closure-pending for strict audit/export, package,
-clean-first-run and browser/computer-use evidence; Step 5 is not yet passed.
+**Task 14 closure checkpoint - 2026-07-15:** Steps 1-5 are complete on branch
+`wave5/task23-final-records`. The final manifests for `UPDATEV2-0015` and
+`UPDATEV2-0016` report `status=pass` with no missing gates or limitations after
+the clean packaged route checks, immutable audit ZIP validation and fresh
+independent review `/root/task14_review_final` (SPEC PASS, CODE PASS, no
+Critical/Important/Minor findings). Test isolation was corrected so ordinary
+tests use per-test temporary stores and cannot read or rewrite canonical
+audit/registry artefacts. The two local issue records are now closed and the
+next dependency-valid work is Task 15 (`UPDATEV2-0017`, `UPDATEV2-0019`).
 
 ---
 
