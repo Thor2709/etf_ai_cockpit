@@ -1,5 +1,5 @@
-"""Typed operational and verification records."""
+"""Typed operational records."""
 
-from etf_cockpit.operations.models import ClosureEvidenceRecord, OperationalEvent, VerificationRun
+from etf_cockpit.operations.models import OperationalEvent
 
-__all__ = ["ClosureEvidenceRecord", "OperationalEvent", "VerificationRun"]
+__all__ = ["OperationalEvent"]

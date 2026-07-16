@@ -1,5 +1,0 @@
-{
-  "schema_version": 2,
-  "name": "official_documents_v1",
-  "migration_policy": "preserve existing values; absent values remain unavailable"
-}

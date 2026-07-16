@@ -1,4 +1,0 @@
-command: C:\Users\thor2\AppData\Local\Programs\Python\Python312\python.exe -m pytest tests/test_trust_critical_artifacts.py -q
-result: pass
-exit_code: 0
-observed: 23 tests passed.

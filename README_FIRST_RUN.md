@@ -12,31 +12,8 @@ The browser window is intentional. The Flet desktop renderer opened a blank shel
 
 No broker automation is included. Audit packet export/import is manual and local until you choose to share a packet with an external reviewer yourself. Imported audit responses are commentary only.
 
-## Local verification
+## Local checks
 
-Evidence checks are local and read-only. From PowerShell, run the fixed finish
-plan and then verify its manifest for a specific issue:
-
-```powershell
-python scripts\dev_finish_check.py --changed-paths-file .ai_worklog\changed-paths.txt --json-report evidence\finish-report.json
-python scripts\verify_issue.py DATA-05 --evidence-root evidence
-```
-
-For an isolated dependency check, use the fail-closed clean-environment
-script. It creates an explicit verification virtual environment and can install
-the declared requirements when requested:
-
-```powershell
-.\scripts\verify_clean_environment.ps1 -EvidenceRoot evidence\clean-environment
-.\scripts\verify_clean_environment.ps1 -EvidenceRoot evidence\clean-environment -InstallRequirements
-```
-
-Verification returns `pass`, `fail` or `blocked`. Missing tools, stale or
-mismatched source/environment hashes, skipped tests, live informational runs,
-bad checksums, missing package/browser evidence and incomplete independent
-review are `blocked`; they are never treated as a pass. A blocked result keeps
-the issue open for a fresh evidence run.
-
-These commands never edit local issue ledgers, change closure status, call a
-remote tracker or close an issue automatically. A separate reviewer must
-approve a fresh manifest before any issue-status decision is considered.
+For an ordinary change, run the targeted tests for the affected files and one
+local application import/startup smoke check, then review and merge the normal
+branch. Consolidated milestone and release testing is performed later.

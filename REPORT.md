@@ -1,6 +1,6 @@
 # AI Evidence Cockpit Report
 
-This report is synchronised with `plan.md`, `issues/open.md`, `issues/closed.md`, `ISSUES.md`, `CLOSED.md` and `.ai_worklog`. It records research-derived product requirements and source references. It is not implementation proof.
+This report is synchronised with `plan.md`, `issues/open.md`, `issues/closed.md` and `ISSUES.md`. It records research-derived product requirements and source references. It is not implementation proof.
 
 ## 2026-07-09 Research Update - Provider, Filings, ETF Disclosure and Candle Evidence Expansion
 

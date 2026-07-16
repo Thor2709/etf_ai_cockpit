@@ -16,14 +16,9 @@ def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
     status_text = ft.Text(state.last_message, color=theme.MUTED, selectable=True)
     version_metadata_path = ROOT / "pyproject.toml"
     version_status = f"available at {version_metadata_path}" if version_metadata_path.is_file() else "unavailable (missing pyproject.toml)"
-    changelog_path = ROOT / ".ai_worklog" / "CHANGES.md"
-    changelog_status = f"available at {changelog_path}" if changelog_path.is_file() else "unavailable (missing .ai_worklog/CHANGES.md)"
-    rebuild_path = ROOT / "RUN_STATE.json"
-    rebuild_timestamp = "unavailable"
-    try:
-        rebuild_timestamp = str(__import__("json").loads(rebuild_path.read_text(encoding="utf-8")).get("updated_at", "unavailable")) if rebuild_path.is_file() else "unavailable"
-    except Exception:
-        rebuild_timestamp = "unavailable"
+    changelog_path = ROOT / "CHANGELOG.md"
+    changelog_status = f"available at {changelog_path}" if changelog_path.is_file() else "unavailable (missing CHANGELOG.md)"
+    rebuild_timestamp = "available through the normal Windows package output"
     issue_0044_update_plan = (
         "ISSUE-0044 packaged-app update workflow: build the Windows package, record the release version and SHA-256 checksum, "
         "back up local data/configs, install the package, run a restore/startup smoke check, then retain the changelog and rebuild timestamp."
@@ -68,7 +63,7 @@ def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
         )
     return ft.Column(
         [
-            panel(ft.Column([section_header("Release and data metadata", "Local release metadata helps users identify the current evidence build."), ft.Text(f"App version: {APP_VERSION}", key="settings.app-version", selectable=True), ft.Text(f"Version metadata: {version_status}", key="settings.version-metadata", selectable=True), ft.Text(f"Last rebuild timestamp: {rebuild_timestamp}", key="settings.last-rebuild", selectable=True), ft.Text(f"Current data root: {DATA_DIR}", key="settings.data-root", selectable=True), ft.Text(f"Changelog: {changelog_status}", key="settings.changelog", selectable=True), ft.Text(issue_0044_update_plan, key="settings.issue-0044-update-plan", color=theme.MUTED, selectable=True)], spacing=6)),
+            panel(ft.Column([section_header("Release and data metadata", "Local release metadata helps users identify the current evidence build."), ft.Text(f"App version: {APP_VERSION}", key="settings.app-version", selectable=True), ft.Text(f"Version metadata: {version_status}", key="settings.version-metadata", selectable=True), ft.Text(f"Package metadata: {rebuild_timestamp}", key="settings.last-rebuild", selectable=True), ft.Text(f"Current data root: {DATA_DIR}", key="settings.data-root", selectable=True), ft.Text(f"Changelog: {changelog_status}", key="settings.changelog", selectable=True), ft.Text(issue_0044_update_plan, key="settings.issue-0044-update-plan", color=theme.MUTED, selectable=True)], spacing=6)),
             panel(ft.Column([section_header("Universe manager", "Validated local CRUD for watchlists and the Primary, Secondary and Sparebanken tiers."), ft.Row([ft.Button("Open Universe manager", key="settings.open-universe", on_click=lambda _event: _page.go("/universe")), ft.Button("Open first-run setup", key="settings.open-onboarding", on_click=lambda _event: _page.go("/onboarding"))]), ft.Text("Configuration saves show pending-refresh only; they never trigger refresh, scoring or model calls.", color=theme.MUTED)], spacing=8)),
             panel(ft.Column([section_header("Config folder", "Local YAML, JSON and .env-backed settings."), ft.Text(str(CONFIG_DIR), color=theme.MUTED, selectable=True)])),
             panel(ft.Column([section_header("Settings status", "Provider saves show progress here and are also written to the dashboard activity log."), status_text])),

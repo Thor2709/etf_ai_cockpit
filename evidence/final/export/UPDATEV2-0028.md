@@ -1,3 +1,0 @@
-# UPDATEV2-0028 export gate
-
-The freshly generated `data/audit_packets/audit_packet_2026-07-15.zip` is a valid ZIP with 156 members and passes `ZipFile.testzip()` with no corrupt members. Its SHA-256 is `64010cb1f6cc33bfbe250c925a129e065dbfd07053313e0adbe5f9caf84badb6`. The archive contains `audit_manifest.json`, `checksum_manifest.json`, provider/filing/ETF-document/conflict/holdings evidence and explicit unavailable candle markers (`evidence_export/candle_context_de02129b4d_unavailable.txt` and `evidence_export/candle_context_unavailable.txt`). External audit import remains non-executable; the checksum manifests preserve the execution boundary as `execution_allowed=false`.

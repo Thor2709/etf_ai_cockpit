@@ -2,72 +2,32 @@
 
 This file tracks unresolved work for the AI Evidence Cockpit / ETF AI Portfolio Cockpit. It is synchronised with `plan.md` and `issues/closed.md`.
 
-Closure update 2026-07-15: `ISSUE-0069`, `UPDATEV2-0022` and `UPDATEV2-0028` passed their applicable source, tests, UI, export, rebuild and browser evidence gates and are recorded in `issues/closed.md`. Historical acceptance references below are not active open work.
+Completed issue records remain in `issues/closed.md`; the issue descriptions below are the source of truth for unresolved work.
+The operational event, transaction and rejection-boundary work is retained in
+the product source and tests. No issue status is changed by this cleanup.
 
-Wave 0 Task 2 checkpoint 2026-07-11: the session-trace operational-authority regression was independently approved, including workflow single-trace persistence, recovery, redaction and Diagnostics visibility. No open tracker record changed state; `DATA-05` remains `still_open`, and the next implementation task is Wave 0 Task 3.
+The retained application and ordinary package checks remain available for
+future changes. No issue status is changed by this cleanup.
 
-Wave 0 Task 3 checkpoint 2026-07-12: atomic transaction and deterministic recovery implementation plus five bounded fix passes were independently approved and merged through PR 1 at `046e3bbfe9cab41f6cfec59547f540bce85b2c44`. Post-merge focused tests, source smoke, Ruff and compileall passed. `ISSUE-0040` remains open because its Error/Recovery UI, package and browser gates are later work; Wave 0 Task 4 is the next implementation task.
+Remote issue state is outside the scope of this local issue file and is not
+changed by this cleanup.
 
-Wave 0 Task 4 checkpoint 2026-07-12: the no-execution/rejection boundary, auditable rejection registry and future-only architecture records were independently approved and merged through PR 2 at `0f2b2cb`. A post-merge generated-package false-positive was reproduced with RED evidence, corrected by excluding top-level ignored `build/` and `dist/` roots, independently approved and merged through PR 3 at `5b732e4`. Final clean-main scope/release, release/operations, static-scan and source-smoke checks passed. No open issue changed state; `ISSUE-0040` and later tracker records remain open, and Wave 0 Task 5 is next.
+Policy and research-state safeguards are retained in the application source
+and product tests; their issue records remain open until their product work is
+implemented and reviewed.
 
-Wave 0 Task 5 checkpoint 2026-07-12: deterministic read-only evidence
-verification, source/environment binding, freshness/checksum gates, fail-closed
-clean-environment/package/Chrome stages and deterministic package modes were
-independently approved after a fix pass and merged through PR 4 at
-`fc4d61cfc6e77da9a91aeb5afe0341b1d7658f55`. Focused Task 5/review-record
-tests (31), release tests (26), operations tests (81), Ruff, compileall, pip
-check, PowerShell AST parsing and source smoke passed post-merge. No open issue
-changed state; `UPDATEV2-0029`, `ISSUE-0013`, `ISSUE-0014`, `ISSUE-0045`,
-`ISSUE-0040` and later tracker records remain open for their complete closure
-gates. Wave 1 governance Task 1 is next.
+## Issue workflow
 
-GitHub mirror checkpoint 2026-07-12: the deterministic synchroniser mapped 98
-selected local records (77 open and 21 closed) to canonical GitHub Issues and
-reconciled the remote state successfully. Exact stable-ID duplicate records
-were retained and closed as duplicates; no local issue changed state and no
-GitHub issue was deleted. See `issues/github_issue_map.json`,
-`issues/github_issue_sync_report.json` and
-`.ai_worklog/github-issue-sync.md`.
-
-Wave 1 Governance Task 1 checkpoint 2026-07-12: the fail-closed policy
-foundation was independently approved and merged through PR 171 at
-`a54aed9c8157ff361eb7782252a88a471b835499`. Five immutable checksum-bearing
-policy contracts, complete route/strategy/gate/glossary inventories and audit
-governance markers are now present. Focused governance verification passed 43
-tests; the full suite reproduced the seven recorded generated-data/identity
-baseline failures and introduced no new failure. This checkpoint does not
-close `ISSUE-0008`, `ISSUE-0010`, `ISSUE-0030`, `ISSUE-0043`, `ISSUE-0047`,
-`ISSUE-0060` or `ISSUE-0066`; their migration, authority-resolution, journal,
-UI and complete evidence gates remain open. Wave 1 Governance Task 2 is next.
-
-Wave 1 Governance Task 2 checkpoint 2026-07-12: public research state is now
-separate from internal signal intent, with deterministic v1.x-to-v2.0
-migration, preserved `legacy_action`, validated portfolio snapshot checksums,
-fail-closed direct authority flags, strict v2 metadata and provenance-aware
-score-history/ChatGPT exports. Fresh independent review and re-review approved
-specification compliance and code quality with no findings. The focused
-post-merge bundle passed 82 tests; compileall, scoped Ruff and source smoke
-passed. The full suite retains the seven documented pre-existing
-generated-data/identity fixture failures. PR 172 merged at
-`ab4772c36701507da444ebd73243ff827b5403af`. No issue moved between ledgers;
-`ISSUE-0008`, `ISSUE-0010`, `ISSUE-0030`, `ISSUE-0043`, `ISSUE-0047`,
-`ISSUE-0060` and `ISSUE-0066` remain open for later authority-resolution,
-journal, UI and complete closure gates. Wave 1 Governance Task 3 is next.
+1. Document the issue and its acceptance criteria.
+2. Assign priority and dependencies.
+3. Implement on a normal branch.
+4. Run targeted tests for the affected area.
+5. Review the change.
+6. Merge it; consolidated milestone and release testing follows later.
 
 ## Tracker Rules
 
-Every issue below is open until all close criteria pass. User-facing issues must be implemented in source, visible in the app UI, tested, included in audit/export where relevant, rebuilt, started from the rebuilt app and smoke-tested from the user's point of view. Backend-only fields do not close UI-facing issues.
-
-Common close criteria for every issue:
-
-- Implemented in source or explicitly documented as architecture/research-only.
-- Visible in the app UI where user-facing.
-- Relevant tests added or updated.
-- Audit/export output updated where relevant.
-- `plan.md`, `issues/open.md` and `issues/closed.md` updated.
-- Package rebuilt with recorded command/result.
-- Rebuilt app starts and local UI smoke test passes.
-- Remaining limitations recorded.
+Keep the issue status, acceptance criteria and known limitations current. User-facing changes must remain visible in the app and relevant audit/export contracts must be updated when the product behaviour requires it.
 
 Common sources:
 
@@ -177,11 +137,14 @@ data/derived/correlation_clusters.parquet
 data/derived/benchmark_attribution.parquet
 ```
 
-Selected-issue close rule: none of these issues may be moved to `issues/closed.md` until the relevant source code is implemented, visible in the UI, covered by tests, included in audit/export where relevant, documented in `plan.md`, rebuilt with `.\scripts\build_windows.bat`, launched from the rebuilt app, smoke-tested at `http://127.0.0.1:8550/`, and limitations are recorded. Optional external data providers may close with explicit unavailable/null states only when the provider abstraction, UI status, tests and audit unavailable markers are implemented.
+Selected issues remain open until the relevant source code is implemented,
+visible in the UI where applicable, covered by targeted tests, reflected in
+audit/export where relevant and reviewed. Optional external data providers may
+remain unavailable or null when their status and limitations are explicit.
 
 ## ISSUE-0067 - Local score history and per-instrument score evolution mini charts
 
-**Status:** Open, implementation complete through Wave 4 Task 17 / PR 187; strict package, browser, audit/export, clean-first-run and closure-matrix gates remain pending. Historical evidence in `evidence/final/*-wave4.md` is retained as a rejected/partial checkpoint.
+**Status:** Open, implementation complete through Wave 4 Task 17 / PR 187; ordinary product tests and release checks remain pending. Historical generated closure material is not retained in this checkout.
 **Type:** Scores / Storage / UI / Explainability  
 **Priority:** P0/P1  
 **Evidence grade:** High  
@@ -263,7 +226,7 @@ authority_label
 
 ## ISSUE-0069 - Single-file session action logging and diagnostics trace
 
-**Status:** Closed 2026-07-11; final evidence is recorded in `evidence/final/*-wave4.md`.  
+**Status:** Closed 2026-07-11; the completed product work is recorded in `issues/closed.md`.
 **Type:** Logging / Diagnostics / UI / Audit / Reliability  
 **Priority:** P0  
 **Evidence grade:** High  
@@ -328,7 +291,7 @@ schema_version
 
 ## UPDATEV2-0010 - Provider registry, capability probes and source authority model (original update ISSUE-0010)
 
-**Status:** Closed 2026-07-11; final evidence is recorded in `evidence/final/*-wave4.md`.  
+**Status:** Closed 2026-07-11; the completed product work is recorded in `issues/closed.md`.
 **Type:** Providers / Evidence Integrity  
 **Priority:** P0  
 **Evidence grade:** High  
@@ -556,10 +519,10 @@ schema_version
 **Source URLs:** `updatev2.md`; user release-readiness requests.  
 **Problem:** The user wants app rebuilds and issue updates every time implementation is finished.  
 **Why it matters:** Issues cannot close without tests/rebuild evidence.  
-**Proposed implementation:** Add `scripts/finish_patch.py` or `scripts/dev_finish_check.py`; run unit tests, smoke tests, UI route/button smoke where possible, rebuild package if app code changed and check report/open/closed issue updates.  
-**Acceptance criteria:** Script reports pass/fail; rebuild attempted when needed; failure explicit; `REPORT.md`, `issues/open.md`, `issues/closed.md` instructions enforced; no issue closed without tests/rebuild evidence.  
-**UI requirement:** Issue/QA Status page should show last test, last rebuild and last UI button pass when implemented.  
-**Tests required:** Script dry-run, missing build dependency and failing unit test prevents close recommendation.  
+**Proposed implementation:** Add targeted unit and application smoke tests, update the affected product checks and rebuild the package when application code changes.
+**Acceptance criteria:** Script reports pass/fail; rebuild attempted when needed; failure explicit; `REPORT.md`, `issues/open.md`, `issues/closed.md` instructions enforced; no issue closed without tests/rebuild evidence.
+**UI requirement:** Issue/QA Status page should show last test, last rebuild and last UI button pass when implemented.
+**Tests required:** Script dry-run, missing build dependency and failing unit test prevents close recommendation.
 **Rebuild requirement:** Full release gate before close.  
 **Plan.md update requirement:** Preserve finish-check discipline.  
 **Close criteria:** Common close criteria plus finish-check output.
@@ -808,9 +771,8 @@ schema_version
 **Implementation checkpoint (2026-07-13):** Wave 5 Task 19 implementation is
 merged through PR 189 at `da271bc` (implementation head `89f4644`). The
 canonical detail selectors, route, score-row navigation, provenance badges and
-audit-evidence control are covered by `.ai_worklog/task-19-report.md` and
-`.ai_worklog/task-19-fix1-report.md` through
-`.ai_worklog/task-19-fix9-report.md`. Fresh post-merge focused tests, scoped
+audit-evidence control are covered by the retained product tests and source.
+Fresh post-merge focused tests, scoped
 Ruff, compileall and diff checks passed. Strict release/package, audit/export,
 browser/computer-use, keyboard/focus/responsive and clean-first-run gates
 remain open; do not close this issue until those gates have fresh evidence.
@@ -1623,7 +1585,7 @@ remain open; do not close this issue until those gates have fresh evidence.
 
 ## 2026-07-09 Launcher, Sparebanken And Reliability Execution Status
 
-This section records the hands-off run against `docs\superpowers\plans\2026-07-09-launcher-sparebanken-reliability-plan.md`. It does not close broad product issues unless their full close criteria are met.
+This section records a prior launcher and reliability work session. It does not close broad product issues unless their full close criteria are met.
 
 ### Selected 20 Non-Previous-21 Issues
 
@@ -1688,7 +1650,7 @@ workflow controls are now keyboard-operable outlined buttons with stable keys,
 tooltips and callbacks. Focused/post-merge tests (29), compileall, scoped Ruff,
 source snapshot smoke, native package rebuild/direct HTTP readiness and
 rendered dashboard evidence passed. The standard generated-data fixture smoke
-limitation is recorded in `.ai_worklog/task6-report.md`; complete issue UI,
+limitation is retained as a known limitation; complete issue UI,
 package, browser, audit and closure-matrix gates remain open.
 Wave 1 Governance Task 3 checkpoint 2026-07-12: severity-aware authority resolution is independently approved and merged through PR 173 at `5fde19639da9caa6cdb01eef852dc34698b53482`. Ordered nine-gate decisions, policy metadata and diagnostics now reach signal and simple-score release paths; incomplete evidence fails closed and `execution_allowed` remains `false`. Post-merge focused authority tests (48), affected governance/migration/proposal/export tests (88), compileall, scoped Ruff, source import smoke, diff checks and the full suite passed. No issue moved to closed because the owning governance and tracker issues still require their complete UI, package, browser and closure-matrix evidence; Wave 1 Governance Task 4 is next.
 
@@ -1703,8 +1665,8 @@ diagnostics were independently re-reviewed and integrated through PR 177 at
 affected regression bundle (72 with one existing warning), compileall, scoped
 Ruff and source smoke passed. The Windows build exited 0; native,
 portable-native and launcher smoke returned `smoke_ok`; rendered Errors &
-Recovery and Diagnostics routes are recorded with screenshot checksums in
-`.ai_worklog/task7-report.md`. `ISSUE-0011`, `ISSUE-0040` and `ISSUE-0039`
+Recovery and Diagnostics routes were checked during implementation.
+`ISSUE-0011`, `ISSUE-0040` and `ISSUE-0039`
 remain open because their complete issue closure gates and later programme
 evidence are not yet complete. Wave 3 Task 8 is next.
 
@@ -1720,7 +1682,7 @@ execution tests passed 42 with the documented unrelated identity fixture
 failure; compileall, scoped Ruff, source smoke, portable package build and
 portable launcher HTTP readiness passed. Native executable smoke is
 not_applicable because PyInstaller was unavailable. Rendered Provider Status
-screenshots and their checksums are recorded in `.ai_worklog/task8-report.md`.
+screenshots were checked during implementation.
 The issue remains open because its complete audit-manifest, closure-matrix,
 issue-level evidence and later storage/evidence integration gates are not yet
 satisfied. Wave 4 Task 9 is next.
@@ -1732,7 +1694,7 @@ independently approved Task 9 implementation was merged through PR 179 at
 `ec5d166ee32235367f58d31f3835854a14e11ba8`. Identity resolution, source
 conflict selection, typed evidence provenance, fail-closed score eligibility,
 trust-artifact exports and visible Provider Status/Evidence Ledger provenance
-are implemented and covered by the evidence in `.ai_worklog/task9-report.md`.
+are implemented and covered by the retained product tests and exports.
 The complete issue-level package, audit/export, closure-matrix and final
 browser gates remain pending, so no active issue was moved to `issues/closed.md`.
 `UPDATEV2-0022` remains the already-closed local dossier and was not reopened.
@@ -1767,7 +1729,7 @@ pending**. PR 185 merged the approved Task 15 implementation into `main` at
 fixtures, bounded/manual-review parsing, methodology/holdings conflict states,
 source-aware KID cost/risk evidence, atomic parsed-document publication,
 focused tests, audit registration, Ruff, compileall and diff checks are
-recorded in `.ai_worklog/task-15-report.md` and the three fix reports. The
+recorded in the retained product tests and source. The
 fresh independent review approved specification compliance and code quality
 with no Critical, Important or Minor findings. Strict release/package,
 clean-first-run, audit-export and browser/computer-use evidence remains

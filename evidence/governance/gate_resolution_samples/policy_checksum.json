@@ -1,7 +1,0 @@
-{
-  "policy_path": "configs/gate_policy.yaml",
-  "policy_version": "2026-07-12",
-  "sha256": "9b06166c05c60cf1dec7214c2aaa2b9b7e59804bdcfcf0b19195c2a09470d6bb",
-  "execution_allowed": false,
-  "source": "sha256 of the checked-out gate policy bytes used by resolve_authority"
-}

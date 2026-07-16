@@ -125,4 +125,4 @@ The selected 20 broad non-previous-21 issues remain open with partial/deferred n
 
 Post-review verification on 2026-07-10 corrected timestamped output selection and native lock handling. On 2026-07-11, `ISSUE-0069`, `UPDATEV2-0022` and `UPDATEV2-0028` passed the current evaluator-backed source, tests, UI, export, rebuild and Chrome evidence gates and are closed. All parser/provider and incomplete product records remain open.
 
-See `issues/closed.md` and `evidence/final/closure-report.json` for the criterion-level closure result.
+See `issues/closed.md` for the current completed-issue record.

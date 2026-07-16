@@ -1,3 +1,0 @@
-# UPDATEV2-0016 browser gate
-
-The clean packaged browser check rendered `/risk`, `/etf-disclosures` and `/instrument` successfully at `http://127.0.0.1:8977/` using the native executable. Browser route evidence is `UPDATEV2-0015-0016-packaged-route-check.json`; the referenced Risk evidence `UPDATEV2-0015-0016-risk-holdings-panel-final.png` visibly shows the VWCE quality row: `as_of 2026-05-31 | completeness=partial | freshness=fresh | confidence=0.55 | authority=issuer | score_eligible=False`. Malformed, out-of-range and stale persisted dates fail closed in scoring and are marked invalid/stale in the displayed quality frame. The clean package process was stopped after verification. Source smoke passed with `scripts/smoke_app.py --mode source`.

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, Self
+from typing import Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 
 class OperationalEvent(BaseModel):
@@ -21,51 +21,6 @@ class OperationalEvent(BaseModel):
     action_id: str | None = None
     prior_event_hash: str | None = None
     event_hash: str | None = None
-
-
-class VerificationRun(BaseModel):
-    verification_run_id: str
-    verification_type: str
-    command: str
-    source_hash: str
-    result: Literal["pass", "fail", "blocked"]
-    exit_code: int
-    output_paths: list[str]
-    output_checksums: list[str]
-    issue_ids: list[str]
-    # Task 5 evidence metadata is optional for backwards-compatible records
-    # produced by the earlier finish-check and operations tasks.
-    environment_hash: str | None = None
-    gates: list[str] = Field(default_factory=list)
-    skipped: bool = False
-    informational: bool = False
-    screenshot: dict[str, object] | None = None
-
-
-class ClosureEvidenceRecord(BaseModel):
-    closure_evidence_id: str
-    issue_id: str
-    requirement_version: str
-    verification_run_ids: list[str]
-    builder: str
-    independent_reviewer: str
-    review_result: Literal["approved", "rejected"]
-    evidence_hash: str
-
-    @model_validator(mode="after")
-    def require_independent_reviewer(self) -> Self:
-        if self.review_result == "approved":
-            self.builder = self.builder.strip()
-            self.independent_reviewer = self.independent_reviewer.strip()
-            if not self.builder:
-                raise ValueError("builder must be non-empty for approved closure evidence")
-            if not self.independent_reviewer:
-                raise ValueError(
-                    "independent_reviewer must be non-empty for approved closure evidence"
-                )
-            if self.builder == self.independent_reviewer:
-                raise ValueError("independent_reviewer must differ from builder")
-        return self
 
 
 WriteTransactionStatus = Literal[
@@ -122,15 +77,15 @@ class WriteTransaction(BaseModel):
 
     @property
     def affected_datasets(self) -> list[str]:
-        """Compatibility alias for the pre-approval Task 3 draft name."""
+        """Compatibility alias for a legacy draft name."""
         return self.affected_dataset_ids
 
     @property
     def created_at(self) -> datetime:
-        """Compatibility alias for the pre-approval Task 3 draft name."""
+        """Compatibility alias for a legacy draft name."""
         return self.started_at
 
     @property
     def base_generations(self) -> dict[str, str]:
-        """Compatibility alias for the pre-approval Task 3 draft name."""
+        """Compatibility alias for a legacy draft name."""
         return self.base_generation_ids

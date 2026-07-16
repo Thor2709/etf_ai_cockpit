@@ -1,2 +1,0 @@
-smoke_port requested=8602 selected=8602 reason=port 8602 is free
-smoke_ok mode=portable-native url=http://127.0.0.1:8602/

@@ -1,5 +1,0 @@
-launch_port requested=8568 selected=8568 reason=port 8568 is free
-started mode=portable-native pid=33552 cwd=C:\Users\thor2\AppData\Local\Temp\ETF_AI_Cockpit_Task15PortableUIRootFixes_20260716\native\ETF_AI_Cockpit url=http://127.0.0.1:8568/
-ready after 2.0s
-browser open requested
-EXIT=0

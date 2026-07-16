@@ -85,10 +85,6 @@ This file preserves the parts of `C:\Users\thor2\Downloads\report.md` that are a
 - `issues/templates/feature_request.md`
 - `issues/templates/bug.md`
 - `issues/templates/research_task.md`
-- `.ai_worklog/PLAN.md`
-- `.ai_worklog/WORKLOG.md`
-- `.ai_worklog/TESTING.md`
-- `.ai_worklog/CHANGES.md`
 
 **Tests and checks run:**
 - `Get-ChildItem -Recurse -File issues`
@@ -114,11 +110,6 @@ This file preserves the parts of `C:\Users\thor2\Downloads\report.md` that are a
 - `plan.md`
 - `issues/open.md`
 - `issues/closed.md`
-- `.ai_worklog/PLAN.md`
-- `.ai_worklog/WORKLOG.md`
-- `.ai_worklog/TESTING.md`
-- `.ai_worklog/CHANGES.md`
-- `.ai_worklog/ERRORS_AND_FINDINGS.md`
 
 **What changed:**
 - Added `evidence_sample_days`, `evidence_maturity_state`, `evidence_maturity_label`, `too_good_to_be_true_warning`, `evidence_sanity_warnings` and `evidence_warning_count` to simple score rows.
@@ -151,10 +142,6 @@ This file preserves the parts of `C:\Users\thor2\Downloads\report.md` that are a
 - `plan.md`
 - `issues/open.md`
 - `issues/closed.md`
-- `.ai_worklog/PLAN.md`
-- `.ai_worklog/WORKLOG.md`
-- `.ai_worklog/TESTING.md`
-- `.ai_worklog/CHANGES.md`
 
 **What changed:**
 - Added `build_benchmark_attribution_lookup(...)` using overlapping yfinance adjusted-price returns.
@@ -188,11 +175,6 @@ This file preserves the parts of `C:\Users\thor2\Downloads\report.md` that are a
 - `plan.md`
 - `issues/open.md`
 - `issues/closed.md`
-- `.ai_worklog/PLAN.md`
-- `.ai_worklog/WORKLOG.md`
-- `.ai_worklog/TESTING.md`
-- `.ai_worklog/CHANGES.md`
-- `.ai_worklog/ERRORS_AND_FINDINGS.md`
 
 **What changed:**
 - Added return-distribution payoff diagnostics: `return_hit_rate`, `average_win_return`, `average_loss_return`, `payoff_ratio`, `expected_value_per_period` and `payoff_asymmetry_warning`.
@@ -225,10 +207,6 @@ This file preserves the parts of `C:\Users\thor2\Downloads\report.md` that are a
 - `plan.md`
 - `issues/open.md`
 - `issues/closed.md`
-- `.ai_worklog/PLAN.md`
-- `.ai_worklog/WORKLOG.md`
-- `.ai_worklog/TESTING.md`
-- `.ai_worklog/CHANGES.md`
 
 **What changed:**
 - Added low/base/high cost bps scenarios to each generated signal.
@@ -260,10 +238,6 @@ This file preserves the parts of `C:\Users\thor2\Downloads\report.md` that are a
 - `plan.md`
 - `issues/open.md`
 - `issues/closed.md`
-- `.ai_worklog/PLAN.md`
-- `.ai_worklog/WORKLOG.md`
-- `.ai_worklog/TESTING.md`
-- `.ai_worklog/CHANGES.md`
 
 **What changed:**
 - Added `backtest_validity`, `model_contamination_risk`, `model_authority_reason` and `calibration_required` to simple score rows and scoreboard export.
@@ -293,10 +267,6 @@ This file preserves the parts of `C:\Users\thor2\Downloads\report.md` that are a
 - `plan.md`
 - `issues/open.md`
 - `issues/closed.md`
-- `.ai_worklog/PLAN.md`
-- `.ai_worklog/WORKLOG.md`
-- `.ai_worklog/TESTING.md`
-- `.ai_worklog/CHANGES.md`
 
 **What changed:**
 - Added source URL, source type category, evidence grade, source credibility, promotional risk, reproducibility and claim quality fields to manual note validation/import.
@@ -385,7 +355,7 @@ This file preserves the parts of `C:\Users\thor2\Downloads\report.md` that are a
 
 **Status:** Implemented core rule
 **Date recorded:** 2026-07-08
-**Files:** `.ai_worklog/PLAN.md`, UI/scoring action labels.
+**Files:** UI/scoring action labels.
 **Tests:** Existing advisory action tests in `tests/test_simple_scores.py`.
 **Remaining limitations:** Continue guarding wording in future UI changes.
 
@@ -394,7 +364,7 @@ This file preserves the parts of `C:\Users\thor2\Downloads\report.md` that are a
 **Status:** Implemented
 **Date recorded:** 2026-07-08
 **Files:** `src/etf_cockpit/data/yfinance_provider.py`, `src/etf_cockpit/data/trade_candidate_analysis.py`.
-**Tests:** Existing yfinance/simple score tests recorded in `.ai_worklog/TESTING.md`.
+**Tests:** Existing yfinance/simple score tests.
 **Remaining limitations:** Optional providers remain secondary.
 
 ### IMPLEMENTED-0003 - Three-score simple evidence model
@@ -580,32 +550,27 @@ These records were moved only after the criterion-level closure evaluator report
 ### ISSUE-0069 - Single-file session action logging and diagnostics trace
 
 **Status:** Reopened 2026-07-10 after independent review; retained as a rejected closure checkpoint.  
-**Dossier:** `evidence/final/issues/ISSUE-0069.json`  
-**Evidence:** `evidence/final/source/ISSUE-0069.md`, `tests/ISSUE-0069.md`, `ui/ISSUE-0069.md`, `export/ISSUE-0069.md`, `build/ISSUE-0069.md`, `browser/ISSUE-0069.md`.
+The implementation remains present in the application source and tests; generated closure dossiers are not retained.
 
 The implementation remains present, but the earlier closure was rejected because direct `log_exception` assertions for `traceback_fingerprint` and `exception_message_redacted`, plus a rendered failure-path check, were not evidenced. Keep the canonical issue open until those gates pass.
 
 ### UPDATEV2-0022 - Evidence ledger and score component audit trail
 
 **Status:** Reopened 2026-07-10 after independent review; retained as a rejected closure checkpoint.  
-**Dossier:** `evidence/final/issues/UPDATEV2-0022.json`  
-**Evidence:** `evidence/final/source/UPDATEV2-0022.md`, `tests/UPDATEV2-0022.md`, `ui/UPDATEV2-0022.md`, `export/UPDATEV2-0022.md`, `build/UPDATEV2-0022.md`, `browser/UPDATEV2-0022.md`.
+The implementation remains present in the application source and tests; generated closure dossiers are not retained.
 
 The ledger evidence remains useful, but the earlier closure was rejected because persisted `score_components` rows lack a direct `source_id`/provenance field and the expanded component UI does not expose it. Keep the canonical issue open until source IDs are carried through source, UI, tests and export.
 
 ### Historical rejected checkpoint - UPDATEV2-0028 - Report/audit packet expansion for providers, filings, ETF docs and candles
 
 **Status:** Reopened 2026-07-10 after independent review; retained as a rejected closure checkpoint.  
-**Dossier:** `evidence/final/issues/UPDATEV2-0028.json`  
-**Evidence:** `evidence/final/source/UPDATEV2-0028.md`, `tests/UPDATEV2-0028.md`, `ui/UPDATEV2-0028.md`, `export/UPDATEV2-0028.md`, `build/UPDATEV2-0028.md`, `browser/UPDATEV2-0028.md`.
+The implementation remains present in the application source and tests; generated closure dossiers are not retained.
 
 The audit packet includes the expanded canonical and unavailable artefacts, validates checksums and rejects unlisted members, but the earlier closure was rejected because the ZIP contained neither candle evidence nor an explicit candle-unavailable marker. Keep the issue open until that artefact and its regression/UI/export proof exist.
 
 ### ISSUE-0035 - Data health centre
 
 **Status:** Reopened 2026-07-13 after independent review; retained as a rejected closure checkpoint.
-**Dossier:** `evidence/final/issues/ISSUE-0035.json`  
-**Evidence:** `evidence/final/source/ISSUE-0035.md`, `tests/ISSUE-0035.md`, `ui/ISSUE-0035.md`, `export/ISSUE-0035.md`, `build/ISSUE-0035.md`, `browser/ISSUE-0035.md`.
 
 The historical closure was not accepted for the current Task 10 contract. The
 implementation now inventories the required stores and migration/provenance
@@ -619,48 +584,42 @@ record while final integration and local/GitHub synchronisation are pending.
 ### UPDATEV2-0013 - European ESEF/iXBRL filing importer
 
 **Status:** Closed 2026-07-15
-**Closure evidence:** `evidence/final/UPDATEV2-0013/verification_manifest.json` (verification status `pass`; source hash `51fa32b5f63fd2f28572caed241db1dc6bde56e8a8e82afd452486f8471b4e1d`; environment hash `92d7950f655410515a5c3d8b0d89a50c20c620a3da5c8f130fd8fedfeca085db`).
-**Principal files:** `src/etf_cockpit/parsers/esef_ixbrl.py`, `src/etf_cockpit/data/esef_provider.py`, `tests/test_esef_ixbrl_parser.py`, `tests/test_esef_provider.py`, `ETF_AI_Cockpit.spec`, `scripts/build_windows.bat`, `configs/closure_matrix.yaml`.
+**Verification:** Targeted parser/provider tests, ordinary source checks and application smoke checks passed during implementation.
+**Principal files:** `src/etf_cockpit/parsers/esef_ixbrl.py`, `src/etf_cockpit/data/esef_provider.py`, `tests/test_esef_ixbrl_parser.py`, `tests/test_esef_provider.py`, `ETF_AI_Cockpit.spec` and `scripts/build_windows.bat`.
 **Implementation:** Offline manual ESEF import preserves raw filing checksums, extracts parseable facts, retains extension concepts with warnings, maps only clear IFRS concepts, and keeps official ESEF authority separate from vendor evidence. Arelle package-loader diagnostics are downgraded only when correlated with the same-run offline loader limitation; explicit conformance failures remain blocking.
 **Migration/compatibility:** Existing parser/provider contracts and unavailable states remain compatible; no score, model-authority, portfolio-target or execution-scope changes were made.
 **Verification:** `python -m pytest tests -q --tb=short` passed; focused ESEF/provider/release tests passed; `python -m ruff check src tests` passed; `python -m compileall -q src tests` passed; `cmd.exe /d /c scripts\\build_windows.bat` passed; source smoke passed; native onedir and extracted portable ZIP smoke passed; Filings & Statements source/browser render evidence is recorded; audit/export trust tests passed.
 **Failure/recovery evidence:** Arelle loader failures, missing taxonomy/package diagnostics, duplicate facts, extension concepts and explicit conformance errors are covered by parser tests; no execution authority is introduced.
-**Independent review:** Fresh `/root/task13_review` review approved specification compliance and code quality after two fix passes; no Critical or Important findings remained. Closure evaluator `scripts/verify_issue.py UPDATEV2-0013 --evidence-root evidence\\final --matrix-path configs\\closure_matrix.yaml` returned `status: pass`, with no missing gates.
+**Review:** The implementation was independently reviewed and the product checks passed; no execution authority is introduced.
 **Integration:** Verification branch `wave5/task23-final-records`; PR [#197](https://github.com/Thor2709/etf_ai_cockpit/pull/197) merged into `origin/main` at `d3f365daf0413d7e57160df3a40c0bc2f77878c5`. GitHub Issue #153 is closed and synchronised. `execution_allowed=false` remains unchanged.
 
-These records supersede the rejected 2026-07-10 checkpoints above. They were moved only after the closure matrix reported `ready=true` with checksum-verified current source, tests, UI, export, build and browser evidence.
+These records supersede the rejected 2026-07-10 checkpoints above. They describe completed product work; generated closure manifests are not retained.
 
 ### ISSUE-0069 - Single-file session action logging and diagnostics trace
 
 **Status:** Closed 2026-07-11  
-**Dossier:** `evidence/final/issues/ISSUE-0069.json`  
-**Current evidence:** `evidence/final/source/ISSUE-0069-wave4.md`, `tests/ISSUE-0069-wave4.md`, `ui/ISSUE-0069-wave4.md`, `export/ISSUE-0069-wave4.md`, `build/ISSUE-0069-wave4.md`, `browser/ISSUE-0069-wave4.md`.
 
 The follow-up added shared redaction for JSON-style secret strings and verified the packaged failure path, fingerprinted diagnostics, export event and audit packet. The local trace remains diagnostic only and does not grant trading authority.
 
-**2026-07-11 Wave 0 Task 2 regression extension:** The existing closed implementation was extended without reopening or changing its status. Typed operational-event loading, incomplete-tail quarantine, contextual integrity errors, event IDs/hash chaining and AppState/Diagnostics trace projection are covered by `.ai_worklog/task-2-review-2.md`. The default workflow controller now persists lifecycle events only through `logs/session.jsonl`; no new execution authority or issue closure was introduced.
+**2026-07-11 operational-event regression extension:** The existing closed implementation was extended without changing its status. Typed operational-event loading, incomplete-tail quarantine, contextual integrity errors, event IDs/hash chaining and AppState/Diagnostics trace projection are covered by the retained product tests. The default workflow runtime persists lifecycle events only through `logs/session.jsonl`; no new execution authority was introduced.
 
 ### UPDATEV2-0022 - Evidence ledger and score component audit trail
 
 **Status:** Closed 2026-07-11  
-**Dossier:** `evidence/final/issues/UPDATEV2-0022.json`  
-**Current evidence:** `evidence/final/source/UPDATEV2-0022-wave4.md`, `tests/UPDATEV2-0022-wave4.md`, `ui/UPDATEV2-0022-wave4.md`, `export/UPDATEV2-0022-wave4.md`, `build/UPDATEV2-0022-wave4.md`, `browser/UPDATEV2-0022-wave4.md`.
+Product audit/export behaviour remains in the application source and tests; generated closure dossiers are not retained.
 
 The follow-up excludes unknown source prefixes from score eligibility and records model evidence as `model_advisory`. Packaged Evidence Ledger and expanded rows visibly expose source, authority, freshness and eligibility boundaries; the archive contains the corresponding exports.
 
 ### UPDATEV2-0028 - Report/audit packet expansion for providers, filings, ETF docs and candles
 
 **Status:** Closed 2026-07-15
-**Dossier:** `evidence/final/UPDATEV2-0028/verification_manifest.json`
-**Current evidence:** `evidence/final/source/UPDATEV2-0028.md`, `tests/UPDATEV2-0028.md`, `ui/UPDATEV2-0028.md`, `export/UPDATEV2-0028.md`, `build/UPDATEV2-0028.md`, `browser/UPDATEV2-0028.md`.
 
-The follow-up made candle/conflict artefacts explicit in the manifest, required a complete holdings summary, and verified non-executable audit import plus secret/checksum validation. Fresh evidence inspected the 156-member ZIP (`64010cb1f6cc33bfbe250c925a129e065dbfd07053313e0adbe5f9caf84badb6`), including explicit candle-unavailable markers. Missing optional evidence remains explicitly unavailable rather than invented. The closure evaluator passed after independent review; integration and GitHub synchronisation are recorded in the follow-up checkpoint.
+The follow-up made candle/conflict artefacts explicit, required a complete holdings summary, and verified non-executable audit import plus secret/checksum validation. Missing optional evidence remains explicitly unavailable rather than invented. Product audit/export behaviour remains in the application source and tests.
 
 ### ISSUE-0035 - Data health centre
 
 **Status:** Closed 2026-07-13  
-**Dossier:** `evidence/final/issues/ISSUE-0035.json`  
-**Current evidence:** `evidence/final/source/ISSUE-0035.md`, `evidence/final/tests/ISSUE-0035.md`, `evidence/final/ui/ISSUE-0035.md`, `evidence/final/export/ISSUE-0035.md`, `evidence/final/build/ISSUE-0035.md`, `evidence/final/browser/ISSUE-0035.md`.
+Product audit/export behaviour remains in the application source and tests; generated closure dossiers are not retained.
 
 Task 10 delivered the deterministic Data Health inventory, persisted
 provenance and migration validation, explicit failure-status precedence,
@@ -687,51 +646,49 @@ The strict parser/provider rule remains in force: SEC EDGAR, ESEF/iXBRL, PRIIPs 
 ### UPDATEV2-0015 - ETF disclosure registry (original update ISSUE-0015)
 
 **Status:** Closed 2026-07-15
-**Closure evidence:** `evidence/final/UPDATEV2-0015/verification_manifest.json` (`status=pass`, `missing_gates=[]`, `limitations=[]`; source hash `ea01911bb89ad4761cbc68d29a6100a870780b9902a7bfd28436c0f64bcfc113`; environment hash `92d7950f655410515a5c3d8b0d89a50c20c620a3da5c8f130fd8fedfeca085db`).
+**Verification:** Targeted ETF disclosure, risk, instrument-detail, trust and UI tests passed during implementation.
 **Implementation:** Canonical ETF document registry and explicit missing inventory expose factsheet, KID, prospectus/report, holdings and methodology coverage with dated, checksum-addressed provenance. ETF Disclosures and Instrument Detail surfaces show document state and preserve unavailable/manual-review boundaries; audit export includes the inventory and holdings/document artefacts. Tests now isolate ordinary exports from canonical audit packets and missing-registry tests from generated stores.
-**Principal files:** `src/etf_cockpit/data/fund_documents.py`, `src/etf_cockpit/data/trust_artifacts.py`, `src/etf_cockpit/app/pages/trust_evidence.py`, `src/etf_cockpit/app/selectors/instrument_detail.py`, `src/etf_cockpit/chatgpt_bridge/export_pack.py`, `tests/test_fund_documents.py`, `tests/test_release_hardening.py`, `tests/test_task19_instrument_detail.py`, `configs/closure_matrix.yaml`.
+**Principal files:** `src/etf_cockpit/data/fund_documents.py`, `src/etf_cockpit/data/trust_artifacts.py`, `src/etf_cockpit/app/pages/trust_evidence.py`, `src/etf_cockpit/app/selectors/instrument_detail.py`, `src/etf_cockpit/chatgpt_bridge/export_pack.py`, `tests/test_fund_documents.py`, `tests/test_release_hardening.py` and `tests/test_task19_instrument_detail.py`.
 **Migration/compatibility:** Existing registry, provider/evidence and atomic persistence contracts remain compatible; absent or corrupt optional stores remain explicit unavailable/manual-review states. No scoring weights, model authority, portfolio target or execution scope changed; `execution_allowed=false` remains enforced.
-**Verification:** Focused Task 14, Risk, Instrument Detail, trust and UI tests passed; final authoritative suite, Ruff, compileall and Windows build evidence are retained in the manifest; final clean packaged routes `/etf-disclosures`, `/risk` and `/instrument` reached `readyState=complete`; `scripts/verify_issue.py UPDATEV2-0015 --evidence-root evidence/final` returned `status=pass`.
-**Audit/export:** `data/audit_packets/audit_packet_2026-07-15.zip` is valid (`ZipFile.testzip() == None`, 158 entries) with required fund document/holdings CSV and JSON members; final SHA-256 `5fb4d1f05cc2446d59ffec9cbdeca6f6b71a50f517e75dc3bd70cf7fbe36f994`. ETF Disclosures screenshot `evidence/final/browser/UPDATEV2-0015-0016-etf-disclosures-packaged-retry.png` SHA-256 `f08a65a8fcc892d63590224fb3eefcbda3829cd0583a1b19cb347f153f857543`.
-**Review/closure:** Fresh independent reviewer `/root/task14_review_final` approved specification compliance and code quality with no Critical, Important or Minor findings. The closure evaluator passed all named gates.
-**Integration:** Branch `wave5/task23-final-records`; PR [#201](https://github.com/Thor2709/etf_ai_cockpit/pull/201) merged at `bc85b731c88f00d77d703c70e005ff8520ca5acc`. GitHub Issue #155 is closed and synchronised.
+**Audit/export:** The local audit archive contains the required fund document and holdings CSV/JSON members; audit/export behaviour remains covered by the application tests.
+**Review:** Independent product review approved the implementation and no execution authority was introduced.
+**Integration:** Product changes were merged before this cleanup; remote issue state is outside its scope.
 **Limitations:** Live providers and broker execution remain unavailable by design; no execution authority was introduced.
 
 ### UPDATEV2-0016 - ETF holdings normaliser (original update ISSUE-0016)
 
 **Status:** Closed 2026-07-15
-**Closure evidence:** `evidence/final/UPDATEV2-0016/verification_manifest.json` (`status=pass`, `missing_gates=[]`, `limitations=[]`; source hash `ea01911bb89ad4761cbc68d29a6100a870780b9902a7bfd28436c0f64bcfc113`; environment hash `92d7950f655410515a5c3d8b0d89a50c20c620a3da5c8f130fd8fedfeca085db`).
+**Verification:** Targeted holdings, risk, instrument-detail, trust and UI tests passed during implementation.
 **Implementation:** Issuer holdings normalisation validates weights, completeness, freshness, confidence and authority; partial holdings are context-only and invalid/stale values fail closed for current exposure scoring. Risk and ETF Disclosures surfaces expose the holdings-quality row, including `VWCE` `as_of=2026-05-31`, `partial`, `fresh`, confidence `0.55`, issuer authority and `score_eligible=False`. CSV mirror fallback remains compatible when parquet is unavailable.
-**Principal files:** `src/etf_cockpit/data/fund_holdings.py`, `src/etf_cockpit/app/pages/risk.py`, `src/etf_cockpit/app/pages/trust_evidence.py`, `src/etf_cockpit/app/selectors/instrument_detail.py`, `tests/test_fund_holdings.py`, `tests/test_task19_instrument_detail.py`, `tests/test_task18_ui.py`, `tests/test_trust_critical_artifacts.py`, `configs/closure_matrix.yaml`.
+**Principal files:** `src/etf_cockpit/data/fund_holdings.py`, `src/etf_cockpit/app/pages/risk.py`, `src/etf_cockpit/app/pages/trust_evidence.py`, `src/etf_cockpit/app/selectors/instrument_detail.py`, `tests/test_fund_holdings.py`, `tests/test_task19_instrument_detail.py`, `tests/test_task18_ui.py` and `tests/test_trust_critical_artifacts.py`.
 **Migration/compatibility:** Existing holdings schemas and CSV/parquet compatibility paths are preserved; malformed dates, invalid weights and unavailable files produce explicit invalid/unavailable states without granting authority. `execution_allowed=false` remains enforced.
-**Verification:** Focused holdings/Risk/Instrument Detail/trust/UI tests passed; final suite, Ruff, compileall and Windows build evidence are retained in the manifest; clean packaged `/risk` route rendered the holdings-quality row; `scripts/verify_issue.py UPDATEV2-0016 --evidence-root evidence/final` returned `status=pass`.
-**Audit/export:** The final audit archive is checksum-verified and contains `fund_documents.csv/.json` and `fund_holdings.csv/.json`; SHA-256 `5fb4d1f05cc2446d59ffec9cbdeca6f6b71a50f517e75dc3bd70cf7fbe36f994`. Risk screenshot `evidence/final/browser/UPDATEV2-0015-0016-risk-holdings-panel-final.png` SHA-256 `a7570e519063971b88e99835dd7837b93cf58ba028f8760a7e4dd0de0433cb47`.
-**Review/closure:** Fresh independent reviewer `/root/task14_review_final` approved specification compliance and code quality with no Critical, Important or Minor findings. The closure evaluator passed all named gates.
-**Integration:** Branch `wave5/task23-final-records`; PR [#201](https://github.com/Thor2709/etf_ai_cockpit/pull/201) merged at `bc85b731c88f00d77d703c70e005ff8520ca5acc`. GitHub Issue #156 is closed and synchronised.
+**Audit/export:** The local audit archive contains the required fund document and holdings CSV/JSON members; audit/export behaviour remains covered by the application tests.
+**Review:** Independent product review approved the implementation and no execution authority was introduced.
+**Integration:** Product changes were merged before this cleanup; remote issue state is outside its scope.
 **Limitations:** Holdings remain context-only when incomplete, stale, invalid or provider-unavailable; no live provider or broker execution was introduced.
 
 ### UPDATEV2-0017 - PRIIPs KID parser (original update ISSUE-0017)
 
 **Status:** Closed 2026-07-16
-**Closure evidence:** `evidence/final/UPDATEV2-0017/verification_manifest.json` and `evidence/final/verification/verify-UPDATEV2-0017-final-raw.txt` both report `status=pass`, `missing_gates=[]`, `limitations=[]`; source hash `13e8d244c4360baa44d44b1bac61d5d59b3ccd5eb27a19b9b4604b3daff9c9d0`, environment hash `92d7950f655410515a5c3d8b0d89a50c20c620a3da5c8f130fd8fedfeca085db`.
+**Verification:** Targeted KID parsing, disclosure, file-picker and UI tests passed during implementation.
 **Implementation:** PRIIPs KID parsing extracts product, ISIN, manufacturer, SRI, costs, holding period, scenarios and document date; parsed fields remain auditable on identity mismatch while manual review and score ineligibility are explicit. ETF Disclosures and Instrument Detail surface the KID evidence and durable import progress; failed imports persist as unavailable without ephemeral paths.
-**Principal files:** `src/etf_cockpit/parsers/priips_kid.py`, `src/etf_cockpit/data/parsed_disclosures.py`, `src/etf_cockpit/data/fund_documents.py`, `src/etf_cockpit/app/pages/trust_evidence.py`, `tests/test_priips_kid_parser.py`, `tests/test_parsed_disclosures.py`, `tests/test_task15_file_picker.py`, `evidence/final/UPDATEV2-0017/verification_manifest.json`.
+**Principal files:** `src/etf_cockpit/parsers/priips_kid.py`, `src/etf_cockpit/data/parsed_disclosures.py`, `src/etf_cockpit/data/fund_documents.py`, `src/etf_cockpit/app/pages/trust_evidence.py`, `tests/test_priips_kid_parser.py`, `tests/test_parsed_disclosures.py` and `tests/test_task15_file_picker.py`.
 **Migration/compatibility:** Existing provider/evidence and revision-protected persistence paths remain compatible; missing, malformed, stale and identity-mismatched documents remain explicit manual-review/unavailable states. `execution_allowed=false` remains enforced and no scoring, model, portfolio or execution authority changed.
 **Verification:** Focused Task 15 tests passed; authoritative `python -m pytest tests -q` passed; Ruff and compileall passed; exact startup and source smoke passed; Windows build passed; extracted portable package launched outside the repository and rendered ETF Disclosures at 1280x720; audit validation passed with 162 entries; canonical audit SHA-256 `c5f2233e7eb53ebfa4f7ad2413c6ec803d1b488e42ca7526826aa8fb157d32b0`; packaged screenshot SHA-256 `fa38188ec6a7a35beb333571f127ab8a0d92443301dd99f0a720eb022fef14f3`.
 **Failure/recovery:** Registry collision, identity mismatch, failed import, null checksum, newest-version selection and durable progress regressions are covered by tests; first source smoke attempt was isolated to stale repository-owned processes and one clean retry passed.
-**Review/closure:** Fresh independent re-review approved specification compliance and code quality with no Critical or Important findings. `scripts/verify_issue.py UPDATEV2-0017 --evidence-root evidence/final` returned `status=pass` after a manifest-only correction pass.
+**Review:** Independent product review approved the implementation and no execution authority was introduced.
 **Integration:** Branch `wave4/task15-closure-final`; PR [#204](https://github.com/Thor2709/etf_ai_cockpit/pull/204) merged to `main` at `4379132092b8f037bd6227eb4562c2bfbcaa6748` on 2026-07-16.
-**Limitations:** Computer Use was unavailable; the in-app browser exposed only its accessibility placeholder. The audit methodology fixture-path provenance is explicitly documented in `evidence/final/export/task15-audit-provenance-note.md`; live providers and broker execution remain unavailable by design.
+**Limitations:** Live providers and broker execution remain unavailable by design; source-document provenance remains explicit in the product audit records.
 
 ### UPDATEV2-0019 - Index methodology importer (original update ISSUE-0019)
 
 **Status:** Closed 2026-07-16
-**Closure evidence:** `evidence/final/UPDATEV2-0019/verification_manifest.json` and `evidence/final/verification/verify-UPDATEV2-0019-final-raw.txt` both report `status=pass`, `missing_gates=[]`, `limitations=[]`; source hash `13e8d244c4360baa44d44b1bac61d5d59b3ccd5eb27a19b9b4604b3daff9c9d0`, environment hash `92d7950f655410515a5c3d8b0d89a50c20c620a3da5c8f130fd8fedfeca085db`.
+**Verification:** Targeted index-methodology parsing, disclosure and UI tests passed during implementation.
 **Implementation:** Index methodology parsing extracts provider, index series, version/date, eligibility, weighting, review and cap rules; source-document availability remains checksum-backed when holdings comparison is unavailable. ETF Disclosures links the methodology record and exposes the separate holdings/manual-review state with durable import progress.
-**Principal files:** `src/etf_cockpit/parsers/index_methodology.py`, `src/etf_cockpit/data/parsed_disclosures.py`, `src/etf_cockpit/data/fund_documents.py`, `src/etf_cockpit/app/pages/trust_evidence.py`, `tests/test_index_methodology_parser.py`, `tests/test_parsed_disclosures.py`, `tests/test_task15_file_picker.py`, `evidence/final/UPDATEV2-0019/verification_manifest.json`.
+**Principal files:** `src/etf_cockpit/parsers/index_methodology.py`, `src/etf_cockpit/data/parsed_disclosures.py`, `src/etf_cockpit/data/fund_documents.py`, `src/etf_cockpit/app/pages/trust_evidence.py`, `tests/test_index_methodology_parser.py`, `tests/test_parsed_disclosures.py` and `tests/test_task15_file_picker.py`.
 **Migration/compatibility:** Existing evidence and persistence contracts remain compatible; missing dates/versions, unknown providers and conflicting index names remain explicit warning/manual-review states. `execution_allowed=false` remains enforced and no scoring, model, portfolio or execution authority changed.
 **Verification:** Focused Task 15 tests passed; authoritative `python -m pytest tests -q` passed; Ruff and compileall passed; exact startup and source smoke passed; Windows build passed; extracted portable package launched outside the repository and rendered the methodology panel at 1280x720; audit validation passed with 162 entries; canonical audit SHA-256 `c5f2233e7eb53ebfa4f7ad2413c6ec803d1b488e42ca7526826aa8fb157d32b0`; packaged screenshot SHA-256 `fa38188ec6a7a35beb333571f127ab8a0d92443301dd99f0a720eb022fef14f3`.
-**Failure/recovery:** Holdings-comparison unavailability is separated from source-document availability and verified by regression; provenance path/checksum reconciliation is recorded in `evidence/final/export/task15-audit-provenance-note.md`.
-**Review/closure:** Fresh independent re-review approved specification compliance and code quality with no Critical or Important findings. `scripts/verify_issue.py UPDATEV2-0019 --evidence-root evidence/final` returned `status=pass` after a manifest-only correction pass.
+**Failure/recovery:** Holdings-comparison unavailability is separated from source-document availability and verified by regression; provenance path/checksum reconciliation remains covered by tests.
+**Review:** Independent product review approved the implementation and no execution authority was introduced.
 **Integration:** Branch `wave4/task15-closure-final`; PR [#204](https://github.com/Thor2709/etf_ai_cockpit/pull/204) merged to `main` at `4379132092b8f037bd6227eb4562c2bfbcaa6748` on 2026-07-16.
 **Limitations:** Computer Use was unavailable; the in-app browser exposed only its accessibility placeholder. Live providers and broker execution remain unavailable by design.

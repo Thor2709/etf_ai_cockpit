@@ -1,2 +1,0 @@
-smoke_port requested=8611 selected=8611 reason=port 8611 is free
-smoke_ok mode=native url=http://127.0.0.1:8611/

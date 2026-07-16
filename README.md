@@ -25,11 +25,9 @@ For a command-line smoke test without opening the UI:
 
 The workflow smoke harness accepts `source`, `native`, `portable-native`, `launcher`, `first-run` and `offline` modes. It requires a local HTTP-ready app for each mode and removes only processes it started. `offline` prevents the harness itself from making remote requests; it does not certify that every provider is unavailable without a separate provider fixture test.
 
-Run the finish check with a newline-delimited changed-paths file. It executes mapped automated gates and writes a secret-redacted JSON report. Use `--plan-only` to inspect selected gates without running them.
-
-```powershell
-.\.venv\Scripts\python scripts\dev_finish_check.py --issues UPDATEV2-0029 ISSUE-0013 --changed-paths-file evidence\wave2\changed-paths.txt --json-report evidence\wave2\finish-report.json
-```
+For an ordinary change, run the targeted tests for the affected code and one
+local application smoke check. Consolidated milestone and release testing is
+performed later.
 
 The configured market-data backbone is Yahoo Finance through `yfinance`. The validated clean store under `data/clean` is refreshed from yfinance, then algorithms, backtests and TimesFM/Toto forecasts run from that same yfinance price panel. Sample data remains available only as a fallback/test generator.
 

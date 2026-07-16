@@ -1,3 +1,0 @@
-# UPDATEV2-0019 browser evidence
-
-The fixed source smoke command passed once after stale repository-owned app processes were stopped: `browser/task15-browser-exact-raw.txt` (SHA-256 `cf65b23cc9d5e28d96ecc165e944f9928952fbdca8ab7f502a3f6ee0aa1a6eb3`). The clean extracted portable launcher started on port 8568 and returned HTTP 200; launcher output is `browser/task15-package-imported-launch-ui-root-fixes-raw.txt` (SHA-256 `b8d8918495f6576d453e0ddb6b57825ed13a6474b9e50f6c1d9c9fc0238d6325`). The 1280x720 packaged capture is `browser/task15-packaged-imported-ui-root-fixes-final.png` (SHA-256 `fa38188ec6a7a35beb333571f127ab8a0d92443301dd99f0a720eb022fef14f3`).
