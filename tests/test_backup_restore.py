@@ -97,12 +97,11 @@ def test_backup_scans_contents_and_records_secret_exclusions(tmp_path: Path) -> 
 
 def test_backup_manifest_keeps_actual_version_and_changelog_metadata_paths(tmp_path: Path) -> None:
     version = tmp_path / "pyproject.toml"
-    changelog = tmp_path / ".ai_worklog" / "CHANGES.md"
-    changelog.parent.mkdir(parents=True)
+    changelog = tmp_path / "CHANGELOG.md"
     version.write_text("[project]\nversion = '0.1.0'\n", encoding="utf-8")
     changelog.write_text("# Changes\n", encoding="utf-8")
     manifest = create_backup([version, changelog], tmp_path / "metadata.zip")
-    assert set(manifest.checksums) == {"pyproject.toml", ".ai_worklog/CHANGES.md"}
+    assert set(manifest.checksums) == {"pyproject.toml", "CHANGELOG.md"}
 
 
 def test_restore_rejects_unsupported_known_payload_schema_before_writes(tmp_path: Path) -> None:

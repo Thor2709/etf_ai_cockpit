@@ -1,7 +1,0 @@
-Command: .\.venv\Scripts\python.exe scripts\launcher_core.py launch --mode source --preferred-port 8584 --open-browser 0 --timeout 5
-Exit code: 0
-Output:
-launch_port requested=8584 selected=8584 reason=existing HTTP server is ready
-existing_server_ready url=http://127.0.0.1:8584/
-
-Result: an already-ready local app was reused without starting a second process.

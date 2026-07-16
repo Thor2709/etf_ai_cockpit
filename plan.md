@@ -1,6 +1,6 @@
 # AI Evidence Cockpit Plan
 
-This root plan is synchronised with `issues/open.md`, `issues/closed.md` and the detailed project memory in `.ai_worklog/PLAN.md`.
+This root plan is synchronised with `issues/open.md` and `issues/closed.md`.
 
 ## Product Objective
 
@@ -231,7 +231,7 @@ Live automatic buy/sell is not implemented now.
 
 ## 2026-07-09 updatev2.md Coverage Matrix
 
-`C:\Users\thor2\Downloads\updatev2.md` extends the roadmap from a price/model cockpit into a multi-source evidence cockpit. This update is implemented into this plan, `issues/open.md`, `issues/closed.md`, root `ISSUES.md`, root `CLOSED.md`, `REPORT.md` and `.ai_worklog`. The update does not close implementation work. It adds open work and research-only closures.
+`C:\Users\thor2\Downloads\updatev2.md` extends the roadmap from a price/model cockpit into a multi-source evidence cockpit. This update is implemented into this plan, `issues/open.md`, `issues/closed.md`, root `ISSUES.md` and `REPORT.md`. The update does not close implementation work. It adds open work and research-only records.
 
 ### Non-negotiable rules preserved
 
@@ -1413,7 +1413,7 @@ P0/P1 current priorities:
 4. `ISSUE-0019` instrument detail page.
 5. `ISSUE-0035` data health centre.
 
-`ISSUE-0035` was closed on 2026-07-10 after the responsive Data Health inventory, Dashboard summary, CSV export, final rebuild and browser evidence gates passed. See `evidence/final/issues/ISSUE-0035.json`.
+`ISSUE-0035` was closed on 2026-07-10 after the responsive Data Health inventory, Dashboard summary, CSV export, final rebuild and application smoke checks passed. See `issues/closed.md` for the recorded issue entry.
 
 ### Phase D - news/context
 
@@ -1682,7 +1682,7 @@ Important limitation:
 
 ## 2026-07-10 Closure Checkpoint
 
-The criterion-level closure evaluator moved only `ISSUE-0069`, `UPDATEV2-0022` and `UPDATEV2-0028` to closed after checksum-backed source, test, UI, export, build and browser evidence. The remaining selected issues and strict parser/provider workflows remain open with their missing criteria recorded in `evidence/final/closure-report.json`.
+`ISSUE-0069`, `UPDATEV2-0022` and `UPDATEV2-0028` are recorded as completed in `issues/closed.md`; the remaining selected issues and strict parser/provider workflows remain open with their limitations recorded in the issue files.
 
 ## 2026-07-11 Final Verification Checkpoint
 

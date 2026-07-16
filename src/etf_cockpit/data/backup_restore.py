@@ -177,8 +177,6 @@ def _approved_payload_root(name: str) -> bool:
         return normalised == "manifest.json"
     if normalised.startswith(("data/", "configs/", "version/", "changelog/")):
         return True
-    if normalised == ".ai_worklog/changes.md":
-        return True
     return normalised in {"pyproject.toml", "version", "version.txt", "version.json", "changelog.md", "changes.md"}
 
 
@@ -242,7 +240,7 @@ def _transient_path(path: Path) -> bool:
     # Explicitly selected release metadata remains stable even when pytest or
     # another caller places it below a transient ancestor such as ``logs``.
     metadata_name = _archive_name(path).casefold()
-    if metadata_name in {"pyproject.toml", "version", "version.txt", "version.json", "changelog.md", "changes.md", ".ai_worklog/changes.md"}:
+    if metadata_name in {"pyproject.toml", "version", "version.txt", "version.json", "changelog.md", "changes.md"}:
         return False
     return bool(transient_indexes) or path.suffix.lower() in {".pyc", ".tmp"}
 
@@ -250,9 +248,6 @@ def _transient_path(path: Path) -> bool:
 def _archive_name(path: Path) -> str:
     parts = list(path.parts)
     lowered = [part.casefold() for part in parts]
-    if ".ai_worklog" in lowered:
-        index = lowered.index(".ai_worklog")
-        return Path(*parts[index:]).as_posix()
     for marker in ("configs", "data", "models", "version", "changelog", "exports"):
         if marker in parts:
             return Path(*parts[parts.index(marker) :]).as_posix()

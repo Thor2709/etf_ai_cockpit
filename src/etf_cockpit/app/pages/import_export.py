@@ -83,7 +83,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
 
     def backup(_event: ft.ControlEvent) -> None:
         try:
-            manifest = create_backup([DATA_DIR, CONFIG_DIR, ROOT / "pyproject.toml", ROOT / ".ai_worklog" / "CHANGES.md"], Path(backup_path.value or "backup.zip"))
+            manifest = create_backup([DATA_DIR, CONFIG_DIR, ROOT / "pyproject.toml", ROOT / "CHANGELOG.md"], Path(backup_path.value or "backup.zip"))
             show(f"Backup created at {manifest.archive}; {len(manifest.checksums)} files; checksum manifest validated.", colour=theme.GREEN)
         except Exception as exc:
             show(f"Backup failed: {type(exc).__name__}: {exc}.", colour=theme.RED)

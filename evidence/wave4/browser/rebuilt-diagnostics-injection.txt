@@ -1,3 +1,0 @@
-raw_secret_present= False
-redacted_bearer_present= True
-fingerprint_present= True

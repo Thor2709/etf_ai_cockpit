@@ -1,2 +1,0 @@
-smoke_port requested=8580 selected=8580 reason=port 8580 is free
-smoke_ok mode=source url=http://127.0.0.1:8580/

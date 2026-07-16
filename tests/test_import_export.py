@@ -540,7 +540,7 @@ def test_export_sources_use_live_data_journal_and_canonical_watchlist_store() ->
     assert "root=DATA_DIR" in source
     assert "scoreboard.parquet" in source
     assert "pyproject.toml" in source
-    assert ".ai_worklog" in source
+    assert "CHANGELOG.md" in source
 
 
 def test_settings_references_actual_version_and_changelog_files() -> None:
@@ -548,5 +548,4 @@ def test_settings_references_actual_version_and_changelog_files() -> None:
 
     source = inspect.getsource(settings_page)
     assert "pyproject.toml" in source
-    assert ".ai_worklog" in source
-    assert "CHANGELOG.md" not in source
+    assert "CHANGELOG.md" in source
