@@ -101,11 +101,8 @@ The user selected the following 21 issues for direct implementation as one stage
 
 | Order | Issue | Priority | Selected implementation responsibility |
 |---:|---|---|---|
-| 1 | `ISSUE-0069` | P0 | **Closed 2026-07-11:** current package diagnostics, redaction, export, rebuild and Chrome evidence passed. |
-| 2 | `UPDATEV2-0010` | P0 | Provider registry, capability probes, source authority and redacted Provider Status UI. |
 | 3 | `UPDATEV2-0011` | P0 | Canonical identity resolver for ticker/ISIN/exchange/currency/share-class mapping. |
 | 4 | `UPDATEV2-0021` | P0 | Conflict resolver so source disagreements are visible and never silently overwritten. |
-| 5 | `UPDATEV2-0022` | P0 | **Closed 2026-07-11:** source IDs, authority policy, Evidence Ledger UI, tests, export and Chrome evidence passed. |
 | 6 | `UPDATEV2-0012` | P0 | SEC EDGAR official statement importer and cached raw/clean statement inventory. |
 | 7 | `UPDATEV2-0013` | P0/P1 | European ESEF/iXBRL local importer with source-verification confidence. |
 | 8 | `UPDATEV2-0015` | P1 | ETF disclosure registry for factsheets, KIDs, prospectuses, reports and methodologies. |
@@ -224,88 +221,6 @@ authority_label
 **Plan.md update requirement:** Keep `Score History And Score Evolution Charts` section and current priority list updated.  
 **Close criteria:** Common close criteria plus browser/user-perspective verification that each expanded instrument row displays the score-evolution mini chart.
 
-## ISSUE-0069 - Single-file session action logging and diagnostics trace
-
-**Status:** Closed 2026-07-11; the completed product work is recorded in `issues/closed.md`.
-**Type:** Logging / Diagnostics / UI / Audit / Reliability  
-**Priority:** P0  
-**Evidence grade:** High  
-**Source URLs:** Latest 21 trust-critical implementation request; `plan.md`; linked to `ISSUE-0011`, `ISSUE-0012`, `UPDATEV2-0027`, `UPDATEV2-0028` and `ISSUE-0040`.  
-**Problem:** The app has an activity log, but it does not yet provide one authoritative current-session trace that connects button clicks, action IDs, workflow steps, errors, generated files, exports and user-visible status. Without this trace, it is hard to prove whether a button really ran, diagnose failures, or include an auditable workflow trace in the evidence export.  
-**Why it matters:** Trust-critical workflows need reproducible diagnostics. The user must be able to press a button, see progress, then inspect a durable trace showing what happened, which files were touched and whether any error was redacted safely.  
-**Proposed implementation:** Add `logs/session.jsonl` as the single current-session log. Clear it only when a new app server process starts. Log `session_start` immediately. Use action IDs to connect button clicks, activity updates, backend service operations, exceptions, generated artefacts and audit exports. Redact secrets before writing. Logging failure must never crash the app.
-
-Minimum event fields:
-
-```text
-timestamp_utc
-timestamp_local
-session_id
-sequence_number
-action_id
-parent_action_id
-event_type
-severity
-route
-component
-button_label
-feature
-operation
-status
-duration_ms
-instrument_id
-ticker
-provider
-model
-input_summary
-output_summary
-row_counts
-file_paths
-checksums
-warnings
-blocked_by
-user_message
-exception_type
-exception_message_redacted
-traceback_fingerprint
-schema_version
-```
-
-**Acceptance criteria:**  
-- `logs/session.jsonl` is cleared when a new app server process starts and immediately records `session_start`.  
-- Button clicks log before backend work begins.  
-- Long-running actions log start, step updates, success/failure and output path.  
-- Exceptions are logged with redacted messages and a traceback fingerprint, but no secrets.  
-- API keys, tokens, passwords and `.env` values are never logged.  
-- Diagnostics/Logs UI shows session ID, log path, recent events, warnings/errors and export path.  
-- Audit/evidence export includes `session.jsonl` or an explicit unavailable marker.  
-- Logging failures are swallowed and do not break app workflows.  
-
-**UI requirement:** Diagnostics page must include a "Session log" or "Diagnostics trace" panel with current session ID, path, recent action rows, readable status and a clear note that secrets are redacted. Long-running buttons must continue to show visible progress in the shell and Activity Log.  
-**Tests required:** Unit tests for session initialisation, clearing-on-start, append order, action ID propagation, redaction and logging-failure tolerance. Integration/UI smoke test that a button action writes at least start and success/failure events. Export test that `session.jsonl` is included or marked unavailable and contains no fake API key/token.  
-**Rebuild requirement:** Full release gate before close.  
-**Plan.md update requirement:** Keep the 21 trust-critical implementation programme and release gate current.  
-**Close criteria:** Common close criteria plus browser/user-perspective verification that Diagnostics shows recent button/action events after a workflow button is pressed.
-
-**2026-07-09 implementation note:** Core source/UI/export/test work is implemented: `logs/session.jsonl`, session start reset, redaction, Diagnostics session-log panel, navigation/activity logging and audit export inclusion. Rebuilt-app smoke verified Diagnostics recent events. Keep open until every main workflow button has complete action-ID coverage, generated-file trace coverage and browser smoke evidence under the common close criteria.
-
-## UPDATEV2-0010 - Provider registry, capability probes and source authority model (original update ISSUE-0010)
-
-**Status:** Closed 2026-07-11; the completed product work is recorded in `issues/closed.md`.
-**Type:** Providers / Evidence Integrity  
-**Priority:** P0  
-**Evidence grade:** High  
-**Source URLs:** `C:\Users\thor2\Downloads\updatev2.md`; yfinance, SEC EDGAR, ESEF, FMP, Alpha Vantage, Finnhub, Stooq, Twelve Data and Tiingo sources listed in `REPORT.md`.  
-**Problem:** The app is moving from yfinance-only evidence into official filings, vendor APIs, ETF disclosures and candle evidence. Without a provider registry and source authority model, the app cannot safely decide whether a source is official, vendor-normalised, partial, stale, forbidden, rate-limited or context-only.  
-**Why it matters:** Every later provider/importer/scoring feature depends on source identity, authority, limits and entitlement status.  
-**Proposed implementation:** Extend `configs/data_providers.yaml`; add provider capability model; add `probe_capabilities()` to every provider; add `source_authority` enum; store `data/clean/provider_probe_results.parquet`; add Provider Status UI; include provider status in audit packet.  
-**Acceptance criteria:** Missing API keys do not crash; disabled providers stay disabled; provider capability must be `ok` before scoring use; API keys are never logged/exported; UI shows provider state and last probe result; audit packet includes provider status.  
-**UI requirement:** Provider Status page/panel with enabled/disabled state, API-key redaction, capabilities, probe result, quota/rate budget and last successful import.  
-**Tests required:** Mock provider OK, forbidden, rate-limited, missing API key, config redaction and probe result storage.  
-**Rebuild requirement:** Full release gate before close.  
-**Plan.md update requirement:** Preserve provider strategy and source authority ladder.  
-**Close criteria:** Common close criteria plus audit packet provider manifest.
-
 ## UPDATEV2-0011 - Symbol/ISIN/exchange identity resolver (original update ISSUE-0011)
 
 **Status:** Open, partial  
@@ -407,23 +322,6 @@ schema_version
 **Rebuild requirement:** Full release gate before close.  
 **Plan.md update requirement:** Preserve conflict severity and source ranking.  
 **Close criteria:** Common close criteria plus conflict report export.
-
-## UPDATEV2-0022 - Evidence ledger and score component audit trail (original update ISSUE-0022)
-
-**Status:** Open  
-**Type:** Audit / Scoring  
-**Priority:** P0  
-**Evidence grade:** High  
-**Source URLs:** `updatev2.md`; CrossCompatibleInvestmentApp score snapshot patterns.  
-**Problem:** The app needs to explain every score component with source, freshness, confidence, authority and conflict status.  
-**Why it matters:** Score transparency is central to a trustworthy evidence cockpit.  
-**Proposed implementation:** Add `services/evidence_ledger.py`; store `evidence_ledger.parquet` and `score_components.parquet`; require every score component to reference `source_id`; show source-backed UI breakdown; include ledger in audit packet.  
-**Acceptance criteria:** Every Score UI component has source/provenance; missing source means not score-eligible; LLM audit has no executable authority; candle/news/community evidence visibly low-authority.  
-**UI requirement:** Evidence Ledger page and expandable score-row source details.  
-**Tests required:** Component with official source, component with missing source, low-authority component cap and audit export contains ledger.  
-**Rebuild requirement:** Full release gate before close.  
-**Plan.md update requirement:** Preserve ledger schema.  
-**Close criteria:** Common close criteria plus audit evidence ledger.
 
 ## UPDATEV2-0023 - FMP optional provider adapter (original update ISSUE-0023)
 

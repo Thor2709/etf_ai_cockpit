@@ -1,0 +1,58 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from scripts.issue_registry_core import (
+    PHASES,
+    build_registry,
+    deterministic_json,
+    parse_closed_index,
+    parse_open_ledger,
+    ready_records,
+    validate_registry,
+)
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_ledgers_have_disjoint_canonical_sections() -> None:
+    open_ids = set(parse_open_ledger(ROOT / "issues/open.md"))
+    closed_ids = set(parse_closed_index(ROOT / "issues/closed.md"))
+    assert not open_ids & closed_ids
+    assert "ISSUE-0067" in open_ids
+    assert "ISSUE-0069" in closed_ids
+    assert "UPDATEV2-0010" in closed_ids
+    assert "UPDATEV2-0022" in closed_ids
+
+
+def test_registry_has_stable_mapping_and_acyclic_blocking_graph() -> None:
+    registry = build_registry(ROOT, baseline="3321ebd0733f188f25668f67e3b41fd90808591d")
+    errors = validate_registry(registry, open_ids=set(parse_open_ledger(ROOT / "issues/open.md")), closed_ids=set(parse_closed_index(ROOT / "issues/closed.md")))
+    assert errors == []
+    assert len(registry["records"]) == 159
+    assert len(registry["local_only_records"]) == 14
+    assert registry["policy"]["execution_allowed"] is False
+    assert registry["policy"]["adjusted_prices_required_for_returns"] is True
+
+
+def test_proposed_ids_and_phase_coverage_are_contiguous() -> None:
+    registry = json.loads((ROOT / "issues/issue_registry.json").read_text(encoding="utf-8"))
+    proposed = sorted(
+        int(record["canonical_id"].rsplit("-", 1)[1])
+        for record in registry["records"]
+        if record["source_kind"] == "proposed"
+    )
+    assert proposed == list(range(70, 153))
+    phase_ids = {phase["phase"] for phase in PHASES}
+    assert {record["phase"] for record in registry["records"]} <= phase_ids
+
+
+def test_registry_json_and_ready_order_are_deterministic() -> None:
+    registry = json.loads((ROOT / "issues/issue_registry.json").read_text(encoding="utf-8"))
+    assert deterministic_json(registry) == (ROOT / "issues/issue_registry.json").read_bytes()
+    ready = ready_records(registry)
+    assert [(record["priority"], record["canonical_id"]) for record in ready] == sorted(
+        (record["priority"], record["canonical_id"]) for record in ready
+    )

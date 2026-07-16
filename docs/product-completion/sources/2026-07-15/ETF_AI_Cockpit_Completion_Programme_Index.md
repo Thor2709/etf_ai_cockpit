@@ -1,0 +1,91 @@
+# ETF AI Cockpit — Completion Programme Index
+
+- Current canonical open issues audited: **76**
+- New issues proposed: **83**
+- Combined completion programme: **159**
+
+## New issue dependency order
+
+- `ISSUE-0070` — Freeze the final product scope, completion contract and staged execution authority — **P0** — depends on: ISSUE-0008; ISSUE-0032; ISSUE-0060; ISSUE-0066
+- `ISSUE-0071` — Refactor into bounded domain, application, infrastructure and presentation modules — **P0** — depends on: ISSUE-0070
+- `ISSUE-0072` — Implement the hybrid local analytical and transactional data platform — **P0** — depends on: ISSUE-0038; ISSUE-0071
+- `ISSUE-0073` — Implement a bitemporal point-in-time and data-vintage model — **P0** — depends on: ISSUE-0072
+- `ISSUE-0074` — Unify all scoring into a canonical score engine v3 — **P0** — depends on: ISSUE-0071; ISSUE-0073
+- `ISSUE-0075` — Create formula, feature, dataset, model and policy version registries — **P0** — depends on: ISSUE-0072; ISSUE-0074
+- `ISSUE-0076` — Define stable plugin contracts for providers, models, strategies and brokers — **P0/P1** — depends on: ISSUE-0071; ISSUE-0070
+- `ISSUE-0077` — Implement a durable resumable job DAG and workflow scheduler — **P0** — depends on: ISSUE-0072; ISSUE-0075
+- `ISSUE-0078` — Set performance, memory, storage and latency budgets with regression profiling — **P0/P1** — depends on: ISSUE-0077
+- `ISSUE-0079` — Establish open-source intake, licence, provenance and upstream-update governance — **P0** — depends on: ISSUE-0145; ISSUE-0149
+- `ISSUE-0080` — Enforce a mandatory no-subscription, no-vendor-quota local-first data policy — **P0** — depends on: ISSUE-0070; ISSUE-0076
+- `ISSUE-0081` — Build a resumable bulk downloader, content-addressed cache and delta updater — **P0** — depends on: ISSUE-0072; ISSUE-0077; ISSUE-0080
+- `ISSUE-0082` — Create a global entity, instrument, fund, share-class and listing identity master — **P0** — depends on: UPDATEV2-0011; ISSUE-0073
+- `ISSUE-0083` — Implement automatic asset, sector, industry and strategy classification with confidence — **P0/P1** — depends on: ISSUE-0082
+- `ISSUE-0084` — Build corporate-action, total-return and currency-normalisation services — **P0** — depends on: ISSUE-0073; ISSUE-0082
+- `ISSUE-0085` — Implement exchange calendars, sessions, holidays, auctions and market-state service — **P0/P1** — depends on: ISSUE-0082; ISSUE-0079
+- `ISSUE-0086` — Create user, broker and exchange historical price, position and transaction import pipelines — **P0** — depends on: ISSUE-0036; ISSUE-0082
+- `ISSUE-0087` — Expand official filing discovery and ingestion across supported jurisdictions — **P0/P1** — depends on: UPDATEV2-0012; UPDATEV2-0014; ISSUE-0081
+- `ISSUE-0088` — Build a versioned macro, factor, risk-free and benchmark data warehouse — **P0/P1** — depends on: ISSUE-0080; ISSUE-0081; ISSUE-0073
+- `ISSUE-0089` — Implement data anomaly detection, quarantine and cross-source reconciliation — **P0** — depends on: UPDATEV2-0021; ISSUE-0073
+- `ISSUE-0090` — Create a data catalogue, lineage graph and reproducible dataset snapshots — **P0/P1** — depends on: ISSUE-0072; ISSUE-0075
+- `ISSUE-0091` — Normalise multi-period financial statements, amendments and restatements — **P0** — depends on: UPDATEV2-0012; ISSUE-0073
+- `ISSUE-0092` — Add profitability, margin durability, earnings quality and accrual analysis — **P0/P1** — depends on: ISSUE-0091; ISSUE-0074
+- `ISSUE-0093` — Add balance-sheet strength, liquidity, leverage and distress analysis — **P0/P1** — depends on: ISSUE-0091
+- `ISSUE-0094` — Add cash-flow quality, capital allocation, shareholder yield and dilution analysis — **P0/P1** — depends on: ISSUE-0091; ISSUE-0084
+- `ISSUE-0095` — Add growth, revisions, guidance and earnings-surprise evidence with optional imports — **P1** — depends on: ISSUE-0091
+- `ISSUE-0096` — Implement relative valuation, intrinsic-value scenarios, reverse DCF and residual-income models — **P0/P1** — depends on: ISSUE-0091; ISSUE-0088
+- `ISSUE-0097` — Add capital efficiency, reinvestment, intangible investment and business-quality proxies — **P1** — depends on: ISSUE-0091; ISSUE-0092
+- `ISSUE-0098` — Create the stock sector-adapter and peer-cohort framework — **P0** — depends on: ISSUE-0083; ISSUE-0074
+- `ISSUE-0099` — Implement bank, insurer and diversified-financial sector adapters — **P0/P1** — depends on: ISSUE-0098
+- `ISSUE-0100` — Implement REIT, utility and infrastructure sector adapters — **P1** — depends on: ISSUE-0098
+- `ISSUE-0101` — Implement energy, materials and industrial cyclical-sector adapters — **P1** — depends on: ISSUE-0098
+- `ISSUE-0102` — Implement software, semiconductor, healthcare and biotechnology adapters — **P1** — depends on: ISSUE-0098
+- `ISSUE-0103` — Implement ETF economics, fee, tracking and closure-quality analysis — **P0/P1** — depends on: UPDATEV2-0015; ISSUE-0084
+- `ISSUE-0104` — Implement ETF structural, legal, counterparty, lending and collateral risk analysis — **P0/P1** — depends on: UPDATEV2-0015; UPDATEV2-0018
+- `ISSUE-0105` — Build complete ETF look-through exposure, factor, valuation and quality analytics — **P0** — depends on: UPDATEV2-0016; ISSUE-0082
+- `ISSUE-0106` — Implement ETF liquidity, capacity, spread and premium-discount analysis — **P0/P1** — depends on: ISSUE-0128
+- `ISSUE-0107` — Add ETF domicile, tax, distribution, currency and hedging context — **P1/P2** — depends on: ISSUE-0104; ISSUE-0088
+- `ISSUE-0108` — Implement horizon-aware probabilistic total-return distributions — **P0** — depends on: ISSUE-0074; ISSUE-0096; ISSUE-0105
+- `ISSUE-0109` — Implement scenario, uncertainty, confidence and model-disagreement framework — **P0/P1** — depends on: ISSUE-0108
+- `ISSUE-0110` — Build a transparent multi-factor risk model for stocks, ETFs and portfolios — **P0** — depends on: ISSUE-0052; ISSUE-0059
+- `ISSUE-0111` — Implement robust covariance, volatility, correlation and tail-risk estimation — **P0** — depends on: ISSUE-0110
+- `ISSUE-0112` — Create canonical benchmarks, peer sets, cash proxies and reference portfolios — **P0/P1** — depends on: ISSUE-0051; ISSUE-0059
+- `ISSUE-0113` — Implement a constrained portfolio-optimiser suite with robust baselines — **P0** — depends on: ISSUE-0021; ISSUE-0110; ISSUE-0111
+- `ISSUE-0114` — Implement turnover-, cost-, tax-lot- and cash-aware rebalancing — **P0/P1** — depends on: ISSUE-0113
+- `ISSUE-0115` — Build historical, hypothetical and reverse stress-testing engine — **P0/P1** — depends on: ISSUE-0109; ISSUE-0110
+- `ISSUE-0116` — Implement performance, risk, factor and decision attribution — **P0/P1** — depends on: ISSUE-0021; ISSUE-0059
+- `ISSUE-0117` — Implement the local training centre, experiment tracker and model registry — **P0** — depends on: ISSUE-0027; ISSUE-0075
+- `ISSUE-0118` — Create synthetic and adversarial market, data-quality and execution generators — **P1** — depends on: ISSUE-0117
+- `ISSUE-0119` — Build a leakage-safe feature store and target/label registry — **P0** — depends on: ISSUE-0073; ISSUE-0117
+- `ISSUE-0120` — Implement walk-forward, nested, purged and embargoed validation with multiple-testing control — **P0** — depends on: ISSUE-0119
+- `ISSUE-0121` — Create a baseline and challenger model zoo for return, risk and fundamentals — **P0/P1** — depends on: ISSUE-0117; ISSUE-0120
+- `ISSUE-0122` — Implement bounded hyperparameter optimisation, pruning and compute governance — **P1** — depends on: ISSUE-0120
+- `ISSUE-0123` — Implement probabilistic and conformal forecast calibration — **P0/P1** — depends on: ISSUE-0108; ISSUE-0120
+- `ISSUE-0124` — Implement model monitoring, drift, champion/challenger and retirement governance — **P0/P1** — depends on: ISSUE-0117; ISSUE-0123
+- `ISSUE-0125` — Implement a deterministic event-driven, order-level backtest engine — **P0** — depends on: ISSUE-0028; ISSUE-0050
+- `ISSUE-0126` — Implement point-in-time universes, delistings and survivorship-bias controls — **P0** — depends on: ISSUE-0082; ISSUE-0073
+- `ISSUE-0127` — Create the double-entry portfolio, cash, FX, fee, tax and corporate-action ledger — **P0** — depends on: ISSUE-0072; ISSUE-0084
+- `ISSUE-0128` — Implement spread, slippage, market-impact, capacity and execution-cost models — **P0/P1** — depends on: ISSUE-0064; ISSUE-0106
+- `ISSUE-0129` — Implement the full paper broker, frozen proposal ledger and forward evidence service — **P0** — depends on: ISSUE-0031; ISSUE-0057
+- `ISSUE-0130` — Implement the target-to-proposal policy and authority engine — **P0** — depends on: ISSUE-0070; ISSUE-0114
+- `ISSUE-0131` — Implement broker adapter contracts, read-only synchronisation and reconciliation — **P0/P1** — depends on: ISSUE-0066; ISSUE-0127
+- `ISSUE-0132` — Implement independent pre-trade controls, kill switches and operational limits — **P0** — depends on: ISSUE-0131
+- `ISSUE-0133` — Implement staged canary live execution with explicit promotion gates — **P0** — depends on: ISSUE-0132; ISSUE-0152
+- `ISSUE-0134` — Implement post-trade transaction-cost, execution-quality and decision attribution — **P1** — depends on: ISSUE-0131; ISSUE-0116
+- `ISSUE-0135` — Implement incident management, recovery, reconciliation and operational drills — **P0** — depends on: ISSUE-0131; ISSUE-0132
+- `ISSUE-0136` — Create a typed local application API and page-view-model layer — **P0** — depends on: ISSUE-0071
+- `ISSUE-0137` — Deliver frontend v2 design system and task-oriented information architecture — **P0/P1** — depends on: ISSUE-0136
+- `ISSUE-0138` — Build professional research, comparison, charting and screening workspaces — **P0/P1** — depends on: ISSUE-0137
+- `ISSUE-0139` — Build portfolio, training, paper and live operations workspaces — **P0/P1** — depends on: ISSUE-0136; ISSUE-0137
+- `ISSUE-0140` — Complete accessibility, global search, command palette, localisation and unit formatting — **P1** — depends on: ISSUE-0137
+- `ISSUE-0141` — Implement hermetic CI, multi-platform build and release automation — **P0** — depends on: ISSUE-0075; ISSUE-0145
+- `ISSUE-0142` — Add property, metamorphic, golden, differential and mutation testing — **P0/P1** — depends on: ISSUE-0074; ISSUE-0127; ISSUE-0132
+- `ISSUE-0143` — Add visual E2E, load, soak, fault-injection and chaos test programmes — **P0/P1** — depends on: ISSUE-0141
+- `ISSUE-0144` — Harden secrets, parsers, local APIs, files and network access — **P0** — depends on: ISSUE-0076; ISSUE-0145
+- `ISSUE-0145` — Implement software supply-chain, SBOM, vulnerability, signing and secure-update controls — **P0** — depends on: ISSUE-0079; ISSUE-0141
+- `ISSUE-0146` — Implement encryption, privacy controls, backup and disaster recovery — **P0/P1** — depends on: ISSUE-0044; ISSUE-0144
+- `ISSUE-0147` — Deliver audit packet v3 and one-command deterministic reproduction — **P0** — depends on: UPDATEV2-0028; ISSUE-0075
+- `ISSUE-0148` — Complete developer, plugin, methodology, operations and user documentation — **P0/P1** — depends on: ISSUE-0043
+- `ISSUE-0149` — Complete legal, data/model licence, terms, disclaimer and jurisdiction review — **P0** — depends on: ISSUE-0079; ISSUE-0080
+- `ISSUE-0150` — Audit geographic, sector, size, listing and data-coverage bias — **P0/P1** — depends on: ISSUE-0090; ISSUE-0120
+- `ISSUE-0151` — Define hardware profiles, compute budgets and graceful degradation — **P1** — depends on: ISSUE-0078
+- `ISSUE-0152` — Run final release certification and close the completion programme — **P0** — depends on: All issues

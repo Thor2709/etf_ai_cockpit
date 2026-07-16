@@ -20,6 +20,17 @@ def test_current_production_package_inventory_passes() -> None:
     assert report.scanned_files > 0
 
 
+def test_immutable_completion_sources_are_not_production_inventory(tmp_path: Path) -> None:
+    source = tmp_path / "docs" / "product-completion" / "sources" / "archived.json"
+    source.parent.mkdir(parents=True)
+    source.write_text('{"url": "https://broker.example/orders"}\n', encoding="utf-8")
+    checker = _checker()
+    report = checker(tmp_path) if checker else None
+    assert report is not None
+    assert report.result == "pass"
+    assert not any(item.path.startswith("docs/product-completion/sources/") for item in report.violations)
+
+
 def test_injected_dependency_and_resource_violations_fail(tmp_path: Path) -> None:
     (tmp_path / "requirements.txt").write_text("alpaca-trade-api==1.0\n", encoding="utf-8")
     (tmp_path / "secrets.env").write_text("BROKER_API_KEY=not-a-real-key\n", encoding="utf-8")
