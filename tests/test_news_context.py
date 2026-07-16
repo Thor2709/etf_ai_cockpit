@@ -150,6 +150,23 @@ def test_news_contradictions_compare_explicit_headline_direction_with_next_close
     assert contradictions.iloc[0]["price_direction"] == "down"
 
 
+def test_mixed_direction_headline_is_unavailable_for_contradiction_checks() -> None:
+    news = pd.DataFrame([{
+        "news_id": "mixed",
+        "instrument_id": "MSFT",
+        "headline": "MSFT shares rise despite a loss outlook",
+        "published_at": "2026-07-10T10:00:00+00:00",
+    }])
+    prices = pd.DataFrame([
+        {"instrument_id": "MSFT", "date": "2026-07-10", "adjusted_close": 100.0},
+        {"instrument_id": "MSFT", "date": "2026-07-11", "adjusted_close": 95.0},
+    ])
+
+    contradictions = build_news_contradiction_rows(news, prices)
+
+    assert contradictions.empty
+
+
 def test_news_contradictions_match_direction_words_at_token_boundaries() -> None:
     news = pd.DataFrame([
         {"news_id": "group", "instrument_id": "MSFT", "headline": "Group reports results", "published_at": "2026-07-10T10:00:00+00:00"},

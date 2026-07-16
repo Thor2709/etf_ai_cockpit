@@ -7,11 +7,11 @@
 | Field | Value |
 |---|---|
 | Updated | 2026-07-16 |
-| Active phase | Phase 2 verification-finalisation workflow refactor after merged Wave 4 Task 15; no Task 16 dispatch or worktree is part of this run |
+| Active phase | Wave 4 Task 16 post-Phase 2 follow-up; no Task 17 dispatch or worktree is part of this run |
 | Active plan | `docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md` |
-| Git state | Branch `wave4/verification-workflow-refactor` is based on merged Task 15 `origin/main` `4379132`; Task 15 PR #204 is merged and local/GitHub issue states are synchronised |
+| Git state | Branch `wave4/task16-post-phase2` is based on merged Phase 2 `origin/main` `57f23ef`; Phase 2 PR #205 is merged |
 | Existing closure state | Task 11 issues `ISSUE-0068`, `ISSUE-0018`, `ISSUE-0017` and `ISSUE-0056` are implementation-complete but closure-pending final release/browser/clean-first-run evidence; `ISSUE-0035` is closed locally and on GitHub Issue #81 |
-| Fresh baseline | Phase 2 focused policy evidence records 17 passed; invalidated verifier/issue/operations bundle 41 passed; scoped Ruff, compileall and diff check passed; independent re-review approved and PR integration remains |
+| Fresh baseline | Task 16 fundamentals/news/provider bundle 38 passed; focused audit/export subset 11 passed; scoped Ruff, py_compile and diff check passed; Task 16 follow-up independent review approved with one non-blocking coverage recommendation |
 | Pre-existing type state | recorded mypy failure caused by external stubs and existing typing debt; no new failure attributed |
 | Known historical evidence limitation | Existing package/browser evidence predates this programme and cannot close new work |
 
@@ -23,6 +23,14 @@
 - Implementation: release records use exact implementation commit/executable/environment/command keys, executable/evidence hashes remain separate, ledger publication is locked and fsync-backed, staged evidence is closure-ineligible, verifier-backed shared records are key-validated and committed run-state checkpoints do not redispatch.
 - Task 15 integration: PR #204 merged at `4379132092b8f037bd6227eb4562c2bfbcaa6748`; UPDATEV2-0017/#157 and UPDATEV2-0019/#159 are closed in local and GitHub ledgers.
 - Review: bounded correction passes addressed verified blockers; final independent re-review approved the complete staged set. Do not dispatch or create a Task 16 worktree in this run; merge Phase 2 through the normal pull-request process.
+
+## Wave 4 Task 16 post-Phase 2 follow-up checkpoint - 2026-07-16
+
+- Scope: preserve the existing Fundamentals, News, Point-in-Time Validation and Free Providers implementation and make mixed-direction headline contradiction checks fail closed.
+- RED: `test_mixed_direction_headline_is_unavailable_for_contradiction_checks` failed because the positive-first classifier emitted a contradiction row for a headline containing both `rise` and `loss`.
+- GREEN: the minimal classifier change makes both-direction headlines unavailable; the Task 16 source/UI/provider bundle passed 38 tests and the focused audit/export subset passed 11 tests.
+- Checks: scoped Ruff, targeted `py_compile` and `git diff --check` passed. Four schema-version files have metadata-only status entries with blobs identical to `HEAD` and are deliberately excluded from the Task 16 change set.
+- Review and closure: the fresh read-only independent reviewer approved the follow-up with no Critical or Important findings; one non-blocking recommendation is to add a negative-direction regression. `ISSUE-0023`, `ISSUE-0025`, `ISSUE-0054` and `ISSUE-0055` remain implementation-complete/closure-pending; no issue is closed in this implementation follow-up. The next action is normal PR integration and post-merge `origin/main` verification; Task 17 is not dispatched.
 
 ## Wave ledger
 
