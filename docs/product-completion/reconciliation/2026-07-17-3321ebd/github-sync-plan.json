@@ -1,0 +1,1298 @@
+{
+  "actions": [
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0001 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0001 -->\n## Canonical programme record\n- Title: Create durable issue tracker and plan synchronisation\n- Classification: `local_only_closed`\n- Ledger state: `closed`\n- Programme status: `closed`\n- Priority: ``\n- Owner: `programme-governance`\n- Phase: `phase-01-governance-scope`\n- Blocking dependencies: None\n- Related issues: None\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "closed",
+      "kind": "update",
+      "remote_number": 5,
+      "stable_id": "ISSUE-0001",
+      "title": "Create durable issue tracker and plan synchronisation"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0002 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0002 -->\n## Canonical programme record\n- Title: Add young/noisy evidence and too-good-to-be-true warnings\n- Classification: `local_only_closed`\n- Ledger state: `closed`\n- Programme status: `closed`\n- Priority: ``\n- Owner: `programme-governance`\n- Phase: `phase-01-governance-scope`\n- Blocking dependencies: None\n- Related issues: None\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "closed",
+      "kind": "update",
+      "remote_number": 6,
+      "stable_id": "ISSUE-0002",
+      "title": "Add young/noisy evidence and too-good-to-be-true warnings"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0003 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0003 -->\n## Canonical programme record\n- Title: Add benchmark alpha/beta/regime attribution\n- Classification: `local_only_closed`\n- Ledger state: `closed`\n- Programme status: `closed`\n- Priority: ``\n- Owner: `programme-governance`\n- Phase: `phase-01-governance-scope`\n- Blocking dependencies: None\n- Related issues: None\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "closed",
+      "kind": "update",
+      "remote_number": 7,
+      "stable_id": "ISSUE-0003",
+      "title": "Add benchmark alpha/beta/regime attribution"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0004 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0004 -->\n## Canonical programme record\n- Title: Add hit-rate, payoff-ratio and expected-value diagnostics\n- Classification: `local_only_closed`\n- Ledger state: `closed`\n- Programme status: `closed`\n- Priority: ``\n- Owner: `programme-governance`\n- Phase: `phase-01-governance-scope`\n- Blocking dependencies: None\n- Related issues: None\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "closed",
+      "kind": "update",
+      "remote_number": 8,
+      "stable_id": "ISSUE-0004",
+      "title": "Add hit-rate, payoff-ratio and expected-value diagnostics"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0005 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0005 -->\n## Canonical programme record\n- Title: Add friction/cost/slippage stress engine\n- Classification: `local_only_closed`\n- Ledger state: `closed`\n- Programme status: `closed`\n- Priority: ``\n- Owner: `programme-governance`\n- Phase: `phase-01-governance-scope`\n- Blocking dependencies: None\n- Related issues: None\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "closed",
+      "kind": "update",
+      "remote_number": 9,
+      "stable_id": "ISSUE-0005",
+      "title": "Add friction/cost/slippage stress engine"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0006 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0006 -->\n## Canonical programme record\n- Title: Add explicit model/backtest contamination validity status\n- Classification: `local_only_closed`\n- Ledger state: `closed`\n- Programme status: `closed`\n- Priority: ``\n- Owner: `programme-governance`\n- Phase: `phase-01-governance-scope`\n- Blocking dependencies: None\n- Related issues: None\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "closed",
+      "kind": "update",
+      "remote_number": 10,
+      "stable_id": "ISSUE-0006",
+      "title": "Add explicit model/backtest contamination validity status"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0007 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0007 -->\n## Canonical programme record\n- Title: Add non-executable news/macro contradiction panel\n- Classification: `current_open_retained`\n- Ledger state: `open`\n- Programme status: `planned`\n- Priority: `P2`\n- Owner: `data-and-evidence`\n- Phase: `phase-02-data-policy-identity`\n- Blocking dependencies: None\n- Related issues: `ISSUE-0024`, `ISSUE-0026`, `ISSUE-0054`, `ISSUE-0073`, `ISSUE-0115`\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "open",
+      "kind": "update",
+      "remote_number": 11,
+      "stable_id": "ISSUE-0007",
+      "title": "Add non-executable news/macro contradiction panel"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0008 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0008 -->\n## Canonical programme record\n- Title: Add strategy taxonomy and scope/rejection matrix\n- Classification: `current_open_retained`\n- Ledger state: `open`\n- Programme status: `planned`\n- Priority: `P2`\n- Owner: `analysis-and-validation`\n- Phase: `phase-05-returns-risk-portfolio`\n- Blocking dependencies: None\n- Related issues: `ISSUE-0060`, `ISSUE-0070`, `ISSUE-0130`, `ISSUE-0133`\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "open",
+      "kind": "update",
+      "remote_number": 12,
+      "stable_id": "ISSUE-0008",
+      "title": "Add strategy taxonomy and scope/rejection matrix"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0009 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0009 -->\n## Canonical programme record\n- Title: Add source-credibility scoring for imported research notes\n- Classification: `local_only_closed`\n- Ledger state: `closed`\n- Programme status: `closed`\n- Priority: ``\n- Owner: `programme-governance`\n- Phase: `phase-01-governance-scope`\n- Blocking dependencies: None\n- Related issues: None\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "closed",
+      "kind": "update",
+      "remote_number": 13,
+      "stable_id": "ISSUE-0009",
+      "title": "Add source-credibility scoring for imported research notes"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0010 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0010 -->\n## Canonical programme record\n- Title: Add non-executable LLM thesis diary\n- Classification: `current_open_retained`\n- Ledger state: `open`\n- Programme status: `planned`\n- Priority: `P2`\n- Owner: `programme-governance`\n- Phase: `phase-01-governance-scope`\n- Blocking dependencies: None\n- Related issues: `ISSUE-0030`, `ISSUE-0057`, `ISSUE-0147`\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "open",
+      "kind": "update",
+      "remote_number": 14,
+      "stable_id": "ISSUE-0010",
+      "title": "Add non-executable LLM thesis diary"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0011 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0011 -->\n## Canonical programme record\n- Title: Full main-UI button reliability audit\n- Classification: `current_open_retained`\n- Ledger state: `open`\n- Programme status: `in_progress`\n- Priority: `P0`\n- Owner: `frontend-and-api`\n- Phase: `phase-08-frontend-api`\n- Blocking dependencies: None\n- Related issues: `ISSUE-0014`, `ISSUE-0045`, `ISSUE-0136`, `ISSUE-0143`\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "open",
+      "kind": "update",
+      "remote_number": 15,
+      "stable_id": "ISSUE-0011",
+      "title": "Full main-UI button reliability audit"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0012 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0012 -->\n## Canonical programme record\n- Title: Add visible progress/status indicators for long-running actions\n- Classification: `current_open_retained`\n- Ledger state: `open`\n- Programme status: `in_progress`\n- Priority: `P0`\n- Owner: `programme-governance`\n- Phase: `phase-01-governance-scope`\n- Blocking dependencies: None\n- Related issues: `ISSUE-0077`, `ISSUE-0117`, `ISSUE-0139`\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "open",
+      "kind": "update",
+      "remote_number": 16,
+      "stable_id": "ISSUE-0012",
+      "title": "Add visible progress/status indicators for long-running actions"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0013 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0013 -->\n## Canonical programme record\n- Title: Rebuild package after every completed feature\n- Classification: `current_open_retained`\n- Ledger state: `open`\n- Programme status: `planned`\n- Priority: `P0`\n- Owner: `platform-and-operations`\n- Phase: `phase-01-governance-scope`\n- Blocking dependencies: None\n- Related issues: `ISSUE-0141`, `ISSUE-0145`, `ISSUE-0152`, `UPDATEV2-0029`\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "open",
+      "kind": "update",
+      "remote_number": 17,
+      "stable_id": "ISSUE-0013",
+      "title": "Rebuild package after every completed feature"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0014 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0014 -->\n## Canonical programme record\n- Title: Add end-to-end workflow test\n- Classification: `current_open_retained`\n- Ledger state: `open`\n- Programme status: `in_progress`\n- Priority: `P0/P1`\n- Owner: `programme-governance`\n- Phase: `phase-01-governance-scope`\n- Blocking dependencies: None\n- Related issues: `ISSUE-0045`, `ISSUE-0143`, `ISSUE-0152`\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "open",
+      "kind": "update",
+      "remote_number": 18,
+      "stable_id": "ISSUE-0014",
+      "title": "Add end-to-end workflow test"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0015 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0015 -->\n## Canonical programme record\n- Title: Add app-level feature map / roadmap page\n- Classification: `current_open_retained`\n- Ledger state: `open`\n- Programme status: `planned`\n- Priority: `P1`\n- Owner: `programme-governance`\n- Phase: `phase-01-governance-scope`\n- Blocking dependencies: None\n- Related issues: `ISSUE-0070`, `ISSUE-0075`, `ISSUE-0152`\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "open",
+      "kind": "update",
+      "remote_number": 19,
+      "stable_id": "ISSUE-0015",
+      "title": "Add app-level feature map / roadmap page"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0016 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0016 -->\n## Canonical programme record\n- Title: Full product navigation redesign\n- Classification: `current_open_retained`\n- Ledger state: `open`\n- Programme status: `planned`\n- Priority: `P1`\n- Owner: `frontend-and-api`\n- Phase: `phase-08-frontend-api`\n- Blocking dependencies: None\n- Related issues: `ISSUE-0137`, `ISSUE-0138`, `ISSUE-0139`, `ISSUE-0140`\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "open",
+      "kind": "update",
+      "remote_number": 20,
+      "stable_id": "ISSUE-0016",
+      "title": "Full product navigation redesign"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0017 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0017 -->\n## Canonical programme record\n- Title: First-run onboarding and setup wizard\n- Classification: `current_open_retained`\n- Ledger state: `open`\n- Programme status: `implemented_initially`\n- Priority: `P1`\n- Owner: `frontend-and-api`\n- Phase: `phase-08-frontend-api`\n- Blocking dependencies: None\n- Related issues: `ISSUE-0080`, `ISSUE-0146`, `ISSUE-0151`\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "open",
+      "kind": "update",
+      "remote_number": 21,
+      "stable_id": "ISSUE-0017",
+      "title": "First-run onboarding and setup wizard"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0018 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0018 -->\n## Canonical programme record\n- Title: Watchlist and universe manager\n- Classification: `current_open_retained`\n- Ledger state: `open`\n- Programme status: `implemented_initially`\n- Priority: `P0/P1`\n- Owner: `programme-governance`\n- Phase: `phase-01-governance-scope`\n- Blocking dependencies: None\n- Related issues: `ISSUE-0082`, `ISSUE-0083`, `ISSUE-0126`, `UPDATEV2-0011`\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "open",
+      "kind": "update",
+      "remote_number": 22,
+      "stable_id": "ISSUE-0018",
+      "title": "Watchlist and universe manager"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0019 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0019 -->\n## Canonical programme record\n- Title: Proper instrument detail page\n- Classification: `current_open_retained`\n- Ledger state: `open`\n- Programme status: `implemented_initially`\n- Priority: `P0/P1`\n- Owner: `programme-governance`\n- Phase: `phase-01-governance-scope`\n- Blocking dependencies: None\n- Related issues: `ISSUE-0091`, `ISSUE-0116`, `ISSUE-0138`\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "open",
+      "kind": "update",
+      "remote_number": 23,
+      "stable_id": "ISSUE-0019",
+      "title": "Proper instrument detail page"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0020 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0020 -->\n## Canonical programme record\n- Title: Screener and filter system\n- Classification: `current_open_retained`\n- Ledger state: `open`\n- Programme status: `planned`\n- Priority: `P1`\n- Owner: `frontend-and-api`\n- Phase: `phase-08-frontend-api`\n- Blocking dependencies: None\n- Related issues: `ISSUE-0073`, `ISSUE-0074`, `ISSUE-0098`, `ISSUE-0138`\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "open",
+      "kind": "update",
+      "remote_number": 24,
+      "stable_id": "ISSUE-0020",
+      "title": "Screener and filter system"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0021 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0021 -->\n## Canonical programme record\n- Title: Portfolio construction and allocation sandbox\n- Classification: `current_open_retained`\n- Ledger state: `open`\n- Programme status: `planned`\n- Priority: `P1`\n- Owner: `programme-governance`\n- Phase: `phase-01-governance-scope`\n- Blocking dependencies: None\n- Related issues: `ISSUE-0110`, `ISSUE-0116`, `ISSUE-0130`\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "open",
+      "kind": "update",
+      "remote_number": 25,
+      "stable_id": "ISSUE-0021",
+      "title": "Portfolio construction and allocation sandbox"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0022 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0022 -->\n## Canonical programme record\n- Title: ETF overlap and look-through exposure engine\n- Classification: `current_open_retained`\n- Ledger state: `open`\n- Programme status: `planned`\n- Priority: `P1`\n- Owner: `data-and-evidence`\n- Phase: `phase-02-data-policy-identity`\n- Blocking dependencies: None\n- Related issues: `ISSUE-0082`, `ISSUE-0105`, `UPDATEV2-0016`\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "open",
+      "kind": "update",
+      "remote_number": 26,
+      "stable_id": "ISSUE-0022",
+      "title": "ETF overlap and look-through exposure engine"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0023 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0023 -->\n## Canonical programme record\n- Title: Stock fundamentals quality module hardening\n- Classification: `current_open_retained`\n- Ledger state: `open`\n- Programme status: `implemented_initially`\n- Priority: `P1`\n- Owner: `data-and-evidence`\n- Phase: `phase-02-data-policy-identity`\n- Blocking dependencies: None\n- Related issues: `ISSUE-0091`, `ISSUE-0102`\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "open",
+      "kind": "update",
+      "remote_number": 27,
+      "stable_id": "ISSUE-0023",
+      "title": "Stock fundamentals quality module hardening"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0024 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0024 -->\n## Canonical programme record\n- Title: Earnings, dividends and event calendar\n- Classification: `current_open_retained`\n- Ledger state: `open`\n- Programme status: `planned`\n- Priority: `P1/P2`\n- Owner: `programme-governance`\n- Phase: `phase-01-governance-scope`\n- Blocking dependencies: None\n- Related issues: `ISSUE-0073`, `ISSUE-0084`, `ISSUE-0085`, `ISSUE-0130`\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "open",
+      "kind": "update",
+      "remote_number": 28,
+      "stable_id": "ISSUE-0024",
+      "title": "Earnings, dividends and event calendar"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0025 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0025 -->\n## Canonical programme record\n- Title: Free news and filings dashboard\n- Classification: `current_open_retained`\n- Ledger state: `open`\n- Programme status: `implemented_initially`\n- Priority: `P1`\n- Owner: `data-and-evidence`\n- Phase: `phase-02-data-policy-identity`\n- Blocking dependencies: None\n- Related issues: `ISSUE-0007`, `ISSUE-0054`, `ISSUE-0087`, `ISSUE-0149`\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "open",
+      "kind": "update",
+      "remote_number": 29,
+      "stable_id": "ISSUE-0025",
+      "title": "Free news and filings dashboard"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0026 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0026 -->\n## Canonical programme record\n- Title: Macro regime dashboard\n- Classification: `current_open_retained`\n- Ledger state: `open`\n- Programme status: `planned`\n- Priority: `P1/P2`\n- Owner: `programme-governance`\n- Phase: `phase-01-governance-scope`\n- Blocking dependencies: None\n- Related issues: `ISSUE-0073`, `ISSUE-0088`, `ISSUE-0115`\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "open",
+      "kind": "update",
+      "remote_number": 30,
+      "stable_id": "ISSUE-0026",
+      "title": "Macro regime dashboard"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0027 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0027 -->\n## Canonical programme record\n- Title: Forecast lab page\n- Classification: `current_open_retained`\n- Ledger state: `open`\n- Programme status: `planned`\n- Priority: `P1`\n- Owner: `programme-governance`\n- Phase: `phase-01-governance-scope`\n- Blocking dependencies: None\n- Related issues: `ISSUE-0117`, `ISSUE-0124`, `ISSUE-0139`\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "open",
+      "kind": "update",
+      "remote_number": 31,
+      "stable_id": "ISSUE-0027",
+      "title": "Forecast lab page"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0028 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0028 -->\n## Canonical programme record\n- Title: Backtest lab upgrade\n- Classification: `current_open_retained`\n- Ledger state: `open`\n- Programme status: `planned`\n- Priority: `P0/P1`\n- Owner: `analysis-and-validation`\n- Phase: `phase-05-returns-risk-portfolio`\n- Blocking dependencies: None\n- Related issues: `ISSUE-0120`, `ISSUE-0125`, `ISSUE-0128`\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "open",
+      "kind": "update",
+      "remote_number": 32,
+      "stable_id": "ISSUE-0028",
+      "title": "Backtest lab upgrade"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0029 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0029 -->\n## Canonical programme record\n- Title: Strategy template builder\n- Classification: `current_open_retained`\n- Ledger state: `open`\n- Programme status: `planned`\n- Priority: `P1/P2`\n- Owner: `analysis-and-validation`\n- Phase: `phase-05-returns-risk-portfolio`\n- Blocking dependencies: None\n- Related issues: `ISSUE-0074`, `ISSUE-0075`, `ISSUE-0130`\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "open",
+      "kind": "update",
+      "remote_number": 33,
+      "stable_id": "ISSUE-0029",
+      "title": "Strategy template builder"
+    },
+    {
+      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0030 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0030 -->\n## Canonical programme record\n- Title: Decision journal\n- Classification: `current_open_retained`\n- Ledger state: `open`\n- Programme status: `planned`\n- Priority: `P0/P1`\n- Owner: `frontend-and-api`\n- Phase: `phase-08-frontend-api`\n- Blocking dependencies: None\n- Related issues: `ISSUE-0010`, `ISSUE-0057`, `ISSUE-0129`, `ISSUE-0147`\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
+      "desired_state": "open",
+      "kind": "update",
+      "remote_number": 34,
+      "stable_id": "ISSUE-0030",
+      "title": "Decision journal"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        76,
+        35
+      ],
+      "stable_id": "ISSUE-0031"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        77,
+        36
+      ],
+      "stable_id": "ISSUE-0032"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        79,
+        37
+      ],
+      "stable_id": "ISSUE-0033"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        80,
+        38
+      ],
+      "stable_id": "ISSUE-0034"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        81,
+        39
+      ],
+      "stable_id": "ISSUE-0035"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        83,
+        40
+      ],
+      "stable_id": "ISSUE-0036"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        85,
+        41
+      ],
+      "stable_id": "ISSUE-0037"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        86,
+        42
+      ],
+      "stable_id": "ISSUE-0038"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        88,
+        43
+      ],
+      "stable_id": "ISSUE-0039"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        89,
+        44
+      ],
+      "stable_id": "ISSUE-0040"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        91,
+        45
+      ],
+      "stable_id": "ISSUE-0041"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        92,
+        46
+      ],
+      "stable_id": "ISSUE-0042"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        94,
+        47
+      ],
+      "stable_id": "ISSUE-0043"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        95,
+        48
+      ],
+      "stable_id": "ISSUE-0044"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        97,
+        49
+      ],
+      "stable_id": "ISSUE-0045"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        98,
+        50
+      ],
+      "stable_id": "ISSUE-0046"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        99,
+        51
+      ],
+      "stable_id": "ISSUE-0047"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        101,
+        52
+      ],
+      "stable_id": "ISSUE-0048"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        103,
+        53
+      ],
+      "stable_id": "ISSUE-0049"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        105,
+        54
+      ],
+      "stable_id": "ISSUE-0050"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        107,
+        55
+      ],
+      "stable_id": "ISSUE-0051"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        109,
+        56
+      ],
+      "stable_id": "ISSUE-0052"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        111,
+        57
+      ],
+      "stable_id": "ISSUE-0053"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        113,
+        58
+      ],
+      "stable_id": "ISSUE-0054"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        115,
+        59
+      ],
+      "stable_id": "ISSUE-0055"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        117,
+        60
+      ],
+      "stable_id": "ISSUE-0056"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        119,
+        61
+      ],
+      "stable_id": "ISSUE-0057"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        121,
+        62
+      ],
+      "stable_id": "ISSUE-0058"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        123,
+        63
+      ],
+      "stable_id": "ISSUE-0059"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        124,
+        64
+      ],
+      "stable_id": "ISSUE-0060"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        126,
+        65
+      ],
+      "stable_id": "ISSUE-0061"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        128,
+        66
+      ],
+      "stable_id": "ISSUE-0062"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        130,
+        67
+      ],
+      "stable_id": "ISSUE-0063"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        132,
+        68
+      ],
+      "stable_id": "ISSUE-0064"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        134,
+        69
+      ],
+      "stable_id": "ISSUE-0065"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        136,
+        70
+      ],
+      "stable_id": "ISSUE-0066"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        137,
+        71
+      ],
+      "stable_id": "ISSUE-0067"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        140,
+        72
+      ],
+      "stable_id": "ISSUE-0068"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        141,
+        73
+      ],
+      "stable_id": "ISSUE-0069"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0070",
+      "title": "Freeze the final product scope, completion contract and staged execution authority"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0071",
+      "title": "Refactor into bounded domain, application, infrastructure and presentation modules"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0072",
+      "title": "Implement the hybrid local analytical and transactional data platform"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0073",
+      "title": "Implement a bitemporal point-in-time and data-vintage model"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0074",
+      "title": "Unify all scoring into a canonical score engine v3"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0075",
+      "title": "Create formula, feature, dataset, model and policy version registries"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0076",
+      "title": "Define stable plugin contracts for providers, models, strategies and brokers"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0077",
+      "title": "Implement a durable resumable job DAG and workflow scheduler"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0078",
+      "title": "Set performance, memory, storage and latency budgets with regression profiling"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0079",
+      "title": "Establish open-source intake, licence, provenance and upstream-update governance"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0080",
+      "title": "Enforce a mandatory no-subscription, no-vendor-quota local-first data policy"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0081",
+      "title": "Build a resumable bulk downloader, content-addressed cache and delta updater"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0082",
+      "title": "Create a global entity, instrument, fund, share-class and listing identity master"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0083",
+      "title": "Implement automatic asset, sector, industry and strategy classification with confidence"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0084",
+      "title": "Build corporate-action, total-return and currency-normalisation services"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0085",
+      "title": "Implement exchange calendars, sessions, holidays, auctions and market-state service"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0086",
+      "title": "Create user, broker and exchange historical price, position and transaction import pipelines"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0087",
+      "title": "Expand official filing discovery and ingestion across supported jurisdictions"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0088",
+      "title": "Build a versioned macro, factor, risk-free and benchmark data warehouse"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0089",
+      "title": "Implement data anomaly detection, quarantine and cross-source reconciliation"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0090",
+      "title": "Create a data catalogue, lineage graph and reproducible dataset snapshots"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0091",
+      "title": "Normalise multi-period financial statements, amendments and restatements"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0092",
+      "title": "Add profitability, margin durability, earnings quality and accrual analysis"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0093",
+      "title": "Add balance-sheet strength, liquidity, leverage and distress analysis"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0094",
+      "title": "Add cash-flow quality, capital allocation, shareholder yield and dilution analysis"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0095",
+      "title": "Add growth, revisions, guidance and earnings-surprise evidence with optional imports"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0096",
+      "title": "Implement relative valuation, intrinsic-value scenarios, reverse DCF and residual-income models"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0097",
+      "title": "Add capital efficiency, reinvestment, intangible investment and business-quality proxies"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0098",
+      "title": "Create the stock sector-adapter and peer-cohort framework"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0099",
+      "title": "Implement bank, insurer and diversified-financial sector adapters"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0100",
+      "title": "Implement REIT, utility and infrastructure sector adapters"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0101",
+      "title": "Implement energy, materials and industrial cyclical-sector adapters"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0102",
+      "title": "Implement software, semiconductor, healthcare and biotechnology adapters"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0103",
+      "title": "Implement ETF economics, fee, tracking and closure-quality analysis"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0104",
+      "title": "Implement ETF structural, legal, counterparty, lending and collateral risk analysis"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0105",
+      "title": "Build complete ETF look-through exposure, factor, valuation and quality analytics"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0106",
+      "title": "Implement ETF liquidity, capacity, spread and premium-discount analysis"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0107",
+      "title": "Add ETF domicile, tax, distribution, currency and hedging context"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0108",
+      "title": "Implement horizon-aware probabilistic total-return distributions"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0109",
+      "title": "Implement scenario, uncertainty, confidence and model-disagreement framework"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0110",
+      "title": "Build a transparent multi-factor risk model for stocks, ETFs and portfolios"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0111",
+      "title": "Implement robust covariance, volatility, correlation and tail-risk estimation"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0112",
+      "title": "Create canonical benchmarks, peer sets, cash proxies and reference portfolios"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0113",
+      "title": "Implement a constrained portfolio-optimiser suite with robust baselines"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0114",
+      "title": "Implement turnover-, cost-, tax-lot- and cash-aware rebalancing"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0115",
+      "title": "Build historical, hypothetical and reverse stress-testing engine"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0116",
+      "title": "Implement performance, risk, factor and decision attribution"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0117",
+      "title": "Implement the local training centre, experiment tracker and model registry"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0118",
+      "title": "Create synthetic and adversarial market, data-quality and execution generators"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0119",
+      "title": "Build a leakage-safe feature store and target/label registry"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0120",
+      "title": "Implement walk-forward, nested, purged and embargoed validation with multiple-testing control"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0121",
+      "title": "Create a baseline and challenger model zoo for return, risk and fundamentals"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0122",
+      "title": "Implement bounded hyperparameter optimisation, pruning and compute governance"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0123",
+      "title": "Implement probabilistic and conformal forecast calibration"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0124",
+      "title": "Implement model monitoring, drift, champion/challenger and retirement governance"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0125",
+      "title": "Implement a deterministic event-driven, order-level backtest engine"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0126",
+      "title": "Implement point-in-time universes, delistings and survivorship-bias controls"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0127",
+      "title": "Create the double-entry portfolio, cash, FX, fee, tax and corporate-action ledger"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0128",
+      "title": "Implement spread, slippage, market-impact, capacity and execution-cost models"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0129",
+      "title": "Implement the full paper broker, frozen proposal ledger and forward evidence service"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0130",
+      "title": "Implement the target-to-proposal policy and authority engine"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0131",
+      "title": "Implement broker adapter contracts, read-only synchronisation and reconciliation"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0132",
+      "title": "Implement independent pre-trade controls, kill switches and operational limits"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0133",
+      "title": "Implement staged canary live execution with explicit promotion gates"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0134",
+      "title": "Implement post-trade transaction-cost, execution-quality and decision attribution"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0135",
+      "title": "Implement incident management, recovery, reconciliation and operational drills"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0136",
+      "title": "Create a typed local application API and page-view-model layer"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0137",
+      "title": "Deliver frontend v2 design system and task-oriented information architecture"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0138",
+      "title": "Build professional research, comparison, charting and screening workspaces"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0139",
+      "title": "Build portfolio, training, paper and live operations workspaces"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0140",
+      "title": "Complete accessibility, global search, command palette, localisation and unit formatting"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0141",
+      "title": "Implement hermetic CI, multi-platform build and release automation"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0142",
+      "title": "Add property, metamorphic, golden, differential and mutation testing"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0143",
+      "title": "Add visual E2E, load, soak, fault-injection and chaos test programmes"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0144",
+      "title": "Harden secrets, parsers, local APIs, files and network access"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0145",
+      "title": "Implement software supply-chain, SBOM, vulnerability, signing and secure-update controls"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0146",
+      "title": "Implement encryption, privacy controls, backup and disaster recovery"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0147",
+      "title": "Deliver audit packet v3 and one-command deterministic reproduction"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0148",
+      "title": "Complete developer, plugin, methodology, operations and user documentation"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0149",
+      "title": "Complete legal, data/model licence, terms, disclaimer and jurisdiction review"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0150",
+      "title": "Audit geographic, sector, size, listing and data-coverage bias"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0151",
+      "title": "Define hardware profiles, compute budgets and graceful degradation"
+    },
+    {
+      "desired_state": "open",
+      "kind": "create",
+      "stable_id": "ISSUE-0152",
+      "title": "Run final release certification and close the completion programme"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        150,
+        96
+      ],
+      "stable_id": "UPDATEV2-0010"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        151,
+        100
+      ],
+      "stable_id": "UPDATEV2-0011"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        152,
+        102
+      ],
+      "stable_id": "UPDATEV2-0012"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        153,
+        104
+      ],
+      "stable_id": "UPDATEV2-0013"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        154,
+        106
+      ],
+      "stable_id": "UPDATEV2-0014"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        155,
+        108
+      ],
+      "stable_id": "UPDATEV2-0015"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        156,
+        110
+      ],
+      "stable_id": "UPDATEV2-0016"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        157,
+        112
+      ],
+      "stable_id": "UPDATEV2-0017"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        158,
+        114
+      ],
+      "stable_id": "UPDATEV2-0018"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        159,
+        116
+      ],
+      "stable_id": "UPDATEV2-0019"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        160,
+        118
+      ],
+      "stable_id": "UPDATEV2-0020"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        161,
+        120
+      ],
+      "stable_id": "UPDATEV2-0021"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        162,
+        122
+      ],
+      "stable_id": "UPDATEV2-0022"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        163,
+        125
+      ],
+      "stable_id": "UPDATEV2-0023"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        164,
+        127
+      ],
+      "stable_id": "UPDATEV2-0024"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        165,
+        129
+      ],
+      "stable_id": "UPDATEV2-0025"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        166,
+        131
+      ],
+      "stable_id": "UPDATEV2-0026"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        167,
+        133
+      ],
+      "stable_id": "UPDATEV2-0027"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        168,
+        135
+      ],
+      "stable_id": "UPDATEV2-0028"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        169,
+        138
+      ],
+      "stable_id": "UPDATEV2-0029"
+    },
+    {
+      "kind": "blocked",
+      "reason": "duplicate_stable_marker",
+      "remote_numbers": [
+        170,
+        139
+      ],
+      "stable_id": "UPDATEV2-0030"
+    }
+  ],
+  "desired_record_count": 173,
+  "plan_sha256": "ec5f8756d03c7201e3ba2a0f037d4a355d30e8f2f4037ccffef2f9cf85fd46b1",
+  "remote_inventory_sha256": "cf80ac7a514f90fee034957e62573699b84e1fdebe3a5b7457b1da47cbfbfcf0",
+  "remote_issue_count": 166,
+  "repository": "Thor2709/etf_ai_cockpit",
+  "reviewed_reopen_ids": [
+    "ISSUE-0067"
+  ],
+  "schema_version": "1.0",
+  "summary": {
+    "blocked": 60,
+    "close": 0,
+    "create": 83,
+    "reopen": 0,
+    "update": 30
+  }
+}

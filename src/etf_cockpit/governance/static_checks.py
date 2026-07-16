@@ -54,6 +54,7 @@ _EXCLUDED_ROOT_DIRECTORIES = frozenset(
         "models",
     }
 )
+_EXCLUDED_ARCHIVE_PREFIXES = (Path("docs") / "product-completion" / "sources",)
 _TEXT_SUFFIXES = frozenset(
     {
         ".cfg",
@@ -175,6 +176,7 @@ _POLICY = {
     "allow_list": ["docs/architecture/future/*.md", "docs/architecture/future/*.markdown", "tests/**"],
     "excluded_directories": sorted(_EXCLUDED_DIRECTORIES),
     "excluded_runtime_roots": sorted(_EXCLUDED_ROOT_DIRECTORIES),
+    "excluded_archive_prefixes": [path.as_posix() for path in _EXCLUDED_ARCHIVE_PREFIXES],
     "prohibited_order_symbols": sorted(_PROHIBITED_ORDER_SYMBOLS),
     "prohibited_imports": sorted(_PROHIBITED_IMPORTS),
     "prohibited_dependencies": sorted(_PROHIBITED_DEPENDENCIES),
@@ -241,6 +243,13 @@ def _is_allow_listed(root: Path, path: Path) -> bool:
     return False
 
 
+def _is_excluded_archive(root: Path, path: Path) -> bool:
+    """Return whether *path* is immutable evidence, not production input."""
+
+    relative = Path(_relative_path(root, path))
+    return any(relative == prefix or prefix in relative.parents for prefix in _EXCLUDED_ARCHIVE_PREFIXES)
+
+
 def _is_dependency_manifest(path: Path) -> bool:
     name = path.name.lower()
     if name in _MANIFEST_NAMES:
@@ -266,6 +275,7 @@ def _iter_scannable_files(root: Path) -> Iterator[Path]:
         if (
             any(part.lower() in _EXCLUDED_DIRECTORIES for part in relative_parts)
             or (relative_parts and relative_parts[0].lower() in _EXCLUDED_ROOT_DIRECTORIES)
+            or _is_excluded_archive(root, path)
         ):
             continue
         if path.stat().st_size > MAX_TEXT_FILE_BYTES:

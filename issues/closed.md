@@ -1,3 +1,27 @@
+## Canonical closed index (2026-07-17)
+
+This compact index is the generated canonical view. Detailed closure, rejected-checkpoint and research history remains below it.
+
+| stable_id | title | final_state | closure-record anchor |
+|---|---|---|---|
+| `ISSUE-0001` | Create durable issue tracker and plan synchronisation | Completed | [record](#closed-issue-0001) |
+| `ISSUE-0002` | Add young/noisy evidence and too-good-to-be-true warnings | Completed | [record](#closed-issue-0002) |
+| `ISSUE-0003` | Add benchmark alpha/beta/regime attribution | Completed | [record](#closed-issue-0003) |
+| `ISSUE-0004` | Add hit-rate, payoff-ratio and expected-value diagnostics | Completed | [record](#closed-issue-0004) |
+| `ISSUE-0005` | Add friction/cost/slippage stress engine | Completed | [record](#closed-issue-0005) |
+| `ISSUE-0006` | Add explicit model/backtest contamination validity status | Completed | [record](#closed-issue-0006) |
+| `ISSUE-0009` | Add source-credibility scoring for imported research notes | Completed | [record](#closed-issue-0009) |
+| `ISSUE-0035` | Data health centre | Closed 2026-07-13 | [record](#closed-issue-0035) |
+| `ISSUE-0069` | Single-file session action logging and diagnostics trace | Closed 2026-07-11 | [record](#closed-issue-0069) |
+| `UPDATEV2-0010` | Provider registry, capability probes and source authority model (original update ISSUE-0010) | Closed 2026-07-11; the completed product work is recorded in `issues/closed.md`. | [record](#closed-updatev2-0010) |
+| `UPDATEV2-0013` | European ESEF/iXBRL filing importer | Closed 2026-07-15 | [record](#closed-updatev2-0013) |
+| `UPDATEV2-0015` | ETF disclosure registry (original update ISSUE-0015) | Closed 2026-07-15 | [record](#closed-updatev2-0015) |
+| `UPDATEV2-0016` | ETF holdings normaliser (original update ISSUE-0016) | Closed 2026-07-15 | [record](#closed-updatev2-0016) |
+| `UPDATEV2-0017` | PRIIPs KID parser (original update ISSUE-0017) | Closed 2026-07-16 | [record](#closed-updatev2-0017) |
+| `UPDATEV2-0019` | Index methodology importer (original update ISSUE-0019) | Closed 2026-07-16 | [record](#closed-updatev2-0019) |
+| `UPDATEV2-0022` | Evidence ledger and score component audit trail | Closed 2026-07-11 | [record](#closed-updatev2-0022) |
+| `UPDATEV2-0028` | Report/audit packet expansion for providers, filings, ETF docs and candles | Closed 2026-07-15 | [record](#closed-updatev2-0028) |
+
 # Closed Issues
 
 Closed issues record completed, rejected and explicitly deferred work. An issue may be closed only when `plan.md` is updated and tests or rejection reasons are recorded.
@@ -71,6 +95,7 @@ This file preserves the parts of `C:\Users\thor2\Downloads\report.md` that are a
 
 ## Completed
 
+<a id="closed-issue-0001"></a>
 ### ISSUE-0001 - Create durable issue tracker and plan synchronisation
 
 **Status:** Completed
@@ -96,6 +121,7 @@ This file preserves the parts of `C:\Users\thor2\Downloads\report.md` that are a
 **Remaining limitations:** The issue workflow is Markdown-based rather than a GitHub API integration.
 **Plan.md update:** Complete.
 
+<a id="closed-issue-0002"></a>
 ### ISSUE-0002 - Add young/noisy evidence and too-good-to-be-true warnings
 
 **Status:** Completed
@@ -126,6 +152,7 @@ This file preserves the parts of `C:\Users\thor2\Downloads\report.md` that are a
 **Remaining limitations:** The maturity sample is a price-row proxy, not a live/paper trade diary.
 **Plan.md update:** Complete.
 
+<a id="closed-issue-0003"></a>
 ### ISSUE-0003 - Add benchmark alpha/beta/regime attribution
 
 **Status:** Completed
@@ -160,6 +187,7 @@ This file preserves the parts of `C:\Users\thor2\Downloads\report.md` that are a
 **Remaining limitations:** Attribution is descriptive only and does not prove causality. Candidate attribution remains pending until candidate histories are promoted into the clean yfinance price panel.
 **Plan.md update:** Complete.
 
+<a id="closed-issue-0004"></a>
 ### ISSUE-0004 - Add hit-rate, payoff-ratio and expected-value diagnostics
 
 **Status:** Completed
@@ -191,6 +219,7 @@ This file preserves the parts of `C:\Users\thor2\Downloads\report.md` that are a
 **Remaining limitations:** Diagnostics are return-period payoff diagnostics, not per-trade PnL, because the current backtest trade log records rebalance turnover/costs rather than closed trade PnL.
 **Plan.md update:** Complete.
 
+<a id="closed-issue-0005"></a>
 ### ISSUE-0005 - Add friction/cost/slippage stress engine
 
 **Status:** Completed
@@ -224,6 +253,7 @@ This file preserves the parts of `C:\Users\thor2\Downloads\report.md` that are a
 **Remaining limitations:** Commission is converted to bps only when a trade value exists; otherwise stress uses configured spread, slippage and FX assumptions.
 **Plan.md update:** Complete.
 
+<a id="closed-issue-0006"></a>
 ### ISSUE-0006 - Add explicit model/backtest contamination validity status
 
 **Status:** Completed
@@ -254,6 +284,7 @@ This file preserves the parts of `C:\Users\thor2\Downloads\report.md` that are a
 **Remaining limitations:** The field marks model-history overlap risk conservatively; it does not inspect proprietary model training corpora.
 **Plan.md update:** Complete.
 
+<a id="closed-issue-0009"></a>
 ### ISSUE-0009 - Add source-credibility scoring for imported research notes
 
 **Status:** Completed
@@ -581,6 +612,7 @@ record while final integration and local/GitHub synchronisation are pending.
 
 ## 2026-07-11 Final Follow-Up Closures
 
+<a id="closed-updatev2-0013"></a>
 ### UPDATEV2-0013 - European ESEF/iXBRL filing importer
 
 **Status:** Closed 2026-07-15
@@ -595,6 +627,7 @@ record while final integration and local/GitHub synchronisation are pending.
 
 These records supersede the rejected 2026-07-10 checkpoints above. They describe completed product work; generated closure manifests are not retained.
 
+<a id="closed-issue-0069"></a>
 ### ISSUE-0069 - Single-file session action logging and diagnostics trace
 
 **Status:** Closed 2026-07-11  
@@ -603,6 +636,7 @@ The follow-up added shared redaction for JSON-style secret strings and verified 
 
 **2026-07-11 operational-event regression extension:** The existing closed implementation was extended without changing its status. Typed operational-event loading, incomplete-tail quarantine, contextual integrity errors, event IDs/hash chaining and AppState/Diagnostics trace projection are covered by the retained product tests. The default workflow runtime persists lifecycle events only through `logs/session.jsonl`; no new execution authority was introduced.
 
+<a id="closed-updatev2-0022"></a>
 ### UPDATEV2-0022 - Evidence ledger and score component audit trail
 
 **Status:** Closed 2026-07-11  
@@ -610,12 +644,14 @@ Product audit/export behaviour remains in the application source and tests; gene
 
 The follow-up excludes unknown source prefixes from score eligibility and records model evidence as `model_advisory`. Packaged Evidence Ledger and expanded rows visibly expose source, authority, freshness and eligibility boundaries; the archive contains the corresponding exports.
 
+<a id="closed-updatev2-0028"></a>
 ### UPDATEV2-0028 - Report/audit packet expansion for providers, filings, ETF docs and candles
 
 **Status:** Closed 2026-07-15
 
 The follow-up made candle/conflict artefacts explicit, required a complete holdings summary, and verified non-executable audit import plus secret/checksum validation. Missing optional evidence remains explicitly unavailable rather than invented. Product audit/export behaviour remains in the application source and tests.
 
+<a id="closed-issue-0035"></a>
 ### ISSUE-0035 - Data health centre
 
 **Status:** Closed 2026-07-13  
@@ -643,6 +679,7 @@ all authority and scope boundaries remain unchanged.
 
 The strict parser/provider rule remains in force: SEC EDGAR, ESEF/iXBRL, PRIIPs KID, index-methodology and provider-backed workflows remain open without real fixtures, parser tests, UI workflow, export proof and browser smoke evidence.
 
+<a id="closed-updatev2-0015"></a>
 ### UPDATEV2-0015 - ETF disclosure registry (original update ISSUE-0015)
 
 **Status:** Closed 2026-07-15
@@ -655,6 +692,7 @@ The strict parser/provider rule remains in force: SEC EDGAR, ESEF/iXBRL, PRIIPs 
 **Integration:** Product changes were merged before this cleanup; remote issue state is outside its scope.
 **Limitations:** Live providers and broker execution remain unavailable by design; no execution authority was introduced.
 
+<a id="closed-updatev2-0016"></a>
 ### UPDATEV2-0016 - ETF holdings normaliser (original update ISSUE-0016)
 
 **Status:** Closed 2026-07-15
@@ -667,6 +705,7 @@ The strict parser/provider rule remains in force: SEC EDGAR, ESEF/iXBRL, PRIIPs 
 **Integration:** Product changes were merged before this cleanup; remote issue state is outside its scope.
 **Limitations:** Holdings remain context-only when incomplete, stale, invalid or provider-unavailable; no live provider or broker execution was introduced.
 
+<a id="closed-updatev2-0017"></a>
 ### UPDATEV2-0017 - PRIIPs KID parser (original update ISSUE-0017)
 
 **Status:** Closed 2026-07-16
@@ -680,6 +719,7 @@ The strict parser/provider rule remains in force: SEC EDGAR, ESEF/iXBRL, PRIIPs 
 **Integration:** Branch `wave4/task15-closure-final`; PR [#204](https://github.com/Thor2709/etf_ai_cockpit/pull/204) merged to `main` at `4379132092b8f037bd6227eb4562c2bfbcaa6748` on 2026-07-16.
 **Limitations:** Live providers and broker execution remain unavailable by design; source-document provenance remains explicit in the product audit records.
 
+<a id="closed-updatev2-0019"></a>
 ### UPDATEV2-0019 - Index methodology importer (original update ISSUE-0019)
 
 **Status:** Closed 2026-07-16
@@ -692,3 +732,23 @@ The strict parser/provider rule remains in force: SEC EDGAR, ESEF/iXBRL, PRIIPs 
 **Review:** Independent product review approved the implementation and no execution authority was introduced.
 **Integration:** Branch `wave4/task15-closure-final`; PR [#204](https://github.com/Thor2709/etf_ai_cockpit/pull/204) merged to `main` at `4379132092b8f037bd6227eb4562c2bfbcaa6748` on 2026-07-16.
 **Limitations:** Computer Use was unavailable; the in-app browser exposed only its accessibility placeholder. Live providers and broker execution remain unavailable by design.
+
+## 2026-07-17 Canonical Reconciliation Closures
+
+<a id="closed-updatev2-0010"></a>
+### UPDATEV2-0010 - Provider registry, capability probes and source authority model (original update ISSUE-0010)
+
+**Status:** Closed 2026-07-11; the completed product work is recorded in `issues/closed.md`.
+**Type:** Providers / Evidence Integrity
+**Priority:** P0
+**Evidence grade:** High
+**Source URLs:** `C:\Users\thor2\Downloads\updatev2.md`; yfinance, SEC EDGAR, ESEF, FMP, Alpha Vantage, Finnhub, Stooq, Twelve Data and Tiingo sources listed in `REPORT.md`.
+**Problem:** The app is moving from yfinance-only evidence into official filings, vendor APIs, ETF disclosures and candle evidence. Without a provider registry and source authority model, the app cannot safely decide whether a source is official, vendor-normalised, partial, stale, forbidden, rate-limited or context-only.
+**Why it matters:** Every later provider/importer/scoring feature depends on source identity, authority, limits and entitlement status.
+**Proposed implementation:** Extend `configs/data_providers.yaml`; add provider capability model; add `probe_capabilities()` to every provider; add `source_authority` enum; store `data/clean/provider_probe_results.parquet`; add Provider Status UI; include provider status in audit packet.
+**Acceptance criteria:** Missing API keys do not crash; disabled providers stay disabled; provider capability must be `ok` before scoring use; API keys are never logged/exported; UI shows provider state and last probe result; audit packet includes provider status.
+**UI requirement:** Provider Status page/panel with enabled/disabled state, API-key redaction, capabilities, probe result, quota/rate budget and last successful import.
+**Tests required:** Mock provider OK, forbidden, rate-limited, missing API key, config redaction and probe result storage.
+**Rebuild requirement:** Full release gate before close.
+**Plan.md update requirement:** Preserve provider strategy and source authority ladder.
+**Close criteria:** Common close criteria plus audit packet provider manifest.

@@ -1,0 +1,458 @@
+{
+  "baseline_commit": "3321ebd0733f188f25668f67e3b41fd90808591d",
+  "branch": "docs/completion-programme-20260717",
+  "github_inventory": {
+    "closed_issue_count": 94,
+    "collection_method": "read-only gh issue/pr list",
+    "issue_count": 166,
+    "open_issue_count": 72,
+    "open_pull_request_count": 0,
+    "pull_request_count": 42
+  },
+  "latest_ledgers": {
+    "closed_index_count": 17,
+    "local_only_records": [
+      {
+        "canonical_id": "ISSUE-0001",
+        "classification": "local_only_closed",
+        "ledger_state": "closed",
+        "priority": "",
+        "reason": "closed in the latest ledger after the package snapshot or reconciled from a stale open record",
+        "title": "Create durable issue tracker and plan synchronisation"
+      },
+      {
+        "canonical_id": "ISSUE-0002",
+        "classification": "local_only_closed",
+        "ledger_state": "closed",
+        "priority": "",
+        "reason": "closed in the latest ledger after the package snapshot or reconciled from a stale open record",
+        "title": "Add young/noisy evidence and too-good-to-be-true warnings"
+      },
+      {
+        "canonical_id": "ISSUE-0003",
+        "classification": "local_only_closed",
+        "ledger_state": "closed",
+        "priority": "",
+        "reason": "closed in the latest ledger after the package snapshot or reconciled from a stale open record",
+        "title": "Add benchmark alpha/beta/regime attribution"
+      },
+      {
+        "canonical_id": "ISSUE-0004",
+        "classification": "local_only_closed",
+        "ledger_state": "closed",
+        "priority": "",
+        "reason": "closed in the latest ledger after the package snapshot or reconciled from a stale open record",
+        "title": "Add hit-rate, payoff-ratio and expected-value diagnostics"
+      },
+      {
+        "canonical_id": "ISSUE-0005",
+        "classification": "local_only_closed",
+        "ledger_state": "closed",
+        "priority": "",
+        "reason": "closed in the latest ledger after the package snapshot or reconciled from a stale open record",
+        "title": "Add friction/cost/slippage stress engine"
+      },
+      {
+        "canonical_id": "ISSUE-0006",
+        "classification": "local_only_closed",
+        "ledger_state": "closed",
+        "priority": "",
+        "reason": "closed in the latest ledger after the package snapshot or reconciled from a stale open record",
+        "title": "Add explicit model/backtest contamination validity status"
+      },
+      {
+        "canonical_id": "ISSUE-0009",
+        "classification": "local_only_closed",
+        "ledger_state": "closed",
+        "priority": "",
+        "reason": "closed in the latest ledger after the package snapshot or reconciled from a stale open record",
+        "title": "Add source-credibility scoring for imported research notes"
+      },
+      {
+        "canonical_id": "ISSUE-0035",
+        "classification": "local_only_closed",
+        "ledger_state": "closed",
+        "priority": "",
+        "reason": "closed in the latest ledger after the package snapshot or reconciled from a stale open record",
+        "title": "Data health centre"
+      },
+      {
+        "canonical_id": "ISSUE-0067",
+        "classification": "local_only_current",
+        "ledger_state": "open",
+        "priority": "P0/P1",
+        "reason": "present in latest open ledger but absent from the older package snapshot",
+        "title": "Local score history and per-instrument score evolution mini charts"
+      },
+      {
+        "canonical_id": "ISSUE-0069",
+        "classification": "local_only_closed",
+        "ledger_state": "closed",
+        "priority": "",
+        "reason": "closed in the latest ledger after the package snapshot or reconciled from a stale open record",
+        "title": "Single-file session action logging and diagnostics trace"
+      },
+      {
+        "canonical_id": "UPDATEV2-0010",
+        "classification": "local_only_closed",
+        "ledger_state": "closed",
+        "priority": "",
+        "reason": "closed in the latest ledger after the package snapshot or reconciled from a stale open record",
+        "title": "Provider registry, capability probes and source authority model (original update ISSUE-0010)"
+      },
+      {
+        "canonical_id": "UPDATEV2-0013",
+        "classification": "local_only_closed",
+        "ledger_state": "closed",
+        "priority": "",
+        "reason": "closed in the latest ledger after the package snapshot or reconciled from a stale open record",
+        "title": "European ESEF/iXBRL filing importer"
+      },
+      {
+        "canonical_id": "UPDATEV2-0022",
+        "classification": "local_only_closed",
+        "ledger_state": "closed",
+        "priority": "",
+        "reason": "closed in the latest ledger after the package snapshot or reconciled from a stale open record",
+        "title": "Evidence ledger and score component audit trail"
+      },
+      {
+        "canonical_id": "UPDATEV2-0028",
+        "classification": "local_only_closed",
+        "ledger_state": "closed",
+        "priority": "",
+        "reason": "closed in the latest ledger after the package snapshot or reconciled from a stale open record",
+        "title": "Report/audit packet expansion for providers, filings, ETF docs and candles"
+      }
+    ],
+    "open_heading_count": 73,
+    "package_current_closed_ids": [
+      "UPDATEV2-0015",
+      "UPDATEV2-0016",
+      "UPDATEV2-0017",
+      "UPDATEV2-0019"
+    ],
+    "package_current_open_ids": [
+      "ISSUE-0007",
+      "ISSUE-0008",
+      "ISSUE-0010",
+      "ISSUE-0011",
+      "ISSUE-0012",
+      "ISSUE-0013",
+      "ISSUE-0014",
+      "ISSUE-0015",
+      "ISSUE-0016",
+      "ISSUE-0017",
+      "ISSUE-0018",
+      "ISSUE-0019",
+      "ISSUE-0020",
+      "ISSUE-0021",
+      "ISSUE-0022",
+      "ISSUE-0023",
+      "ISSUE-0024",
+      "ISSUE-0025",
+      "ISSUE-0026",
+      "ISSUE-0027",
+      "ISSUE-0028",
+      "ISSUE-0029",
+      "ISSUE-0030",
+      "ISSUE-0031",
+      "ISSUE-0032",
+      "ISSUE-0033",
+      "ISSUE-0034",
+      "ISSUE-0036",
+      "ISSUE-0037",
+      "ISSUE-0038",
+      "ISSUE-0039",
+      "ISSUE-0040",
+      "ISSUE-0041",
+      "ISSUE-0042",
+      "ISSUE-0043",
+      "ISSUE-0044",
+      "ISSUE-0045",
+      "ISSUE-0046",
+      "ISSUE-0047",
+      "ISSUE-0048",
+      "ISSUE-0049",
+      "ISSUE-0050",
+      "ISSUE-0051",
+      "ISSUE-0052",
+      "ISSUE-0053",
+      "ISSUE-0054",
+      "ISSUE-0055",
+      "ISSUE-0056",
+      "ISSUE-0057",
+      "ISSUE-0058",
+      "ISSUE-0059",
+      "ISSUE-0060",
+      "ISSUE-0061",
+      "ISSUE-0062",
+      "ISSUE-0063",
+      "ISSUE-0064",
+      "ISSUE-0065",
+      "ISSUE-0066",
+      "ISSUE-0068",
+      "UPDATEV2-0011",
+      "UPDATEV2-0012",
+      "UPDATEV2-0014",
+      "UPDATEV2-0018",
+      "UPDATEV2-0020",
+      "UPDATEV2-0021",
+      "UPDATEV2-0023",
+      "UPDATEV2-0024",
+      "UPDATEV2-0025",
+      "UPDATEV2-0026",
+      "UPDATEV2-0027",
+      "UPDATEV2-0029",
+      "UPDATEV2-0030"
+    ]
+  },
+  "package": {
+    "archived_directory": "docs/product-completion/sources/2026-07-15",
+    "member_hashes": {
+      "ETF_AI_Cockpit_Completion_Blueprint.md": "9d03c570f3fab5dcc98f04c00963fe99286f6dd61088f981e540717f19361dd9",
+      "ETF_AI_Cockpit_Completion_Programme_Index.md": "5068a22fc5aaabe56fd1d3578d6bd37e25349b5ef514a4e41bbac54c6fa1e45e",
+      "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv": "e201473d7887841fcbdf0c50d239d02afdd6290834c2311a17aa2d4f8a3fccde",
+      "ETF_AI_Cockpit_Current_Open_Issues_Audit.md": "6e611cc73d63469ba15f057fd456385c16f40cde8200e22c986e3724560738b8",
+      "ETF_AI_Cockpit_Master_Issue_Registry.json": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
+      "ETF_AI_Cockpit_New_Issues.csv": "b0fa3b6c9532d0c52799b1fa36fe6f2bea685b71a8cb973a4cd17c83e54ff798",
+      "ETF_AI_Cockpit_New_Issues_Ready_To_Append.md": "0f45eb1c12cc0e4ec2fb202670d4d52379a7e74aa6776167bfd3eec73b5bee26",
+      "ETF_AI_Cockpit_Research_Sources.csv": "d037b5246683b56d0f2d28e389cd2eaef8d99ebef7d181d4bf4af1d450b7d990",
+      "ETF_AI_Cockpit_Research_Sources.md": "4565a02c6701c0d8e4bb7c7b60fcbe4f6039295ec93f0eb4c82ac17936558fa9"
+    },
+    "path": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\ETF_AI_Cockpit_Full_Research_and_Issue_Package.zip",
+    "reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
+    "sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
+    "validation": {
+      "combined_issue_count": 159,
+      "current_open_issue_count": 76,
+      "errors": [],
+      "member_hashes": {
+        "ETF_AI_Cockpit_Completion_Blueprint.md": "9d03c570f3fab5dcc98f04c00963fe99286f6dd61088f981e540717f19361dd9",
+        "ETF_AI_Cockpit_Completion_Programme_Index.md": "5068a22fc5aaabe56fd1d3578d6bd37e25349b5ef514a4e41bbac54c6fa1e45e",
+        "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv": "e201473d7887841fcbdf0c50d239d02afdd6290834c2311a17aa2d4f8a3fccde",
+        "ETF_AI_Cockpit_Current_Open_Issues_Audit.md": "6e611cc73d63469ba15f057fd456385c16f40cde8200e22c986e3724560738b8",
+        "ETF_AI_Cockpit_Master_Issue_Registry.json": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
+        "ETF_AI_Cockpit_New_Issues.csv": "b0fa3b6c9532d0c52799b1fa36fe6f2bea685b71a8cb973a4cd17c83e54ff798",
+        "ETF_AI_Cockpit_New_Issues_Ready_To_Append.md": "0f45eb1c12cc0e4ec2fb202670d4d52379a7e74aa6776167bfd3eec73b5bee26",
+        "ETF_AI_Cockpit_Research_Sources.csv": "d037b5246683b56d0f2d28e389cd2eaef8d99ebef7d181d4bf4af1d450b7d990",
+        "ETF_AI_Cockpit_Research_Sources.md": "4565a02c6701c0d8e4bb7c7b60fcbe4f6039295ec93f0eb4c82ac17936558fa9"
+      },
+      "new_issue_count": 83,
+      "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
+      "valid": true,
+      "warnings": [
+        "ETF_AI_Cockpit_Current_Open_Issues_Audit.md: repeated issue references are present outside headings",
+        "ISSUE-0147: reference UPDATEV2-0028 is outside the package"
+      ]
+    }
+  },
+  "repository": "Thor2709/etf_ai_cockpit",
+  "safety": {
+    "broker_automation": false,
+    "external_uploads": false,
+    "github_writes_from_generator": false,
+    "optional_providers_and_models": true,
+    "product_features_implemented": false,
+    "zip_committed": false
+  },
+  "schema_version": "1.0",
+  "worktree": "C:\\Users\\thor2\\Desktop\\Trading App\\.worktrees\\completion-programme-20260717",
+  "worktree_inventory": [
+    {
+      "branch": "main",
+      "head": "3321ebd0733f188f25668f67e3b41fd90808591d",
+      "path": "C:/Users/thor2/Desktop/Trading App/etf_ai_cockpit"
+    },
+    {
+      "branch": "docs/completion-programme-20260717",
+      "head": "3321ebd0733f188f25668f67e3b41fd90808591d",
+      "path": "C:/Users/thor2/Desktop/Trading App/.worktrees/completion-programme-20260717"
+    },
+    {
+      "branch": "agent/controller-cycle-20260716",
+      "head": "54a3e4001bacce474f3018f6e4524a75c59a0132",
+      "path": "C:/Users/thor2/Desktop/Trading App/.worktrees/controller-cycle-20260716"
+    },
+    {
+      "branch": "wave1/governance-task2",
+      "head": "cb72e7c356c1829d7882d31e8a0a2e3dcea7686b",
+      "path": "C:/Users/thor2/Desktop/Trading App/.worktrees/governance-task2"
+    },
+    {
+      "branch": "wave1/governance-task3",
+      "head": "86ea8c8f7777d2566ccc7f47a79e3776c6b7331e",
+      "path": "C:/Users/thor2/Desktop/Trading App/.worktrees/governance-task3"
+    },
+    {
+      "branch": "wave1/governance-task4",
+      "head": "92abae9d6321937cc89c137dcf914a714e765f0d",
+      "path": "C:/Users/thor2/Desktop/Trading App/.worktrees/governance-task4"
+    },
+    {
+      "branch": "wave1/governance-task5",
+      "head": "16ccb9cb6f307d51df5a9ade98c9b40aedc81e8d",
+      "path": "C:/Users/thor2/Desktop/Trading App/.worktrees/governance-task5"
+    },
+    {
+      "branch": "wave5/task23-final",
+      "head": "ff754148c66874baed43fc9123be37dc12d8c82e",
+      "path": "C:/Users/thor2/Desktop/Trading App/.worktrees/TASK23~1"
+    },
+    {
+      "branch": "wave3/task6-workflow-runtime",
+      "head": "f5972b0946fadb513c5fdf01d605a9bd7af212dc",
+      "path": "C:/Users/thor2/Desktop/Trading App/.worktrees/task6-workflow-runtime"
+    },
+    {
+      "branch": "wave3/task7-error-recovery",
+      "head": "fe97b4c88cb0c52d502b4433af91c7452a5bd505",
+      "path": "C:/Users/thor2/Desktop/Trading App/.worktrees/task7-error-recovery"
+    },
+    {
+      "branch": "wave3/task8-provider-registry",
+      "head": "d4b4ec91a309d8b30a3e8707362b00f9d12cbee1",
+      "path": "C:/Users/thor2/Desktop/Trading App/.worktrees/task8-provider-registry"
+    },
+    {
+      "branch": "wave4/task9-identity-evidence",
+      "head": "eb40142cce1480d23d85eb7754fece7fe8f7c601",
+      "path": "C:/Users/thor2/Desktop/Trading App/.worktrees/task9-identity-evidence"
+    },
+    {
+      "branch": "wave0/task3-atomic-recovery",
+      "head": "99239142dac66fe256c160a54f9c0c75e15d97f2",
+      "path": "C:/Users/thor2/Desktop/Trading App/.worktrees/wave0-task3-atomic-recovery"
+    },
+    {
+      "branch": "wave0/task4-execution-boundary",
+      "head": "6028aa0b2076f048fb6614bfaad37a74a405188a",
+      "path": "C:/Users/thor2/Desktop/Trading App/.worktrees/wave0-task4-execution-boundary"
+    },
+    {
+      "branch": "wave0/task4-postmerge-hardening",
+      "head": "fdf1323a584535ce4322d148c03ea6b0a904a2f0",
+      "path": "C:/Users/thor2/Desktop/Trading App/.worktrees/wave0-task4-postmerge-hardening"
+    },
+    {
+      "branch": "wave0/task5-evidence-automation",
+      "head": "85139cc5ff42a4c1ee032ddcd6f74f34232daf6f",
+      "path": "C:/Users/thor2/Desktop/Trading App/.worktrees/wave0-task5-evidence-automation"
+    },
+    {
+      "branch": "wave1/governance-task1",
+      "head": "3d2fce3dbc6b8caaa19b693b8a73ba39734834c4",
+      "path": "C:/Users/thor2/Desktop/Trading App/.worktrees/wave1-governance-task1"
+    },
+    {
+      "branch": "wave9/programme-closure",
+      "head": "3c8fc87e512bff86844d86da039f1747b22c4c4d",
+      "path": "C:/Users/thor2/Desktop/Trading App/etf_ai_cockpit/.worktrees/programme-closure"
+    },
+    {
+      "branch": "wave4/task11-universe",
+      "head": "b7a0f5c948d5204680b5b4fd2a92698be01b2c5e",
+      "path": "C:/Users/thor2/Desktop/Trading App/etf_ai_cockpit/.worktrees/task11-universe"
+    },
+    {
+      "branch": "wave4/task12-sec-edgar",
+      "head": "f243796e3714f8644d68da51691008d355b91e32",
+      "path": "C:/Users/thor2/Desktop/Trading App/etf_ai_cockpit/.worktrees/task12-sec-edgar"
+    },
+    {
+      "branch": "wave4/task13-esef",
+      "head": "44db2c2ca42633661bd7799f0ee42d3ccd0fd61f",
+      "path": "C:/Users/thor2/Desktop/Trading App/etf_ai_cockpit/.worktrees/task13-esef"
+    },
+    {
+      "branch": "wave4/task13-postmerge-check",
+      "head": "4e450fa144394f47c0b79d17e9d377bf3d8af441",
+      "path": "C:/Users/thor2/Desktop/Trading App/etf_ai_cockpit/.worktrees/TASK13-POSTMERGE"
+    },
+    {
+      "branch": "wave4/task13-loader-retry",
+      "head": "1d50e778dd443f84e667291d9f0b1e441d8f787b",
+      "path": "C:/Users/thor2/Desktop/Trading App/etf_ai_cockpit/.worktrees/TASK13-RECONCILIATION"
+    },
+    {
+      "branch": "wave4/task14-fund-docs",
+      "head": "a7cb185cceaf1c68ebd3bb049f94e8cfd920ab50",
+      "path": "C:/Users/thor2/Desktop/Trading App/etf_ai_cockpit/.worktrees/task14-fund-docs"
+    },
+    {
+      "branch": "wave4/task15-closure-final",
+      "head": "5e0fd38cc7f98e4acbc9e28e0afb70cbb6a613ea",
+      "path": "C:/Users/thor2/Desktop/Trading App/etf_ai_cockpit/.worktrees/TASK15-CLOSURE-20260715"
+    },
+    {
+      "branch": "wave4/task15-parsers",
+      "head": "fb98b16c8d31677d9e35ab0a354f1ae4cb4db727",
+      "path": "C:/Users/thor2/Desktop/Trading App/etf_ai_cockpit/.worktrees/task15-parsers"
+    },
+    {
+      "branch": "wave4/task16-fundamentals-news",
+      "head": "0f864b6284ae3da9a3973ae73e8d8c4442e32e8c",
+      "path": "C:/Users/thor2/Desktop/Trading App/etf_ai_cockpit/.worktrees/task16-fundamentals-news"
+    },
+    {
+      "branch": "wave4/task16-post-phase2",
+      "head": "e4225afa41e57f3232d2c078b9db7f439b2d00e4",
+      "path": "C:/Users/thor2/Desktop/Trading App/etf_ai_cockpit/.worktrees/task16-post-phase2"
+    },
+    {
+      "branch": "wave4/task17-score-history",
+      "head": "e83edfc0dadf69078fce0949b7cfe617915320bf",
+      "path": "C:/Users/thor2/Desktop/Trading App/etf_ai_cockpit/.worktrees/task17-score-history"
+    },
+    {
+      "branch": "wave5/task18-crowding",
+      "head": "0a5e0a657146b84f7a735f96e33d94dc218bd430",
+      "path": "C:/Users/thor2/Desktop/Trading App/etf_ai_cockpit/.worktrees/task18-crowding"
+    },
+    {
+      "branch": "wave5/task19-instrument-detail",
+      "head": "e76f9ba64a97e7f3ff69afe3a752058d71bb6934",
+      "path": "C:/Users/thor2/Desktop/Trading App/etf_ai_cockpit/.worktrees/task19-instrument-detail"
+    },
+    {
+      "branch": "wave5/task20-import-export",
+      "head": "b34b54ba07c72f2d439729c83c72cb28ef637801",
+      "path": "C:/Users/thor2/Desktop/Trading App/etf_ai_cockpit/.worktrees/task20-import-export"
+    },
+    {
+      "branch": "wave5/task21-audit",
+      "head": "21e3d0a551fb19edb955de549fec8d68e6c8547f",
+      "path": "C:/Users/thor2/Desktop/Trading App/etf_ai_cockpit/.worktrees/TASK21~1"
+    },
+    {
+      "branch": "wave5/task23-working",
+      "head": "6500b52e64347dca3debfc7e64510ea37e57f0d2",
+      "path": "C:/Users/thor2/Desktop/Trading App/etf_ai_cockpit/.worktrees/TASK22-RECONCILIATION"
+    },
+    {
+      "branch": "wave5/task22-verification",
+      "head": "a8a268605ab4d97e6afb647b4289ed3b31d6bc6b",
+      "path": "C:/Users/thor2/Desktop/Trading App/etf_ai_cockpit/.worktrees/TASK22~1"
+    },
+    {
+      "branch": "wave5/task23-closure",
+      "head": "8fab74d3437c82e6eaa1e6404b9ce2c29bb0ca1e",
+      "path": "C:/Users/thor2/Desktop/Trading App/etf_ai_cockpit/.worktrees/task23-closure"
+    },
+    {
+      "branch": "wave5/task23-final-records",
+      "head": "ec517d66d64f60063cf7183f90233162fdcb95b2",
+      "path": "C:/Users/thor2/Desktop/Trading App/etf_ai_cockpit/.worktrees/TASK23-FINAL-RECORDS"
+    },
+    {
+      "branch": "wave5/task23-final2",
+      "head": "ff754148c66874baed43fc9123be37dc12d8c82e",
+      "path": "C:/Users/thor2/Desktop/Trading App/etf_ai_cockpit/.worktrees/TASK23~2"
+    },
+    {
+      "branch": "wave4/verification-workflow-refactor",
+      "head": "38126eb6501d4877e1e273d041c428d813dfffc5",
+      "path": "C:/Users/thor2/Desktop/Trading App/etf_ai_cockpit/.worktrees/verification-workflow-refactor"
+    }
+  ]
+}
