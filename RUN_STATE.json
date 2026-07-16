@@ -1,16 +1,39 @@
 {
   "schema_version": 1,
-  "status": "committed",
-  "next_action": "Commit and push the independently approved Task 16 follow-up, merge its pull request and verify origin/main; do not dispatch or create a Task 17 worktree in this run",
-    "updated_at": "2026-07-16T17:39:43.2273310+10:00",
+  "status": "active",
+  "redispatch_required": false,
+  "next_action": "After this governance unit merges, fetch origin, verify main and select the next dependency-valid unfinished unit; do not reimplement Task 16",
+  "controller_checkpoint": {
+    "status": "active",
+    "guardrails_path": ".ai_worklog/autonomous-controller-run-guardrails.md",
+    "mandatory_unit": "Persist controller guardrails before selecting or starting the next programme task",
+    "verified_origin_main": "02328f4d601203b926847d58784e74c1e3a8c8b1",
+    "governance_worktree": "C:\\Users\\thor2\\Desktop\\Trading App\\.worktrees\\autonomous-controller-guardrails-20260716",
+    "governance_branch": "agent/autonomous-controller-guardrails-20260716",
+    "reconciliation": "The stale pre-merge Task 16 follow-up action is superseded because origin/main already contains merge 02328f4d601203b926847d58784e74c1e3a8c8b1; Task 16 must not be reimplemented.",
+    "next_action": "After this governance unit merges, fetch origin, verify main and select the next dependency-valid unfinished unit; do not reimplement Task 16",
+    "last_verified_at": "2026-07-16T08:27:58.1850239Z"
+  },
+  "resume_authority": {
+    "live_fields": [
+      "status",
+      "redispatch_required",
+      "next_action",
+      "git_branch",
+      "next_command",
+      "controller_checkpoint"
+    ],
+    "historical_fields_are_non_dispatchable": "Nested task, closure and note records retain evidence history only; their next_task and next_action values are superseded by controller_checkpoint and must never be used for dispatch."
+  },
+  "updated_at": "2026-07-16T08:27:58.1850239Z",
   "active_programme": {
     "name": "2026-07-11-etf-ai-cockpit-approved-programme",
     "programme_index": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-programme-index.md",
     "progress_ledger": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-progress-ledger.md",
-    "phase": "wave4_task16_post_phase2",
-    "next_task": "Commit and push the independently approved Task 16 follow-up, merge its pull request and verify origin/main; do not dispatch or create a Task 17 worktree in this run",
+    "phase": "controller_guardrails",
+    "next_task": "After this governance unit merges, fetch origin, verify main and select the next dependency-valid unfinished unit; do not reimplement Task 16",
     "git_repository": true,
-    "git_branch": "wave4/task16-post-phase2",
+    "git_branch": "main",
     "baseline": {
       "pytest": 0,
       "ruff": 0,
@@ -624,7 +647,7 @@
         "issue_0035": {"number": 81, "state": "CLOSED", "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/81"},
         "sync_commit": "a1b0cb0553efa9d68aff4134194a85e7fe5a214b"
       },
-      "next_action": "Task 11 is complete and merged; final release/browser/clean-first-run evidence remains pending in the owning issues."
+      "next_action": "Historical Task 11 checkpoint only; superseded by controller_checkpoint. Do not use this field for dispatch."
     },
     "task_11_checkpoint": {
       "owning_issue_ids": ["ISSUE-0068", "ISSUE-0018", "ISSUE-0017", "ISSUE-0056"],
@@ -723,7 +746,7 @@
   "plan": "docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md",
   "execution_mode": "subagent_driven_with_independent_review",
   "git_repository": true,
-  "git_branch": "wave4/verification-workflow-refactor",
+  "git_branch": "main",
   "progress_percent": 47,
   "wave": 5,
   "task": 23,
@@ -738,7 +761,8 @@
   },
   "last_checkpoint": {
     "name": "wave5_task23_updatev2_0028_integrated_and_synced",
-    "result": "UPDATEV2-0028 passed fresh source, tests, UI, export, build and packaged-browser evidence; independent closure review passed, PR 199 merged at 772817c15ec9eeb9cb805a16451249f44536bfa9, GitHub Issue 168 closed, and reconciliation passed with 76 open and 22 closed local records. Continue Task 14 closure dossiers; execution_allowed remains false.",
+    "result": "Historical checkpoint: UPDATEV2-0028 passed fresh source, tests, UI, export, build and packaged-browser evidence; independent closure review passed, PR 199 merged at 772817c15ec9eeb9cb805a16451249f44536bfa9, GitHub Issue 168 closed, and reconciliation passed with 76 open and 22 closed local records. This historical record is superseded by controller_checkpoint and is not an active dispatch instruction; execution_allowed remains false.",
+    "superseded_by": "controller_checkpoint",
     "evidence": [
       ".ai_worklog/task8-brief.md",
       ".ai_worklog/task8-report.md",
@@ -776,7 +800,7 @@
     "diff_check_exit_code": 0,
     "native_build": "current_worktree_rebuilt_with_python312_pyinstaller_and_packaged_browser_render_passed; canonical_batch_exit_0",
     "portable_zip": {"path": "build/ETF_AI_Cockpit_Portable_v0.1.0rc1.zip", "sha256": "A282F48A53844848E7FD42A3712F1F405B6A189A11EB8CE7FA547F9BDBD35ABD", "launcher_http": 200, "port": 8649},
-    "issue_state": "UPDATEV2-0013_closed; UPDATEV2-0028_closed; UPDATEV2-0015_closed; UPDATEV2-0016_closed_locally_pending_Task14_integration; remaining_records_open_or_previously_closed",
+    "issue_state": "UPDATEV2-0013_closed; UPDATEV2-0028_closed; UPDATEV2-0015_closed; UPDATEV2-0016_closed; ISSUE-0023, ISSUE-0025, ISSUE-0054 and ISSUE-0055 remain implementation-complete and closure-pending under strict release gates; remaining_records_open_or_previously_closed",
     "closure": {"issue_id": "UPDATEV2-0028", "status": "pass", "manifest": "evidence/final/UPDATEV2-0028/verification_manifest.json", "source_hash": "1406b50a8275de179c0afca95653c42481db103db0e5beda5b77f40c9c6fe092", "packaged_browser_screenshot": "evidence/final/browser/UPDATEV2-0028-audit-packaged.png", "review": "approved by /root/updatev2_0028_reviewer", "pull_request": "https://github.com/Thor2709/etf_ai_cockpit/pull/199", "merge_commit": "772817c15ec9eeb9cb805a16451249f44536bfa9", "github_issue": "https://github.com/Thor2709/etf_ai_cockpit/issues/168", "github_sync": "passed; local open=76 closed=22; states agree; no unresolved duplicates"},
     "execution_allowed": false
   },
@@ -791,10 +815,10 @@
     "pull_request": "https://github.com/Thor2709/etf_ai_cockpit/pull/201",
     "merge_commit": "bc85b731c88f00d77d703c70e005ff8520ca5acc",
     "github_issues": {"UPDATEV2-0015": {"number": 155, "state": "closed"}, "UPDATEV2-0016": {"number": 156, "state": "closed"}},
-    "next_action": "Verify Phase 2 origin/main integration; do not dispatch or create a Task 16 worktree in this run"
+  "next_action": "Historical Task 14 closure record only; superseded by controller_checkpoint. Do not use this field for dispatch or create a Task 16 worktree from it."
   },
   "first_unpassed_criterion": "Remaining open issue dossiers and DATA-05 coverage",
-  "next_command": "Integrate Task14 closure for UPDATEV2-0015 and UPDATEV2-0016, synchronise GitHub, then start Task15 UPDATEV2-0017/UPDATEV2-0019",
+  "next_command": "Fetch origin, verify main and read the programme index, closure plan, progress ledger, RUN_STATE.json, closure matrix and applicable issue/evidence records; then select the next dependency-valid unfinished unit. Do not reimplement Task 16.",
   "notes": [
     "No Git initialisation or commit occurred before the independently approved Task 2 boundary; the user now authorises local baseline Git setup and optional private GitHub push only.",
     "Closure status is evaluator-backed: 4/42 ready and 38 still open; do not close remaining issues without their complete dossiers.",
