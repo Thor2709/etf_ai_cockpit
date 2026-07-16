@@ -2,6 +2,10 @@
 
 > **Binding verification policy:** Finalisation and closure work must follow [`docs/superpowers/verification-finalisation-policy.md`](../verification-finalisation-policy.md). The policy is subordinate only to the approved specification and this programme's explicit product and safety constraints.
 
+> **Phase 2 workflow refactor:** Implementation verification and release certification are separate, reusable records keyed by commit, executable hash, environment hash and exact command. Evidence is staged and atomically promoted; staged evidence cannot close an issue. Documentation-only edits do not invalidate executable certification, relevant source changes do, and resume uses the committed ledger checkpoint without redispatch.
+
+> **Phase 2 checkpoint (2026-07-16):** Wave 4 Task 15 is merged through PR #204 at `4379132092b8f037bd6227eb4562c2bfbcaa6748`; `UPDATEV2-0017`/GitHub #157 and `UPDATEV2-0019`/GitHub #159 are synchronised closed. The verification-record implementation and focused/affected tests are complete; fresh independent re-review is approved and normal branch integration remains. No Task 16 worktree or dispatch is part of this run.
+
 > **Execution mode:** Subagent-Driven is mandatory. The repository now has a real Git baseline on `main`; Wave 0 Tasks 1-5, Wave 1 Governance Tasks 1-6, Wave 3 Tasks 7-9 and Wave 4 Tasks 10-21 are independently approved, merged and post-merge verified. Task 10 is closed locally and synchronised to GitHub Issue #81; Tasks 11-21 are implementation-complete with their owning issues still closure-pending strict release/package/audit/export/browser/clean-first-run evidence. Wave 5 Task 22 is under semantic reconciliation review on `wave5/task22-reconciliation`; Task 23 is deferred until the reconciled Task 22 base is approved and committed.
 
 **Binding inputs:**

@@ -1,14 +1,16 @@
 {
   "schema_version": 1,
+  "status": "committed",
+  "next_action": "Commit and push the Phase 2 verification-finalisation refactor, merge its pull request and verify origin/main; do not dispatch or create a Task 16 worktree in this run",
     "updated_at": "2026-07-15T13:35:00+10:00",
   "active_programme": {
     "name": "2026-07-11-etf-ai-cockpit-approved-programme",
     "programme_index": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-programme-index.md",
     "progress_ledger": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-progress-ledger.md",
-    "phase": "wave5_task23_issue_closure_continuation",
-    "next_task": "Commit and integrate UPDATEV2-0028, synchronise GitHub Issue #168, then evaluate Task14 issues UPDATEV2-0015 and UPDATEV2-0016",
+    "phase": "phase2_verification_finalisation",
+    "next_task": "Commit and push the Phase 2 verification-finalisation refactor, merge its pull request and verify origin/main; do not dispatch or create a Task 16 worktree in this run",
     "git_repository": true,
-    "git_branch": "wave5/task23-final-records",
+    "git_branch": "wave4/verification-workflow-refactor",
     "baseline": {
       "pytest": 0,
       "ruff": 0,
@@ -721,7 +723,7 @@
   "plan": "docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md",
   "execution_mode": "subagent_driven_with_independent_review",
   "git_repository": true,
-  "git_branch": "wave5/task23-final-records",
+  "git_branch": "wave4/verification-workflow-refactor",
   "progress_percent": 47,
   "wave": 5,
   "task": 23,
@@ -789,7 +791,7 @@
     "pull_request": "https://github.com/Thor2709/etf_ai_cockpit/pull/201",
     "merge_commit": "bc85b731c88f00d77d703c70e005ff8520ca5acc",
     "github_issues": {"UPDATEV2-0015": {"number": 155, "state": "closed"}, "UPDATEV2-0016": {"number": 156, "state": "closed"}},
-    "next_action": "Verify origin/main and start Task15 UPDATEV2-0017/UPDATEV2-0019"
+    "next_action": "Verify Phase 2 origin/main integration; do not dispatch or create a Task 16 worktree in this run"
   },
   "first_unpassed_criterion": "Remaining open issue dossiers and DATA-05 coverage",
   "next_command": "Integrate Task14 closure for UPDATEV2-0015 and UPDATEV2-0016, synchronise GitHub, then start Task15 UPDATEV2-0017/UPDATEV2-0019",

@@ -6,14 +6,23 @@
 
 | Field | Value |
 |---|---|
-| Updated | 2026-07-15 |
-| Active phase | Wave 5 Task 23 closure evidence; UPDATEV2-0013 closed locally after fresh evaluator pass; remaining open issues continue |
+| Updated | 2026-07-16 |
+| Active phase | Phase 2 verification-finalisation workflow refactor after merged Wave 4 Task 15; no Task 16 dispatch or worktree is part of this run |
 | Active plan | `docs/superpowers/plans/2026-07-10-all-41-issues-closure-plan.md` |
-| Git state | Records branch `wave5/task23-final-records` is based on synchronised `origin/main` `e07ade3`; UPDATEV2-0013 closure evidence is staged for reviewed integration |
+| Git state | Branch `wave4/verification-workflow-refactor` is based on merged Task 15 `origin/main` `4379132`; Task 15 PR #204 is merged and local/GitHub issue states are synchronised |
 | Existing closure state | Task 11 issues `ISSUE-0068`, `ISSUE-0018`, `ISSUE-0017` and `ISSUE-0056` are implementation-complete but closure-pending final release/browser/clean-first-run evidence; `ISSUE-0035` is closed locally and on GitHub Issue #81 |
-| Fresh baseline | ESEF retry full suite, Ruff, compileall, audit/export, canonical batch build, native/portable package and source/browser checks passed; remaining issues still require their own evidence |
+| Fresh baseline | Phase 2 focused policy evidence records 17 passed; invalidated verifier/issue/operations bundle 41 passed; scoped Ruff, compileall and diff check passed; independent re-review approved and PR integration remains |
 | Pre-existing type state | recorded mypy failure caused by external stubs and existing typing debt; no new failure attributed |
 | Known historical evidence limitation | Existing package/browser evidence predates this programme and cannot close new work |
+
+## Phase 2 verification-finalisation checkpoint - 2026-07-16
+
+- Binding policy: `docs/superpowers/verification-finalisation-policy.md`, referenced from the programme index and active closure plan; `AGENTS.md` contains the repository-local enforcement rules.
+- RED: `python -m pytest -q tests/release/test_verification_finalisation_policy.py --disable-warnings --maxfail=1` failed at collection before the release module existed (`ModuleNotFoundError: No module named 'etf_cockpit.release'`); raw output is retained at `C:\Users\thor2\AppData\Local\Temp\phase2-policy-red-20260716.txt`.
+- GREEN: 14 policy tests passed; `tests/release` plus `tests/operations` passed 122 tests; scoped Ruff, compileall and `git diff --check` passed.
+- Implementation: release records use exact implementation commit/executable/environment/command keys, executable/evidence hashes remain separate, ledger publication is locked and fsync-backed, staged evidence is closure-ineligible, verifier-backed shared records are key-validated and committed run-state checkpoints do not redispatch.
+- Task 15 integration: PR #204 merged at `4379132092b8f037bd6227eb4562c2bfbcaa6748`; UPDATEV2-0017/#157 and UPDATEV2-0019/#159 are closed in local and GitHub ledgers.
+- Review: bounded correction passes addressed verified blockers; final independent re-review approved the complete staged set. Do not dispatch or create a Task 16 worktree in this run; merge Phase 2 through the normal pull-request process.
 
 ## Wave ledger
 

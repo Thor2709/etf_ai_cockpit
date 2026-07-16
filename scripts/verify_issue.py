@@ -29,6 +29,12 @@ if str(SRC_ROOT) not in sys.path:
 
 from etf_cockpit.core.closure import ClosureMatrix, load_closure_matrix  # noqa: E402
 from etf_cockpit.operations.models import VerificationRun  # noqa: E402
+from etf_cockpit.release.verification_records import (  # noqa: E402
+    ReleaseRecordKey,
+    VerificationRecordLedger,
+    evidence_state_allows_closure,
+    validate_shared_record,
+)
 
 
 VerificationStatus = Literal["pass", "fail", "blocked"]
@@ -115,6 +121,8 @@ class IssueVerificationResult(BaseModel, IssueVerificationResultBase):
     environment_hash: str | None = None
     requirement_version: str | None = None
     verification_runs: list[VerificationRun] = Field(default_factory=list)
+    evidence_state: str | None = None
+    shared_record_ids: list[str] = Field(default_factory=list)
     manifest_path: str | None = None
 
 
@@ -274,11 +282,39 @@ def _required_gates(record: Any) -> tuple[str, ...]:
 
 def _manifest_path(evidence_root: Path, issue_id: str) -> Path | None:
     root = Path(evidence_root)
-    candidates = (
+    candidates = [
         root / issue_id / "verification_manifest.json",
         root / "verification_manifest.json",
-    )
+    ]
+    try:
+        final_root = (ROOT / "evidence" / "final").resolve()
+        if root.resolve() == final_root:
+            generation_roots = sorted(
+                (candidate for candidate in root.iterdir() if candidate.is_dir()),
+                key=lambda candidate: candidate.name,
+                reverse=True,
+            )
+            for generation_root in generation_roots:
+                candidates.extend(
+                    (
+                        generation_root / issue_id / "verification_manifest.json",
+                        generation_root / "verification_manifest.json",
+                    )
+                )
+    except OSError:
+        pass
     return next((candidate for candidate in candidates if candidate.is_file()), None)
+
+
+def _is_canonical_final_root(root: Path) -> bool:
+    """Return whether evidence is being read from the immutable final root."""
+
+    try:
+        resolved = root.resolve()
+        final_root = (ROOT / "evidence" / "final").resolve()
+        return resolved == final_root or final_root in resolved.parents
+    except OSError:
+        return False
 
 
 def _policy(matrix: ClosureMatrix) -> Mapping[str, Any]:
@@ -680,6 +716,8 @@ def verify_issue(
     requirement_version: str | None = None
     hard_block = False
     failure_seen = False
+    evidence_state: str | None = None
+    shared_record_ids: list[str] = []
 
     try:
         matrix = load_closure_matrix(Path(matrix_path))
@@ -699,8 +737,14 @@ def verify_issue(
     policy = _policy(matrix)
     required_version = _policy_requirement_version(matrix)
     requirement_version = str(required_version)
-    manifest_root = Path(evidence_root or (ROOT / "evidence"))
-    manifest_path = _manifest_path(manifest_root, issue_id)
+    requested_manifest_root = Path(evidence_root or (ROOT / "evidence"))
+    manifest_root = requested_manifest_root
+    manifest_path = _manifest_path(requested_manifest_root, issue_id)
+    if manifest_path is not None:
+        if manifest_path.parent.name == issue_id:
+            manifest_root = manifest_path.parent.parent
+        elif manifest_path.parent != requested_manifest_root:
+            manifest_root = manifest_path.parent
     if manifest_path is None:
         return IssueVerificationResult(
             issue_id=issue_id,
@@ -732,6 +776,35 @@ def verify_issue(
         limitations.append("verification manifest must be a JSON object")
         hard_block = True
 
+    raw_evidence_state = raw_manifest.get("evidence_state")
+    missing_evidence_state = False
+    if raw_evidence_state is not None:
+        evidence_state = str(raw_evidence_state).strip().casefold()
+        if not evidence_state_allows_closure(evidence_state):
+            limitations.append(
+                f"evidence state {evidence_state!r} is not final and cannot satisfy closure"
+            )
+            hard_block = True
+        elif not _is_canonical_final_root(manifest_root):
+            limitations.append("final evidence must be read from the canonical evidence/final root")
+            hard_block = True
+    elif _is_canonical_final_root(manifest_root):
+        # Legacy final manifests predate the explicit state field.  The
+        # canonical path is the compatibility proof; staging roots are never
+        # treated as final by omission.
+        evidence_state = "final"
+    else:
+        missing_evidence_state = True
+        hard_block = True
+    raw_shared_ids = raw_manifest.get("shared_record_ids", raw_manifest.get("shared_record_id", []))
+    if isinstance(raw_shared_ids, str):
+        raw_shared_ids = [raw_shared_ids]
+    manifest_shared_ids = (
+        [value.strip() for value in raw_shared_ids if isinstance(value, str) and value.strip()]
+        if isinstance(raw_shared_ids, list)
+        else []
+    )
+
     manifest_issue = raw_manifest.get("issue_id")
     if manifest_issue != issue_id:
         limitations.append("verification manifest issue_id does not match the request")
@@ -754,6 +827,8 @@ def verify_issue(
             f"environment hash mismatch: expected {expected_environment_hash}, got {manifest_environment!r}"
         )
         hard_block = True
+    if missing_evidence_state:
+        limitations.append("verification manifest evidence_state is missing outside the canonical final root")
 
     generated_at = _parse_datetime(raw_manifest.get("generated_at"))
     current = _utc(now)
@@ -781,10 +856,49 @@ def verify_issue(
         raw_runs = []
         limitations.append("verification manifest runs must be a list")
         hard_block = True
+    raw_review = raw_manifest.get("review")
+    manifest_reviewer_id = None
+    if isinstance(raw_review, Mapping):
+        candidate_reviewer = str(raw_review.get("independent_reviewer", "")).strip()
+        manifest_reviewer_id = candidate_reviewer or None
+    if manifest_shared_ids and not raw_runs:
+        limitations.append("manifest shared verification records require verification runs")
+        hard_block = True
+    run_shared_id_fields = [
+        item.get("shared_record_id", item.get("verification_record_id"))
+        for item in raw_runs
+        if isinstance(item, Mapping)
+        and isinstance(item.get("shared_record_id", item.get("verification_record_id")), str)
+        and item.get("shared_record_id", item.get("verification_record_id")).strip()
+    ]
+    if manifest_shared_ids and run_shared_id_fields:
+        limitations.append(
+            "manifest shared_record_ids cannot be combined with run-level shared record IDs"
+        )
+        hard_block = True
 
     fixed_commands = {
         item.gate: item.argv for item in fixed_command_plan(GATE_ORDER)
     }
+    shared_ledger: VerificationRecordLedger | None = None
+    shared_ledger_path = raw_manifest.get("verification_records_path")
+    if manifest_shared_ids or any(
+        isinstance(item, Mapping)
+        and isinstance(item.get("shared_record_id", item.get("verification_record_id")), str)
+        for item in raw_runs
+    ):
+        if not isinstance(shared_ledger_path, str) or not shared_ledger_path.strip():
+            limitations.append("shared verification records require verification_records_path")
+            hard_block = True
+        else:
+            candidate = Path(shared_ledger_path)
+            if not candidate.is_absolute():
+                candidate = ROOT / candidate
+            try:
+                shared_ledger = VerificationRecordLedger(candidate)
+            except (OSError, ValueError, UnicodeError, json.JSONDecodeError) as exc:
+                limitations.append(f"shared verification ledger cannot be read: {exc}")
+                hard_block = True
     gate_validity: dict[str, bool] = {}
     for index, raw_run in enumerate(raw_runs):
         if not isinstance(raw_run, Mapping):
@@ -803,6 +917,65 @@ def verify_issue(
             runs.append(typed)
             if typed.result == "fail":
                 failure_seen = True
+        run_shared_ids = [
+            value.strip()
+            for value in [raw_run.get("shared_record_id", raw_run.get("verification_record_id"))]
+            if isinstance(value, str) and value.strip()
+        ]
+        if not run_shared_ids and manifest_shared_ids:
+            if len(raw_runs) == 1 and len(manifest_shared_ids) == 1:
+                run_shared_ids = manifest_shared_ids
+            elif len(manifest_shared_ids) == len(raw_runs):
+                run_shared_ids = [manifest_shared_ids[index]]
+            elif index == 0:
+                limitations.append(
+                    "manifest shared_record_ids must map one-to-one to verification runs"
+                )
+                hard_block = True
+        for shared_record_id in run_shared_ids:
+            shared_record_ids.append(shared_record_id)
+            if shared_ledger is None or typed is None:
+                limitations.append(f"shared verification record cannot be validated: {shared_record_id}")
+                hard_block = True
+                continue
+            commit = raw_run.get("commit", raw_manifest.get("commit"))
+            executable_hash = raw_run.get("executable_hash", raw_manifest.get("executable_hash"))
+            if not isinstance(commit, str) or not commit.strip() or not isinstance(executable_hash, str) or not executable_hash.strip():
+                limitations.append(
+                    f"shared verification record {shared_record_id} is missing commit or executable_hash"
+                )
+                hard_block = True
+                continue
+            for gate in gates or [typed.verification_type]:
+                shared_key = ReleaseRecordKey(
+                    commit=commit.strip(),
+                    executable_hash=executable_hash.strip(),
+                    environment_hash=expected_environment_hash,
+                    command=typed.command,
+                )
+                try:
+                    validated_record = validate_shared_record(
+                        shared_ledger,
+                        shared_record_id,
+                        key=shared_key,
+                        gate=gate,
+                    )
+                    if issue_id not in validated_record.issue_ids:
+                        limitations.append(
+                            f"shared verification record does not reference issue {issue_id}: {shared_record_id}"
+                        )
+                        hard_block = True
+                    if (
+                        manifest_reviewer_id is not None
+                        and validated_record.review_id != manifest_reviewer_id
+                    ):
+                        limitations.append(
+                            f"shared verification record reviewer association does not match manifest: {shared_record_id}"
+                        )
+                        hard_block = True
+                except ValueError as exc:
+                    limitations.append(str(exc))
+                    hard_block = True
         if run_limitations:
             limitations.extend(run_limitations)
             hard_block = True
@@ -856,7 +1029,7 @@ def verify_issue(
         hard_block = True
     else:
         builder = str(review.get("builder", "")).strip()
-        reviewer = str(review.get("independent_reviewer", "")).strip()
+        reviewer = manifest_reviewer_id or str(review.get("independent_reviewer", "")).strip()
         review_result = str(review.get("review_result", "")).strip().lower()
         if review_result != "approved":
             limitations.append("independent review is not approved")
@@ -884,6 +1057,8 @@ def verify_issue(
         environment_hash=expected_environment_hash,
         requirement_version=requirement_version,
         verification_runs=runs,
+        evidence_state=evidence_state,
+        shared_record_ids=list(dict.fromkeys(shared_record_ids)),
         manifest_path=manifest_path.as_posix(),
     )
 
