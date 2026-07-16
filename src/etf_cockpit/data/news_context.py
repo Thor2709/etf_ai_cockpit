@@ -233,7 +233,13 @@ def build_news_contradiction_rows(news: pd.DataFrame, prices: pd.DataFrame) -> p
         lowered = headline.casefold()
         has_positive = re.search(r"(?<!\w)(?:" + "|".join(map(re.escape, positive)) + r")(?!\w)", lowered) is not None
         has_negative = re.search(r"(?<!\w)(?:" + "|".join(map(re.escape, negative)) + r")(?!\w)", lowered) is not None
-        headline_direction = "up" if has_positive else "down" if has_negative else "unknown"
+        headline_direction = (
+            "up"
+            if has_positive and not has_negative
+            else "down"
+            if has_negative and not has_positive
+            else "unknown"
+        )
         if headline_direction == "unknown":
             continue
         published = pd.to_datetime(item.get("published_at"), errors="coerce")

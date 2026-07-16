@@ -1,16 +1,16 @@
 {
   "schema_version": 1,
   "status": "committed",
-  "next_action": "Commit and push the Phase 2 verification-finalisation refactor, merge its pull request and verify origin/main; do not dispatch or create a Task 16 worktree in this run",
-    "updated_at": "2026-07-15T13:35:00+10:00",
+  "next_action": "Commit and push the independently approved Task 16 follow-up, merge its pull request and verify origin/main; do not dispatch or create a Task 17 worktree in this run",
+    "updated_at": "2026-07-16T17:39:43.2273310+10:00",
   "active_programme": {
     "name": "2026-07-11-etf-ai-cockpit-approved-programme",
     "programme_index": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-programme-index.md",
     "progress_ledger": "docs/superpowers/plans/2026-07-11-etf-ai-cockpit-progress-ledger.md",
-    "phase": "phase2_verification_finalisation",
-    "next_task": "Commit and push the Phase 2 verification-finalisation refactor, merge its pull request and verify origin/main; do not dispatch or create a Task 16 worktree in this run",
+    "phase": "wave4_task16_post_phase2",
+    "next_task": "Commit and push the independently approved Task 16 follow-up, merge its pull request and verify origin/main; do not dispatch or create a Task 17 worktree in this run",
     "git_repository": true,
-    "git_branch": "wave4/verification-workflow-refactor",
+    "git_branch": "wave4/task16-post-phase2",
     "baseline": {
       "pytest": 0,
       "ruff": 0,
