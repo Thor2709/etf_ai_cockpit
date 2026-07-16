@@ -38,6 +38,7 @@ class PriipsKidRecord:
 
 
 _CRITICAL_WARNINGS = {
+    "identity_mismatch",
     "sri_missing",
     "holding_period_missing",
     "cost_table_malformed",
@@ -73,18 +74,10 @@ def parse_priips_kid(path: Path, expected_isin: str | None = None) -> ParseResul
     text = "\n".join(pages)
     isin_match = re.search(r"(?<![A-Z0-9])([A-Z]{2}[A-Z0-9]{10})(?![A-Z0-9])", text)
     isin = isin_match.group(1).upper() if isin_match else ""
+    warnings: list[ParseWarning] = []
     if expected_isin and isin != str(expected_isin).strip().upper():
         location = _location_for(text, pages, expected_isin)
-        return ParseResult(
-            (),
-            (ParseWarning("identity_mismatch", f"KID ISIN {isin or 'missing'} does not match expected identity", "error", location),),
-            "priips_kid",
-            PARSER_VERSION,
-            source_sha,
-            False,
-        )
-
-    warnings: list[ParseWarning] = []
+        warnings.append(ParseWarning("identity_mismatch", f"KID ISIN {isin or 'missing'} does not match expected identity", "error", location))
     product = _first_line_after(text, "Product:") or ""
     manufacturer = _manufacturer(text)
     sri_match = re.search(r"(?:classified[^\n]*?as\s+)?([1-7])\s+out\s+of\s+7", text, flags=re.IGNORECASE)

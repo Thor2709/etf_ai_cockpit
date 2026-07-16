@@ -228,10 +228,14 @@ def parse_index_methodology(path: Path, provider: str) -> ParseResult[IndexMetho
 
     eligibility = _rules(text, ("inclusion", "eligib", "screen", "security"))
     weighting = _rules(text, ("weight", "capitalisation", "capitalization"))
-    review_terms = _rules(text, ("review", "rebalance", "reconstitution"))
-    caps = _rules(text, ("cap", "capping", "maximum weight"))
+    review_frequency = _review_frequency(text)
+    caps = _caps(text)
+    if review_frequency is None:
+        warnings.append(_warning("methodology_review_frequency_missing", "Methodology review frequency is unavailable", text, pages, "review"))
+    if not caps:
+        warnings.append(_warning("methodology_caps_missing", "Methodology cap rules are unavailable", text, pages, "cap"))
     record_warnings = tuple(item.code for item in warnings)
-    complete = bool(version_match and date_match and index_series and not warnings)
+    complete = bool(version_match and date_match and index_series and review_frequency and caps and not warnings)
     record = IndexMethodologyRecord(
         provider=provider_value,
         index_series=index_series or "Unknown index series",
@@ -239,7 +243,7 @@ def parse_index_methodology(path: Path, provider: str) -> ParseResult[IndexMetho
         document_date=None if date_match is None else f"{date_match.group(1)} {date_match.group(2)}",
         eligibility_rules=eligibility,
         weighting_rules=weighting,
-        review_frequency=review_terms[0] if review_terms else None,
+        review_frequency=review_frequency,
         caps=caps,
         source_pages=source_pages,
         confidence="high" if complete else "partial",
@@ -285,6 +289,61 @@ def _rules(text: str, terms: tuple[str, ...], limit: int = 20) -> tuple[str, ...
             if value not in rows:
                 rows.append(value[:500])
     return tuple(rows[:limit])
+
+
+def _review_frequency(text: str) -> str | None:
+    """Return a labelled review cadence, excluding table-of-contents noise."""
+
+    frequency = re.compile(r"\b(?:semi[- ]annual(?:ly)?|quarterly|annual(?:ly)?|monthly|weekly)\b", re.IGNORECASE)
+    candidates: list[tuple[int, int, str]] = []
+    for order, raw in enumerate(text.splitlines()):
+        value = " ".join(raw.split()).strip()
+        if not value or _is_table_of_contents(value) or not re.search(r"\b(?:review|rebalance|reconstitution)\b", value, re.IGNORECASE):
+            continue
+        match = frequency.search(value)
+        if match is None:
+            continue
+        priority = 0
+        if re.search(r"\b(?:regional reviews?|review of each region|index reviews?)\b", value, re.IGNORECASE):
+            priority += 2
+        if re.match(r"^7\.\d", value):
+            priority += 1
+        if "semi-annual" in match.group(0).casefold():
+            priority += 1
+        candidates.append((priority, order, value[:500]))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: (item[0], -item[1]))[2]
+
+
+def _caps(text: str, limit: int = 20) -> tuple[str, ...]:
+    """Return explicit percentage cap rules, excluding index-name/category rows."""
+
+    percentage = re.compile(r"\b\d+(?:\.\d+)?\s*%")
+    explicit_cap = re.compile(
+        r"\b(?:capped|capping)\b|"
+        r"\bmaximum\b(?=[^.;]{0,60}\b(?:weight|position|holding|exposure|concentration)\b)|"
+        r"\bcap\s+\d+(?:\.\d+)?\s*%",
+        re.IGNORECASE,
+    )
+    rows: list[str] = []
+    for raw in text.splitlines():
+        value = " ".join(raw.split()).strip()
+        if not value or _is_table_of_contents(value) or percentage.search(value) is None:
+            continue
+        if re.match(r"^\W*(?:large|mid|small|micro|total|global|all[- ]world)\s+cap\b", value, re.IGNORECASE):
+            continue
+        if explicit_cap.search(value) is None:
+            continue
+        if value not in rows:
+            rows.append(value[:500])
+    return tuple(rows[:limit])
+
+
+def _is_table_of_contents(value: str) -> bool:
+    """Recognise dotted-leader TOC rows that are not substantive rules."""
+
+    return bool(re.search(r"(?:\.{5,}|…{3,})\s*\d+\s*$", value))
 
 
 def _location(text: str, pages: list[str], term: str) -> str:

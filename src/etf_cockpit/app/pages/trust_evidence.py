@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+import hashlib
+import os
 from pathlib import Path
+import tempfile
+from typing import Iterator
 
 import flet as ft
 import pandas as pd
@@ -8,7 +13,8 @@ import pandas as pd
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
 from etf_cockpit.app.state import AppState
-from etf_cockpit.core.paths import STATEMENT_FACTS_PATH
+from etf_cockpit.core.atomic_io import atomic_write_bytes
+from etf_cockpit.core.paths import RAW_DIR, STATEMENT_FACTS_PATH
 from etf_cockpit.data.fund_documents import import_etf_document
 from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH, sort_fundamental_evidence
 from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH, import_etf_holdings_with_document
@@ -36,6 +42,71 @@ from etf_cockpit.data.trust_artifacts import (
     SCORE_METRIC_HISTORY_PATH,
     SOURCE_CONFLICTS_PATH,
 )
+
+
+@contextmanager
+def _materialise_picker_file(selected: object, suffix: str) -> Iterator[Path | None]:
+    """Expose a FilePicker selection as a readable local path on web and native hosts."""
+
+    selected_path = getattr(selected, "path", None)
+    candidate = Path(selected_path) if selected_path else None
+    if candidate is not None and candidate.is_file():
+        yield candidate
+        return
+
+    payload = getattr(selected, "bytes", None)
+    if not payload:
+        yield None
+        return
+
+    descriptor, temporary_name = tempfile.mkstemp(prefix="etf-cockpit-upload-", suffix=suffix)
+    os.close(descriptor)
+    temporary_path = Path(temporary_name)
+    try:
+        temporary_path.write_bytes(payload)
+        yield temporary_path
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
+def _retain_picker_source(path: Path | None, subdirectory: str) -> Path | None:
+    """Retain uploaded bytes under the raw evidence directory before parsing."""
+
+    if path is None or not path.is_file():
+        return None
+    payload = path.read_bytes()
+    digest = hashlib.sha256(payload).hexdigest()
+    suffix = path.suffix.lower() or ".pdf"
+    destination = RAW_DIR / subdirectory / f"{digest}{suffix}"
+    atomic_write_bytes(
+        destination,
+        payload,
+        validator=lambda candidate: hashlib.sha256(candidate.read_bytes()).hexdigest() == digest,
+    )
+    return destination
+
+
+def _latest_document_row(registry: pd.DataFrame, document_type: str) -> pd.Series | None:
+    """Return the newest registered version for a document type."""
+
+    matches = registry.loc[registry["document_type"].astype(str).eq(document_type)]
+    if matches.empty:
+        return None
+    return matches.iloc[0]
+
+
+def _document_checksum(row: pd.Series | None) -> str:
+    if row is None:
+        return ""
+    value = row.get("sha256")
+    return "" if value is None or pd.isna(value) else str(value)
+
+
+def _start_disclosure_import(state: AppState, result: ft.Control, label: str) -> None:
+    """Expose a durable running state before a disclosure parser begins."""
+
+    state.begin_activity(label, "Reading selected document")
+    result.value = f"{label} in progress: reading selected document..."
 
 
 def provider_status_page(_page: ft.Page, state: AppState) -> ft.Control:
@@ -327,32 +398,42 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
         if not files:
             result.value = "PRIIPs KID import cancelled; no data changed."
         else:
-            path = Path(files[0].path) if files[0].path else None
             try:
-                instrument_id = str(instrument_field.value or state.selected_etf or "").strip()
-                etf = next((item for item in state.snapshot.config.universe.etfs if item.id == instrument_id), None)
-                expected_isin = etf.isin if etf is not None else None
-                parsed = parse_priips_kid(path, expected_isin=expected_isin) if path and path.exists() else None
-                if parsed is None:
-                    result.value = "PRIIPs import requires a readable PDF."
-                else:
-                    record = parsed.records[0] if parsed.records else None
-                    document_date = record.document_date if record is not None else str(document_date_field.value or "").strip() or None
-                    document = persist_priips_kid_with_document(
-                        parsed,
-                        instrument_id,
-                        path,
-                        document_date=document_date,
-                        configured_instrument_ids=state.snapshot.config.universe.configured_enabled_ids,
-                    )
-                    from etf_cockpit.data.fund_documents import read_document_registry
+                _start_disclosure_import(state, result, "Import PRIIPs KID")
+                page.update()
+                with _materialise_picker_file(files[0], ".pdf") as path:
+                    state.update_activity("Parsing PRIIPs KID", "Parsing the selected KID PDF.", completed_units=1, total_units=3)
+                    result.value = "Import PRIIPs KID in progress: parsing selected PDF..."
+                    page.update()
+                    path = _retain_picker_source(path, "priips_kids")
+                    instrument_id = str(instrument_field.value or state.selected_etf or "").strip()
+                    etf = next((item for item in state.snapshot.config.universe.etfs if item.id == instrument_id), None)
+                    expected_isin = etf.isin if etf is not None else None
+                    parsed = parse_priips_kid(path, expected_isin=expected_isin) if path and path.exists() else None
+                    if parsed is None:
+                        raise ValueError("PRIIPs import requires a readable PDF")
+                    else:
+                        record = parsed.records[0] if parsed.records else None
+                        document_date = record.document_date if record is not None else str(document_date_field.value or "").strip() or None
+                        state.update_activity("Registering KID evidence", "Persisting parsed KID and checksum-backed provenance.", completed_units=2, total_units=3)
+                        result.value = "Import PRIIPs KID in progress: registering evidence..."
+                        page.update()
+                        document = persist_priips_kid_with_document(
+                            parsed,
+                            instrument_id,
+                            path,
+                            document_date=document_date,
+                            configured_instrument_ids=state.snapshot.config.universe.configured_enabled_ids,
+                        )
+                        from etf_cockpit.data.fund_documents import read_document_registry
 
-                    registry = read_document_registry(path=document.with_name("fund_documents.parquet"))
-                    registered = registry.loc[registry["instrument_id"].astype(str).eq(instrument_id)]
-                    document_row = registered.loc[registered["document_type"].astype(str).eq("kid")].iloc[-1] if not registered.empty else None
-                    document_checksum = str(document_row["sha256"]) if document_row is not None else ""
-                    warning_text = ", ".join(item.code for item in parsed.warnings) or "none"
-                    result.value = f"PRIIPs KID {instrument_id}: records={len(parsed.records)}, confidence={record.extraction_confidence if record else 'unavailable'}, pages={record.source_pages if record else ()}, warnings={warning_text}, checksum={document_checksum[:12]}..., success={parsed.success}."
+                        registry = read_document_registry(path=document.with_name("fund_documents.parquet"))
+                        registered = registry.loc[registry["instrument_id"].astype(str).eq(instrument_id)]
+                        document_row = _latest_document_row(registered, "kid")
+                        document_checksum = _document_checksum(document_row)
+                        warning_text = ", ".join(item.code for item in parsed.warnings) or "none"
+                        result.value = f"PRIIPs KID {instrument_id}: records={len(parsed.records)}, confidence={record.extraction_confidence if record else 'unavailable'}, pages={record.source_pages if record else ()}, warnings={warning_text}, checksum={document_checksum[:12]}..., success={parsed.success}."
+                state.finish_activity(result.value)
                 state.last_message = result.value
             except Exception as exc:
                 state.fail_activity("Import PRIIPs KID", exc)
@@ -366,36 +447,46 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
         if not files:
             result.value = "Methodology import cancelled; no data changed."
         else:
-            path = Path(files[0].path) if files[0].path else None
             try:
-                instrument_id = str(instrument_field.value or state.selected_etf or "").strip()
-                provider = str(provider_field.value or "").strip()
-                parsed = parse_index_methodology(path, provider) if path and path.exists() else None
-                if parsed is None:
-                    result.value = "Methodology import requires a readable PDF."
-                else:
-                    stored_holdings = _read_frame(FUND_HOLDINGS_PATH)
-                    holdings = pd.DataFrame()
-                    if "instrument_id" in stored_holdings.columns:
-                        holdings = stored_holdings.loc[stored_holdings["instrument_id"].astype(str).eq(instrument_id)].copy()
-                    from etf_cockpit.parsers.index_methodology import apply_methodology_holdings_assessment
+                _start_disclosure_import(state, result, "Import index methodology")
+                page.update()
+                with _materialise_picker_file(files[0], ".pdf") as path:
+                    state.update_activity("Parsing index methodology", "Parsing the selected methodology PDF.", completed_units=1, total_units=3)
+                    result.value = "Import index methodology in progress: parsing selected PDF..."
+                    page.update()
+                    path = _retain_picker_source(path, "index_methodology")
+                    instrument_id = str(instrument_field.value or state.selected_etf or "").strip()
+                    provider = str(provider_field.value or "").strip()
+                    parsed = parse_index_methodology(path, provider) if path and path.exists() else None
+                    if parsed is None:
+                        raise ValueError("Methodology import requires a readable PDF")
+                    else:
+                        stored_holdings = _read_frame(FUND_HOLDINGS_PATH)
+                        holdings = pd.DataFrame()
+                        if "instrument_id" in stored_holdings.columns:
+                            holdings = stored_holdings.loc[stored_holdings["instrument_id"].astype(str).eq(instrument_id)].copy()
+                        from etf_cockpit.parsers.index_methodology import apply_methodology_holdings_assessment
 
-                    parsed = apply_methodology_holdings_assessment(parsed, holdings)
-                    record = parsed.records[0] if parsed.records else None
-                    document = persist_index_methodology_with_document(
-                        parsed,
-                        instrument_id,
-                        path,
-                        configured_instrument_ids=state.snapshot.config.universe.configured_enabled_ids,
-                    )
-                    from etf_cockpit.data.fund_documents import read_document_registry
+                        parsed = apply_methodology_holdings_assessment(parsed, holdings)
+                        record = parsed.records[0] if parsed.records else None
+                        state.update_activity("Registering methodology evidence", "Persisting parsed methodology and checksum-backed provenance.", completed_units=2, total_units=3)
+                        result.value = "Import index methodology in progress: registering evidence..."
+                        page.update()
+                        document = persist_index_methodology_with_document(
+                            parsed,
+                            instrument_id,
+                            path,
+                            configured_instrument_ids=state.snapshot.config.universe.configured_enabled_ids,
+                        )
+                        from etf_cockpit.data.fund_documents import read_document_registry
 
-                    registry = read_document_registry(path=document.with_name("fund_documents.parquet"))
-                    registered = registry.loc[registry["instrument_id"].astype(str).eq(instrument_id)]
-                    document_row = registered.loc[registered["document_type"].astype(str).eq("methodology")].iloc[-1] if not registered.empty else None
-                    document_checksum = str(document_row["sha256"]) if document_row is not None else ""
-                    warning_text = ", ".join(item.code for item in parsed.warnings) or "none"
-                    result.value = f"Methodology {instrument_id}/{provider or 'unknown provider'}: records={len(parsed.records)}, version={record.version if record else 'unavailable'}, pages={record.source_pages if record else ()}, warnings={warning_text}, checksum={document_checksum[:12]}..., success={parsed.success}."
+                        registry = read_document_registry(path=document.with_name("fund_documents.parquet"))
+                        registered = registry.loc[registry["instrument_id"].astype(str).eq(instrument_id)]
+                        document_row = _latest_document_row(registered, "methodology")
+                        document_checksum = _document_checksum(document_row)
+                        warning_text = ", ".join(item.code for item in parsed.warnings) or "none"
+                        result.value = f"Methodology {instrument_id}/{provider or 'unknown provider'}: records={len(parsed.records)}, version={record.version if record else 'unavailable'}, pages={record.source_pages if record else ()}, warnings={warning_text}, checksum={document_checksum[:12]}..., success={parsed.success}."
+                state.finish_activity(result.value)
                 state.last_message = result.value
             except Exception as exc:
                 state.fail_activity("Import index methodology", exc)

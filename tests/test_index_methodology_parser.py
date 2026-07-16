@@ -23,6 +23,26 @@ def test_official_methodology_extracts_version_provider_and_review_terms() -> No
     assert record.source_pages
 
 
+def test_official_methodology_ignores_toc_noise_and_requires_contextual_evidence() -> None:
+    result = parse_index_methodology(FIXTURE, "FTSE Russell")
+
+    assert result.success is True
+    record = result.records[0]
+
+    # The table of contents contains "Periodic review" and index names with
+    # "cap", but neither is methodology evidence.  The body contains the
+    # labelled review cadence and explicit 10% capping rule instead.
+    assert record.review_frequency is not None
+    assert "semi-annually" in record.review_frequency.casefold()
+    assert "section 7 periodic review" not in record.review_frequency.casefold()
+    assert any("capped at 10%" in rule.casefold() for rule in record.caps)
+    assert all("index series" not in rule.casefold() for rule in record.caps)
+    assert result.warnings == ()
+    assert record.confidence == "high"
+    assert record.manual_review is False
+    assert record.score_eligible is True
+
+
 def test_empty_pdf_is_unavailable(tmp_path: Path) -> None:
     path = tmp_path / "empty.pdf"
     path.write_bytes(b"%PDF-1.4\n%%EOF")
