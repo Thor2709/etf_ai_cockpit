@@ -36,7 +36,7 @@ The final source fix added deterministic newest-document selection, null-safe ch
 | Packaged UI | passed with limitation | 1280x720 capture `browser/task15-packaged-imported-ui-root-fixes-final.png`, SHA-256 `fa38188ec6a7a35beb333571f127ab8a0d92443301dd99f0a720eb022fef14f3`; browser accessibility placeholder only |
 | Independent final review | passed | fresh re-review approved specification compliance and code quality with no Critical or Important findings |
 | Closure evaluator | passed | both `scripts/verify_issue.py` runs returned `status=pass`, with no missing gates or limitations after the manifest correction pass |
-| GitHub integration and issue sync | pending | branch push, PR, merge and tracker sync remain |
+| GitHub integration and issue sync | passed | PR #204 merged to `main` at `4379132092b8f037bd6227eb4562c2bfbcaa6748`; GitHub Issues #157 and #159 synchronised closed after local ledger transition |
 
 ## Bounded failure record
 
@@ -48,4 +48,10 @@ The final audit was generated once from the isolated imported-package root after
 
 ## Policy checkpoint
 
-`docs/superpowers/verification-finalisation-policy.md` is binding and referenced by the programme index and active closure plan. For the current source hash, one full suite, one build, one browser pass, one independent review and one re-review are permitted; only the exact missing verifier commands were added before the final review. Evidence edits do not alter executable verification inputs. After approval, run each issue verifier once, then immediately record closure, commit, push, PR, merge and issue synchronisation. Do not start Task 16 before this Task 15 integration boundary is complete.
+`docs/superpowers/verification-finalisation-policy.md` is binding and referenced by the programme index and active closure plan. For the current source hash, one full suite, one build, one browser pass, one independent review and one re-review are permitted; only the exact missing verifier commands were added before the final review. Evidence edits do not alter executable verification inputs. Task 15 merged through PR #204 at `4379132092b8f037bd6227eb4562c2bfbcaa6748`; issue synchronisation was completed for #157 and #159. Phase 2 workflow refactor is the required boundary before Task 16.
+
+## Post-merge integration
+
+- Task 15 branch `wave4/task15-closure-final` was pushed and merged through PR #204.
+- Local `main` and `origin/main` are aligned at `4379132092b8f037bd6227eb4562c2bfbcaa6748`.
+- The local issue ledger records `UPDATEV2-0017` and `UPDATEV2-0019` as closed; corresponding GitHub Issues #157 and #159 were closed after the merge.

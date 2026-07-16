@@ -2,6 +2,8 @@
 
 > **Binding verification policy:** Finalisation and closure work must follow [`docs/superpowers/verification-finalisation-policy.md`](../verification-finalisation-policy.md). The policy is subordinate only to the approved specification and this plan's explicit product and safety constraints.
 
+> **Phase 2 workflow contract:** Shared release records are keyed by the implementation/source commit represented by the executable, executable hash, environment hash and exact command; evidence is staged before immutable promotion; verifiers reject staged evidence; source changes invalidate affected records while plan/manifest/worklog/issue edits do not; committed checkpoints prevent duplicate dispatch and shared reviewer approvals are referenced by all owning issues.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended for bounded parser/test tasks) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Implement, verify and evidence-strictly close the 41 reviewed open issues through one dependency-ordered hands-off closure programme.

@@ -6,17 +6,17 @@
     "remote_count_before_sync": 166
   },
   "local_counts": {
-    "closed": 24,
-    "open": 74
+    "closed": 26,
+    "open": 72
   },
   "local_ledger_policy": "One canonical record per stable ID. The committed local ledger and approved specification are authoritative; GitHub is a synchronised mirror.",
   "reconciliation": {
     "all_local_ids_unique": true,
     "all_mappings_have_github_issue": true,
-    "local_closed_count": 24,
-    "local_open_count": 74,
-    "mapped_closed_count": 24,
-    "mapped_open_count": 74,
+    "local_closed_count": 26,
+    "local_open_count": 72,
+    "mapped_closed_count": 26,
+    "mapped_open_count": 72,
     "passes": true,
     "states_agree": true,
     "unresolved_duplicates": []
@@ -1115,16 +1115,16 @@
       "title": "ETF holdings normaliser (original update ISSUE-0016)"
     },
     {
-      "action": "unchanged",
+      "action": "update",
       "github_issue_number": 157,
-      "github_state": "open",
+      "github_state": "closed",
       "github_url": "https://github.com/Thor2709/etf_ai_cockpit/issues/157",
       "last_synchronised_commit": "958df9c31fdada581bf5e3cf909a76f0eec76733",
       "local_issue_id": "UPDATEV2-0017",
-      "local_state": "open",
-      "source_checksum": "5030648184e72b2de75cdbc750589f9fc208920fef1c9dde98e810f9756219c3",
-      "source_file": "issues/open.md",
-      "source_location": "issues/open.md:433",
+      "local_state": "closed",
+      "source_checksum": "34e2274d43401264b782191edc7d15be4ecd9f013ae34873791b90a45ad9a3c2",
+      "source_file": "issues/closed.md",
+      "source_location": "issues/closed.md:713",
       "title": "PRIIPs KID parser (original update ISSUE-0017)"
     },
     {
@@ -1141,16 +1141,16 @@
       "title": "ETF prospectus, annual and half-year report parser (original update ISSUE-0018)"
     },
     {
-      "action": "unchanged",
+      "action": "update",
       "github_issue_number": 159,
-      "github_state": "open",
+      "github_state": "closed",
       "github_url": "https://github.com/Thor2709/etf_ai_cockpit/issues/159",
       "last_synchronised_commit": "958df9c31fdada581bf5e3cf909a76f0eec76733",
       "local_issue_id": "UPDATEV2-0019",
-      "local_state": "open",
-      "source_checksum": "5030648184e72b2de75cdbc750589f9fc208920fef1c9dde98e810f9756219c3",
-      "source_file": "issues/open.md",
-      "source_location": "issues/open.md:467",
+      "local_state": "closed",
+      "source_checksum": "34e2274d43401264b782191edc7d15be4ecd9f013ae34873791b90a45ad9a3c2",
+      "source_file": "issues/closed.md",
+      "source_location": "issues/closed.md:726",
       "title": "Index methodology importer (original update ISSUE-0019)"
     },
     {

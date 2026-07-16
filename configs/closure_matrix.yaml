@@ -4,6 +4,22 @@ verification_policy:
   version: "1.0"
   requirement_version: "2"
   max_age_hours: 168
+  shared_release_records:
+    key_fields:
+    - commit
+    - executable_hash
+    - environment_hash
+    - command
+    evidence_hash_field: evidence_hash
+    executable_hash_scope: executable_bytes_only
+    documentation_edits_invalidate: false
+    source_edits_invalidate: true
+    reuse_across_issue_ids: true
+    reuse_across_reviewed_issues: true
+  evidence_states:
+    staged: closure_ineligible
+    final: closure_eligible
+  max_review_cycles: 2
   # REL-03 keeps closure criteria unchanged while making their evidence
   # layers explicit and independently reviewable.
   gate_layers:
@@ -1057,8 +1073,8 @@ issues:
 - issue_id: UPDATEV2-0017
   title: PRIIPs KID parser (original update ISSUE-0017)
   wave: 6
-  status: still_open
-  implementation_checkpoint: merged_pr_185_9139e51; closure_pending_strict_release_audit_export_clean_first_run_browser
+  status: closed
+  implementation_checkpoint: task15_final_evidence_2026-07-16; independent_review_approved; verifier_pass
   implementation_evidence:
   - .ai_worklog/task-15-report.md
   - .ai_worklog/task-15-fix1-report.md
@@ -1164,8 +1180,8 @@ issues:
 - issue_id: UPDATEV2-0019
   title: Index methodology importer (original update ISSUE-0019)
   wave: 6
-  status: still_open
-  implementation_checkpoint: merged_pr_185_9139e51; closure_pending_strict_release_audit_export_clean_first_run_browser
+  status: closed
+  implementation_checkpoint: task15_final_evidence_2026-07-16; independent_review_approved; verifier_pass
   implementation_evidence:
   - .ai_worklog/task-15-report.md
   - .ai_worklog/task-15-fix1-report.md

@@ -7,6 +7,20 @@ This policy is binding for every finalisation, closure, release and evidence run
 - Tests, fixtures and diagnostic exports write only to per-test or per-run temporary directories.
 - They must never mutate `evidence/final/`, canonical audit packets, verification manifests, release or final-evidence builds, issue ledgers, programme ledgers, `RUN_STATE.json` or other durable closure records.
 - Canonical evidence is generated only after source, tests and packaging inputs are frozen, and is then checksum-verified.
+- Evidence is first written to a per-run temporary directory or `evidence/staging/<generation>/`. A staged generation is explicitly non-final and cannot satisfy closure. Promotion to `evidence/final/<generation>/` is one atomic operation after validation; the promoted generation is immutable.
+
+## Shared release certification
+
+- Implementation verification and release certification are separate records. A release record is reusable only when its key matches the exact implementation/source commit represented by the executable, packaged executable SHA-256, environment hash and command text. Evidence-only commits retain that implementation commit in the record key and therefore do not invalidate executable certification.
+- `executable_hash` covers executable bytes only. `evidence_hash` covers captured evidence paths and content only. Edits to plans, manifests, worklogs, issue ledgers or other evidence metadata never change executable verification.
+- A passing full suite, build/package command, browser pass or review is executed once for an unchanged key and may be referenced by multiple owning issues. The durable record must retain the shared record ID and all issue/reviewer references.
+- A relevant source, test, configuration or packaging change invalidates only the affected keys; a documentation/evidence-only edit does not invalidate executable certification.
+
+## Resume and review accounting
+
+- Resume from the last committed programme ledger/run-state checkpoint. A committed checkpoint is authoritative and must not redispatch work already recorded as complete.
+- Independent review is a reusable shared record when it covers the same change set and requirements; multiple owning issues reference that approval rather than dispatching duplicate reviews.
+- Review, re-review and finalisation attempts are bounded. Once a gate passes for an unchanged key it is never repeated; after two failures of one approach, perform targeted root-cause analysis before any materially different attempt.
 
 ## Unchanged-source gate budget
 
