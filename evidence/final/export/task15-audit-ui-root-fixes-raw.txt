@@ -1,0 +1,9 @@
+VALID True
+MISSING ()
+CHECKSUM_ERRORS ()
+ENTRIES 162
+KID_ROWS [{'isin': 'IE000Q4J3CW6', 'sri': 4, 'source_sha256': '43e2e1cdec61ba58bd708ae90536db70596910a0eab297a819397b79cffca049', 'manual_review': True, 'score_eligible': False}]
+METH_ROWS [{'version': 14.2, 'source_sha256': 'cdf26f18ca97dd3f3dd95e2ef3b03c372e8a92e1216b206f34b1712f7379c77d', 'manual_review': True, 'score_eligible': False}]
+REGISTRY_ROWS [{'document_type': 'kid', 'coverage_status': 'unavailable', 'path': nan, 'sha256': nan}, {'document_type': 'methodology', 'coverage_status': 'available', 'path': 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\tests\\fixtures\\official\\index_methodology\\ftse-global-equity-index-series-ground-rules.pdf', 'sha256': 'cdf26f18ca97dd3f3dd95e2ef3b03c372e8a92e1216b206f34b1712f7379c77d'}]
+AUDIT_SHA256 c5f2233e7eb53ebfa4f7ad2413c6ec803d1b488e42ca7526826aa8fb157d32b0
+EXIT=0

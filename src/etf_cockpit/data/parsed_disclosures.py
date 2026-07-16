@@ -17,6 +17,7 @@ from etf_cockpit.data.fund_documents import (
     build_document_inventory,
     read_document_registry,
     register_document,
+    unavailable_document,
 )
 from etf_cockpit.parsers.contracts import ParseResult
 from etf_cockpit.parsers.index_methodology import IndexMethodologyRecord, apply_methodology_holdings_assessment
@@ -123,6 +124,7 @@ def persist_index_methodology_with_document(
 ) -> Path:
     """Publish methodology parsed rows and the FundDocument registry atomically."""
 
+    document_available = bool(result.records and Path(document_path).is_file())
     if holdings is not None:
         result = apply_methodology_holdings_assessment(result, holdings)
     return _persist_with_document(
@@ -136,6 +138,7 @@ def persist_index_methodology_with_document(
         authority=authority,
         document_date=document_date,
         configured_instrument_ids=configured_instrument_ids,
+        document_available=document_available,
     )
 
 
@@ -151,6 +154,7 @@ def _persist_with_document(
     authority: str,
     document_date: str | None,
     configured_instrument_ids: Iterable[str],
+    document_available: bool | None = None,
 ) -> Path:
     destination = Path(destination)
     registry_destination = Path(registry_destination)
@@ -171,14 +175,18 @@ def _persist_with_document(
         combined = combined.drop_duplicates(subset=["source_id"], keep="last").sort_values("source_id", kind="stable").reset_index(drop=True)
 
     registry_existing = _read_registry_fail_closed(registry_destination)
-    document = register_document(
-        Path(document_path),
-        document_type,
-        instrument_id,
-        source_url,
-        authority,
-        document_date=document_date,
-    )
+    if result.success or document_available is True:
+        document = register_document(
+            Path(document_path),
+            document_type,
+            instrument_id,
+            source_url,
+            authority,
+            document_date=document_date,
+        )
+    else:
+        warning_codes = ", ".join(item.code for item in result.warnings) or "parse_failed"
+        document = unavailable_document(instrument_id, document_type, warning_codes)
     ids = [str(item).strip() for item in configured_instrument_ids if str(item).strip()]
     if not registry_existing.empty and "instrument_id" in registry_existing.columns:
         ids.extend(value for value in registry_existing["instrument_id"].dropna().astype(str).map(str.strip) if value)

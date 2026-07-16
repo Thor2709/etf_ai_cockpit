@@ -99,6 +99,28 @@ def test_methodology_persistence_attaches_real_holdings_conflict(tmp_path: Path)
     assert bool(row["score_eligible"]) is False
 
 
+def test_methodology_holdings_unavailable_retains_source_document_provenance(tmp_path: Path) -> None:
+    import etf_cockpit.data.parsed_disclosures as parsed
+    from etf_cockpit.data.fund_documents import read_document_registry
+
+    source = tmp_path / "methodology.pdf"
+    source.write_bytes(b"methodology source")
+    registry = tmp_path / "fund_documents.parquet"
+    parsed.persist_index_methodology_with_document(
+        _methodology_result(),
+        "VWCE",
+        source,
+        destination=tmp_path / "index_methodology_records.parquet",
+        registry_destination=registry,
+        holdings=pd.DataFrame(),
+    )
+
+    methodology = read_document_registry(path=registry).loc[lambda frame: frame["document_type"].eq("methodology")].iloc[0]
+    assert methodology["coverage_status"] == "available"
+    assert methodology["path"] == str(source)
+    assert methodology["sha256"]
+
+
 def test_combined_kid_import_publishes_parsed_store_and_registry_atomically(tmp_path: Path) -> None:
     import etf_cockpit.data.parsed_disclosures as parsed
 
@@ -119,6 +141,72 @@ def test_combined_kid_import_publishes_parsed_store_and_registry_atomically(tmp_
     assert len(pd.read_parquet(destination)) == 1
     registry_frame = pd.read_parquet(registry)
     assert set(registry_frame["document_type"]) >= {"kid"}
+
+
+def test_failed_kid_import_is_unavailable_and_does_not_retain_ephemeral_path(tmp_path: Path) -> None:
+    import etf_cockpit.data.parsed_disclosures as parsed
+    from etf_cockpit.data.fund_documents import read_document_registry
+
+    source = tmp_path / "mismatched-kid.pdf"
+    source.write_bytes(b"mismatched kid source")
+    result = ParseResult(
+        (),
+        (ParseWarning("identity_mismatch", "KID identity does not match the configured instrument", "error", "page 1"),),
+        "priips_kid",
+        "2.0",
+        "c" * 64,
+        False,
+    )
+    destination = tmp_path / "priips_kid_records.parquet"
+    registry = tmp_path / "fund_documents.parquet"
+
+    parsed.persist_priips_kid_with_document(
+        result,
+        "VWCE",
+        source,
+        destination=destination,
+        registry_destination=registry,
+    )
+
+    row = pd.read_parquet(destination).iloc[0]
+    assert bool(row["manual_review"]) is True
+    assert bool(row["success"]) is False
+    registered = read_document_registry(path=registry)
+    kid = registered.loc[registered["document_type"].eq("kid")].iloc[0]
+    assert kid["coverage_status"] == "unavailable"
+    assert kid["path"] == ""
+    assert "identity_mismatch" in kid["warnings"]
+
+
+def test_failed_kid_import_supersedes_preexisting_missing_inventory_row(tmp_path: Path) -> None:
+    import etf_cockpit.data.parsed_disclosures as parsed
+    from etf_cockpit.data.fund_documents import build_document_inventory, read_document_registry, write_document_registry
+
+    source = tmp_path / "mismatched-kid.pdf"
+    source.write_bytes(b"mismatched kid source")
+    registry = tmp_path / "fund_documents.parquet"
+    write_document_registry(build_document_inventory(["VWCE"]), destination=registry)
+    result = ParseResult(
+        (),
+        (ParseWarning("identity_mismatch", "KID identity does not match the configured instrument", "error", "page 1"),),
+        "priips_kid",
+        "2.0",
+        "d" * 64,
+        False,
+    )
+
+    parsed.persist_priips_kid_with_document(
+        result,
+        "VWCE",
+        source,
+        destination=tmp_path / "priips_kid_records.parquet",
+        registry_destination=registry,
+    )
+
+    kid = read_document_registry(path=registry).loc[lambda frame: frame["document_type"].eq("kid")].iloc[0]
+    assert kid["coverage_status"] == "unavailable"
+    assert "identity_mismatch" in kid["warnings"]
+    assert kid["path"] == ""
 
 
 def test_combined_kid_import_rolls_back_when_registry_stage_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

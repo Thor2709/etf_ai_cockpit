@@ -39,7 +39,10 @@ def test_official_kid_extracts_bounded_cost_table_values() -> None:
 def test_wrong_isin_is_a_controlled_failure(tmp_path: Path) -> None:
     result = parse_priips_kid(FIXTURE, expected_isin="IE0000000000")
     assert result.success is False
-    assert result.records == ()
+    assert result.records
+    assert result.records[0].isin == "IE000Q4J3CW6"
+    assert result.records[0].manual_review is True
+    assert result.records[0].score_eligible is False
     assert any(item.code == "identity_mismatch" for item in result.warnings)
 
 

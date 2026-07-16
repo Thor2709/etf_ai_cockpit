@@ -1,0 +1,270 @@
+Requirement already satisfied: pip in .\.venv\Lib\site-packages (26.1.2)
+Requirement already satisfied: flet>=0.28 in .\.venv\Lib\site-packages (from -r requirements.txt (line 1)) (0.86.0)
+Requirement already satisfied: flet-web>=0.85 in .\.venv\Lib\site-packages (from -r requirements.txt (line 2)) (0.86.0)
+Requirement already satisfied: pandas>=2.2 in .\.venv\Lib\site-packages (from -r requirements.txt (line 3)) (3.0.3)
+Requirement already satisfied: numpy>=1.26 in .\.venv\Lib\site-packages (from -r requirements.txt (line 4)) (2.5.1)
+Requirement already satisfied: pyarrow>=15 in .\.venv\Lib\site-packages (from -r requirements.txt (line 5)) (25.0.0)
+Requirement already satisfied: duckdb>=1.0 in .\.venv\Lib\site-packages (from -r requirements.txt (line 6)) (1.5.4)
+Requirement already satisfied: plotly>=5.20 in .\.venv\Lib\site-packages (from -r requirements.txt (line 7)) (6.9.0)
+Requirement already satisfied: pydantic>=2.7 in .\.venv\Lib\site-packages (from -r requirements.txt (line 8)) (2.13.4)
+Requirement already satisfied: pyyaml>=6.0 in .\.venv\Lib\site-packages (from -r requirements.txt (line 9)) (6.0.3)
+Requirement already satisfied: python-dotenv>=1.0 in .\.venv\Lib\site-packages (from -r requirements.txt (line 10)) (1.2.2)
+Requirement already satisfied: requests>=2.32 in .\.venv\Lib\site-packages (from -r requirements.txt (line 11)) (2.34.2)
+Requirement already satisfied: rich>=13.7 in .\.venv\Lib\site-packages (from -r requirements.txt (line 12)) (15.0.0)
+Requirement already satisfied: joblib>=1.4 in .\.venv\Lib\site-packages (from -r requirements.txt (line 13)) (1.5.3)
+Requirement already satisfied: scikit-learn>=1.5 in .\.venv\Lib\site-packages (from -r requirements.txt (line 14)) (1.9.0)
+Requirement already satisfied: yfinance>=1.5 in .\.venv\Lib\site-packages (from -r requirements.txt (line 15)) (1.5.1)
+Requirement already satisfied: oauthlib>=3.2.2 in .\.venv\Lib\site-packages (from flet>=0.28->-r requirements.txt (line 1)) (3.3.1)
+Requirement already satisfied: httpx>=0.28.1 in .\.venv\Lib\site-packages (from flet>=0.28->-r requirements.txt (line 1)) (0.28.1)
+Requirement already satisfied: repath>=0.9.0 in .\.venv\Lib\site-packages (from flet>=0.28->-r requirements.txt (line 1)) (0.9.0)
+Requirement already satisfied: msgpack>=1.1.0 in .\.venv\Lib\site-packages (from flet>=0.28->-r requirements.txt (line 1)) (1.2.1)
+Requirement already satisfied: fastapi>=0.115.12 in .\.venv\Lib\site-packages (from flet-web>=0.85->-r requirements.txt (line 2)) (0.139.0)
+Requirement already satisfied: uvicorn>=0.35.0 in .\.venv\Lib\site-packages (from uvicorn[standard]>=0.35.0->flet-web>=0.85->-r requirements.txt (line 2)) (0.51.0)
+Requirement already satisfied: python-dateutil>=2.8.2 in .\.venv\Lib\site-packages (from pandas>=2.2->-r requirements.txt (line 3)) (2.9.0.post0)
+Requirement already satisfied: tzdata in .\.venv\Lib\site-packages (from pandas>=2.2->-r requirements.txt (line 3)) (2026.3)
+Requirement already satisfied: narwhals>=1.15.1 in .\.venv\Lib\site-packages (from plotly>=5.20->-r requirements.txt (line 7)) (2.24.0)
+Requirement already satisfied: packaging in .\.venv\Lib\site-packages (from plotly>=5.20->-r requirements.txt (line 7)) (26.2)
+Requirement already satisfied: annotated-types>=0.6.0 in .\.venv\Lib\site-packages (from pydantic>=2.7->-r requirements.txt (line 8)) (0.7.0)
+Requirement already satisfied: pydantic-core==2.46.4 in .\.venv\Lib\site-packages (from pydantic>=2.7->-r requirements.txt (line 8)) (2.46.4)
+Requirement already satisfied: typing-extensions>=4.14.1 in .\.venv\Lib\site-packages (from pydantic>=2.7->-r requirements.txt (line 8)) (4.16.0)
+Requirement already satisfied: typing-inspection>=0.4.2 in .\.venv\Lib\site-packages (from pydantic>=2.7->-r requirements.txt (line 8)) (0.4.2)
+Requirement already satisfied: charset_normalizer<4,>=2 in .\.venv\Lib\site-packages (from requests>=2.32->-r requirements.txt (line 11)) (3.4.9)
+Requirement already satisfied: idna<4,>=2.5 in .\.venv\Lib\site-packages (from requests>=2.32->-r requirements.txt (line 11)) (3.18)
+Requirement already satisfied: urllib3<3,>=1.26 in .\.venv\Lib\site-packages (from requests>=2.32->-r requirements.txt (line 11)) (2.7.0)
+Requirement already satisfied: certifi>=2023.5.7 in .\.venv\Lib\site-packages (from requests>=2.32->-r requirements.txt (line 11)) (2026.6.17)
+Requirement already satisfied: markdown-it-py>=2.2.0 in .\.venv\Lib\site-packages (from rich>=13.7->-r requirements.txt (line 12)) (4.2.0)
+Requirement already satisfied: pygments<3.0.0,>=2.13.0 in .\.venv\Lib\site-packages (from rich>=13.7->-r requirements.txt (line 12)) (2.20.0)
+Requirement already satisfied: scipy>=1.10.0 in .\.venv\Lib\site-packages (from scikit-learn>=1.5->-r requirements.txt (line 14)) (1.18.0)
+Requirement already satisfied: threadpoolctl>=3.5.0 in .\.venv\Lib\site-packages (from scikit-learn>=1.5->-r requirements.txt (line 14)) (3.6.0)
+Requirement already satisfied: multitasking>=0.0.7 in .\.venv\Lib\site-packages (from yfinance>=1.5->-r requirements.txt (line 15)) (0.0.13)
+Requirement already satisfied: platformdirs>=2.0.0 in .\.venv\Lib\site-packages (from yfinance>=1.5->-r requirements.txt (line 15)) (4.10.0)
+Requirement already satisfied: pytz>=2022.5 in .\.venv\Lib\site-packages (from yfinance>=1.5->-r requirements.txt (line 15)) (2026.2)
+Requirement already satisfied: peewee>=3.16.2 in .\.venv\Lib\site-packages (from yfinance>=1.5->-r requirements.txt (line 15)) (4.2.3)
+Requirement already satisfied: beautifulsoup4>=4.11.1 in .\.venv\Lib\site-packages (from yfinance>=1.5->-r requirements.txt (line 15)) (4.15.0)
+Requirement already satisfied: curl_cffi>=0.15 in .\.venv\Lib\site-packages (from yfinance>=1.5->-r requirements.txt (line 15)) (0.15.0)
+Requirement already satisfied: protobuf>=3.19.0 in .\.venv\Lib\site-packages (from yfinance>=1.5->-r requirements.txt (line 15)) (7.35.1)
+Requirement already satisfied: websockets>=13.0 in .\.venv\Lib\site-packages (from yfinance>=1.5->-r requirements.txt (line 15)) (16.1)
+Requirement already satisfied: soupsieve>=1.6.1 in .\.venv\Lib\site-packages (from beautifulsoup4>=4.11.1->yfinance>=1.5->-r requirements.txt (line 15)) (2.8.4)
+Requirement already satisfied: cffi>=2.0.0 in .\.venv\Lib\site-packages (from curl_cffi>=0.15->yfinance>=1.5->-r requirements.txt (line 15)) (2.1.0)
+Requirement already satisfied: pycparser in .\.venv\Lib\site-packages (from cffi>=2.0.0->curl_cffi>=0.15->yfinance>=1.5->-r requirements.txt (line 15)) (3.0)
+Requirement already satisfied: starlette>=0.46.0 in .\.venv\Lib\site-packages (from fastapi>=0.115.12->flet-web>=0.85->-r requirements.txt (line 2)) (1.3.1)
+Requirement already satisfied: annotated-doc>=0.0.2 in .\.venv\Lib\site-packages (from fastapi>=0.115.12->flet-web>=0.85->-r requirements.txt (line 2)) (0.0.4)
+Requirement already satisfied: anyio in .\.venv\Lib\site-packages (from httpx>=0.28.1->flet>=0.28->-r requirements.txt (line 1)) (4.14.2)
+Requirement already satisfied: httpcore==1.* in .\.venv\Lib\site-packages (from httpx>=0.28.1->flet>=0.28->-r requirements.txt (line 1)) (1.0.9)
+Requirement already satisfied: h11>=0.16 in .\.venv\Lib\site-packages (from httpcore==1.*->httpx>=0.28.1->flet>=0.28->-r requirements.txt (line 1)) (0.16.0)
+Requirement already satisfied: mdurl~=0.1 in .\.venv\Lib\site-packages (from markdown-it-py>=2.2.0->rich>=13.7->-r requirements.txt (line 12)) (0.1.2)
+Requirement already satisfied: six>=1.5 in .\.venv\Lib\site-packages (from python-dateutil>=2.8.2->pandas>=2.2->-r requirements.txt (line 3)) (1.17.0)
+Requirement already satisfied: click>=7.0 in .\.venv\Lib\site-packages (from uvicorn>=0.35.0->uvicorn[standard]>=0.35.0->flet-web>=0.85->-r requirements.txt (line 2)) (8.4.2)
+Requirement already satisfied: colorama in .\.venv\Lib\site-packages (from click>=7.0->uvicorn>=0.35.0->uvicorn[standard]>=0.35.0->flet-web>=0.85->-r requirements.txt (line 2)) (0.4.6)
+Requirement already satisfied: httptools>=0.8.0 in .\.venv\Lib\site-packages (from uvicorn[standard]>=0.35.0->flet-web>=0.85->-r requirements.txt (line 2)) (0.8.0)
+Requirement already satisfied: watchfiles>=0.20 in .\.venv\Lib\site-packages (from uvicorn[standard]>=0.35.0->flet-web>=0.85->-r requirements.txt (line 2)) (1.2.0)
+Requirement already satisfied: arelle-release<2.42,>=2.41.4 in .\.venv\Lib\site-packages (from arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (2.41.7)
+Requirement already satisfied: pdfplumber<0.12,>=0.11.9 in .\.venv\Lib\site-packages (from -r requirements-parsers.txt (line 2)) (0.11.10)
+Requirement already satisfied: defusedxml<0.8,>=0.7.1 in .\.venv\Lib\site-packages (from -r requirements-parsers.txt (line 3)) (0.7.1)
+Requirement already satisfied: feedparser<7,>=6.0.11 in .\.venv\Lib\site-packages (from -r requirements-parsers.txt (line 4)) (6.0.12)
+Requirement already satisfied: bottle<0.14,>=0.13 in .\.venv\Lib\site-packages (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (0.13.4)
+Requirement already satisfied: certifi in .\.venv\Lib\site-packages (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (2026.6.17)
+Requirement already satisfied: filelock in .\.venv\Lib\site-packages (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (3.29.7)
+Requirement already satisfied: isodate<1,>=0 in .\.venv\Lib\site-packages (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (0.7.2)
+Requirement already satisfied: jaconv<1,>=0 in .\.venv\Lib\site-packages (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (0.5.0)
+Requirement already satisfied: jsonschema<5,>=4 in .\.venv\Lib\site-packages (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (4.26.0)
+Requirement already satisfied: lxml!=6.0.0,<7,>=4 in .\.venv\Lib\site-packages (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (6.1.1)
+Requirement already satisfied: numpy<3,>=1 in .\.venv\Lib\site-packages (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (2.5.1)
+Requirement already satisfied: openpyxl<4,>=3 in .\.venv\Lib\site-packages (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (3.1.5)
+Requirement already satisfied: pillow<13,>=10 in .\.venv\Lib\site-packages (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (12.3.0)
+Requirement already satisfied: pyparsing<4,>=3 in .\.venv\Lib\site-packages (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (3.3.2)
+Requirement already satisfied: python-dateutil<3,>=2 in .\.venv\Lib\site-packages (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (2.9.0.post0)
+Requirement already satisfied: regex in .\.venv\Lib\site-packages (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (2026.7.10)
+Requirement already satisfied: truststore<1,>=0 in .\.venv\Lib\site-packages (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (0.10.4)
+Requirement already satisfied: typing-extensions<5,>=4 in .\.venv\Lib\site-packages (from arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (4.16.0)
+Requirement already satisfied: pdfminer.six==20260107 in .\.venv\Lib\site-packages (from pdfplumber<0.12,>=0.11.9->-r requirements-parsers.txt (line 2)) (20260107)
+Requirement already satisfied: pypdfium2>=5.9.0 in .\.venv\Lib\site-packages (from pdfplumber<0.12,>=0.11.9->-r requirements-parsers.txt (line 2)) (5.11.0)
+Requirement already satisfied: charset-normalizer>=2.0.0 in .\.venv\Lib\site-packages (from pdfminer.six==20260107->pdfplumber<0.12,>=0.11.9->-r requirements-parsers.txt (line 2)) (3.4.9)
+Requirement already satisfied: cryptography>=36.0.0 in .\.venv\Lib\site-packages (from pdfminer.six==20260107->pdfplumber<0.12,>=0.11.9->-r requirements-parsers.txt (line 2)) (49.0.0)
+Requirement already satisfied: sgmllib3k in .\.venv\Lib\site-packages (from feedparser<7,>=6.0.11->-r requirements-parsers.txt (line 4)) (1.0.0)
+Requirement already satisfied: tinycss2<2,>=1 in .\.venv\Lib\site-packages (from arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (1.5.1)
+Requirement already satisfied: attrs>=22.2.0 in .\.venv\Lib\site-packages (from jsonschema<5,>=4->arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (26.1.0)
+Requirement already satisfied: jsonschema-specifications>=2023.03.6 in .\.venv\Lib\site-packages (from jsonschema<5,>=4->arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (2025.9.1)
+Requirement already satisfied: referencing>=0.28.4 in .\.venv\Lib\site-packages (from jsonschema<5,>=4->arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (0.37.0)
+Requirement already satisfied: rpds-py>=0.25.0 in .\.venv\Lib\site-packages (from jsonschema<5,>=4->arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (2026.6.3)
+Requirement already satisfied: et-xmlfile in .\.venv\Lib\site-packages (from openpyxl<4,>=3->arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (2.0.0)
+Requirement already satisfied: six>=1.5 in .\.venv\Lib\site-packages (from python-dateutil<3,>=2->arelle-release<2.42,>=2.41.4->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (1.17.0)
+Requirement already satisfied: webencodings>=0.4 in .\.venv\Lib\site-packages (from tinycss2<2,>=1->arelle-release[esef]<2.42,>=2.41.4->-r requirements-parsers.txt (line 1)) (0.5.1)
+Requirement already satisfied: cffi>=2.0.0 in .\.venv\Lib\site-packages (from cryptography>=36.0.0->pdfminer.six==20260107->pdfplumber<0.12,>=0.11.9->-r requirements-parsers.txt (line 2)) (2.1.0)
+Requirement already satisfied: pycparser in .\.venv\Lib\site-packages (from cffi>=2.0.0->cryptography>=36.0.0->pdfminer.six==20260107->pdfplumber<0.12,>=0.11.9->-r requirements-parsers.txt (line 2)) (3.0)
+C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\TASK15-CLOSURE-20260715\build\flet_dist_rc1
+202 INFO: PyInstaller: 6.21.0, contrib hooks: 2026.6
+202 INFO: Python: 3.13.14
+241 INFO: Platform: Windows-11-10.0.26200-SP0
+241 INFO: Python environment: C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\TASK15-CLOSURE-20260715\.venv
+246 INFO: Removing temporary files and cleaning cache in C:\Users\thor2\AppData\Local\pyinstaller
+260 DEPRECATION: Foreign Python environment's site-packages paths added to --paths/pathex:
+['C:\\Users\\thor2\\Desktop\\Trading '
+ 'App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages']
+This is ALWAYS the wrong thing to do. If your environment's site-packages is not in PyInstaller's module search path then you are running PyInstaller from a different environment to the one your packages are in. Run print(sys.prefix) without PyInstaller to get the environment you should be using then install and run PyInstaller from that environment instead of this one. This warning will become an error in PyInstaller 7.0.
+260 INFO: Module search paths (PYTHONPATH):
+['C:\\Users\\thor2\\Desktop\\Trading '
+ 'App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Scripts\\pyinstaller.exe',
+ 'C:\\Users\\thor2\\Desktop\\Trading '
+ 'App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\src',
+ 'C:\\Users\\thor2\\Desktop\\Trading '
+ 'App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715',
+ 'C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python313\\python313.zip',
+ 'C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python313\\DLLs',
+ 'C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python313\\Lib',
+ 'C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python313',
+ 'C:\\Users\\thor2\\Desktop\\Trading '
+ 'App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv',
+ 'C:\\Users\\thor2\\Desktop\\Trading '
+ 'App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages',
+ 'C:\\Users\\thor2\\Desktop\\Trading '
+ 'App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\src',
+ 'C:\\Users\\thor2\\Desktop\\Trading '
+ 'App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages']
+877 INFO: Appending 'binaries' from .spec
+878 INFO: Appending 'datas' from .spec
+893 INFO: checking Analysis
+893 INFO: Building Analysis because Analysis-00.toc is non existent
+893 INFO: Looking for Python shared library...
+893 INFO: Using Python shared library: C:\Users\thor2\AppData\Local\Programs\Python\Python313\python313.dll
+893 INFO: Running Analysis Analysis-00.toc
+893 INFO: Target bytecode optimization level: 0
+893 INFO: Initializing module dependency graph...
+899 INFO: Initializing module graph hook caches...
+933 INFO: Analyzing modules for base_library.zip ...
+2400 INFO: Processing standard module hook 'hook-encodings.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+4332 INFO: Processing standard module hook 'hook-math.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+4840 INFO: Processing standard module hook 'hook-heapq.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+6681 INFO: Processing standard module hook 'hook-pickle.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+10567 INFO: Caching module dependency graph...
+10603 INFO: Analyzing C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\TASK15-CLOSURE-20260715\src\etf_cockpit\main.py
+11198 INFO: Processing standard module hook 'hook-webbrowser.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+11327 INFO: Processing standard module hook 'hook-sysconfig.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+11345 INFO: Processing standard module hook 'hook-_ctypes.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+11812 INFO: Processing standard module hook 'hook-multiprocessing.util.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+12055 INFO: Processing standard module hook 'hook-xml.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+13842 INFO: Processing standard module hook 'hook-platform.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+15671 INFO: Processing pre-safe-import-module hook 'hook-typing_extensions.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+15675 INFO: SetuptoolsInfo: initializing cached setuptools info...
+18604 INFO: Processing standard module hook 'hook-certifi.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+19059 INFO: Processing standard module hook 'hook-anyio.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+22253 INFO: Processing standard module hook 'hook-difflib.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+22570 INFO: Processing standard module hook 'hook-pygments.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+24484 INFO: Processing standard module hook 'hook-rich.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+30565 INFO: Processing standard module hook 'hook-pydantic.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+32064 INFO: Processing standard module hook 'hook-zoneinfo.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+36188 INFO: Processing standard module hook 'hook-uvicorn.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+38758 INFO: Processing standard module hook 'hook-websockets.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+40587 INFO: Processing pre-safe-import-module hook 'hook-six.moves.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+40905 INFO: Processing standard module hook 'hook-numpy.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+45282 INFO: Processing standard module hook 'hook-charset_normalizer.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+45845 INFO: Processing standard module hook 'hook-PIL.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+45959 INFO: Processing standard module hook 'hook-PIL.Image.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+46433 INFO: Processing standard module hook 'hook-xml.etree.cElementTree.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+46615 INFO: Processing standard module hook 'hook-xml.dom.domreg.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+47411 INFO: Processing standard module hook 'hook-PIL.ImageFilter.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+49280 INFO: Processing standard module hook 'hook-pandas.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+51544 INFO: Processing standard module hook 'hook-scipy.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+52468 INFO: Processing standard module hook 'hook-pycparser.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+52735 INFO: Processing standard module hook 'hook-setuptools.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+52782 INFO: Processing pre-safe-import-module hook 'hook-distutils.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+52864 INFO: Processing pre-safe-import-module hook 'hook-jaraco.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+52865 INFO: Setuptools: 'jaraco' appears to be a full setuptools-vendored copy - creating alias to 'setuptools._vendor.jaraco'!
+52880 INFO: Processing pre-safe-import-module hook 'hook-more_itertools.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+52881 INFO: Setuptools: 'more_itertools' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.more_itertools'!
+53314 INFO: Processing pre-safe-import-module hook 'hook-packaging.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+53786 INFO: Processing standard module hook 'hook-setuptools._vendor.jaraco.text.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+53789 INFO: Processing pre-safe-import-module hook 'hook-importlib_resources.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+53803 INFO: Processing pre-safe-import-module hook 'hook-backports.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+53804 INFO: Setuptools: 'backports' appears to be a full setuptools-vendored copy - creating alias to 'setuptools._vendor.backports'!
+54650 INFO: Processing pre-safe-import-module hook 'hook-tomli.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+54651 INFO: Setuptools: 'tomli' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.tomli'!
+55671 INFO: Processing pre-safe-import-module hook 'hook-wheel.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+55671 INFO: Setuptools: 'wheel' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.wheel'!
+58204 INFO: Processing standard module hook 'hook-scipy.linalg.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+58617 INFO: Processing standard module hook 'hook-scipy.special._ufuncs.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+61397 INFO: Processing standard module hook 'hook-scipy.spatial._ckdtree.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+62756 INFO: Processing standard module hook 'hook-scipy.spatial.transform.rotation.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+64137 INFO: Processing standard module hook 'hook-scipy.stats._stats.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+65137 INFO: Processing standard module hook 'hook-scipy.sparse.csgraph.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+66975 INFO: Processing standard module hook 'hook-scipy.special._ellip_harm_2.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+70517 INFO: Processing standard module hook 'hook-pandas.io.formats.style.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+72262 INFO: Processing standard module hook 'hook-pyarrow.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+73326 INFO: Processing standard module hook 'hook-urllib3.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+74773 INFO: Processing standard module hook 'hook-cryptography.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+77382 INFO: hook-cryptography: cryptography does not seem to be using dynamically linked OpenSSL.
+80202 INFO: Processing standard module hook 'hook-pandas.plotting.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+81305 INFO: Processing standard module hook 'hook-dateutil.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+82928 INFO: Processing standard module hook 'hook-openpyxl.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+83093 INFO: Processing standard module hook 'hook-lxml.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+83581 INFO: Processing standard module hook 'hook-lxml.etree.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+87567 INFO: Processing standard module hook 'hook-sqlite3.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+88060 INFO: Processing standard module hook 'hook-pandas.io.clipboard.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+90240 INFO: Processing standard module hook 'hook-pytz.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+91383 INFO: Processing pre-safe-import-module hook 'hook-platformdirs.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+91407 INFO: Processing standard module hook 'hook-platformdirs.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+93647 INFO: Processing standard module hook 'hook-pdfminer.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+95546 INFO: Processing standard module hook 'hook-pypdfium2.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+95628 INFO: Processing standard module hook 'hook-pypdfium2_raw.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+96438 INFO: Processing standard module hook 'hook-regex.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+102017 INFO: Processing pre-find-module-path hook 'hook-tkinter.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_find_module_path'
+102022 INFO: TclTkInfo: initializing cached Tcl/Tk info...
+103548 INFO: Processing standard module hook 'hook-_tkinter.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+104888 INFO: Processing standard module hook 'hook-duckdb.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+105701 INFO: Analyzing hidden import 'uvicorn.loops.auto'
+105705 INFO: Analyzing hidden import 'uvicorn.lifespan.on'
+105711 INFO: Analyzing hidden import 'uvicorn.protocols.http.auto'
+105712 INFO: Analyzing hidden import 'pandas._libs._cyutility'
+105712 INFO: Processing module hooks (post-graph stage)...
+106026 INFO: Processing standard module hook 'hook-lxml.isoschematron.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+106422 WARNING: Hidden import "pycparser.lextab" not found!
+106423 WARNING: Hidden import "pycparser.yacctab" not found!
+107114 INFO: Processing standard module hook 'hook-PIL.SpiderImagePlugin.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+109121 WARNING: Hidden import "scipy.special._cdflib" not found!
+109161 INFO: Processing standard module hook 'hook-_tkinter.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+109162 INFO: Processing standard module hook 'hook-lxml.objectify.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+109163 INFO: Processing standard module hook 'hook-tzdata.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+109975 INFO: Performing binary vs. data reclassification (3095 entries)
+134601 INFO: Looking for ctypes DLLs
+134752 INFO: Analyzing run-time hooks ...
+134768 INFO: Including run-time hook 'pyi_rth_pkgutil.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+134789 INFO: Including run-time hook 'pyi_rth_inspect.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+134809 INFO: Including run-time hook 'pyi_rth_multiprocessing.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+134831 INFO: Including run-time hook 'pyi_rth_setuptools.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+134852 INFO: Including run-time hook 'pyi_rth_cryptography_openssl.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\rthooks'
+134868 INFO: Including run-time hook 'pyi_rth__tkinter.py' from 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+135008 INFO: Creating base_library.zip...
+135036 INFO: Looking for dynamic libraries
+143648 INFO: Extra DLL search directories (AddDllDirectory): ['C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\pandas.libs', 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\numpy.libs', 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\pyarrow.libs', 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\.venv\\Lib\\site-packages\\scipy.libs']
+143648 INFO: Extra DLL search directories (PATH): []
+145691 INFO: Warnings written to C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\TASK15-CLOSURE-20260715\build\ETF_AI_Cockpit\warn-ETF_AI_Cockpit.txt
+145902 INFO: Graph cross-reference written to C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\TASK15-CLOSURE-20260715\build\ETF_AI_Cockpit\xref-ETF_AI_Cockpit.html
+146030 INFO: checking PYZ
+146030 INFO: Building PYZ because PYZ-00.toc is non existent
+146030 INFO: Building PYZ (ZlibArchive) C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\TASK15-CLOSURE-20260715\build\ETF_AI_Cockpit\PYZ-00.pyz
+148393 INFO: Building PYZ (ZlibArchive) C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\TASK15-CLOSURE-20260715\build\ETF_AI_Cockpit\PYZ-00.pyz completed successfully.
+148462 INFO: checking PKG
+148462 INFO: Building PKG because PKG-00.toc is non existent
+148463 INFO: Building PKG (CArchive) ETF_AI_Cockpit.pkg
+148507 INFO: Building PKG (CArchive) ETF_AI_Cockpit.pkg completed successfully.
+148508 INFO: Bootloader C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\TASK15-CLOSURE-20260715\.venv\Lib\site-packages\PyInstaller\bootloader\Windows-64bit-intel\runw.exe
+148508 INFO: checking EXE
+148508 INFO: Building EXE because EXE-00.toc is non existent
+148508 INFO: Building EXE from EXE-00.toc
+148509 INFO: Copying bootloader EXE to C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\TASK15-CLOSURE-20260715\build\ETF_AI_Cockpit\ETF_AI_Cockpit.exe
+148595 INFO: Copying icon to EXE
+148674 INFO: Copying version information to EXE
+148744 INFO: Copying 0 resources to EXE
+148744 INFO: Embedding manifest in EXE
+148826 INFO: Appending PKG archive to EXE
+149072 INFO: Fixing EXE headers
+149677 INFO: Building EXE from EXE-00.toc completed successfully.
+149697 INFO: checking COLLECT
+149697 INFO: Building COLLECT because COLLECT-00.toc is non existent
+149698 INFO: Building COLLECT COLLECT-00.toc
+152717 INFO: Building COLLECT COLLECT-00.toc completed successfully.
+152756 INFO: Build complete! The results are available in: C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\TASK15-CLOSURE-20260715\build\flet_dist_rc1
+Version info written to: 'C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\TASK15-CLOSURE-20260715\\build\\flet_dist_rc1\\ETF_AI_Cockpit\\ETF_AI_Cockpit.exe'
+C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\TASK15-CLOSURE-20260715\build\ETF_AI_Cockpit_Portable_v0.1.0rc1
+Portable folder created at C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\TASK15-CLOSURE-20260715\build\ETF_AI_Cockpit_Portable_v0.1.0rc1
+EXIT=0

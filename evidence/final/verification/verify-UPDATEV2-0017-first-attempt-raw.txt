@@ -1,0 +1,178 @@
+{
+  "issue_id": "UPDATEV2-0017",
+  "status": "blocked",
+  "limitations": [
+    "run 4 screenshot metadata is missing",
+    "missing required verification gates: build"
+  ],
+  "missing_gates": [
+    "build"
+  ],
+  "tracker_mutated": false,
+  "source_hash": "13e8d244c4360baa44d44b1bac61d5d59b3ccd5eb27a19b9b4604b3daff9c9d0",
+  "environment_hash": "92d7950f655410515a5c3d8b0d89a50c20c620a3da5c8f130fd8fedfeca085db",
+  "requirement_version": "2",
+  "verification_runs": [
+    {
+      "verification_run_id": "task15-0017-source-ui-root-fixes",
+      "verification_type": "source_integrity",
+      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m compileall -q src",
+      "source_hash": "13e8d244c4360baa44d44b1bac61d5d59b3ccd5eb27a19b9b4604b3daff9c9d0",
+      "result": "pass",
+      "exit_code": 0,
+      "output_paths": [
+        "tests/task15-source-exact-raw.txt"
+      ],
+      "output_checksums": [
+        "cc258d839e50d5e0cf220528399d5c29a6bcc5c3a9ee2616a915627e0363d91d"
+      ],
+      "issue_ids": [
+        "UPDATEV2-0017"
+      ],
+      "environment_hash": "92d7950f655410515a5c3d8b0d89a50c20c620a3da5c8f130fd8fedfeca085db",
+      "gates": [
+        "source"
+      ],
+      "skipped": false,
+      "informational": false,
+      "screenshot": null
+    },
+    {
+      "verification_run_id": "task15-0017-full-suite-ui-root-fixes",
+      "verification_type": "deterministic_tests",
+      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m pytest tests -q",
+      "source_hash": "13e8d244c4360baa44d44b1bac61d5d59b3ccd5eb27a19b9b4604b3daff9c9d0",
+      "result": "pass",
+      "exit_code": 0,
+      "output_paths": [
+        "tests/task15-full-ui-root-fixes-raw.txt"
+      ],
+      "output_checksums": [
+        "c3316a11ed907503aee27cdb9dd5ec62efad2b2ca355638493c34e098f8d41ef"
+      ],
+      "issue_ids": [
+        "UPDATEV2-0017"
+      ],
+      "environment_hash": "92d7950f655410515a5c3d8b0d89a50c20c620a3da5c8f130fd8fedfeca085db",
+      "gates": [
+        "tests"
+      ],
+      "skipped": false,
+      "informational": false,
+      "screenshot": null
+    },
+    {
+      "verification_run_id": "task15-0017-ui-root-fixes",
+      "verification_type": "user_interface",
+      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m pytest tests/test_flet_startup.py -q",
+      "source_hash": "13e8d244c4360baa44d44b1bac61d5d59b3ccd5eb27a19b9b4604b3daff9c9d0",
+      "result": "pass",
+      "exit_code": 0,
+      "output_paths": [
+        "tests/task15-ui-exact-raw.txt"
+      ],
+      "output_checksums": [
+        "0a2023c23c5db1bfb80abbe4a8445a398190d2e8c69647081fc47848d964e748"
+      ],
+      "issue_ids": [
+        "UPDATEV2-0017"
+      ],
+      "environment_hash": "92d7950f655410515a5c3d8b0d89a50c20c620a3da5c8f130fd8fedfeca085db",
+      "gates": [
+        "ui"
+      ],
+      "skipped": false,
+      "informational": false,
+      "screenshot": {
+        "path": "browser/task15-packaged-imported-ui-root-fixes-final.png",
+        "sha256": "fa38188ec6a7a35beb333571f127ab8a0d92443301dd99f0a720eb022fef14f3",
+        "width": 1280,
+        "height": 720
+      }
+    },
+    {
+      "verification_run_id": "task15-0017-export-ui-root-fixes",
+      "verification_type": "audit_record",
+      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m pytest tests/test_trust_critical_artifacts.py -q",
+      "source_hash": "13e8d244c4360baa44d44b1bac61d5d59b3ccd5eb27a19b9b4604b3daff9c9d0",
+      "result": "pass",
+      "exit_code": 0,
+      "output_paths": [
+        "tests/task15-trust-critical-artifacts.txt",
+        "export/task15-audit-ui-root-fixes-raw.txt",
+        "export/task15-audit-provenance-note.md"
+      ],
+      "output_checksums": [
+        "78453323b2b2ce9d8eafb3e1ecc82dbcb4465b200a37a6e60e674d5696483c75",
+        "bf77985879d9137cbb74dc7764fabd5e7d1db9413dbf7b4308200c8b0e1005ea",
+        "56d9273c07c19214dbac16dc71bf762cbf10bab7c1249eecc6f12f7f331e8edd"
+      ],
+      "issue_ids": [
+        "UPDATEV2-0017"
+      ],
+      "environment_hash": "92d7950f655410515a5c3d8b0d89a50c20c620a3da5c8f130fd8fedfeca085db",
+      "gates": [
+        "export"
+      ],
+      "skipped": false,
+      "informational": false,
+      "screenshot": null
+    },
+    {
+      "verification_run_id": "task15-0017-build-ui-root-fixes",
+      "verification_type": "packaged_runtime",
+      "command": "cmd.exe /d /c scripts\\build_windows.bat",
+      "source_hash": "13e8d244c4360baa44d44b1bac61d5d59b3ccd5eb27a19b9b4604b3daff9c9d0",
+      "result": "pass",
+      "exit_code": 0,
+      "output_paths": [
+        "build/task15-build-ui-root-fixes-raw.txt"
+      ],
+      "output_checksums": [
+        "cac2f0f4a5d5f7ec6909a44703c99f64ee2ceadf034f1b364537f948115b643e"
+      ],
+      "issue_ids": [
+        "UPDATEV2-0017"
+      ],
+      "environment_hash": "92d7950f655410515a5c3d8b0d89a50c20c620a3da5c8f130fd8fedfeca085db",
+      "gates": [
+        "build"
+      ],
+      "skipped": false,
+      "informational": false,
+      "screenshot": null
+    },
+    {
+      "verification_run_id": "task15-0017-browser-ui-root-fixes",
+      "verification_type": "browser_user",
+      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_app.py --mode source",
+      "source_hash": "13e8d244c4360baa44d44b1bac61d5d59b3ccd5eb27a19b9b4604b3daff9c9d0",
+      "result": "pass",
+      "exit_code": 0,
+      "output_paths": [
+        "browser/task15-browser-exact-raw.txt",
+        "browser/task15-package-imported-launch-ui-root-fixes-raw.txt"
+      ],
+      "output_checksums": [
+        "cf65b23cc9d5e28d96ecc165e944f9928952fbdca8ab7f502a3f6ee0aa1a6eb3",
+        "b8d8918495f6576d453e0ddb6b57825ed13a6474b9e50f6c1d9c9fc0238d6325"
+      ],
+      "issue_ids": [
+        "UPDATEV2-0017"
+      ],
+      "environment_hash": "92d7950f655410515a5c3d8b0d89a50c20c620a3da5c8f130fd8fedfeca085db",
+      "gates": [
+        "browser"
+      ],
+      "skipped": false,
+      "informational": false,
+      "screenshot": {
+        "path": "browser/task15-packaged-imported-ui-root-fixes-final.png",
+        "sha256": "fa38188ec6a7a35beb333571f127ab8a0d92443301dd99f0a720eb022fef14f3",
+        "width": 1280,
+        "height": 720
+      }
+    }
+  ],
+  "manifest_path": "evidence/final/UPDATEV2-0017/verification_manifest.json"
+}

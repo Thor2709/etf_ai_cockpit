@@ -162,11 +162,15 @@ def build_document_inventory(
         document = _as_document(raw)
         if document.instrument_id not in ids or not document.source_id:
             continue
-        unique.setdefault(document.source_id, document)
+        # Later records supersede synthetic/missing rows with the same stable
+        # provenance key.  This is required when a failed import publishes an
+        # explicit unavailable/manual-review state over the inventory's
+        # generated missing placeholder.
+        unique[document.source_id] = document
     rows: list[FundDocument] = []
     for instrument_id in ids:
         for document_type in DOCUMENT_TYPES:
-            matches = [document for document in unique.values() if document.instrument_id == instrument_id and document.document_type == document_type and document.coverage_status in {"available", "imported", "mapped"}]
+            matches = [document for document in unique.values() if document.instrument_id == instrument_id and document.document_type == document_type and document.coverage_status in {"available", "imported", "mapped", "unavailable"}]
             if matches:
                 rows.extend(sorted(matches, key=lambda item: (item.document_date or "", item.source_id), reverse=True))
             else:

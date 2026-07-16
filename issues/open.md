@@ -150,8 +150,6 @@ The user selected the following 21 issues for direct implementation as one stage
 | 7 | `UPDATEV2-0013` | P0/P1 | European ESEF/iXBRL local importer with source-verification confidence. |
 | 8 | `UPDATEV2-0015` | P1 | ETF disclosure registry for factsheets, KIDs, prospectuses, reports and methodologies. |
 | 9 | `UPDATEV2-0016` | P1 | ETF holdings normaliser with coverage and partial-data warnings. |
-| 10 | `UPDATEV2-0017` | P1 | PRIIPs KID parser and cost/risk disclosure extraction where available. |
-| 11 | `UPDATEV2-0019` | P1 | Index methodology importer and source mapping for ETF/index evidence. |
 | 12 | `ISSUE-0025` | P1 | Free news and filings dashboard with context-only authority. |
 | 13 | `ISSUE-0054` | P1/P2 | Point-in-time news validation and backtest rejection of ambiguous/current-only timestamps. |
 | 14 | `ISSUE-0055` | P2 | Optional free provider stubs for SEC EDGAR, FRED, Stooq and RSS, disabled by default. |
@@ -396,23 +394,6 @@ schema_version
 **Plan.md update requirement:** Keep ESAP as future, OAMs as current optional discovery.  
 **Close criteria:** Common close criteria plus cached mocked discovery.
 
-## UPDATEV2-0017 - PRIIPs KID parser (original update ISSUE-0017)
-
-**Status:** Open - implementation complete; closure pending strict release, audit/export, clean-first-run and browser/computer-use evidence
-**Type:** ETF Evidence / Retail Product Disclosure  
-**Priority:** P1  
-**Evidence grade:** High  
-**Source URLs:** `updatev2.md`; https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32014R1286  
-**Problem:** European retail ETFs have KIDs with standardised risk/cost/product evidence.  
-**Why it matters:** KID is core disclosure evidence, but not holdings evidence.  
-**Proposed implementation:** Add `services/priips_kid_parser.py`; extract product name, ISIN, manufacturer, SRI, costs, recommended holding period, scenarios and document date; store confidence/warnings.  
-**Acceptance criteria:** KID fields appear in ETF Disclosures; missing KID for retail ETF triggers manual review; KID does not substitute for holdings/prospectus; KID feeds cost/risk evidence.  
-**UI requirement:** ETF Disclosures KID section.  
-**Tests required:** Text/PDF fixture, missing SRI, multiple languages and bad/unknown document date.  
-**Rebuild requirement:** Full release gate before close.  
-**Plan.md update requirement:** Keep KID as mandatory retail-product evidence.  
-**Close criteria:** Common close criteria plus parsed KID audit fields.
-
 ## UPDATEV2-0018 - ETF prospectus, annual and half-year report parser (original update ISSUE-0018)
 
 **Status:** Open  
@@ -429,23 +410,6 @@ schema_version
 **Rebuild requirement:** Full release gate before close.  
 **Plan.md update requirement:** Preserve fund report parser scope.  
 **Close criteria:** Common close criteria plus conflict reporting.
-
-## UPDATEV2-0019 - Index methodology importer (original update ISSUE-0019)
-
-**Status:** Open - implementation complete; closure pending strict release, audit/export, clean-first-run and browser/computer-use evidence
-**Type:** ETF Evidence / Benchmark Methodology  
-**Priority:** P1  
-**Evidence grade:** High  
-**Source URLs:** `updatev2.md`; index-provider methodology docs as imported by user/provider.  
-**Problem:** ETF quality depends on index rules, not only current holdings.  
-**Why it matters:** Methodology explains how the ETF should evolve.  
-**Proposed implementation:** Add `providers/index_methodology_provider.py` and `services/index_methodology_parser.py`; store methodology provider, version/date, eligibility, weighting, rebalance/review frequency and cap/rule fields.  
-**Acceptance criteria:** ETF row links to methodology; version/date tracked; missing methodology caps evidence quality; methodology-vs-holdings conflicts visible.  
-**UI requirement:** ETF Disclosures methodology panel.  
-**Tests required:** Methodology text fixture, missing date/version, unknown provider and conflicting index name.  
-**Rebuild requirement:** Full release gate before close.  
-**Plan.md update requirement:** Preserve methodology as high-authority for target index rules.  
-**Close criteria:** Common close criteria plus audit methodology record.
 
 ## UPDATEV2-0020 - SFDR disclosure parser (original update ISSUE-0020)
 
