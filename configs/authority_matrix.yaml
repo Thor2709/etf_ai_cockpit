@@ -52,6 +52,7 @@ capabilities:
   - {capability_id: "route:/help", kind: route, authority_stage: research, description: Help and glossary workspace}
   - {capability_id: "route:/decision-journal", kind: route, authority_stage: research, description: User decision journal workspace}
   - {capability_id: "route:/jobs", kind: route, authority_stage: research, description: Durable local jobs and activity workspace}
+  - {capability_id: "route:/release-readiness", kind: route, authority_stage: research, description: Read-only release certification evidence workspace}
   - {capability_id: "dataset:audit_manifest", kind: dataset, authority_stage: research, description: Audit manifest evidence}
   - {capability_id: "dataset:configuration", kind: dataset, authority_stage: research, description: Local configuration evidence}
   - {capability_id: "dataset:costs", kind: dataset, authority_stage: research, description: Cost assumption evidence}

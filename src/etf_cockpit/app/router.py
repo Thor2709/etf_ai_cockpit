@@ -32,6 +32,7 @@ from etf_cockpit.app.pages.trust_evidence import (
     news_context_page,
     provider_status_page,
 )
+from etf_cockpit.app.pages.release_readiness import release_readiness_page
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.session_log import log_event
 
@@ -63,6 +64,7 @@ PAGES = {
     "/help": ("Help & Glossary", help_glossary_page),
     "/decision-journal": ("Decision Journal", decision_journal_page),
     "/jobs": ("Jobs & Activity", jobs_page),
+    "/release-readiness": ("Release Readiness", release_readiness_page),
 }
 
 
