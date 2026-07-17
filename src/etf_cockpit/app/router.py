@@ -26,6 +26,7 @@ from etf_cockpit.app.pages.portfolio import portfolio_page
 from etf_cockpit.app.pages.risk import risk_page
 from etf_cockpit.app.pages.settings import settings_page
 from etf_cockpit.app.pages.screener import screener_page
+from etf_cockpit.app.pages.stock_research import stock_research_page
 from etf_cockpit.app.pages.signals import signals_page
 from etf_cockpit.app.pages.trust_evidence import (
     etf_disclosures_page,
@@ -43,6 +44,7 @@ PAGES = {
     "/portfolio": ("Portfolio Context", portfolio_page),
     "/signals": ("Scores", signals_page),
     "/screener": ("Fundamentals Screener", screener_page),
+    "/stock-research": ("Stock Research", stock_research_page),
     "/risk": ("Risk Evidence", risk_page),
     "/etf": ("Instrument Detail", instrument_detail_page),
     "/backtests": ("Backtests", backtests_page),
