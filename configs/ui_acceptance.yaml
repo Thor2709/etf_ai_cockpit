@@ -101,6 +101,8 @@ controls:
   - {key: risk.export-holdings, route: /risk, control_label: Export holdings CSV, callback: export_holdings, success_signal: file_created_or_unavailable, controlled_error_signal: controlled_recovery_state, acceptance_test: tests/test_button_contracts.py, control_type: button}
   - {key: risk.export-correlation, route: /risk, control_label: Export correlation CSV, callback: export_correlation, success_signal: file_created_or_unavailable, controlled_error_signal: controlled_recovery_state, acceptance_test: tests/test_button_contracts.py, control_type: button}
   - {key: risk.export-drawdown, route: /risk, control_label: Export drawdown CSV, callback: export_drawdown, success_signal: file_created_or_unavailable, controlled_error_signal: controlled_recovery_state, acceptance_test: tests/test_button_contracts.py, control_type: button}
+  - {key: risk.export-factor-contributions, route: /risk, control_label: Export factor contributions CSV, callback: export_factor_contributions, success_signal: file_created_or_unavailable, controlled_error_signal: controlled_recovery_state, acceptance_test: tests/test_button_contracts.py, control_type: button}
+  - {key: risk.export-factor-returns, route: /risk, control_label: Export factor returns CSV, callback: export_factor_history, success_signal: file_created_or_unavailable, controlled_error_signal: controlled_recovery_state, acceptance_test: tests/test_button_contracts.py, control_type: button}
 
   # Audit and optional local LLM controls.
   - {key: chatgpt.export-audit, route: /chatgpt, control_label: Export audit packet, callback: export_pack, success_signal: archive_created, controlled_error_signal: activity_failed, acceptance_test: tests/test_button_contracts.py, control_type: button}
