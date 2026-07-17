@@ -18,6 +18,8 @@ def record(issue_id: str = "ISSUE-0070", *, state: str = "open") -> dict:
         "owner": "programme-governance",
         "phase": "phase-01-governance-scope",
         "blocking_dependencies": [],
+        "required_inputs": ["ISSUE-0008"],
+        "downstream_issues": ["ISSUE-0071"],
         "related_issues": [],
     }
 
@@ -129,6 +131,8 @@ def test_create_action_contains_canonical_managed_fields() -> None:
     assert "Classification: `proposed_new`" in body
     assert "Programme status: `ready`" in body
     assert "Owner: `programme-governance`" in body
+    assert "Required inputs: `ISSUE-0008`" in body
+    assert "Downstream issues: `ISSUE-0071`" in body
 
 
 def test_plan_hash_is_required_before_apply() -> None:

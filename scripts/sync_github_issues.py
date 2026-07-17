@@ -39,6 +39,8 @@ DEFAULT_MAP_PATH = Path(
 def managed_block(record: dict[str, Any]) -> str:
     stable_id = record.get("canonical_id", record.get("stable_id", ""))
     dependencies = ", ".join(f"`{value}`" for value in record.get("blocking_dependencies", [])) or "None"
+    required_inputs = ", ".join(f"`{value}`" for value in record.get("required_inputs", [])) or "None"
+    downstream = ", ".join(f"`{value}`" for value in record.get("downstream_issues", [])) or "None"
     related = ", ".join(f"`{value}`" for value in record.get("related_issues", [])) or "None"
     return "\n".join(
         [
@@ -53,6 +55,8 @@ def managed_block(record: dict[str, Any]) -> str:
             f"- Owner: `{record.get('owner', '')}`",
             f"- Phase: `{record.get('phase', '')}`",
             f"- Blocking dependencies: {dependencies}",
+            f"- Required inputs: {required_inputs}",
+            f"- Downstream issues: {downstream}",
             f"- Related issues: {related}",
             "- Execution allowed: `false`",
             MANAGED_END,
@@ -107,6 +111,8 @@ def registry_sync_records(registry: dict[str, Any]) -> list[dict[str, Any]]:
         local.setdefault("owner", "programme-governance")
         local.setdefault("phase", "phase-01-governance-scope")
         local.setdefault("blocking_dependencies", [])
+        local.setdefault("required_inputs", [])
+        local.setdefault("downstream_issues", [])
         local.setdefault("related_issues", [])
         records.append(local)
     return sorted(records, key=lambda record: str(record.get("canonical_id", "")))
@@ -139,6 +145,8 @@ def _action(kind: str, record: dict[str, Any] | None = None, **values: Any) -> d
             "owner",
             "phase",
             "blocking_dependencies",
+            "required_inputs",
+            "downstream_issues",
             "related_issues",
         ):
             result[field] = record.get(field, [] if field.endswith("_dependencies") or field.endswith("_issues") else "")
