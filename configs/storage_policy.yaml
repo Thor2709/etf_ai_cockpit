@@ -27,6 +27,25 @@ exports:
   format: parquet
   destination: exports/storage
   include_deleted: opt_in
+  private_fields: excluded_by_default
+  explicit_private_export_confirmation: required
+encryption:
+  backup_algorithm: Fernet
+  key_derivation: PBKDF2HMAC-SHA256
+  iterations: 390000
+  minimum_recovery_key_bytes: 16
+  key_storage: user_managed_only
+  wrong_or_corrupt_key: fail_closed_without_writes
+backups:
+  format: encrypted_backup_v1
+  incremental_checksums: required
+  default_retention: 5
+  secret_and_transient_exclusion: required
+  restore: preview_then_atomic_commit
+recovery:
+  disaster_drill: local_create_validate_restore
+  remote_service_dependency: false
+  deletion_scope: data/private_only
 local_first:
   network_required: false
   remote_quota_failure: non_blocking

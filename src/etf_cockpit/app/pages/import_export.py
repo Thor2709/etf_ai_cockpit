@@ -18,6 +18,7 @@ from etf_cockpit.application.ui_facade import (
     commit_restore,
     create_backup,
     export_table,
+    redact_private_fields,
     validate_import,
     validate_restore,
     bulk_cache_health,
@@ -186,7 +187,8 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             return pd.read_parquet(path) if path.exists() else None
         if category == "decision_journal":
             try:
-                return pd.DataFrame([entry.model_dump(mode="json") for entry in DecisionJournal().list_entries(root=DATA_DIR)])
+                records = [redact_private_fields(entry.model_dump(mode="json")) for entry in DecisionJournal().list_entries(root=DATA_DIR)]
+                return pd.DataFrame(records)
             except JournalIntegrityError:
                 return None
         if category == "plan_issues_snapshot":

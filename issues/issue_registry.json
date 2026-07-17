@@ -7933,7 +7933,7 @@
       "package_status": "",
       "phase": "phase-09-quality-release-security",
       "priority": "P0/P1",
-      "programme_status": "planned",
+      "programme_status": "integrated",
       "related_issues": [],
       "required_inputs": [],
       "security_and_audit": "Strong standard cryptography and key handling; no home-grown cryptographic scheme.",

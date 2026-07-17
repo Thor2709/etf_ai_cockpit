@@ -5,6 +5,12 @@ import flet as ft
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
+from etf_cockpit.application.ui_facade import (
+    create_encrypted_backup,
+    run_disaster_recovery_drill,
+    validate_encrypted_restore,
+    delete_private_data,
+)
 from etf_cockpit.core.constants import APP_VERSION
 from etf_cockpit.core.paths import CONFIG_DIR, DATA_DIR, ROOT
 from etf_cockpit.core.secure_update import describe_release_evidence
@@ -28,6 +34,71 @@ def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
         "ISSUE-0044 packaged-app update workflow: build the Windows package, record the release version and SHA-256 checksum, "
         "back up local data/configs, install the package, run a restore/startup smoke check, then retain the changelog and rebuild timestamp."
     )
+    backup_archive = ROOT / "exports" / "storage" / "cockpit-encrypted.backup"
+    recovery_key = ft.TextField(
+        label="Recovery key",
+        password=True,
+        can_reveal_password=True,
+        hint_text="At least 16 characters; never logged or exported",
+        key="settings.recovery-key",
+        width=360,
+    )
+    privacy_status = ft.Text("No privacy or recovery action has run in this session.", color=theme.MUTED, selectable=True)
+    deletion_confirmation = ft.TextField(
+        label="Type DELETE PRIVATE DATA to remove local private notes",
+        password=True,
+        key="settings.delete-private-confirmation",
+        width=360,
+    )
+
+    def refresh_privacy_status() -> None:
+        if _page is not None:
+            _page.update()
+
+    def create_backup(_event: ft.ControlEvent) -> None:
+        try:
+            manifest = create_encrypted_backup([DATA_DIR, CONFIG_DIR], backup_archive, recovery_key.value or "")
+            privacy_status.value = f"Encrypted backup created: {manifest.archive} | files={len(manifest.checksums)} | excluded={len(manifest.excluded)}"
+            privacy_status.color = theme.GREEN
+        except Exception as exc:
+            privacy_status.value = f"Backup failed safely: {type(exc).__name__}: {exc}"
+            privacy_status.color = theme.RED
+        refresh_privacy_status()
+
+    def validate_backup(_event: ft.ControlEvent) -> None:
+        preview = validate_encrypted_restore(backup_archive, recovery_key.value or "") if backup_archive.is_file() else None
+        if preview is None:
+            privacy_status.value = f"Backup unavailable: {backup_archive}"
+            privacy_status.color = theme.AMBER
+        elif preview.valid:
+            privacy_status.value = f"Backup validated: {len(preview.entries)} files; no data was restored."
+            privacy_status.color = theme.GREEN
+        else:
+            privacy_status.value = f"Backup validation failed safely: {'; '.join(preview.errors)}"
+            privacy_status.color = theme.RED
+        refresh_privacy_status()
+
+    def recovery_drill(_event: ft.ControlEvent) -> None:
+        try:
+            drill = run_disaster_recovery_drill([DATA_DIR, CONFIG_DIR], ROOT / "exports" / "storage" / "recovery-drill", recovery_key=recovery_key.value or "")
+            privacy_status.value = f"Recovery drill {'passed' if drill.ok else 'failed'}: {drill.restored_files} files restored | {drill.archive}"
+            if drill.errors:
+                privacy_status.value += f" | {'; '.join(drill.errors)}"
+            privacy_status.color = theme.GREEN if drill.ok else theme.RED
+        except Exception as exc:
+            privacy_status.value = f"Recovery drill failed safely: {type(exc).__name__}: {exc}"
+            privacy_status.color = theme.RED
+        refresh_privacy_status()
+
+    def delete_private(_event: ft.ControlEvent) -> None:
+        try:
+            deleted = delete_private_data(ROOT, confirmation=deletion_confirmation.value or "")
+            privacy_status.value = f"Private data deletion complete: {len(deleted)} files removed from data/private/."
+            privacy_status.color = theme.GREEN
+        except Exception as exc:
+            privacy_status.value = f"Private data was not deleted: {type(exc).__name__}: {exc}"
+            privacy_status.color = theme.AMBER
+        refresh_privacy_status()
     provider_fields: list[ft.Control] = []
     for name, section in config.data_providers.providers.items():
         provider_input = ft.TextField(label="Provider", value=section.active_provider, dense=True, width=180)
@@ -93,6 +164,7 @@ def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
                 )
             ),
             panel(ft.Column([section_header("Release and data metadata", "Local release metadata helps users identify the current evidence build."), ft.Text(f"App version: {APP_VERSION}", key="settings.app-version", selectable=True), ft.Text(f"Version metadata: {version_status}", key="settings.version-metadata", selectable=True), ft.Text(f"Package metadata: {rebuild_timestamp}", key="settings.last-rebuild", selectable=True), ft.Text(f"Current data root: {DATA_DIR}", key="settings.data-root", selectable=True), ft.Text(f"Changelog: {changelog_status}", key="settings.changelog", selectable=True), ft.Text(issue_0044_update_plan, key="settings.issue-0044-update-plan", color=theme.MUTED, selectable=True)], spacing=6)),
+            panel(ft.Column([section_header("Privacy, backup and recovery", "Local encrypted backups use Fernet with PBKDF2-HMAC-SHA256. Private fields, credentials, transient logs and caches are excluded by default."), recovery_key, ft.Row([ft.OutlinedButton("Create encrypted backup", key="settings.backup-create", icon=ft.Icons.SAVE, on_click=create_backup), ft.OutlinedButton("Validate latest backup", key="settings.backup-validate", icon=ft.Icons.VERIFIED, on_click=validate_backup), ft.OutlinedButton("Run recovery drill", key="settings.recovery-drill", icon=ft.Icons.SECURITY, on_click=recovery_drill)], wrap=True), ft.Text(f"Backup destination: {backup_archive}", color=theme.MUTED, selectable=True), deletion_confirmation, ft.OutlinedButton("Delete private data", key="settings.delete-private", icon=ft.Icons.DELETE_OUTLINE, on_click=delete_private), privacy_status], spacing=8)),
             panel(ft.Column([section_header("About and offline update verification", "Updates are local-only: unsigned, tampered or path-unsafe bundles are rejected before staging."), ft.Text(f"Release evidence: {release_evidence['verification']}", key="settings.update-verification", selectable=True), ft.Text(f"Release evidence version: {release_evidence['version']}", key="settings.update-version", selectable=True), ft.Text(f"Third-party notices: {release_evidence['notices']} ({release_evidence['notices_path']})", key="settings.third-party-notices", selectable=True), ft.Text("Network retrieval and live execution are disabled by policy.", color=theme.MUTED, selectable=True)], spacing=6)),
             panel(ft.Column([section_header("Universe manager", "Validated local CRUD for watchlists and the Primary, Secondary and Sparebanken tiers."), ft.Row([ft.Button("Open Universe manager", key="settings.open-universe", on_click=lambda _event: _page.go("/universe")), ft.Button("Open first-run setup", key="settings.open-onboarding", on_click=lambda _event: _page.go("/onboarding"))]), ft.Text("Configuration saves show pending-refresh only; they never trigger refresh, scoring or model calls.", color=theme.MUTED)], spacing=8)),
             panel(ft.Column([section_header("Config folder", "Local YAML, JSON and .env-backed settings."), ft.Text(str(CONFIG_DIR), color=theme.MUTED, selectable=True)])),

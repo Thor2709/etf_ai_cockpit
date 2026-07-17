@@ -14,6 +14,7 @@ reviewer can compare the package against the signed release manifest:
 | pandas / NumPy / PyArrow / DuckDB | Package metadata and SBOM component |
 | Plotly / Pydantic / PyYAML / python-dotenv | Package metadata and SBOM component |
 | requests / Rich / joblib / scikit-learn / yfinance | Package metadata and SBOM component |
+| cryptography | Fernet/PBKDF2 backup encryption; package metadata and SBOM component |
 | pytest / Hypothesis / Ruff / mypy / pytest-timeout / pip-audit | Release-gate tooling; package metadata and SBOM component |
 
 No third-party source is silently bundled or downloaded by the application at

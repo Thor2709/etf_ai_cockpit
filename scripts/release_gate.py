@@ -639,6 +639,26 @@ def run_gate(
     else:
         state.add(CheckResult("security_policy", "skipped", False, "no versioned security policy present"))
 
+    if (root / "scripts" / "check_privacy_backup.py").is_file():
+        privacy_report_dir = output / "privacy_backup"
+        state.add(
+            run_command(
+                root,
+                output,
+                "privacy_backup",
+                _python_command(
+                    root,
+                    "scripts/check_privacy_backup.py",
+                    "--root",
+                    str(root),
+                    "--report-dir",
+                    str(privacy_report_dir),
+                ),
+            )
+        )
+    else:
+        state.add(CheckResult("privacy_backup", "skipped", False, "no privacy backup validator present"))
+
     sbom = build_sbom(root, source, policy, artifact_manifest=artifacts)
     _write_json(output / "sbom.cdx.json", sbom)
     state.add(CheckResult("sbom", "passed", True, "CycloneDX 1.5 deterministic SBOM"))

@@ -2,7 +2,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from etf_cockpit.data.backup_restore import create_backup, validate_restore, commit_restore
+from etf_cockpit.data.backup_restore import (
+    apply_backup_retention,
+    commit_incremental_restore,
+    commit_restore,
+    create_backup,
+    create_encrypted_backup,
+    create_incremental_backup,
+    restore_encrypted_backup,
+    run_disaster_recovery_drill,
+    validate_encrypted_restore,
+    validate_restore,
+)
 
 
 def test_backup_restore_round_trip_and_manifest_checksums(tmp_path: Path) -> None:
@@ -156,3 +167,65 @@ def test_restore_rejects_unsupported_named_known_payload_schema_version(tmp_path
     preview = validate_restore(archive)
     assert preview.valid is False
     assert any("unsupported_schema_version" in error for error in preview.errors)
+
+
+def test_encrypted_backup_round_trip_and_wrong_key_fail_closed(tmp_path: Path) -> None:
+    source = tmp_path / "data" / "journal.json"
+    source.parent.mkdir(parents=True)
+    source.write_text('{"decision":"hold"}\n', encoding="utf-8")
+    archive = tmp_path / "backups" / "encrypted.backup"
+
+    manifest = create_encrypted_backup([source], archive, recovery_key="correct recovery key")
+    assert manifest.encrypted is True
+    assert validate_encrypted_restore(archive, "wrong recovery key").valid is False
+    result = restore_encrypted_backup(archive, tmp_path / "restored", "correct recovery key")
+    assert result.ok is True
+    assert (tmp_path / "restored" / "data" / "journal.json").read_text(encoding="utf-8") == '{"decision":"hold"}\n'
+
+
+def test_encrypted_backup_corruption_is_reported_without_writes(tmp_path: Path) -> None:
+    source = tmp_path / "data" / "journal.json"
+    source.parent.mkdir(parents=True)
+    source.write_text("safe\n", encoding="utf-8")
+    archive = tmp_path / "encrypted.backup"
+    create_encrypted_backup([source], archive, recovery_key="correct recovery key")
+    archive.write_bytes(archive.read_bytes()[:-4] + b"bad!")
+
+    preview = validate_encrypted_restore(archive, "correct recovery key")
+    assert preview.valid is False
+    assert not (tmp_path / "restored").exists()
+
+
+def test_incremental_backup_restores_base_then_changed_payloads(tmp_path: Path) -> None:
+    data = tmp_path / "data"
+    data.mkdir()
+    first = data / "first.txt"
+    second = data / "second.txt"
+    first.write_text("one", encoding="utf-8")
+    second.write_text("two", encoding="utf-8")
+    base_archive = tmp_path / "base.backup"
+    base = create_backup([data], base_archive)
+    second.write_text("changed", encoding="utf-8")
+    incremental = create_incremental_backup([data], tmp_path / "incremental.backup", base)
+    assert incremental.incremental is True
+    assert list(incremental.checksums) == ["data/second.txt"]
+
+    previews = [validate_restore(base_archive), validate_restore(tmp_path / "incremental.backup")]
+    result = commit_incremental_restore(previews, tmp_path / "restored")
+    assert result.ok is True
+    assert (tmp_path / "restored" / "data" / "second.txt").read_text(encoding="utf-8") == "changed"
+
+
+def test_retention_keeps_newest_backups_and_recovery_drill_is_validated(tmp_path: Path) -> None:
+    source = tmp_path / "data" / "safe.txt"
+    source.parent.mkdir(parents=True)
+    source.write_text("safe", encoding="utf-8")
+    backups = tmp_path / "backups"
+    backups.mkdir()
+    for index in range(3):
+        create_backup([source], backups / f"backup-{index}.backup")
+    removed = apply_backup_retention(backups, keep=2)
+    assert len(removed) == 1
+    drill = run_disaster_recovery_drill([source], tmp_path / "drill", recovery_key="correct recovery key")
+    assert drill.ok is True
+    assert drill.restored_files == 1
