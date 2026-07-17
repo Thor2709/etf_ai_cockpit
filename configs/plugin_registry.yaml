@@ -1,0 +1,6 @@
+schema_version: "plugin-registry.v1"
+execution_allowed: false
+allowlist:
+  - {plugin_id: builtin.local-provider, version: "1.0.0", enabled: true}
+  - {plugin_id: builtin.baseline-model, version: "1.0.0", enabled: true}
+  - {plugin_id: builtin.paper-broker, version: "1.0.0", enabled: false}

@@ -10,6 +10,7 @@ from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import DERIVED_DIR, FORECASTS_DIR, MODEL_DIR, REPORTS_DIR
 from etf_cockpit.application.ui_facade import format_model_inventory_line, fx_data_inventory, load_manual_news, reference_data_inventory
+from etf_cockpit.plugins.builtins import plugin_status_rows
 
 
 def data_models_page(_page: ft.Page, state: AppState) -> ft.Control:
@@ -34,6 +35,10 @@ def data_models_page(_page: ft.Page, state: AppState) -> ft.Control:
         "Model scores are used only when forecast rows are status ok and model_allowed_in_score=true.",
     ]
     inventory_lines = [format_model_inventory_line(item) for item in state.snapshot.model_inventory]
+    plugin_lines = [
+        f"{row['provider_id']} | kind={row['dataset_type']} | status={row['status']} | authority={row['authority']} | execution=false"
+        for row in plugin_status_rows()
+    ]
     metadata_lines = [
         (
             f"{meta.source_type}: source={meta.source_name}, as_of={meta.as_of_date}, "
@@ -96,6 +101,15 @@ def data_models_page(_page: ft.Page, state: AppState) -> ft.Control:
                         ft.Text("\n".join(model_lines), color=theme.MUTED, selectable=True),
                         ft.Text("Local model files", color=theme.TEXT, weight=ft.FontWeight.BOLD),
                         ft.Text("\n".join(inventory_lines) or "No local model files detected.", color=theme.MUTED, selectable=True),
+                    ],
+                    spacing=8,
+                )
+            ),
+            panel(
+                ft.Column(
+                    [
+                        section_header("Unified plugin capability status", "Provider, model and paper-broker adapters use the same local contract and allow-list. Disabled adapters remain visible without authority."),
+                        ft.Text("\n".join(plugin_lines), color=theme.MUTED, selectable=True),
                     ],
                     spacing=8,
                 )
