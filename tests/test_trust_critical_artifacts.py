@@ -648,6 +648,7 @@ def test_audit_export_includes_trust_critical_evidence_and_session_log(tmp_path,
     assert "evidence_export/trust_critical_manifest.json" in names
     assert "evidence_export/decision_journal_summary.json" in names
     assert "evidence_export/macro_warehouse_summary.json" in names
+    assert "evidence_export/data_catalogue_summary.json" in names
     assert "evidence_export/project_docs/plan.md" in names
     assert "evidence_export/project_docs/open.md" in names
     assert any(
@@ -665,10 +666,12 @@ def test_audit_export_includes_trust_critical_evidence_and_session_log(tmp_path,
         statement_facts_bytes = archive.read("evidence_export/statement_facts.csv")
         decision_journal_summary = json.loads(archive.read("evidence_export/decision_journal_summary.json"))
         macro_summary = json.loads(archive.read("evidence_export/macro_warehouse_summary.json"))
+        catalogue_summary = json.loads(archive.read("evidence_export/data_catalogue_summary.json"))
     required = {item["path"]: item for item in manifest["required"]}
     assert decision_journal_summary["private_notes_exported"] is False
     assert required["evidence_export/decision_journal_summary.json"]["source_authority"] == "user_record"
     assert macro_summary["execution_allowed"] is False
+    assert catalogue_summary["execution_allowed"] is False
     assert required["evidence_export/candle_context.csv"]["unavailable_marker"] == "evidence_export/candle_context_unavailable.txt"
     assert required["evidence_export/source_conflicts.csv"]["allow_unavailable"] is True
     assert required["01_portfolio_summary.json"]["allow_unavailable"] is False
