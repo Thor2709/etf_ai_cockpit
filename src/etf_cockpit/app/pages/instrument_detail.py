@@ -9,6 +9,7 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
 from etf_cockpit.app.selectors.instrument_detail import InstrumentDetailViewModel, build_etf_disclosure_panel, build_instrument_detail
 from etf_cockpit.app.state import AppState
+from etf_cockpit.application.ui_facade import bitemporal_history_summary
 
 
 def render_etf_disclosure_panel(model: InstrumentDetailViewModel) -> ft.Control:
@@ -246,6 +247,7 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
     if selected:
         state.selected_etf = selected
     model = build_instrument_detail(state.snapshot, selected, candidate_score=getattr(state, "selected_instrument_score", None))
+    vintage_history = bitemporal_history_summary(selected) if selected else {"status": "unavailable", "message": "No instrument selected."}
     export_status = ft.Text(
         "Audit evidence export unavailable for this selection."
         if model.status == "unavailable" or not callable(getattr(state, "export_audit_packet", None))
@@ -286,6 +288,7 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
         _render_evidence_section("Paper-trade history", model.sections.get("paper_trades")),
         _render_evidence_section("Decision journal", model.sections.get("journal")),
         _render_evidence_section("What changed since the last run", model.sections.get("run_changes")),
+        _render_evidence_section("Point-in-time vintage history", vintage_history, subtitle="Append-only effective and availability timestamps, revisions, corrections and source-vintage metadata."),
     ]
     return ft.Column(
         [

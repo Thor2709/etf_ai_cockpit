@@ -34,13 +34,16 @@ def test_registry_separates_inputs_activation_and_reverse_downstream_links() -> 
     issue_0070 = _record(registry, "ISSUE-0070")
     issue_0106 = _record(registry, "ISSUE-0106")
     issue_0072 = _record(registry, "ISSUE-0072")
+    issue_0073 = _record(registry, "ISSUE-0073")
     issue_0079 = _record(registry, "ISSUE-0079")
 
     assert issue_0070["blocking_dependencies"] == []
     assert _record(registry, "ISSUE-0070")["programme_status"] == "integrated"
     assert _record(registry, "ISSUE-0071")["programme_status"] == "integrated"
     assert issue_0072["programme_status"] == "integrated"
+    assert issue_0073["programme_status"] == "integrated"
     assert "ISSUE-0072" not in {record["canonical_id"] for record in ready_records(registry)}
+    assert "ISSUE-0073" not in {record["canonical_id"] for record in ready_records(registry)}
     assert "ISSUE-0071" not in {record["canonical_id"] for record in ready_records(registry)}
     assert issue_0070["required_inputs"] == ["ISSUE-0008", "ISSUE-0032", "ISSUE-0060", "ISSUE-0066"]
     assert "ISSUE-0071" in issue_0070["downstream_issues"]

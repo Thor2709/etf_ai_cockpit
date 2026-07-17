@@ -8,6 +8,7 @@ ports and application commands.
 
 from etf_cockpit.chatgpt_bridge.audit_packet import *  # noqa: F401,F403
 from etf_cockpit.data.backup_restore import *  # noqa: F401,F403
+from etf_cockpit.data.bitemporal import *  # noqa: F401,F403
 from etf_cockpit.data.decision_journal import *  # noqa: F401,F403
 from etf_cockpit.data.export_tables import *  # noqa: F401,F403
 from etf_cockpit.data.fund_documents import *  # noqa: F401,F403

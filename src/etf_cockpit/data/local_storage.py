@@ -14,7 +14,7 @@ import pandas as pd
 from etf_cockpit.core.atomic_io import atomic_write_bytes, parquet_payload, validate_parquet_file
 
 
-STORAGE_SCHEMA_VERSION = 2
+STORAGE_SCHEMA_VERSION = 3
 
 
 class StorageSchemaError(RuntimeError):
@@ -116,6 +116,7 @@ def _apply_migrations(connection: sqlite3.Connection) -> None:
     for version, name, migration in (
         (1, "transactional_records_v1", _migration_v1),
         (2, "analytical_catalog_v1", _migration_v2),
+        (3, "bitemporal_observations_v1", _migration_v3),
     ):
         if version in applied:
             continue
@@ -190,6 +191,59 @@ def _migration_v2(connection: sqlite3.Connection) -> None:
             completed_at TEXT NOT NULL,
             detail_json TEXT NOT NULL
         )
+        """
+    )
+
+
+def _migration_v3(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE bitemporal_observations (
+            observation_id TEXT PRIMARY KEY,
+            dataset_id TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            stable_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            value_json TEXT NOT NULL,
+            valid_from TEXT NOT NULL,
+            valid_to TEXT,
+            published_at TEXT NOT NULL,
+            available_at TEXT NOT NULL,
+            observed_at TEXT NOT NULL,
+            ingested_at TEXT NOT NULL,
+            revised_at TEXT,
+            revision INTEGER NOT NULL CHECK (revision > 0),
+            source_id TEXT NOT NULL,
+            source_checksum TEXT NOT NULL,
+            timezone_confidence TEXT NOT NULL CHECK (timezone_confidence IN ('exact', 'normalised', 'unknown')),
+            availability_confidence TEXT NOT NULL CHECK (availability_confidence IN ('exact', 'inferred')),
+            status TEXT NOT NULL CHECK (status IN ('active', 'retracted', 'superseded')),
+            UNIQUE(dataset_id, stable_id, source_id, revision)
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX bitemporal_observations_as_of ON bitemporal_observations(dataset_id, stable_id, available_at, revision)"
+    )
+    connection.execute(
+        "CREATE INDEX bitemporal_observations_entity ON bitemporal_observations(dataset_id, entity_id, available_at)"
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER bitemporal_observations_append_only_update
+        BEFORE UPDATE ON bitemporal_observations
+        BEGIN
+            SELECT RAISE(ABORT, 'bitemporal observations are append-only');
+        END
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER bitemporal_observations_append_only_delete
+        BEFORE DELETE ON bitemporal_observations
+        BEGIN
+            SELECT RAISE(ABORT, 'bitemporal observations are append-only');
+        END
         """
     )
 
