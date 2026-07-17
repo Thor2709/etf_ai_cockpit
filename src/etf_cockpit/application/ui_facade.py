@@ -26,6 +26,7 @@ from etf_cockpit.data.provider_registry import *  # noqa: F401,F403
 from etf_cockpit.data.reference_data import *  # noqa: F401,F403
 from etf_cockpit.data.run_changes import *  # noqa: F401,F403
 from etf_cockpit.data.score_history import *  # noqa: F401,F403
+from etf_cockpit.data.statement_normalisation import *  # noqa: F401,F403
 from etf_cockpit.data.trust_artifacts import *  # noqa: F401,F403
 from etf_cockpit.data.universe_store import *  # noqa: F401,F403
 from etf_cockpit.core.versioning import *  # noqa: F401,F403

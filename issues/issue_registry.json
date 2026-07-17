@@ -5837,7 +5837,7 @@
       "package_status": "",
       "phase": "phase-03-stock-research",
       "priority": "P0",
-      "programme_status": "planned",
+      "programme_status": "integrated",
       "related_issues": [],
       "required_inputs": [],
       "security_and_audit": "Raw filings remain immutable; parser version and concept/source evidence are retained.",

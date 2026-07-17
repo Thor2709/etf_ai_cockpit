@@ -18,6 +18,7 @@ from etf_cockpit.application.ui_facade import (
     latest_fundamental_rows,
     load_fundamental_evidence,
     load_news_items,
+    load_statement_evidence,
     read_document_registry,
     read_index_methodology_records,
     read_priips_kid_records,
@@ -379,17 +380,26 @@ def _normalise_feature_driver_frame(frame: pd.DataFrame) -> pd.DataFrame:
 
 def _fundamentals_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
     try:
+        statement_evidence = load_statement_evidence(instrument_id=instrument_id)
+    except Exception:
+        statement_evidence = {
+            "status": "unavailable",
+            "message": "Canonical statement evidence unavailable; the local statement store is malformed.",
+            "statement_history": [],
+            "execution_allowed": False,
+        }
+    try:
         source = frame if isinstance(frame, pd.DataFrame) else load_fundamental_evidence(FUNDAMENTAL_CLEAN_PATH)
     except Exception:
-        return _unavailable("Fundamental evidence unavailable; the optional local store is missing or corrupt.") | {"score_eligible": False}
+        return _unavailable("Fundamental evidence unavailable; the optional local store is missing or corrupt.") | {"score_eligible": False, **_statement_panel_fields(statement_evidence)}
     if source.empty or "instrument_id" not in source.columns:
-        return _unavailable("Fundamental evidence unavailable; no complete local five-section record is registered.") | {"score_eligible": False}
+        return _unavailable("Fundamental evidence unavailable; no complete local five-section record is registered.") | {"score_eligible": False, **_statement_panel_fields(statement_evidence)}
     try:
         scoped = latest_fundamental_rows(_instrument_rows(source, instrument_id))
     except Exception:
-        return _unavailable("Fundamental evidence unavailable; the optional local store is malformed.") | {"score_eligible": False}
+        return _unavailable("Fundamental evidence unavailable; the optional local store is malformed.") | {"score_eligible": False, **_statement_panel_fields(statement_evidence)}
     if scoped.empty:
-        return _unavailable("Fundamental evidence unavailable for this instrument.") | {"score_eligible": False}
+        return _unavailable("Fundamental evidence unavailable for this instrument.") | {"score_eligible": False, **_statement_panel_fields(statement_evidence)}
     row = scoped.iloc[-1]
     eligibility = _safe_known_text(row.get("eligibility"), _KNOWN_FUNDAMENTAL_ELIGIBILITY)
     score_eligible, score_eligible_valid = _safe_scalar_bool(row.get("score_eligible"))
@@ -419,6 +429,16 @@ def _fundamentals_panel(instrument_id: str, frame: pd.DataFrame | None = None) -
         "sector_relative_limitation": row.get("sector_relative_limitation", "No sector-relative comparison evidence supplied."),
         "executable_authority": False,
         "execution_allowed": False,
+        **_statement_panel_fields(statement_evidence),
+    }
+
+
+def _statement_panel_fields(evidence: Mapping[str, object]) -> dict[str, object]:
+    return {
+        "statement_history": evidence.get("statement_history", []),
+        "statement_coverage": evidence.get("coverage", {"status": "unavailable"}),
+        "statement_reconciliation": evidence.get("reconciliation", {"status": "unavailable"}),
+        "statement_status": evidence.get("status", "unavailable"),
     }
 
 

@@ -226,7 +226,7 @@ def _render_evidence_section(title: str, value: object, *, subtitle: str = "Cano
         return panel(ft.Column([section_header(title, subtitle), ft.Text(str(value), color=theme.MUTED, selectable=True)], spacing=6))
     lines: list[ft.Control] = [_render_evidence_badges(value)]
     for key, item in value.items():
-        if key in {"history", "rows", "entries", "signal_rows", "trade_rows", "changes", "document_inventory"}:
+        if key in {"history", "rows", "entries", "signal_rows", "trade_rows", "changes", "document_inventory", "statement_history"}:
             lines.append(_render_record_group(str(key), item))
             continue
         if isinstance(item, dict):
