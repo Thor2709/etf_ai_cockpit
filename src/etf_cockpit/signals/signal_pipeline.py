@@ -12,7 +12,7 @@ from etf_cockpit.core.scheduler import current_run_id
 from etf_cockpit.core.types import DataQualityReport, SignalResult
 from etf_cockpit.governance.gate_policy import resolve_authority
 from etf_cockpit.portfolio.allocation import allocation_frame
-from etf_cockpit.portfolio.costs import estimated_cost_bps
+from etf_cockpit.portfolio.costs import estimate_execution_cost, estimated_cost_bps
 from etf_cockpit.portfolio.holdings import portfolio_value
 from etf_cockpit.portfolio.rebalancing import proposed_new_weight, suggested_trade_value
 from etf_cockpit.signals.actions import advisory_action, apply_gate_result, preliminary_action
@@ -114,7 +114,8 @@ def generate_signals(
         reason_short, reason_long = explain_signal(row, final_action, blocked_by)
         status = "blocked" if blocked_by else ("warning" if warnings else "ok")
         expected_edge = float(row.get("expected_edge_60d") or 0.0)
-        estimated_cost = float(row.get("cost_bps") or 0.0)
+        cost_estimate = estimate_execution_cost(config, str(row["etf_id"]), abs(float(trade_value or 0.0)))
+        estimated_cost = cost_estimate.total_cost_bps if trade_value is not None and abs(float(trade_value)) > 0 else float(row.get("cost_bps") or 0.0)
         expected_edge_bps = expected_edge * 10_000
         edge_to_cost_ratio = abs(expected_edge_bps) / estimated_cost if estimated_cost else None
         drift_percent = float(row.get("drift") or 0.0)
@@ -170,6 +171,9 @@ def generate_signals(
                 "drift_percent": drift_percent,
                 "expected_edge_bps": expected_edge_bps,
                 "estimated_cost_bps": estimated_cost,
+                "cost_model_id": cost_estimate.model_id,
+                "cost_data_quality": cost_estimate.data_quality,
+                "capacity_eur": cost_estimate.capacity_eur,
                 "edge_to_cost_ratio": edge_to_cost_ratio,
                 **cost_stress,
                 "min_edge_to_cost_ratio": config.risks.portfolio_limits.min_edge_to_cost_ratio,
@@ -300,12 +304,14 @@ def _cost_stress_metrics(
     base_cost_bps: float,
     trade_value_eur: float | None,
 ) -> dict[str, object]:
-    commission_bps = 0.0
     if trade_value_eur is not None and abs(trade_value_eur) > 0:
-        commission_bps = config.costs.cost_model.default_commission_eur / abs(trade_value_eur) * 10_000.0
-    low_cost = max(0.0, base_cost_bps * 0.75 + commission_bps)
-    base_cost = max(0.0, base_cost_bps + commission_bps)
-    high_cost = max(0.0, base_cost_bps * 1.75 + commission_bps * 1.25)
+        low_cost = estimate_execution_cost(config, etf_id, abs(trade_value_eur), stress_multiplier=0.75).total_cost_bps
+        base_cost = estimate_execution_cost(config, etf_id, abs(trade_value_eur)).total_cost_bps
+        high_cost = estimate_execution_cost(config, etf_id, abs(trade_value_eur), stress_multiplier=1.75).total_cost_bps
+    else:
+        low_cost = max(0.0, base_cost_bps * 0.75)
+        base_cost = max(0.0, base_cost_bps)
+        high_cost = max(0.0, base_cost_bps * 1.75)
     min_ratio = config.risks.portfolio_limits.min_edge_to_cost_ratio
     low_ratio = _edge_to_cost(expected_edge_bps, low_cost)
     base_ratio = _edge_to_cost(expected_edge_bps, base_cost)

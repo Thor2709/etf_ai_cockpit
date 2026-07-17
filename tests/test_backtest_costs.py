@@ -14,6 +14,9 @@ def test_basic_backtest_run_on_sample_data() -> None:
     assert set(report.results["strategy_name"]) >= {"buy_and_hold", "equal_weight", "momentum_only", "trend_only", "signal_strategy"}
     assert (report.results["cost_drag"] >= 0).all()
     assert not report.equity_curves.empty
+    assert report.metadata["cost_model_id"] == "execution-cost-v1"
+    assert report.metadata["cost_model_execution_allowed"] is False
+    assert set(report.trade_log["cost_model_id"]) <= {"execution-cost-v1"}
 
 
 def test_backtest_trades_execute_after_signal_date() -> None:

@@ -144,6 +144,12 @@ class CostModel(BaseModel):
     default_slippage_bps: float = 5.0
     fx_conversion_bps: float = 0.0
     min_edge_multiplier: float = 2.5
+    impact_coefficient_bps: float = 25.0
+    max_participation_rate: float = 0.10
+    uncertainty_multiplier: float = 1.25
+    gap_stress_bps: float = 0.0
+    commission_stress_multiplier: float = 1.0
+    model_version: str = "execution-cost-v1"
 
 
 class CostConfig(BaseModel):

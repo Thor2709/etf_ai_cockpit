@@ -6,6 +6,12 @@ cost_model:
   default_slippage_bps: 5
   fx_conversion_bps: 0
   min_edge_multiplier: 2.5
+  impact_coefficient_bps: 25
+  max_participation_rate: 0.1
+  uncertainty_multiplier: 1.25
+  gap_stress_bps: 0
+  commission_stress_multiplier: 1.0
+  model_version: execution-cost-v1
 per_etf:
   VWCE:
     spread_bps: 4
