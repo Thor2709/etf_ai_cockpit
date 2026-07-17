@@ -328,8 +328,18 @@ def export_review_pack(
         "main_strategy": main_strategy,
         "benchmarks": benchmark_rows,
         "ai_added_value": backtest.ai_added_value,
-        "warning_flags": ["AI informational only until validated on real out-of-sample data"],
-        "last_walk_forward_periods": [],
+        "backtest_metadata": backtest.metadata,
+        "warning_flags": [
+            "AI informational only until validated on real out-of-sample data",
+            *sorted(
+                {
+                    str(row.get("overfitting_warning"))
+                    for row in main_strategy
+                    if row.get("overfitting_warning")
+                }
+            ),
+        ],
+        "last_walk_forward_periods": [backtest.metadata.get("walk_forward_periods", 0)],
     }
     (export_dir / "05_backtest_summary.json").write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
     manual_news = load_manual_news(MANUAL_NEWS_CLEAN_PATH)

@@ -103,6 +103,26 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
         f"Deflated Sharpe: {_format_number(signal['deflated_sharpe'])}",
         f"PBO probability: {_format_number(signal['pbo_probability_backtest_overfitting'])}",
         f"Parameter sensitivity: {signal['parameter_sensitivity_status']}",
+        f"Overfitting warning: {signal.get('overfitting_warning', 'n/a')}",
+        f"Data quality: {signal.get('data_quality_status', report.metadata.get('data_status', 'n/a'))}",
+        f"Strategy: {report.metadata.get('strategy', 'n/a')}",
+        f"Benchmark: {report.metadata.get('benchmark_strategy', 'n/a')}",
+        f"Date range: {report.metadata.get('date_range_start', signal.get('start_date', 'n/a'))} to {report.metadata.get('date_range_end', signal.get('end_date', 'n/a'))}",
+    ]
+    tail_diagnostics = [
+        f"Worst 1-day return: {_format_number(signal.get('worst_1d_return'), percent=True)}",
+        f"Worst 5-day return: {_format_number(signal.get('worst_5d_return'), percent=True)}",
+        f"Worst 10-day return: {_format_number(signal.get('worst_10d_return'), percent=True)}",
+        f"Worst drawdown window: {signal.get('worst_drawdown_start', 'n/a')} to {signal.get('worst_drawdown_end', 'n/a')}",
+        f"Maximum consecutive loss periods: {signal.get('loss_cluster_max_days', 'n/a')}",
+        f"Largest negative period: {_format_number(signal.get('largest_negative_period_return'), percent=True)}",
+    ]
+    operational_evidence = [
+        f"Signal timestamp: {report.metadata.get('lookahead_protection', 'n/a')}",
+        f"Execution delay: {report.metadata.get('execution_delay_sessions', 'n/a')} complete session",
+        f"Same-bar execution avoided: {'yes' if report.metadata.get('same_bar_execution_avoided') else 'no'}",
+        "Decision price and next-open reference are shown in the simulated execution table.",
+        "No forward-fill is applied to incomplete adjusted-price rows.",
     ]
     trade_rows = []
     if not report.trade_log.empty:
@@ -146,6 +166,24 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
             ),
             panel(ft.Column([section_header("Price, equity and drawdown evidence", "Adjusted-price history and backtest curves are descriptive evidence only; they cannot authorise broker execution."), price_chart_descriptor.control, chart_descriptor.control, ft.Text(f"Recent evidence series: {', '.join(recent_evidence) or 'unavailable'}", color=theme.MUTED, selectable=True), ft.Row([ft.OutlinedButton("Export strategy results CSV", key="backtests.export-strategy-results", icon=ft.Icons.DOWNLOAD, on_click=export_strategy_results), ft.OutlinedButton("Export equity/drawdown CSV", key="backtests.export-equity-drawdown", icon=ft.Icons.DOWNLOAD, on_click=export_backtest)]), export_status], spacing=8)),
             panel(ft.Column([section_header("Backtest quality", "Walk-forward and overfitting diagnostics for the scoring method."), ft.Text("\n".join(diagnostics), color=theme.MUTED, selectable=True)])),
+            panel(
+                ft.Column(
+                    [
+                        section_header("Tail-event diagnostics", "Worst windows and loss clustering make concentrated drawdown risk visible."),
+                        ft.Text("\n".join(tail_diagnostics), color=theme.MUTED, selectable=True),
+                    ],
+                    spacing=6,
+                )
+            ),
+            panel(
+                ft.Column(
+                    [
+                        section_header("Operational execution evidence", "Decision-price and next-open assumptions are descriptive evidence only; same-bar execution is forbidden."),
+                        ft.Text("\n".join(operational_evidence), color=theme.MUTED, selectable=True),
+                    ],
+                    spacing=6,
+                )
+            ),
             panel(
                 ft.Column(
                     [

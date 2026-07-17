@@ -3568,7 +3568,7 @@
       "package_status": "Open",
       "phase": "phase-05-returns-risk-portfolio",
       "priority": "P0/P1",
-      "programme_status": "planned",
+      "programme_status": "implemented_initially",
       "related_issues": [
         "ISSUE-0120",
         "ISSUE-0125",
@@ -4286,7 +4286,7 @@
       "package_status": "Open",
       "phase": "phase-01-governance-scope",
       "priority": "P1",
-      "programme_status": "planned",
+      "programme_status": "implemented_initially",
       "related_issues": [
         "ISSUE-0111",
         "ISSUE-0115",
@@ -4324,7 +4324,7 @@
       "package_status": "Open",
       "phase": "phase-01-governance-scope",
       "priority": "P1",
-      "programme_status": "planned",
+      "programme_status": "implemented_initially",
       "related_issues": [
         "ISSUE-0085",
         "ISSUE-0125",
@@ -4862,7 +4862,7 @@
       "package_status": "Open",
       "phase": "phase-05-returns-risk-portfolio",
       "priority": "P2",
-      "programme_status": "planned",
+      "programme_status": "implemented_initially",
       "related_issues": [
         "ISSUE-0049",
         "ISSUE-0111",
