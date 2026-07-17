@@ -8,7 +8,7 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.config import load_config
-from etf_cockpit.data.universe_store import (
+from etf_cockpit.application.ui_facade import (
     UniverseRecord,
     add_record,
     disable_record,

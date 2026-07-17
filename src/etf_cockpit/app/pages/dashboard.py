@@ -13,10 +13,16 @@ from etf_cockpit.app.components.simple_scores import score_colour, simple_score_
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import FORECASTS_DIR
 from etf_cockpit.core.paths import DERIVED_DIR
-from etf_cockpit.data.news_context import NEWS_CLEAN_PATH, load_news_items, sort_news_items
-from etf_cockpit.data.run_changes import compare_runs
-from etf_cockpit.models.forecast_scores import filter_forecasts_for_universe, load_latest_forecasts
-from etf_cockpit.signals.simple_scores import SimpleInstrumentScore, build_simple_instrument_scores
+from etf_cockpit.application.ui_facade import (
+    NEWS_CLEAN_PATH,
+    SimpleInstrumentScore,
+    build_simple_instrument_scores,
+    compare_runs,
+    filter_forecasts_for_universe,
+    load_latest_forecasts,
+    load_news_items,
+    sort_news_items,
+)
 
 
 def _rebuild(page: ft.Page, state: AppState) -> None:

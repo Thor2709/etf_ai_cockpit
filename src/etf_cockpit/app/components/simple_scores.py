@@ -7,8 +7,7 @@ import flet as ft
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
 from etf_cockpit.app.components.flet_compat import border_all
-from etf_cockpit.data.trust_artifacts import load_score_history_summary
-from etf_cockpit.signals.simple_scores import SCORE_LEGEND, SimpleInstrumentScore, SimpleScoreComponent, group_simple_scores
+from etf_cockpit.application.ui_facade import SCORE_LEGEND, SimpleInstrumentScore, SimpleScoreComponent, group_simple_scores, load_score_history_summary
 
 
 def _is_crowding_warning_state(value: object) -> bool:

@@ -41,6 +41,7 @@ PROGRAMME_STATUSES = frozenset(
 )
 PROGRAMME_STATUS_OVERRIDES = {
     "ISSUE-0070": "integrated",
+    "ISSUE-0071": "integrated",
 }
 PACKAGE_JSON = Path("docs/product-completion/sources/2026-07-15/ETF_AI_Cockpit_Master_Issue_Registry.json")
 SOURCE_MANIFEST = Path("docs/product-completion/sources/2026-07-15/SOURCE_MANIFEST.sha256")

@@ -7,7 +7,7 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import DERIVED_DIR
-from etf_cockpit.data.run_changes import REQUIRED_CHANGE_DIMENSIONS, compare_runs
+from etf_cockpit.application.ui_facade import REQUIRED_CHANGE_DIMENSIONS, compare_runs
 
 
 def what_changed_page(_page: ft.Page, _state: AppState) -> ft.Control:

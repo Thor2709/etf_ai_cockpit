@@ -6,8 +6,7 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.components.charts import drift_bar
 from etf_cockpit.app.state import AppState
-from etf_cockpit.portfolio.allocation import allocation_frame, exposure_summary
-from etf_cockpit.portfolio.risk import concentration_warnings
+from etf_cockpit.application.ui_facade import allocation_frame, concentration_warnings, exposure_summary
 
 
 def _exposure_table(title: str, frame) -> ft.Control:

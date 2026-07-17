@@ -8,7 +8,7 @@ import flet as ft
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
-from etf_cockpit.chatgpt_bridge.audit_packet import extract_and_validate_audit_archive
+from etf_cockpit.application.ui_facade import extract_and_validate_audit_archive
 from etf_cockpit.audit.local_llm import (
     build_local_audit_context,
     check_local_llm_status,

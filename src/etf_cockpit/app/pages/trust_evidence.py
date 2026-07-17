@@ -15,32 +15,35 @@ from etf_cockpit.app.components.cards import evidence_chip, panel, section_heade
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.atomic_io import atomic_write_bytes
 from etf_cockpit.core.paths import RAW_DIR, STATEMENT_FACTS_PATH
-from etf_cockpit.data.fund_documents import import_etf_document
-from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH, sort_fundamental_evidence
-from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH, import_etf_holdings_with_document
-from etf_cockpit.data.news_context import build_news_contradiction_rows, load_news_items, sort_news_items
-from etf_cockpit.data.parsed_disclosures import (
-    INDEX_METHODOLOGY_RECORDS_PATH,
-    PRIIPS_KID_RECORDS_PATH,
-    persist_index_methodology_with_document,
-    persist_priips_kid_with_document,
-)
-from etf_cockpit.data.provider_registry import ProviderRegistry
-from etf_cockpit.data.trust_artifacts import (
+from etf_cockpit.application.ui_facade import (
     BENCHMARK_ATTRIBUTION_PATH,
     CORRELATION_CLUSTERS_PATH,
     ETF_DISCLOSURES_PATH,
     EVIDENCE_LEDGER_PATH,
     FEATURE_DRIVERS_PATH,
     FILINGS_STATEMENTS_PATH,
+    FUNDAMENTAL_CLEAN_PATH,
+    FUND_HOLDINGS_PATH,
     IDENTITY_PATH,
+    INDEX_METHODOLOGY_RECORDS_PATH,
     NEWS_CONTEXT_PATH,
     NEWS_TIMESTAMP_VALIDATION_PATH,
+    PRIIPS_KID_RECORDS_PATH,
     PROVIDER_PROBE_PATH,
     SCORE_COMPONENTS_PATH,
     SCORE_HISTORY_PATH,
     SCORE_METRIC_HISTORY_PATH,
     SOURCE_CONFLICTS_PATH,
+    ProviderRegistry,
+    build_news_contradiction_rows,
+    import_etf_document,
+    import_etf_holdings_with_document,
+    load_news_items,
+    persist_index_methodology_with_document,
+    persist_priips_kid_with_document,
+    read_document_registry,
+    sort_fundamental_evidence,
+    sort_news_items,
 )
 
 
@@ -425,8 +428,6 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
                             document_date=document_date,
                             configured_instrument_ids=state.snapshot.config.universe.configured_enabled_ids,
                         )
-                        from etf_cockpit.data.fund_documents import read_document_registry
-
                         registry = read_document_registry(path=document.with_name("fund_documents.parquet"))
                         registered = registry.loc[registry["instrument_id"].astype(str).eq(instrument_id)]
                         document_row = _latest_document_row(registered, "kid")
@@ -478,8 +479,6 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
                             path,
                             configured_instrument_ids=state.snapshot.config.universe.configured_enabled_ids,
                         )
-                        from etf_cockpit.data.fund_documents import read_document_registry
-
                         registry = read_document_registry(path=document.with_name("fund_documents.parquet"))
                         registered = registry.loc[registry["instrument_id"].astype(str).eq(instrument_id)]
                         document_row = _latest_document_row(registered, "methodology")

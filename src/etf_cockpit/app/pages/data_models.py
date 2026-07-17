@@ -9,10 +9,7 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import DERIVED_DIR, FORECASTS_DIR, MODEL_DIR, REPORTS_DIR
-from etf_cockpit.data.fx_data import fx_data_inventory
-from etf_cockpit.data.manual_notes import load_manual_news
-from etf_cockpit.data.reference_data import reference_data_inventory
-from etf_cockpit.models.local_weights import format_model_inventory_line
+from etf_cockpit.application.ui_facade import format_model_inventory_line, fx_data_inventory, load_manual_news, reference_data_inventory
 
 
 def data_models_page(_page: ft.Page, state: AppState) -> ft.Control:

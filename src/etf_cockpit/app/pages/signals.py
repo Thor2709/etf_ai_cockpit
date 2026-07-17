@@ -9,7 +9,7 @@ from etf_cockpit.app.components.cards import metric_card, panel, section_header
 from etf_cockpit.app.components.simple_scores import simple_score_grouped_sections, simple_score_legend
 from etf_cockpit.app.components.governance_badges import build_gate_summary
 from etf_cockpit.app.state import AppState
-from etf_cockpit.signals.simple_scores import build_simple_instrument_scores
+from etf_cockpit.application.ui_facade import build_simple_instrument_scores
 
 
 def signals_page(_page: ft.Page, state: AppState) -> ft.Control:

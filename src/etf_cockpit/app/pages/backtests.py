@@ -9,8 +9,7 @@ from etf_cockpit.app.components.charts import equity_drawdown_chart, history_cha
 from etf_cockpit.app.components.tables import accessible_table
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import EXPORTS_DIR
-from etf_cockpit.data.export_tables import export_table
-from etf_cockpit.data.trust_artifacts import NEWS_TIMESTAMP_VALIDATION_PATH
+from etf_cockpit.application.ui_facade import NEWS_TIMESTAMP_VALIDATION_PATH, export_table
 
 
 def _format_number(value: object, *, percent: bool = False, money: bool = False, decimals: int = 2) -> str:

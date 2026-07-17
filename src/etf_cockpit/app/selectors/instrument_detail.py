@@ -6,17 +6,27 @@ from typing import Any, Mapping
 
 import pandas as pd
 
-from etf_cockpit.data.fund_documents import build_document_inventory, read_document_registry
-from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
-from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH, latest_fundamental_rows, load_fundamental_evidence
-from etf_cockpit.data.news_context import NEWS_CLEAN_PATH, load_news_items, sort_news_items
-from etf_cockpit.data.parsed_disclosures import read_index_methodology_records, read_priips_kid_records
-from etf_cockpit.data.run_changes import compare_runs
-from etf_cockpit.data.score_history import score_history_frame
-from etf_cockpit.data.trust_artifacts import BENCHMARK_ATTRIBUTION_PATH, CORRELATION_CLUSTERS_PATH, FEATURE_DRIVERS_PATH
+from etf_cockpit.application.ui_facade import (
+    BENCHMARK_ATTRIBUTION_PATH,
+    CORRELATION_CLUSTERS_PATH,
+    FEATURE_DRIVERS_PATH,
+    FUNDAMENTAL_CLEAN_PATH,
+    FUND_HOLDINGS_PATH,
+    NEWS_CLEAN_PATH,
+    build_document_inventory,
+    compare_runs,
+    latest_fundamental_rows,
+    load_fundamental_evidence,
+    load_news_items,
+    read_document_registry,
+    read_index_methodology_records,
+    read_priips_kid_records,
+    score_history_frame,
+    sort_news_items,
+)
 from etf_cockpit.core.paths import DERIVED_DIR
 from etf_cockpit.services import CockpitSnapshot
-from etf_cockpit.signals.simple_scores import SimpleInstrumentScore
+from etf_cockpit.application.ui_facade import SimpleInstrumentScore
 
 
 @dataclass(frozen=True)

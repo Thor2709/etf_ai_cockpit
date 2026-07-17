@@ -11,14 +11,22 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import metric_card, panel, section_header
 from etf_cockpit.app.components.simple_scores import _is_crowding_warning_state
 from etf_cockpit.app.state import AppState
-from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH, normalise_holdings
-from etf_cockpit.data.trust_artifacts import CORRELATION_CLUSTERS_PATH, BENCHMARK_ATTRIBUTION_PATH
-from etf_cockpit.data.reference_data import load_reference_dataset
+from etf_cockpit.application.ui_facade import (
+    BENCHMARK_ATTRIBUTION_PATH,
+    CORRELATION_CLUSTERS_PATH,
+    FUND_HOLDINGS_PATH,
+    allocation_frame,
+    drawdown_contribution,
+    exposure_limit_report,
+    exposure_summary,
+    export_table,
+    load_reference_dataset,
+    normalise_holdings,
+    return_correlation_matrix,
+    underlying_holdings_exposure,
+)
 from etf_cockpit.core.paths import DERIVED_DIR
 from etf_cockpit.core.paths import EXPORTS_DIR
-from etf_cockpit.data.export_tables import export_table
-from etf_cockpit.portfolio.allocation import allocation_frame, exposure_summary
-from etf_cockpit.portfolio.risk_analytics import drawdown_contribution, exposure_limit_report, return_correlation_matrix, underlying_holdings_exposure
 
 SCOREBOARD_PATH = DERIVED_DIR / "scoreboard.parquet"
 
