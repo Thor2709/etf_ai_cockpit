@@ -47,7 +47,7 @@ Deliver the bounded local-first data policy, identity and data platform work wit
 | `ISSUE-0022` | `P1` | `planned` | `data-and-evidence` | - | - | - | `ISSUE-0082`, `ISSUE-0105`, `UPDATEV2-0016` |
 | `ISSUE-0023` | `P1` | `implemented_initially` | `data-and-evidence` | - | - | - | `ISSUE-0091`, `ISSUE-0102` |
 | `ISSUE-0025` | `P1` | `implemented_initially` | `data-and-evidence` | - | - | - | `ISSUE-0007`, `ISSUE-0054`, `ISSUE-0087`, `ISSUE-0149` |
-| `ISSUE-0038` | `P2` | `planned` | `data-and-evidence` | - | - | `ISSUE-0072` | `ISSUE-0072`, `ISSUE-0073`, `ISSUE-0090` |
+| `ISSUE-0038` | `P2` | `integrated` | `data-and-evidence` | - | - | `ISSUE-0072` | `ISSUE-0072`, `ISSUE-0073`, `ISSUE-0090` |
 | `ISSUE-0048` | `P1` | `planned` | `data-and-evidence` | - | - | - | `ISSUE-0120`, `ISSUE-0122`, `ISSUE-0147` |
 | `ISSUE-0054` | `P1/P2` | `implemented_initially` | `data-and-evidence` | - | - | - | `ISSUE-0025`, `ISSUE-0073`, `ISSUE-0149` |
 | `ISSUE-0055` | `P2` | `implemented_initially` | `data-and-evidence` | - | - | - | `ISSUE-0080`, `ISSUE-0081`, `ISSUE-0087`, `ISSUE-0088` |

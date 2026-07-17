@@ -16,6 +16,7 @@ from etf_cockpit.data.fundamentals import *  # noqa: F401,F403
 from etf_cockpit.data.fx_data import *  # noqa: F401,F403
 from etf_cockpit.data.health import *  # noqa: F401,F403
 from etf_cockpit.data.import_export import *  # noqa: F401,F403
+from etf_cockpit.data.local_storage import *  # noqa: F401,F403
 from etf_cockpit.data.manual_notes import *  # noqa: F401,F403
 from etf_cockpit.data.news_context import *  # noqa: F401,F403
 from etf_cockpit.data.parsed_disclosures import *  # noqa: F401,F403

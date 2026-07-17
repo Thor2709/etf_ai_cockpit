@@ -42,6 +42,7 @@ PROGRAMME_STATUSES = frozenset(
 PROGRAMME_STATUS_OVERRIDES = {
     "ISSUE-0070": "integrated",
     "ISSUE-0071": "integrated",
+    "ISSUE-0038": "integrated",
 }
 PACKAGE_JSON = Path("docs/product-completion/sources/2026-07-15/ETF_AI_Cockpit_Master_Issue_Registry.json")
 SOURCE_MANIFEST = Path("docs/product-completion/sources/2026-07-15/SOURCE_MANIFEST.sha256")
@@ -297,9 +298,9 @@ def phase_for(issue_id: str, owner: str) -> str:
 def programme_status(source_kind: str, row: dict[str, Any], ledger_state: str) -> str:
     if ledger_state == "closed":
         return "closed"
+    if row.get("issue_id") in PROGRAMME_STATUS_OVERRIDES:
+        return PROGRAMME_STATUS_OVERRIDES[str(row["issue_id"])]
     if source_kind == "proposed":
-        if row.get("issue_id") in PROGRAMME_STATUS_OVERRIDES:
-            return PROGRAMME_STATUS_OVERRIDES[str(row["issue_id"])]
         return "ready" if row.get("issue_id") == "ISSUE-0070" else "planned"
     status = str(row.get("status", "")).lower()
     if "research-only" in status:

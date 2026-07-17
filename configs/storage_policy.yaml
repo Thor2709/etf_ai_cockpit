@@ -1,0 +1,31 @@
+schema_version: 1
+policy_id: local-hybrid-storage-v1
+transactional:
+  engine: sqlite
+  path: data/storage/cockpit.sqlite3
+  journal_mode: wal
+  foreign_keys: required
+  purpose: user-owned journals, experiments, portfolios, orders and reconciliation state
+analytics:
+  engine: duckdb
+  source_format: parquet
+  root: data/analytics
+  purpose: large histories, features, scores and analytical snapshots
+migrations:
+  state: data/storage/schema_migrations
+  startup: idempotent
+  unknown_versions: fail_closed
+integrity:
+  sqlite_check: required_before_export
+  parquet_validation: required_before_publish
+retention:
+  default: retain_until_explicit_user_action
+  automatic_deletion: false
+  compaction: explicit_local_operation_only
+exports:
+  format: parquet
+  destination: exports/storage
+  include_deleted: opt_in
+local_first:
+  network_required: false
+  remote_quota_failure: non_blocking
