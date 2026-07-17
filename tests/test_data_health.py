@@ -39,7 +39,7 @@ def test_health_distinguishes_missing_stale_and_healthy_stores(tmp_path: Path) -
     assert rows["prices"].status is DataHealthStatus.HEALTHY
     assert rows["fx"].status is DataHealthStatus.STALE
     assert rows["news"].status is DataHealthStatus.MISSING
-    assert {"forecasts", "backtest", "macro"} <= set(rows)
+    assert {"forecasts", "backtest", "macro", "release_gate"} <= set(rows)
     assert rows["backtest"].provider == "derived"
     assert rows["forecasts"].checksum is not None
     assert report.has_failures is True
@@ -121,6 +121,15 @@ def test_missing_migration_state_is_not_inferred_from_schema_markers(tmp_path: P
     assert migration.status is DataHealthStatus.MISSING
     assert migration.last_success is None
     assert "migration_markers_not_inferred" in migration.warnings
+
+
+def test_release_gate_status_is_not_inferred_without_signed_manifest(tmp_path: Path) -> None:
+    report = build_data_health(load_config(), tmp_path, as_of_date="2026-07-10")
+
+    release = next(item for item in report.rows if item.dataset == "release_gate")
+
+    assert release.status is DataHealthStatus.MISSING
+    assert "release_status_not_inferred" in release.warnings
 
 
 def test_health_provenance_comes_from_persisted_session_history(tmp_path: Path) -> None:

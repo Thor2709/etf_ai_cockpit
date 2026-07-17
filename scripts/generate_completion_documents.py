@@ -41,7 +41,8 @@ REPO = "Thor2709/etf_ai_cockpit"
 
 def write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text.rstrip() + "\n", encoding="utf-8")
+    normalised = text.replace("\r\n", "\n").replace("\r", "\n")
+    path.write_bytes((normalised.rstrip() + "\n").encode("utf-8"))
 
 
 def write_json(path: Path, value: object) -> None:

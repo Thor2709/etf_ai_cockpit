@@ -173,18 +173,26 @@ def _git(root: Path, *args: str) -> str:
 
 
 def git_snapshot(root: Path) -> dict[str, object]:
+    status_lines = _git(root, "status", "--porcelain", "--untracked-files=all").splitlines()
+    generated_release_prefix = "artifacts/release/"
+    dirty_paths = [
+        line
+        for line in status_lines
+        if not line[3:].replace("\\", "/").startswith(generated_release_prefix)
+    ]
     return {
         "branch": _git(root, "branch", "--show-current"),
         "head": _git(root, "rev-parse", "HEAD"),
         "origin_main": _git(root, "rev-parse", "origin/main"),
-        "dirty": bool(_git(root, "status", "--porcelain")),
+        "dirty": bool(dirty_paths),
+        "dirty_paths": dirty_paths,
     }
 
 
 def load_policy(root: Path) -> dict[str, object]:
     path = root / DEFAULT_POLICY
     try:
-        import yaml
+        import yaml  # type: ignore[import-untyped]
 
         value = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (ImportError, OSError, ValueError) as exc:
@@ -203,7 +211,10 @@ def _lock_requirements(root: Path, relative: str) -> list[tuple[str, str]]:
         line = raw.split("#", 1)[0].strip()
         if not line or line.startswith("-"):
             continue
-        match = re.fullmatch(r"([A-Za-z0-9_.-]+)==([A-Za-z0-9][A-Za-z0-9_.+-]*)", line)
+        match = re.fullmatch(
+            r"([A-Za-z0-9_.-]+)(?:\[[A-Za-z0-9_,.-]+\])?==([A-Za-z0-9][A-Za-z0-9_.+-]*)",
+            line,
+        )
         if not match:
             raise ValueError(f"dependency lock contains a non-exact entry: {raw!r}")
         rows.append((match.group(1), match.group(2)))
@@ -213,12 +224,17 @@ def _lock_requirements(root: Path, relative: str) -> list[tuple[str, str]]:
 
 
 def dependency_snapshot(root: Path, policy: dict[str, object]) -> dict[str, object]:
-    lock_path = str(policy.get("dependency_lock", "requirements-release.txt"))
-    requirements = _lock_requirements(root, lock_path)
+    lock_paths = [str(policy.get("dependency_lock", "requirements-release.txt"))]
+    parser_lock = policy.get("parser_dependency_lock")
+    if parser_lock:
+        lock_paths.append(str(parser_lock))
+    requirements: list[tuple[str, str, str]] = []
+    for lock_path in lock_paths:
+        requirements.extend((lock_path, name, version) for name, version in _lock_requirements(root, lock_path))
     installed: dict[str, str] = {}
     missing: list[str] = []
     mismatched: list[str] = []
-    for name, expected in requirements:
+    for _lock_path, name, expected in requirements:
         key = name.lower().replace("_", "-")
         try:
             actual = importlib.metadata.version(name)
@@ -228,10 +244,14 @@ def dependency_snapshot(root: Path, policy: dict[str, object]) -> dict[str, obje
         installed[key] = actual
         if actual != expected:
             mismatched.append(f"{name}: expected {expected}, installed {actual}")
-    payload = {
-        "lock_path": lock_path,
-        "lock_sha256": sha256_bytes((root / lock_path).read_bytes()),
-        "required": [{"name": name, "version": version} for name, version in requirements],
+    payload: dict[str, object] = {
+        "lock_path": lock_paths[0],
+        "lock_sha256": sha256_bytes((root / lock_paths[0]).read_bytes()),
+        "lock_files": [
+            {"path": lock_path, "sha256": sha256_bytes((root / lock_path).read_bytes())}
+            for lock_path in lock_paths
+        ],
+        "required": [{"lock_path": lock_path, "name": name, "version": version} for lock_path, name, version in requirements],
         "installed": dict(sorted(installed.items())),
         "missing": sorted(missing),
         "mismatched": sorted(mismatched),
@@ -247,10 +267,12 @@ def environment_check(root: Path, policy: dict[str, object], *, allow_dirty: boo
     if actual_python != expected_python:
         messages.append(f"python {actual_python} does not match pinned {expected_python}")
     snapshot = dependency_snapshot(root, policy)
-    if snapshot["missing"]:
-        messages.append("missing locked packages: " + ", ".join(snapshot["missing"]))
-    if snapshot["mismatched"]:
-        messages.extend(str(value) for value in snapshot["mismatched"])
+    missing = snapshot.get("missing", [])
+    mismatched = snapshot.get("mismatched", [])
+    if isinstance(missing, list) and missing:
+        messages.append("missing locked packages: " + ", ".join(str(value) for value in missing))
+    if isinstance(mismatched, list) and mismatched:
+        messages.extend(str(value) for value in mismatched)
     dirty = bool(git_snapshot(root)["dirty"])
     if dirty and not allow_dirty:
         messages.append("working tree is dirty")
@@ -320,10 +342,10 @@ def _free_port() -> int:
         return int(listener.getsockname()[1])
 
 
-def package_command(root: Path) -> tuple[str, ...]:
-    if os.name == "nt":
+def package_command(root: Path, *, platform_name: str | None = None) -> tuple[str, ...]:
+    if (platform_name or os.name) == "nt":
         return ("cmd", "/c", "scripts\\build_windows.bat")
-    return _python_command(root, "-m", "build")
+    return _python_command(root, "-m", "build", "--outdir", "build/python-dist")
 
 
 def _artifact_paths(root: Path, policy: dict[str, object]) -> list[Path]:
@@ -371,43 +393,53 @@ def build_sbom(
 ) -> dict[str, object]:
     """Build a deterministic CycloneDX 1.5 SBOM for the release gate inputs."""
 
+    application_properties: list[dict[str, object]] = [
+        {"name": "source-manifest-sha256", "value": str(source_manifest["manifest_sha256"])},
+        {"name": "local-first", "value": "true"},
+    ]
     components: list[dict[str, object]] = [
         {
             "type": "application",
             "name": "etf-ai-cockpit",
             "version": _project_version(root),
             "bom-ref": "etf-ai-cockpit",
-            "properties": [
-                {"name": "source-manifest-sha256", "value": str(source_manifest["manifest_sha256"])},
-                {"name": "local-first", "value": "true"},
-            ],
+            "properties": application_properties,
         }
     ]
     if artifact_manifest is not None:
-        components[0]["properties"] = [
-            *list(components[0].get("properties", [])),
-            {"name": "artifact-manifest-sha256", "value": str(artifact_manifest["manifest_sha256"])},
-            {"name": "artifact-file-count", "value": str(len(artifact_manifest.get("files", [])))},
-        ]
-    try:
-        required = _lock_requirements(root, str(policy.get("dependency_lock", "requirements-release.txt")))
-    except (FileNotFoundError, ValueError):
-        required = []
-    for name, expected in required:
+        artifact_files = artifact_manifest.get("files", [])
+        application_properties.extend(
+            [
+                {"name": "artifact-manifest-sha256", "value": str(artifact_manifest["manifest_sha256"])},
+                {"name": "artifact-file-count", "value": str(len(artifact_files) if isinstance(artifact_files, list) else 0)},
+            ]
+        )
+    lock_paths = [str(policy.get("dependency_lock", "requirements-release.txt"))]
+    parser_lock = policy.get("parser_dependency_lock")
+    if parser_lock:
+        lock_paths.append(str(parser_lock))
+    for lock_path in lock_paths:
         try:
-            installed = importlib.metadata.version(name)
-        except importlib.metadata.PackageNotFoundError:
-            installed = None
-        component: dict[str, object] = {
-            "type": "library",
-            "name": name,
-            "version": installed or expected,
-            "bom-ref": f"pkg:pypi/{name.lower().replace('_', '-') }@{installed or expected}",
-            "scope": "required",
-        }
-        if installed != expected:
-            component["properties"] = [{"name": "release-gate-status", "value": "missing-or-mismatched"}]
-        components.append(component)
+            required = _lock_requirements(root, lock_path)
+        except (FileNotFoundError, ValueError):
+            required = []
+        for name, expected in required:
+            try:
+                installed = importlib.metadata.version(name)
+            except importlib.metadata.PackageNotFoundError:
+                installed = None
+            properties: list[dict[str, str]] = [{"name": "release-lock", "value": lock_path}]
+            component: dict[str, object] = {
+                "type": "library",
+                "name": name,
+                "version": installed or expected,
+                "bom-ref": f"pkg:pypi/{name.lower().replace('_', '-') }@{installed or expected}",
+                "scope": "required",
+                "properties": properties,
+            }
+            if installed != expected:
+                properties.append({"name": "release-gate-status", "value": "missing-or-mismatched"})
+            components.append(component)
     bom = {
         "$schema": "https://cyclonedx.org/schema/bom-1.5.schema.json",
         "bomFormat": "CycloneDX",
@@ -457,11 +489,13 @@ def _write_json(path: Path, value: object) -> None:
 
 
 def _report_markdown(manifest: dict[str, object], state: GateState, signature: dict[str, object]) -> str:
+    git = manifest.get("git")
+    git_head = git.get("head", "") if isinstance(git, dict) else ""
     lines = [
         "# ETF AI Cockpit release gate",
         "",
         f"- Schema: `{manifest['schema_version']}`",
-        f"- Git head: `{manifest['git']['head']}`",
+        f"- Git head: `{git_head}`",
         f"- Source manifest: `{manifest['source_manifest_sha256']}`",
         f"- Signature: `{signature.get('status', 'signed')}`",
         "",
@@ -546,6 +580,7 @@ def run_gate(
     signing_key_text = os.getenv(str(policy.get("signing_key_env", SIGNING_KEY_ENV)), "")
     key_id = os.getenv(SIGNING_KEY_ID_ENV, "local-release-key")
     signature_path = output / "release-manifest.sig.json"
+    signature: dict[str, object]
     if signing_key_text:
         state.add(CheckResult("signature", "passed", True, "HMAC-SHA256 detached release-manifest signature"))
     elif allow_unsigned:

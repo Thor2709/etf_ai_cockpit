@@ -102,6 +102,7 @@ def build_data_health(
     rows.append(_inspect_macro(project_root / "data" / "raw" / "macro", as_of, stale_after_days))
     rows.append(_inspect_migrations(project_root))
     rows.append(_inspect_local_storage(project_root))
+    rows.append(_inspect_release_gate(project_root))
     return DataHealthReport(datetime_now(), as_of.isoformat(), tuple(rows))
 
 
@@ -256,6 +257,7 @@ def _inspect_migrations(root: Path) -> DataHealthRow:
             return _make_row("migration_status", DataHealthStatus.UNAVAILABLE, path, "migration", row_count=len(applied), checksum=checksum, freshness="unknown", warnings=("applied_at_unavailable",), history_root=root)
         parsed_applied_at.append((str(value), parsed))
     as_of = max(parsed_applied_at, key=lambda item: (item[1], item[0]))[0] if parsed_applied_at else None
+    warnings: tuple[str, ...]
     if version > expected:
         status = DataHealthStatus.SCHEMA_MISMATCH
         warnings = (f"future_schema_version:{version}",)
@@ -280,6 +282,8 @@ def _inspect_local_storage(root: Path) -> DataHealthRow:
             warnings=("transactional_store_missing", "analytical_catalog_unavailable"),
             history_root=root,
         )
+
+
     try:
         with HybridPlatform(root) as platform:
             summary = platform.summary()
@@ -320,6 +324,69 @@ def _inspect_local_storage(root: Path) -> DataHealthRow:
             warnings=(f"storage_inspection_failed:{type(exc).__name__}",),
             history_root=root,
         )
+
+
+def _inspect_release_gate(root: Path) -> DataHealthRow:
+    """Expose the latest local release-gate result without inferring success."""
+
+    release_dir = root / "artifacts" / "release" / "latest"
+    manifest_path = release_dir / "release-manifest.json"
+    signature_path = release_dir / "release-manifest.sig.json"
+    if not manifest_path.is_file():
+        return _make_row(
+            "release_gate",
+            DataHealthStatus.MISSING,
+            manifest_path,
+            "release",
+            freshness="unknown",
+            warnings=("release_manifest_missing", "release_status_not_inferred"),
+            history_root=root,
+        )
+    checksum = _sha256(manifest_path)
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return _make_row(
+            "release_gate",
+            DataHealthStatus.CORRUPT,
+            manifest_path,
+            "release",
+            checksum=checksum,
+            warnings=(f"release_manifest_read_failed:{type(exc).__name__}",),
+            history_root=root,
+        )
+    failures = payload.get("failures") if isinstance(payload, dict) else None
+    signature_status = "missing"
+    if signature_path.is_file():
+        try:
+            signature_payload = json.loads(signature_path.read_text(encoding="utf-8"))
+            signature_status = str(signature_payload.get("status", "missing")) if isinstance(signature_payload, dict) else "invalid"
+        except (OSError, json.JSONDecodeError):
+            signature_status = "invalid"
+    if not isinstance(failures, list):
+        return _make_row(
+            "release_gate",
+            DataHealthStatus.SCHEMA_MISMATCH,
+            manifest_path,
+            "release",
+            checksum=checksum,
+            warnings=("release_manifest_failures_missing",),
+            history_root=root,
+        )
+    warnings = tuple(f"release_failure:{str(value)}" for value in failures[:5])
+    warnings += (f"signature:{signature_status}",)
+    status = DataHealthStatus.HEALTHY if not failures and signature_status == "signed" else DataHealthStatus.UNAVAILABLE
+    return _make_row(
+        "release_gate",
+        status,
+        manifest_path,
+        "release",
+        row_count=len(payload.get("checks", [])) if isinstance(payload, dict) and isinstance(payload.get("checks"), list) else 0,
+        checksum=checksum,
+        freshness="fresh" if status is DataHealthStatus.HEALTHY else "unavailable",
+        warnings=warnings,
+        history_root=root,
+    )
 
 
 def _make_row(

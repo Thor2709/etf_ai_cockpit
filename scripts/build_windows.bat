@@ -43,10 +43,17 @@ if not exist ".venv\Scripts\python.exe" (
 
 ".venv\Scripts\python.exe" -m pip install --upgrade pip
 if errorlevel 1 exit /b 1
-".venv\Scripts\pip.exe" install -r requirements.txt
-if errorlevel 1 exit /b 1
-".venv\Scripts\pip.exe" install -r requirements-parsers.txt
-if errorlevel 1 exit /b 1
+if /I "%ETF_COCKPIT_RELEASE_BUILD%"=="1" (
+  ".venv\Scripts\pip.exe" install -r requirements-release.txt
+  if errorlevel 1 exit /b 1
+  ".venv\Scripts\pip.exe" install -r requirements-release-parsers.txt
+  if errorlevel 1 exit /b 1
+) else (
+  ".venv\Scripts\pip.exe" install -r requirements.txt
+  if errorlevel 1 exit /b 1
+  ".venv\Scripts\pip.exe" install -r requirements-parsers.txt
+  if errorlevel 1 exit /b 1
+)
 
 if exist ".venv\Scripts\pyinstaller.exe" (
   ".venv\Scripts\python.exe" -c "import PyInstaller" >nul 2>nul
