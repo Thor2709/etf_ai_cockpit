@@ -8,6 +8,8 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.components.governance_badges import status_badge
 from etf_cockpit.app.state import AppState
+from etf_cockpit.application.ui_facade import supply_chain_intake_report
+from etf_cockpit.core.paths import ROOT
 from etf_cockpit.governance.product_scope import load_authority_matrix, load_feature_registry, load_product_governance
 
 
@@ -62,6 +64,7 @@ def system_map_page(page: ft.Page | None, state: AppState) -> ft.Control:
     loaded = load_feature_registry()
     product = load_product_governance()
     matrix = load_authority_matrix()
+    supply_chain = supply_chain_intake_report(ROOT)
     cards: list[ft.Control] = []
     if loaded.policy is not None and not loaded.diagnostic_mode:
         cards.extend(_feature_card(page, state, entry) for entry in loaded.policy.entries)
@@ -74,6 +77,35 @@ def system_map_page(page: ft.Page | None, state: AppState) -> ft.Control:
                     ft.Text("Future execution", color=theme.TEXT, size=15, weight=ft.FontWeight.BOLD),
                     status_badge("Availability", "Not installed", colour=theme.AMBER),
                     ft.Text("No broker execution. This cockpit presents local evidence and research context only.", color=theme.MUTED, selectable=True),
+                ],
+                spacing=8,
+            ),
+            expand=True,
+        )
+    )
+    component_lines = [
+        ft.Text(
+            f"{row.get('component_id', 'component')} · {row.get('integration_boundary', 'unavailable')} · {row.get('exact_ref', 'unavailable')}",
+            color=theme.MUTED,
+            size=11,
+            selectable=True,
+        )
+        for row in supply_chain.get("components", [])
+    ]
+    cards.append(
+        panel(
+            ft.Column(
+                [
+                    ft.Text("External components", color=theme.TEXT, size=15, weight=ft.FontWeight.BOLD),
+                    status_badge("Intake", str(supply_chain.get("review_status", "unavailable")), colour=theme.AMBER),
+                    ft.Text(
+                        f"Registry: {supply_chain.get('registry_sha256', 'unavailable')} · notices: {supply_chain.get('third_party_notices', 'unavailable')}",
+                        color=theme.MUTED,
+                        size=11,
+                        selectable=True,
+                    ),
+                    ft.Text("No copied third-party core is permitted without an approved intake record.", color=theme.AMBER, size=11, selectable=True),
+                    *component_lines,
                 ],
                 spacing=8,
             ),

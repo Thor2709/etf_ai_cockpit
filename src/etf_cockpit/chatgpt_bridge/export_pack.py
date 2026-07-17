@@ -55,6 +55,7 @@ from etf_cockpit.governance.product_scope import (
     load_product_governance,
     load_strategy_scope,
 )
+from etf_cockpit.governance.supply_chain_intake import supply_chain_intake_report
 from etf_cockpit.portfolio.allocation import allocation_frame
 
 
@@ -97,7 +98,9 @@ _COMPLETE_AUDIT_REQUIRED: tuple[tuple[str, str, bool], ...] = (
     ("evidence_export/workflow.jsonl", "workflow", True),
     ("evidence_export/configs/data_providers_redacted.json", "configuration", False),
     ("evidence_export/configs/audit_manifest.yaml", "configuration", True),
+    ("evidence_export/configs/supply_chain_intake.yaml", "governance", False),
     ("evidence_export/governance/legal_terms_registry.json", "governance", False),
+    ("evidence_export/governance/supply_chain_intake.json", "governance", False),
     ("evidence_export/project_docs/issue_dossiers.json", "issue_dossier", True),
     ("evidence_export/checksum_manifest.json", "audit", False),
     ("checksum_manifest.json", "audit", False),
@@ -668,6 +671,9 @@ def _export_trust_critical_evidence(export_dir: Path, config: AppConfig) -> dict
     legal_terms_path = evidence_root / "governance" / "legal_terms_registry.json"
     legal_terms_path.write_text(json.dumps(legal_terms_report(ROOT), indent=2, sort_keys=True) + "\n", encoding="utf-8")
     _include_file(legal_terms_path, "governance/legal_terms_registry.json", manifest)
+    supply_chain_path = evidence_root / "governance" / "supply_chain_intake.json"
+    supply_chain_path.write_text(json.dumps(supply_chain_intake_report(ROOT), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _include_file(supply_chain_path, "governance/supply_chain_intake.json", manifest)
 
     session_destination = evidence_root / "session.jsonl"
     if copy_session_log_to(session_destination):
@@ -682,7 +688,7 @@ def _export_trust_critical_evidence(export_dir: Path, config: AppConfig) -> dict
         json.dumps(config.data_providers.redacted(), indent=2, default=str),
         encoding="utf-8",
     )
-    for filename in ("universe.yaml", "portfolio_targets.yaml", "risk_limits.yaml", "costs.yaml", "model_settings.yaml", "ui_settings.yaml", "score_engine_v3.yaml", "audit_manifest.yaml", "legal_terms_registry.yaml"):
+    for filename in ("universe.yaml", "portfolio_targets.yaml", "risk_limits.yaml", "costs.yaml", "model_settings.yaml", "ui_settings.yaml", "score_engine_v3.yaml", "audit_manifest.yaml", "legal_terms_registry.yaml", "supply_chain_intake.yaml"):
         source = CONFIG_DIR / filename
         if source.exists():
             target = config_root / filename
