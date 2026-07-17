@@ -7,10 +7,13 @@ from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.constants import APP_VERSION
 from etf_cockpit.core.paths import CONFIG_DIR, DATA_DIR, ROOT
+from etf_cockpit.governance.product_scope import load_authority_matrix, load_product_governance
 
 
 def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
     config = state.snapshot.config
+    product_policy = load_product_governance()
+    authority_matrix = load_authority_matrix()
     target_lines = [f"{etf_id}: context target {pos.target_weight:.1%}, drift bands {pos.soft_band:.1%}/{pos.hard_band:.1%}" for etf_id, pos in config.targets.positions.items()]
     model_lines = [f"{name}: {settings}" for name, settings in config.models.models.items()]
     status_text = ft.Text(state.last_message, color=theme.MUTED, selectable=True)
@@ -63,6 +66,30 @@ def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
         )
     return ft.Column(
         [
+            panel(
+                ft.Column(
+                    [
+                        section_header("Product scope and authority", "The active local contract is versioned, checksum-bearing and fail-closed."),
+                        ft.Text(
+                            f"{product_policy.policy.product.canonical_name} · ADR {authority_matrix.policy.adr_id} · active stage: Research · execution_allowed=false"
+                            if product_policy.policy is not None and authority_matrix.policy is not None
+                            else "Product authority contract unavailable; manual review required; execution_allowed=false.",
+                            key="settings.product-authority",
+                            color=theme.AMBER,
+                            selectable=True,
+                        ),
+                        ft.Text(
+                            f"Capability matrix: {len(authority_matrix.policy.capabilities)} entries; checksum {authority_matrix.checksum}"
+                            if authority_matrix.policy is not None
+                            else "Capability matrix unavailable.",
+                            key="settings.authority-matrix",
+                            color=theme.MUTED,
+                            selectable=True,
+                        ),
+                    ],
+                    spacing=6,
+                )
+            ),
             panel(ft.Column([section_header("Release and data metadata", "Local release metadata helps users identify the current evidence build."), ft.Text(f"App version: {APP_VERSION}", key="settings.app-version", selectable=True), ft.Text(f"Version metadata: {version_status}", key="settings.version-metadata", selectable=True), ft.Text(f"Package metadata: {rebuild_timestamp}", key="settings.last-rebuild", selectable=True), ft.Text(f"Current data root: {DATA_DIR}", key="settings.data-root", selectable=True), ft.Text(f"Changelog: {changelog_status}", key="settings.changelog", selectable=True), ft.Text(issue_0044_update_plan, key="settings.issue-0044-update-plan", color=theme.MUTED, selectable=True)], spacing=6)),
             panel(ft.Column([section_header("Universe manager", "Validated local CRUD for watchlists and the Primary, Secondary and Sparebanken tiers."), ft.Row([ft.Button("Open Universe manager", key="settings.open-universe", on_click=lambda _event: _page.go("/universe")), ft.Button("Open first-run setup", key="settings.open-onboarding", on_click=lambda _event: _page.go("/onboarding"))]), ft.Text("Configuration saves show pending-refresh only; they never trigger refresh, scoring or model calls.", color=theme.MUTED)], spacing=8)),
             panel(ft.Column([section_header("Config folder", "Local YAML, JSON and .env-backed settings."), ft.Text(str(CONFIG_DIR), color=theme.MUTED, selectable=True)])),

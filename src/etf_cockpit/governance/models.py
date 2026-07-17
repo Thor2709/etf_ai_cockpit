@@ -42,6 +42,16 @@ Authority = Literal[
     "user_record",
     "none",
 ]
+AuthorityStage = Literal[
+    "research",
+    "shadow_proposal",
+    "paper",
+    "broker_read_only",
+    "draft_order",
+    "capped_automatic",
+    "disabled",
+]
+CapabilityKind = Literal["route", "dataset", "model", "strategy", "broker"]
 # Compatibility aliases for Task 1 policy callers.  The public values now
 # come from the dedicated v2 state module and remain string-compatible.
 ResearchState = PublicResearchState
@@ -117,6 +127,28 @@ class AuthorityPolicy(ImmutableModel):
     unvalidated_ai_score_authority: Literal[False] = False
 
 
+class AuthorityStageDefinition(ImmutableModel):
+    """One named product stage in the finite authority ladder."""
+
+    stage_id: AuthorityStage
+    label: str = Field(min_length=1)
+    description: str = Field(min_length=1)
+    enabled_by_default: bool = False
+    execution_allowed: Literal[False] = False
+
+
+class AuthorityCapability(ImmutableModel):
+    """A route, source, model, strategy or broker capability declaration."""
+
+    capability_id: str = Field(min_length=1)
+    kind: CapabilityKind
+    authority_stage: AuthorityStage
+    description: str = Field(min_length=1)
+    required_evidence: tuple[str, ...] = ()
+    availability: Literal["mandatory", "optional", "future", "disabled"] = "mandatory"
+    execution_allowed: Literal[False] = False
+
+
 class ProductDefinition(ImmutableModel):
     canonical_name: str = Field(min_length=1)
     category: str = Field(min_length=1)
@@ -143,6 +175,43 @@ class PolicyModel(ImmutableModel):
         if len(value) != 64 or any(char not in "0123456789abcdefABCDEF" for char in value):
             raise ValueError("checksum must be a SHA-256 hexadecimal digest")
         return value.lower()
+
+
+class AuthorityMatrixPolicy(PolicyModel):
+    """Versioned scope, capability and authority closure contract."""
+
+    adr_id: str = Field(min_length=1)
+    adr_path: str = Field(min_length=1)
+    mandatory_core: tuple[str, ...] = ()
+    optional_enrichment: tuple[str, ...] = ()
+    authority_stages: tuple[AuthorityStageDefinition, ...] = ()
+    capabilities: tuple[AuthorityCapability, ...] = ()
+    completion_contract: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_matrix(self) -> AuthorityMatrixPolicy:
+        stage_ids = tuple(stage.stage_id for stage in self.authority_stages)
+        capability_ids = tuple(capability.capability_id for capability in self.capabilities)
+        required_stages = {
+            "research",
+            "shadow_proposal",
+            "paper",
+            "broker_read_only",
+            "draft_order",
+            "capped_automatic",
+            "disabled",
+        }
+        if set(stage_ids) != required_stages:
+            raise ValueError("authority matrix must declare the complete authority stage set")
+        if len(stage_ids) != len(set(stage_ids)):
+            raise ValueError("authority stage identifiers must be unique")
+        if len(capability_ids) != len(set(capability_ids)):
+            raise ValueError("capability identifiers must be unique")
+        if not self.mandatory_core or not self.completion_contract:
+            raise ValueError("authority matrix requires mandatory_core and completion_contract")
+        if tuple(stage.stage_id for stage in self.authority_stages if stage.enabled_by_default) != ("research",):
+            raise ValueError("only the research authority stage may be enabled by default")
+        return self
 
 
 class ProductGovernancePolicy(PolicyModel):
@@ -427,6 +496,9 @@ __all__ = [
     "REQUIRED_GATE_IDS",
     "REQUIRED_GLOSSARY_TERMS",
     "AuthorityPolicy",
+    "AuthorityStageDefinition",
+    "AuthorityCapability",
+    "AuthorityMatrixPolicy",
     "FeatureRegistryEntry",
     "FeatureRegistryPolicy",
     "GatePolicy",
@@ -436,6 +508,8 @@ __all__ = [
     "GovernanceLoadResult",
     "ImmutableModel",
     "Authority",
+    "AuthorityStage",
+    "CapabilityKind",
     "AuthorityDecision",
     "GateResult",
     "GateSeverity",

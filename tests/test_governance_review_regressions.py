@@ -250,5 +250,5 @@ def test_audit_manifest_includes_governance_checksums_version_and_diagnostic_mar
     assert "evidence_export/governance/policy_checksums.json" in manifest["checksums"]
     assert governance["schema_version"] == "1.0"
     assert governance["diagnostic_mode"] is False
-    assert len(governance["policy_checksums"]) == 5
+    assert len(governance["policy_checksums"]) == 6
     assert governance["diagnostic_marker"] == "governance_valid"

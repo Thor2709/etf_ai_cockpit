@@ -11,6 +11,8 @@ from etf_cockpit.governance.models import ProductGovernancePolicy
 from etf_cockpit.governance.product_scope import (
     DEFAULT_POLICY_PATHS,
     GovernanceLoadResult,
+    authority_matrix_coverage_errors,
+    load_authority_matrix,
     load_product_governance,
 )
 
@@ -42,6 +44,40 @@ def test_product_policy_is_immutable_and_checksum_bearing() -> None:
     assert result.policy.authority.broker_execution == "forbidden"
     with pytest.raises(ValidationError):
         result.policy.policy_version = "tampered"
+
+
+def test_authority_matrix_covers_runtime_capabilities_and_stays_disabled() -> None:
+    result = load_authority_matrix(DEFAULT_POLICY_PATHS.authority_matrix)
+
+    assert result.policy is not None
+    assert result.diagnostic_mode is False
+    assert result.execution_allowed is False
+    assert result.policy.adr_id == "ADR-0070-v1"
+    assert {stage.stage_id for stage in result.policy.authority_stages} == {
+        "research",
+        "shadow_proposal",
+        "paper",
+        "broker_read_only",
+        "draft_order",
+        "capped_automatic",
+        "disabled",
+    }
+    assert authority_matrix_coverage_errors(result.policy) == ()
+    assert all(capability.execution_allowed is False for capability in result.policy.capabilities)
+    with pytest.raises(ValidationError):
+        result.policy.authority_stages = ()
+
+
+def test_authority_matrix_rejects_a_tampered_positive_default_stage(tmp_path: Path) -> None:
+    payload = yaml.safe_load(DEFAULT_POLICY_PATHS.authority_matrix.read_text(encoding="utf-8"))
+    payload["authority_stages"][1]["enabled_by_default"] = True
+    path = tmp_path / "authority_matrix.yaml"
+    path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+
+    result = load_authority_matrix(path)
+
+    assert result.diagnostic_mode is True
+    assert "enabled by default" in " ".join(result.diagnostics)
 
 
 def test_missing_product_policy_fails_closed_to_diagnostic_mode(tmp_path: Path) -> None:

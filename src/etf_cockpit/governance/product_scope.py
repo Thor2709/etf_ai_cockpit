@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from etf_cockpit.core.paths import CONFIG_DIR
 from etf_cockpit.governance.models import (
     AuthorityPolicy,
+    AuthorityMatrixPolicy,
     FeatureRegistryPolicy,
     GatePolicy,
     GlossaryPolicy,
@@ -29,6 +30,7 @@ from etf_cockpit.governance.models import (
 @dataclass(frozen=True)
 class PolicyPaths:
     product: Path
+    authority_matrix: Path
     feature_registry: Path
     strategy_scope: Path
     gate_policy: Path
@@ -37,6 +39,7 @@ class PolicyPaths:
 
 DEFAULT_POLICY_PATHS = PolicyPaths(
     product=CONFIG_DIR / "product_governance.yaml",
+    authority_matrix=CONFIG_DIR / "authority_matrix.yaml",
     feature_registry=CONFIG_DIR / "feature_registry.yaml",
     strategy_scope=CONFIG_DIR / "strategy_scope.yaml",
     gate_policy=CONFIG_DIR / "gate_policy.yaml",
@@ -44,6 +47,7 @@ DEFAULT_POLICY_PATHS = PolicyPaths(
 )
 
 PRODUCT_GOVERNANCE_PATH = DEFAULT_POLICY_PATHS.product
+AUTHORITY_MATRIX_PATH = DEFAULT_POLICY_PATHS.authority_matrix
 FEATURE_REGISTRY_PATH = DEFAULT_POLICY_PATHS.feature_registry
 STRATEGY_SCOPE_PATH = DEFAULT_POLICY_PATHS.strategy_scope
 GATE_POLICY_PATH = DEFAULT_POLICY_PATHS.gate_policy
@@ -216,6 +220,14 @@ def _substantive_section_error(model_class: type[PolicyClassT], payload: Mapping
         if not isinstance(payload.get("authority"), Mapping):
             return "product governance policy requires an authority block"
         return None
+    if model_class is AuthorityMatrixPolicy:
+        capabilities = payload.get("capabilities")
+        stages = payload.get("authority_stages")
+        if not isinstance(capabilities, (list, tuple)) or not capabilities:
+            return "authority matrix policy requires a non-empty capabilities collection"
+        if not isinstance(stages, (list, tuple)) or not stages:
+            return "authority matrix policy requires a non-empty authority_stages collection"
+        return None
     collection_key = "gates" if model_class is GatePolicy else "entries"
     entries = payload.get(collection_key)
     if not isinstance(entries, (list, tuple)) or not entries:
@@ -247,6 +259,11 @@ def _contract_error(model_class: type[PolicyClassT], payload: Mapping[str, Any],
             return "product governance policy has an incomplete authority block"
         if not payload.get("prohibited_claims") or not payload.get("required_disclosures"):
             return "product governance policy requires prohibited_claims and required_disclosures"
+        return None
+
+    if model_class is AuthorityMatrixPolicy:
+        if not policy.adr_id or not policy.adr_path:
+            return "authority matrix policy requires an ADR reference"
         return None
 
     if model_class is FeatureRegistryPolicy:
@@ -430,6 +447,51 @@ def load_product_governance(path: Path | None = None) -> GovernanceLoadResult[Pr
     return _load_policy(Path(path or PRODUCT_GOVERNANCE_PATH), ProductGovernancePolicy, policy_name="product governance")
 
 
+def load_authority_matrix(path: Path | None = None) -> GovernanceLoadResult[AuthorityMatrixPolicy]:
+    """Load the finite authority/capability contract, fail-closed."""
+
+    result = _load_policy(Path(path or AUTHORITY_MATRIX_PATH), AuthorityMatrixPolicy, policy_name="authority matrix")
+    if result.policy is not None:
+        errors = authority_matrix_coverage_errors(result.policy)
+        if errors:
+            return _diagnostic(schema_version=result.schema_version, checksum=result.checksum, message="authority matrix coverage failed: " + "; ".join(errors))  # type: ignore[return-value]
+    return result
+
+
+def authority_matrix_coverage_errors(policy: AuthorityMatrixPolicy | None = None) -> tuple[str, ...]:
+    """Return deterministic omissions between runtime inventories and the matrix."""
+
+    matrix = policy
+    if matrix is None:
+        loaded = _load_policy(AUTHORITY_MATRIX_PATH, AuthorityMatrixPolicy, policy_name="authority matrix")
+        matrix = loaded.policy
+    if matrix is None:
+        return ("authority matrix is unavailable",)
+    expected: set[str] = set()
+    try:
+        from etf_cockpit.app.router import PAGES
+
+        expected.update(f"route:{route}" for route in PAGES)
+        feature_payload = yaml.safe_load(FEATURE_REGISTRY_PATH.read_text(encoding="utf-8")) or {}
+        expected.update(
+            f"dataset:{dependency}"
+            for entry in feature_payload.get("features", feature_payload.get("entries", ()))
+            for dependency in entry.get("data_dependencies", entry.get("required_data", ()))
+        )
+        model_payload = yaml.safe_load((CONFIG_DIR / "model_settings.yaml").read_text(encoding="utf-8")) or {}
+        expected.update(f"model:{model_id}" for model_id in model_payload.get("models", {}))
+        strategy_payload = yaml.safe_load(STRATEGY_SCOPE_PATH.read_text(encoding="utf-8")) or {}
+        expected.update(
+            f"strategy:{entry['strategy_id']}"
+            for entry in strategy_payload.get("strategies", strategy_payload.get("entries", ()))
+        )
+    except (OSError, KeyError, TypeError, yaml.YAMLError) as exc:
+        return (f"runtime inventory unavailable: {exc}",)
+    expected.update({"broker:paper_portfolio", "broker:future_read_only", "broker:order_transmission"})
+    actual = {capability.capability_id for capability in matrix.capabilities}
+    return tuple(f"missing capability: {capability_id}" for capability_id in sorted(expected - actual))
+
+
 def load_feature_registry(path: Path | None = None) -> GovernanceLoadResult[FeatureRegistryPolicy]:
     """Load the route/feature registry."""
 
@@ -456,6 +518,7 @@ def load_glossary(path: Path | None = None) -> GovernanceLoadResult[GlossaryPoli
 
 __all__ = [
     "DEFAULT_POLICY_PATHS",
+    "AUTHORITY_MATRIX_PATH",
     "FEATURE_REGISTRY_PATH",
     "GATE_POLICY_PATH",
     "GLOSSARY_PATH",
@@ -463,6 +526,8 @@ __all__ = [
     "PolicyPaths",
     "STRATEGY_SCOPE_PATH",
     "load_feature_registry",
+    "load_authority_matrix",
+    "authority_matrix_coverage_errors",
     "load_gate_policy",
     "load_glossary",
     "load_product_governance",
