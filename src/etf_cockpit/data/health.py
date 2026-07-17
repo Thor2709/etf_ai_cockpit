@@ -257,6 +257,7 @@ def _inspect_migrations(root: Path) -> DataHealthRow:
             return _make_row("migration_status", DataHealthStatus.UNAVAILABLE, path, "migration", row_count=len(applied), checksum=checksum, freshness="unknown", warnings=("applied_at_unavailable",), history_root=root)
         parsed_applied_at.append((str(value), parsed))
     as_of = max(parsed_applied_at, key=lambda item: (item[1], item[0]))[0] if parsed_applied_at else None
+    warnings: tuple[str, ...]
     if version > expected:
         status = DataHealthStatus.SCHEMA_MISMATCH
         warnings = (f"future_schema_version:{version}",)

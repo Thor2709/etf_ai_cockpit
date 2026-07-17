@@ -64,7 +64,7 @@ jobs:
           # The repository still carries unrelated legacy Ruff findings; the
           # release-critical implementation surface is mandatory here.
           python -m ruff check scripts/release_gate.py src/etf_cockpit/data/health.py tests/test_release_gate.py tests/test_data_health.py
-          python -m mypy --ignore-missing-imports --follow-imports=skip scripts/release_gate.py src/etf_cockpit/data/health.py
+          python -m mypy --ignore-missing-imports --disable-error-code=import-untyped --follow-imports=skip scripts/release_gate.py src/etf_cockpit/data/health.py
 
       - name: Run protected release gate
         shell: bash

@@ -184,7 +184,7 @@ def git_snapshot(root: Path) -> dict[str, object]:
 def load_policy(root: Path) -> dict[str, object]:
     path = root / DEFAULT_POLICY
     try:
-        import yaml
+        import yaml  # type: ignore[import-untyped]
 
         value = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (ImportError, OSError, ValueError) as exc:
@@ -236,7 +236,7 @@ def dependency_snapshot(root: Path, policy: dict[str, object]) -> dict[str, obje
         installed[key] = actual
         if actual != expected:
             mismatched.append(f"{name}: expected {expected}, installed {actual}")
-    payload = {
+    payload: dict[str, object] = {
         "lock_path": lock_paths[0],
         "lock_sha256": sha256_bytes((root / lock_paths[0]).read_bytes()),
         "lock_files": [
@@ -259,10 +259,12 @@ def environment_check(root: Path, policy: dict[str, object], *, allow_dirty: boo
     if actual_python != expected_python:
         messages.append(f"python {actual_python} does not match pinned {expected_python}")
     snapshot = dependency_snapshot(root, policy)
-    if snapshot["missing"]:
-        messages.append("missing locked packages: " + ", ".join(snapshot["missing"]))
-    if snapshot["mismatched"]:
-        messages.extend(str(value) for value in snapshot["mismatched"])
+    missing = snapshot.get("missing", [])
+    mismatched = snapshot.get("mismatched", [])
+    if isinstance(missing, list) and missing:
+        messages.append("missing locked packages: " + ", ".join(str(value) for value in missing))
+    if isinstance(mismatched, list) and mismatched:
+        messages.extend(str(value) for value in mismatched)
     dirty = bool(git_snapshot(root)["dirty"])
     if dirty and not allow_dirty:
         messages.append("working tree is dirty")
@@ -383,24 +385,27 @@ def build_sbom(
 ) -> dict[str, object]:
     """Build a deterministic CycloneDX 1.5 SBOM for the release gate inputs."""
 
+    application_properties: list[dict[str, object]] = [
+        {"name": "source-manifest-sha256", "value": str(source_manifest["manifest_sha256"])},
+        {"name": "local-first", "value": "true"},
+    ]
     components: list[dict[str, object]] = [
         {
             "type": "application",
             "name": "etf-ai-cockpit",
             "version": _project_version(root),
             "bom-ref": "etf-ai-cockpit",
-            "properties": [
-                {"name": "source-manifest-sha256", "value": str(source_manifest["manifest_sha256"])},
-                {"name": "local-first", "value": "true"},
-            ],
+            "properties": application_properties,
         }
     ]
     if artifact_manifest is not None:
-        components[0]["properties"] = [
-            *list(components[0].get("properties", [])),
-            {"name": "artifact-manifest-sha256", "value": str(artifact_manifest["manifest_sha256"])},
-            {"name": "artifact-file-count", "value": str(len(artifact_manifest.get("files", [])))},
-        ]
+        artifact_files = artifact_manifest.get("files", [])
+        application_properties.extend(
+            [
+                {"name": "artifact-manifest-sha256", "value": str(artifact_manifest["manifest_sha256"])},
+                {"name": "artifact-file-count", "value": str(len(artifact_files) if isinstance(artifact_files, list) else 0)},
+            ]
+        )
     lock_paths = [str(policy.get("dependency_lock", "requirements-release.txt"))]
     parser_lock = policy.get("parser_dependency_lock")
     if parser_lock:
@@ -476,11 +481,13 @@ def _write_json(path: Path, value: object) -> None:
 
 
 def _report_markdown(manifest: dict[str, object], state: GateState, signature: dict[str, object]) -> str:
+    git = manifest.get("git")
+    git_head = git.get("head", "") if isinstance(git, dict) else ""
     lines = [
         "# ETF AI Cockpit release gate",
         "",
         f"- Schema: `{manifest['schema_version']}`",
-        f"- Git head: `{manifest['git']['head']}`",
+        f"- Git head: `{git_head}`",
         f"- Source manifest: `{manifest['source_manifest_sha256']}`",
         f"- Signature: `{signature.get('status', 'signed')}`",
         "",
@@ -565,6 +572,7 @@ def run_gate(
     signing_key_text = os.getenv(str(policy.get("signing_key_env", SIGNING_KEY_ENV)), "")
     key_id = os.getenv(SIGNING_KEY_ID_ENV, "local-release-key")
     signature_path = output / "release-manifest.sig.json"
+    signature: dict[str, object]
     if signing_key_text:
         state.add(CheckResult("signature", "passed", True, "HMAC-SHA256 detached release-manifest signature"))
     elif allow_unsigned:
