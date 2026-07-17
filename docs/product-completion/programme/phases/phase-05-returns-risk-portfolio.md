@@ -55,7 +55,7 @@ Deliver the bounded expected return, risk and portfolio construction work with l
 | `ISSUE-0065` | `P2` | `planned` | `analysis-and-validation` | - | - | - | `ISSUE-0049`, `ISSUE-0111`, `ISSUE-0125` |
 | `ISSUE-0108` | `P0` | `planned` | `returns-and-risk` | `ISSUE-0074`, `ISSUE-0096`, `ISSUE-0105` | - | `ISSUE-0109`, `ISSUE-0123` | - |
 | `ISSUE-0109` | `P0/P1` | `planned` | `returns-and-risk` | `ISSUE-0108` | - | `ISSUE-0115` | - |
-| `ISSUE-0110` | `P0` | `planned` | `returns-and-risk` | `ISSUE-0052`, `ISSUE-0059` | - | `ISSUE-0111`, `ISSUE-0113`, `ISSUE-0115` | - |
+| `ISSUE-0110` | `P0` | `integrated` | `returns-and-risk` | `ISSUE-0052`, `ISSUE-0059` | - | `ISSUE-0111`, `ISSUE-0113`, `ISSUE-0115` | - |
 | `ISSUE-0111` | `P0` | `planned` | `returns-and-risk` | `ISSUE-0110` | - | `ISSUE-0113` | - |
 | `ISSUE-0112` | `P0/P1` | `planned` | `returns-and-risk` | `ISSUE-0051`, `ISSUE-0059` | - | - | - |
 | `ISSUE-0113` | `P0` | `planned` | `portfolio-construction` | `ISSUE-0021`, `ISSUE-0110`, `ISSUE-0111` | - | `ISSUE-0114` | - |

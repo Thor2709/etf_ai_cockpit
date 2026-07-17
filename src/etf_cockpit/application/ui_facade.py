@@ -34,6 +34,7 @@ from etf_cockpit.core.job_scheduler import *  # noqa: F401,F403
 from etf_cockpit.models.forecast_scores import *  # noqa: F401,F403
 from etf_cockpit.models.local_weights import *  # noqa: F401,F403
 from etf_cockpit.portfolio.allocation import *  # noqa: F401,F403
+from etf_cockpit.portfolio.factor_risk import *  # noqa: F401,F403
 from etf_cockpit.portfolio.risk import *  # noqa: F401,F403
 from etf_cockpit.portfolio.risk_analytics import *  # noqa: F401,F403
 from etf_cockpit.signals.simple_scores import *  # noqa: F401,F403
