@@ -24,6 +24,15 @@ def test_smoke_validates_the_configured_flet_title(tmp_path, monkeypatch) -> Non
     smoke_app.verify_expected_title()
 
 
+def test_smoke_validates_flet_title_in_portable_app_src_layout(tmp_path, monkeypatch) -> None:
+    title_source = tmp_path / "app" / "src" / "etf_cockpit" / "app" / "flet_app.py"
+    title_source.parent.mkdir(parents=True)
+    title_source.write_text('page.title = "ETF AI Evidence Cockpit"\n', encoding="utf-8")
+    monkeypatch.setattr(smoke_app, "ROOT", tmp_path)
+
+    smoke_app.verify_expected_title()
+
+
 def test_smoke_rejects_a_process_from_an_unexpected_path(tmp_path) -> None:
     expected = tmp_path / "expected.exe"
     unexpected = tmp_path / "unexpected.exe"

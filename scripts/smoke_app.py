@@ -164,10 +164,17 @@ def _verify_first_run_setup() -> None:
 
 
 def verify_expected_title() -> None:
-    source_path = ROOT / "src" / "etf_cockpit" / "app" / "flet_app.py"
+    source_path = _source_root() / "etf_cockpit" / "app" / "flet_app.py"
     expected_assignment = f'page.title = "{EXPECTED_TITLE}"'
     if not source_path.exists() or expected_assignment not in source_path.read_text(encoding="utf-8"):
         raise RuntimeError(f"Flet page title is not configured as {EXPECTED_TITLE!r}: {source_path}")
+
+
+def _source_root() -> Path:
+    for candidate in (ROOT / "src", ROOT / "app" / "src"):
+        if (candidate / "etf_cockpit").exists():
+            return candidate
+    return ROOT / "src"
 
 
 def verify_process_path(process: subprocess.Popen | object, expected_path: Path) -> None:
