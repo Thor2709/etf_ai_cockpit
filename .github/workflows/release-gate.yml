@@ -1,0 +1,50 @@
+name: Release gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  release-gate:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up pinned Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.10"
+          cache: pip
+          cache-dependency-path: requirements-release.txt
+
+      - name: Install pinned release environment
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --requirement requirements-release.txt
+          python -m pip install --requirement requirements-parsers.txt
+
+      - name: Run protected release gate
+        shell: pwsh
+        env:
+          ETF_COCKPIT_RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+          ETF_COCKPIT_RELEASE_SIGNING_KEY_ID: ${{ vars.RELEASE_SIGNING_KEY_ID }}
+        run: |
+          $arguments = @('--root', '.', '--output', 'artifacts/release/github-${{ github.sha }}')
+          if ('${{ github.event_name }}' -eq 'pull_request') { $arguments += '--allow-unsigned' }
+          python scripts/release_gate.py @arguments
+
+      - name: Upload release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-gate-${{ github.sha }}
+          path: artifacts/release/github-${{ github.sha }}
+          if-no-files-found: error

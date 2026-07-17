@@ -45,7 +45,7 @@ Deliver the bounded governance, scope and completion contract work with local-fi
 |---|---|---|---|---|---|---|---|
 | `ISSUE-0010` | `P2` | `planned` | `programme-governance` | - | - | - | `ISSUE-0030`, `ISSUE-0057`, `ISSUE-0147` |
 | `ISSUE-0012` | `P0` | `in_progress` | `programme-governance` | - | - | - | `ISSUE-0077`, `ISSUE-0117`, `ISSUE-0139` |
-| `ISSUE-0013` | `P0` | `planned` | `platform-and-operations` | - | - | - | `ISSUE-0141`, `ISSUE-0145`, `ISSUE-0152`, `UPDATEV2-0029` |
+| `ISSUE-0013` | `P0` | `integrated` | `platform-and-operations` | - | - | - | `ISSUE-0141`, `ISSUE-0145`, `ISSUE-0152`, `UPDATEV2-0029` |
 | `ISSUE-0014` | `P0/P1` | `in_progress` | `programme-governance` | - | - | - | `ISSUE-0045`, `ISSUE-0143`, `ISSUE-0152` |
 | `ISSUE-0015` | `P1` | `planned` | `programme-governance` | - | - | - | `ISSUE-0070`, `ISSUE-0075`, `ISSUE-0152` |
 | `ISSUE-0018` | `P0/P1` | `implemented_initially` | `programme-governance` | - | - | - | `ISSUE-0082`, `ISSUE-0083`, `ISSUE-0126`, `UPDATEV2-0011` |
@@ -85,4 +85,4 @@ Deliver the bounded governance, scope and completion contract work with local-fi
 | `UPDATEV2-0020` | `P1` | `planned` | `programme-governance` | - | - | - | `ISSUE-0104`, `ISSUE-0149`, `UPDATEV2-0015` |
 | `UPDATEV2-0024` | `P2` | `planned` | `programme-governance` | - | - | - | `ISSUE-0076`, `ISSUE-0080` |
 | `UPDATEV2-0025` | `P2` | `planned` | `programme-governance` | - | - | - | `ISSUE-0076`, `ISSUE-0080` |
-| `UPDATEV2-0029` | `P0` | `planned` | `platform-and-operations` | - | - | - | `ISSUE-0141`, `ISSUE-0145`, `ISSUE-0152` |
+| `UPDATEV2-0029` | `P0` | `integrated` | `platform-and-operations` | - | - | - | `ISSUE-0141`, `ISSUE-0145`, `ISSUE-0152` |

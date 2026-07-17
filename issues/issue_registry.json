@@ -3027,7 +3027,7 @@
       "package_status": "Open",
       "phase": "phase-01-governance-scope",
       "priority": "P0",
-      "programme_status": "planned",
+      "programme_status": "integrated",
       "related_issues": [
         "ISSUE-0141",
         "ISSUE-0145",
@@ -8715,7 +8715,7 @@
       "package_status": "Open",
       "phase": "phase-01-governance-scope",
       "priority": "P0",
-      "programme_status": "planned",
+      "programme_status": "integrated",
       "related_issues": [
         "ISSUE-0141",
         "ISSUE-0145",
