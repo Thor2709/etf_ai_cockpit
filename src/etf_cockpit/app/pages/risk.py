@@ -16,6 +16,7 @@ from etf_cockpit.application.ui_facade import (
     CORRELATION_CLUSTERS_PATH,
     FUND_HOLDINGS_PATH,
     allocation_frame,
+    build_factor_risk_report,
     drawdown_contribution,
     exposure_limit_report,
     exposure_summary,
@@ -338,6 +339,102 @@ def _limit_table(report: pd.DataFrame) -> ft.Control:
     )
 
 
+def _factor_summary_panel(report: dict[str, object]) -> ft.Control:
+    coverage = report.get("coverage") if isinstance(report.get("coverage"), dict) else {}
+    diagnostics = report.get("diagnostics") if isinstance(report.get("diagnostics"), dict) else {}
+    lookthrough = coverage.get("lookthrough") if isinstance(coverage.get("lookthrough"), dict) else {}
+    selected = diagnostics.get("selected_factors", [])
+    warnings = report.get("warnings", [])
+    warning_text = ", ".join(str(item) for item in warnings) if warnings else "none"
+    return panel(
+        ft.Column(
+            [
+                section_header("Multi-factor risk model", "Versioned, evidence-only factor decomposition from adjusted prices and transparent descriptors."),
+                ft.Text(
+                    f"Status: {report.get('status', 'unavailable')} | model={report.get('model_version', 'unknown')} | selected factors={', '.join(map(str, selected)) or 'none'} | execution_allowed=false",
+                    color=theme.TEXT,
+                    selectable=True,
+                ),
+                ft.Text(
+                    f"Return observations: {coverage.get('return_observations', 0)} across {coverage.get('return_instrument_count', 0)} instruments | specific-risk sample is visible below | ETF look-through: {lookthrough.get('status', 'unavailable')}",
+                    color=theme.MUTED,
+                    selectable=True,
+                ),
+                ft.Text(
+                    f"Covariance condition number: {_number(diagnostics.get('covariance', {}).get('condition_number') if isinstance(diagnostics.get('covariance'), dict) else None)} | regularised: {diagnostics.get('covariance', {}).get('regularised', 'n/a') if isinstance(diagnostics.get('covariance'), dict) else 'n/a'} | warnings: {warning_text}",
+                    color=theme.AMBER if warnings else theme.MUTED,
+                    selectable=True,
+                ),
+            ],
+            spacing=6,
+        )
+    )
+
+
+def _factor_contribution_panel(report: dict[str, object]) -> ft.Control:
+    frame = report.get("portfolio_contributions")
+    frame = frame if isinstance(frame, pd.DataFrame) else pd.DataFrame()
+    rows = [
+        ft.DataRow(
+            cells=[
+                ft.DataCell(ft.Text(str(row.get("factor", "")), color=theme.TEXT, size=11)),
+                ft.DataCell(ft.Text(_number(row.get("portfolio_exposure")), color=theme.TEXT, size=11)),
+                ft.DataCell(ft.Text(_pct(row.get("variance_share")), color=theme.TEXT, size=11)),
+            ]
+        )
+        for _, row in frame.iterrows()
+    ]
+    return panel(
+        ft.Column(
+            [
+                section_header("Factor exposure and contribution", "Portfolio variance contribution reconciles to factor plus specific risk."),
+                ft.DataTable(
+                    columns=[ft.DataColumn(ft.Text("Factor")), ft.DataColumn(ft.Text("Exposure")), ft.DataColumn(ft.Text("Variance share"))],
+                    rows=rows,
+                )
+                if rows
+                else ft.Text("Factor contribution is unavailable; no complete cross-sectional fit was produced.", color=theme.MUTED),
+            ],
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        expand=True,
+    )
+
+
+def _factor_history_panel(report: dict[str, object]) -> ft.Control:
+    frame = report.get("factor_returns")
+    frame = frame if isinstance(frame, pd.DataFrame) else pd.DataFrame()
+    if not frame.empty:
+        frame = frame.sort_values(["date", "factor"], kind="stable").tail(24)
+    rows = [
+        ft.DataRow(
+            cells=[
+                ft.DataCell(ft.Text(str(row.get("date", "")), color=theme.TEXT, size=11)),
+                ft.DataCell(ft.Text(str(row.get("factor", "")), color=theme.TEXT, size=11)),
+                ft.DataCell(ft.Text(_pct(row.get("factor_return")), color=theme.TEXT, size=11)),
+                ft.DataCell(ft.Text(_number(row.get("standard_error")), color=theme.MUTED, size=11)),
+                ft.DataCell(ft.Text(str(row.get("sample_count", "")), color=theme.MUTED, size=11)),
+            ]
+        )
+        for _, row in frame.iterrows()
+    ]
+    return panel(
+        ft.Column(
+            [
+                section_header("Historical factor returns", "Recent robust cross-sectional estimates; standard errors and sample counts remain visible."),
+                ft.DataTable(
+                    columns=[ft.DataColumn(ft.Text("Date")), ft.DataColumn(ft.Text("Factor")), ft.DataColumn(ft.Text("Return")), ft.DataColumn(ft.Text("SE")), ft.DataColumn(ft.Text("N"))],
+                    rows=rows,
+                )
+                if rows
+                else ft.Text("Historical factor returns are unavailable; insufficient complete observations.", color=theme.MUTED),
+            ],
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        expand=True,
+    )
+
+
 def _correlation_table(correlation: pd.DataFrame) -> ft.Control:
     columns = list(correlation.columns)
     rows = []
@@ -521,6 +618,7 @@ def risk_page(_page: ft.Page, state: AppState) -> ft.Control:
     contribution = drawdown_contribution(allocation, state.snapshot.latest_features)
     imported_holdings = _load_holdings_evidence()
     eligible_holdings = _exposure_eligible_holdings(imported_holdings)
+    factor_report = build_factor_risk_report(state.snapshot.prices, allocation, state.snapshot.latest_features, eligible_holdings)
     top_contributor = contribution.iloc[0]["etf_id"] if not contribution.empty else "n/a"
     export_status = ft.Text("Risk tables show text status independent of colour.", color=theme.MUTED, selectable=True)
 
@@ -547,6 +645,12 @@ def risk_page(_page: ft.Page, state: AppState) -> ft.Control:
 
     def export_drawdown(_event: ft.ControlEvent) -> None:
         export_risk_frame("risk_drawdown", contribution, "risk_drawdown.csv")
+
+    def export_factor_contributions(_event: ft.ControlEvent) -> None:
+        export_risk_frame("risk_factor_contributions", factor_report.get("portfolio_contributions", pd.DataFrame()), "risk_factor_contributions.csv")
+
+    def export_factor_history(_event: ft.ControlEvent) -> None:
+        export_risk_frame("risk_factor_returns", factor_report.get("factor_returns", pd.DataFrame()), "risk_factor_returns.csv")
 
     return ft.Column(
         [
@@ -577,11 +681,13 @@ def risk_page(_page: ft.Page, state: AppState) -> ft.Control:
             ),
             _holdings_quality_panel(imported_holdings),
             _underlying_holdings_panel(eligible_holdings, allocation),
+            _factor_summary_panel(factor_report),
+            ft.Row([_factor_contribution_panel(factor_report), _factor_history_panel(factor_report)], spacing=12),
             _correlation_table(correlation),
             _crowding_attribution_panel(),
             _friction_edge_panel(),
             _drawdown_table(contribution),
-            panel(ft.Column([section_header("Risk evidence export", "CSV output is local-only and does not trigger execution. Empty canonical sources report unavailable and do not write placeholders."), ft.Row([ft.OutlinedButton("Export risk limits CSV", key="risk.export-limits", icon=ft.Icons.DOWNLOAD, on_click=export_limits), ft.OutlinedButton("Export allocation CSV", key="risk.export-allocation", icon=ft.Icons.DOWNLOAD, on_click=export_allocation), ft.OutlinedButton("Export holdings CSV", key="risk.export-holdings", icon=ft.Icons.DOWNLOAD, on_click=export_holdings), ft.OutlinedButton("Export correlation CSV", key="risk.export-correlation", icon=ft.Icons.DOWNLOAD, on_click=export_correlation), ft.OutlinedButton("Export drawdown CSV", key="risk.export-drawdown", icon=ft.Icons.DOWNLOAD, on_click=export_drawdown)], wrap=True), export_status], spacing=8)),
+            panel(ft.Column([section_header("Risk evidence export", "CSV output is local-only and does not trigger execution. Empty canonical sources report unavailable and do not write placeholders."), ft.Row([ft.OutlinedButton("Export risk limits CSV", key="risk.export-limits", icon=ft.Icons.DOWNLOAD, on_click=export_limits), ft.OutlinedButton("Export allocation CSV", key="risk.export-allocation", icon=ft.Icons.DOWNLOAD, on_click=export_allocation), ft.OutlinedButton("Export holdings CSV", key="risk.export-holdings", icon=ft.Icons.DOWNLOAD, on_click=export_holdings), ft.OutlinedButton("Export correlation CSV", key="risk.export-correlation", icon=ft.Icons.DOWNLOAD, on_click=export_correlation), ft.OutlinedButton("Export drawdown CSV", key="risk.export-drawdown", icon=ft.Icons.DOWNLOAD, on_click=export_drawdown), ft.OutlinedButton("Export factor contributions CSV", key="risk.export-factor-contributions", icon=ft.Icons.DOWNLOAD, on_click=export_factor_contributions), ft.OutlinedButton("Export factor returns CSV", key="risk.export-factor-returns", icon=ft.Icons.DOWNLOAD, on_click=export_factor_history)], wrap=True), export_status], spacing=8)),
         ],
         expand=True,
         spacing=14,
