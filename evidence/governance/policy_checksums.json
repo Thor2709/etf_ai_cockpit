@@ -1,9 +1,13 @@
 {
   "schema_version": "1.0",
-  "generated_at_utc": "2026-07-12T01:11:39Z",
-  "source_commit": "31448c3f96781a7a8c66ba1dc69a3f40577be1b0",
+  "generated_at_utc": "2026-07-17T02:30:00Z",
+  "source_commit": "3965de2d946cf5c637a3181f960141ab6fde6ec2",
   "execution_allowed": false,
   "policies": {
+    "authority_matrix": {
+      "path": "configs/authority_matrix.yaml",
+      "sha256": "5e41784b925b296997fdd8e1fb51e0a85118000afe26bd355462db53e46b7b2c"
+    },
     "product_governance": {
       "path": "configs/product_governance.yaml",
       "sha256": "2b904e26fe3f23dc2179b73d1a525b060587ba76535b4fd344dc295cbf7e4f22"
