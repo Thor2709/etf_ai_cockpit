@@ -14,7 +14,7 @@ import pandas as pd
 from etf_cockpit.core.atomic_io import atomic_write_bytes, parquet_payload, validate_parquet_file
 
 
-STORAGE_SCHEMA_VERSION = 3
+STORAGE_SCHEMA_VERSION = 4
 
 
 class StorageSchemaError(RuntimeError):
@@ -117,6 +117,7 @@ def _apply_migrations(connection: sqlite3.Connection) -> None:
         (1, "transactional_records_v1", _migration_v1),
         (2, "analytical_catalog_v1", _migration_v2),
         (3, "bitemporal_observations_v1", _migration_v3),
+        (4, "durable_workflows_v1", _migration_v4),
     ):
         if version in applied:
             continue
@@ -246,6 +247,99 @@ def _migration_v3(connection: sqlite3.Connection) -> None:
         END
         """
     )
+
+
+def _migration_v4(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE workflow_runs (
+            workflow_id TEXT PRIMARY KEY,
+            workflow_type TEXT NOT NULL,
+            label TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled', 'blocked')),
+            dedupe_key TEXT NOT NULL,
+            input_hash TEXT NOT NULL,
+            inputs_json TEXT NOT NULL,
+            outputs_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            started_at TEXT,
+            finished_at TEXT,
+            error_message TEXT NOT NULL DEFAULT '',
+            error_fingerprint TEXT,
+            resource_json TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX workflow_runs_active_dedupe
+        ON workflow_runs(dedupe_key)
+        WHERE status IN ('queued', 'running')
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE durable_jobs (
+            job_id TEXT PRIMARY KEY,
+            workflow_id TEXT NOT NULL,
+            job_key TEXT NOT NULL,
+            label TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled', 'blocked')),
+            input_hash TEXT NOT NULL,
+            inputs_json TEXT NOT NULL,
+            outputs_json TEXT NOT NULL,
+            resource_json TEXT NOT NULL,
+            max_retries INTEGER NOT NULL CHECK (max_retries >= 0),
+            retry_count INTEGER NOT NULL CHECK (retry_count >= 0),
+            lease_owner TEXT NOT NULL DEFAULT '',
+            lease_expires_at TEXT,
+            heartbeat_at TEXT,
+            checkpoint_json TEXT NOT NULL,
+            cancel_requested INTEGER NOT NULL DEFAULT 0 CHECK (cancel_requested IN (0, 1)),
+            error_message TEXT NOT NULL DEFAULT '',
+            error_fingerprint TEXT,
+            retryable INTEGER NOT NULL DEFAULT 0 CHECK (retryable IN (0, 1)),
+            created_at TEXT NOT NULL,
+            started_at TEXT,
+            finished_at TEXT,
+            UNIQUE(workflow_id, job_key),
+            FOREIGN KEY(workflow_id) REFERENCES workflow_runs(workflow_id) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute("CREATE INDEX durable_jobs_ready ON durable_jobs(status, created_at)")
+    connection.execute("CREATE INDEX durable_jobs_workflow ON durable_jobs(workflow_id, created_at)")
+    connection.execute(
+        """
+        CREATE TABLE durable_job_dependencies (
+            job_id TEXT NOT NULL,
+            dependency_job_id TEXT NOT NULL,
+            PRIMARY KEY(job_id, dependency_job_id),
+            FOREIGN KEY(job_id) REFERENCES durable_jobs(job_id) ON DELETE CASCADE,
+            FOREIGN KEY(dependency_job_id) REFERENCES durable_jobs(job_id) ON DELETE CASCADE,
+            CHECK(job_id <> dependency_job_id)
+        )
+        """
+    )
+    connection.execute("CREATE INDEX durable_job_dependencies_dependency ON durable_job_dependencies(dependency_job_id)")
+    connection.execute(
+        """
+        CREATE TABLE durable_job_events (
+            event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            workflow_id TEXT NOT NULL,
+            job_id TEXT,
+            event_type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            previous_hash TEXT NOT NULL,
+            event_hash TEXT NOT NULL UNIQUE,
+            FOREIGN KEY(workflow_id) REFERENCES workflow_runs(workflow_id) ON DELETE CASCADE,
+            FOREIGN KEY(job_id) REFERENCES durable_jobs(job_id) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute("CREATE INDEX durable_job_events_workflow ON durable_job_events(workflow_id, event_id)")
 
 
 class TransactionalStore:

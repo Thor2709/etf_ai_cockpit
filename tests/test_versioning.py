@@ -19,7 +19,7 @@ from etf_cockpit.core.versioning import (
 
 
 _SOURCES = {
-    "configs/storage_policy.yaml": "storage_schema_version: 3\n",
+    "configs/storage_policy.yaml": "storage_schema_version: 4\n",
     "configs/score_engine_v3.yaml": "formula_version: score-engine-v3.0.0\n",
     "configs/feature_registry.yaml": "policy_version: 2026-07-12\n",
     "configs/gate_policy.yaml": "policy_version: 2026-07-12\n",
