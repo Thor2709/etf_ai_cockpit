@@ -1,5 +1,5 @@
 schema_version: 1
-storage_schema_version: 3
+storage_schema_version: 4
 policy_id: local-hybrid-storage-v1
 transactional:
   engine: sqlite

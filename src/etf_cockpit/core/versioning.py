@@ -303,7 +303,7 @@ def compatibility_summary(registry: Mapping[str, object]) -> dict[str, object]:
 
 def _build_records(root: Path) -> tuple[VersionRecord, ...]:
     specs = (
-        ("schema:local-storage", "schema", "3.0.0", "configs/storage_policy.yaml", (), "storage_schema_version"),
+        ("schema:local-storage", "schema", "4.0.0", "configs/storage_policy.yaml", (), "storage_schema_version"),
         ("formula:score-engine-v3", "formula", "3.0.0", "configs/score_engine_v3.yaml", ("schema:local-storage",), "formula_version"),
         ("feature:feature-registry", "feature", "1.0.0", "configs/feature_registry.yaml", ("schema:local-storage",), "policy_version"),
         ("policy:gate-policy", "policy", "1.0.0", "configs/gate_policy.yaml", ("schema:local-storage",), "policy_version"),

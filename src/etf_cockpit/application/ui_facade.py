@@ -29,6 +29,7 @@ from etf_cockpit.data.score_history import *  # noqa: F401,F403
 from etf_cockpit.data.trust_artifacts import *  # noqa: F401,F403
 from etf_cockpit.data.universe_store import *  # noqa: F401,F403
 from etf_cockpit.core.versioning import *  # noqa: F401,F403
+from etf_cockpit.core.job_scheduler import *  # noqa: F401,F403
 from etf_cockpit.models.forecast_scores import *  # noqa: F401,F403
 from etf_cockpit.models.local_weights import *  # noqa: F401,F403
 from etf_cockpit.portfolio.allocation import *  # noqa: F401,F403

@@ -9,6 +9,7 @@ from etf_cockpit.core.config import load_config
 import etf_cockpit.data.health as health
 
 from etf_cockpit.data.health import DataHealthStatus, build_data_health, export_data_health
+from etf_cockpit.data.local_storage import STORAGE_SCHEMA_VERSION
 
 
 def _text_values(control):
@@ -66,7 +67,7 @@ def test_health_exposes_hybrid_storage_versions_sizes_integrity_and_compaction(t
 
     row = next(item for item in build_data_health(load_config(), tmp_path).rows if item.dataset == "local_storage")
     assert row.status is DataHealthStatus.HEALTHY
-    assert {"schema_version:3", "integrity:ok", "last_compaction:never", "bitemporal_observations:0", "bitemporal_retractions:0"} <= set(row.warnings)
+    assert {f"schema_version:{STORAGE_SCHEMA_VERSION}", "integrity:ok", "last_compaction:never", "bitemporal_observations:0", "bitemporal_retractions:0"} <= set(row.warnings)
     assert any(warning.startswith("transactional_bytes:") for warning in row.warnings)
 
 
