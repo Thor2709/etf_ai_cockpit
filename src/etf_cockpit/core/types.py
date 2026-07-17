@@ -16,6 +16,7 @@ from etf_cockpit.signals.research_states import (
     public_authority_payload,
     research_state_for_legacy_action,
 )
+from etf_cockpit.signals.canonical_scoring import CanonicalScore
 
 SignalStatus = Literal["ok", "blocked", "warning", "failed"]
 ModelStatus = Literal["ok", "failed", "skipped", "unavailable"]
@@ -133,6 +134,7 @@ class SignalResult:
     gate_policy_checksum: str = "unavailable"
     schema_version: str = "2.0"
     authority_decision: AuthorityDecision | None = None
+    canonical_score: CanonicalScore | None = None
 
     def __post_init__(self) -> None:
         try:
@@ -186,6 +188,8 @@ class SignalResult:
             gate_policy_checksum=self.gate_policy_checksum,
             authority_decision=self.authority_decision,
         )
+        if self.canonical_score is not None:
+            payload["canonical_score"] = self.canonical_score.as_dict()
         return payload
 
     def to_public_dict(self) -> dict[str, object]:

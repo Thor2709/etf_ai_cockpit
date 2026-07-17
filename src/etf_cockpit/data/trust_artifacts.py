@@ -14,6 +14,7 @@ import pandas as pd
 
 from etf_cockpit.core.atomic_io import (
     AtomicWriteRequest,
+    atomic_write_bytes,
     atomic_write_group,
     wait_for_atomic_group,
 )
@@ -41,6 +42,7 @@ from etf_cockpit.data.parsed_disclosures import (
     PRIIPS_KID_RECORDS_PATH,
 )
 from etf_cockpit.signals.feature_drivers import build_feature_drivers
+from etf_cockpit.signals.canonical_scoring import load_score_policy
 from etf_cockpit.features.crowding import build_correlation_clusters
 
 PROVIDER_PROBE_PATH = CLEAN_DIR / "provider_probe_results.parquet"
@@ -50,6 +52,7 @@ EVIDENCE_LEDGER_PATH = DERIVED_DIR / "evidence_ledger.parquet"
 SCORE_COMPONENTS_PATH = DERIVED_DIR / "score_components.parquet"
 SCORE_HISTORY_PATH = DERIVED_DIR / "score_history.parquet"
 SCORE_METRIC_HISTORY_PATH = DERIVED_DIR / "score_metric_history.parquet"
+SCORE_FORMULA_REGISTRY_PATH = DERIVED_DIR / "score_formula_registry.json"
 FEATURE_DRIVERS_PATH = DERIVED_DIR / "feature_drivers.parquet"
 CORRELATION_CLUSTERS_PATH = DERIVED_DIR / "correlation_clusters.parquet"
 BENCHMARK_ATTRIBUTION_PATH = DERIVED_DIR / "benchmark_attribution.parquet"
@@ -191,6 +194,13 @@ SCORE_COMPONENT_COLUMNS = [
     "calculation_method",
     "score_eligible",
     "driver_text",
+    "canonical_score_role",
+    "canonical_contribution_raw",
+    "peer_group",
+    "uncertainty",
+    "formula_version",
+    "formula_checksum",
+    "source_vintage_hash",
     "executable_authority",
 ]
 
@@ -234,6 +244,14 @@ SCORE_HISTORY_COLUMNS = [
     "blocked_by",
     "source_snapshot_hash",
     "score_schema_version",
+    "canonical_attractiveness_10",
+    "canonical_expected_return_10",
+    "canonical_risk_implementation_10",
+    "canonical_evidence_confidence_10",
+    "canonical_coverage",
+    "formula_version",
+    "formula_checksum",
+    "source_vintage_hash",
     "snapshot_hash",
     "execution_allowed",
 ]
@@ -252,6 +270,9 @@ SCORE_METRIC_HISTORY_COLUMNS = [
     "as_of_date",
     "freshness_status",
     "authority_label",
+    "formula_version",
+    "formula_checksum",
+    "source_vintage_hash",
     "execution_allowed",
 ]
 
@@ -346,6 +367,7 @@ def refresh_static_trust_artifacts(config: AppConfig) -> dict[str, Path]:
     paths = {
         "provider_probe_results": write_provider_probe_results(config),
         "instrument_identity": write_instrument_identity(config),
+        "score_formula_registry": write_score_formula_registry(),
     }
     identity = _safe_read_parquet(IDENTITY_PATH, IDENTITY_COLUMNS)
     paths["source_conflicts"] = write_source_conflicts(identity)
@@ -368,6 +390,29 @@ def refresh_static_trust_artifacts(config: AppConfig) -> dict[str, Path]:
         file_paths=[str(path) for path in paths.values()],
     )
     return paths
+
+
+def write_score_formula_registry() -> Path:
+    policies = {asset_type: load_score_policy(asset_type).as_dict() for asset_type in ("ETF", "STOCK")}
+    unsigned = {
+        "schema_version": 1,
+        "formula_version": "score-engine-v3.0.0",
+        "policies": policies,
+        "execution_allowed": False,
+        "immutable_after_run": True,
+    }
+    signature = hashlib.sha256(json.dumps(unsigned, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    payload = {
+        **unsigned,
+        "signature_algorithm": "sha256-content-address",
+        "registry_signature": signature,
+    }
+    atomic_write_bytes(
+        SCORE_FORMULA_REGISTRY_PATH,
+        (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+        lambda path: json.loads(path.read_text(encoding="utf-8")),
+    )
+    return SCORE_FORMULA_REGISTRY_PATH
 
 
 def write_trust_artifacts_for_scores(
@@ -683,6 +728,12 @@ def write_evidence_ledger(scores: Iterable[Any], *, run_id: str, created_at: str
 def write_score_components(scores: Iterable[Any], *, run_id: str, created_at: str) -> Path:
     rows: list[dict[str, Any]] = []
     for score in scores:
+        canonical_rows = {
+            str(row.get("key")): row
+            for row in (getattr(getattr(score, "canonical_score", None), "components", ()) or ())
+            if isinstance(row, dict)
+        }
+        canonical = getattr(score, "canonical_score", None)
         for component in getattr(score, "components", []) or []:
             score_value = getattr(component, "score_10", None)
             source_id = _component_source_id(component)
@@ -710,6 +761,13 @@ def write_score_components(scores: Iterable[Any], *, run_id: str, created_at: st
                     "calculation_method": redact_text(getattr(component, "explanation", "")),
                     "score_eligible": _component_score_eligible(component),
                     "driver_text": redact_text(getattr(component, "why", "")),
+                    "canonical_score_role": canonical_rows.get(str(getattr(component, "key", "")), {}).get("score_role"),
+                    "canonical_contribution_raw": canonical_rows.get(str(getattr(component, "key", "")), {}).get("contribution_raw"),
+                    "peer_group": canonical_rows.get(str(getattr(component, "key", "")), {}).get("peer_group"),
+                    "uncertainty": canonical_rows.get(str(getattr(component, "key", "")), {}).get("uncertainty"),
+                    "formula_version": getattr(canonical, "formula_version", "unavailable"),
+                    "formula_checksum": getattr(canonical, "formula_checksum", "unavailable"),
+                    "source_vintage_hash": getattr(canonical, "source_vintage_hash", "unavailable"),
                     "executable_authority": False,
                 }
             )
@@ -778,6 +836,14 @@ def append_score_history(scores: Iterable[Any], *, run_id: str, created_at: str)
                 "blocked_by": "|".join(getattr(score, "warnings", []) or []),
                 "source_snapshot_hash": _score_snapshot_hash(score),
                 "score_schema_version": "simple_scores_v3_groups",
+                "canonical_attractiveness_10": getattr(getattr(score, "canonical_score", None), "attractiveness_10", None),
+                "canonical_expected_return_10": getattr(getattr(score, "canonical_score", None), "expected_return_10", None),
+                "canonical_risk_implementation_10": getattr(getattr(score, "canonical_score", None), "risk_implementation_10", None),
+                "canonical_evidence_confidence_10": getattr(getattr(score, "canonical_score", None), "evidence_confidence_10", None),
+                "canonical_coverage": getattr(getattr(score, "canonical_score", None), "coverage", 0.0),
+                "formula_version": getattr(getattr(score, "canonical_score", None), "formula_version", "unavailable"),
+                "formula_checksum": getattr(getattr(score, "canonical_score", None), "formula_checksum", "unavailable"),
+                "source_vintage_hash": getattr(getattr(score, "canonical_score", None), "source_vintage_hash", "unavailable"),
                 "snapshot_hash": "",
                 "execution_allowed": False,
             }
@@ -816,6 +882,9 @@ def append_score_metric_history(scores: Iterable[Any], *, run_id: str, created_a
                     "as_of_date": getattr(score, "latest_date", ""),
                     "freshness_status": _freshness_from_date(str(getattr(score, "latest_date", ""))),
                     "authority_label": getattr(component, "authority", ""),
+                    "formula_version": getattr(getattr(score, "canonical_score", None), "formula_version", "unavailable"),
+                    "formula_checksum": getattr(getattr(score, "canonical_score", None), "formula_checksum", "unavailable"),
+                    "source_vintage_hash": getattr(getattr(score, "canonical_score", None), "source_vintage_hash", "unavailable"),
                     "execution_allowed": False,
                 }
             )
@@ -1457,7 +1526,7 @@ def _parquet_validation(path: Path) -> None:
 
 
 def _csv_validation(path: Path) -> None:
-    pd.read_csv(path)
+    pd.read_csv(path, low_memory=False)
 
 
 def _ensure_empty_if_missing(path: Path, columns: list[str]) -> None:

@@ -136,7 +136,23 @@ def run_backtest(
             signal_weight = weights["signal_strategy"].copy()
             target = target_weights(config, columns)
             for signal in signals:
-                signal_rows.append({"date": dt.date(), "etf_id": signal.etf_id, "action": signal.action, "score": signal.total_score})
+                canonical = signal.canonical_score
+                signal_rows.append(
+                    {
+                        "date": dt.date(),
+                        "etf_id": signal.etf_id,
+                        "action": signal.action,
+                        "score": signal.total_score,
+                        "canonical_attractiveness_10": canonical.attractiveness_10 if canonical else None,
+                        "canonical_expected_return_10": canonical.expected_return_10 if canonical else None,
+                        "canonical_risk_implementation_10": canonical.risk_implementation_10 if canonical else None,
+                        "canonical_evidence_confidence_10": canonical.evidence_confidence_10 if canonical else None,
+                        "canonical_coverage": canonical.coverage if canonical else 0.0,
+                        "formula_version": canonical.formula_version if canonical else "unavailable",
+                        "formula_checksum": canonical.formula_checksum if canonical else "unavailable",
+                        "source_vintage_hash": canonical.source_vintage_hash if canonical else "unavailable",
+                    }
+                )
                 if signal.etf_id not in signal_weight:
                     continue
                 if signal.action in {"buy", "add", "add_candidate"}:

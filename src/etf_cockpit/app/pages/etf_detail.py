@@ -98,6 +98,15 @@ def etf_detail_page(page: ft.Page, state: AppState) -> ft.Control:
             ),
             ft.Row(
                 [
+                    metric_card("Attractiveness", _score_label(getattr(signal.canonical_score, "attractiveness_10", None)), "canonical v3 research output", score_colour(getattr(signal.canonical_score, "attractiveness_10", None))),
+                    metric_card("Expected return", _score_label(getattr(signal.canonical_score, "expected_return_10", None)), "model evidence kept separate", score_colour(getattr(signal.canonical_score, "expected_return_10", None))),
+                    metric_card("Risk/implementation", _score_label(getattr(signal.canonical_score, "risk_implementation_10", None)), "risk and implementation quality", score_colour(getattr(signal.canonical_score, "risk_implementation_10", None))),
+                    metric_card("Evidence confidence", _score_label(getattr(signal.canonical_score, "evidence_confidence_10", None)), "coverage-adjusted confidence", score_colour(getattr(signal.canonical_score, "evidence_confidence_10", None))),
+                ],
+                spacing=12,
+            ),
+            ft.Row(
+                [
                     panel(
                         ft.Column(
                             [

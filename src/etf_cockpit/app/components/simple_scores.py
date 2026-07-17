@@ -139,6 +139,25 @@ def _score_tile(item: SimpleInstrumentScore, history_rows: list[dict[str, object
                 ),
                 ft.Row(
                     [
+                        evidence_chip("Attractiveness", _score_badge(item.canonical_score.attractiveness_10 if item.canonical_score else None), score_colour(item.canonical_score.attractiveness_10 if item.canonical_score else None)),
+                        evidence_chip("Expected return", _score_badge(item.canonical_score.expected_return_10 if item.canonical_score else None), score_colour(item.canonical_score.expected_return_10 if item.canonical_score else None)),
+                        evidence_chip("Risk/implementation", _score_badge(item.canonical_score.risk_implementation_10 if item.canonical_score else None), score_colour(item.canonical_score.risk_implementation_10 if item.canonical_score else None)),
+                        evidence_chip("Evidence confidence", _score_badge(item.canonical_score.evidence_confidence_10 if item.canonical_score else None), score_colour(item.canonical_score.evidence_confidence_10 if item.canonical_score else None)),
+                        evidence_chip("Coverage", f"{item.canonical_score.coverage:.0%}" if item.canonical_score else "N/A", theme.CYAN),
+                    ],
+                    spacing=8,
+                    wrap=True,
+                ),
+                ft.Text(
+                    f"Formula {item.canonical_score.formula_version} | formula checksum {item.canonical_score.formula_checksum} | source-vintage {item.canonical_score.source_vintage_hash}"
+                    if item.canonical_score
+                    else "Canonical v3 score unavailable.",
+                    color=theme.MUTED,
+                    size=10,
+                    selectable=True,
+                ),
+                ft.Row(
+                    [
                         evidence_chip("Model authority", item.model_authority_label, theme.PURPLE),
                         evidence_chip("Calibration", item.model_calibration_label, score_colour(item.model_calibration_score_10)),
                         evidence_chip("Backtest", item.backtest_trust_label, score_colour(item.backtest_trust_score_10)),

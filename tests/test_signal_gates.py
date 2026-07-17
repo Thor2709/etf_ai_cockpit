@@ -17,6 +17,26 @@ def test_action_threshold_mapping_add_and_trim() -> None:
     assert trim_action == "trim"
 
 
+def test_distribution_action_does_not_use_legacy_composite() -> None:
+    config = load_config()
+    assert preliminary_action(
+        config,
+        total_score=0.95,
+        score_distribution={
+            "attractiveness": 0.35,
+            "expected_return": 0.35,
+            "risk_implementation": 0.35,
+            "evidence_confidence": 0.8,
+            "coverage": 1.0,
+        },
+        confidence=0.80,
+        current_weight=0.10,
+        drift=0.0,
+        hard_band=0.05,
+        trend_200=1.0,
+    ) == "trim"
+
+
 def test_risk_gate_blocks_low_edge_after_costs() -> None:
     config = load_config()
     row = pd.Series(

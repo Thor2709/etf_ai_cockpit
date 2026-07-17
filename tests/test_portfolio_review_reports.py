@@ -96,3 +96,20 @@ def test_release_review_report_preserves_signal_policy_evidence(tmp_path: Path, 
     report = create_portfolio_review_report([signal], _data_report(), run_id="run-1", report_dir=tmp_path)
     assert report["policy_version"] == "historic"
     assert report["policy_checksum"] == "h" * 64
+
+
+def test_review_rows_keep_the_canonical_score_when_present(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from etf_cockpit.signals.canonical_scoring import canonical_score_from_signal_row
+    from etf_cockpit.core.config import load_config
+
+    canonical = canonical_score_from_signal_row(
+        {"etf_id": "WORLD_CORE", "score_momentum": 0.2, "score_trend": 0.3, "score_risk": 0.4},
+        load_config(),
+        "2026-06-26",
+    )
+    report = create_portfolio_review_report([replace(_signal(), canonical_score=canonical)], _data_report(), run_id="run-1", report_dir=tmp_path)
+
+    row = report["review_rows"][0]
+    assert row["canonical_score"]["formula_version"] == "score-engine-v3.0.0"

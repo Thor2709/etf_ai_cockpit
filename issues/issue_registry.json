@@ -5158,7 +5158,7 @@
       "package_status": "",
       "phase": "phase-01-governance-scope",
       "priority": "P0",
-      "programme_status": "planned",
+      "programme_status": "integrated",
       "related_issues": [],
       "required_inputs": [],
       "security_and_audit": "Signed formula registry and immutable score-run manifest; completed runs cannot be mutated by plugins.",
