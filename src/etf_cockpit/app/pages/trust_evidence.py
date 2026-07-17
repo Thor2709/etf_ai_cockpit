@@ -44,9 +44,9 @@ from etf_cockpit.application.ui_facade import (
     read_document_registry,
     sort_fundamental_evidence,
     sort_news_items,
+    source_policy_rows,
 )
 from etf_cockpit.plugins.builtins import plugin_status_rows
-from etf_cockpit.data.source_policy import source_policy_rows
 
 
 @contextmanager

@@ -13,8 +13,7 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.config import load_config
-from etf_cockpit.application.ui_facade import UniverseRecord, load_universe, save_universe
-from etf_cockpit.data.source_policy import source_policy_rows
+from etf_cockpit.application.ui_facade import UniverseRecord, load_universe, save_universe, source_policy_rows
 
 
 @dataclass(frozen=True)
