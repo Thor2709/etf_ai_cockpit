@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import flet as ft
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
+from etf_cockpit.application.ui_facade import legal_terms_report
 from etf_cockpit.governance.product_scope import load_glossary
 
 
@@ -27,6 +30,7 @@ def help_glossary_page(page: ft.Page | None, state: AppState) -> ft.Control:
         else:
             page.route = f"/help{suffix}"
     loaded = load_glossary()
+    legal_report = legal_terms_report(Path.cwd())
     if loaded.policy is not None and not loaded.diagnostic_mode:
         rows: list[ft.Control] = [
             panel(
@@ -54,6 +58,7 @@ def help_glossary_page(page: ft.Page | None, state: AppState) -> ft.Control:
         [
             section_header("Help and glossary", "Definitions are explanatory and do not grant authority."),
             ft.Text("Authority is evidence-bounded. Manual review is required whenever evidence is incomplete or stale. Unavailable states are explicit and never imply a positive decision.", color=theme.MUTED, selectable=True),
+            panel(ft.Column([section_header("Terms and use boundaries", "The registry records source and model permissions for local replay and audit export."), ft.Text("Research and education only. Not financial or tax advice. No broker execution or order transmission.", color=theme.AMBER, selectable=True), ft.Text(f"Legal terms status: {legal_report['status']} ({legal_report['review_status']}); restricted sources are not redistributed.", color=theme.MUTED, selectable=True)], spacing=6)),
             ft.ResponsiveRow([ft.Container(content=row, col={"xs": 12, "md": 6}) for row in rows], spacing=12),
         ],
         expand=True,

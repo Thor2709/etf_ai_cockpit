@@ -8050,7 +8050,7 @@
       "package_status": "",
       "phase": "phase-10-audit-documentation-governance",
       "priority": "P0",
-      "programme_status": "planned",
+      "programme_status": "hardening_required",
       "related_issues": [
         "ISSUE-0079"
       ],

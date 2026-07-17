@@ -1,0 +1,166 @@
+schema_version: "legal-terms.v1"
+registry_version: "2026-07-17"
+review_status: "hardening_required"
+professional_review_required: true
+mandatory_source_ids:
+  - manual_local
+  - issuer_document
+  - filings_xbrl_org
+  - sec_edgar
+  - index_provider
+mandatory_model_ids:
+  - baseline
+sources:
+  - source_id: manual_local
+    source_kind: user_owned
+    terms_status: user_owned_terms
+    terms_reference: "User-supplied local files; responsibility remains with the user."
+    permitted_cache: local_only
+    redistribution: user_responsibility
+    audit_export: allowed_with_attribution
+    attribution: "User-supplied source; retain the original provenance."
+    review_note: "The application does not grant permission to redistribute imported material."
+  - source_id: issuer_document
+    source_kind: user_supplied_official
+    terms_status: recorded_restricted
+    terms_reference: "Issuer document terms and any applicable distribution restrictions."
+    permitted_cache: local_only
+    redistribution: prohibited_without_permission
+    audit_export: metadata_only
+    attribution: "Retain issuer, document date, source URL and checksum metadata."
+    review_note: "Document contents stay local unless the user has permission to share them."
+  - source_id: filings_xbrl_org
+    source_kind: official_bulk
+    terms_status: recorded
+    terms_reference: "Official bulk source terms must be checked at acquisition and retained with provenance."
+    permitted_cache: local_replay
+    redistribution: attribution_required
+    audit_export: allowed_with_attribution
+    attribution: "Retain the official source and package checksum."
+    review_note: "Acquisition remains explicit and offline replay remains supported."
+  - source_id: sec_edgar
+    source_kind: official_cached_api
+    terms_status: recorded
+    terms_reference: "SEC public-access, fair-use and contact requirements must be observed."
+    permitted_cache: local_replay
+    redistribution: attribution_required
+    audit_export: allowed_with_attribution
+    attribution: "Retain SEC source URL, retrieval metadata and checksum."
+    review_note: "Cached responses are replayed locally; service limits remain non-blocking."
+  - source_id: index_provider
+    source_kind: official_bulk
+    terms_status: recorded_restricted
+    terms_reference: "Index and issuer documentation terms vary by provider and must be retained."
+    permitted_cache: local_replay
+    redistribution: prohibited_without_permission
+    audit_export: metadata_only
+    attribution: "Retain provider, document version and checksum metadata."
+    review_note: "Index methodology text is not automatically cleared for redistribution."
+  - source_id: yfinance
+    source_kind: optional_unofficial
+    terms_status: restricted_review_required
+    terms_reference: "Yahoo Finance terms and personal-use restrictions; verify before each release."
+    permitted_cache: local_user_only
+    redistribution: prohibited
+    audit_export: prohibited
+    attribution: "Do not redistribute provider data."
+    review_note: "Optional only; disable when current terms are unknown or permission is absent."
+  - source_id: stooq
+    source_kind: optional_provider
+    terms_status: restricted_review_required
+    terms_reference: "Provider terms and redistribution restrictions must be verified before use."
+    permitted_cache: local_user_only
+    redistribution: prohibited
+    audit_export: prohibited
+    attribution: "Do not redistribute provider data."
+    review_note: "Optional only; quota or terms changes cannot affect mandatory workflows."
+  - source_id: fred
+    source_kind: optional_official_api
+    terms_status: recorded_restricted
+    terms_reference: "FRED terms, attribution and API access requirements."
+    permitted_cache: local_replay
+    redistribution: attribution_required
+    audit_export: allowed_with_attribution
+    attribution: "Retain FRED series identifier, source URL and checksum."
+    review_note: "API keys and service limits remain external constraints."
+  - source_id: rss
+    source_kind: optional_feed
+    terms_status: recorded_restricted
+    terms_reference: "The individual feed's terms, copyright and redistribution rules."
+    permitted_cache: local_user_only
+    redistribution: prohibited_without_permission
+    audit_export: metadata_only
+    attribution: "Retain feed URL, publisher and publication timestamp metadata."
+    review_note: "News is context-only and is not a mandatory scoring input."
+models:
+  - model_id: baseline
+    model_kind: project_code
+    terms_status: recorded_restricted
+    terms_reference: "No repository licence file is present; release redistribution requires explicit legal review alongside repository notices."
+    redistribution: allowed_with_notice
+    audit_export: allowed
+    review_note: "Mandatory baseline does not require model weights or network access."
+  - model_id: toto
+    model_kind: optional_weights
+    terms_status: restricted_review_required
+    terms_reference: "Upstream model and weight terms must be checked before local use or distribution."
+    redistribution: prohibited_without_permission
+    audit_export: metadata_only
+    review_note: "Optional and disabled when local weights or terms are unavailable."
+  - model_id: timesfm
+    model_kind: optional_weights
+    terms_status: restricted_review_required
+    terms_reference: "Upstream model and weight terms must be checked before local use or distribution."
+    redistribution: prohibited_without_permission
+    audit_export: metadata_only
+    review_note: "Optional and disabled when local weights or terms are unavailable."
+  - model_id: lightgbm
+    model_kind: optional_package
+    terms_status: recorded_restricted
+    terms_reference: "Package licence and release SBOM."
+    redistribution: allowed_with_notice
+    audit_export: metadata_only
+    review_note: "Disabled by default and not required for baseline signals."
+code_and_packages:
+  - component_id: etf_ai_cockpit
+    terms_status: recorded
+    terms_reference: "Repository licence, packaging/THIRD_PARTY_NOTICES.md and release SBOM."
+    redistribution: allowed_with_notice
+    audit_export: metadata_only
+    attribution: "Retain the repository version and release notices."
+    review_note: "Release packages carry the third-party notice and SBOM."
+  - component_id: cryptography
+    terms_status: recorded
+    terms_reference: "Packaging notice and pinned release dependency metadata."
+    redistribution: allowed_with_notice
+    audit_export: metadata_only
+    attribution: "Retain the package version and third-party notice."
+    review_note: "The release dependency is pinned and included in the SBOM."
+jurisdictions:
+  - jurisdiction_id: AU
+    status: review_required
+    professional_review_required: true
+    disclaimer: "Research and education only. Not financial or tax advice. No broker execution or order transmission."
+  - jurisdiction_id: EU
+    status: review_required
+    professional_review_required: true
+    disclaimer: "Research and education only. Not financial or tax advice. No broker execution or order transmission."
+  - jurisdiction_id: UK
+    status: review_required
+    professional_review_required: true
+    disclaimer: "Research and education only. Not financial or tax advice. No broker execution or order transmission."
+  - jurisdiction_id: US
+    status: review_required
+    professional_review_required: true
+    disclaimer: "Research and education only. Not financial or tax advice. No broker execution or order transmission."
+terms_change_policy:
+  review_trigger_fields: [terms_status, terms_reference, permitted_cache, redistribution, audit_export, disclaimer]
+  action: "Re-review the affected source or model, record the new registry checksum and disable the capability if permission is unclear."
+  unknown_terms_action: disable_optional_and_block_release
+network_policy:
+  registry_validation_network_calls: false
+  mandatory_workflows_require_network: false
+  optional_provider_quota_is_non_blocking: true
+export_policy:
+  standard_audit_export: "Only explicit audit_export permissions apply; metadata_only excludes source contents."
+  private_data: "Private fields, credentials and transient logs remain excluded by the privacy policy."

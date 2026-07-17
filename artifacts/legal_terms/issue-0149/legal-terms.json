@@ -1,0 +1,185 @@
+{
+  "duration_ms": 18.049,
+  "failures": [],
+  "jurisdictions": [
+    {
+      "disclaimer": "Research and education only. Not financial or tax advice. No broker execution or order transmission.",
+      "jurisdiction_id": "AU",
+      "professional_review_required": true,
+      "status": "review_required"
+    },
+    {
+      "disclaimer": "Research and education only. Not financial or tax advice. No broker execution or order transmission.",
+      "jurisdiction_id": "EU",
+      "professional_review_required": true,
+      "status": "review_required"
+    },
+    {
+      "disclaimer": "Research and education only. Not financial or tax advice. No broker execution or order transmission.",
+      "jurisdiction_id": "UK",
+      "professional_review_required": true,
+      "status": "review_required"
+    },
+    {
+      "disclaimer": "Research and education only. Not financial or tax advice. No broker execution or order transmission.",
+      "jurisdiction_id": "US",
+      "professional_review_required": true,
+      "status": "review_required"
+    }
+  ],
+  "mandatory_model_ids": [
+    "baseline"
+  ],
+  "mandatory_source_ids": [
+    "manual_local",
+    "issuer_document",
+    "filings_xbrl_org",
+    "sec_edgar",
+    "index_provider"
+  ],
+  "network_calls": false,
+  "professional_review_required": true,
+  "registry_sha256": "b4a2a010d64ccc32c211ec47a58c8b3c4f1c97c36f369e50aa187f4bbed648fc",
+  "registry_version": "2026-07-17",
+  "review_status": "hardening_required",
+  "rows": [
+    {
+      "attribution": "User-supplied source; retain the original provenance.",
+      "audit_export": "allowed_with_attribution",
+      "entry_id": "manual_local",
+      "entry_kind": "source",
+      "permitted_cache": "local_only",
+      "redistribution": "user_responsibility",
+      "terms_status": "user_owned_terms"
+    },
+    {
+      "attribution": "Retain issuer, document date, source URL and checksum metadata.",
+      "audit_export": "metadata_only",
+      "entry_id": "issuer_document",
+      "entry_kind": "source",
+      "permitted_cache": "local_only",
+      "redistribution": "prohibited_without_permission",
+      "terms_status": "recorded_restricted"
+    },
+    {
+      "attribution": "Retain the official source and package checksum.",
+      "audit_export": "allowed_with_attribution",
+      "entry_id": "filings_xbrl_org",
+      "entry_kind": "source",
+      "permitted_cache": "local_replay",
+      "redistribution": "attribution_required",
+      "terms_status": "recorded"
+    },
+    {
+      "attribution": "Retain SEC source URL, retrieval metadata and checksum.",
+      "audit_export": "allowed_with_attribution",
+      "entry_id": "sec_edgar",
+      "entry_kind": "source",
+      "permitted_cache": "local_replay",
+      "redistribution": "attribution_required",
+      "terms_status": "recorded"
+    },
+    {
+      "attribution": "Retain provider, document version and checksum metadata.",
+      "audit_export": "metadata_only",
+      "entry_id": "index_provider",
+      "entry_kind": "source",
+      "permitted_cache": "local_replay",
+      "redistribution": "prohibited_without_permission",
+      "terms_status": "recorded_restricted"
+    },
+    {
+      "attribution": "Do not redistribute provider data.",
+      "audit_export": "prohibited",
+      "entry_id": "yfinance",
+      "entry_kind": "source",
+      "permitted_cache": "local_user_only",
+      "redistribution": "prohibited",
+      "terms_status": "restricted_review_required"
+    },
+    {
+      "attribution": "Do not redistribute provider data.",
+      "audit_export": "prohibited",
+      "entry_id": "stooq",
+      "entry_kind": "source",
+      "permitted_cache": "local_user_only",
+      "redistribution": "prohibited",
+      "terms_status": "restricted_review_required"
+    },
+    {
+      "attribution": "Retain FRED series identifier, source URL and checksum.",
+      "audit_export": "allowed_with_attribution",
+      "entry_id": "fred",
+      "entry_kind": "source",
+      "permitted_cache": "local_replay",
+      "redistribution": "attribution_required",
+      "terms_status": "recorded_restricted"
+    },
+    {
+      "attribution": "Retain feed URL, publisher and publication timestamp metadata.",
+      "audit_export": "metadata_only",
+      "entry_id": "rss",
+      "entry_kind": "source",
+      "permitted_cache": "local_user_only",
+      "redistribution": "prohibited_without_permission",
+      "terms_status": "recorded_restricted"
+    },
+    {
+      "attribution": "",
+      "audit_export": "allowed",
+      "entry_id": "baseline",
+      "entry_kind": "model",
+      "permitted_cache": "not_applicable",
+      "redistribution": "allowed_with_notice",
+      "terms_status": "recorded_restricted"
+    },
+    {
+      "attribution": "",
+      "audit_export": "metadata_only",
+      "entry_id": "toto",
+      "entry_kind": "model",
+      "permitted_cache": "not_applicable",
+      "redistribution": "prohibited_without_permission",
+      "terms_status": "restricted_review_required"
+    },
+    {
+      "attribution": "",
+      "audit_export": "metadata_only",
+      "entry_id": "timesfm",
+      "entry_kind": "model",
+      "permitted_cache": "not_applicable",
+      "redistribution": "prohibited_without_permission",
+      "terms_status": "restricted_review_required"
+    },
+    {
+      "attribution": "",
+      "audit_export": "metadata_only",
+      "entry_id": "lightgbm",
+      "entry_kind": "model",
+      "permitted_cache": "not_applicable",
+      "redistribution": "allowed_with_notice",
+      "terms_status": "recorded_restricted"
+    },
+    {
+      "attribution": "Retain the repository version and release notices.",
+      "audit_export": "metadata_only",
+      "entry_id": "etf_ai_cockpit",
+      "entry_kind": "code",
+      "permitted_cache": "not_applicable",
+      "redistribution": "allowed_with_notice",
+      "terms_status": "recorded"
+    },
+    {
+      "attribution": "Retain the package version and third-party notice.",
+      "audit_export": "metadata_only",
+      "entry_id": "cryptography",
+      "entry_kind": "code",
+      "permitted_cache": "not_applicable",
+      "redistribution": "allowed_with_notice",
+      "terms_status": "recorded"
+    }
+  ],
+  "schema_version": "legal-terms.v1",
+  "status": "passed",
+  "unresolved_mandatory": []
+}

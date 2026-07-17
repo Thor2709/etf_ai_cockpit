@@ -659,6 +659,26 @@ def run_gate(
     else:
         state.add(CheckResult("privacy_backup", "skipped", False, "no privacy backup validator present"))
 
+    if (root / "scripts" / "check_legal_terms.py").is_file():
+        legal_terms_report_dir = output / "legal_terms"
+        state.add(
+            run_command(
+                root,
+                output,
+                "legal_terms",
+                _python_command(
+                    root,
+                    "scripts/check_legal_terms.py",
+                    "--root",
+                    str(root),
+                    "--report-dir",
+                    str(legal_terms_report_dir),
+                ),
+            )
+        )
+    else:
+        state.add(CheckResult("legal_terms", "skipped", False, "no legal terms validator present"))
+
     sbom = build_sbom(root, source, policy, artifact_manifest=artifacts)
     _write_json(output / "sbom.cdx.json", sbom)
     state.add(CheckResult("sbom", "passed", True, "CycloneDX 1.5 deterministic SBOM"))
