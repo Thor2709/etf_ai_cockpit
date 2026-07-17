@@ -15,7 +15,7 @@ def test_button_inventory_covers_workflow_and_recovery_actions() -> None:
     assert "navigation.diagnostics" in keys
     assert "filings.fetch-sec" in keys
     assert "import-export.backup-restore" not in keys
-    assert {"import-export.commit", "import-export.restore-commit", "import-export.restore-cancel"} <= keys
+    assert {"import-export.bulk-cache", "import-export.commit", "import-export.restore-commit", "import-export.restore-cancel"} <= keys
 
 
 def test_button_inventory_covers_registered_routes_and_control_metadata() -> None:

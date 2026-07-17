@@ -538,6 +538,8 @@ def test_export_sources_use_live_data_journal_and_canonical_watchlist_store() ->
 
     source = inspect.getsource(import_export_page)
     assert "root=DATA_DIR" in source
+    assert "ContentAddressedCache" in source
+    assert "Cache local source" in source
     assert "scoreboard.parquet" in source
     assert "pyproject.toml" in source
     assert "CHANGELOG.md" in source

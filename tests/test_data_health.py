@@ -81,6 +81,8 @@ def test_data_health_ui_names_cache_provenance_and_failure_columns() -> None:
     page = type("Page", (), {"route": "/data-health", "update": lambda self: None})()
     values = set(value for value in _text_values(data_health_page(page, state)) if value)
     assert {"Data Health", "Dataset", "Path", "Checksum", "Last success", "Last failure"} <= values
+    assert "Bulk source cache" in values
+    assert any("network_calls=false" in value for value in values)
     assert {"Filter status", "Filter dataset", "Filter provider", "Provider status", "Filings", "ETF", "Errors"} <= values
 
 
