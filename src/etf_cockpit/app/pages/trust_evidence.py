@@ -45,6 +45,7 @@ from etf_cockpit.application.ui_facade import (
     sort_fundamental_evidence,
     sort_news_items,
 )
+from etf_cockpit.plugins.builtins import plugin_status_rows
 
 
 @contextmanager
@@ -115,14 +116,14 @@ def _start_disclosure_import(state: AppState, result: ft.Control, label: str) ->
 def provider_status_page(_page: ft.Page, state: AppState) -> ft.Control:
     registry = ProviderRegistry(state.snapshot.config.data_providers)
     capabilities = registry.probe_all()
-    status_rows = registry.status_rows(capabilities)
+    status_rows = registry.status_rows(capabilities) + plugin_status_rows()
     capability_rows = [
         ft.DataRow(
             cells=[
                 ft.DataCell(ft.Text(str(row["provider_id"]), color=theme.TEXT)),
                 ft.DataCell(ft.Text(str(row["dataset_type"]), color=theme.MUTED)),
                 ft.DataCell(ft.Text(f"{row['enabled']}/{row['configured']}", color=theme.MUTED)),
-                ft.DataCell(ft.Text(str(row["status"]), color=theme.GREEN if row["status"] == "ok" else theme.AMBER)),
+                ft.DataCell(ft.Text(str(row["status"]), color=theme.GREEN if row["status"] in {"ok", "available"} else theme.AMBER)),
                 ft.DataCell(ft.Text(str(row["authority"]), color=theme.MUTED)),
                 ft.DataCell(ft.Text(str(row["entitlement"]), color=theme.MUTED)),
                 ft.DataCell(ft.Text(str(row["rate_limit_note"]), color=theme.MUTED, selectable=True)),
@@ -137,10 +138,11 @@ def provider_status_page(_page: ft.Page, state: AppState) -> ft.Control:
     capability_panel = panel(
         ft.Column(
             [
-                section_header("Capability registry", "Disabled providers are not probed. Missing keys and optional entitlements remain unavailable and cannot feed scoring."),
-                ft.Text("Provider fields: enabled/configured, status, authority, capabilities, entitlement, rate/limit note, last success, score eligibility and redacted configuration.", color=theme.MUTED, size=11, selectable=True),
+                section_header("Capability registry", "Providers, models and broker adapters share one allow-listed contract. Disabled capabilities are never probed and cannot escalate execution authority."),
+                ft.Text("Fields: enabled/configured, status, authority, capabilities, entitlement, rate/limit note, last success, score eligibility and redacted configuration. Broker adapters remain disabled.", color=theme.MUTED, size=11, selectable=True),
+                ft.Text("Built-in plugins: " + ", ".join(str(row["provider_id"]) for row in plugin_status_rows()), color=theme.MUTED, size=11, selectable=True),
                 ft.DataTable(
-                    columns=[ft.DataColumn(ft.Text(label, color=theme.TEXT)) for label in ("Provider", "Dataset", "Enabled/configured", "Status", "Authority", "Entitlement", "Rate/limit", "Last success", "Score eligible", "Redacted configuration", "Message")],
+                    columns=[ft.DataColumn(ft.Text(label, color=theme.TEXT)) for label in ("Provider/plugin", "Kind", "Enabled/configured", "Status", "Authority", "Entitlement", "Rate/limit", "Last success", "Score eligible", "Redacted configuration", "Message")],
                     rows=capability_rows,
                 ),
             ],
