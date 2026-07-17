@@ -173,11 +173,19 @@ def _git(root: Path, *args: str) -> str:
 
 
 def git_snapshot(root: Path) -> dict[str, object]:
+    status_lines = _git(root, "status", "--porcelain", "--untracked-files=all").splitlines()
+    generated_release_prefix = "artifacts/release/"
+    dirty_paths = [
+        line
+        for line in status_lines
+        if not line[3:].replace("\\", "/").startswith(generated_release_prefix)
+    ]
     return {
         "branch": _git(root, "branch", "--show-current"),
         "head": _git(root, "rev-parse", "HEAD"),
         "origin_main": _git(root, "rev-parse", "origin/main"),
-        "dirty": bool(_git(root, "status", "--porcelain")),
+        "dirty": bool(dirty_paths),
+        "dirty_paths": dirty_paths,
     }
 
 

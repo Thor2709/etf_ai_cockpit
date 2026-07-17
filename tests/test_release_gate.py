@@ -106,6 +106,21 @@ def test_dependency_snapshot_accepts_exact_parser_lock(tmp_path: Path, monkeypat
     assert snapshot["mismatched"] == []
 
 
+def test_git_snapshot_ignores_only_generated_release_evidence(monkeypatch) -> None:
+    values = {
+        ("status", "--porcelain", "--untracked-files=all"): "?? artifacts/release/latest/release-report.md\n M configs/release_policy.yaml\n",
+        ("branch", "--show-current"): "feature",
+        ("rev-parse", "HEAD"): "head",
+        ("rev-parse", "origin/main"): "main",
+    }
+    monkeypatch.setattr(release_gate, "_git", lambda _root, *args: values.get(args, ""))
+
+    snapshot = release_gate.git_snapshot(Path("."))
+
+    assert snapshot["dirty"] is True
+    assert snapshot["dirty_paths"] == [" M configs/release_policy.yaml"]
+
+
 def test_release_workflow_is_matrixed_isolated_and_read_only() -> None:
     root = Path(__file__).resolve().parents[1]
     workflow = (root / ".github" / "workflows" / "release-gate.yml").read_text(encoding="utf-8")
@@ -116,6 +131,7 @@ def test_release_workflow_is_matrixed_isolated_and_read_only() -> None:
     assert "timeout-minutes: 45" in workflow
     assert "Configure isolated user profile" in workflow
     assert "requirements-release-parsers.txt" in workflow
+    assert "ETF_COCKPIT_RELEASE_BUILD: \"1\"" in workflow
     assert "name: release-gate-${{ github.sha }}-${{ matrix.platform }}" in workflow
     assert "contents: read" in workflow
     assert "issues: write" not in workflow

@@ -25,6 +25,9 @@ def test_broken_venv_backup_remains_timestamped_and_package_gates_are_intact() -
     assert 'move ".venv"' in lowered
     assert 'pip.exe" install -r requirements.txt' in lowered
     assert 'pip.exe" install -r requirements-parsers.txt' in lowered
+    assert 'pip.exe" install -r requirements-release.txt' in lowered
+    assert 'pip.exe" install -r requirements-release-parsers.txt' in lowered
+    assert 'etf_cockpit_release_build%"=="1"' in lowered
     assert "pyinstaller.exe\" --noconfirm --clean" in lowered
     assert "etf_ai_cockpit.spec" in lowered
     assert "pyi-set_version.exe" in lowered
