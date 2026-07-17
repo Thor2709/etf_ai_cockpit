@@ -76,3 +76,47 @@ def test_dry_run_lists_full_release_contract(tmp_path: Path, capsys) -> None:
     assert any("pytest" in command for command in payload["commands"])
     assert any("SBOM" in command for command in payload["commands"])
     assert any("HMAC-SHA256" in command for command in payload["commands"])
+
+
+def test_package_commands_cover_windows_and_linux_outputs() -> None:
+    windows = release_gate.package_command(Path("."), platform_name="nt")
+    linux = release_gate.package_command(Path("."), platform_name="posix")
+
+    assert windows == ("cmd", "/c", "scripts\\build_windows.bat")
+    assert linux[-3:] == ("build", "--outdir", "build/python-dist")
+
+
+def test_dependency_snapshot_accepts_exact_parser_lock(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / "requirements-release.txt").write_text("pytest==9.1.1\n", encoding="utf-8")
+    (tmp_path / "requirements-release-parsers.txt").write_text("defusedxml==0.7.1\n", encoding="utf-8")
+    policy = {
+        "dependency_lock": "requirements-release.txt",
+        "parser_dependency_lock": "requirements-release-parsers.txt",
+    }
+    versions = {"pytest": "9.1.1", "defusedxml": "0.7.1"}
+    monkeypatch.setattr(release_gate.importlib.metadata, "version", versions.__getitem__)
+
+    snapshot = release_gate.dependency_snapshot(tmp_path, policy)
+
+    assert [row["path"] for row in snapshot["lock_files"]] == [
+        "requirements-release.txt",
+        "requirements-release-parsers.txt",
+    ]
+    assert snapshot["missing"] == []
+    assert snapshot["mismatched"] == []
+
+
+def test_release_workflow_is_matrixed_isolated_and_read_only() -> None:
+    root = Path(__file__).resolve().parents[1]
+    workflow = (root / ".github" / "workflows" / "release-gate.yml").read_text(encoding="utf-8")
+
+    assert "windows-latest" in workflow
+    assert "ubuntu-latest" in workflow
+    assert "fail-fast: false" in workflow
+    assert "timeout-minutes: 45" in workflow
+    assert "Configure isolated user profile" in workflow
+    assert "requirements-release-parsers.txt" in workflow
+    assert "name: release-gate-${{ github.sha }}-${{ matrix.platform }}" in workflow
+    assert "contents: read" in workflow
+    assert "issues: write" not in workflow
+    assert "releases: write" not in workflow

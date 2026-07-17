@@ -203,7 +203,10 @@ def _lock_requirements(root: Path, relative: str) -> list[tuple[str, str]]:
         line = raw.split("#", 1)[0].strip()
         if not line or line.startswith("-"):
             continue
-        match = re.fullmatch(r"([A-Za-z0-9_.-]+)==([A-Za-z0-9][A-Za-z0-9_.+-]*)", line)
+        match = re.fullmatch(
+            r"([A-Za-z0-9_.-]+)(?:\[[A-Za-z0-9_,.-]+\])?==([A-Za-z0-9][A-Za-z0-9_.+-]*)",
+            line,
+        )
         if not match:
             raise ValueError(f"dependency lock contains a non-exact entry: {raw!r}")
         rows.append((match.group(1), match.group(2)))
@@ -213,12 +216,17 @@ def _lock_requirements(root: Path, relative: str) -> list[tuple[str, str]]:
 
 
 def dependency_snapshot(root: Path, policy: dict[str, object]) -> dict[str, object]:
-    lock_path = str(policy.get("dependency_lock", "requirements-release.txt"))
-    requirements = _lock_requirements(root, lock_path)
+    lock_paths = [str(policy.get("dependency_lock", "requirements-release.txt"))]
+    parser_lock = policy.get("parser_dependency_lock")
+    if parser_lock:
+        lock_paths.append(str(parser_lock))
+    requirements: list[tuple[str, str, str]] = []
+    for lock_path in lock_paths:
+        requirements.extend((lock_path, name, version) for name, version in _lock_requirements(root, lock_path))
     installed: dict[str, str] = {}
     missing: list[str] = []
     mismatched: list[str] = []
-    for name, expected in requirements:
+    for _lock_path, name, expected in requirements:
         key = name.lower().replace("_", "-")
         try:
             actual = importlib.metadata.version(name)
@@ -229,9 +237,13 @@ def dependency_snapshot(root: Path, policy: dict[str, object]) -> dict[str, obje
         if actual != expected:
             mismatched.append(f"{name}: expected {expected}, installed {actual}")
     payload = {
-        "lock_path": lock_path,
-        "lock_sha256": sha256_bytes((root / lock_path).read_bytes()),
-        "required": [{"name": name, "version": version} for name, version in requirements],
+        "lock_path": lock_paths[0],
+        "lock_sha256": sha256_bytes((root / lock_paths[0]).read_bytes()),
+        "lock_files": [
+            {"path": lock_path, "sha256": sha256_bytes((root / lock_path).read_bytes())}
+            for lock_path in lock_paths
+        ],
+        "required": [{"lock_path": lock_path, "name": name, "version": version} for lock_path, name, version in requirements],
         "installed": dict(sorted(installed.items())),
         "missing": sorted(missing),
         "mismatched": sorted(mismatched),
@@ -320,10 +332,10 @@ def _free_port() -> int:
         return int(listener.getsockname()[1])
 
 
-def package_command(root: Path) -> tuple[str, ...]:
-    if os.name == "nt":
+def package_command(root: Path, *, platform_name: str | None = None) -> tuple[str, ...]:
+    if (platform_name or os.name) == "nt":
         return ("cmd", "/c", "scripts\\build_windows.bat")
-    return _python_command(root, "-m", "build")
+    return _python_command(root, "-m", "build", "--outdir", "build/python-dist")
 
 
 def _artifact_paths(root: Path, policy: dict[str, object]) -> list[Path]:
@@ -389,25 +401,32 @@ def build_sbom(
             {"name": "artifact-manifest-sha256", "value": str(artifact_manifest["manifest_sha256"])},
             {"name": "artifact-file-count", "value": str(len(artifact_manifest.get("files", [])))},
         ]
-    try:
-        required = _lock_requirements(root, str(policy.get("dependency_lock", "requirements-release.txt")))
-    except (FileNotFoundError, ValueError):
-        required = []
-    for name, expected in required:
+    lock_paths = [str(policy.get("dependency_lock", "requirements-release.txt"))]
+    parser_lock = policy.get("parser_dependency_lock")
+    if parser_lock:
+        lock_paths.append(str(parser_lock))
+    for lock_path in lock_paths:
         try:
-            installed = importlib.metadata.version(name)
-        except importlib.metadata.PackageNotFoundError:
-            installed = None
-        component: dict[str, object] = {
-            "type": "library",
-            "name": name,
-            "version": installed or expected,
-            "bom-ref": f"pkg:pypi/{name.lower().replace('_', '-') }@{installed or expected}",
-            "scope": "required",
-        }
-        if installed != expected:
-            component["properties"] = [{"name": "release-gate-status", "value": "missing-or-mismatched"}]
-        components.append(component)
+            required = _lock_requirements(root, lock_path)
+        except (FileNotFoundError, ValueError):
+            required = []
+        for name, expected in required:
+            try:
+                installed = importlib.metadata.version(name)
+            except importlib.metadata.PackageNotFoundError:
+                installed = None
+            properties: list[dict[str, str]] = [{"name": "release-lock", "value": lock_path}]
+            component: dict[str, object] = {
+                "type": "library",
+                "name": name,
+                "version": installed or expected,
+                "bom-ref": f"pkg:pypi/{name.lower().replace('_', '-') }@{installed or expected}",
+                "scope": "required",
+                "properties": properties,
+            }
+            if installed != expected:
+                properties.append({"name": "release-gate-status", "value": "missing-or-mismatched"})
+            components.append(component)
     bom = {
         "$schema": "https://cyclonedx.org/schema/bom-1.5.schema.json",
         "bomFormat": "CycloneDX",

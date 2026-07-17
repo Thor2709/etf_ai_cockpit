@@ -1,5 +1,7 @@
 name: Release gate
 
+# This workflow produces reviewable evidence only. It cannot close issues,
+# mutate release aliases, publish releases, or change protected state.
 on:
   pull_request:
   push:
@@ -10,7 +12,16 @@ permissions:
 
 jobs:
   release-gate:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            runner: windows-latest
+          - platform: linux
+            runner: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -22,33 +33,61 @@ jobs:
         with:
           python-version: "3.12.10"
           cache: pip
-          cache-dependency-path: requirements-release.txt
+          cache-dependency-path: |
+            requirements-release.txt
+            requirements-release-parsers.txt
+
+      - name: Configure isolated user profile
+        shell: bash
+        run: |
+          profile="${RUNNER_TEMP}/etf-cockpit-profile-${{ matrix.platform }}"
+          mkdir -p "$profile/config" "$profile/cache" "$profile/data"
+          {
+            echo "HOME=$profile"
+            echo "USERPROFILE=$profile"
+            echo "APPDATA=$profile/config"
+            echo "LOCALAPPDATA=$profile/data"
+            echo "XDG_CONFIG_HOME=$profile/config"
+            echo "XDG_CACHE_HOME=$profile/cache"
+          } >> "$GITHUB_ENV"
 
       - name: Install pinned release environment
-        shell: pwsh
+        shell: bash
         run: |
           python -m pip install --upgrade pip
           python -m pip install --requirement requirements-release.txt
-          python -m pip install --requirement requirements-parsers.txt
+          python -m pip install --requirement requirements-release-parsers.txt
+
+      - name: Run lint and typing gates
+        shell: bash
+        run: |
+          # The repository still carries unrelated legacy Ruff findings; the
+          # release-critical implementation surface is mandatory here.
+          python -m ruff check scripts/release_gate.py src/etf_cockpit/data/health.py tests/test_release_gate.py tests/test_data_health.py
+          python -m mypy --ignore-missing-imports --follow-imports=skip scripts/release_gate.py src/etf_cockpit/data/health.py
 
       - name: Run protected release gate
-        shell: pwsh
+        shell: bash
         env:
           ETF_COCKPIT_RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
           ETF_COCKPIT_RELEASE_SIGNING_KEY_ID: ${{ vars.RELEASE_SIGNING_KEY_ID }}
         run: |
-          $arguments = @('--root', '.', '--output', 'artifacts/release/github-${{ github.sha }}')
-          if ('${{ github.event_name }}' -eq 'pull_request') { $arguments += '--allow-unsigned' }
-          python scripts/release_gate.py @arguments
+          output="artifacts/release/github-${{ github.sha }}/${{ matrix.platform }}"
+          arguments=(--root . --output "$output")
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            arguments+=(--allow-unsigned)
+          fi
+          python scripts/release_gate.py "${arguments[@]}"
 
       - name: Run supply-chain scan
         if: always()
-        run: python scripts/supply_chain_scan.py --root . --output artifacts/release/github-${{ github.sha }}/supply-chain
+        shell: bash
+        run: python scripts/supply_chain_scan.py --root . --output artifacts/release/github-${{ github.sha }}/${{ matrix.platform }}/supply-chain
 
       - name: Upload release evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: release-gate-${{ github.sha }}
-          path: artifacts/release/github-${{ github.sha }}
+          name: release-gate-${{ github.sha }}-${{ matrix.platform }}
+          path: artifacts/release/github-${{ github.sha }}/${{ matrix.platform }}
           if-no-files-found: error

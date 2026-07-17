@@ -1,6 +1,7 @@
 schema_version: "1.0"
 python_version: "3.12.10"
 dependency_lock: requirements-release.txt
+parser_dependency_lock: requirements-release-parsers.txt
 artifact_roots:
   - build
 signing_key_env: ETF_COCKPIT_RELEASE_SIGNING_KEY

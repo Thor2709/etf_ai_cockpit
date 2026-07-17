@@ -43,7 +43,7 @@ Deliver the bounded quality, release, security and resilience work with local-fi
 
 | ID | Priority | Programme state | Owner | Blocking dependencies | Required inputs | Downstream issues | Related issues |
 |---|---|---|---|---|---|---|---|
-| `ISSUE-0141` | `P0` | `planned` | `quality-and-release` | `ISSUE-0075`, `ISSUE-0145` | - | `ISSUE-0143` | - |
+| `ISSUE-0141` | `P0` | `integrated` | `quality-and-release` | `ISSUE-0075`, `ISSUE-0145` | - | `ISSUE-0143` | - |
 | `ISSUE-0142` | `P0/P1` | `planned` | `quality-and-release` | `ISSUE-0074`, `ISSUE-0127`, `ISSUE-0132` | - | - | - |
 | `ISSUE-0143` | `P0/P1` | `planned` | `quality-and-release` | `ISSUE-0141` | - | - | - |
 | `ISSUE-0144` | `P0` | `planned` | `security-and-release` | `ISSUE-0076`, `ISSUE-0145` | - | `ISSUE-0146` | - |
