@@ -1,0 +1,22 @@
+# Release-gate direct dependency pins. Regenerate this file whenever the
+# supported Python/runtime profile changes and review the resulting SBOM.
+flet==0.85.3
+flet-web==0.85.3
+pandas==2.3.3
+numpy==2.4.4
+pyarrow==25.0.0
+duckdb==1.5.4
+plotly==6.9.0
+pydantic==2.13.4
+PyYAML==6.0.3
+python-dotenv==1.2.2
+requests==2.34.2
+rich==15.0.0
+joblib==1.5.3
+scikit-learn==1.9.0
+yfinance==1.5.1
+pytest==9.1.1
+hypothesis==6.156.6
+ruff==0.15.20
+mypy==1.20.2
+pytest-timeout==2.4.0
