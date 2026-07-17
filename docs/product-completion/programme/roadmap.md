@@ -22,7 +22,7 @@ This roadmap is the lightweight programme view. `issues/issue_registry.json` own
 | `phase-06-model-research` | `ISSUE-0117–ISSUE-0124` - Training, validation and model governance | 8 | planned=8 | model-governance |
 | `phase-07-backtest-paper-execution` | `ISSUE-0125–ISSUE-0135` - Backtest, paper trading and staged execution | 15 | planned=15 | backtest-and-paper, trading-safety |
 | `phase-08-frontend-api` | `ISSUE-0136–ISSUE-0140` - Typed local API and task-oriented frontend | 16 | implemented_initially=3, in_progress=3, planned=10 | frontend-and-api |
-| `phase-09-quality-release-security` | `ISSUE-0141–ISSUE-0146` - Quality, release, security and resilience | 6 | planned=6 | programme-governance, quality-and-release, security-and-release |
+| `phase-09-quality-release-security` | `ISSUE-0141–ISSUE-0146` - Quality, release, security and resilience | 6 | integrated=1, planned=5 | programme-governance, quality-and-release, security-and-release |
 | `phase-10-audit-documentation-governance` | `ISSUE-0147–ISSUE-0151` - Audit, reproducibility, documentation and governance | 5 | planned=5 | audit-and-reproducibility, documentation, model-governance, programme-governance, quality-and-release |
 | `phase-11-certification` | `ISSUE-0152` - Final certification and programme closure | 1 | planned=1 | programme-governance |
 

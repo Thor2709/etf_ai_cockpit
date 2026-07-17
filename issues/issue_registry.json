@@ -7893,7 +7893,7 @@
       "package_status": "",
       "phase": "phase-09-quality-release-security",
       "priority": "P0",
-      "programme_status": "planned",
+      "programme_status": "integrated",
       "related_issues": [
         "ISSUE-0079",
         "ISSUE-0141"

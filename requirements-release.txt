@@ -20,3 +20,4 @@ hypothesis==6.156.6
 ruff==0.15.20
 mypy==1.20.2
 pytest-timeout==2.4.0
+pip-audit==2.10.1

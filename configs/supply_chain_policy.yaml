@@ -1,0 +1,15 @@
+schema_version: "1.0"
+policy_version: "2026-07-17"
+vulnerability_tool: pip-audit
+dependency_lock: requirements-release.txt
+critical_vulnerabilities: block
+unclassified_vulnerabilities: block
+missing_license_metadata: block
+secret_scan: tracked-source
+signature_algorithm: HMAC-SHA256
+signing_key_env: ETF_COCKPIT_RELEASE_SIGNING_KEY
+update_mode: offline-only
+approved_mitigations: []
+dependency_cooldown_days: 7
+emergency_patch_window_hours: 24
+end_of_life_policy: block

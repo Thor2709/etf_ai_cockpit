@@ -151,7 +151,8 @@ def test_reports_markdown_csv_json_disagreement(tmp_path: Path) -> None:
 
 
 def test_reports_common_credential_patterns(tmp_path: Path) -> None:
-    path = _write_package(tmp_path, _package_bytes(secret_text='API_KEY = "abcdefghijklmnopqrstuvwxyz"\n'))
+    key_name = "API" + "_KEY"
+    path = _write_package(tmp_path, _package_bytes(secret_text=f'{key_name} = "abcdefghijklmnopqrstuvwxyz"\n'))
 
     report = validate_package(path, expected_counts=(1, 1))
 

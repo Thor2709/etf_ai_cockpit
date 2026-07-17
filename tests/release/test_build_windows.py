@@ -35,3 +35,9 @@ def test_pyinstaller_spec_resolves_resources_without_relying_on_missing_file() -
     spec = (ROOT / "ETF_AI_Cockpit.spec").read_text(encoding="utf-8")
 
     assert "globals().get('SPECPATH'" in spec or 'globals().get("SPECPATH"' in spec
+
+
+def test_windows_build_packages_third_party_notices() -> None:
+    script = (ROOT / "scripts" / "build_windows.bat").read_text(encoding="utf-8").lower()
+
+    assert "third_party_notices.md" in script
