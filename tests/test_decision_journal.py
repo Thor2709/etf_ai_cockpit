@@ -218,3 +218,86 @@ def test_journal_supersede_bounds_long_source_id(tmp_path: Path) -> None:
     original = journal.create(_entry(journal_entry_id=source_id), root=tmp_path)
     corrected = journal.supersede(source_id, original.model_copy(update={"thesis": "revised"}), root=tmp_path)
     assert len(corrected.journal_entry_id) <= 128
+
+
+def test_journal_records_decision_lifecycle_evidence_and_immutable_links(tmp_path: Path) -> None:
+    journal = DecisionJournal()
+    stored = journal.create(
+        _entry(
+            decision_state="accepted",
+            evidence_refs=["scoreboard:run-1", "backtest:signal_strategy"],
+            alternatives=["hold_cash", "reduce_position"],
+            confidence=0.78,
+            invalidation_rules=["stale_price", "thesis_break"],
+            review_date="2026-09-30",
+            portfolio_context={"portfolio_id": "long-term", "weight_before": 0.12},
+            instrument_ids=["VWCE"],
+            model_run_ids=["model-run-1"],
+            proposal_ids=["proposal-1"],
+            order_ids=[],
+        ),
+        root=tmp_path,
+    )
+
+    loaded = journal.get(stored.journal_entry_id, root=tmp_path)
+    assert loaded.decision_state == "accepted"
+    assert loaded.evidence_refs == ["scoreboard:run-1", "backtest:signal_strategy"]
+    assert loaded.alternatives == ["hold_cash", "reduce_position"]
+    assert loaded.confidence == 0.78
+    assert loaded.invalidation_rules == ["stale_price", "thesis_break"]
+    assert loaded.review_date == "2026-09-30"
+    assert loaded.portfolio_context["weight_before"] == 0.12
+    assert loaded.model_run_ids == ["model-run-1"]
+    assert loaded.proposal_ids == ["proposal-1"]
+    assert loaded.order_ids == []
+
+    summary = journal.export_summary(root=tmp_path)
+    assert summary["decision_state_counts"] == {"accepted": 1}
+    assert summary["linked_evidence_count"] == 2
+    assert "private thesis text" not in json.dumps(summary)
+
+
+def test_journal_rejects_invalid_decision_state_and_confidence(tmp_path: Path) -> None:
+    journal = DecisionJournal()
+    with pytest.raises(ValueError, match="decision state"):
+        journal.create(_entry(decision_state="unknown"), root=tmp_path)
+    with pytest.raises(ValueError):
+        journal.create(_entry(confidence=1.5), root=tmp_path)
+
+
+def test_journal_reads_legacy_v1_payloads_without_checksum_drift(tmp_path: Path) -> None:
+    journal = DecisionJournal()
+    legacy = {
+        "journal_entry_id": "legacy-1",
+        "created_at": "2026-07-12T00:00:00+00:00",
+        "thesis": "legacy thesis",
+        "decision": "review",
+        "outcome": "pending",
+        "private_notes": None,
+        "supersedes_entry_id": None,
+        "schema_version": "1.0",
+    }
+    legacy_entry = JournalEntry.model_validate(legacy)
+    legacy["checksum"] = _checksum(legacy_entry)
+    root = tmp_path / "legacy"
+    entries_dir = root / "decision_journal" / "entries"
+    entries_dir.mkdir(parents=True)
+    (entries_dir / "legacy-1.json").write_text(json.dumps(legacy), encoding="utf-8")
+    (root / "decision_journal" / "index.json").write_text(
+        json.dumps(
+            [
+                {
+                    "journal_entry_id": "legacy-1",
+                    "created_at": legacy["created_at"],
+                    "checksum": legacy["checksum"],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = journal.get("legacy-1", root=root)
+
+    assert loaded.schema_version == "1.0"
+    assert loaded.decision_state == "pending"
+    assert loaded.thesis == "legacy thesis"

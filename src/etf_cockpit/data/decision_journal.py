@@ -12,7 +12,7 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from etf_cockpit.core.atomic_io import (
     AtomicWriteRequest,
@@ -37,20 +37,44 @@ class JournalEntry(BaseModel):
     outcome: str
     private_notes: str | None = None
     supersedes_entry_id: str | None = None
-    schema_version: str = "1.0"
+    decision_state: str = "pending"
+    evidence_refs: list[str] = Field(default_factory=list)
+    alternatives: list[str] = Field(default_factory=list)
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    invalidation_rules: list[str] = Field(default_factory=list)
+    review_date: str | None = None
+    portfolio_context: dict[str, object] = Field(default_factory=dict)
+    instrument_ids: list[str] = Field(default_factory=list)
+    model_run_ids: list[str] = Field(default_factory=list)
+    proposal_ids: list[str] = Field(default_factory=list)
+    order_ids: list[str] = Field(default_factory=list)
+    schema_version: str = "2.0"
     checksum: str | None = None
 
 
 _ENTRY_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _CHECKSUM_RE = re.compile(r"[0-9a-f]{64}\Z")
 _ALLOWED_OPERATIONS = {"created", "superseded"}
-_SUPPORTED_SCHEMA_VERSIONS = {"1.0"}
+_SUPPORTED_SCHEMA_VERSIONS = {"1.0", "2.0"}
+_ALLOWED_DECISION_STATES = {"pending", "accepted", "rejected", "deferred"}
+_LEGACY_ENTRY_FIELDS = {
+    "journal_entry_id",
+    "created_at",
+    "thesis",
+    "decision",
+    "outcome",
+    "private_notes",
+    "supersedes_entry_id",
+    "schema_version",
+}
 _UNAVAILABLE = "unavailable"
 
 
 def _canonical_values(entry: JournalEntry) -> dict[str, object]:
     values = entry.model_dump(mode="json")
     values.pop("checksum", None)
+    if entry.schema_version == "1.0":
+        return {key: values.get(key) for key in sorted(_LEGACY_ENTRY_FIELDS)}
     return values
 
 
@@ -68,6 +92,24 @@ def _validate_entry_id(entry_id: str) -> str:
     if not _ENTRY_ID_RE.fullmatch(normalised):
         raise ValueError("journal entry id must be a safe path component")
     return normalised
+
+
+def _validate_entry_contract(entry: JournalEntry) -> None:
+    if entry.decision_state not in _ALLOWED_DECISION_STATES:
+        allowed = ", ".join(sorted(_ALLOWED_DECISION_STATES))
+        raise ValueError(f"journal decision state is unsupported; expected one of: {allowed}")
+    for field_name in (
+        "evidence_refs",
+        "alternatives",
+        "invalidation_rules",
+        "instrument_ids",
+        "model_run_ids",
+        "proposal_ids",
+        "order_ids",
+    ):
+        values = getattr(entry, field_name)
+        if any(not str(value).strip() for value in values):
+            raise ValueError(f"journal {field_name} cannot contain empty references")
 
 
 def _policy_metadata() -> tuple[str, str]:
@@ -229,6 +271,7 @@ class DecisionJournal:
                     raise ValueError(f"unsupported journal operation: {operation}")
                 if entry.schema_version not in _SUPPORTED_SCHEMA_VERSIONS:
                     raise ValueError(f"unsupported journal schema version: {entry.schema_version}")
+                _validate_entry_contract(entry)
                 if operation == "superseded":
                     if not entry.supersedes_entry_id:
                         raise ValueError("superseded journal entry must name its source")
@@ -302,6 +345,10 @@ class DecisionJournal:
             raise JournalIntegrityError(f"journal entry is malformed: {journal_entry_id}") from exc
         if entry.schema_version not in _SUPPORTED_SCHEMA_VERSIONS:
             raise JournalIntegrityError(f"journal entry schema is unsupported: {journal_entry_id}")
+        try:
+            _validate_entry_contract(entry)
+        except ValueError as exc:
+            raise JournalIntegrityError(f"journal entry contract is invalid: {journal_entry_id}") from exc
         if not entry.checksum or entry.checksum != _checksum(entry):
             raise JournalIntegrityError(f"journal entry checksum mismatch: {journal_entry_id}")
         if entry.journal_entry_id != row["journal_entry_id"]:
@@ -335,6 +382,10 @@ class DecisionJournal:
                 raise JournalIntegrityError(f"journal entry is malformed: {row['journal_entry_id']}") from exc
             if entry.schema_version not in _SUPPORTED_SCHEMA_VERSIONS:
                 raise JournalIntegrityError(f"journal entry schema is unsupported: {row['journal_entry_id']}")
+            try:
+                _validate_entry_contract(entry)
+            except ValueError as exc:
+                raise JournalIntegrityError(f"journal entry contract is invalid: {entry.journal_entry_id}") from exc
             if not entry.checksum or entry.checksum != _checksum(entry):
                 raise JournalIntegrityError(f"journal entry checksum mismatch: {entry.journal_entry_id}")
             if entry.journal_entry_id != row["journal_entry_id"]:
@@ -369,13 +420,22 @@ class DecisionJournal:
         entries = self.list_entries(root=Path(root))
         policy_version, policy_checksum = _policy_metadata()
         summary: dict[str, object] = {
-            "schema_version": "1.0",
+            "schema_version": "2.0",
             "policy_version": policy_version,
             "policy_checksum": policy_checksum,
             "row_count": len(entries),
             "ids": [entry.journal_entry_id for entry in entries],
             "checksums": [entry.checksum for entry in entries],
             "private_notes_exported": False,
+            "decision_state_counts": {
+                state: sum(1 for entry in entries if entry.decision_state == state)
+                for state in sorted(_ALLOWED_DECISION_STATES)
+                if any(entry.decision_state == state for entry in entries)
+            },
+            "linked_evidence_count": sum(len(entry.evidence_refs) for entry in entries),
+            "linked_model_run_count": sum(len(entry.model_run_ids) for entry in entries),
+            "linked_proposal_count": sum(len(entry.proposal_ids) for entry in entries),
+            "linked_order_count": sum(len(entry.order_ids) for entry in entries),
         }
         atomic_write_json(self._directory(Path(root)) / "export_summary.json", summary)
         return summary

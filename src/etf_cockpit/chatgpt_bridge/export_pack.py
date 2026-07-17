@@ -44,6 +44,7 @@ from etf_cockpit.data.parsed_disclosures import INDEX_METHODOLOGY_RECORDS_PATH, 
 from etf_cockpit.data.fund_documents import FUND_DOCUMENTS_PATH
 from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
 from etf_cockpit.data.health import build_data_health, export_data_health
+from etf_cockpit.data.decision_journal import DecisionJournal, JournalIntegrityError
 from etf_cockpit.data.legal_terms import legal_terms_report
 from etf_cockpit.data.bitemporal import BitemporalStore
 from etf_cockpit.application.architecture import build_report as build_architecture_report
@@ -93,6 +94,7 @@ _COMPLETE_AUDIT_REQUIRED: tuple[tuple[str, str, bool], ...] = (
     ("evidence_export/benchmark_attribution.csv", "derived", True),
     ("evidence_export/edge_cost.csv", "derived", True),
     ("evidence_export/data_health.csv", "derived", True),
+    ("evidence_export/decision_journal_summary.json", "user_record", True),
     ("evidence_export/bitemporal_vintage_manifest.json", "evidence", False),
     ("evidence_export/session.jsonl", "workflow", True),
     ("evidence_export/workflow.jsonl", "workflow", True),
@@ -421,6 +423,7 @@ def export_review_pack(
     trust_manifest_path = export_dir / "evidence_export" / "trust_critical_manifest.json"
     trust_manifest_path.write_text(json.dumps(evidence_manifest, indent=2, default=str), encoding="utf-8")
     _include_file(trust_manifest_path, "trust_critical_manifest.json", evidence_manifest)
+    _export_decision_journal_summary(export_dir / "evidence_export" / "decision_journal_summary.json")
     combined = [
         "# Combined External Audit Packet",
         "",
@@ -468,6 +471,20 @@ def export_review_pack(
             if file.is_file():
                 archive.write(file, arcname=file.relative_to(export_dir))
     return zip_path
+
+
+def _export_decision_journal_summary(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        summary = DecisionJournal().export_summary(root=ROOT / "data")
+    except (JournalIntegrityError, OSError, ValueError) as exc:
+        summary = {
+            "schema_version": "2.0",
+            "status": "unavailable",
+            "private_notes_exported": False,
+            "reason": f"{type(exc).__name__}: journal evidence requires manual review",
+        }
+    path.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
 
 
 def _write_audit_manifest(export_dir: Path, derived_manifest: dict[str, object], evidence_manifest: dict[str, object]) -> None:
