@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "stable_id": "ISSUE-0091",
+  "remote_number": 231,
+  "merged_commit": "15dc107324b2248ec720d8e0747e5476a6a93656",
+  "apply_plan_sha256": "7e79846db05f5ca3bf6629769e37fe7143595a4090021516e91b6fd75c5b63f0",
+  "final_noop_plan_sha256": "a45a159dd8838816e07d1a9de05c51366440f2c9b296f664d00e7062c2041f4d",
+  "apply_summary": {
+    "blocked": 0,
+    "close": 0,
+    "create": 0,
+    "reopen": 0,
+    "update": 1
+  },
+  "final_noop_summary": {
+    "blocked": 0,
+    "close": 0,
+    "create": 0,
+    "reopen": 0,
+    "update": 0
+  },
+  "readback_noop": true
+}
