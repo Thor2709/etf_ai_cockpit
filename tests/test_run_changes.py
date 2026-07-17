@@ -52,6 +52,8 @@ def test_run_comparison_exposes_all_required_dimensions_and_summary() -> None:
                 "news_inventory": 1,
                 "backtest_trust": "weak",
                 "portfolio_risk": "low",
+                "formula_version": "score-engine-v3.0.0",
+                "formula_checksum": "old-checksum",
             },
             {
                 "run_id": "new",
@@ -66,6 +68,8 @@ def test_run_comparison_exposes_all_required_dimensions_and_summary() -> None:
                 "news_inventory": 3,
                 "backtest_trust": "usable",
                 "portfolio_risk": "review",
+                "formula_version": "score-engine-v3.0.0",
+                "formula_checksum": "new-checksum",
             },
         ]
     )
@@ -80,7 +84,9 @@ def test_run_comparison_exposes_all_required_dimensions_and_summary() -> None:
     assert change.news_inventory_changed is True
     assert change.backtest_trust_changed is True
     assert change.portfolio_risk_changed is True
+    assert change.lineage_changed is True
     assert "score" in change.summary.lower()
+    assert "lineage" in change.summary.lower()
 
 
 def test_run_comparison_can_load_history_by_run_ids(tmp_path) -> None:

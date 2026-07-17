@@ -21,6 +21,7 @@ from etf_cockpit.core.atomic_io import (
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.paths import CLEAN_DIR, DERIVED_DIR, RAW_DIR
 from etf_cockpit.core.session_log import log_event
+from etf_cockpit.core.versioning import build_run_manifest, build_version_registry, ensure_run_manifest, write_version_registry
 from etf_cockpit.data.trade_candidate_analysis import latest_candidate_input
 from etf_cockpit.data.contracts import SourceAuthority, redact_text
 from etf_cockpit.data.instrument_identity import IdentityClaim, resolve_identity
@@ -252,6 +253,8 @@ SCORE_HISTORY_COLUMNS = [
     "formula_version",
     "formula_checksum",
     "source_vintage_hash",
+    "version_registry_signature",
+    "dependency_graph_hash",
     "snapshot_hash",
     "execution_allowed",
 ]
@@ -368,6 +371,7 @@ def refresh_static_trust_artifacts(config: AppConfig) -> dict[str, Path]:
         "provider_probe_results": write_provider_probe_results(config),
         "instrument_identity": write_instrument_identity(config),
         "score_formula_registry": write_score_formula_registry(),
+        "version_registry": write_version_registry(),
     }
     identity = _safe_read_parquet(IDENTITY_PATH, IDENTITY_COLUMNS)
     paths["source_conflicts"] = write_source_conflicts(identity)
@@ -425,11 +429,31 @@ def write_trust_artifacts_for_scores(
     ranked_instruments = [str(getattr(score, "display_id", "")) for score in scores[:10]]
     now = _utc_now()
     run_id = f"score_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    manifest_dependencies = (
+        "schema:local-storage",
+        "formula:score-engine-v3",
+        "feature:feature-registry",
+        "policy:gate-policy",
+        "dataset:universe",
+        "policy:portfolio-targets",
+        "policy:risk-limits",
+        "policy:costs",
+        "policy:model-settings",
+        "policy:strategy-scope",
+        "model:baseline",
+    )
     refresh_static_trust_artifacts(config)
+    run_manifest = build_run_manifest(run_id, manifest_dependencies)
     paths = {
         "evidence_ledger": write_evidence_ledger(scores, run_id=run_id, created_at=now),
         "score_components": write_score_components(scores, run_id=run_id, created_at=now),
-        "score_history": append_score_history(scores, run_id=run_id, created_at=now),
+        "score_history": append_score_history(
+            scores,
+            run_id=run_id,
+            created_at=now,
+            version_registry_signature=str(run_manifest["registry_signature"]),
+            dependency_graph_hash=str(run_manifest["dependency_graph_hash"]),
+        ),
         "score_metric_history": append_score_metric_history(scores, run_id=run_id, created_at=now),
         "feature_drivers": write_feature_drivers(scores),
         "correlation_clusters": write_correlation_clusters(
@@ -440,6 +464,11 @@ def write_trust_artifacts_for_scores(
         ),
         "benchmark_attribution": write_benchmark_attribution(scoreboard),
     }
+    paths["version_registry"] = write_version_registry()
+    paths["run_manifest"] = ensure_run_manifest(
+        run_id,
+        manifest_dependencies,
+    )
     log_event(
         event_type="trust_artifacts",
         severity="info",
@@ -774,8 +803,17 @@ def write_score_components(scores: Iterable[Any], *, run_id: str, created_at: st
     return _write_dual(pd.DataFrame(rows, columns=SCORE_COMPONENT_COLUMNS), SCORE_COMPONENTS_PATH)
 
 
-def append_score_history(scores: Iterable[Any], *, run_id: str, created_at: str) -> Path:
+def append_score_history(
+    scores: Iterable[Any],
+    *,
+    run_id: str,
+    created_at: str,
+    version_registry_signature: str = "unavailable",
+    dependency_graph_hash: str = "unavailable",
+) -> Path:
     scores = list(scores)
+    if version_registry_signature == "unavailable":
+        version_registry_signature = str(build_version_registry().get("registry_signature", "unavailable"))
     ranked_ids = {
         str(getattr(score, "display_id", "")): rank
         for rank, score in enumerate(
@@ -844,6 +882,8 @@ def append_score_history(scores: Iterable[Any], *, run_id: str, created_at: str)
                 "formula_version": getattr(getattr(score, "canonical_score", None), "formula_version", "unavailable"),
                 "formula_checksum": getattr(getattr(score, "canonical_score", None), "formula_checksum", "unavailable"),
                 "source_vintage_hash": getattr(getattr(score, "canonical_score", None), "source_vintage_hash", "unavailable"),
+                "version_registry_signature": version_registry_signature,
+                "dependency_graph_hash": dependency_graph_hash,
                 "snapshot_hash": "",
                 "execution_allowed": False,
             }

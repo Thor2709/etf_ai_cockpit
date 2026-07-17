@@ -7,7 +7,12 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import DERIVED_DIR
-from etf_cockpit.application.ui_facade import REQUIRED_CHANGE_DIMENSIONS, compare_runs
+from etf_cockpit.application.ui_facade import (
+    REQUIRED_CHANGE_DIMENSIONS,
+    build_version_registry,
+    compatibility_summary,
+    compare_runs,
+)
 
 
 def what_changed_page(_page: ft.Page, _state: AppState) -> ft.Control:
@@ -27,6 +32,7 @@ def what_changed_page(_page: ft.Page, _state: AppState) -> ft.Control:
         previous = runs[-2] if len(runs) > 1 else None
         report = compare_runs(history, current, previous)
         changes = list(report.changes)
+    version_summary = compatibility_summary(build_version_registry())
 
     search_field = ft.TextField(
         label="Search instrument",
@@ -82,6 +88,7 @@ def what_changed_page(_page: ft.Page, _state: AppState) -> ft.Control:
                 ("News inventory", "yes" if change.news_inventory_changed else "no", theme.AMBER if change.news_inventory_changed else theme.GREEN),
                 ("Backtest trust", "yes" if change.backtest_trust_changed else "no", theme.AMBER if change.backtest_trust_changed else theme.GREEN),
                 ("Portfolio risk", "yes" if change.portfolio_risk_changed else "no", theme.AMBER if change.portfolio_risk_changed else theme.GREEN),
+                ("Lineage", "yes" if change.lineage_changed else "no", theme.AMBER if change.lineage_changed else theme.GREEN),
                 ("Current action", change.current_action or "unavailable", theme.MUTED),
             )
             metric_controls = [
@@ -134,6 +141,12 @@ def what_changed_page(_page: ft.Page, _state: AppState) -> ft.Control:
             ],
             spacing=4,
         )
+    lineage = ft.Text(
+        f"Lineage registry {version_summary['registry_version']} · {version_summary['record_count']} records · "
+        f"signature {str(version_summary['registry_signature'])[:16]}… · cache rebuilds are required when a dependency version or content hash changes.",
+        color=theme.MUTED,
+        selectable=True,
+    )
     _render_rows()
-    body = ft.Column([digest, ft.Row([search_field, dimension_filter, changed_only], wrap=True), table_container], spacing=10)
+    body = ft.Column([digest, lineage, ft.Row([search_field, dimension_filter, changed_only], wrap=True), table_container], spacing=10)
     return ft.Column([panel(ft.Column([section_header("What Changed", "Historical score and warning differences are informational only and cannot override current evidence gates."), body], spacing=10))], expand=True, scroll=ft.ScrollMode.AUTO)

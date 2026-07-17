@@ -27,6 +27,7 @@ COMPLETE_AUDIT_ARTEFACTS = {
     "evidence_export/score_history.csv",
     "evidence_export/score_metric_history.csv",
     "evidence_export/score_formula_registry.json",
+    "evidence_export/version_registry.json",
     "evidence_export/feature_drivers.csv",
     "evidence_export/correlation_clusters.csv",
     "evidence_export/benchmark_attribution.csv",

@@ -20,6 +20,7 @@ REQUIRED_CHANGE_DIMENSIONS = (
     "news_inventory",
     "backtest_trust",
     "portfolio_risk",
+    "lineage",
 )
 
 
@@ -59,6 +60,9 @@ class RunChange:
     current_portfolio_risk: str = "unavailable"
     previous_portfolio_risk: str | None = None
     portfolio_risk_delta: float | None = None
+    lineage_changed: bool = False
+    current_lineage: str = "unavailable"
+    previous_lineage: str | None = None
     dimension_changes: Mapping[str, bool] = field(default_factory=dict)
     summary: str = ""
 
@@ -199,6 +203,10 @@ def _change_for(instrument_id: str, current: Mapping[str, Any], old: Mapping[str
         changed = old is not None and current_value != previous_value
         dimensions[key] = changed
         values[key] = (current_value, previous_value, changed)
+    current_lineage = _lineage_marker(current)
+    previous_lineage = None if old is None else _lineage_marker(old)
+    dimensions["lineage"] = old is not None and current_lineage != previous_lineage
+    values["lineage"] = (current_lineage, previous_lineage, dimensions["lineage"])
     dimensions["score"] = old is not None and score_delta not in (None, 0)
     dimensions["rank"] = old is not None and rank_delta not in (None, 0)
     warnings_added, warnings_removed = _warning_delta(values["warnings"][0], values["warnings"][1])
@@ -241,6 +249,9 @@ def _change_for(instrument_id: str, current: Mapping[str, Any], old: Mapping[str
         current_portfolio_risk=values["portfolio_risk"][0],
         previous_portfolio_risk=values["portfolio_risk"][1],
         portfolio_risk_delta=risk_delta,
+        lineage_changed=dimensions["lineage"],
+        current_lineage=values["lineage"][0],
+        previous_lineage=values["lineage"][1],
         dimension_changes=dimensions,
         summary=summary,
     )
@@ -273,6 +284,7 @@ def _change_summary(
         "news_inventory": "news inventory",
         "backtest_trust": "backtest trust",
         "portfolio_risk": "portfolio risk",
+        "lineage": "lineage",
     }
     for key, label in labels.items():
         current, previous, changed = values[key]
@@ -368,6 +380,17 @@ def _stable_marker(value: Any) -> str:
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
     return str(value).strip() or "unavailable"
+
+
+def _lineage_marker(row: Mapping[str, Any]) -> str:
+    fields = (
+        "version_registry_signature",
+        "dependency_graph_hash",
+        "formula_version",
+        "formula_checksum",
+        "source_vintage_hash",
+    )
+    return "|".join(f"{field}={_stable_marker(_first(row, field))}" for field in fields)
 
 
 def _float(value: object) -> float | None:

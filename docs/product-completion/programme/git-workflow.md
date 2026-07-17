@@ -1,7 +1,7 @@
 # Git workflow
 
-- Working branch: `implementation/step2-issue-0074-score-engine-20260717-v2`.
-- Base: `ecb5e3e16b2483d77f39f71994523d11a075a951` (`origin/main`).
+- Working branch: `implementation/step2-issue-0075-version-registries-20260717`.
+- Base: `da51319ee9cfc98e4e2a3cfb6604e12ba7596fcd` (`origin/main`).
 - Worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\step2-integration-20260717`.
 - Keep the primary checkout and its unrelated untracked files untouched.
 - Review `git diff`, run targeted checks, commit the focused change, then use capability-based GitHub checks before any push or issue apply.

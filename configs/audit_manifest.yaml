@@ -16,6 +16,7 @@ required:
   - {path: evidence_export/score_components.csv, schema_version: 1, source_authority: derived, allow_unavailable: true}
   - {path: evidence_export/score_history.csv, schema_version: 1, source_authority: derived, allow_unavailable: true}
   - {path: evidence_export/score_metric_history.csv, schema_version: 1, source_authority: derived, allow_unavailable: true}
+  - {path: evidence_export/version_registry.json, schema_version: 1, source_authority: derived, allow_unavailable: false}
   - {path: evidence_export/feature_drivers.csv, schema_version: 1, source_authority: derived, allow_unavailable: true}
   - {path: evidence_export/correlation_clusters.csv, schema_version: 1, source_authority: derived, allow_unavailable: true}
   - {path: evidence_export/benchmark_attribution.csv, schema_version: 1, source_authority: derived, allow_unavailable: true}

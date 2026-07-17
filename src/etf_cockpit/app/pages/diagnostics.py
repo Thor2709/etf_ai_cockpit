@@ -15,7 +15,7 @@ from etf_cockpit.core.paths import DATA_DIR, LOG_DIR, MODEL_DIR, ROOT
 from etf_cockpit.core.session_log import read_session_events, session_log_status
 from etf_cockpit.core.errors import ErrorStore
 from etf_cockpit.core.timing import timing_summary
-from etf_cockpit.application.ui_facade import TransactionalStore
+from etf_cockpit.application.ui_facade import TransactionalStore, build_version_registry, compatibility_summary
 from etf_cockpit.operations.event_store import load_events_with_tail_recovery
 
 
@@ -41,6 +41,7 @@ def _torch_cuda_status() -> str:
 def diagnostics_page(_page: ft.Page, state: AppState) -> ft.Control:
     architecture = build_architecture_report(ROOT)
     storage = _storage_status()
+    versions = compatibility_summary(build_version_registry(ROOT))
     lines = [
         f"Python: {sys.version}",
         f"Executable: {sys.executable}",
@@ -59,6 +60,8 @@ def diagnostics_page(_page: ft.Page, state: AppState) -> ft.Control:
         f"toto2: {_module_status('toto2')}",
         f"Presentation boundary: {architecture['status']} ({architecture['violation_count']} violations)",
         f"Local transactional storage: {storage}",
+        f"Version registry: {versions['record_count']} records | {versions['available_count']} available | signature {str(versions['registry_signature'])[:16]}…",
+        f"Compatibility: forward-only migrations={versions['forward_only_migrations']} | immutable-after-run={versions['immutable_after_run']} | rebuild-sensitive={versions['rebuild_sensitive_count']}",
     ]
     return ft.Column(
         [
