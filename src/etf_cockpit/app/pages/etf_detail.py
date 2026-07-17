@@ -7,10 +7,17 @@ from etf_cockpit.app.components.cards import metric_card, panel, section_header
 from etf_cockpit.app.components.simple_scores import score_colour
 from etf_cockpit.app.components.risk_badges import risk_badge
 from etf_cockpit.app.state import AppState
-from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH, latest_fundamental_rows, load_fundamental_evidence
-from etf_cockpit.data.news_context import NEWS_CLEAN_PATH, load_news_items, sort_news_items
-from etf_cockpit.models.forecast_scores import forecast_score_details
-from etf_cockpit.signals.simple_scores import decision_from_score, raw_to_score_10
+from etf_cockpit.application.ui_facade import (
+    FUNDAMENTAL_CLEAN_PATH,
+    NEWS_CLEAN_PATH,
+    decision_from_score,
+    forecast_score_details,
+    latest_fundamental_rows,
+    load_fundamental_evidence,
+    load_news_items,
+    raw_to_score_10,
+    sort_news_items,
+)
 
 
 def etf_detail_page(page: ft.Page, state: AppState) -> ft.Control:

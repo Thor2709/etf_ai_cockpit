@@ -5027,7 +5027,7 @@
       "package_status": "",
       "phase": "phase-01-governance-scope",
       "priority": "P0",
-      "programme_status": "planned",
+      "programme_status": "integrated",
       "related_issues": [],
       "required_inputs": [],
       "security_and_audit": "Sensitive provider/broker objects never enter serialised UI state; architecture report is included in audit evidence.",

@@ -11,7 +11,7 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import DATA_DIR
-from etf_cockpit.data.decision_journal import DecisionJournal, JournalEntry, JournalIntegrityError
+from etf_cockpit.application.ui_facade import DecisionJournal, JournalEntry, JournalIntegrityError
 
 
 def decision_journal_page(page: ft.Page | None, state: AppState) -> ft.Control:

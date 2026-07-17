@@ -9,10 +9,17 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import CONFIG_DIR, DATA_DIR, DERIVED_DIR, ROOT
-from etf_cockpit.data.backup_restore import commit_restore, create_backup, validate_restore
-from etf_cockpit.data.decision_journal import DecisionJournal, JournalIntegrityError
-from etf_cockpit.data.export_tables import export_table
-from etf_cockpit.data.import_export import ImportService, ImportPreview, validate_import
+from etf_cockpit.application.ui_facade import (
+    DecisionJournal,
+    ImportPreview,
+    ImportService,
+    JournalIntegrityError,
+    commit_restore,
+    create_backup,
+    export_table,
+    validate_import,
+    validate_restore,
+)
 
 
 def import_export_page(page: ft.Page, state: AppState) -> ft.Control:

@@ -247,6 +247,7 @@ def test_audit_manifest_includes_governance_checksums_version_and_diagnostic_mar
     required = {item["path"] for item in manifest["required"]}
     governance = manifest["governance"]
     assert "evidence_export/governance/policy_checksums.json" in required
+    assert "evidence_export/governance/presentation-boundary-report.json" in required
     assert "evidence_export/governance/policy_checksums.json" in manifest["checksums"]
     assert governance["schema_version"] == "1.0"
     assert governance["diagnostic_mode"] is False

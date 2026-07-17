@@ -1,0 +1,16 @@
+{
+  "allowed_implementation_modules": [
+    "etf_cockpit.app.state",
+    "etf_cockpit.application.ui_facade"
+  ],
+  "boundary": "presentation-to-application",
+  "presentation_directories": [
+    "src\\etf_cockpit\\app\\pages",
+    "src\\etf_cockpit\\app\\components",
+    "src\\etf_cockpit\\app\\selectors"
+  ],
+  "schema_version": "1.0",
+  "status": "passed",
+  "violation_count": 0,
+  "violations": []
+}

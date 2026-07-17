@@ -10,7 +10,8 @@ import flet as ft
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
-from etf_cockpit.core.paths import DATA_DIR, LOG_DIR, MODEL_DIR
+from etf_cockpit.application.architecture import build_report as build_architecture_report
+from etf_cockpit.core.paths import DATA_DIR, LOG_DIR, MODEL_DIR, ROOT
 from etf_cockpit.core.session_log import read_session_events, session_log_status
 from etf_cockpit.core.errors import ErrorStore
 from etf_cockpit.core.timing import timing_summary
@@ -37,6 +38,7 @@ def _torch_cuda_status() -> str:
 
 
 def diagnostics_page(_page: ft.Page, state: AppState) -> ft.Control:
+    architecture = build_architecture_report(ROOT)
     lines = [
         f"Python: {sys.version}",
         f"Executable: {sys.executable}",
@@ -53,6 +55,7 @@ def diagnostics_page(_page: ft.Page, state: AppState) -> ft.Control:
         f"torch CUDA: {_torch_cuda_status()}",
         f"timesfm: {_module_status('timesfm')}",
         f"toto2: {_module_status('toto2')}",
+        f"Presentation boundary: {architecture['status']} ({architecture['violation_count']} violations)",
     ]
     return ft.Column(
         [

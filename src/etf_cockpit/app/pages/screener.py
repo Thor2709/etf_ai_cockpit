@@ -10,7 +10,7 @@ import pandas as pd
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, metric_card, panel, section_header
 from etf_cockpit.app.state import AppState
-from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH, latest_fundamental_rows, load_fundamental_evidence
+from etf_cockpit.application.ui_facade import FUNDAMENTAL_CLEAN_PATH, latest_fundamental_rows, load_fundamental_evidence
 
 
 _FUNDAMENTAL_FIELDS = (

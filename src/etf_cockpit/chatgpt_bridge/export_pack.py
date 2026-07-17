@@ -41,6 +41,7 @@ from etf_cockpit.data.parsed_disclosures import INDEX_METHODOLOGY_RECORDS_PATH, 
 from etf_cockpit.data.fund_documents import FUND_DOCUMENTS_PATH
 from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
 from etf_cockpit.data.health import build_data_health, export_data_health
+from etf_cockpit.application.architecture import build_report as build_architecture_report
 from etf_cockpit.governance.product_scope import (
     load_authority_matrix,
     load_feature_registry,
@@ -471,6 +472,7 @@ def _write_audit_manifest(export_dir: Path, derived_manifest: dict[str, object],
         *[(path, authority, allow) for path, authority, allow in _COMPLETE_AUDIT_REQUIRED],
         ("evidence_export/trust_critical_manifest.json", "evidence", False),
         ("evidence_export/governance/policy_checksums.json", "governance", False),
+        ("evidence_export/governance/presentation-boundary-report.json", "architecture", False),
         ("01_portfolio_summary.json", "user_record", False),
         ("evidence_export/candle_context.csv", "derived", True),
         ("evidence_export/project_docs/open.md", "issue_dossier", True),
@@ -622,6 +624,11 @@ def _export_trust_critical_evidence(export_dir: Path, config: AppConfig) -> dict
     _copy_evidence_file(CANDLE_CONTEXT_PATH, evidence_root, manifest)
     _copy_evidence_tree(FUNDAMENTAL_RAW_DIR, evidence_root / "raw_fundamentals", manifest)
     _copy_evidence_tree(NEWS_RAW_DIR, evidence_root / "raw_news_context", manifest)
+
+    architecture_path = evidence_root / "governance" / "presentation-boundary-report.json"
+    architecture_path.parent.mkdir(parents=True, exist_ok=True)
+    architecture_path.write_text(json.dumps(build_architecture_report(ROOT), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _include_file(architecture_path, "governance/presentation-boundary-report.json", manifest)
 
     session_destination = evidence_root / "session.jsonl"
     if copy_session_log_to(session_destination):

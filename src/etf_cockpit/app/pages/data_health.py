@@ -7,7 +7,7 @@ from etf_cockpit.app.components.cards import evidence_chip, panel, section_heade
 from etf_cockpit.app.components.flet_compat import border_all
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import ROOT
-from etf_cockpit.data.health import DataHealthReport, DataHealthRow, DataHealthStatus, build_data_health, export_data_health, filter_data_health_rows
+from etf_cockpit.application.ui_facade import DataHealthReport, DataHealthRow, DataHealthStatus, build_data_health, export_data_health, filter_data_health_rows
 
 
 def data_health_page(page: ft.Page, state: AppState) -> ft.Control:
