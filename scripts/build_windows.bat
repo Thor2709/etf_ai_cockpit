@@ -105,6 +105,7 @@ copy requirements-parsers.txt "%OUTDIR%\requirements-parsers.txt" >nul
 copy requirements-models.txt "%OUTDIR%\requirements-models.txt" >nul
 if exist CHANGELOG.md copy CHANGELOG.md "%OUTDIR%\CHANGELOG.md" >nul
 if exist RELEASE_NOTES.md copy RELEASE_NOTES.md "%OUTDIR%\RELEASE_NOTES.md" >nul
+if exist packaging\THIRD_PARTY_NOTICES.md copy packaging\THIRD_PARTY_NOTICES.md "%OUTDIR%\THIRD_PARTY_NOTICES.md" >nul
 
 if "%NATIVE_PACK_READY%"=="1" (
   mkdir "%OUTDIR%\native"

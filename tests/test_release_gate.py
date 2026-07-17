@@ -27,6 +27,19 @@ def test_release_signature_detects_manifest_tampering() -> None:
     assert not release_gate.verify_manifest_signature(payload + b"tampered", signature, key)
 
 
+def test_sbom_records_source_and_packaged_artifact_evidence(tmp_path: Path) -> None:
+    source = release_gate.build_source_manifest(tmp_path)
+    artifacts = {"manifest_sha256": "artifact-manifest", "files": [{"path": "app.exe"}]}
+    sbom = release_gate.build_sbom(tmp_path, source, {"dependency_lock": "missing.txt"}, artifact_manifest=artifacts)
+
+    app = next(component for component in sbom["components"] if component["bom-ref"] == "etf-ai-cockpit")
+    properties = app["properties"]
+    values = {str(row["name"]): str(row["value"]) for row in properties}
+    assert values["source-manifest-sha256"] == str(source["manifest_sha256"])
+    assert values["artifact-manifest-sha256"] == "artifact-manifest"
+    assert values["artifact-file-count"] == "1"
+
+
 def test_run_gate_writes_machine_readable_failure_evidence(tmp_path: Path, monkeypatch) -> None:
     (tmp_path / "configs").mkdir()
     (tmp_path / "configs" / "release_policy.yaml").write_text(

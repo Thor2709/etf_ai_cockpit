@@ -362,7 +362,13 @@ def _package_root(root: Path, policy: dict[str, object]) -> Path | None:
     return None
 
 
-def build_sbom(root: Path, source_manifest: dict[str, object], policy: dict[str, object]) -> dict[str, object]:
+def build_sbom(
+    root: Path,
+    source_manifest: dict[str, object],
+    policy: dict[str, object],
+    *,
+    artifact_manifest: dict[str, object] | None = None,
+) -> dict[str, object]:
     """Build a deterministic CycloneDX 1.5 SBOM for the release gate inputs."""
 
     components: list[dict[str, object]] = [
@@ -377,6 +383,12 @@ def build_sbom(root: Path, source_manifest: dict[str, object], policy: dict[str,
             ],
         }
     ]
+    if artifact_manifest is not None:
+        components[0]["properties"] = [
+            *list(components[0].get("properties", [])),
+            {"name": "artifact-manifest-sha256", "value": str(artifact_manifest["manifest_sha256"])},
+            {"name": "artifact-file-count", "value": str(len(artifact_manifest.get("files", [])))},
+        ]
     try:
         required = _lock_requirements(root, str(policy.get("dependency_lock", "requirements-release.txt")))
     except (FileNotFoundError, ValueError):
@@ -513,7 +525,7 @@ def run_gate(
         command = (sys.executable, str(smoke_script), "--mode", "offline", "--port", str(_free_port()), "--timeout", "30")
         state.add(run_command(smoke_root, output, "package_smoke", command))
 
-    sbom = build_sbom(root, source, policy)
+    sbom = build_sbom(root, source, policy, artifact_manifest=artifacts)
     _write_json(output / "sbom.cdx.json", sbom)
     state.add(CheckResult("sbom", "passed", True, "CycloneDX 1.5 deterministic SBOM"))
 
@@ -522,6 +534,7 @@ def run_gate(
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
         "git": git_snapshot(root),
         "python": sys.version.split()[0],
+        "project_version": _project_version(root),
         "policy": policy,
         "source_manifest_sha256": source["manifest_sha256"],
         "artifact_manifest_sha256": artifacts["manifest_sha256"],
