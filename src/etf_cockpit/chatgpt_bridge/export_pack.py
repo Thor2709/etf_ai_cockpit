@@ -16,6 +16,7 @@ from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.paths import AUDIT_PACKETS_DIR, CONFIG_DIR, DERIVED_DIR, ROOT, STATEMENT_FACTS_PATH
 from etf_cockpit.core.session_log import SESSION_LOG_PATH, copy_session_log_to
 from etf_cockpit.core.types import DataQualityReport, SignalResult
+from etf_cockpit.core.versioning import RUN_MANIFEST_DIR, VERSION_REGISTRY_PATH, write_version_registry
 from etf_cockpit.data.fx_data import fx_data_inventory
 from etf_cockpit.data.manual_notes import MANUAL_NEWS_CLEAN_PATH, load_manual_news, manual_news_markdown
 from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH, FUNDAMENTAL_RAW_DIR, load_fundamental_evidence
@@ -84,6 +85,7 @@ _COMPLETE_AUDIT_REQUIRED: tuple[tuple[str, str, bool], ...] = (
     ("evidence_export/score_history.csv", "derived", True),
     ("evidence_export/score_metric_history.csv", "derived", True),
     ("evidence_export/score_formula_registry.json", "derived", False),
+    ("evidence_export/version_registry.json", "derived", False),
     ("evidence_export/feature_drivers.csv", "derived", True),
     ("evidence_export/correlation_clusters.csv", "derived", True),
     ("evidence_export/benchmark_attribution.csv", "derived", True),
@@ -620,6 +622,8 @@ def _export_trust_critical_evidence(export_dir: Path, config: AppConfig) -> dict
     manifest: dict[str, object] = {"included": [], "missing": [], "checksums": {}}
     if not SCORE_FORMULA_REGISTRY_PATH.exists():
         write_score_formula_registry()
+    if not VERSION_REGISTRY_PATH.exists():
+        write_version_registry()
 
     for source_path in (
         PROVIDER_PROBE_PATH,
@@ -630,6 +634,7 @@ def _export_trust_critical_evidence(export_dir: Path, config: AppConfig) -> dict
         SCORE_HISTORY_PATH,
         SCORE_METRIC_HISTORY_PATH,
         SCORE_FORMULA_REGISTRY_PATH,
+        VERSION_REGISTRY_PATH,
         FEATURE_DRIVERS_PATH,
         CORRELATION_CLUSTERS_PATH,
         BENCHMARK_ATTRIBUTION_PATH,
@@ -650,6 +655,7 @@ def _export_trust_critical_evidence(export_dir: Path, config: AppConfig) -> dict
     ):
         _copy_evidence_file(source_path, evidence_root, manifest)
     _copy_evidence_file(CANDLE_CONTEXT_PATH, evidence_root, manifest)
+    _copy_evidence_tree(RUN_MANIFEST_DIR, evidence_root / "run_manifests", manifest)
     _copy_evidence_tree(FUNDAMENTAL_RAW_DIR, evidence_root / "raw_fundamentals", manifest)
     _copy_evidence_tree(NEWS_RAW_DIR, evidence_root / "raw_news_context", manifest)
 

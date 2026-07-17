@@ -78,6 +78,11 @@ _COLUMNS = [
     "blocked_by",
     "source_snapshot_hash",
     "score_schema_version",
+    "formula_version",
+    "formula_checksum",
+    "source_vintage_hash",
+    "version_registry_signature",
+    "dependency_graph_hash",
     "snapshot_hash",
 ]
 LEGACY_COLUMNS = ["run_id", "run_completed_at", "instrument_id", "final_combined_score_10", "final_action", "blocked_by", "snapshot_hash"]
@@ -239,6 +244,11 @@ def append_score_run(
         ("reason_full", ""),
         ("source_snapshot_hash", ""),
         ("score_schema_version", "2.0"),
+        ("formula_version", "unavailable"),
+        ("formula_checksum", "unavailable"),
+        ("source_vintage_hash", "unavailable"),
+        ("version_registry_signature", "unavailable"),
+        ("dependency_graph_hash", "unavailable"),
     ):
         if column not in frame.columns:
             frame[column] = default
@@ -519,6 +529,11 @@ def _normalise_history_frame(frame: pd.DataFrame) -> pd.DataFrame:
         ("reason_full", ""),
         ("source_snapshot_hash", ""),
         ("score_schema_version", "2.0"),
+        ("formula_version", "unavailable"),
+        ("formula_checksum", "unavailable"),
+        ("source_vintage_hash", "unavailable"),
+        ("version_registry_signature", "unavailable"),
+        ("dependency_graph_hash", "unavailable"),
         ("migration_version", "2.0"),
         ("gate_policy_version", "unavailable"),
         ("gate_policy_checksum", "unavailable"),

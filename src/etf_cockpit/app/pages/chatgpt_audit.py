@@ -8,7 +8,7 @@ import flet as ft
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
-from etf_cockpit.application.ui_facade import extract_and_validate_audit_archive
+from etf_cockpit.application.ui_facade import build_version_registry, compatibility_summary, extract_and_validate_audit_archive
 from etf_cockpit.audit.local_llm import (
     build_local_audit_context,
     check_local_llm_status,
@@ -25,6 +25,7 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
     output = ft.Text(state.last_message, color=theme.MUTED, selectable=True)
     llm_output = ft.Text("Local LLM audit has not been run in this session.", color=theme.MUTED, selectable=True)
     authority_matrix = load_authority_matrix()
+    version_summary = compatibility_summary(build_version_registry())
 
     def export_pack(_event: ft.ControlEvent) -> None:
         state.begin_activity("Export audit packet", "Writing audit packet")
@@ -103,6 +104,11 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
                             else "Authority matrix unavailable; audit remains fail-closed and requires manual review.",
                             key="chatgpt.authority-matrix",
                             color=theme.AMBER,
+                            selectable=True,
+                        ),
+                        ft.Text(
+                            f"Lineage registry: {version_summary['record_count']} records · signature {str(version_summary['registry_signature'])[:16]}… · immutable after run",
+                            color=theme.MUTED,
                             selectable=True,
                         ),
                     ],

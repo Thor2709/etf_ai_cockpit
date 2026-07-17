@@ -18,6 +18,7 @@ from etf_cockpit.core.logging import append_jsonl, configure_logging
 from etf_cockpit.core.paths import BACKTESTS_DIR, FORECASTS_DIR, ensure_project_dirs
 from etf_cockpit.core.timing import record_cache_event, timed_step
 from etf_cockpit.core.types import DataQualityReport, ForecastResult, SignalResult
+from etf_cockpit.core.versioning import ensure_run_manifest
 from etf_cockpit.data.duckdb_store import initialise_store, load_holdings, load_prices, write_features
 from etf_cockpit.data.fx_data import commit_fx_import, fx_data_inventory, load_fx_rates, validate_fx_rates
 from etf_cockpit.data.import_pipeline import commit_price_import, rollback_latest_price_import as rollback_price_store
@@ -552,6 +553,10 @@ class FeatureService:
         benchmark = self.config.universe.enabled_ids[0] if self.config.universe.enabled_ids else None
         features = compute_features(frame, benchmark_etf_id=benchmark)
         write_features(features)
+        ensure_run_manifest(
+            f"features_{as_of_date.isoformat() if as_of_date else 'latest'}",
+            ("schema:local-storage", "dataset:prices", "dataset:universe"),
+        )
         return features
 
 
@@ -595,6 +600,18 @@ class ForecastService:
         forecasts.extend(self._run_timesfm_forecasts(pivot, etf_ids, horizons, as_of_date, run_id))
         forecasts.extend(self._run_toto_forecasts(price_frame, etf_ids, horizons, as_of_date, run_id))
         self._write_forecasts(forecasts, as_of_date, output_path=output_path)
+        ensure_run_manifest(
+            run_id,
+            (
+                "schema:local-storage",
+                "dataset:prices",
+                "policy:model-settings",
+                "formula:score-engine-v3",
+                "model:baseline",
+                "model:timesfm",
+                "model:toto",
+            ),
+        )
         return forecasts
 
     def _run_timesfm_forecasts(
@@ -773,6 +790,18 @@ class BacktestService:
             BACKTESTS_DIR / "signal_log.csv",
         ):
             _write_universe_cache_metadata(output, self.universe_revision)
+        ensure_run_manifest(
+            "backtest",
+            (
+                "schema:local-storage",
+                "dataset:prices",
+                "formula:score-engine-v3",
+                "policy:portfolio-targets",
+                "policy:risk-limits",
+                "policy:costs",
+                "model:baseline",
+            ),
+        )
         append_jsonl("model_runs.jsonl", "backtest_completed", {"ai_added_value": report.ai_added_value})
         return report
 

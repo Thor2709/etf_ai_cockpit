@@ -5201,7 +5201,7 @@
       "package_status": "",
       "phase": "phase-01-governance-scope",
       "priority": "P0",
-      "programme_status": "planned",
+      "programme_status": "integrated",
       "related_issues": [],
       "required_inputs": [],
       "security_and_audit": "Hash-chain lineage records; secrets and private notes are excluded from public manifests.",
@@ -8825,7 +8825,7 @@
   ],
   "schema_version": "2.0",
   "source_of_truth": {
-    "baseline_commit": "b7741b9ea91375a004b2d75a9661cb2b150bb117",
+    "baseline_commit": "ecb5e3e16b2483d77f39f71994523d11a075a951",
     "closed_ledger_sha256": "b8e67fc4701332aea4b5335a66ffc648eb51cc3ef53725908d9bba55c23bafed",
     "open_ledger_sha256": "d667c5ed88ce41585437dc72b57d38b1c0a79a51f3c8cd44059740b7ea27a95e",
     "package_registry_sha256": "ac2cbb21618220700c92f75dab6290e5c52e49e48ae72843fde061d3f79fd77b",
