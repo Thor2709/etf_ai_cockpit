@@ -53,6 +53,7 @@ def create_portfolio_review_report(
             "blocked_by": list(signal.blocked_by),
             "warnings": list(signal.warnings),
             "gate_evidence": list(payload.get("gates", [])),
+            "canonical_score": payload.get("canonical_score"),
         }
         if signal.blocked_by or signal.action in {"manual_review", "no_trade"}:
             blocked.append(row)

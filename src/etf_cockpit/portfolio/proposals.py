@@ -23,6 +23,7 @@ def log_trade_proposals(signals: list[SignalResult], run_id: str) -> list[dict[s
                     "suggested_new_weight": signal.suggested_new_weight,
                     "confidence": signal.confidence,
                     "reason": signal.reason_short,
+                    "canonical_score": signal.canonical_score.as_dict() if signal.canonical_score else None,
                 }
             )
     append_jsonl("trade_proposals.jsonl", "manual_trade_proposals", {"proposals": proposals}, run_id=run_id)
@@ -144,4 +145,5 @@ def _proposal_row(signal: SignalResult) -> dict[str, object]:
         "reason": signal.supporting_metrics.get("reason_full", signal.reason_long),
         "blocked_by": signal.blocked_by,
         "executable_authority": False,
+        "canonical_score": signal.canonical_score.as_dict() if signal.canonical_score else None,
     }

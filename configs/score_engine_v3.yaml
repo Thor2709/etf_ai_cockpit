@@ -1,0 +1,39 @@
+schema_version: 1
+formula_version: score-engine-v3.0.0
+horizons:
+  primary: 1-3 months
+asset_policies:
+  ETF:
+    attractiveness:
+      momentum: 0.28
+      trend: 0.24
+      relative_strength: 0.18
+      etf_exposure: 0.12
+      stock_value: 0.00
+      stock_quality: 0.00
+    expected_return:
+      baseline: 0.60
+      timesfm: 0.20
+      toto: 0.20
+    risk_implementation:
+      risk: 0.45
+      liquidity_cost: 0.25
+      rebalance: 0.15
+      concentration: 0.15
+  STOCK:
+    attractiveness:
+      momentum: 0.20
+      trend: 0.18
+      relative_strength: 0.14
+      etf_exposure: 0.00
+      stock_value: 0.24
+      stock_quality: 0.24
+    expected_return:
+      baseline: 0.60
+      timesfm: 0.20
+      toto: 0.20
+    risk_implementation:
+      risk: 0.45
+      liquidity_cost: 0.25
+      rebalance: 0.15
+      concentration: 0.15

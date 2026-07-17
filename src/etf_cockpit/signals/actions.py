@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Mapping
+
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.governance.migrations import LegacyAction
 from etf_cockpit.signals.research_states import (
@@ -26,13 +28,26 @@ _MANUAL_REVIEW_CODES = {
 def preliminary_action(
     config: AppConfig,
     *,
-    total_score: float,
+    total_score: float | None = None,
+    score_distribution: Mapping[str, float | None] | None = None,
     confidence: float,
     current_weight: float,
     drift: float,
     hard_band: float,
     trend_200: float,
 ) -> LegacyAction:
+    if score_distribution is not None:
+        return _distribution_action(
+            config,
+            score_distribution=score_distribution,
+            confidence=confidence,
+            current_weight=current_weight,
+            drift=drift,
+            hard_band=hard_band,
+            trend_200=trend_200,
+        )
+    if total_score is None:
+        return "hold"
     limits = config.risks.signal_limits
     if drift > hard_band and total_score <= 0.35 and confidence >= limits.min_confidence_for_trim:
         return "trim"
@@ -46,6 +61,60 @@ def preliminary_action(
         return "buy" if current_weight <= 0 else "add"
     if limits.no_trade_lower < total_score < limits.no_trade_upper:
         return "no_trade" if abs(drift) <= hard_band else "hold"
+    return "hold"
+
+
+def _distribution_action(
+    config: AppConfig,
+    *,
+    score_distribution: Mapping[str, float | None],
+    confidence: float,
+    current_weight: float,
+    drift: float,
+    hard_band: float,
+    trend_200: float,
+) -> LegacyAction:
+    """Map separated score distributions to a compatibility intent.
+
+    Order and review policy consume attractiveness, expected return,
+    risk/implementation and evidence coverage together. No legacy composite is
+    used for this path.
+    """
+
+    attractiveness = score_distribution.get("attractiveness")
+    expected_return = score_distribution.get("expected_return")
+    risk = score_distribution.get("risk_implementation")
+    evidence = score_distribution.get("evidence_confidence")
+    coverage = score_distribution.get("coverage")
+    if any(value is None for value in (attractiveness, expected_return, risk, evidence, coverage)):
+        return "hold"
+    if float(coverage) < 0.5 or float(evidence) < 0.5:
+        return "hold"
+
+    limits = config.risks.signal_limits
+    if drift > hard_band and (float(attractiveness) < 0.45 or float(expected_return) < 0.45 or float(risk) < 0.40):
+        if confidence >= limits.min_confidence_for_trim:
+            return "trim"
+    if drift < -hard_band and float(attractiveness) >= 0.55 and float(expected_return) >= 0.55 and float(risk) >= 0.45:
+        if confidence >= limits.min_confidence_for_buy:
+            return "buy" if current_weight <= 0 else "add"
+    if (
+        float(attractiveness) <= 0.35
+        and float(expected_return) <= 0.40
+        and float(risk) <= 0.40
+        and confidence >= 0.65
+        and current_weight > 0
+        and trend_200 <= 0
+    ):
+        return "sell"
+    if current_weight > 0 and (float(attractiveness) < 0.45 or float(expected_return) < 0.45 or float(risk) < 0.40):
+        if confidence >= limits.min_confidence_for_trim:
+            return "trim"
+    if float(attractiveness) >= 0.60 and float(expected_return) >= 0.55 and float(risk) >= 0.50:
+        if confidence >= limits.min_confidence_for_buy:
+            return "buy" if current_weight <= 0 else "add"
+    if limits.no_trade_lower < float(attractiveness) < limits.no_trade_upper and abs(drift) <= hard_band:
+        return "no_trade"
     return "hold"
 
 

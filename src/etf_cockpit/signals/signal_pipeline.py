@@ -16,6 +16,7 @@ from etf_cockpit.portfolio.costs import estimated_cost_bps
 from etf_cockpit.portfolio.holdings import portfolio_value
 from etf_cockpit.portfolio.rebalancing import proposed_new_weight, suggested_trade_value
 from etf_cockpit.signals.actions import advisory_action, apply_gate_result, preliminary_action
+from etf_cockpit.signals.canonical_scoring import canonical_score_from_signal_row
 from etf_cockpit.signals.explanations import explain_signal
 from etf_cockpit.signals.gates import evaluate_risk_gates
 from etf_cockpit.signals.scoring import component_scores, row_components
@@ -57,12 +58,22 @@ def generate_signals(
     cash_weight = max(0.0, 1.0 - float(holdings["current_weight"].sum()))
     signals: list[SignalResult] = []
     for _, row in scored.sort_values("total_score", ascending=False).iterrows():
+        canonical_score = canonical_score_from_signal_row(
+            row,
+            config,
+            signal_date,
+            toto_available=toto_available,
+            timesfm_available=timesfm_available,
+        )
+        canonical_total_score = canonical_score.legacy_composite_raw
+        total_score = float(canonical_total_score if canonical_total_score is not None else row["total_score"])
         current_weight = float(row.get("current_weight") or 0.0)
         target_weight = float(row.get("target_weight") or 0.0)
         hard_band = float(row.get("hard_band") or 0.05)
         candidate = preliminary_action(
             config,
-            total_score=float(row["total_score"]),
+            total_score=total_score,
+            score_distribution=canonical_score.decision_distribution,
             confidence=float(row["confidence"]),
             current_weight=current_weight,
             drift=float(row.get("drift") or 0.0),
@@ -121,7 +132,7 @@ def generate_signals(
             etf_id=str(row["etf_id"]),
             action=final_action,
             confidence=round(float(row["confidence"]), 4),
-            total_score=round(float(row["total_score"]), 4),
+            total_score=round(total_score, 4),
             components=row_components(row),
             blocked_by=blocked_by,
             warnings=warnings,
@@ -130,6 +141,14 @@ def generate_signals(
             horizon_primary="1-3 months",
             supporting_metrics={
                 "raw_signal_score": float(row["total_score"]),
+                "canonical_attractiveness_10": canonical_score.attractiveness_10,
+                "canonical_expected_return_10": canonical_score.expected_return_10,
+                "canonical_risk_implementation_10": canonical_score.risk_implementation_10,
+                "canonical_evidence_confidence_10": canonical_score.evidence_confidence_10,
+                "canonical_coverage": canonical_score.coverage,
+                "formula_version": canonical_score.formula_version,
+                "formula_checksum": canonical_score.formula_checksum,
+                "source_vintage_hash": canonical_score.source_vintage_hash,
                 "short_term_alert_score": float(row.get("momentum_20d") or 0.0),
                 "medium_term_signal_score": float(
                     0.50 * float(row.get("momentum_60d") or 0.0)
@@ -170,6 +189,7 @@ def generate_signals(
                 "toto": "unavailable" if not toto_available else "toto_2_0_optional",
             },
             timestamp=datetime.now(timezone.utc),
+            canonical_score=canonical_score,
         )
         signals.append(_attach_authority(signal, data_report))
 

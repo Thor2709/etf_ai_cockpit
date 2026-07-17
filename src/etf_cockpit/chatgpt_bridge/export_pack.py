@@ -35,7 +35,9 @@ from etf_cockpit.data.trust_artifacts import (
     SCORE_COMPONENTS_PATH,
     SCORE_HISTORY_PATH,
     SCORE_METRIC_HISTORY_PATH,
+    SCORE_FORMULA_REGISTRY_PATH,
     SOURCE_CONFLICTS_PATH,
+    write_score_formula_registry,
 )
 from etf_cockpit.data.parsed_disclosures import INDEX_METHODOLOGY_RECORDS_PATH, PRIIPS_KID_RECORDS_PATH
 from etf_cockpit.data.fund_documents import FUND_DOCUMENTS_PATH
@@ -81,6 +83,7 @@ _COMPLETE_AUDIT_REQUIRED: tuple[tuple[str, str, bool], ...] = (
     ("evidence_export/score_components.csv", "derived", True),
     ("evidence_export/score_history.csv", "derived", True),
     ("evidence_export/score_metric_history.csv", "derived", True),
+    ("evidence_export/score_formula_registry.json", "derived", False),
     ("evidence_export/feature_drivers.csv", "derived", True),
     ("evidence_export/correlation_clusters.csv", "derived", True),
     ("evidence_export/benchmark_attribution.csv", "derived", True),
@@ -112,6 +115,14 @@ SIGNAL_TABLE_COLUMNS = [
     "schema_version",
     "confidence",
     "total_score",
+    "canonical_attractiveness_10",
+    "canonical_expected_return_10",
+    "canonical_risk_implementation_10",
+    "canonical_evidence_confidence_10",
+    "canonical_coverage",
+    "formula_version",
+    "formula_checksum",
+    "source_vintage_hash",
     "reason_full",
     "score_1w",
     "score_1m",
@@ -140,6 +151,7 @@ def _signal_rows(signals: Iterable[SignalResult], config: AppConfig) -> list[dic
     rows = []
     for signal in signals:
         authority = signal.to_v2_dict()
+        canonical = signal.canonical_score
         rows.append(
             {
                 "etf_id": signal.etf_id,
@@ -147,6 +159,14 @@ def _signal_rows(signals: Iterable[SignalResult], config: AppConfig) -> list[dic
                 **authority,
                 "confidence": signal.confidence,
                 "total_score": signal.total_score,
+                "canonical_attractiveness_10": canonical.attractiveness_10 if canonical else None,
+                "canonical_expected_return_10": canonical.expected_return_10 if canonical else None,
+                "canonical_risk_implementation_10": canonical.risk_implementation_10 if canonical else None,
+                "canonical_evidence_confidence_10": canonical.evidence_confidence_10 if canonical else None,
+                "canonical_coverage": canonical.coverage if canonical else 0.0,
+                "formula_version": canonical.formula_version if canonical else "unavailable",
+                "formula_checksum": canonical.formula_checksum if canonical else "unavailable",
+                "source_vintage_hash": canonical.source_vintage_hash if canonical else "unavailable",
                 "reason_full": signal.supporting_metrics.get("reason_full", signal.reason_long),
                 "score_1w": signal.components.momentum,
                 "score_1m": signal.components.trend,
@@ -598,6 +618,8 @@ def _export_trust_critical_evidence(export_dir: Path, config: AppConfig) -> dict
     evidence_root = export_dir / "evidence_export"
     evidence_root.mkdir(parents=True, exist_ok=True)
     manifest: dict[str, object] = {"included": [], "missing": [], "checksums": {}}
+    if not SCORE_FORMULA_REGISTRY_PATH.exists():
+        write_score_formula_registry()
 
     for source_path in (
         PROVIDER_PROBE_PATH,
@@ -607,6 +629,7 @@ def _export_trust_critical_evidence(export_dir: Path, config: AppConfig) -> dict
         SCORE_COMPONENTS_PATH,
         SCORE_HISTORY_PATH,
         SCORE_METRIC_HISTORY_PATH,
+        SCORE_FORMULA_REGISTRY_PATH,
         FEATURE_DRIVERS_PATH,
         CORRELATION_CLUSTERS_PATH,
         BENCHMARK_ATTRIBUTION_PATH,
@@ -648,7 +671,7 @@ def _export_trust_critical_evidence(export_dir: Path, config: AppConfig) -> dict
         json.dumps(config.data_providers.redacted(), indent=2, default=str),
         encoding="utf-8",
     )
-    for filename in ("universe.yaml", "portfolio_targets.yaml", "risk_limits.yaml", "costs.yaml", "model_settings.yaml", "ui_settings.yaml", "audit_manifest.yaml"):
+    for filename in ("universe.yaml", "portfolio_targets.yaml", "risk_limits.yaml", "costs.yaml", "model_settings.yaml", "ui_settings.yaml", "score_engine_v3.yaml", "audit_manifest.yaml"):
         source = CONFIG_DIR / filename
         if source.exists():
             target = config_root / filename

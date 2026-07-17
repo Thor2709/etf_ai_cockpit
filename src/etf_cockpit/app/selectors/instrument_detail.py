@@ -777,6 +777,7 @@ def _candidate_freshness(candidate_score: SimpleInstrumentScore) -> str:
 
 
 def _candidate_scoreboard(candidate_score: SimpleInstrumentScore) -> dict[str, Any]:
+    canonical = candidate_score.canonical_score
     return {
         "display_id": candidate_score.display_id,
         "instrument_id": candidate_score.display_id,
@@ -788,6 +789,14 @@ def _candidate_scoreboard(candidate_score: SimpleInstrumentScore) -> dict[str, A
         "freshness_status": _candidate_freshness(candidate_score),
         "source_id": candidate_score.instrument_key,
         "source_authority": "score_row",
+        "canonical_attractiveness_10": canonical.attractiveness_10 if canonical else None,
+        "canonical_expected_return_10": canonical.expected_return_10 if canonical else None,
+        "canonical_risk_implementation_10": canonical.risk_implementation_10 if canonical else None,
+        "canonical_evidence_confidence_10": canonical.evidence_confidence_10 if canonical else None,
+        "canonical_coverage": canonical.coverage if canonical else 0.0,
+        "formula_version": canonical.formula_version if canonical else "unavailable",
+        "formula_checksum": canonical.formula_checksum if canonical else "unavailable",
+        "source_vintage_hash": canonical.source_vintage_hash if canonical else "unavailable",
     }
 
 
@@ -825,6 +834,8 @@ def _score_panel(signal: Any, scoreboard: Mapping[str, Any], derived: Mapping[st
     reason_valid = reason is not None
     reason = reason or "Score reason unavailable."
     signal_score = _safe_float(getattr(signal, "total_score", None))
+    canonical = getattr(signal, "canonical_score", None)
+    canonical_payload = canonical.as_dict() if canonical is not None else {}
     freshness = _safe_text(scoreboard.get("freshness_status"))
     freshness_valid = freshness is not None
     numeric_available = any(value is not None for value in (evidence_score, quality, signal_score))
@@ -834,6 +845,14 @@ def _score_panel(signal: Any, scoreboard: Mapping[str, Any], derived: Mapping[st
         "evidence_score": evidence_score,
         "evidence_quality": quality,
         "signal_score": signal_score,
+        "canonical_attractiveness_10": _safe_float(scoreboard.get("canonical_attractiveness_10")) or _safe_float(canonical_payload.get("attractiveness_10")),
+        "canonical_expected_return_10": _safe_float(scoreboard.get("canonical_expected_return_10")) or _safe_float(canonical_payload.get("expected_return_10")),
+        "canonical_risk_implementation_10": _safe_float(scoreboard.get("canonical_risk_implementation_10")) or _safe_float(canonical_payload.get("risk_implementation_10")),
+        "canonical_evidence_confidence_10": _safe_float(scoreboard.get("canonical_evidence_confidence_10")) or _safe_float(canonical_payload.get("evidence_confidence_10")),
+        "canonical_coverage": _safe_float(scoreboard.get("canonical_coverage")) or _safe_float(canonical_payload.get("coverage")) or 0.0,
+        "formula_version": scoreboard.get("formula_version") or canonical_payload.get("formula_version", "unavailable"),
+        "formula_checksum": scoreboard.get("formula_checksum") or canonical_payload.get("formula_checksum", "unavailable"),
+        "source_vintage_hash": scoreboard.get("source_vintage_hash") or canonical_payload.get("source_vintage_hash", "unavailable"),
         "final_label": label,
         "final_reason": reason,
         "reason": reason,

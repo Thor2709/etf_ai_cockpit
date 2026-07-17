@@ -44,6 +44,7 @@ from etf_cockpit.signals.research_states import (
 )
 from etf_cockpit.signals.strategy_templates import strategy_template_frame, strategy_template_labels, template_description
 from etf_cockpit.signals.friction_edge import estimate_friction_edge
+from etf_cockpit.signals.canonical_scoring import CanonicalScore, canonical_score_from_simple_components
 
 
 SCORE_LEGEND = (
@@ -327,6 +328,7 @@ class SimpleInstrumentScore:
     gate_policy_checksum: str = "unavailable"
     schema_version: str = "2.0"
     authority_decision: AuthorityDecision | None = None
+    canonical_score: CanonicalScore | None = None
 
     def __post_init__(self) -> None:
         try:
@@ -370,7 +372,7 @@ class SimpleInstrumentScore:
         object.__setattr__(self, "execution_allowed", False)
 
     def to_v2_dict(self) -> dict[str, object]:
-        return public_authority_payload(
+        payload = public_authority_payload(
             research_state=self.research_state,
             portfolio_review_state=self.portfolio_review_state,
             analysis_status=self.analysis_status,
@@ -382,6 +384,9 @@ class SimpleInstrumentScore:
             gate_policy_checksum=self.gate_policy_checksum,
             authority_decision=self.authority_decision,
         )
+        if self.canonical_score is not None:
+            payload["canonical_score"] = self.canonical_score.as_dict()
+        return payload
 
     def to_public_dict(self) -> dict[str, object]:
         return self.to_v2_dict()
@@ -604,7 +609,21 @@ def build_simple_instrument_scores(
         )
         for index, score in enumerate(scores, start=1)
     ]
-    return [_attach_authority(score) for score in ranked]
+    return [_with_canonical_score(_attach_authority(score)) for score in ranked]
+
+
+def _with_canonical_score(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
+    if score.canonical_score is not None:
+        return score
+    return replace(
+        score,
+        canonical_score=canonical_score_from_simple_components(
+            score.display_id,
+            score.asset_type,
+            score.latest_date,
+            score.components,
+        ),
+    )
 
 
 def _crowding_fields_for_score(row: object | None) -> dict[str, object]:
@@ -855,6 +874,15 @@ def simple_scoreboard_frame(
             "theme_sample_size": score.theme_sample_size,
             "friction_status": score.friction_status,
             "friction_reason": score.friction_reason,
+            "formula_version": score.canonical_score.formula_version if score.canonical_score else "unavailable",
+            "formula_checksum": score.canonical_score.formula_checksum if score.canonical_score else "unavailable",
+            "source_vintage_hash": score.canonical_score.source_vintage_hash if score.canonical_score else "unavailable",
+            "canonical_attractiveness_10": score.canonical_score.attractiveness_10 if score.canonical_score else None,
+            "canonical_expected_return_10": score.canonical_score.expected_return_10 if score.canonical_score else None,
+            "canonical_risk_implementation_10": score.canonical_score.risk_implementation_10 if score.canonical_score else None,
+            "canonical_evidence_confidence_10": score.canonical_score.evidence_confidence_10 if score.canonical_score else None,
+            "canonical_coverage": score.canonical_score.coverage if score.canonical_score else 0.0,
+            "canonical_warnings": " | ".join(score.canonical_score.warnings) if score.canonical_score else "canonical_score_unavailable",
             "valid_components": score.valid_component_count,
             "total_components": score.total_component_count,
             "source_quality": "research_grade_yfinance",
@@ -1102,7 +1130,7 @@ def build_universe_simple_scores(
         if identity is None:
             continue
         output.append(_pending_configured_score(identity, symbol_map.get(etf_id, identity.ticker)))
-    return output
+    return [_with_canonical_score(score) for score in output]
 
 
 def build_candidate_simple_scores(
@@ -1289,7 +1317,7 @@ def build_candidate_simple_scores(
                 ),
             )
         )
-    return output
+    return [_with_canonical_score(score) for score in output]
 
 
 def load_latest_candidate_report(directory: Path = REPORTS_DIR) -> tuple[pd.DataFrame, Path | None]:
