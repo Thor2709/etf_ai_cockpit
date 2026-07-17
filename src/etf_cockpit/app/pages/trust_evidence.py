@@ -46,6 +46,7 @@ from etf_cockpit.application.ui_facade import (
     sort_news_items,
 )
 from etf_cockpit.plugins.builtins import plugin_status_rows
+from etf_cockpit.data.source_policy import source_policy_rows
 
 
 @contextmanager
@@ -149,6 +150,20 @@ def provider_status_page(_page: ft.Page, state: AppState) -> ft.Control:
             scroll=ft.ScrollMode.AUTO,
         )
     )
+    policy_rows = source_policy_rows(Path.cwd())
+    source_policy_panel = panel(
+        ft.Column(
+            [
+                section_header("Mandatory source tiers", "The mandatory path accepts local imports, official bulk files or official cached snapshots. Optional providers remain visible but cannot become required by quota or subscription."),
+                ft.Text("Source policy is local-first and no-network for release replay. Cache status describes the local replay path; it does not perform a provider request.", color=theme.MUTED, size=11, selectable=True),
+                ft.DataTable(
+                    columns=[ft.DataColumn(ft.Text(label, color=theme.TEXT)) for label in ("Provider", "Dataset", "Source tier", "Optionality", "Cache", "Network", "Quota failure")],
+                    rows=[ft.DataRow(cells=[ft.DataCell(ft.Text(str(row[key]), color=theme.MUTED, selectable=True)) for key in ("provider_id", "dataset_type", "source_tier", "optionality", "cache_status", "network", "quota_failure")]) for row in policy_rows],
+                ),
+            ],
+            scroll=ft.ScrollMode.AUTO,
+        )
+    )
     return _status_page(
         "Provider Status",
         "Provider capabilities, source authority and disabled/unavailable states. API keys are redacted and never exported.",
@@ -157,7 +172,7 @@ def provider_status_page(_page: ft.Page, state: AppState) -> ft.Control:
             ("Instrument identity", IDENTITY_PATH, ["instrument_id", "analysis_tier", "instrument_type", "isin", "yahoo_symbol", "exchange", "mic", "currency", "share_class", "listing", "identity_confidence", "identity_status", "warnings"]),
             ("Source conflicts", SOURCE_CONFLICTS_PATH, ["instrument_id", "field_name", "canonical_value", "resolution_status", "requires_manual_review", "reason"]),
         ],
-        extra=capability_panel,
+        extra=ft.Column([capability_panel, source_policy_panel], spacing=10),
     )
 
 

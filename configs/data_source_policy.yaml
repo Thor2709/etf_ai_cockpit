@@ -1,0 +1,14 @@
+schema_version: "data-source-policy.v1"
+policy_version: "2026-07-17"
+quota_failure: non_blocking
+mandatory_tiers: [local_user_import, official_bulk, official_cached_api]
+sources:
+  - {provider_id: manual_local, dataset_type: local, source_tier: local_user_import, mandatory_allowed: true, optional_provider: false, cache_path: data/raw, licence: user-owned, network_required: false, fair_use_note: Local imports are the mandatory offline replay boundary.}
+  - {provider_id: issuer_document, dataset_type: filings, source_tier: local_user_import, mandatory_allowed: true, optional_provider: false, cache_path: data/raw/filings, licence: issuer-document-terms, network_required: false, fair_use_note: User-supplied issuer documents remain local.}
+  - {provider_id: filings_xbrl_org, dataset_type: filings, source_tier: official_bulk, mandatory_allowed: true, optional_provider: true, cache_path: data/raw/filings/eu_esef, licence: official-public-terms, network_required: false, fair_use_note: Bulk packages are acquired explicitly and replayed locally.}
+  - {provider_id: sec_edgar, dataset_type: filings, source_tier: official_cached_api, mandatory_allowed: true, optional_provider: true, cache_path: data/raw/sec_edgar, licence: sec-public-terms, network_required: false, fair_use_note: Cached official responses are replayable; fair-use contact requirements still apply.}
+  - {provider_id: index_provider, dataset_type: index, source_tier: official_bulk, mandatory_allowed: true, optional_provider: true, cache_path: data/raw/index, licence: official-public-terms, network_required: false, fair_use_note: Official index files are optional enrichments until cached locally.}
+  - {provider_id: yfinance, dataset_type: prices, source_tier: best_effort_unofficial, mandatory_allowed: false, optional_provider: true, cache_path: data/raw/prices, licence: provider-terms, network_required: true, fair_use_note: Best-effort retrieval is never required for release or scoring authority.}
+  - {provider_id: stooq, dataset_type: prices, source_tier: best_effort_unofficial, mandatory_allowed: false, optional_provider: true, cache_path: data/raw/prices, licence: provider-terms, network_required: true, fair_use_note: Best-effort retrieval is optional and quota/availability may change.}
+  - {provider_id: fred, dataset_type: macro, source_tier: official_cached_api, mandatory_allowed: false, optional_provider: true, cache_path: data/raw/macro, licence: fred-public-terms, network_required: true, fair_use_note: API keys, fair-use rules and throttling remain external constraints.}
+  - {provider_id: rss, dataset_type: news, source_tier: best_effort_unofficial, mandatory_allowed: false, optional_provider: true, cache_path: data/raw/news, licence: feed-terms, network_required: true, fair_use_note: News is context-only and never required for mandatory scoring.}

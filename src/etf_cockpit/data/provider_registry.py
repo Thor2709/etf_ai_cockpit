@@ -13,6 +13,7 @@ from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group
 from etf_cockpit.core.config import DataProvidersConfig, ProviderSection
 from etf_cockpit.core.paths import CLEAN_DIR
 from etf_cockpit.data.contracts import ProviderCapability, SourceAuthority, redact_mapping, redact_text
+from etf_cockpit.data.source_policy import SourcePolicyError, load_source_policies
 
 
 REQUIRED_PROVIDER_IDS = frozenset(
@@ -87,6 +88,22 @@ class ProviderRegistry:
 
     def status_rows(self, capabilities: Iterable[ProviderCapability] | None = None) -> tuple[dict[str, object], ...]:
         rows = capabilities if capabilities is not None else self.probe_all()
+        try:
+            policies = load_source_policies()
+            source_policies = {(item.provider_id, item.dataset_type): item for item in policies}
+            provider_policies = {item.provider_id: item for item in policies}
+        except SourcePolicyError:
+            source_policies = {}
+            provider_policies = {}
+
+        def source_fields(item: ProviderCapability) -> dict[str, str]:
+            policy = source_policies.get((item.provider_id, item.dataset_type)) or provider_policies.get(item.provider_id)
+            return {
+                "source_tier": policy.source_tier.value if policy else "unclassified",
+                "optionality": "optional" if policy and policy.optional_provider else "mandatory-compatible",
+                "cache_status": "see source policy",
+            }
+
         return tuple(
             {
                 "provider_id": redact_text(item.provider_id),
@@ -103,6 +120,7 @@ class ProviderRegistry:
                 "score_eligible": item.score_eligible,
                 "message": redact_text(item.message),
                 "executable_authority": False,
+                **source_fields(item),
             }
             for item in rows
         )
