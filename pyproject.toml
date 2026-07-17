@@ -23,6 +23,7 @@ dependencies = [
   "requests>=2.32",
   "rich>=13.7",
   "joblib>=1.4",
+  "cryptography>=43.0,<50",
   "scikit-learn>=1.5",
   "yfinance>=1.5"
 ]

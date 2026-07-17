@@ -14,5 +14,6 @@ mandatory:
   - performance_budgets
   - bulk_cache
   - security_policy
+  - privacy_backup
   - sbom
   - signature
