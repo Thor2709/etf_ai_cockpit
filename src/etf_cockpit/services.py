@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from etf_cockpit.backtest.engine import BacktestReport, run_backtest
+from etf_cockpit.backtest.engine import BacktestDataUnavailableError, BacktestReport, run_backtest
 from etf_cockpit.chatgpt_bridge.export_pack import export_review_pack
 from etf_cockpit.chatgpt_bridge.import_audit import import_audit_json
 from etf_cockpit.chatgpt_bridge.schemas import ChatGPTAudit, ChatGPTAuditV2
@@ -774,13 +774,21 @@ class BacktestService:
         return self.run_backtest()
 
     def run_backtest(self) -> BacktestReport:
-        report = run_backtest(self.config, load_prices())
+        try:
+            report = run_backtest(self.config, load_prices())
+        except BacktestDataUnavailableError as exc:
+            return _empty_backtest_report(str(exc))
         BACKTESTS_DIR.mkdir(parents=True, exist_ok=True)
         requests = (
             AtomicWriteRequest(BACKTESTS_DIR / "backtest_results.csv", report.results.to_csv(index=False).encode("utf-8"), lambda path: _validate_csv(path)),
             AtomicWriteRequest(BACKTESTS_DIR / "equity_curves.csv", report.equity_curves.to_csv().encode("utf-8"), lambda path: _validate_csv(path, index_col=0)),
             AtomicWriteRequest(BACKTESTS_DIR / "trade_log.csv", report.trade_log.to_csv(index=False).encode("utf-8"), lambda path: _validate_csv(path)),
             AtomicWriteRequest(BACKTESTS_DIR / "signal_log.csv", report.signal_log.to_csv(index=False).encode("utf-8"), lambda path: _validate_csv(path)),
+            AtomicWriteRequest(
+                BACKTESTS_DIR / "backtest_metadata.json",
+                json.dumps(report.metadata, default=str, sort_keys=True, indent=2).encode("utf-8"),
+                lambda path: json.loads(path.read_text(encoding="utf-8")),
+            ),
         )
         with timed_step("backtest", "write_outputs"):
             atomic_write_group(requests)
@@ -810,6 +818,7 @@ class BacktestService:
         equity_path = BACKTESTS_DIR / "equity_curves.csv"
         trade_path = BACKTESTS_DIR / "trade_log.csv"
         signal_path = BACKTESTS_DIR / "signal_log.csv"
+        metadata_path = BACKTESTS_DIR / "backtest_metadata.json"
         if not results_path.exists() or not equity_path.exists():
             return None
         if not _cache_matches_universe(results_path, self.universe_revision) or not _cache_matches_universe(equity_path, self.universe_revision):
@@ -827,6 +836,9 @@ class BacktestService:
             equity_curves = pd.read_csv(equity_path, index_col=0, parse_dates=True)
             trade_log = pd.read_csv(trade_path) if trade_path.exists() else pd.DataFrame()
             signal_log = pd.read_csv(signal_path) if signal_path.exists() else pd.DataFrame()
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
+            if not isinstance(metadata, dict):
+                metadata = {}
             ai_added_value = False
             if {"strategy_name", "calmar"}.issubset(results.columns):
                 momentum = results.loc[results["strategy_name"] == "momentum_only", "calmar"]
@@ -845,6 +857,7 @@ class BacktestService:
                     "Loaded from cached local backtest output matching the current data date.",
                     "Use the Backtests page or diagnostics scripts to regenerate full backtest files after changing assumptions.",
                 ],
+                metadata=metadata,
             )
         except Exception:
             return None
@@ -963,6 +976,16 @@ def _empty_backtest_report(note: str) -> BacktestReport:
         "deflated_sharpe",
         "pbo_probability_backtest_overfitting",
         "parameter_sensitivity_status",
+        "worst_1d_return",
+        "worst_5d_return",
+        "worst_10d_return",
+        "worst_drawdown_start",
+        "worst_drawdown_end",
+        "loss_cluster_max_days",
+        "largest_negative_period_return",
+        "overfitting_warning",
+        "data_quality_status",
+        "benchmark_strategy",
     ]
     return BacktestReport(
         results=pd.DataFrame(columns=columns),
@@ -972,4 +995,10 @@ def _empty_backtest_report(note: str) -> BacktestReport:
         ai_added_value=False,
         quality_label="not_available",
         quality_notes=[note],
+        metadata={
+            "data_status": "unavailable",
+            "not_enough_data_policy": "fail_closed",
+            "forward_fill_used": False,
+            "same_bar_execution_avoided": True,
+        },
     )

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from itertools import combinations
 from statistics import NormalDist
@@ -27,12 +27,77 @@ class BacktestReport:
     ai_added_value: bool
     quality_label: str = "low"
     quality_notes: list[str] | None = None
+    metadata: dict[str, object] = field(default_factory=dict)
+
+
+class BacktestDataUnavailableError(ValueError):
+    """Raised when a backtest cannot be evaluated from a complete price panel."""
 
 
 def _price_pivot(prices: pd.DataFrame) -> pd.DataFrame:
+    if not isinstance(prices, pd.DataFrame) or prices.empty:
+        raise BacktestDataUnavailableError("not_enough_data: no price rows were supplied")
+    required = {"date", "etf_id", "adjusted_close"}
+    missing = sorted(required - set(prices.columns))
+    if missing:
+        raise BacktestDataUnavailableError(f"invalid_price_data: missing required columns {', '.join(missing)}")
     frame = prices.copy()
     frame["date"] = pd.to_datetime(frame["date"])
+    frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
     return frame.pivot(index="date", columns="etf_id", values="adjusted_close").sort_index().dropna(how="all")
+
+
+def _optional_price_pivot(prices: pd.DataFrame, value: str, columns: list[str]) -> pd.DataFrame:
+    if value not in prices.columns:
+        return pd.DataFrame(index=pd.to_datetime(prices["date"]).drop_duplicates().sort_values(), columns=columns, dtype=float)
+    frame = prices.loc[:, ["date", "etf_id", value]].copy()
+    frame["date"] = pd.to_datetime(frame["date"])
+    frame[value] = pd.to_numeric(frame[value], errors="coerce")
+    return frame.pivot(index="date", columns="etf_id", values=value).sort_index().reindex(columns=columns)
+
+
+def _weighted_reference_price(values: pd.Series, weights: pd.Series) -> float | None:
+    observed = pd.to_numeric(values, errors="coerce").reindex(weights.index)
+    usable = observed.notna() & np.isfinite(observed)
+    if not usable.any():
+        return None
+    allocation = pd.to_numeric(weights, errors="coerce").abs().reindex(weights.index).fillna(0.0)
+    allocation = allocation.where(usable, 0.0)
+    if float(allocation.sum()) <= 0:
+        allocation = usable.astype(float)
+    allocation = allocation / allocation.sum()
+    return float((observed.fillna(0.0) * allocation).sum())
+
+
+def _execution_evidence(
+    *,
+    current_prices: pd.Series,
+    next_open: pd.Series,
+    next_high: pd.Series,
+    next_low: pd.Series,
+    changed_weights: pd.Series,
+) -> dict[str, object]:
+    decision_price = _weighted_reference_price(current_prices, changed_weights)
+    next_open_reference = _weighted_reference_price(next_open, changed_weights)
+    next_close_reference = _weighted_reference_price(current_prices, changed_weights)
+    spread_values = (
+        pd.to_numeric(next_high, errors="coerce") - pd.to_numeric(next_low, errors="coerce")
+    ) / pd.to_numeric(next_open, errors="coerce")
+    spread_proxy = _weighted_reference_price(spread_values, changed_weights)
+    arrival_assumption = "next_open" if next_open_reference is not None else "next_adjusted_close"
+    close_to_next_open = None
+    if decision_price is not None and next_open_reference is not None and decision_price != 0:
+        close_to_next_open = float(next_open_reference / decision_price - 1.0)
+    return {
+        "decision_price": decision_price,
+        "next_open_reference_price": next_open_reference,
+        "next_period_reference_price": next_close_reference,
+        "close_to_next_open_gap": close_to_next_open,
+        "arrival_price_assumption": arrival_assumption,
+        "spread_proxy": spread_proxy,
+        "execution_delay_sessions": 1,
+        "same_bar_execution_avoided": True,
+    }
 
 
 def _holdings_from_weights(weights: pd.Series, price_row: pd.Series, portfolio_value: float, as_of: date) -> pd.DataFrame:
@@ -67,10 +132,38 @@ def run_backtest(
 ) -> BacktestReport:
     pivot_raw = _price_pivot(prices)
     columns = [column for column in config.universe.enabled_ids if column in pivot_raw.columns]
-    pivot = pivot_raw[columns].dropna()
-    pivot = pivot[columns]
+    if not columns:
+        raise BacktestDataUnavailableError("not_enough_data: no configured instruments have adjusted-close history")
+    selected_raw = pivot_raw.reindex(columns=columns)
+    complete_mask = selected_raw.notna().all(axis=1)
+    missing_observation_rows = int((~complete_mask).sum())
+    pivot = selected_raw.loc[complete_mask].copy()
     if len(pivot) < 260:
-        raise ValueError("Backtest requires at least 260 price rows.")
+        raise BacktestDataUnavailableError(
+            "not_enough_data: backtest requires at least 260 complete adjusted-price sessions; "
+            f"available={len(pivot)}, missing_observation_rows={missing_observation_rows}"
+        )
+    open_pivot = _optional_price_pivot(prices, "open", columns)
+    high_pivot = _optional_price_pivot(prices, "high", columns)
+    low_pivot = _optional_price_pivot(prices, "low", columns)
+    metadata: dict[str, object] = {
+        "strategy": "signal_strategy",
+        "benchmark_strategy": "buy_and_hold",
+        "price_field": "adjusted_close",
+        "raw_price_rows": int(len(selected_raw)),
+        "complete_price_rows": int(len(pivot)),
+        "missing_observation_rows": missing_observation_rows,
+        "data_status": "warning" if missing_observation_rows else "clean",
+        "forward_fill_used": False,
+        "lookahead_protection": "history_truncated_at_signal_date",
+        "execution_delay_sessions": 1,
+        "same_bar_execution_avoided": True,
+        "date_range_start": pivot.index.min().date(),
+        "date_range_end": pivot.index.max().date(),
+        "not_enough_data_policy": "fail_closed",
+    }
+    if missing_observation_rows:
+        metadata["data_warning"] = "Incomplete adjusted-price rows were excluded; no forward-fill was applied."
     log_returns = np.log(pivot / pivot.shift(1)).fillna(0.0)
     start_index = 220
     rebalance_indexes = set(range(start_index, len(pivot), rebalance_frequency_days))
@@ -177,6 +270,20 @@ def run_backtest(
                 pending_weights[name] = new_weight.reindex(columns).fillna(0)
                 pending_costs[name] = step_cost
                 if step_turnover > 0:
+                    empty_reference = pd.Series(index=columns, dtype=float)
+                    execution_evidence = _execution_evidence(
+                        current_prices=pivot.iloc[i].reindex(columns),
+                        next_open=open_pivot.loc[execution_dt].reindex(columns)
+                        if execution_dt in open_pivot.index
+                        else empty_reference,
+                        next_high=high_pivot.loc[execution_dt].reindex(columns)
+                        if execution_dt in high_pivot.index
+                        else empty_reference,
+                        next_low=low_pivot.loc[execution_dt].reindex(columns)
+                        if execution_dt in low_pivot.index
+                        else empty_reference,
+                        changed_weights=diff,
+                    )
                     trade_rows.append(
                         {
                             "date": execution_dt.date(),
@@ -185,6 +292,7 @@ def run_backtest(
                             "strategy": name,
                             "turnover": step_turnover,
                             "cost_eur": step_cost,
+                            **execution_evidence,
                         }
                     )
 
@@ -195,6 +303,9 @@ def run_backtest(
     result_rows = []
     years = max((len(equity_curves) - 1) / TRADING_DAYS_PER_YEAR, 1e-9)
     rebalance_count = sum(1 for index in rebalance_indexes if start_index < index < len(pivot))
+    metadata["walk_forward_periods"] = rebalance_count
+    metadata["strategies"] = strategies
+    metadata["same_bar_execution_count"] = 0
     for name in strategies:
         metrics = performance_metrics(equity_curves[name], benchmark=benchmark, turnover=turnover[name], cost_drag=cost_drag[name])
         strategy_trades = [row for row in trade_rows if row["strategy"] == name]
@@ -213,6 +324,12 @@ def run_backtest(
         metrics["deflated_sharpe"] = _deflated_sharpe(metrics["sharpe"], len(strategies), len(strategy_returns))
         metrics["pbo_probability_backtest_overfitting"] = pbo_probability
         metrics["parameter_sensitivity_status"] = parameter_sensitivity.get(name, "not_available")
+        metrics["overfitting_warning"] = _overfitting_warning(
+            pbo_probability,
+            parameter_sensitivity.get(name, "not_available"),
+        )
+        metrics["data_quality_status"] = metadata["data_status"]
+        metrics["benchmark_strategy"] = metadata["benchmark_strategy"]
         metrics["backtest_quality"] = _backtest_quality_label(
             pbo_probability,
             parameter_sensitivity.get(name, "not_available"),
@@ -238,7 +355,10 @@ def run_backtest(
             "Uses adjusted-close sample/local series without silent forward-fill.",
             "Advanced diagnostics are deterministic local estimates: probabilistic Sharpe, deflated Sharpe and a CSCV-style PBO proxy.",
             "Parameter sensitivity status reflects period stability plus a 2x transaction-cost stress on realised trade logs.",
+            "Signals are evaluated only with history available at the signal date and executed on the next complete session.",
+            "Next-open and spread evidence is unavailable when the source panel does not provide OHLC fields.",
         ],
+        metadata=metadata,
     )
 
 
@@ -316,6 +436,14 @@ def _parameter_sensitivity_status(equity_curves: pd.DataFrame, trade_rows: list[
         else:
             statuses[strategy] = "fragile"
     return statuses
+
+
+def _overfitting_warning(pbo_probability: float, parameter_sensitivity_status: str) -> str:
+    if pbo_probability >= 0.66:
+        return "high_overfitting_risk: selected results often fail out-of-sample rank checks"
+    if pbo_probability >= 0.33 or parameter_sensitivity_status in {"fragile", "mixed"}:
+        return "review_required: performance is sensitive to folds or transaction-cost stress"
+    return "no_material_warning_in_local_proxy: out-of-sample evidence remains limited"
 
 
 def _fold_sharpe(returns: pd.DataFrame) -> pd.Series:

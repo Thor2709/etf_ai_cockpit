@@ -12,6 +12,59 @@ def max_drawdown(equity: pd.Series) -> float:
     return float(drawdown.min())
 
 
+def tail_event_diagnostics(equity: pd.Series) -> dict[str, object]:
+    """Return deterministic tail and loss-cluster evidence for an equity curve.
+
+    The windows are calculated from observed periods only.  Missing values are
+    removed rather than filled, so a sparse price panel cannot manufacture a
+    smooth return path.
+    """
+
+    clean = pd.to_numeric(equity, errors="coerce").replace([np.inf, -np.inf], np.nan).dropna()
+    returns = clean.pct_change(fill_method=None).dropna()
+    if returns.empty:
+        return {
+            "worst_1d_return": None,
+            "worst_5d_return": None,
+            "worst_10d_return": None,
+            "worst_drawdown_start": None,
+            "worst_drawdown_end": None,
+            "loss_cluster_max_days": 0,
+            "largest_negative_period_return": None,
+        }
+
+    def _window_return(window: int) -> float | None:
+        if len(returns) < window:
+            return None
+        values = (1.0 + returns).rolling(window, min_periods=window).apply(np.prod, raw=True) - 1.0
+        return float(values.min()) if values.notna().any() else None
+
+    drawdown = clean / clean.cummax() - 1.0
+    drawdown_end = drawdown.idxmin()
+    drawdown_start = clean.loc[:drawdown_end].idxmax()
+    longest_cluster = 0
+    current_cluster = 0
+    for value in returns:
+        if float(value) < 0:
+            current_cluster += 1
+            longest_cluster = max(longest_cluster, current_cluster)
+        else:
+            current_cluster = 0
+
+    def _as_date(value: object) -> object:
+        return value.date() if hasattr(value, "date") else value
+
+    return {
+        "worst_1d_return": _window_return(1),
+        "worst_5d_return": _window_return(5),
+        "worst_10d_return": _window_return(10),
+        "worst_drawdown_start": _as_date(drawdown_start),
+        "worst_drawdown_end": _as_date(drawdown_end),
+        "loss_cluster_max_days": longest_cluster,
+        "largest_negative_period_return": float(returns.min()),
+    }
+
+
 def performance_metrics(equity: pd.Series, benchmark: pd.Series | None = None, turnover: float = 0.0, cost_drag: float = 0.0) -> dict[str, object]:
     equity = equity.dropna()
     if len(equity) < 3:
@@ -26,6 +79,7 @@ def performance_metrics(equity: pd.Series, benchmark: pd.Series | None = None, t
             "cost_drag": cost_drag,
             "information_ratio": 0.0,
             **_payoff_diagnostics(pd.Series(dtype=float)),
+            **tail_event_diagnostics(pd.Series(dtype=float)),
         }
     returns = np.log(equity / equity.shift(1)).dropna()
     years = len(returns) / TRADING_DAYS_PER_YEAR
@@ -54,6 +108,7 @@ def performance_metrics(equity: pd.Series, benchmark: pd.Series | None = None, t
         "cost_drag": cost_drag,
         "information_ratio": information,
         **_payoff_diagnostics(returns),
+        **tail_event_diagnostics(equity),
     }
 
 

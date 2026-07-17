@@ -125,8 +125,14 @@ def build_local_audit_context(snapshot: CockpitSnapshot) -> dict[str, Any]:
                 "deflated_sharpe",
                 "pbo_probability_backtest_overfitting",
                 "parameter_sensitivity_status",
+                "overfitting_warning",
+                "worst_1d_return",
+                "worst_5d_return",
+                "worst_10d_return",
+                "loss_cluster_max_days",
             )
         },
+        "backtest_metadata": snapshot.backtest.metadata,
         "authority": "commentary_only_no_trade_execution",
     }
 
