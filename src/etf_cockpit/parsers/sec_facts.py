@@ -38,6 +38,13 @@ class StatementFact:
     canonical_metric: str | None = None
     mapping_status: str = "unmapped"
     is_custom: bool = False
+    dimensions: str = ""
+    currency: str | None = None
+    period_type: str = "unknown"
+    mapping_confidence: str = "unknown"
+    manual_review_required: bool = False
+    restatement_kind: str = "reported"
+    available_at: str | None = None
 
     @property
     def canonical_mapping(self) -> str | None:
@@ -94,6 +101,13 @@ def statement_facts_from_esef(
                 canonical_metric=canonical_metric,
                 mapping_status="mapped" if canonical_metric else "unmapped_extension" if is_extension else "unmapped",
                 is_custom=is_extension,
+                dimensions="",
+                currency=_currency_from_unit(unit),
+                period_type="duration" if period_start else "instant",
+                mapping_confidence="high" if canonical_metric else "manual_review",
+                manual_review_required=canonical_metric is None,
+                restatement_kind="reported",
+                available_at=None,
             )
         )
     return tuple(result)
@@ -113,6 +127,13 @@ _CANONICAL_CONCEPTS = {
     ("us-gaap", "ProfitLoss"): "net_income",
     ("us-gaap", "StockholdersEquity"): "equity",
     ("us-gaap", "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"): "equity",
+    ("us-gaap", "Liabilities"): "liabilities",
+    ("us-gaap", "LiabilitiesCurrent"): "liabilities_current",
+    ("us-gaap", "NetCashProvidedByUsedInOperatingActivities"): "cash_from_operations",
+    ("us-gaap", "NetCashProvidedByUsedInInvestingActivities"): "cash_from_investing",
+    ("us-gaap", "NetCashProvidedByUsedInFinancingActivities"): "cash_from_financing",
+    ("us-gaap", "EffectOfExchangeRateOnCashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"): "cash_from_fx",
+    ("us-gaap", "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalentsPeriodIncreaseDecreaseIncludingExchangeRateEffect"): "cash_net_change",
 }
 _STANDARD_TAXONOMIES = frozenset({"us-gaap", "dei", "invest", "srt"})
 
@@ -202,6 +223,9 @@ def parse_companyfacts(path: Path, identity: CanonicalIdentity) -> ParseResult[S
                 start_value = _string(entry.get("start"))
                 end_value = _string(entry.get("end"))
                 instant_value = _string(entry.get("instant")) or (end_value if start_value is None else None)
+                dimensions = _dimensions(entry)
+                period_type = "duration" if start_value else "instant"
+                restatement_kind = "amended" if str(entry.get("form") or "").upper().endswith("/A") else "reported"
                 source_id = _source_id(cik, taxonomy, concept, str(unit), accession, period, entry)
                 records.append(
                     StatementFact(
@@ -223,6 +247,13 @@ def parse_companyfacts(path: Path, identity: CanonicalIdentity) -> ParseResult[S
                         canonical_metric=canonical_metric,
                         mapping_status=mapping_status,
                         is_custom=is_custom,
+                        dimensions=dimensions,
+                        currency=_currency_from_unit(unit),
+                        period_type=period_type,
+                        mapping_confidence="high" if canonical_metric else "manual_review",
+                        manual_review_required=canonical_metric is None,
+                        restatement_kind=restatement_kind,
+                        available_at=_string(entry.get("filed")),
                     )
                 )
     success = bool(records) or (not had_ambiguous_units and not warnings)
@@ -481,3 +512,20 @@ def _int(value: Any) -> int | None:
         return None if value is None else int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _dimensions(entry: dict[str, Any]) -> str:
+    value = entry.get("dimensions", entry.get("dim", entry.get("segment", "")))
+    if not value:
+        return ""
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _currency_from_unit(unit: object) -> str | None:
+    text = str(unit or "").strip().upper()
+    if not text:
+        return None
+    candidate = text.split("/", 1)[0]
+    return candidate if len(candidate) == 3 and candidate.isalpha() else None

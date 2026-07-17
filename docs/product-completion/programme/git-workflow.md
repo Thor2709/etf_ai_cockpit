@@ -1,7 +1,7 @@
 # Git workflow
 
-- Working branch: `implementation/step2-issue-0145-supply-chain-20260717`.
-- Base: `c614978c0ca71a97b46df579b45450d146f08c22` (`origin/main`).
+- Working branch: `implementation/step2-issue-0091-financial-statements-20260717`.
+- Base: `d8728930cf417d1715aa9a7a23459d4e12c450b2` (`origin/main`).
 - Worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\step2-integration-20260717`.
 - Keep the primary checkout and its unrelated untracked files untouched.
 - Review `git diff`, run targeted checks, commit the focused change, then use capability-based GitHub checks before any push or issue apply.
