@@ -18,6 +18,7 @@ from etf_cockpit.application.ui_facade import (
     latest_fundamental_rows,
     load_fundamental_evidence,
     load_news_items,
+    load_statement_evidence,
     read_document_registry,
     read_index_methodology_records,
     read_priips_kid_records,
@@ -25,7 +26,6 @@ from etf_cockpit.application.ui_facade import (
     sort_news_items,
 )
 from etf_cockpit.core.paths import DERIVED_DIR
-from etf_cockpit.data.statement_normalisation import load_statement_evidence
 from etf_cockpit.services import CockpitSnapshot
 from etf_cockpit.application.ui_facade import SimpleInstrumentScore
 
