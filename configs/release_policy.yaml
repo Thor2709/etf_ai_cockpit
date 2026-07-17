@@ -10,5 +10,6 @@ mandatory:
   - full_tests
   - package_build
   - package_smoke
+  - performance_budgets
   - sbom
   - signature
