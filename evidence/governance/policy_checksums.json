@@ -14,7 +14,7 @@
     },
     "feature_registry": {
       "path": "configs/feature_registry.yaml",
-      "sha256": "df832b1d53a5524a5c47dc48f6beb9dd5fc21f8a924cf02468d92be9bbc0bd2c"
+      "sha256": "3d885bd7a0f67884539822768a6eb680980b4afb96ea439e18ac5198a5e4ccc7"
     },
     "strategy_scope": {
       "path": "configs/strategy_scope.yaml",
