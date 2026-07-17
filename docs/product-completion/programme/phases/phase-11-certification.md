@@ -43,4 +43,4 @@ Deliver the bounded final certification and programme closure work with local-fi
 
 | ID | Priority | Programme state | Owner | Blocking dependencies | Required inputs | Downstream issues | Related issues |
 |---|---|---|---|---|---|---|---|
-| `ISSUE-0152` | `P0` | `planned` | `programme-governance` | - | - | `ISSUE-0133` | - |
+| `ISSUE-0152` | `P0` | `blocked` | `programme-governance` | - | - | `ISSUE-0133` | - |

@@ -8157,7 +8157,7 @@
       "package_status": "",
       "phase": "phase-11-certification",
       "priority": "P0",
-      "programme_status": "planned",
+      "programme_status": "blocked",
       "related_issues": [],
       "required_inputs": [],
       "security_and_audit": "Independent reviewers, signed manifests, protected promotion and no live order during certification except an explicitly approved sandbox/canary test.",
