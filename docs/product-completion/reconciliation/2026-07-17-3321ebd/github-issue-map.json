@@ -1,0 +1,669 @@
+{
+  "duplicate_group_count": 60,
+  "map_sha256": "f1d6422a4aa69ff36d61a264db070492ebb058467ad2093240bd0d4adf3019ce",
+  "mappings": {
+    "ISSUE-0031": {
+      "remote_numbers": [
+        35,
+        76
+      ],
+      "retained_closed_remote_numbers": [
+        35
+      ],
+      "selected_remote_number": 76,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0032": {
+      "remote_numbers": [
+        36,
+        77
+      ],
+      "retained_closed_remote_numbers": [
+        36
+      ],
+      "selected_remote_number": 77,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0033": {
+      "remote_numbers": [
+        37,
+        79
+      ],
+      "retained_closed_remote_numbers": [
+        37
+      ],
+      "selected_remote_number": 79,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0034": {
+      "remote_numbers": [
+        38,
+        80
+      ],
+      "retained_closed_remote_numbers": [
+        38
+      ],
+      "selected_remote_number": 80,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0035": {
+      "remote_numbers": [
+        39,
+        81
+      ],
+      "retained_closed_remote_numbers": [
+        39
+      ],
+      "selected_remote_number": 81,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0036": {
+      "remote_numbers": [
+        40,
+        83
+      ],
+      "retained_closed_remote_numbers": [
+        40
+      ],
+      "selected_remote_number": 83,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0037": {
+      "remote_numbers": [
+        41,
+        85
+      ],
+      "retained_closed_remote_numbers": [
+        41
+      ],
+      "selected_remote_number": 85,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0038": {
+      "remote_numbers": [
+        42,
+        86
+      ],
+      "retained_closed_remote_numbers": [
+        42
+      ],
+      "selected_remote_number": 86,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0039": {
+      "remote_numbers": [
+        43,
+        88
+      ],
+      "retained_closed_remote_numbers": [
+        43
+      ],
+      "selected_remote_number": 88,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0040": {
+      "remote_numbers": [
+        44,
+        89
+      ],
+      "retained_closed_remote_numbers": [
+        44
+      ],
+      "selected_remote_number": 89,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0041": {
+      "remote_numbers": [
+        45,
+        91
+      ],
+      "retained_closed_remote_numbers": [
+        45
+      ],
+      "selected_remote_number": 91,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0042": {
+      "remote_numbers": [
+        46,
+        92
+      ],
+      "retained_closed_remote_numbers": [
+        46
+      ],
+      "selected_remote_number": 92,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0043": {
+      "remote_numbers": [
+        47,
+        94
+      ],
+      "retained_closed_remote_numbers": [
+        47
+      ],
+      "selected_remote_number": 94,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0044": {
+      "remote_numbers": [
+        48,
+        95
+      ],
+      "retained_closed_remote_numbers": [
+        48
+      ],
+      "selected_remote_number": 95,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0045": {
+      "remote_numbers": [
+        49,
+        97
+      ],
+      "retained_closed_remote_numbers": [
+        49
+      ],
+      "selected_remote_number": 97,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0046": {
+      "remote_numbers": [
+        50,
+        98
+      ],
+      "retained_closed_remote_numbers": [
+        50
+      ],
+      "selected_remote_number": 98,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0047": {
+      "remote_numbers": [
+        51,
+        99
+      ],
+      "retained_closed_remote_numbers": [
+        51
+      ],
+      "selected_remote_number": 99,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0048": {
+      "remote_numbers": [
+        52,
+        101
+      ],
+      "retained_closed_remote_numbers": [
+        52
+      ],
+      "selected_remote_number": 101,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0049": {
+      "remote_numbers": [
+        53,
+        103
+      ],
+      "retained_closed_remote_numbers": [
+        53
+      ],
+      "selected_remote_number": 103,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0050": {
+      "remote_numbers": [
+        54,
+        105
+      ],
+      "retained_closed_remote_numbers": [
+        54
+      ],
+      "selected_remote_number": 105,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0051": {
+      "remote_numbers": [
+        55,
+        107
+      ],
+      "retained_closed_remote_numbers": [
+        55
+      ],
+      "selected_remote_number": 107,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0052": {
+      "remote_numbers": [
+        56,
+        109
+      ],
+      "retained_closed_remote_numbers": [
+        56
+      ],
+      "selected_remote_number": 109,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0053": {
+      "remote_numbers": [
+        57,
+        111
+      ],
+      "retained_closed_remote_numbers": [
+        57
+      ],
+      "selected_remote_number": 111,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0054": {
+      "remote_numbers": [
+        58,
+        113
+      ],
+      "retained_closed_remote_numbers": [
+        58
+      ],
+      "selected_remote_number": 113,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0055": {
+      "remote_numbers": [
+        59,
+        115
+      ],
+      "retained_closed_remote_numbers": [
+        59
+      ],
+      "selected_remote_number": 115,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0056": {
+      "remote_numbers": [
+        60,
+        117
+      ],
+      "retained_closed_remote_numbers": [
+        60
+      ],
+      "selected_remote_number": 117,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0057": {
+      "remote_numbers": [
+        61,
+        119
+      ],
+      "retained_closed_remote_numbers": [
+        61
+      ],
+      "selected_remote_number": 119,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0058": {
+      "remote_numbers": [
+        62,
+        121
+      ],
+      "retained_closed_remote_numbers": [
+        62
+      ],
+      "selected_remote_number": 121,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0059": {
+      "remote_numbers": [
+        63,
+        123
+      ],
+      "retained_closed_remote_numbers": [
+        63
+      ],
+      "selected_remote_number": 123,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0060": {
+      "remote_numbers": [
+        64,
+        124
+      ],
+      "retained_closed_remote_numbers": [
+        64
+      ],
+      "selected_remote_number": 124,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0061": {
+      "remote_numbers": [
+        65,
+        126
+      ],
+      "retained_closed_remote_numbers": [
+        65
+      ],
+      "selected_remote_number": 126,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0062": {
+      "remote_numbers": [
+        66,
+        128
+      ],
+      "retained_closed_remote_numbers": [
+        66
+      ],
+      "selected_remote_number": 128,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0063": {
+      "remote_numbers": [
+        67,
+        130
+      ],
+      "retained_closed_remote_numbers": [
+        67
+      ],
+      "selected_remote_number": 130,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0064": {
+      "remote_numbers": [
+        68,
+        132
+      ],
+      "retained_closed_remote_numbers": [
+        68
+      ],
+      "selected_remote_number": 132,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0065": {
+      "remote_numbers": [
+        69,
+        134
+      ],
+      "retained_closed_remote_numbers": [
+        69
+      ],
+      "selected_remote_number": 134,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0066": {
+      "remote_numbers": [
+        70,
+        136
+      ],
+      "retained_closed_remote_numbers": [
+        70
+      ],
+      "selected_remote_number": 136,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0067": {
+      "remote_numbers": [
+        71,
+        137
+      ],
+      "retained_closed_remote_numbers": [
+        71
+      ],
+      "selected_remote_number": 137,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0068": {
+      "remote_numbers": [
+        72,
+        140
+      ],
+      "retained_closed_remote_numbers": [
+        72
+      ],
+      "selected_remote_number": 140,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "ISSUE-0069": {
+      "remote_numbers": [
+        73,
+        141
+      ],
+      "retained_closed_remote_numbers": [
+        73
+      ],
+      "selected_remote_number": 141,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "UPDATEV2-0010": {
+      "remote_numbers": [
+        96,
+        150
+      ],
+      "retained_closed_remote_numbers": [
+        96
+      ],
+      "selected_remote_number": 150,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "UPDATEV2-0011": {
+      "remote_numbers": [
+        100,
+        151
+      ],
+      "retained_closed_remote_numbers": [
+        100
+      ],
+      "selected_remote_number": 151,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "UPDATEV2-0012": {
+      "remote_numbers": [
+        102,
+        152
+      ],
+      "retained_closed_remote_numbers": [
+        102
+      ],
+      "selected_remote_number": 152,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "UPDATEV2-0013": {
+      "remote_numbers": [
+        104,
+        153
+      ],
+      "retained_closed_remote_numbers": [
+        104
+      ],
+      "selected_remote_number": 153,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "UPDATEV2-0014": {
+      "remote_numbers": [
+        106,
+        154
+      ],
+      "retained_closed_remote_numbers": [
+        106
+      ],
+      "selected_remote_number": 154,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "UPDATEV2-0015": {
+      "remote_numbers": [
+        108,
+        155
+      ],
+      "retained_closed_remote_numbers": [
+        108
+      ],
+      "selected_remote_number": 155,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "UPDATEV2-0016": {
+      "remote_numbers": [
+        110,
+        156
+      ],
+      "retained_closed_remote_numbers": [
+        110
+      ],
+      "selected_remote_number": 156,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "UPDATEV2-0017": {
+      "remote_numbers": [
+        112,
+        157
+      ],
+      "retained_closed_remote_numbers": [
+        112
+      ],
+      "selected_remote_number": 157,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "UPDATEV2-0018": {
+      "remote_numbers": [
+        114,
+        158
+      ],
+      "retained_closed_remote_numbers": [
+        114
+      ],
+      "selected_remote_number": 158,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "UPDATEV2-0019": {
+      "remote_numbers": [
+        116,
+        159
+      ],
+      "retained_closed_remote_numbers": [
+        116
+      ],
+      "selected_remote_number": 159,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "UPDATEV2-0020": {
+      "remote_numbers": [
+        118,
+        160
+      ],
+      "retained_closed_remote_numbers": [
+        118
+      ],
+      "selected_remote_number": 160,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "UPDATEV2-0021": {
+      "remote_numbers": [
+        120,
+        161
+      ],
+      "retained_closed_remote_numbers": [
+        120
+      ],
+      "selected_remote_number": 161,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "UPDATEV2-0022": {
+      "remote_numbers": [
+        122,
+        162
+      ],
+      "retained_closed_remote_numbers": [
+        122
+      ],
+      "selected_remote_number": 162,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "UPDATEV2-0023": {
+      "remote_numbers": [
+        125,
+        163
+      ],
+      "retained_closed_remote_numbers": [
+        125
+      ],
+      "selected_remote_number": 163,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "UPDATEV2-0024": {
+      "remote_numbers": [
+        127,
+        164
+      ],
+      "retained_closed_remote_numbers": [
+        127
+      ],
+      "selected_remote_number": 164,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "UPDATEV2-0025": {
+      "remote_numbers": [
+        129,
+        165
+      ],
+      "retained_closed_remote_numbers": [
+        129
+      ],
+      "selected_remote_number": 165,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "UPDATEV2-0026": {
+      "remote_numbers": [
+        131,
+        166
+      ],
+      "retained_closed_remote_numbers": [
+        131
+      ],
+      "selected_remote_number": 166,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "UPDATEV2-0027": {
+      "remote_numbers": [
+        133,
+        167
+      ],
+      "retained_closed_remote_numbers": [
+        133
+      ],
+      "selected_remote_number": 167,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "UPDATEV2-0028": {
+      "remote_numbers": [
+        135,
+        168
+      ],
+      "retained_closed_remote_numbers": [
+        135
+      ],
+      "selected_remote_number": 168,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "UPDATEV2-0029": {
+      "remote_numbers": [
+        138,
+        169
+      ],
+      "retained_closed_remote_numbers": [
+        138
+      ],
+      "selected_remote_number": 169,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    },
+    "UPDATEV2-0030": {
+      "remote_numbers": [
+        139,
+        170
+      ],
+      "retained_closed_remote_numbers": [
+        139
+      ],
+      "selected_remote_number": 170,
+      "selection_basis": "newest remote legacy-marker record; older duplicate records are already closed and are retained as historical records"
+    }
+  },
+  "remote_inventory_sha256": "3f1d061b61393b1a43f0d3741eb0aa41219ab25bf8cd02620b45c480730f6054",
+  "repository": "Thor2709/etf_ai_cockpit",
+  "schema_version": "1.0"
+}
