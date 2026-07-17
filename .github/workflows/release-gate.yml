@@ -49,6 +49,7 @@ jobs:
             echo "LOCALAPPDATA=$profile/data"
             echo "XDG_CONFIG_HOME=$profile/config"
             echo "XDG_CACHE_HOME=$profile/cache"
+            echo "PIP_CACHE_DIR=$profile/cache/pip"
           } >> "$GITHUB_ENV"
 
       - name: Install pinned release environment

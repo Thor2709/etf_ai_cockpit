@@ -13,6 +13,7 @@ from scripts.issue_registry_core import (
     ready_records,
     validate_registry,
 )
+from scripts.generate_completion_documents import write_text
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -66,3 +67,12 @@ def test_registry_json_and_ready_order_are_deterministic() -> None:
     assert [(record["priority"], record["canonical_id"]) for record in ready] == sorted(
         (record["priority"], record["canonical_id"]) for record in ready
     )
+
+
+def test_completion_markdown_writer_is_lf_deterministic(tmp_path: Path) -> None:
+    destination = tmp_path / "generated.md"
+
+    write_text(destination, "one\r\ntwo\rthree")
+
+    assert destination.read_bytes() == b"one\ntwo\nthree\n"
+    assert b"\r\n" not in destination.read_bytes()
