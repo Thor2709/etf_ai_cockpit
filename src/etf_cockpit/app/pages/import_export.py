@@ -11,6 +11,7 @@ from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import CONFIG_DIR, DATA_DIR, DERIVED_DIR, ROOT
 from etf_cockpit.application.ui_facade import (
     DecisionJournal,
+    ContentAddressedCache,
     ImportPreview,
     ImportService,
     JournalIntegrityError,
@@ -19,6 +20,7 @@ from etf_cockpit.application.ui_facade import (
     export_table,
     validate_import,
     validate_restore,
+    bulk_cache_health,
 )
 
 
@@ -36,6 +38,8 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
     preview_text = ft.Text("Preview required before commit.", color=theme.MUTED, selectable=True, key="import-export.preview-status")
     commit_button = ft.OutlinedButton("Commit validated import", key="import-export.commit", disabled=True)
     selected_preview: ImportPreview | None = None
+    bulk_source_id = ft.TextField(label="Bulk source ID", value="local-bulk-source", width=220, key="import-export.bulk-source-id")
+    bulk_status = ft.Text("No bulk source cached in this session.", color=theme.MUTED, selectable=True, key="import-export.bulk-status")
 
     def show(message: str, *, colour: str = theme.MUTED) -> None:
         state.last_message = message
@@ -78,6 +82,32 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             show(f"Import failed: {type(exc).__name__}: {exc}; previous clean state preserved.", colour=theme.RED)
 
     commit_button.on_click = commit
+
+    async def cache_bulk_source(_event: ft.ControlEvent) -> None:
+        try:
+            files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["csv", "json", "jsonl", "parquet", "pq", "zip", "tar", "gz"], with_data=True)
+        except Exception as exc:
+            bulk_status.value = f"Bulk cache picker failed: {type(exc).__name__}; no data changed."
+            bulk_status.color = theme.RED
+            page.update()
+            return
+        if not files:
+            bulk_status.value = "Bulk cache selection cancelled; no data changed."
+            bulk_status.color = theme.MUTED
+            page.update()
+            return
+        source = Path(files[0].path or files[0].name)
+        try:
+            result = ContentAddressedCache(ROOT).store_local_file(bulk_source_id.value or "local-bulk-source", source)
+            bulk_status.value = f"Cached and checksum-verified {result.manifest.source_id}: {result.manifest.content_sha256[:16]}…; version {result.manifest.version}; raw object is immutable."
+            bulk_status.color = theme.GREEN
+        except Exception as exc:
+            bulk_status.value = f"Bulk cache rejected: {type(exc).__name__}: {exc}; no partial object was promoted."
+            bulk_status.color = theme.RED
+        page.update()
+
+    cache_report = bulk_cache_health(ROOT)
+    cache_summary = f"Status={cache_report['status']} | objects={cache_report['object_count']} | manifests={cache_report['manifest_count']} | staged={cache_report['staged_file_count']} | promoted generations={cache_report['promoted_generation_count']} | network_calls=false"
 
     export_path = ft.TextField(label="Export destination", value=str(ROOT / "exports" / "scoreboard.csv"), expand=True, key="import-export.export-path")
 
@@ -188,6 +218,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
     return ft.Column(
         [
             panel(ft.Column([section_header("Import and Export Centre", "Preview and validate local evidence before any commit. All actions remain non-executable."), ft.Text("execution_allowed=false", color=theme.AMBER), ft.Row([import_type, path_field, ft.OutlinedButton("Choose and preview", key="import-export.import", icon=ft.Icons.UPLOAD_FILE, on_click=open_import)], wrap=True), ft.Row([commit_button], wrap=True), preview_text], spacing=10)),
+            panel(ft.Column([section_header("Bulk source cache", "Cache a local bulk snapshot by content hash before parsing. Interrupted, changed or invalid sources remain outside the promoted generation."), ft.Row([bulk_source_id, ft.OutlinedButton("Cache local source", key="import-export.bulk-cache", icon=ft.Icons.FOLDER_COPY, on_click=cache_bulk_source)], wrap=True), ft.Text(cache_summary, color=theme.MUTED, size=11, selectable=True), bulk_status], spacing=10)),
             panel(ft.Column([section_header("Exports", "Scoreboard, audit packet, watchlist, journals, plan/issues snapshot and analytical tables use explicit local paths."), ft.Row([export_path, ft.OutlinedButton("Export scoreboard", key="import-export.export-scoreboard", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("scoreboard")), ft.OutlinedButton("Export audit packet", key="import-export.export-audit-packet", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("audit_packet")), ft.OutlinedButton("Export watchlist", key="import-export.export-watchlist", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("watchlist")), ft.OutlinedButton("Export paper-trade journal", key="import-export.export-paper-trade-journal", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("paper_trade_journal")), ft.OutlinedButton("Export decision journal", key="import-export.export-decision-journal", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("decision_journal")), ft.OutlinedButton("Export plan/issues snapshot", key="import-export.export-plan-issues-snapshot", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("plan_issues_snapshot"))], wrap=True), ft.Text("Export status and destination are shown above; unavailable sources are reported without writing placeholders.", color=theme.MUTED, selectable=True)], spacing=10)),
             panel(ft.Column([section_header("Backup and Restore", "Validate a restore preview before an explicit commit; cancel leaves the destination unchanged."), ft.Row([backup_path, ft.OutlinedButton("Create backup", key="import-export.create-backup", icon=ft.Icons.ARCHIVE, on_click=backup)], wrap=True), ft.Row([restore_path, ft.OutlinedButton("Validate restore preview", key="import-export.restore-validate", icon=ft.Icons.RESTORE, on_click=validate_restore_preview), restore_commit_button, restore_cancel_button], wrap=True), restore_status], spacing=10)),
             ft.Text(state.last_message, color=theme.MUTED, selectable=True),

@@ -56,6 +56,7 @@ PROGRAMME_STATUS_OVERRIDES = {
     "ISSUE-0076": "integrated",
     "ISSUE-0078": "integrated",
     "ISSUE-0080": "integrated",
+    "ISSUE-0081": "integrated",
     "ISSUE-0013": "integrated",
     "UPDATEV2-0029": "integrated",
     "ISSUE-0145": "integrated",

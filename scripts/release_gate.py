@@ -599,6 +599,26 @@ def run_gate(
     else:
         state.add(CheckResult("source_policy", "skipped", False, "no versioned source policy present"))
 
+    if (root / "src" / "etf_cockpit" / "data" / "bulk_cache.py").is_file():
+        bulk_cache_report_dir = output / "bulk_cache"
+        state.add(
+            run_command(
+                root,
+                output,
+                "bulk_cache",
+                _python_command(
+                    root,
+                    "scripts/check_bulk_cache.py",
+                    "--root",
+                    str(root),
+                    "--report-dir",
+                    str(bulk_cache_report_dir),
+                ),
+            )
+        )
+    else:
+        state.add(CheckResult("bulk_cache", "skipped", False, "no bulk cache implementation present"))
+
     sbom = build_sbom(root, source, policy, artifact_manifest=artifacts)
     _write_json(output / "sbom.cdx.json", sbom)
     state.add(CheckResult("sbom", "passed", True, "CycloneDX 1.5 deterministic SBOM"))

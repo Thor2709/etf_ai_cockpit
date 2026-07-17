@@ -12,5 +12,6 @@ mandatory:
   - package_smoke
   - source_policy
   - performance_budgets
+  - bulk_cache
   - sbom
   - signature

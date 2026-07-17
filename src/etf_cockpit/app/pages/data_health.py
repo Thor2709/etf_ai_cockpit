@@ -7,11 +7,12 @@ from etf_cockpit.app.components.cards import evidence_chip, panel, section_heade
 from etf_cockpit.app.components.flet_compat import border_all
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import ROOT
-from etf_cockpit.application.ui_facade import DataHealthReport, DataHealthRow, DataHealthStatus, build_data_health, export_data_health, filter_data_health_rows
+from etf_cockpit.application.ui_facade import DataHealthReport, DataHealthRow, DataHealthStatus, build_data_health, bulk_cache_health, export_data_health, filter_data_health_rows
 
 
 def data_health_page(page: ft.Page, state: AppState) -> ft.Control:
     report = build_data_health(state.snapshot.config, ROOT, as_of_date=state.snapshot.data_report.as_of_date)
+    cache_report = bulk_cache_health(ROOT)
     visible_rows = list(report.rows)
 
     def row_controls(row: DataHealthRow) -> ft.Control:
@@ -122,6 +123,15 @@ def data_health_page(page: ft.Page, state: AppState) -> ft.Control:
                             ],
                             wrap=True,
                         ),
+                    ],
+                    spacing=10,
+                )
+            ),
+            panel(
+                ft.Column(
+                    [
+                        section_header("Bulk source cache", "Raw bulk sources are immutable and content-addressed. Only validated staged generations may be promoted into analysis."),
+                        ft.Text(f"Status={cache_report['status']} | objects={cache_report['object_count']} | manifests={cache_report['manifest_count']} | staged={cache_report['staged_file_count']} | promoted generations={cache_report['promoted_generation_count']} | network_calls=false", color=theme.MUTED, selectable=True),
                     ],
                     spacing=10,
                 )
