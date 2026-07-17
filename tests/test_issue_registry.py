@@ -59,7 +59,9 @@ def test_proposed_ids_and_phase_coverage_are_contiguous() -> None:
 
 def test_registry_json_and_ready_order_are_deterministic() -> None:
     registry = json.loads((ROOT / "issues/issue_registry.json").read_text(encoding="utf-8"))
-    assert deterministic_json(registry) == (ROOT / "issues/issue_registry.json").read_bytes()
+    generated = deterministic_json(registry)
+    assert b"\r\n" not in generated
+    assert generated == (ROOT / "issues/issue_registry.json").read_bytes()
     ready = ready_records(registry)
     assert [(record["priority"], record["canonical_id"]) for record in ready] == sorted(
         (record["priority"], record["canonical_id"]) for record in ready

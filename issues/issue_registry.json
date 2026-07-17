@@ -2831,6 +2831,7 @@
         "ISSUE-0115"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -2848,6 +2849,7 @@
         "ISSUE-0115"
       ],
       "required_change": "Persist typed contradiction records with source, decision-time availability, severity, confidence, expiry and resolution. Link them to events, scenarios and affected exposures while keeping them outside direct score/order authority.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0007",
@@ -2867,6 +2869,9 @@
         "ISSUE-0133"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0070"
+      ],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -2883,6 +2888,7 @@
         "ISSUE-0133"
       ],
       "required_change": "Replace the blanket boundary with a per-strategy authority matrix for research, shadow, paper, draft-order and capped-live stages. Keep martingale, grid, LLM-only and sentiment-only authority rejected.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0008",
@@ -2901,6 +2907,7 @@
         "ISSUE-0147"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -2916,6 +2923,7 @@
         "ISSUE-0147"
       ],
       "required_change": "Store prompt, model, source and retrieval hashes; evidence snapshots; redaction state; human review; expiry; and later outcomes. Keep LLM output excluded from scores, optimisers and orders.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0010",
@@ -2935,6 +2943,7 @@
         "ISSUE-0143"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -2951,6 +2960,7 @@
         "ISSUE-0143"
       ],
       "required_change": "Generate the action inventory from route/command metadata; cover research, training, paper, broker-read-only, recovery and live-stage controls; require stable IDs, command contracts and visible failure states.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0011",
@@ -2969,6 +2979,7 @@
         "ISSUE-0139"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -2984,6 +2995,7 @@
         "ISSUE-0139"
       ],
       "required_change": "Back all progress with the persistent job DAG, checkpoints, cancellation, resource metrics and one canonical event stream. Remove parallel activity stores.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0012",
@@ -3003,6 +3015,7 @@
         "UPDATEV2-0029"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3019,6 +3032,7 @@
         "UPDATEV2-0029"
       ],
       "required_change": "Implement it in protected CI: pinned environments, full tests, package build, launch, smoke, SBOM, signing and machine-readable closure evidence.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0013",
@@ -3037,6 +3051,7 @@
         "ISSUE-0152"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3052,6 +3067,7 @@
         "ISSUE-0152"
       ],
       "required_change": "Add clean offline, best-effort online, migration, large-universe, training, paper-broker, recovery and package journeys. Separate source, packaged and browser suites.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0014",
@@ -3070,6 +3086,7 @@
         "ISSUE-0152"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3085,6 +3102,7 @@
         "ISSUE-0152"
       ],
       "required_change": "Drive the page from the canonical dependency and closure registry; show implementation, release, data, model, paper and live authority separately.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0015",
@@ -3104,6 +3122,7 @@
         "ISSUE-0140"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3120,6 +3139,7 @@
         "ISSUE-0140"
       ],
       "required_change": "Fold this into frontend v2: Home, Discover, Instrument, Portfolio, Models, Backtest/Paper, Data Health, Audit and Settings, with search and command palette.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0016",
@@ -3138,6 +3158,7 @@
         "ISSUE-0151"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3153,6 +3174,7 @@
         "ISSUE-0151"
       ],
       "required_change": "Add storage location, hardware profile, mandatory versus optional providers, offline sample/bulk bootstrap, encryption/backup preferences and explicit staged-execution defaults.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0017",
@@ -3172,6 +3194,7 @@
         "UPDATEV2-0011"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3188,6 +3211,7 @@
         "UPDATEV2-0011"
       ],
       "required_change": "Connect edits to the canonical identity master, classification service, data-dependency plan, point-in-time universe and cache invalidation. Never trigger orders or hidden analysis on save.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0018",
@@ -3206,6 +3230,7 @@
         "ISSUE-0138"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3221,6 +3246,7 @@
         "ISSUE-0138"
       ],
       "required_change": "Add expected-return distributions, sector adapters, full metric histories, peer comparison, valuation/scenario labs, factor risk, model cards and paper/order timelines.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0019",
@@ -3240,6 +3266,7 @@
         "ISSUE-0138"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3256,6 +3283,7 @@
         "ISSUE-0138"
       ],
       "required_change": "Support reproducible as-of screens, sector adapters, factor percentiles, coverage/confidence filters, expected-return distributions, portfolio impact and saved query versions.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0020",
@@ -3274,6 +3302,10 @@
         "ISSUE-0130"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0113",
+        "ISSUE-0116"
+      ],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3289,6 +3321,7 @@
         "ISSUE-0130"
       ],
       "required_change": "Integrate factor risk, robust covariance, multiple transparent optimisers, constraints, turnover/cost/tax lots, scenarios and attribution, always compared with simple baselines.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0021",
@@ -3307,6 +3340,7 @@
         "UPDATEV2-0016"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3322,6 +3356,7 @@
         "UPDATEV2-0016"
       ],
       "required_change": "Resolve full/partial holdings to canonical entities, support nested funds, cash and derivatives, preserve history and propagate unresolved coverage into factor/valuation/risk outputs.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0022",
@@ -3339,6 +3374,7 @@
         "ISSUE-0102"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3353,6 +3389,7 @@
         "ISSUE-0102"
       ],
       "required_change": "Retain it as a compatibility layer but replace fixed universal thresholds with official point-in-time statements, restatements, sector adapters, accounting quality, capital efficiency and valuation scenarios.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0023",
@@ -3372,6 +3409,7 @@
         "ISSUE-0130"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3388,6 +3426,7 @@
         "ISSUE-0130"
       ],
       "required_change": "Add earnings, dividends, splits, filings, guidance, fund rebalances, index changes, review dates and risk events with timezone, source, precision and decision-time availability.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0024",
@@ -3407,6 +3446,7 @@
         "ISSUE-0149"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3423,6 +3463,7 @@
         "ISSUE-0149"
       ],
       "required_change": "Separate durable official evidence from best-effort news; add archive/deduplication/entity mapping/terms controls and integrate with contradictions and events.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0025",
@@ -3441,6 +3482,7 @@
         "ISSUE-0115"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3456,6 +3498,7 @@
         "ISSUE-0115"
       ],
       "required_change": "Build a local macro/factor warehouse with release/vintage metadata, transformations, country/currency mapping, uncertainty and scenario links. Keep macro as conditioning/context unless validated.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0026",
@@ -3474,6 +3517,9 @@
         "ISSUE-0139"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0117"
+      ],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3489,6 +3535,7 @@
         "ISSUE-0139"
       ],
       "required_change": "Expand to experiments, baselines, walk-forward splits, uncertainty, conformal calibration, drift, challenger status, resource use and governed promotion.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0027",
@@ -3507,6 +3554,9 @@
         "ISSUE-0128"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0125"
+      ],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3522,6 +3572,7 @@
         "ISSUE-0128"
       ],
       "required_change": "Add point-in-time universes/fundamentals, deterministic order events, nested walk-forward validation, trial disclosure, multiple-testing correction, capacity, taxes, actions and reproducibility.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0028",
@@ -3540,6 +3591,7 @@
         "ISSUE-0130"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3555,6 +3607,7 @@
         "ISSUE-0130"
       ],
       "required_change": "Make templates versioned compositions of approved features, scores, forecasts, portfolio/risk and execution policies. Record complexity, trials and stage authority.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0029",
@@ -3574,6 +3627,7 @@
         "ISSUE-0147"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3590,6 +3644,7 @@
         "ISSUE-0147"
       ],
       "required_change": "Store accepted/rejected/deferred decisions, evidence, alternatives, confidence, invalidation rules, review dates, portfolio context and immutable links to model/proposal/order IDs.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0030",
@@ -3608,6 +3663,9 @@
         "ISSUE-0130"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0129"
+      ],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3623,6 +3681,7 @@
         "ISSUE-0130"
       ],
       "required_change": "Implement order/fill lifecycle, cash, fees, FX, corporate actions, partial fills, cancellations, calendars, accounting, restart recovery and reconciliation.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0031",
@@ -3641,6 +3700,9 @@
         "ISSUE-0135"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0070"
+      ],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3656,6 +3718,7 @@
         "ISSUE-0135"
       ],
       "required_change": "After the scope ADR, document and gate broker read-only, draft-order and capped-live stages using official APIs; keep order submission disabled until prerequisites pass.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0032",
@@ -3675,6 +3738,7 @@
         "ISSUE-0135"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3691,6 +3755,7 @@
         "ISSUE-0135"
       ],
       "required_change": "Add severity, confidence, deduplication, snooze/expiry, alert backtesting and portfolio/order/model incident rules. Only explicit policies may turn an alert into a block.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0033",
@@ -3710,6 +3775,7 @@
         "ISSUE-0134"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3726,6 +3792,7 @@
         "ISSUE-0134"
       ],
       "required_change": "Add source revisions, corrections, classification, formula/model/policy versions, portfolio targets, paper/order state and causal dependency paths.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0034",
@@ -3745,6 +3812,9 @@
         "ISSUE-0146"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0086"
+      ],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3761,6 +3831,7 @@
         "ISSUE-0146"
       ],
       "required_change": "Add broker/exchange statements, bulk datasets, reusable mapping templates, dry-run diffs, resumable imports, rollback and privacy-aware portable backups.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0036",
@@ -3779,6 +3850,7 @@
         "ISSUE-0144"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3794,6 +3866,7 @@
         "ISSUE-0144"
       ],
       "required_change": "Use typed schemas, migrations, safe defaults, staged edits, validation, secret-vault integration and before/after policy impact previews.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0037",
@@ -3812,6 +3885,9 @@
         "ISSUE-0090"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0072"
+      ],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3827,6 +3903,7 @@
         "ISSUE-0090"
       ],
       "required_change": "Convert it to an implementation epic for DuckDB/Parquet analytics plus SQLite transactional state, migrations, integrity, retention, compaction and export compatibility.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0038",
@@ -3845,6 +3922,7 @@
         "ISSUE-0151"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3860,6 +3938,7 @@
         "ISSUE-0151"
       ],
       "required_change": "Define startup, query, scoring, large-universe, training, memory, package-size and storage budgets; profile before choosing pandas/Polars/DuckDB optimisations; track cache lineage.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0039",
@@ -3879,6 +3958,7 @@
         "ISSUE-0146"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3895,6 +3975,7 @@
         "ISSUE-0146"
       ],
       "required_change": "Add resumable jobs, corrupt-store quarantine, last-known-good generations, model/subprocess failure, provider outage, broker mismatch and incident runbooks.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0040",
@@ -3913,6 +3994,7 @@
         "ISSUE-0143"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3928,6 +4010,7 @@
         "ISSUE-0143"
       ],
       "required_change": "Complete WCAG-oriented keyboard, focus, screen-reader, high-contrast, reduced-motion, zoom and virtualised-table testing under frontend v2.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0041",
@@ -3946,6 +4029,7 @@
         "ISSUE-0147"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3961,6 +4045,7 @@
         "ISSUE-0147"
       ],
       "required_change": "Add linked charts, aligned currency/timezone/horizon controls, confidence bands, coverage overlays, virtualisation and exports that include exact query/filter/version context.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0042",
@@ -3978,6 +4063,9 @@
         "ISSUE-0149"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0148"
+      ],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -3992,6 +4080,7 @@
         "ISSUE-0149"
       ],
       "required_change": "Add task-based user guidance, score/valuation/risk methodology, model cards, sector/ETF adapters, data licences, paper/live operations, incidents and reproducibility tutorials.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0043",
@@ -4009,6 +4098,9 @@
         "ISSUE-0146"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0146"
+      ],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -4023,6 +4115,7 @@
         "ISSUE-0146"
       ],
       "required_change": "Add incremental encrypted backups, retention, consistency checks, signed metadata, key recovery, clean-machine restore drills and schema-version compatibility.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0044",
@@ -4040,6 +4133,7 @@
         "ISSUE-0143"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -4054,6 +4148,7 @@
         "ISSUE-0143"
       ],
       "required_change": "Create page-object contracts, accessibility locators, deterministic fixtures, visual baselines and cross-resolution/browser tests; replace coordinate actions wherever possible.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0045",
@@ -4073,6 +4168,7 @@
         "ISSUE-0130"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -4089,6 +4185,7 @@
         "ISSUE-0130"
       ],
       "required_change": "Drive it from versioned expected returns, optimiser constraints, costs, events, capacity and forward evidence; always show no-action, benchmark and cash alternatives.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0046",
@@ -4107,6 +4204,7 @@
         "ISSUE-0138"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -4122,6 +4220,7 @@
         "ISSUE-0138"
       ],
       "required_change": "Add peer percentile, historical contribution, coverage, uncertainty, interaction and counterfactual sensitivity while avoiding causal claims.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0047",
@@ -4140,6 +4239,7 @@
         "ISSUE-0147"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -4155,6 +4255,7 @@
         "ISSUE-0147"
       ],
       "required_change": "Store all trial return series, features, parameters, thresholds, variants, selection method, code/data hashes, DSR/PBO/multiple-testing results and researcher decisions.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0048",
@@ -4173,6 +4274,7 @@
         "ISSUE-0128"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -4188,6 +4290,7 @@
         "ISSUE-0128"
       ],
       "required_change": "Add worst windows, drawdown duration, expected shortfall, loss clustering, tail dependence, liquidity stress and factor/sector contribution with bootstrap uncertainty.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0049",
@@ -4207,6 +4310,9 @@
         "ISSUE-0134"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0125"
+      ],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -4223,6 +4329,7 @@
         "ISSUE-0134"
       ],
       "required_change": "Use the canonical session service and order engine; show decision, arrival, next-open/close, spread, auction, expiry and realised paper/live fill evidence.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0050",
@@ -4240,6 +4347,9 @@
         "ISSUE-0112"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0112"
+      ],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -4254,6 +4364,7 @@
         "ISSUE-0112"
       ],
       "required_change": "Use official currency-specific risk-free curves/proxies, declared reinvestment, inflation context and explicit unavailable states.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0051",
@@ -4273,6 +4384,9 @@
         "ISSUE-0115"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0110"
+      ],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -4289,6 +4403,7 @@
         "ISSUE-0115"
       ],
       "required_change": "Connect clusters to the canonical risk model and historical holdings; quantify uncertainty, stability and portfolio risk contribution.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0052",
@@ -4307,6 +4422,7 @@
         "ISSUE-0139"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -4322,6 +4438,7 @@
         "ISSUE-0139"
       ],
       "required_change": "Generate it from typed alerts, source revisions, events, model drift, portfolio risk, proposal state, paper/live incidents and recent recovery/export status.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0053",
@@ -4340,6 +4457,7 @@
         "ISSUE-0149"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -4355,6 +4473,7 @@
         "ISSUE-0149"
       ],
       "required_change": "Add article versions, corrections, retractions, timezone precision, archive availability, deduplication and mapping confidence. Reject ambiguous historical availability.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0054",
@@ -4374,6 +4493,7 @@
         "ISSUE-0088"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -4390,6 +4510,7 @@
         "ISSUE-0088"
       ],
       "required_change": "Split source tiers. SEC bulk and user/local files are mandatory-capable; FRED API, Stooq and RSS are optional/best-effort unless cached snapshots are supplied. Use World Bank, Eurostat, ECB and official bulk where appropriate.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0055",
@@ -4408,6 +4529,7 @@
         "ISSUE-0130"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -4423,6 +4545,7 @@
         "ISSUE-0130"
       ],
       "required_change": "Add capability rules by instrument/listing, calendar, data frequency, leverage, price state, forecast horizon, model and order type.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0056",
@@ -4441,6 +4564,9 @@
         "ISSUE-0147"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0129"
+      ],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -4456,6 +4582,7 @@
         "ISSUE-0147"
       ],
       "required_change": "Freeze data, formula, model, portfolio, policy and proposal hashes; mature configurable outcomes; separate observation-only proposals from accepted paper orders.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0057",
@@ -4473,6 +4600,7 @@
         "ISSUE-0149"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -4487,6 +4615,7 @@
         "ISSUE-0149"
       ],
       "required_change": "Extract claims and check source, licence, method, benchmark, drawdown, costs, sample, reproducibility and conflicts; require human override and measured false-positive/negative performance.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0058",
@@ -4505,6 +4634,11 @@
         "ISSUE-0116"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0110",
+        "ISSUE-0112",
+        "ISSUE-0116"
+      ],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -4520,6 +4654,7 @@
         "ISSUE-0116"
       ],
       "required_change": "Migrate to the multi-factor risk and attribution model, include ETF look-through and reconcile instrument, sector, factor, currency and residual contributions.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0059",
@@ -4539,6 +4674,9 @@
         "ISSUE-0133"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0070"
+      ],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -4555,6 +4693,7 @@
         "ISSUE-0133"
       ],
       "required_change": "Keep unsafe strategies and LLM/news-only authority rejected; replace blanket broker-code rejection with stage/limit/approval checks from the new authority model.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0060",
@@ -4572,6 +4711,7 @@
         "ISSUE-0128"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -4586,6 +4726,7 @@
         "ISSUE-0128"
       ],
       "required_change": "Keep research-only; if implemented later, require point-in-time pair selection, stationarity breaks, borrow, costs and multiple-testing controls.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0061",
@@ -4603,6 +4744,7 @@
         "ISSUE-0120"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -4617,6 +4759,7 @@
         "ISSUE-0120"
       ],
       "required_change": "Promote leakage-safe validation into ISSUE-0120; keep triple-barrier labels optional with minimum sample, stability and transparent parameter rules.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0062",
@@ -4636,6 +4779,7 @@
         "ISSUE-0129"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -4652,6 +4796,7 @@
         "ISSUE-0129"
       ],
       "required_change": "Rebuild it on official fundamentals, sector-neutral quality, canonical momentum, next-session order simulation, costs, capacity and forward paper evidence.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0063",
@@ -4669,6 +4814,9 @@
         "ISSUE-0128"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0128"
+      ],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -4683,6 +4831,7 @@
         "ISSUE-0128"
       ],
       "required_change": "Replace score-to-edge mapping with the expected-return distribution and order-size cost model; preserve the old fields only as migration output.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0064",
@@ -4701,6 +4850,7 @@
         "ISSUE-0125"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -4716,6 +4866,7 @@
         "ISSUE-0125"
       ],
       "required_change": "Use trade and period distributions, skew/tails, regime stability, confidence intervals and minimum samples. Keep labels descriptive only.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0065",
@@ -4735,6 +4886,10 @@
         "ISSUE-0135"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0070",
+        "ISSUE-0131"
+      ],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -4751,6 +4906,7 @@
         "ISSUE-0135"
       ],
       "required_change": "After the scope ADR, implement canonical order/fill ledgers, broker read-only sync, idempotency, partial-fill/cancel handling, reconciliation and incident recovery before submission.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0066",
@@ -4770,6 +4926,7 @@
         "ISSUE-0083"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -4786,6 +4943,7 @@
         "ISSUE-0083"
       ],
       "required_change": "Generalise to data/analysis policy profiles with coverage, classification confidence and dependency plans while keeping compatibility with current tiers.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "ISSUE-0068",
@@ -4795,12 +4953,7 @@
     },
     {
       "acceptance_criteria": "['Every route, dataset, model, strategy and broker capability has a declared authority stage.', 'Live execution is disabled by default and cannot be enabled without all prerequisite evidence.', 'The final completion checklist is finite, versioned and approved.', 'No wording promises returns or claims equivalence with proprietary institutional platforms.']",
-      "blocking_dependencies": [
-        "ISSUE-0008",
-        "ISSUE-0032",
-        "ISSUE-0060",
-        "ISSUE-0066"
-      ],
+      "blocking_dependencies": [],
       "canonical_id": "ISSUE-0070",
       "classification": "proposed_new",
       "data_and_dependencies": "['Canonical issue ledger and plan.', 'Risk, execution and data-source policies.', 'No external runtime dependency.']",
@@ -4811,6 +4964,12 @@
         "ISSUE-0066"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0071",
+        "ISSUE-0076",
+        "ISSUE-0080",
+        "ISSUE-0130"
+      ],
       "epic": "Foundation & governance",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -4822,6 +4981,12 @@
       "priority": "P0",
       "programme_status": "ready",
       "related_issues": [],
+      "required_inputs": [
+        "ISSUE-0008",
+        "ISSUE-0032",
+        "ISSUE-0060",
+        "ISSUE-0066"
+      ],
       "security_and_audit": "Append-only ADR checksum; every authority change is logged and included in audit exports.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -4844,6 +5009,12 @@
         "ISSUE-0070"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0072",
+        "ISSUE-0074",
+        "ISSUE-0076",
+        "ISSUE-0136"
+      ],
       "epic": "Foundation & governance",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -4855,6 +5026,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Sensitive provider/broker objects never enter serialised UI state; architecture report is included in audit evidence.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -4879,6 +5051,14 @@
         "ISSUE-0071"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0073",
+        "ISSUE-0075",
+        "ISSUE-0077",
+        "ISSUE-0081",
+        "ISSUE-0090",
+        "ISSUE-0127"
+      ],
       "epic": "Data platform",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -4890,6 +5070,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "File/database permissions, path traversal prevention, hashes and encrypted-backup compatibility are required.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -4912,6 +5093,16 @@
         "ISSUE-0072"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0074",
+        "ISSUE-0082",
+        "ISSUE-0084",
+        "ISSUE-0088",
+        "ISSUE-0089",
+        "ISSUE-0091",
+        "ISSUE-0119",
+        "ISSUE-0126"
+      ],
       "epic": "Data platform",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -4923,6 +5114,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Append-only observation ledger, source checksums and immutable decision-time manifests.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -4947,6 +5139,13 @@
         "ISSUE-0073"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0075",
+        "ISSUE-0092",
+        "ISSUE-0098",
+        "ISSUE-0108",
+        "ISSUE-0142"
+      ],
       "epic": "Scoring architecture",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -4958,6 +5157,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Signed formula registry and immutable score-run manifest; completed runs cannot be mutated by plugins.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -4982,6 +5182,13 @@
         "ISSUE-0074"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0077",
+        "ISSUE-0090",
+        "ISSUE-0117",
+        "ISSUE-0141",
+        "ISSUE-0147"
+      ],
       "epic": "Reproducibility",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -4993,6 +5200,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Hash-chain lineage records; secrets and private notes are excluded from public manifests.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5017,6 +5225,10 @@
         "ISSUE-0071"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0080",
+        "ISSUE-0144"
+      ],
       "epic": "Extensibility",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -5028,6 +5240,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Plugin allow-list, path/network restrictions, secret isolation and SBOM inclusion.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5052,6 +5265,10 @@
         "ISSUE-0075"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0078",
+        "ISSUE-0081"
+      ],
       "epic": "Workflow platform",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -5063,6 +5280,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Redacted logs, bounded outputs, safe subprocess environment and audit event hash chain.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5085,6 +5303,9 @@
         "ISSUE-0077"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0151"
+      ],
       "epic": "Performance",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -5096,6 +5317,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Telemetry contains no secrets/private thesis content and remains local by default.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5120,6 +5342,9 @@
         "ISSUE-0149"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0085"
+      ],
       "epic": "Supply-chain governance",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -5131,6 +5356,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Signed intake records and automated licence/vulnerability scans.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5155,6 +5381,11 @@
         "ISSUE-0076"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0081",
+        "ISSUE-0088",
+        "ISSUE-0149"
+      ],
       "epic": "Data programme",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -5166,6 +5397,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Terms/licence snapshots, polite access controls and redacted credentials.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5192,6 +5424,10 @@
         "ISSUE-0080"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0087",
+        "ISSUE-0088"
+      ],
       "epic": "Data programme",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -5203,6 +5439,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Size/decompression limits, path traversal protection, allow-listed hosts and content-type validation.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5227,6 +5464,14 @@
         "UPDATEV2-0011"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0083",
+        "ISSUE-0084",
+        "ISSUE-0085",
+        "ISSUE-0086",
+        "ISSUE-0105",
+        "ISSUE-0126"
+      ],
       "epic": "Data programme",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -5238,6 +5483,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Manual overrides are signed/audited; identifier sources and licences retained.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5260,6 +5506,9 @@
         "ISSUE-0082"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0098"
+      ],
       "epic": "Data programme",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -5271,6 +5520,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "No opaque generative classifier may change authority without human review; private descriptions remain local.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5295,6 +5545,11 @@
         "ISSUE-0082"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0094",
+        "ISSUE-0103",
+        "ISSUE-0127"
+      ],
       "epic": "Data programme",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -5306,6 +5561,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Corrections are append-only; source documents and broker statements are retained.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5330,6 +5586,7 @@
         "ISSUE-0082"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Data programme",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -5341,6 +5598,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Calendar overrides are audited and cannot retroactively alter completed decisions.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5365,6 +5623,7 @@
         "ISSUE-0082"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Data programme",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -5376,6 +5635,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Spreadsheet-injection protection, archive/path limits, PII redaction and encrypted-backup support.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5402,6 +5662,7 @@
         "UPDATEV2-0014"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Data programme",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -5413,6 +5674,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Host allow-list, fair-access scheduler, parser sandbox and immutable raw evidence.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5439,6 +5701,10 @@
         "ISSUE-0081"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0096",
+        "ISSUE-0107"
+      ],
       "epic": "Data programme",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -5450,6 +5716,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Terms/licence metadata and content hashes; no redistribution beyond permitted terms.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5474,6 +5741,7 @@
         "UPDATEV2-0021"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Data programme",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -5485,6 +5753,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Resolution permissions, append-only audit and safe raw-file handling.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5509,6 +5778,9 @@
         "ISSUE-0075"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0150"
+      ],
       "epic": "Data programme",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -5520,6 +5792,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Licence/PII classifications, access controls and redacted public exports.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5544,6 +5817,14 @@
         "UPDATEV2-0012"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0092",
+        "ISSUE-0093",
+        "ISSUE-0094",
+        "ISSUE-0095",
+        "ISSUE-0096",
+        "ISSUE-0097"
+      ],
       "epic": "Stock analysis",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -5555,6 +5836,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Raw filings remain immutable; parser version and concept/source evidence are retained.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5579,6 +5861,9 @@
         "ISSUE-0091"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0097"
+      ],
       "epic": "Stock analysis",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -5590,6 +5875,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "No metric is inferred from unavailable line items; source lineage is mandatory.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5612,6 +5898,7 @@
         "ISSUE-0091"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Stock analysis",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -5623,6 +5910,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Sensitive imported debt schedules stay local; no unsupported credit-rating claim is made.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5647,6 +5935,7 @@
         "ISSUE-0091"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Stock analysis",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -5658,6 +5947,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Maintenance-capex estimates are labelled as estimates, never reported facts.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5680,6 +5970,7 @@
         "ISSUE-0091"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Stock analysis",
       "evidence_grade": "Moderate/Low",
       "free_no_quota_policy": "Core reported-growth functionality is quota-independent. Analyst consensus is optional user-supplied evidence only.",
@@ -5691,6 +5982,7 @@
       "priority": "P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Analyst-data licences and user ownership are recorded; restricted services are not scraped.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5715,6 +6007,9 @@
         "ISSUE-0091"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0108"
+      ],
       "epic": "Stock analysis",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -5726,6 +6021,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Overrides/model versions are audited; no guaranteed fair-value language.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5750,6 +6046,7 @@
         "ISSUE-0092"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Stock analysis",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -5761,6 +6058,7 @@
       "priority": "P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Derived qualitative proxies require source evidence and cannot be stated as facts.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5785,6 +6083,12 @@
         "ISSUE-0083"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0099",
+        "ISSUE-0100",
+        "ISSUE-0101",
+        "ISSUE-0102"
+      ],
       "epic": "Stock analysis",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -5796,6 +6100,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Manual adapter overrides are audited; proprietary taxonomy content is not required.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5818,6 +6123,7 @@
         "ISSUE-0098"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Stock analysis",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -5829,6 +6135,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "No inferred regulatory ratio is represented as filed; jurisdiction limitations are disclosed.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5851,6 +6158,7 @@
         "ISSUE-0098"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Stock analysis",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -5862,6 +6170,7 @@
       "priority": "P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Derived FFO/AFFO/NAV values are labelled and source-linked.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5884,6 +6193,7 @@
         "ISSUE-0098"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Stock analysis",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -5895,6 +6205,7 @@
       "priority": "P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "No reserve/resource or backlog claim without official issuer evidence.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5917,6 +6228,7 @@
         "ISSUE-0098"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Stock analysis",
       "evidence_grade": "Moderate/Low",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -5928,6 +6240,7 @@
       "priority": "P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Medical/regulatory content is contextual, source-linked and not clinical advice.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5952,6 +6265,7 @@
         "UPDATEV2-0015"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "ETF analysis",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -5963,6 +6277,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Issuer documents and model assumptions are retained; no commercial AUM feed is mandatory.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -5987,6 +6302,9 @@
         "UPDATEV2-0018"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0107"
+      ],
       "epic": "ETF analysis",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -5998,6 +6316,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Document parser sandbox, licence metadata and no hidden generative extraction.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6022,6 +6341,9 @@
         "UPDATEV2-0016"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0108"
+      ],
       "epic": "ETF analysis",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -6033,6 +6355,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Unsupported entity matches are prohibited and manual resolutions are audited.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6055,6 +6378,7 @@
         "ISSUE-0128"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "ETF analysis",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -6066,6 +6390,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Imported quote licences are honoured; delayed data are not represented as real-time depth.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6090,6 +6415,7 @@
         "ISSUE-0104"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "ETF analysis",
       "evidence_grade": "Moderate/Low",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -6101,6 +6427,7 @@
       "priority": "P1/P2",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Informational only; no personalised tax recommendation or hidden jurisdiction assumptions.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6127,6 +6454,10 @@
         "ISSUE-0105"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0109",
+        "ISSUE-0123"
+      ],
       "epic": "Expected return",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -6138,6 +6469,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Model/assumption versions and uncertainty are mandatory; no guaranteed-return language.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6160,6 +6492,9 @@
         "ISSUE-0108"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0115"
+      ],
       "epic": "Expected return",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -6171,6 +6506,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Confidence rules are policy-controlled and audit logged.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6195,6 +6531,11 @@
         "ISSUE-0059"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0111",
+        "ISSUE-0113",
+        "ISSUE-0115"
+      ],
       "epic": "Risk model",
       "evidence_grade": "Moderate/High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -6206,6 +6547,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "No proprietary Barra/Axioma data or formulas are copied; methodology and limitations are documented.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6228,6 +6570,9 @@
         "ISSUE-0110"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0113"
+      ],
       "epic": "Risk model",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -6239,6 +6584,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Estimator selection, parameters and failures are versioned and audited.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6263,6 +6609,7 @@
         "ISSUE-0059"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Benchmarking",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -6274,6 +6621,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Benchmark data terms and methodology sources are retained.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6300,6 +6648,9 @@
         "ISSUE-0111"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0114"
+      ],
       "epic": "Portfolio construction",
       "evidence_grade": "Moderate/High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -6311,6 +6662,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Solver versions/parameters are audited; no target gains order authority without policy approval.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6333,6 +6685,9 @@
         "ISSUE-0113"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0130"
+      ],
       "epic": "Portfolio construction",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -6344,6 +6699,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Personal tax assumptions are informational and broker constraints are validated before submission.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6368,6 +6724,7 @@
         "ISSUE-0110"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Risk & scenarios",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -6379,6 +6736,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Scenario edits are audited; unauthorised scenarios cannot alter live limits.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6403,6 +6761,9 @@
         "ISSUE-0059"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0134"
+      ],
       "epic": "Attribution",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -6414,6 +6775,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Immutable period-close snapshots and audit links to source/model/order records.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6438,6 +6800,12 @@
         "ISSUE-0075"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0118",
+        "ISSUE-0119",
+        "ISSUE-0121",
+        "ISSUE-0124"
+      ],
       "epic": "Model research",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -6449,6 +6817,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Model artefacts are verified, unsafe deserialisation is blocked and secrets are excluded.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6471,6 +6840,7 @@
         "ISSUE-0117"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Model research",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -6482,6 +6852,7 @@
       "priority": "P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Synthetic data are never merged with real raw data or mislabelled in exports.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6506,6 +6877,9 @@
         "ISSUE-0117"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0120"
+      ],
       "epic": "Model research",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -6517,6 +6891,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Feature provenance and licences are retained; sensitive imported data are access-controlled.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6539,6 +6914,12 @@
         "ISSUE-0119"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0121",
+        "ISSUE-0122",
+        "ISSUE-0123",
+        "ISSUE-0150"
+      ],
       "epic": "Model research",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -6550,6 +6931,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Split definitions and results are immutable and included in audit packets.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6574,6 +6956,7 @@
         "ISSUE-0120"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Model research",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -6585,6 +6968,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Safe weight loading, offline mode, model licence/size/checksum and no remote-code execution.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6607,6 +6991,7 @@
         "ISSUE-0120"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Model research",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -6618,6 +7003,7 @@
       "priority": "P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "No arbitrary user code in objectives outside explicit developer/sandbox mode; artefacts are redacted.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6642,6 +7028,9 @@
         "ISSUE-0120"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0124"
+      ],
       "epic": "Model research",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -6653,6 +7042,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Calibration state/version is linked to every forecast and proposal.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6677,6 +7067,7 @@
         "ISSUE-0123"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Model research",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -6688,6 +7079,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Role/authority controls, immutable promotion records and signed model artefacts.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6712,6 +7104,7 @@
         "ISSUE-0050"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Backtest & execution",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -6723,6 +7116,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Strategy code cannot bypass risk/order policy; any external engine is isolated and version-pinned.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6747,6 +7141,7 @@
         "ISSUE-0082"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Backtest & execution",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -6758,6 +7153,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Source/licence and unresolved delisting data are visible; no terminal return is invented.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6782,6 +7178,10 @@
         "ISSUE-0084"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0131",
+        "ISSUE-0142"
+      ],
       "epic": "Trading foundation",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -6793,6 +7193,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Encrypted sensitive account data, append-only audit and decimal-safe serialisation.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6823,6 +7224,9 @@
           "to": "related_issues"
         }
       ],
+      "downstream_issues": [
+        "ISSUE-0106"
+      ],
       "epic": "Trading foundation",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -6836,6 +7240,7 @@
       "related_issues": [
         "ISSUE-0106"
       ],
+      "required_inputs": [],
       "security_and_audit": "Imported broker fills remain private; cost-model changes are versioned.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6860,6 +7265,7 @@
         "ISSUE-0057"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Paper trading",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -6871,6 +7277,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Hard network isolation, separate configuration and immutable evidence ledger.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6895,6 +7302,7 @@
         "ISSUE-0114"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Trading foundation",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -6906,6 +7314,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Policy versions are signed/audited; overrides require reason, scope and limits.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6930,6 +7339,11 @@
         "ISSUE-0127"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0132",
+        "ISSUE-0134",
+        "ISSUE-0135"
+      ],
       "epic": "Broker integration",
       "evidence_grade": "High",
       "free_no_quota_policy": "Adapter software is free/open, but broker accounts, commissions, market-data subscriptions and broker pacing limits are unavoidable external constraints.",
@@ -6941,6 +7355,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "OS credential store/encrypted vault, least privilege, official API terms and network allow-list.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6963,6 +7378,11 @@
         "ISSUE-0131"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0133",
+        "ISSUE-0135",
+        "ISSUE-0142"
+      ],
       "epic": "Execution safety",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -6974,6 +7394,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Separate permissions, secure confirmation, append-only incidents and fail-closed defaults.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -6998,6 +7419,7 @@
         "ISSUE-0152"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Execution",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "The app software can remain free/open; real trading is inherently subject to broker, exchange, tax, commission and market-data terms and costs.",
@@ -7009,6 +7431,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Independent controls, encrypted secrets, tamper-evident audit, incident runbooks and external-cost disclosure.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -7033,6 +7456,7 @@
         "ISSUE-0131"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Execution analytics",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -7044,6 +7468,7 @@
       "priority": "P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Private order/fill data are protected and aggregated exports support redaction.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -7068,6 +7493,7 @@
         "ISSUE-0132"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Execution safety",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -7079,6 +7505,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Restricted incident data, redacted export and tamper-evident logs.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -7101,6 +7528,10 @@
         "ISSUE-0071"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0137",
+        "ISSUE-0139"
+      ],
       "epic": "Frontend & API",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -7112,6 +7543,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Local binding by default, CSRF/authentication if HTTP, no secrets in responses and command authorisation.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -7134,6 +7566,11 @@
         "ISSUE-0136"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0138",
+        "ISSUE-0139",
+        "ISSUE-0140"
+      ],
       "epic": "Frontend & API",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -7145,6 +7582,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "No remote telemetry by default; new web dependencies receive supply-chain review.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -7167,6 +7605,7 @@
         "ISSUE-0137"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Frontend & API",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -7178,6 +7617,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Private notes remain local/encrypted and research-packet exports support redaction.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -7202,6 +7642,7 @@
         "ISSUE-0137"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Frontend & API",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -7213,6 +7654,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Role/confirmation controls, no credential display and secure session handling.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -7235,6 +7677,7 @@
         "ISSUE-0137"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Frontend & API",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -7246,6 +7689,7 @@
       "priority": "P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Search indexes exclude secrets/private notes unless explicitly authorised.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -7270,6 +7714,9 @@
         "ISSUE-0145"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0143"
+      ],
       "epic": "Quality & release",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -7281,6 +7728,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Least-privilege CI tokens, protected environments and signed artefacts.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -7307,6 +7755,7 @@
         "ISSUE-0132"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Quality & release",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -7318,6 +7767,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Fixtures contain no credentials or restricted data.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -7340,6 +7790,7 @@
         "ISSUE-0141"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Quality & release",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -7351,6 +7802,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Tests use sandbox/mock broker and network allow-lists; no live orders.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -7375,6 +7827,9 @@
         "ISSUE-0145"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0146"
+      ],
       "epic": "Security",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -7386,6 +7841,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Threat model, vulnerability response and audit events.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -7420,6 +7876,11 @@
           "to": "related_issues"
         }
       ],
+      "downstream_issues": [
+        "ISSUE-0079",
+        "ISSUE-0141",
+        "ISSUE-0144"
+      ],
       "epic": "Security & release",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -7434,6 +7895,7 @@
         "ISSUE-0079",
         "ISSUE-0141"
       ],
+      "required_inputs": [],
       "security_and_audit": "Offline update option, least-privilege signing keys and reproducible manifests.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -7458,6 +7920,7 @@
         "ISSUE-0144"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Security & resilience",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -7469,6 +7932,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Strong standard cryptography and key handling; no home-grown cryptographic scheme.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -7493,6 +7957,7 @@
         "UPDATEV2-0028"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Audit & reproducibility",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -7504,6 +7969,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Signed checksums, allow-listed archive members and private-data controls.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -7526,6 +7992,7 @@
         "ISSUE-0043"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Documentation",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -7537,6 +8004,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Examples contain no secrets, private data or unlicensed datasets.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -7567,6 +8035,9 @@
           "to": "related_issues"
         }
       ],
+      "downstream_issues": [
+        "ISSUE-0079"
+      ],
       "epic": "Governance",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -7580,6 +8051,7 @@
       "related_issues": [
         "ISSUE-0079"
       ],
+      "required_inputs": [],
       "security_and_audit": "This issue is the legal/security gate; records are versioned and auditable.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -7604,6 +8076,7 @@
         "ISSUE-0120"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Model governance",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -7615,6 +8088,7 @@
       "priority": "P0/P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "No protected or personal attribute inference; geographic data terms are honoured.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -7637,6 +8111,7 @@
         "ISSUE-0078"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "Performance & release",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -7648,6 +8123,7 @@
       "priority": "P1",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "No undisclosed remote compute or telemetry; resource logs remain local.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -7666,6 +8142,9 @@
       "data_and_dependencies": "['All current 76 issues and ISSUE-0070–ISSUE-0151.']",
       "dependency_candidates": [],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0133"
+      ],
       "epic": "Final certification",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory release software and core datasets are quota-independent; real broker trading remains subject to unavoidable broker, exchange, tax and market-data terms/costs.",
@@ -7677,6 +8156,7 @@
       "priority": "P0",
       "programme_status": "planned",
       "related_issues": [],
+      "required_inputs": [],
       "security_and_audit": "Independent reviewers, signed manifests, protected promotion and no live order during certification except an explicitly approved sandbox/canary test.",
       "source_file": "ETF_AI_Cockpit_New_Issues.csv",
       "source_kind": "proposed",
@@ -7697,6 +8177,9 @@
         "ISSUE-0083"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0082"
+      ],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -7711,6 +8194,7 @@
         "ISSUE-0083"
       ],
       "required_change": "Absorb into the identity master: entity/security/fund/share-class/listing separation, CIK/LEI/ISIN/MIC/ticker mappings, valid dates, confidence and review.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "UPDATEV2-0011",
@@ -7729,6 +8213,10 @@
         "ISSUE-0091"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0087",
+        "ISSUE-0091"
+      ],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -7744,6 +8232,7 @@
         "ISSUE-0091"
       ],
       "required_change": "Prefer nightly submissions/companyfacts bulk ZIPs, retain raw filings/amendments and availability time, support resumable increments and connect to canonical statements.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "UPDATEV2-0012",
@@ -7761,6 +8250,9 @@
         "ISSUE-0087"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0087"
+      ],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -7775,6 +8267,7 @@
         "ISSUE-0087"
       ],
       "required_change": "Create a country/regulator adapter framework with source snapshots, coverage, terms, retries, manual fallback and no prohibited scraping.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "UPDATEV2-0014",
@@ -7793,6 +8286,10 @@
         "ISSUE-0104"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0103",
+        "ISSUE-0104"
+      ],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -7808,6 +8305,7 @@
         "ISSUE-0104"
       ],
       "required_change": "Store document type, fund/share class, effective/publication date, source, checksum, supersession, extraction state and parser version.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "UPDATEV2-0015",
@@ -7825,6 +8323,9 @@
         "ISSUE-0105"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0105"
+      ],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -7839,6 +8340,7 @@
         "ISSUE-0105"
       ],
       "required_change": "Resolve holdings to canonical IDs; retain unresolved weights; handle nested/cyclic structures, cash/derivatives and history.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "UPDATEV2-0016",
@@ -7856,6 +8358,7 @@
         "ISSUE-0104"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -7870,6 +8373,7 @@
         "ISSUE-0104"
       ],
       "required_change": "Add versioned template/language plugins, page-level evidence, risk/scenario/cost/holding-period fields and human-review queues without inventing values.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "UPDATEV2-0017",
@@ -7887,6 +8391,9 @@
         "UPDATEV2-0015"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0104"
+      ],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -7901,6 +8408,7 @@
         "UPDATEV2-0015"
       ],
       "required_change": "Use the disclosure registry, bounded parsers, page-level provenance, language/template plugins and human verification; prioritise structured fields over broad generative extraction.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "UPDATEV2-0018",
@@ -7918,6 +8426,7 @@
         "ISSUE-0112"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -7932,6 +8441,7 @@
         "ISSUE-0112"
       ],
       "required_change": "Extract eligibility, universe, weighting, caps, rebalance, corporate-action and governance rules; simulate only complete methodologies.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "UPDATEV2-0019",
@@ -7950,6 +8460,7 @@
         "UPDATEV2-0015"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -7965,6 +8476,7 @@
         "UPDATEV2-0015"
       ],
       "required_change": "Store dated Article/PAI/methodology claims, source pages, conflicts and greenwashing warnings; keep all sustainability labels context-only for expected return.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "UPDATEV2-0020",
@@ -7983,6 +8495,9 @@
         "ISSUE-0090"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [
+        "ISSUE-0089"
+      ],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -7998,6 +8513,7 @@
         "ISSUE-0090"
       ],
       "required_change": "Implement deterministic arbitration with candidate retention, authority, date/context matching, tolerances, quarantine and human resolution.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "UPDATEV2-0021",
@@ -8015,6 +8531,7 @@
         "ISSUE-0080"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "Optional only; no paid/keyed FMP capability may be required by tests, scoring or release certification.",
@@ -8029,6 +8546,7 @@
         "ISSUE-0080"
       ],
       "required_change": "Keep as an optional enrichment/verification plugin with licence, quota, cache and authority metadata. Exclude it from release completion and mandatory scoring.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "UPDATEV2-0023",
@@ -8046,6 +8564,7 @@
         "ISSUE-0080"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "Optional only; the mandatory app must work with no Alpha Vantage key or calls.",
@@ -8060,6 +8579,7 @@
         "ISSUE-0080"
       ],
       "required_change": "Keep selected-ticker verification only, with explicit daily budget, cache replay and quota-exhausted state.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "UPDATEV2-0024",
@@ -8077,6 +8597,7 @@
         "ISSUE-0080"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "Optional experimental only; it is never a release blocker or mandatory source.",
@@ -8091,6 +8612,7 @@
         "ISSUE-0080"
       ],
       "required_change": "Keep disabled experimental plugin, probe every capability, preserve terms/secret controls and exclude it from score/release authority.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "UPDATEV2-0025",
@@ -8109,6 +8631,7 @@
         "ISSUE-0128"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -8124,6 +8647,7 @@
         "ISSUE-0128"
       ],
       "required_change": "Prefer continuous OHLCV/gap/range features with bar-quality validation and low authority; retain score caps and explicit path ambiguity.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "UPDATEV2-0026",
@@ -8143,6 +8667,7 @@
         "ISSUE-0136"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -8159,6 +8684,7 @@
         "ISSUE-0136"
       ],
       "required_change": "Merge implementation with the action inventory, API/view models and durable job system; cover training, paper and operations controls.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "UPDATEV2-0027",
@@ -8177,6 +8703,7 @@
         "ISSUE-0152"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "The mandatory path must work from local cache, official bulk/public files or user-owned imports. Remote quota failure must be visible, non-destructive and non-blocking.",
@@ -8192,6 +8719,7 @@
         "ISSUE-0152"
       ],
       "required_change": "Implement CI, environment locks, closure manifests, signed artefacts, SBOM, issue-state reconciliation and protected promotion.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "UPDATEV2-0029",
@@ -8210,6 +8738,7 @@
         "ISSUE-0089"
       ],
       "dependency_conversions": [],
+      "downstream_issues": [],
       "epic": "",
       "evidence_grade": "",
       "free_no_quota_policy": "Only local/user-owned files are guaranteed quota-independent; all remote sources are cached and optional by policy.",
@@ -8225,6 +8754,7 @@
         "ISSUE-0089"
       ],
       "required_change": "Split policy: Stooq best-effort cached fallback where terms/coverage permit; Twelve Data/Tiingo optional keyed plugins; user/broker files are the quota-independent fallback.",
+      "required_inputs": [],
       "source_file": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
       "source_kind": "current",
       "source_record_id": "UPDATEV2-0030",
@@ -8293,12 +8823,12 @@
   "schema_version": "2.0",
   "source_of_truth": {
     "baseline_commit": "3321ebd0733f188f25668f67e3b41fd90808591d",
-    "closed_ledger_sha256": "2dca7fd65f7a218747bcfb91b4e5c1f734af26f29114cc7dc83b071bb86838d8",
+    "closed_ledger_sha256": "b8e67fc4701332aea4b5335a66ffc648eb51cc3ef53725908d9bba55c23bafed",
     "open_ledger_sha256": "d667c5ed88ce41585437dc72b57d38b1c0a79a51f3c8cd44059740b7ea27a95e",
-    "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
+    "package_registry_sha256": "ac2cbb21618220700c92f75dab6290e5c52e49e48ae72843fde061d3f79fd77b",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
     "repository": "Thor2709/etf_ai_cockpit",
-    "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
+    "source_manifest_sha256": "fd0104716d368b79523fefcad44638ea6a88c9dcaf17f053c34d442e9b467af6"
   }
 }

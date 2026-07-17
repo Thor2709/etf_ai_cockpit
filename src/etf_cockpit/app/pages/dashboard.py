@@ -69,7 +69,7 @@ def dashboard_page(page: ft.Page, state: AppState) -> ft.Control:
                     spacing=12,
                 ),
             ),
-            _activity_panel(state),
+            _activity_panel(state, page=page),
             _secondary_actions(page, state),
         ],
         expand=True,
@@ -222,7 +222,7 @@ def _action_bar(page: ft.Page, state: AppState) -> ft.Control:
     )
 
 
-def _activity_panel(state: AppState) -> ft.Control:
+def _activity_panel(state: AppState, *, page: ft.Page | None = None) -> ft.Control:
     current = state.current_activity
     rows: list[ft.Control] = []
     if current is not None:
@@ -233,6 +233,11 @@ def _activity_panel(state: AppState) -> ft.Control:
                         ft.ProgressRing(width=18, height=18, stroke_width=2, color=theme.CYAN),
                         ft.Text(current.label, color=theme.TEXT, weight=ft.FontWeight.BOLD),
                         evidence_chip("Status", "running", theme.CYAN),
+                        ft.TextButton(
+                            "Cancel",
+                            key="activity.cancel",
+                            on_click=lambda _event: _cancel_activity(page, state),
+                        ),
                     ],
                     spacing=10,
                     wrap=True,
@@ -327,23 +332,36 @@ def _run_action(page: ft.Page, state: AppState, label: str, action: Callable[[],
         state.last_message = f"{state.current_activity.label} is still running. Please wait for it to finish."
         _rebuild(page, state)
         return
-    state.begin_activity(label, "Starting")
+    entry = state.begin_activity(label, "Starting")
+    action_id = entry.action_id
     _rebuild(page, state)
 
     def worker() -> None:
         try:
+            if state.workflow_controller.is_cancel_requested(action_id):
+                return
             state.update_activity("Running local workflow")
             try:
                 page.update()
             except Exception:
                 pass
             message = action()
+            if state.workflow_controller.is_cancel_requested(action_id):
+                return
             state.finish_activity(message, label=label)
         except Exception as exc:
+            if state.workflow_controller.is_cancel_requested(action_id):
+                return
             state.fail_activity(label, exc, retry_callback=action)
         _rebuild(page, state)
 
     threading.Thread(target=worker, daemon=True).start()
+
+
+def _cancel_activity(page: ft.Page | None, state: AppState) -> None:
+    state.cancel_activity()
+    if page is not None:
+        _rebuild(page, state)
 
 
 def _run_dialog_action(page: ft.Page, state: AppState, result_text: ft.Text, label: str, step: str, action: Callable[[], str]) -> None:

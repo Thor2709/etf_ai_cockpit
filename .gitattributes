@@ -1,0 +1,2 @@
+# Canonical generated JSON is compared byte-for-byte by validation tests.
+issues/issue_registry.json text eol=lf

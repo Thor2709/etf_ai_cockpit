@@ -36,16 +36,16 @@ Deliver the bounded quality, release, security and resilience work with local-fi
 
 ## Blockers, dependencies and related links
 
-- Resolve only `blocking_dependencies` as prerequisites. `related_issues` are context and do not block sequencing.
+- Resolve only `blocking_dependencies` as prerequisites; `required_inputs` are policy/evidence inputs and do not block readiness. `downstream_issues` are generated reverse links and `related_issues` are context only.
 - The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-17-3321ebd/dependency-reconciliation.csv`.
 
 ## Issue coverage
 
-| ID | Priority | Programme state | Owner | Blocking dependencies | Related issues |
-|---|---|---|---|---|---|
-| `ISSUE-0141` | `P0` | `planned` | `quality-and-release` | `ISSUE-0075`, `ISSUE-0145` | - |
-| `ISSUE-0142` | `P0/P1` | `planned` | `quality-and-release` | `ISSUE-0074`, `ISSUE-0127`, `ISSUE-0132` | - |
-| `ISSUE-0143` | `P0/P1` | `planned` | `quality-and-release` | `ISSUE-0141` | - |
-| `ISSUE-0144` | `P0` | `planned` | `security-and-release` | `ISSUE-0076`, `ISSUE-0145` | - |
-| `ISSUE-0145` | `P0` | `planned` | `programme-governance` | - | `ISSUE-0079`, `ISSUE-0141` |
-| `ISSUE-0146` | `P0/P1` | `planned` | `security-and-release` | `ISSUE-0044`, `ISSUE-0144` | - |
+| ID | Priority | Programme state | Owner | Blocking dependencies | Required inputs | Downstream issues | Related issues |
+|---|---|---|---|---|---|---|---|
+| `ISSUE-0141` | `P0` | `planned` | `quality-and-release` | `ISSUE-0075`, `ISSUE-0145` | - | `ISSUE-0143` | - |
+| `ISSUE-0142` | `P0/P1` | `planned` | `quality-and-release` | `ISSUE-0074`, `ISSUE-0127`, `ISSUE-0132` | - | - | - |
+| `ISSUE-0143` | `P0/P1` | `planned` | `quality-and-release` | `ISSUE-0141` | - | - | - |
+| `ISSUE-0144` | `P0` | `planned` | `security-and-release` | `ISSUE-0076`, `ISSUE-0145` | - | `ISSUE-0146` | - |
+| `ISSUE-0145` | `P0` | `planned` | `programme-governance` | - | - | `ISSUE-0079`, `ISSUE-0141`, `ISSUE-0144` | `ISSUE-0079`, `ISSUE-0141` |
+| `ISSUE-0146` | `P0/P1` | `planned` | `security-and-release` | `ISSUE-0044`, `ISSUE-0144` | - | - | - |

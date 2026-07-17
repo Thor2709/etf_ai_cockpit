@@ -376,6 +376,33 @@ def _dependency_resolution(
     )
 
 
+DEPENDENCY_SEMANTIC_OVERRIDES: dict[str, dict[str, list[str]]] = {
+    # These records are evidence/policy inputs for the scope decision. They
+    # must not make the scope decision appear ready by bypassing the ordinary
+    # blocker graph.
+    "ISSUE-0070": {
+        "blocking_dependencies": [],
+        "required_inputs": ["ISSUE-0008", "ISSUE-0032", "ISSUE-0060", "ISSUE-0066"],
+    },
+}
+
+
+def _semantic_dependency_fields(
+    issue_id: str,
+    resolved_blocking: list[str],
+    resolved_related: list[str],
+) -> dict[str, list[str]]:
+    override = DEPENDENCY_SEMANTIC_OVERRIDES.get(issue_id, {})
+    blocking = sorted(set(override.get("blocking_dependencies", resolved_blocking)))
+    required_inputs = sorted(set(override.get("required_inputs", [])))
+    related = sorted(set(resolved_related) - set(blocking) - set(required_inputs))
+    return {
+        "blocking_dependencies": blocking,
+        "required_inputs": required_inputs,
+        "related_issues": related,
+    }
+
+
 def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]:
     package = load_package_registry(root)
     open_records = parse_open_ledger(root / OPEN_LEDGER)
@@ -415,6 +442,11 @@ def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]
                 or closed_records.get(issue_id, {}).get("title")
                 or source_title
             )
+        dependency_fields = _semantic_dependency_fields(
+            issue_id,
+            blocking.get(issue_id, []),
+            related.get(issue_id, []),
+        )
         record = {
             "canonical_id": issue_id,
             "source_record_id": issue_id,
@@ -432,8 +464,7 @@ def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]
             "epic": str(row.get("epic", "")).strip(),
             "evidence_grade": str(row.get("evidence_grade", "")).strip(),
             "dependency_candidates": parse_issue_refs(row.get("dependencies", "")),
-            "blocking_dependencies": blocking.get(issue_id, []),
-            "related_issues": related.get(issue_id, []),
+            **dependency_fields,
             "dependency_conversions": conversions.get(issue_id, []),
         }
         for field in (
@@ -451,6 +482,17 @@ def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]
             if field in row:
                 record[field] = str(row.get(field, "")).strip()
         records.append(record)
+
+    # Downstream links are derived from all prerequisite kinds. They are
+    # generated reverse links, not hand-maintained sequencing metadata.
+    downstream: dict[str, set[str]] = defaultdict(set)
+    for record in records:
+        source_id = str(record["canonical_id"])
+        for dependency_field in ("blocking_dependencies", "required_inputs"):
+            for dependency in record.get(dependency_field, []):
+                downstream[str(dependency)].add(source_id)
+    for record in records:
+        record["downstream_issues"] = sorted(downstream.get(str(record["canonical_id"]), set()))
 
     manifest = read_manifest(root)
     package_sha = manifest.get("ETF_AI_Cockpit_Full_Research_and_Issue_Package.zip", "")
@@ -587,14 +629,29 @@ def validate_registry(registry: dict[str, Any], *, open_ids: set[str], closed_id
         if not str(record.get("owner", "")).strip():
             errors.append(f"{issue_id}: missing owner")
         blocking = record.get("blocking_dependencies", [])
+        required_inputs = record.get("required_inputs", [])
         related = record.get("related_issues", [])
-        if not isinstance(blocking, list) or not isinstance(related, list):
+        downstream = record.get("downstream_issues", [])
+        if not all(isinstance(value, list) for value in (blocking, required_inputs, related, downstream)):
             errors.append(f"{issue_id}: dependency fields must be lists")
-        if issue_id in blocking or issue_id in related:
+        if issue_id in blocking or issue_id in required_inputs or issue_id in related or issue_id in downstream:
             errors.append(f"{issue_id}: self-reference")
-        for dependency in [*blocking, *related]:
+        for dependency in [*blocking, *required_inputs, *related, *downstream]:
             if dependency not in set(ids) | closed_ids:
                 errors.append(f"{issue_id}: unresolved dependency {dependency}")
+
+    expected_downstream: dict[str, set[str]] = defaultdict(set)
+    for record in records:
+        source_id = str(record.get("canonical_id"))
+        for field in ("blocking_dependencies", "required_inputs"):
+            for dependency in record.get(field, []):
+                expected_downstream[str(dependency)].add(source_id)
+    for record in records:
+        issue_id = str(record.get("canonical_id"))
+        actual = sorted(str(value) for value in record.get("downstream_issues", []))
+        expected = sorted(expected_downstream.get(issue_id, set()))
+        if actual != expected:
+            errors.append(f"{issue_id}: downstream links are not generated reverse dependencies")
 
     graph = {
         str(record.get("canonical_id")): set(record.get("blocking_dependencies", []))
@@ -647,10 +704,7 @@ def ready_records(registry: dict[str, Any]) -> list[dict[str, Any]]:
     for record in records.values():
         if record.get("ledger_state") == "closed":
             continue
-        if record.get("programme_status") == "ready":
-            ready.append(record)
-            continue
-        if record.get("programme_status") != "planned":
+        if record.get("programme_status") not in {"planned", "ready"}:
             continue
         dependencies = record.get("blocking_dependencies", [])
         if all(

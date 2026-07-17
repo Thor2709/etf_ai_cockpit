@@ -166,6 +166,8 @@ def package_source_rows(registry: dict[str, Any]) -> list[dict[str, object]]:
                 "phase": record.get("phase"),
                 "dependency_candidates": ";".join(record.get("dependency_candidates", [])),
                 "blocking_dependencies": ";".join(record.get("blocking_dependencies", [])),
+                "required_inputs": ";".join(record.get("required_inputs", [])),
+                "downstream_issues": ";".join(record.get("downstream_issues", [])),
                 "related_issues": ";".join(record.get("related_issues", [])),
                 "discrepancy": (
                     "canonical title follows latest ledger"
@@ -280,22 +282,24 @@ def phase_document(registry: dict[str, Any], phase: dict[str, Any]) -> str:
         "",
         "## Blockers, dependencies and related links",
         "",
-        "- Resolve only `blocking_dependencies` as prerequisites. `related_issues` are context and do not block sequencing.",
+        "- Resolve only `blocking_dependencies` as prerequisites; `required_inputs` are policy/evidence inputs and do not block readiness. `downstream_issues` are generated reverse links and `related_issues` are context only.",
         "- The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-17-3321ebd/dependency-reconciliation.csv`.",
         "",
         "## Issue coverage",
         "",
-        "| ID | Priority | Programme state | Owner | Blocking dependencies | Related issues |",
-        "|---|---|---|---|---|---|",
+        "| ID | Priority | Programme state | Owner | Blocking dependencies | Required inputs | Downstream issues | Related issues |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for record in records:
         lines.append(
-            "| `{id}` | `{priority}` | `{status}` | `{owner}` | {blocking} | {related} |".format(
+            "| `{id}` | `{priority}` | `{status}` | `{owner}` | {blocking} | {required} | {downstream} | {related} |".format(
                 id=record["canonical_id"],
                 priority=record.get("priority", ""),
                 status=record.get("programme_status", ""),
                 owner=record.get("owner", ""),
                 blocking=", ".join(f"`{value}`" for value in record.get("blocking_dependencies", [])) or "-",
+                required=", ".join(f"`{value}`" for value in record.get("required_inputs", [])) or "-",
+                downstream=", ".join(f"`{value}`" for value in record.get("downstream_issues", [])) or "-",
                 related=", ".join(f"`{value}`" for value in record.get("related_issues", [])) or "-",
             )
         )
@@ -337,7 +341,7 @@ def generate(root: Path, package_path: Path | None = None) -> dict[str, object]:
             "source_record_id", "source_kind", "source_file", "source_title", "canonical_id",
             "canonical_title", "classification", "ledger_state", "package_status",
             "programme_status", "priority", "owner", "phase", "dependency_candidates",
-            "blocking_dependencies", "related_issues", "discrepancy",
+            "blocking_dependencies", "required_inputs", "downstream_issues", "related_issues", "discrepancy",
         ],
         rows,
     )
