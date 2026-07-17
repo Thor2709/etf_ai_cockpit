@@ -20,3 +20,9 @@ reviewer can compare the package against the signed release manifest:
 No third-party source is silently bundled or downloaded by the application at
 runtime. Licence metadata that is absent from a package is a release-gate
 failure and cannot be hidden by this summary file.
+
+Optional TimesFM and Toto source archives are recorded separately in
+`configs/supply_chain_intake.yaml`, including their local licence paths,
+provenance references, copied-file boundaries and upstream update policy. They
+are reference archives only; they are not imported or enabled at application
+startup.

@@ -12,10 +12,16 @@ import time
 from pathlib import Path
 from typing import Any
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
+
 try:
     from scripts.release_gate import build_sbom, build_source_manifest, canonical_json, dependency_snapshot
 except ModuleNotFoundError:
     from release_gate import build_sbom, build_source_manifest, canonical_json, dependency_snapshot
+
+from etf_cockpit.governance.supply_chain_intake import supply_chain_intake_report  # noqa: E402
 
 
 POLICY_PATH = Path("configs/supply_chain_policy.yaml")
@@ -147,6 +153,7 @@ def write_report(root: Path, output_dir: Path, *, allow_missing_tools: bool = Fa
     licences = licence_inventory(root, policy)
     secrets = secret_findings(root, source)
     vulnerabilities = vulnerability_scan(root, policy, allow_missing_tools=allow_missing_tools)
+    intake = supply_chain_intake_report(root)
     failures: list[str] = []
     if secrets:
         failures.append("secret scan found credential-like content")
@@ -154,6 +161,7 @@ def write_report(root: Path, output_dir: Path, *, allow_missing_tools: bool = Fa
         failures.append("licence metadata missing for: " + ", ".join(licences["missing_license_metadata"]))
     if vulnerabilities.get("required") and vulnerabilities.get("status") != "passed":
         failures.append("vulnerability scan failed or was unavailable")
+    failures.extend(f"intake: {failure}" for failure in intake.get("failures", []))
     report: dict[str, Any] = {
         "schema_version": "1.0",
         "policy": policy,
@@ -163,11 +171,21 @@ def write_report(root: Path, output_dir: Path, *, allow_missing_tools: bool = Fa
         "licence_scan": licences,
         "vulnerability_scan": vulnerabilities,
         "third_party_notices": "packaging/THIRD_PARTY_NOTICES.md",
+        "intake": intake,
         "failures": failures,
     }
     report_path = output_dir / "supply-chain-report.json"
     report_path.write_bytes(canonical_json(report))
-    markdown = ["# Supply-chain scan", "", f"- Status: `{'failed' if failures else 'passed'}`", f"- SBOM: `{report['sbom_sha256']}`", "", "## Failures", ""]
+    markdown = [
+        "# Supply-chain scan",
+        "",
+        f"- Status: `{'failed' if failures else 'passed'}`",
+        f"- SBOM: `{report['sbom_sha256']}`",
+        f"- Intake: `{intake['status']}`; review `{intake['review_status']}`; signature `{intake['signature_status']}`",
+        "",
+        "## Failures",
+        "",
+    ]
     markdown.extend(f"- {failure}" for failure in failures) if failures else markdown.append("- None")
     (output_dir / "supply-chain-report.md").write_text("\n".join(markdown) + "\n", encoding="utf-8", newline="\n")
     (output_dir / "sbom.cdx.json").write_bytes(canonical_json(sbom))

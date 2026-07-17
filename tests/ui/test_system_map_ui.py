@@ -28,6 +28,8 @@ def test_system_map_shows_future_execution_as_non_interactive() -> None:
     assert "Product contract" in text
     assert "execution: disabled" in text.casefold()
     assert "ADR ADR-0070-v1" in text
+    assert "External components" in text
+    assert "release_dependency_lock" in text
 
 
 def test_system_map_reports_loaded_dependencies_and_data_health_validation() -> None:

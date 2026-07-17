@@ -88,3 +88,4 @@ def test_settings_page_exposes_update_verification_and_notices() -> None:
     assert "settings.update-verification" in source
     assert "settings.update-version" in source
     assert "settings.third-party-notices" in source
+    assert "settings.supply-chain-intake-status" in source

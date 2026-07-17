@@ -21,6 +21,7 @@ from etf_cockpit.data.hybrid_platform import *  # noqa: F401,F403
 from etf_cockpit.data.import_export import *  # noqa: F401,F403
 from etf_cockpit.data.legal_terms import *  # noqa: F401,F403
 from etf_cockpit.governance.release_certification import *  # noqa: F401,F403
+from etf_cockpit.governance.supply_chain_intake import *  # noqa: F401,F403
 from etf_cockpit.data.local_storage import *  # noqa: F401,F403
 from etf_cockpit.data.manual_notes import *  # noqa: F401,F403
 from etf_cockpit.data.news_context import *  # noqa: F401,F403
