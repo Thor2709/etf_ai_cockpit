@@ -22,4 +22,4 @@ The machine-readable contract is [configs/storage_policy.yaml](../../configs/sto
 
 ## Compatibility boundary
 
-Existing file-backed datasets remain readable during this migration. ISSUE-0072 will add the canonical analytical catalog and domain repositories; ISSUE-0073 will add bitemporal and vintage columns. This foundation deliberately does not silently rewrite existing user data.
+Existing file-backed datasets remain readable during this migration. ISSUE-0072 adds the first canonical analytical catalogue and repository boundary; later domain repositories and ISSUE-0073's bitemporal and vintage columns remain separate work. The platform deliberately does not silently rewrite existing user data.

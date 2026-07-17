@@ -58,6 +58,18 @@ def test_corrupt_store_is_reported_and_exported(tmp_path: Path) -> None:
     assert destination.read_text(encoding="utf-8").splitlines()[0].endswith("warnings")
 
 
+def test_health_exposes_hybrid_storage_versions_sizes_integrity_and_compaction(tmp_path: Path) -> None:
+    from etf_cockpit.data.hybrid_platform import HybridPlatform
+
+    with HybridPlatform(tmp_path) as platform:
+        platform.store.put("journal", "decision-1", {"decision": "hold"})
+
+    row = next(item for item in build_data_health(load_config(), tmp_path).rows if item.dataset == "local_storage")
+    assert row.status is DataHealthStatus.HEALTHY
+    assert {"schema_version:2", "integrity:ok", "last_compaction:never"} <= set(row.warnings)
+    assert any(warning.startswith("transactional_bytes:") for warning in row.warnings)
+
+
 def test_data_health_ui_names_cache_provenance_and_failure_columns() -> None:
     from etf_cockpit.app.pages.data_health import data_health_page
     from etf_cockpit.services import build_snapshot

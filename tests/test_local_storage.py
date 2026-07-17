@@ -70,6 +70,10 @@ def test_export_is_atomic_and_duckdb_readable(tmp_path):
 def test_newer_storage_schema_fails_closed(tmp_path):
     layout = initialise_storage(tmp_path)
     with sqlite3.connect(layout.transactional_path) as connection:
-        connection.execute("UPDATE schema_migrations SET version = ?", (STORAGE_SCHEMA_VERSION + 1,))
+        connection.execute("DELETE FROM schema_migrations")
+        connection.execute(
+            "INSERT INTO schema_migrations(version, name, applied_at) VALUES (?, ?, ?)",
+            (STORAGE_SCHEMA_VERSION + 1, "future", "now"),
+        )
     with pytest.raises(StorageSchemaError, match="newer than supported"):
         initialise_storage(tmp_path)
