@@ -12,6 +12,7 @@ import pandas as pd
 
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.migrations import MIGRATIONS
+from etf_cockpit.data.bitemporal import BitemporalStore
 from etf_cockpit.data.hybrid_platform import HybridPlatform
 
 
@@ -282,6 +283,8 @@ def _inspect_local_storage(root: Path) -> DataHealthRow:
     try:
         with HybridPlatform(root) as platform:
             summary = platform.summary()
+        with BitemporalStore(root) as bitemporal:
+            observations = bitemporal.observations(None)
         integrity = summary.integrity
         status = DataHealthStatus.HEALTHY if integrity.ok else DataHealthStatus.CORRUPT
         warnings = (
@@ -292,6 +295,8 @@ def _inspect_local_storage(root: Path) -> DataHealthRow:
             f"published_generations:{summary.published_generations}",
             f"last_compaction:{summary.last_compaction or 'never'}",
             f"integrity:{integrity.sqlite_integrity}",
+            f"bitemporal_observations:{len(observations)}",
+            f"bitemporal_retractions:{sum(row.status == 'retracted' for row in observations)}",
         ) + integrity.errors
         return _make_row(
             "local_storage",

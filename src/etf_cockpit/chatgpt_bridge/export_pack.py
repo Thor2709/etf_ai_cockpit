@@ -4,7 +4,7 @@ import json
 import hashlib
 import zipfile
 from dataclasses import asdict
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
@@ -41,6 +41,7 @@ from etf_cockpit.data.parsed_disclosures import INDEX_METHODOLOGY_RECORDS_PATH, 
 from etf_cockpit.data.fund_documents import FUND_DOCUMENTS_PATH
 from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
 from etf_cockpit.data.health import build_data_health, export_data_health
+from etf_cockpit.data.bitemporal import BitemporalStore
 from etf_cockpit.application.architecture import build_report as build_architecture_report
 from etf_cockpit.governance.product_scope import (
     load_authority_matrix,
@@ -85,6 +86,7 @@ _COMPLETE_AUDIT_REQUIRED: tuple[tuple[str, str, bool], ...] = (
     ("evidence_export/benchmark_attribution.csv", "derived", True),
     ("evidence_export/edge_cost.csv", "derived", True),
     ("evidence_export/data_health.csv", "derived", True),
+    ("evidence_export/bitemporal_vintage_manifest.json", "evidence", False),
     ("evidence_export/session.jsonl", "workflow", True),
     ("evidence_export/workflow.jsonl", "workflow", True),
     ("evidence_export/configs/data_providers_redacted.json", "configuration", False),
@@ -376,6 +378,9 @@ def export_review_pack(
     ]
     signal_table[edge_columns].to_csv(edge_cost_path, index=False)
     _include_file(edge_cost_path, "edge_cost.csv", evidence_manifest)
+    vintage_manifest_path = export_dir / "evidence_export" / "bitemporal_vintage_manifest.json"
+    _write_bitemporal_manifest(vintage_manifest_path)
+    _include_file(vintage_manifest_path, "bitemporal_vintage_manifest.json", evidence_manifest)
     trust_manifest_path = export_dir / "evidence_export" / "trust_critical_manifest.json"
     trust_manifest_path.write_text(json.dumps(evidence_manifest, indent=2, default=str), encoding="utf-8")
     _include_file(trust_manifest_path, "trust_critical_manifest.json", evidence_manifest)
@@ -726,6 +731,49 @@ def _export_issue_dossiers(docs_root: Path, manifest: dict[str, object]) -> None
     _include_file(inventory, "project_docs/issue_dossiers.json", manifest)
     if not records:
         manifest.setdefault("missing", []).append(str(issues_root))
+
+
+def _write_bitemporal_manifest(destination: Path) -> None:
+    try:
+        with BitemporalStore(ROOT) as store:
+            observations = store.observations(None)
+        payload = {
+            "schema_version": 1,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "observation_count": len(observations),
+            "observations": [
+                {
+                    "observation_id": row.observation_id,
+                    "dataset_id": row.dataset_id,
+                    "entity_id": row.entity_id,
+                    "stable_id": row.stable_id,
+                    "run_id": row.run_id,
+                    "revision": row.revision,
+                    "valid_from": row.valid_from,
+                    "valid_to": row.valid_to,
+                    "published_at": row.published_at,
+                    "available_at": row.available_at,
+                    "observed_at": row.observed_at,
+                    "revised_at": row.revised_at,
+                    "source_id": row.source_id,
+                    "source_checksum": row.source_checksum,
+                    "timezone_confidence": row.timezone_confidence,
+                    "availability_confidence": row.availability_confidence,
+                    "status": row.status,
+                }
+                for row in observations
+            ],
+        }
+    except Exception as exc:
+        payload = {
+            "schema_version": 1,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "observation_count": 0,
+            "status": "unavailable",
+            "error_type": type(exc).__name__,
+        }
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
 
 
 def _collect_checksums(export_dir: Path) -> dict[str, str]:

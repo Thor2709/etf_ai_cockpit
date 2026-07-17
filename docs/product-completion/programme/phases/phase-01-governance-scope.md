@@ -71,7 +71,7 @@ Deliver the bounded governance, scope and completion contract work with local-fi
 | `ISSUE-0070` | `P0` | `integrated` | `programme-governance` | - | `ISSUE-0008`, `ISSUE-0032`, `ISSUE-0060`, `ISSUE-0066` | `ISSUE-0071`, `ISSUE-0076`, `ISSUE-0080`, `ISSUE-0130` | - |
 | `ISSUE-0071` | `P0` | `integrated` | `programme-governance` | `ISSUE-0070` | - | `ISSUE-0072`, `ISSUE-0074`, `ISSUE-0076`, `ISSUE-0136` | - |
 | `ISSUE-0072` | `P0` | `integrated` | `data-platform` | `ISSUE-0038`, `ISSUE-0071` | - | `ISSUE-0073`, `ISSUE-0075`, `ISSUE-0077`, `ISSUE-0081`, `ISSUE-0090`, `ISSUE-0127` | - |
-| `ISSUE-0073` | `P0` | `planned` | `data-platform` | `ISSUE-0072` | - | `ISSUE-0074`, `ISSUE-0082`, `ISSUE-0084`, `ISSUE-0088`, `ISSUE-0089`, `ISSUE-0091`, `ISSUE-0119`, `ISSUE-0126` | - |
+| `ISSUE-0073` | `P0` | `integrated` | `data-platform` | `ISSUE-0072` | - | `ISSUE-0074`, `ISSUE-0082`, `ISSUE-0084`, `ISSUE-0088`, `ISSUE-0089`, `ISSUE-0091`, `ISSUE-0119`, `ISSUE-0126` | - |
 | `ISSUE-0074` | `P0` | `planned` | `scoring-and-evidence` | `ISSUE-0071`, `ISSUE-0073` | - | `ISSUE-0075`, `ISSUE-0092`, `ISSUE-0098`, `ISSUE-0108`, `ISSUE-0142` | - |
 | `ISSUE-0075` | `P0` | `planned` | `reproducibility` | `ISSUE-0072`, `ISSUE-0074` | - | `ISSUE-0077`, `ISSUE-0090`, `ISSUE-0117`, `ISSUE-0141`, `ISSUE-0147` | - |
 | `ISSUE-0076` | `P0/P1` | `planned` | `platform-and-operations` | `ISSUE-0070`, `ISSUE-0071` | - | `ISSUE-0080`, `ISSUE-0144` | - |

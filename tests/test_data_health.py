@@ -66,7 +66,7 @@ def test_health_exposes_hybrid_storage_versions_sizes_integrity_and_compaction(t
 
     row = next(item for item in build_data_health(load_config(), tmp_path).rows if item.dataset == "local_storage")
     assert row.status is DataHealthStatus.HEALTHY
-    assert {"schema_version:2", "integrity:ok", "last_compaction:never"} <= set(row.warnings)
+    assert {"schema_version:3", "integrity:ok", "last_compaction:never", "bitemporal_observations:0", "bitemporal_retractions:0"} <= set(row.warnings)
     assert any(warning.startswith("transactional_bytes:") for warning in row.warnings)
 
 
