@@ -38,6 +38,7 @@ from etf_cockpit.application.ui_facade import (
     build_news_contradiction_rows,
     import_etf_document,
     import_etf_holdings_with_document,
+    legal_terms_rows,
     load_news_items,
     persist_index_methodology_with_document,
     persist_priips_kid_with_document,
@@ -151,6 +152,7 @@ def provider_status_page(_page: ft.Page, state: AppState) -> ft.Control:
         )
     )
     policy_rows = source_policy_rows(Path.cwd())
+    terms_rows = legal_terms_rows(Path.cwd())
     source_policy_panel = panel(
         ft.Column(
             [
@@ -164,6 +166,20 @@ def provider_status_page(_page: ft.Page, state: AppState) -> ft.Control:
             scroll=ft.ScrollMode.AUTO,
         )
     )
+    legal_terms_panel = panel(
+        ft.Column(
+            [
+                section_header("Legal terms and export boundaries", "Source, model and package terms are recorded locally and do not grant permission to redistribute restricted material."),
+                ft.Text("Restricted sources are local-only or metadata-only in standard audit exports. Terms changes require review; unknown optional terms disable the capability and cannot affect the mandatory path.", color=theme.MUTED, size=11, selectable=True),
+                ft.Text("Optional restricted entries include yfinance, stooq, RSS feeds and model weights; they remain disabled or local-only when permission is unclear.", color=theme.AMBER, size=11, selectable=True),
+                ft.DataTable(
+                    columns=[ft.DataColumn(ft.Text(label, color=theme.TEXT)) for label in ("Entry", "Kind", "Terms status", "Cache", "Redistribution", "Audit export")],
+                    rows=[ft.DataRow(cells=[ft.DataCell(ft.Text(str(row[key]), color=theme.MUTED, selectable=True)) for key in ("entry_id", "entry_kind", "terms_status", "permitted_cache", "redistribution", "audit_export")]) for row in terms_rows],
+                ),
+            ],
+            scroll=ft.ScrollMode.AUTO,
+        )
+    )
     return _status_page(
         "Provider Status",
         "Provider capabilities, source authority and disabled/unavailable states. API keys are redacted and never exported.",
@@ -172,7 +188,7 @@ def provider_status_page(_page: ft.Page, state: AppState) -> ft.Control:
             ("Instrument identity", IDENTITY_PATH, ["instrument_id", "analysis_tier", "instrument_type", "isin", "yahoo_symbol", "exchange", "mic", "currency", "share_class", "listing", "identity_confidence", "identity_status", "warnings"]),
             ("Source conflicts", SOURCE_CONFLICTS_PATH, ["instrument_id", "field_name", "canonical_value", "resolution_status", "requires_manual_review", "reason"]),
         ],
-        extra=ft.Column([capability_panel, source_policy_panel], spacing=10),
+        extra=ft.Column([capability_panel, source_policy_panel, legal_terms_panel], spacing=10),
     )
 
 

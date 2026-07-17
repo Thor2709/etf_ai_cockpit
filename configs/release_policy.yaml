@@ -15,5 +15,6 @@ mandatory:
   - bulk_cache
   - security_policy
   - privacy_backup
+  - legal_terms
   - sbom
   - signature

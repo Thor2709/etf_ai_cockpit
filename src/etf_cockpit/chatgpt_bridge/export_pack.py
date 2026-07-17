@@ -44,6 +44,7 @@ from etf_cockpit.data.parsed_disclosures import INDEX_METHODOLOGY_RECORDS_PATH, 
 from etf_cockpit.data.fund_documents import FUND_DOCUMENTS_PATH
 from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
 from etf_cockpit.data.health import build_data_health, export_data_health
+from etf_cockpit.data.legal_terms import legal_terms_report
 from etf_cockpit.data.bitemporal import BitemporalStore
 from etf_cockpit.application.architecture import build_report as build_architecture_report
 from etf_cockpit.governance.product_scope import (
@@ -96,6 +97,7 @@ _COMPLETE_AUDIT_REQUIRED: tuple[tuple[str, str, bool], ...] = (
     ("evidence_export/workflow.jsonl", "workflow", True),
     ("evidence_export/configs/data_providers_redacted.json", "configuration", False),
     ("evidence_export/configs/audit_manifest.yaml", "configuration", True),
+    ("evidence_export/governance/legal_terms_registry.json", "governance", False),
     ("evidence_export/project_docs/issue_dossiers.json", "issue_dossier", True),
     ("evidence_export/checksum_manifest.json", "audit", False),
     ("checksum_manifest.json", "audit", False),
@@ -663,6 +665,9 @@ def _export_trust_critical_evidence(export_dir: Path, config: AppConfig) -> dict
     architecture_path.parent.mkdir(parents=True, exist_ok=True)
     architecture_path.write_text(json.dumps(build_architecture_report(ROOT), indent=2, sort_keys=True) + "\n", encoding="utf-8")
     _include_file(architecture_path, "governance/presentation-boundary-report.json", manifest)
+    legal_terms_path = evidence_root / "governance" / "legal_terms_registry.json"
+    legal_terms_path.write_text(json.dumps(legal_terms_report(ROOT), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _include_file(legal_terms_path, "governance/legal_terms_registry.json", manifest)
 
     session_destination = evidence_root / "session.jsonl"
     if copy_session_log_to(session_destination):
@@ -677,7 +682,7 @@ def _export_trust_critical_evidence(export_dir: Path, config: AppConfig) -> dict
         json.dumps(config.data_providers.redacted(), indent=2, default=str),
         encoding="utf-8",
     )
-    for filename in ("universe.yaml", "portfolio_targets.yaml", "risk_limits.yaml", "costs.yaml", "model_settings.yaml", "ui_settings.yaml", "score_engine_v3.yaml", "audit_manifest.yaml"):
+    for filename in ("universe.yaml", "portfolio_targets.yaml", "risk_limits.yaml", "costs.yaml", "model_settings.yaml", "ui_settings.yaml", "score_engine_v3.yaml", "audit_manifest.yaml", "legal_terms_registry.yaml"):
         source = CONFIG_DIR / filename
         if source.exists():
             target = config_root / filename
