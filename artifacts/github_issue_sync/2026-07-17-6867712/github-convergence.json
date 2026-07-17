@@ -1,0 +1,45 @@
+{
+  "application": {
+    "applied_action_totals": {
+      "blocked": 0,
+      "close": 0,
+      "create": 0,
+      "reopen": 0,
+      "update": 1
+    },
+    "initial_action_summary": {
+      "blocked": 0,
+      "close": 0,
+      "create": 0,
+      "reopen": 0,
+      "update": 1
+    },
+    "readback_noop": true,
+    "status": "APPLIED_AND_VERIFIED"
+  },
+  "approved_plan": {
+    "plan_sha256": "5a11d31dcc52aee86511d77909a73bb939a668a5904bc05bd601a6505653c8fa",
+    "remote_issue_count": 249,
+    "summary": {
+      "blocked": 0,
+      "close": 0,
+      "create": 0,
+      "reopen": 0,
+      "update": 1
+    }
+  },
+  "final_noop_plan": {
+    "plan_sha256": "9b40135624c0b14e3e7c7920b0325df606c86fb797c8bb0d2f1766c705a293ac",
+    "remote_issue_count": 249,
+    "summary": {
+      "blocked": 0,
+      "close": 0,
+      "create": 0,
+      "reopen": 0,
+      "update": 0
+    }
+  },
+  "stable_id": "ISSUE-0145",
+  "remote_number": 285,
+  "schema_version": "1.0"
+}
