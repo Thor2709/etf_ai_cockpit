@@ -117,6 +117,8 @@ def _load_policy(path: Path) -> tuple[dict[str, str], dict[str, bool]]:
             version = str(row.get("version", "")).strip()
             if plugin_id not in _BUILTIN_VERSIONS or version != _BUILTIN_VERSIONS[plugin_id]:
                 return fallback
+            if row.get("network_access") is not False:
+                return fallback
             allowlist[plugin_id] = version
             enabled[plugin_id] = bool(row.get("enabled", False))
         if set(allowlist) != set(_BUILTIN_VERSIONS):

@@ -18,6 +18,7 @@ from etf_cockpit.core.timing import timing_summary
 from etf_cockpit.core.performance import PerformanceBudgetError, build_performance_report
 from etf_cockpit.application.ui_facade import TransactionalStore, build_version_registry, compatibility_summary
 from etf_cockpit.operations.event_store import load_events_with_tail_recovery
+from etf_cockpit.security.policy import build_security_report
 
 
 def _module_status(name: str) -> str:
@@ -75,12 +76,36 @@ def diagnostics_page(_page: ft.Page, state: AppState) -> ft.Control:
                     scroll=ft.ScrollMode.AUTO,
                 )
             ),
+            _security_panel(),
             _session_log_panel(),
             _performance_panel(state),
         ],
         spacing=14,
         expand=True,
         scroll=ft.ScrollMode.AUTO,
+    )
+
+
+def _security_panel() -> ft.Control:
+    report = build_security_report(ROOT)
+    failures = report.get("failures", [])
+    status = str(report.get("status", "unavailable"))
+    colour = theme.GREEN if status == "passed" else theme.RED
+    lines = [
+        f"Status: {status} | network_calls={report.get('network_calls', False)} | default_deny={report.get('default_deny', 'unavailable')}",
+        f"Local UI host: {report.get('local_ui_host', 'unavailable')} | HTTP API exposed: {report.get('http_api_exposed', 'unavailable')}",
+        f"Persistent credentials: {report.get('persistent_credential_storage', 'unavailable')} | exports/logs allowed: {report.get('secret_export_allowed', 'unavailable')}/{report.get('secret_log_allowed', 'unavailable')}",
+        f"Blocking severities: {', '.join(map(str, report.get('blocking_severities', ()))) or 'unavailable'}",
+    ]
+    lines.extend(f"Failure: {failure}" for failure in failures)
+    return panel(
+        ft.Column(
+            [
+                section_header("Security policy", "Fail-closed local network, parser, file, credential and release-finding controls. Secret values are never displayed."),
+                ft.Text("\n".join(lines), color=colour if failures else theme.MUTED, selectable=True),
+            ],
+            spacing=6,
+        )
     )
 
 

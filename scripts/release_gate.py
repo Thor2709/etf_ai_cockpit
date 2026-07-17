@@ -619,6 +619,26 @@ def run_gate(
     else:
         state.add(CheckResult("bulk_cache", "skipped", False, "no bulk cache implementation present"))
 
+    if (root / "scripts" / "check_security_policy.py").is_file():
+        security_report_dir = output / "security_policy"
+        state.add(
+            run_command(
+                root,
+                output,
+                "security_policy",
+                _python_command(
+                    root,
+                    "scripts/check_security_policy.py",
+                    "--root",
+                    str(root),
+                    "--report-dir",
+                    str(security_report_dir),
+                ),
+            )
+        )
+    else:
+        state.add(CheckResult("security_policy", "skipped", False, "no versioned security policy present"))
+
     sbom = build_sbom(root, source, policy, artifact_manifest=artifacts)
     _write_json(output / "sbom.cdx.json", sbom)
     state.add(CheckResult("sbom", "passed", True, "CycloneDX 1.5 deterministic SBOM"))
@@ -668,6 +688,7 @@ def _planned_commands(root: Path) -> list[str]:
         _command_text(_python_command(root, "-m", "pytest", "-q")),
         _command_text(package_command(root)),
         "python scripts/smoke_app.py --mode offline --port <free-port> --timeout 30",
+        "python scripts/check_security_policy.py --root <root> --report-dir <output>/security_policy",
         "CycloneDX 1.5 SBOM",
         f"HMAC-SHA256 signature from ${SIGNING_KEY_ENV}",
     ]
