@@ -121,7 +121,7 @@ def read_bounded_file(path: Path, *, max_bytes: int, root: Path | None = None) -
 
     candidate = Path(path)
     if candidate.is_symlink():
-        raise SecurityPolicyError("symbolic links are not permitted for bounded file reads")
+        raise SecurityPolicyError("symlink (symbolic link) files are not permitted for bounded file reads")
     resolved = candidate.resolve()
     if root is not None:
         allowed_root = Path(root).resolve()
