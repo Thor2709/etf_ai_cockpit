@@ -8,6 +8,7 @@ from etf_cockpit.app.pages.backtests import backtests_page
 from etf_cockpit.app.pages.chatgpt_audit import chatgpt_audit_page
 from etf_cockpit.app.pages.dashboard import dashboard_page
 from etf_cockpit.app.pages.data_models import data_models_page
+from etf_cockpit.app.pages.macro_factors import macro_factors_page
 from etf_cockpit.app.pages.diagnostics import diagnostics_page
 from etf_cockpit.app.pages.data_health import data_health_page
 from etf_cockpit.app.pages.errors_recovery import errors_recovery_page
@@ -51,6 +52,7 @@ PAGES = {
     "/etf-disclosures": ("ETF Disclosures", etf_disclosures_page),
     "/news-context": ("News & Context", news_context_page),
     "/data-models": ("Data & Models", data_models_page),
+    "/macro": ("Macro and Factors", macro_factors_page),
     "/settings": ("Settings", settings_page),
     "/diagnostics": ("Diagnostics", diagnostics_page),
     "/errors": ("Errors & Recovery", errors_recovery_page),

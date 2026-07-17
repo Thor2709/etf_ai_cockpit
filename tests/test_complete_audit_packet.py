@@ -33,6 +33,7 @@ COMPLETE_AUDIT_ARTEFACTS = {
     "evidence_export/benchmark_attribution.csv",
     "evidence_export/data_health.csv",
     "evidence_export/decision_journal_summary.json",
+    "evidence_export/macro_warehouse_summary.json",
     "evidence_export/bitemporal_vintage_manifest.json",
     "evidence_export/session.jsonl",
     "evidence_export/workflow.jsonl",
