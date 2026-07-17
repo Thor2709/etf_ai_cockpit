@@ -5,6 +5,7 @@ from pathlib import Path
 
 from scripts.issue_registry_core import (
     PHASES,
+    baseline_sha,
     build_registry,
     deterministic_json,
     parse_closed_index,
@@ -15,6 +16,13 @@ from scripts.issue_registry_core import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_baseline_sha_uses_recorded_reconciliation_intake(tmp_path: Path) -> None:
+    intake = tmp_path / "docs" / "product-completion" / "reconciliation" / "2026-07-17-3321ebd" / "intake-report.json"
+    intake.parent.mkdir(parents=True)
+    intake.write_text(json.dumps({"baseline_commit": "a" * 40}), encoding="utf-8")
+    assert baseline_sha(tmp_path) == "a" * 40
 
 
 def test_ledgers_have_disjoint_canonical_sections() -> None:

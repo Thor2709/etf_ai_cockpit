@@ -44,6 +44,7 @@ REGISTRY_PATH = Path("issues/issue_registry.json")
 PROGRAMME_ROOT = Path("docs/product-completion")
 STATUS_PATH = PROGRAMME_ROOT / "CURRENT_STATUS.json"
 PROGRESS_PATH = PROGRAMME_ROOT / "PROGRESS.md"
+RECONCILIATION_ROOT = PROGRAMME_ROOT / "reconciliation"
 
 PHASES: tuple[dict[str, Any], ...] = (
     {
@@ -195,6 +196,15 @@ def read_manifest(root: Path) -> dict[str, str]:
 
 
 def baseline_sha(root: Path) -> str:
+    intake_reports = sorted((root / RECONCILIATION_ROOT).glob("*/intake-report.json"), reverse=True)
+    for path in intake_reports:
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        baseline = value.get("baseline_commit") if isinstance(value, dict) else None
+        if isinstance(baseline, str) and re.fullmatch(r"[0-9a-f]{40}", baseline):
+            return baseline
     for ref in ("origin/main", "HEAD"):
         try:
             return subprocess.check_output(
@@ -663,6 +673,7 @@ __all__ = [
     "REGISTRY_PATH",
     "STATUS_PATH",
     "PROGRESS_PATH",
+    "RECONCILIATION_ROOT",
     "build_registry",
     "deterministic_json",
     "load_package_registry",
