@@ -579,6 +579,26 @@ def run_gate(
     else:
         state.add(CheckResult("performance_budgets", "skipped", False, "no versioned performance policy present"))
 
+    if (root / "configs" / "data_source_policy.yaml").is_file():
+        source_policy_report_dir = output / "source_policy"
+        state.add(
+            run_command(
+                root,
+                output,
+                "source_policy",
+                _python_command(
+                    root,
+                    "scripts/check_source_policy.py",
+                    "--root",
+                    str(root),
+                    "--report-dir",
+                    str(source_policy_report_dir),
+                ),
+            )
+        )
+    else:
+        state.add(CheckResult("source_policy", "skipped", False, "no versioned source policy present"))
+
     sbom = build_sbom(root, source, policy, artifact_manifest=artifacts)
     _write_json(output / "sbom.cdx.json", sbom)
     state.add(CheckResult("sbom", "passed", True, "CycloneDX 1.5 deterministic SBOM"))
