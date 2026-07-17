@@ -5,6 +5,7 @@ import flet as ft
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.flet_compat import border_only, padding_symmetric
 from etf_cockpit.app.pages.backtests import backtests_page
+from etf_cockpit.app.pages.catalogue import catalogue_page
 from etf_cockpit.app.pages.chatgpt_audit import chatgpt_audit_page
 from etf_cockpit.app.pages.dashboard import dashboard_page
 from etf_cockpit.app.pages.data_models import data_models_page
@@ -52,6 +53,7 @@ PAGES = {
     "/etf-disclosures": ("ETF Disclosures", etf_disclosures_page),
     "/news-context": ("News & Context", news_context_page),
     "/data-models": ("Data & Models", data_models_page),
+    "/catalogue": ("Data Catalogue", catalogue_page),
     "/macro": ("Macro and Factors", macro_factors_page),
     "/settings": ("Settings", settings_page),
     "/diagnostics": ("Diagnostics", diagnostics_page),

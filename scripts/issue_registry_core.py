@@ -65,6 +65,7 @@ PROGRAMME_STATUS_OVERRIDES = {
     "ISSUE-0028": "implemented_initially",
     "ISSUE-0030": "implemented_initially",
     "ISSUE-0088": "implemented_initially",
+    "ISSUE-0090": "implemented_initially",
     "ISSUE-0049": "implemented_initially",
     "ISSUE-0050": "implemented_initially",
     "ISSUE-0065": "implemented_initially",

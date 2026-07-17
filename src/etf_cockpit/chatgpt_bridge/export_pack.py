@@ -45,6 +45,7 @@ from etf_cockpit.data.fund_documents import FUND_DOCUMENTS_PATH
 from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
 from etf_cockpit.data.health import build_data_health, export_data_health
 from etf_cockpit.data.decision_journal import DecisionJournal, JournalIntegrityError
+from etf_cockpit.data.catalogue import DataCatalogue, DataCatalogueError
 from etf_cockpit.data.macro_warehouse import MacroWarehouse, MacroWarehouseError
 from etf_cockpit.data.legal_terms import legal_terms_report
 from etf_cockpit.data.bitemporal import BitemporalStore
@@ -97,6 +98,7 @@ _COMPLETE_AUDIT_REQUIRED: tuple[tuple[str, str, bool], ...] = (
     ("evidence_export/data_health.csv", "derived", True),
     ("evidence_export/decision_journal_summary.json", "user_record", True),
     ("evidence_export/macro_warehouse_summary.json", "derived", True),
+    ("evidence_export/data_catalogue_summary.json", "derived", True),
     ("evidence_export/bitemporal_vintage_manifest.json", "evidence", False),
     ("evidence_export/session.jsonl", "workflow", True),
     ("evidence_export/workflow.jsonl", "workflow", True),
@@ -427,6 +429,7 @@ def export_review_pack(
     _include_file(trust_manifest_path, "trust_critical_manifest.json", evidence_manifest)
     _export_decision_journal_summary(export_dir / "evidence_export" / "decision_journal_summary.json")
     _export_macro_warehouse_summary(export_dir / "evidence_export" / "macro_warehouse_summary.json")
+    _export_data_catalogue_summary(export_dir / "evidence_export" / "data_catalogue_summary.json")
     combined = [
         "# Combined External Audit Packet",
         "",
@@ -500,6 +503,22 @@ def _export_macro_warehouse_summary(path: Path) -> None:
             "status": "unavailable",
             "execution_allowed": False,
             "reason": f"{type(exc).__name__}: macro warehouse evidence requires manual review",
+        }
+    summary.setdefault("schema_version", "1.0")
+    summary.setdefault("execution_allowed", False)
+    path.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _export_data_catalogue_summary(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        summary = DataCatalogue(ROOT).summary()
+    except (DataCatalogueError, OSError, ValueError) as exc:
+        summary = {
+            "schema_version": "1.0",
+            "status": "unavailable",
+            "execution_allowed": False,
+            "reason": f"{type(exc).__name__}: data catalogue evidence requires manual review",
         }
     summary.setdefault("schema_version", "1.0")
     summary.setdefault("execution_allowed", False)
