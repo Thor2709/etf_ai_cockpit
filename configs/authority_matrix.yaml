@@ -1,0 +1,115 @@
+schema_version: "1.0"
+policy_id: authority-matrix
+policy_version: "2026-07-17"
+execution_allowed: false
+executable_authority: false
+adr_id: ADR-0070-v1
+adr_path: docs/architecture/ADR-0070-product-scope-and-authority.md
+mandatory_core:
+  - local_first_no_subscription
+  - adjusted_price_returns
+  - evidence_and_risk_gates
+  - append_only_audit_trace
+  - execution_disabled
+optional_enrichment:
+  - optional_provider_adapters
+  - timesfm_challenger
+  - toto_challenger
+  - local_llm_commentary
+authority_stages:
+  - {stage_id: research, label: Research, description: Evidence and deterministic analysis for human review., enabled_by_default: true, execution_allowed: false}
+  - {stage_id: shadow_proposal, label: Shadow proposal, description: Frozen non-executable proposal preview after research gates., enabled_by_default: false, execution_allowed: false}
+  - {stage_id: paper, label: Paper, description: Local simulation and forward evidence only., enabled_by_default: false, execution_allowed: false}
+  - {stage_id: broker_read_only, label: Broker read-only, description: Reserved read-only reconciliation stage with no credentials or orders in this release., enabled_by_default: false, execution_allowed: false}
+  - {stage_id: draft_order, label: Draft order, description: Disabled draft contract reserved for a separately approved future programme., enabled_by_default: false, execution_allowed: false}
+  - {stage_id: capped_automatic, label: Capped automatic, description: Disabled canary stage requiring separate authority and release evidence., enabled_by_default: false, execution_allowed: false}
+  - {stage_id: disabled, label: Disabled, description: Declared capability is unavailable and cannot influence mandatory workflows., enabled_by_default: false, execution_allowed: false}
+capabilities:
+  - {capability_id: "route:/", kind: route, authority_stage: research, description: Simple Scores workspace}
+  - {capability_id: "route:/portfolio", kind: route, authority_stage: shadow_proposal, description: Portfolio context workspace}
+  - {capability_id: "route:/signals", kind: route, authority_stage: research, description: Scores workspace}
+  - {capability_id: "route:/screener", kind: route, authority_stage: research, description: Fundamentals screener workspace}
+  - {capability_id: "route:/risk", kind: route, authority_stage: research, description: Risk evidence workspace}
+  - {capability_id: "route:/etf", kind: route, authority_stage: research, description: Instrument detail workspace}
+  - {capability_id: "route:/backtests", kind: route, authority_stage: research, description: Backtest evidence workspace}
+  - {capability_id: "route:/chatgpt", kind: route, authority_stage: research, description: Audit notes workspace}
+  - {capability_id: "route:/providers", kind: route, authority_stage: research, description: Provider status workspace}
+  - {capability_id: "route:/evidence", kind: route, authority_stage: research, description: Evidence ledger workspace}
+  - {capability_id: "route:/filings", kind: route, authority_stage: research, description: Filings and statements workspace}
+  - {capability_id: "route:/etf-disclosures", kind: route, authority_stage: research, description: ETF disclosure workspace}
+  - {capability_id: "route:/news-context", kind: route, authority_stage: research, description: News and context workspace}
+  - {capability_id: "route:/data-models", kind: route, authority_stage: research, description: Data and models workspace}
+  - {capability_id: "route:/settings", kind: route, authority_stage: research, description: Local settings workspace}
+  - {capability_id: "route:/diagnostics", kind: route, authority_stage: research, description: Diagnostics workspace}
+  - {capability_id: "route:/errors", kind: route, authority_stage: research, description: Errors and recovery workspace}
+  - {capability_id: "route:/data-health", kind: route, authority_stage: research, description: Data health workspace}
+  - {capability_id: "route:/universe", kind: route, authority_stage: research, description: Universe workspace}
+  - {capability_id: "route:/onboarding", kind: route, authority_stage: research, description: First-run setup workspace}
+  - {capability_id: "route:/what-changed", kind: route, authority_stage: research, description: Change history workspace}
+  - {capability_id: "route:/instrument", kind: route, authority_stage: research, description: Instrument route workspace}
+  - {capability_id: "route:/import-export", kind: route, authority_stage: research, description: Local import and export workspace}
+  - {capability_id: "route:/system-map", kind: route, authority_stage: research, description: Governance system map workspace}
+  - {capability_id: "route:/help", kind: route, authority_stage: research, description: Help and glossary workspace}
+  - {capability_id: "route:/decision-journal", kind: route, authority_stage: research, description: User decision journal workspace}
+  - {capability_id: "dataset:audit_manifest", kind: dataset, authority_stage: research, description: Audit manifest evidence}
+  - {capability_id: "dataset:configuration", kind: dataset, authority_stage: research, description: Local configuration evidence}
+  - {capability_id: "dataset:costs", kind: dataset, authority_stage: research, description: Cost assumption evidence}
+  - {capability_id: "dataset:data_health", kind: dataset, authority_stage: research, description: Data health evidence}
+  - {capability_id: "dataset:etf_documents", kind: dataset, authority_stage: research, description: ETF document evidence}
+  - {capability_id: "dataset:evidence", kind: dataset, authority_stage: research, description: Evidence ledger records}
+  - {capability_id: "dataset:feature_registry", kind: dataset, authority_stage: research, description: Feature registry policy}
+  - {capability_id: "dataset:filings", kind: dataset, authority_stage: research, description: Filing evidence}
+  - {capability_id: "dataset:fundamentals", kind: dataset, authority_stage: research, description: Fundamentals evidence}
+  - {capability_id: "dataset:glossary", kind: dataset, authority_stage: research, description: Governance glossary}
+  - {capability_id: "dataset:identity", kind: dataset, authority_stage: research, description: Instrument identity evidence}
+  - {capability_id: "dataset:local_storage", kind: dataset, authority_stage: research, description: Local user storage}
+  - {capability_id: "dataset:logs", kind: dataset, authority_stage: research, description: Append-only operational logs}
+  - {capability_id: "dataset:models", kind: dataset, authority_stage: research, description: Model availability evidence}
+  - {capability_id: "dataset:news", kind: dataset, authority_stage: research, description: Context-only news evidence}
+  - {capability_id: "dataset:policy", kind: dataset, authority_stage: research, description: Governance policy evidence}
+  - {capability_id: "dataset:prices", kind: dataset, authority_stage: research, description: Adjusted-price evidence}
+  - {capability_id: "dataset:provider_status", kind: dataset, authority_stage: research, description: Provider capability evidence}
+  - {capability_id: "dataset:recovery_state", kind: dataset, authority_stage: research, description: Local recovery evidence}
+  - {capability_id: "dataset:risk", kind: dataset, authority_stage: research, description: Risk evidence}
+  - {capability_id: "dataset:score_history", kind: dataset, authority_stage: research, description: Score history evidence}
+  - {capability_id: "dataset:universe", kind: dataset, authority_stage: research, description: Universe and identity evidence}
+  - {capability_id: "model:baseline", kind: model, authority_stage: research, description: Deterministic baseline model, availability: mandatory}
+  - {capability_id: "model:timesfm", kind: model, authority_stage: research, description: Optional local TimesFM challenger, availability: optional}
+  - {capability_id: "model:toto", kind: model, authority_stage: research, description: Optional local Toto challenger, availability: optional}
+  - {capability_id: "model:lightgbm", kind: model, authority_stage: disabled, description: Future model challenger remains disabled, availability: disabled}
+  - {capability_id: "strategy:baseline_simple_scores", kind: strategy, authority_stage: research, description: Deterministic baseline ranking}
+  - {capability_id: "strategy:etf_trend_momentum", kind: strategy, authority_stage: shadow_proposal, description: ETF trend and momentum review}
+  - {capability_id: "strategy:defensive_rotation", kind: strategy, authority_stage: shadow_proposal, description: Defensive rotation review}
+  - {capability_id: "strategy:stock_quality_momentum", kind: strategy, authority_stage: shadow_proposal, description: Stock quality and momentum review}
+  - {capability_id: "strategy:stock_value_momentum", kind: strategy, authority_stage: shadow_proposal, description: Stock value and momentum review}
+  - {capability_id: "strategy:long_only_ranking", kind: strategy, authority_stage: research, description: Long-only research ranking}
+  - {capability_id: "strategy:timesfm_challenger", kind: strategy, authority_stage: research, description: Experimental TimesFM comparison, availability: optional}
+  - {capability_id: "strategy:toto_challenger", kind: strategy, authority_stage: research, description: Experimental Toto comparison, availability: optional}
+  - {capability_id: "strategy:future_ml_challenger", kind: strategy, authority_stage: disabled, description: Future ML challenger, availability: future}
+  - {capability_id: "strategy:llm_assistance", kind: strategy, authority_stage: research, description: Context-only LLM assistance}
+  - {capability_id: "strategy:provider_news_context", kind: strategy, authority_stage: research, description: Context-only provider news}
+  - {capability_id: "strategy:paper_portfolio", kind: strategy, authority_stage: paper, description: Local paper portfolio simulation}
+  - {capability_id: "strategy:pair_trading", kind: strategy, authority_stage: research, description: Research-only pair trading}
+  - {capability_id: "strategy:triple_barrier_research", kind: strategy, authority_stage: research, description: Research-only triple-barrier analysis}
+  - {capability_id: "strategy:manual_review", kind: strategy, authority_stage: research, description: Human manual review}
+  - {capability_id: "strategy:news_sentiment", kind: strategy, authority_stage: research, description: Context-only news sentiment}
+  - {capability_id: "strategy:llm_summaries", kind: strategy, authority_stage: research, description: Context-only LLM summaries}
+  - {capability_id: "strategy:macro_notes", kind: strategy, authority_stage: research, description: Context-only macro notes}
+  - {capability_id: "strategy:manual_notes", kind: strategy, authority_stage: research, description: User-authored notes}
+  - {capability_id: "strategy:future_broker_architecture", kind: strategy, authority_stage: disabled, description: Future broker architecture, availability: future}
+  - {capability_id: "strategy:martingale", kind: strategy, authority_stage: disabled, description: Rejected martingale strategy, availability: disabled}
+  - {capability_id: "strategy:grid", kind: strategy, authority_stage: disabled, description: Rejected grid strategy, availability: disabled}
+  - {capability_id: "strategy:rl_agents", kind: strategy, authority_stage: disabled, description: Rejected reinforcement-learning agents, availability: disabled}
+  - {capability_id: "strategy:llm_only_management", kind: strategy, authority_stage: disabled, description: Rejected LLM-only management, availability: disabled}
+  - {capability_id: "strategy:model_only_trading", kind: strategy, authority_stage: disabled, description: Rejected model-only trading, availability: disabled}
+  - {capability_id: "strategy:return_screenshots", kind: strategy, authority_stage: disabled, description: Rejected screenshot evidence shortcut, availability: disabled}
+  - {capability_id: "strategy:unvalidated_sentiment", kind: strategy, authority_stage: disabled, description: Rejected unvalidated sentiment, availability: disabled}
+  - {capability_id: "broker:paper_portfolio", kind: broker, authority_stage: paper, description: Local simulation only}
+  - {capability_id: "broker:future_read_only", kind: broker, authority_stage: broker_read_only, description: Reserved read-only broker reconciliation, availability: future}
+  - {capability_id: "broker:order_transmission", kind: broker, authority_stage: disabled, description: Broker order transmission is forbidden, availability: disabled}
+completion_contract:
+  - Every registered route, dataset dependency, model, strategy and broker capability has one stage.
+  - Research outputs remain non-executable and user-owned.
+  - Optional providers and models may be unavailable without breaking the mandatory local core.
+  - Authority cannot be promoted by configuration alone; prerequisite evidence and a separate approved release are required.
+  - No completion wording promises returns or equivalence with a proprietary institutional platform.

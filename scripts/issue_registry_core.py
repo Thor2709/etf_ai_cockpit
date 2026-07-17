@@ -29,13 +29,19 @@ PROGRAMME_STATUSES = frozenset(
         "ready",
         "implemented_initially",
         "in_progress",
+        "integrated",
+        "hardening_required",
         "blocked",
+        "rejected",
         "implemented",
         "deferred",
         "research_only",
         "closed",
     }
 )
+PROGRAMME_STATUS_OVERRIDES = {
+    "ISSUE-0070": "integrated",
+}
 PACKAGE_JSON = Path("docs/product-completion/sources/2026-07-15/ETF_AI_Cockpit_Master_Issue_Registry.json")
 SOURCE_MANIFEST = Path("docs/product-completion/sources/2026-07-15/SOURCE_MANIFEST.sha256")
 OPEN_LEDGER = Path("issues/open.md")
@@ -291,6 +297,8 @@ def programme_status(source_kind: str, row: dict[str, Any], ledger_state: str) -
     if ledger_state == "closed":
         return "closed"
     if source_kind == "proposed":
+        if row.get("issue_id") in PROGRAMME_STATUS_OVERRIDES:
+            return PROGRAMME_STATUS_OVERRIDES[str(row["issue_id"])]
         return "ready" if row.get("issue_id") == "ISSUE-0070" else "planned"
     status = str(row.get("status", "")).lower()
     if "research-only" in status:
@@ -709,7 +717,13 @@ def ready_records(registry: dict[str, Any]) -> list[dict[str, Any]]:
         dependencies = record.get("blocking_dependencies", [])
         if all(
             dependency in closed_ids
-            or records.get(dependency, {}).get("programme_status") in {"implemented", "implemented_initially", "closed"}
+            or records.get(dependency, {}).get("programme_status") in {
+                "implemented",
+                "implemented_initially",
+                "integrated",
+                "hardening_required",
+                "closed",
+            }
             for dependency in dependencies
         ):
             ready.append(record)

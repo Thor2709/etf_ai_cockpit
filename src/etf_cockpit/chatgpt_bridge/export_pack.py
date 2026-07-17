@@ -42,6 +42,7 @@ from etf_cockpit.data.fund_documents import FUND_DOCUMENTS_PATH
 from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
 from etf_cockpit.data.health import build_data_health, export_data_health
 from etf_cockpit.governance.product_scope import (
+    load_authority_matrix,
     load_feature_registry,
     load_gate_policy,
     load_glossary,
@@ -437,6 +438,7 @@ def _write_audit_manifest(export_dir: Path, derived_manifest: dict[str, object],
         diagnostic_mode = True
 
     policy_loaders = {
+        "authority_matrix": load_authority_matrix,
         "product_governance": load_product_governance,
         "feature_registry": load_feature_registry,
         "strategy_scope": load_strategy_scope,
@@ -454,7 +456,7 @@ def _write_audit_manifest(export_dir: Path, derived_manifest: dict[str, object],
         for policy_name, record in manifest_records.items():
             if isinstance(record, dict) and isinstance(record.get("sha256"), str):
                 policy_checksums.setdefault(policy_name, record["sha256"])
-    if len(policy_checksums) != 5:
+    if len(policy_checksums) != 6:
         diagnostic_mode = True
     governance_payload.setdefault("schema_version", "1.0")
     governance_payload["diagnostic_mode"] = diagnostic_mode

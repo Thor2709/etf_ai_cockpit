@@ -1,0 +1,1836 @@
+{
+  "closed_issue_count": 93,
+  "issue_count": 249,
+  "issues": [
+    {
+      "number": 5,
+      "state": "CLOSED",
+      "title": "Create durable issue tracker and plan synchronisation",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/5"
+    },
+    {
+      "number": 6,
+      "state": "CLOSED",
+      "title": "Add young/noisy evidence and too-good-to-be-true warnings",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/6"
+    },
+    {
+      "number": 7,
+      "state": "CLOSED",
+      "title": "Add benchmark alpha/beta/regime attribution",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/7"
+    },
+    {
+      "number": 8,
+      "state": "CLOSED",
+      "title": "Add hit-rate, payoff-ratio and expected-value diagnostics",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/8"
+    },
+    {
+      "number": 9,
+      "state": "CLOSED",
+      "title": "Add friction/cost/slippage stress engine",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/9"
+    },
+    {
+      "number": 10,
+      "state": "CLOSED",
+      "title": "Add explicit model/backtest contamination validity status",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/10"
+    },
+    {
+      "number": 11,
+      "state": "OPEN",
+      "title": "Add non-executable news/macro contradiction panel",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/11"
+    },
+    {
+      "number": 12,
+      "state": "OPEN",
+      "title": "Add strategy taxonomy and scope/rejection matrix",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/12"
+    },
+    {
+      "number": 13,
+      "state": "CLOSED",
+      "title": "Add source-credibility scoring for imported research notes",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/13"
+    },
+    {
+      "number": 14,
+      "state": "OPEN",
+      "title": "Add non-executable LLM thesis diary",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/14"
+    },
+    {
+      "number": 15,
+      "state": "OPEN",
+      "title": "Full main-UI button reliability audit",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/15"
+    },
+    {
+      "number": 16,
+      "state": "OPEN",
+      "title": "Add visible progress/status indicators for long-running actions",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/16"
+    },
+    {
+      "number": 17,
+      "state": "OPEN",
+      "title": "Rebuild package after every completed feature",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/17"
+    },
+    {
+      "number": 18,
+      "state": "OPEN",
+      "title": "Add end-to-end workflow test",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/18"
+    },
+    {
+      "number": 19,
+      "state": "OPEN",
+      "title": "Add app-level feature map / roadmap page",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/19"
+    },
+    {
+      "number": 20,
+      "state": "OPEN",
+      "title": "Full product navigation redesign",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/20"
+    },
+    {
+      "number": 21,
+      "state": "OPEN",
+      "title": "First-run onboarding and setup wizard",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/21"
+    },
+    {
+      "number": 22,
+      "state": "OPEN",
+      "title": "Watchlist and universe manager",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/22"
+    },
+    {
+      "number": 23,
+      "state": "OPEN",
+      "title": "Proper instrument detail page",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/23"
+    },
+    {
+      "number": 24,
+      "state": "OPEN",
+      "title": "Screener and filter system",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/24"
+    },
+    {
+      "number": 25,
+      "state": "OPEN",
+      "title": "Portfolio construction and allocation sandbox",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/25"
+    },
+    {
+      "number": 26,
+      "state": "OPEN",
+      "title": "ETF overlap and look-through exposure engine",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/26"
+    },
+    {
+      "number": 27,
+      "state": "OPEN",
+      "title": "Stock fundamentals quality module hardening",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/27"
+    },
+    {
+      "number": 28,
+      "state": "OPEN",
+      "title": "Earnings, dividends and event calendar",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/28"
+    },
+    {
+      "number": 29,
+      "state": "OPEN",
+      "title": "Free news and filings dashboard",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/29"
+    },
+    {
+      "number": 30,
+      "state": "OPEN",
+      "title": "Macro regime dashboard",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/30"
+    },
+    {
+      "number": 31,
+      "state": "OPEN",
+      "title": "Forecast lab page",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/31"
+    },
+    {
+      "number": 32,
+      "state": "OPEN",
+      "title": "Backtest lab upgrade",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/32"
+    },
+    {
+      "number": 33,
+      "state": "OPEN",
+      "title": "Strategy template builder",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/33"
+    },
+    {
+      "number": 34,
+      "state": "OPEN",
+      "title": "Decision journal",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/34"
+    },
+    {
+      "number": 35,
+      "state": "CLOSED",
+      "title": "[ISSUE-0031] Paper trading module",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/35"
+    },
+    {
+      "number": 36,
+      "state": "CLOSED",
+      "title": "[ISSUE-0032] Future broker-execution architecture document only",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/36"
+    },
+    {
+      "number": 37,
+      "state": "CLOSED",
+      "title": "[ISSUE-0033] Alerts and review reminders",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/37"
+    },
+    {
+      "number": 38,
+      "state": "CLOSED",
+      "title": "[ISSUE-0034] What changed since last run page",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/38"
+    },
+    {
+      "number": 39,
+      "state": "CLOSED",
+      "title": "[ISSUE-0035] Data health centre",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/39"
+    },
+    {
+      "number": 40,
+      "state": "CLOSED",
+      "title": "[ISSUE-0036] Import/export centre",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/40"
+    },
+    {
+      "number": 41,
+      "state": "CLOSED",
+      "title": "[ISSUE-0037] Config editor UI",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/41"
+    },
+    {
+      "number": 42,
+      "state": "CLOSED",
+      "title": "[ISSUE-0038] Local database / storage migration plan",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/42"
+    },
+    {
+      "number": 43,
+      "state": "CLOSED",
+      "title": "[ISSUE-0039] Performance and caching audit",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/43"
+    },
+    {
+      "number": 44,
+      "state": "CLOSED",
+      "title": "[ISSUE-0040] Error handling and recovery centre",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/44"
+    },
+    {
+      "number": 45,
+      "state": "CLOSED",
+      "title": "[ISSUE-0041] Accessibility, responsive layout and table usability",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/45"
+    },
+    {
+      "number": 46,
+      "state": "CLOSED",
+      "title": "[ISSUE-0042] Charts, tables and CSV export improvements",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/46"
+    },
+    {
+      "number": 47,
+      "state": "CLOSED",
+      "title": "[ISSUE-0043] User manual, glossary and in-app explanations",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/47"
+    },
+    {
+      "number": 48,
+      "state": "CLOSED",
+      "title": "[ISSUE-0044] Backup, restore, version and changelog",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/48"
+    },
+    {
+      "number": 49,
+      "state": "CLOSED",
+      "title": "[ISSUE-0045] UI semantic locators and visual smoke tests",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/49"
+    },
+    {
+      "number": 50,
+      "state": "CLOSED",
+      "title": "[ISSUE-0046] Monthly decision template: basket vs benchmark vs cash",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/50"
+    },
+    {
+      "number": 51,
+      "state": "CLOSED",
+      "title": "[ISSUE-0047] Feature-driver explanations for every evidence component",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/51"
+    },
+    {
+      "number": 52,
+      "state": "CLOSED",
+      "title": "[ISSUE-0048] Strategy complexity and overfitting penalty metadata",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/52"
+    },
+    {
+      "number": 53,
+      "state": "CLOSED",
+      "title": "[ISSUE-0049] Worst-day, loss-cluster and tail-event diagnostics",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/53"
+    },
+    {
+      "number": 54,
+      "state": "CLOSED",
+      "title": "[ISSUE-0050] Operational evidence panel for next-open/decision-price realism",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/54"
+    },
+    {
+      "number": 55,
+      "state": "CLOSED",
+      "title": "[ISSUE-0051] Cash proxy and risk-free/defensive comparison everywhere relevant",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/55"
+    },
+    {
+      "number": 56,
+      "state": "CLOSED",
+      "title": "[ISSUE-0052] Correlation clustering and factor-crowding warnings",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/56"
+    },
+    {
+      "number": 57,
+      "state": "CLOSED",
+      "title": "[ISSUE-0053] What matters today digest",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/57"
+    },
+    {
+      "number": 58,
+      "state": "CLOSED",
+      "title": "[ISSUE-0054] Point-in-time news/sentiment validation rules",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/58"
+    },
+    {
+      "number": 59,
+      "state": "CLOSED",
+      "title": "[ISSUE-0055] Optional free provider research/stubs: SEC EDGAR, FRED, Stooq, RSS",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/59"
+    },
+    {
+      "number": 60,
+      "state": "CLOSED",
+      "title": "[ISSUE-0056] Data-frequency suitability and unsupported-asset guardrails",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/60"
+    },
+    {
+      "number": 61,
+      "state": "CLOSED",
+      "title": "[ISSUE-0057] Paper/forward evidence diary",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/61"
+    },
+    {
+      "number": 62,
+      "state": "CLOSED",
+      "title": "[ISSUE-0058] Closed-source/promotional-claim detector for imported notes",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/62"
+    },
+    {
+      "number": 63,
+      "state": "CLOSED",
+      "title": "[ISSUE-0059] Benchmark-relative sector/theme attribution beyond single benchmark beta",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/63"
+    },
+    {
+      "number": 64,
+      "state": "CLOSED",
+      "title": "[ISSUE-0060] Strategy rejection tests",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/64"
+    },
+    {
+      "number": 65,
+      "state": "CLOSED",
+      "title": "[ISSUE-0061] Pair-trading/cointegration research-only module",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/65"
+    },
+    {
+      "number": 66,
+      "state": "CLOSED",
+      "title": "[ISSUE-0062] Triple-barrier and purged-CV research-only module",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/66"
+    },
+    {
+      "number": 67,
+      "state": "CLOSED",
+      "title": "[ISSUE-0063] Close-based quality-momentum next-open template hardening",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/67"
+    },
+    {
+      "number": 68,
+      "state": "CLOSED",
+      "title": "[ISSUE-0064] Friction-adjusted return estimate per evidence score",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/68"
+    },
+    {
+      "number": 69,
+      "state": "CLOSED",
+      "title": "[ISSUE-0065] Payoff-profile classification and risk/reward asymmetry display",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/69"
+    },
+    {
+      "number": 70,
+      "state": "CLOSED",
+      "title": "[ISSUE-0066] Source-of-truth and reconciliation architecture for future execution",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/70"
+    },
+    {
+      "number": 71,
+      "state": "CLOSED",
+      "title": "[ISSUE-0067] Local score history and per-instrument score evolution mini charts",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/71"
+    },
+    {
+      "number": 72,
+      "state": "CLOSED",
+      "title": "[ISSUE-0068] Two-tier universe manager and provider policy editor",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/72"
+    },
+    {
+      "number": 73,
+      "state": "CLOSED",
+      "title": "[ISSUE-0069] Single-file session action logging and diagnostics trace",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/73"
+    },
+    {
+      "number": 74,
+      "state": "CLOSED",
+      "title": "[REJECTED-0001] Autonomous broker execution",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/74"
+    },
+    {
+      "number": 75,
+      "state": "CLOSED",
+      "title": "[REJECTED-0002] Direct LLM portfolio management",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/75"
+    },
+    {
+      "number": 76,
+      "state": "OPEN",
+      "title": "Paper trading module",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/76"
+    },
+    {
+      "number": 77,
+      "state": "OPEN",
+      "title": "Future broker-execution architecture document only",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/77"
+    },
+    {
+      "number": 78,
+      "state": "CLOSED",
+      "title": "[REJECTED-0003] Reinforcement-learning trading agents",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/78"
+    },
+    {
+      "number": 79,
+      "state": "OPEN",
+      "title": "Alerts and review reminders",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/79"
+    },
+    {
+      "number": 80,
+      "state": "OPEN",
+      "title": "What changed since last run page",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/80"
+    },
+    {
+      "number": 81,
+      "state": "CLOSED",
+      "title": "Data health centre",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/81"
+    },
+    {
+      "number": 82,
+      "state": "CLOSED",
+      "title": "[REJECTED-0004] Martingale and grid systems",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/82"
+    },
+    {
+      "number": 83,
+      "state": "OPEN",
+      "title": "Import/export centre",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/83"
+    },
+    {
+      "number": 84,
+      "state": "CLOSED",
+      "title": "[REJECTED-0005] Futures or intraday implementation now",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/84"
+    },
+    {
+      "number": 85,
+      "state": "OPEN",
+      "title": "Config editor UI",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/85"
+    },
+    {
+      "number": 86,
+      "state": "OPEN",
+      "title": "Local database / storage migration plan",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/86"
+    },
+    {
+      "number": 87,
+      "state": "CLOSED",
+      "title": "[REJECTED-0006] News sentiment as direct score authority",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/87"
+    },
+    {
+      "number": 88,
+      "state": "OPEN",
+      "title": "Performance and caching audit",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/88"
+    },
+    {
+      "number": 89,
+      "state": "OPEN",
+      "title": "Error handling and recovery centre",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/89"
+    },
+    {
+      "number": 90,
+      "state": "CLOSED",
+      "title": "[REJECTED-0007] Short-sample return screenshots as evidence",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/90"
+    },
+    {
+      "number": 91,
+      "state": "OPEN",
+      "title": "Accessibility, responsive layout and table usability",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/91"
+    },
+    {
+      "number": 92,
+      "state": "OPEN",
+      "title": "Charts, tables and CSV export improvements",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/92"
+    },
+    {
+      "number": 93,
+      "state": "CLOSED",
+      "title": "[REJECTED-0008] Options, scalping, 0DTE, binary and crypto bot experiments unless separately scoped",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/93"
+    },
+    {
+      "number": 94,
+      "state": "OPEN",
+      "title": "User manual, glossary and in-app explanations",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/94"
+    },
+    {
+      "number": 95,
+      "state": "OPEN",
+      "title": "Backup, restore, version and changelog",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/95"
+    },
+    {
+      "number": 96,
+      "state": "CLOSED",
+      "title": "[UPDATEV2-0010] Provider registry, capability probes and source authority model (original update ISSUE-0010)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/96"
+    },
+    {
+      "number": 97,
+      "state": "OPEN",
+      "title": "UI semantic locators and visual smoke tests",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/97"
+    },
+    {
+      "number": 98,
+      "state": "OPEN",
+      "title": "Monthly decision template: basket vs benchmark vs cash",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/98"
+    },
+    {
+      "number": 99,
+      "state": "OPEN",
+      "title": "Feature-driver explanations for every evidence component",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/99"
+    },
+    {
+      "number": 100,
+      "state": "CLOSED",
+      "title": "[UPDATEV2-0011] Symbol/ISIN/exchange identity resolver (original update ISSUE-0011)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/100"
+    },
+    {
+      "number": 101,
+      "state": "OPEN",
+      "title": "Strategy complexity and overfitting penalty metadata",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/101"
+    },
+    {
+      "number": 102,
+      "state": "CLOSED",
+      "title": "[UPDATEV2-0012] SEC EDGAR official statement importer (original update ISSUE-0012)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/102"
+    },
+    {
+      "number": 103,
+      "state": "OPEN",
+      "title": "Worst-day, loss-cluster and tail-event diagnostics",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/103"
+    },
+    {
+      "number": 104,
+      "state": "CLOSED",
+      "title": "[UPDATEV2-0013] European ESEF/iXBRL filing importer (original update ISSUE-0013)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/104"
+    },
+    {
+      "number": 105,
+      "state": "OPEN",
+      "title": "Operational evidence panel for next-open/decision-price realism",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/105"
+    },
+    {
+      "number": 106,
+      "state": "CLOSED",
+      "title": "[UPDATEV2-0014] France DILA and Netherlands AFM OAM discovery adapters (original update ISSUE-0014)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/106"
+    },
+    {
+      "number": 107,
+      "state": "OPEN",
+      "title": "Cash proxy and risk-free/defensive comparison everywhere relevant",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/107"
+    },
+    {
+      "number": 108,
+      "state": "CLOSED",
+      "title": "[UPDATEV2-0015] ETF disclosure registry (original update ISSUE-0015)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/108"
+    },
+    {
+      "number": 109,
+      "state": "OPEN",
+      "title": "Correlation clustering and factor-crowding warnings",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/109"
+    },
+    {
+      "number": 110,
+      "state": "CLOSED",
+      "title": "[UPDATEV2-0016] ETF holdings normaliser (original update ISSUE-0016)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/110"
+    },
+    {
+      "number": 111,
+      "state": "OPEN",
+      "title": "What matters today digest",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/111"
+    },
+    {
+      "number": 112,
+      "state": "CLOSED",
+      "title": "[UPDATEV2-0017] PRIIPs KID parser (original update ISSUE-0017)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/112"
+    },
+    {
+      "number": 113,
+      "state": "OPEN",
+      "title": "Point-in-time news/sentiment validation rules",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/113"
+    },
+    {
+      "number": 114,
+      "state": "CLOSED",
+      "title": "[UPDATEV2-0018] ETF prospectus, annual and half-year report parser (original update ISSUE-0018)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/114"
+    },
+    {
+      "number": 115,
+      "state": "OPEN",
+      "title": "Optional free provider research/stubs: SEC EDGAR, FRED, Stooq, RSS",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/115"
+    },
+    {
+      "number": 116,
+      "state": "CLOSED",
+      "title": "[UPDATEV2-0019] Index methodology importer (original update ISSUE-0019)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/116"
+    },
+    {
+      "number": 117,
+      "state": "OPEN",
+      "title": "Data-frequency suitability and unsupported-asset guardrails",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/117"
+    },
+    {
+      "number": 118,
+      "state": "CLOSED",
+      "title": "[UPDATEV2-0020] SFDR disclosure parser (original update ISSUE-0020)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/118"
+    },
+    {
+      "number": 119,
+      "state": "OPEN",
+      "title": "Paper/forward evidence diary",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/119"
+    },
+    {
+      "number": 120,
+      "state": "CLOSED",
+      "title": "[UPDATEV2-0021] Source conflict resolver and canonical metric selector (original update ISSUE-0021)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/120"
+    },
+    {
+      "number": 121,
+      "state": "OPEN",
+      "title": "Closed-source/promotional-claim detector for imported notes",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/121"
+    },
+    {
+      "number": 122,
+      "state": "CLOSED",
+      "title": "[UPDATEV2-0022] Evidence ledger and score component audit trail",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/122"
+    },
+    {
+      "number": 123,
+      "state": "OPEN",
+      "title": "Benchmark-relative sector/theme attribution beyond single benchmark beta",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/123"
+    },
+    {
+      "number": 124,
+      "state": "OPEN",
+      "title": "Strategy rejection tests",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/124"
+    },
+    {
+      "number": 125,
+      "state": "CLOSED",
+      "title": "[UPDATEV2-0023] FMP optional provider adapter (original update ISSUE-0023)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/125"
+    },
+    {
+      "number": 126,
+      "state": "OPEN",
+      "title": "Pair-trading/cointegration research-only module",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/126"
+    },
+    {
+      "number": 127,
+      "state": "CLOSED",
+      "title": "[UPDATEV2-0024] Alpha Vantage verification/fallback adapter (original update ISSUE-0024)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/127"
+    },
+    {
+      "number": 128,
+      "state": "OPEN",
+      "title": "Triple-barrier and purged-CV research-only module",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/128"
+    },
+    {
+      "number": 129,
+      "state": "CLOSED",
+      "title": "[UPDATEV2-0025] Finnhub experimental adapter with entitlement probes (original update ISSUE-0025)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/129"
+    },
+    {
+      "number": 130,
+      "state": "OPEN",
+      "title": "Close-based quality-momentum next-open template hardening",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/130"
+    },
+    {
+      "number": 131,
+      "state": "CLOSED",
+      "title": "[UPDATEV2-0026] Candle feature/context/backtest module (original update ISSUE-0026)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/131"
+    },
+    {
+      "number": 132,
+      "state": "OPEN",
+      "title": "Friction-adjusted return estimate per evidence score",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/132"
+    },
+    {
+      "number": 133,
+      "state": "CLOSED",
+      "title": "[UPDATEV2-0027] UI workflow/button reliability and progress indicators (original update ISSUE-0027)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/133"
+    },
+    {
+      "number": 134,
+      "state": "OPEN",
+      "title": "Payoff-profile classification and risk/reward asymmetry display",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/134"
+    },
+    {
+      "number": 135,
+      "state": "CLOSED",
+      "title": "[UPDATEV2-0028] Report/audit packet expansion for providers, filings, ETF docs and candles",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/135"
+    },
+    {
+      "number": 136,
+      "state": "OPEN",
+      "title": "Source-of-truth and reconciliation architecture for future execution",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/136"
+    },
+    {
+      "number": 137,
+      "state": "OPEN",
+      "title": "Local score history and per-instrument score evolution mini charts",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/137"
+    },
+    {
+      "number": 138,
+      "state": "CLOSED",
+      "title": "[UPDATEV2-0029] Rebuild/test/update discipline automation (original update ISSUE-0029)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/138"
+    },
+    {
+      "number": 139,
+      "state": "CLOSED",
+      "title": "[UPDATEV2-0030] Optional OHLCV fallback providers: Stooq, Twelve Data and Tiingo (original update ISSUE-0030)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/139"
+    },
+    {
+      "number": 140,
+      "state": "OPEN",
+      "title": "Two-tier universe manager and provider policy editor",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/140"
+    },
+    {
+      "number": 141,
+      "state": "CLOSED",
+      "title": "Single-file session action logging and diagnostics trace",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/141"
+    },
+    {
+      "number": 142,
+      "state": "CLOSED",
+      "title": "[REJECTED-0001] Autonomous broker execution",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/142"
+    },
+    {
+      "number": 143,
+      "state": "CLOSED",
+      "title": "[REJECTED-0002] Direct LLM portfolio management",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/143"
+    },
+    {
+      "number": 144,
+      "state": "CLOSED",
+      "title": "[REJECTED-0003] Reinforcement-learning trading agents",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/144"
+    },
+    {
+      "number": 145,
+      "state": "CLOSED",
+      "title": "[REJECTED-0004] Martingale and grid systems",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/145"
+    },
+    {
+      "number": 146,
+      "state": "CLOSED",
+      "title": "[REJECTED-0005] Futures or intraday implementation now",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/146"
+    },
+    {
+      "number": 147,
+      "state": "CLOSED",
+      "title": "[REJECTED-0006] News sentiment as direct score authority",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/147"
+    },
+    {
+      "number": 148,
+      "state": "CLOSED",
+      "title": "[REJECTED-0007] Short-sample return screenshots as evidence",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/148"
+    },
+    {
+      "number": 149,
+      "state": "CLOSED",
+      "title": "[REJECTED-0008] Options, scalping, 0DTE, binary and crypto bot experiments unless separately scoped",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/149"
+    },
+    {
+      "number": 150,
+      "state": "CLOSED",
+      "title": "Provider registry, capability probes and source authority model (original update ISSUE-0010)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/150"
+    },
+    {
+      "number": 151,
+      "state": "OPEN",
+      "title": "Symbol/ISIN/exchange identity resolver (original update ISSUE-0011)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/151"
+    },
+    {
+      "number": 152,
+      "state": "OPEN",
+      "title": "SEC EDGAR official statement importer (original update ISSUE-0012)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/152"
+    },
+    {
+      "number": 153,
+      "state": "CLOSED",
+      "title": "European ESEF/iXBRL filing importer",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/153"
+    },
+    {
+      "number": 154,
+      "state": "OPEN",
+      "title": "France DILA and Netherlands AFM OAM discovery adapters (original update ISSUE-0014)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/154"
+    },
+    {
+      "number": 155,
+      "state": "CLOSED",
+      "title": "ETF disclosure registry (original update ISSUE-0015)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/155"
+    },
+    {
+      "number": 156,
+      "state": "CLOSED",
+      "title": "ETF holdings normaliser (original update ISSUE-0016)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/156"
+    },
+    {
+      "number": 157,
+      "state": "CLOSED",
+      "title": "PRIIPs KID parser (original update ISSUE-0017)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/157"
+    },
+    {
+      "number": 158,
+      "state": "OPEN",
+      "title": "ETF prospectus, annual and half-year report parser (original update ISSUE-0018)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/158"
+    },
+    {
+      "number": 159,
+      "state": "CLOSED",
+      "title": "Index methodology importer (original update ISSUE-0019)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/159"
+    },
+    {
+      "number": 160,
+      "state": "OPEN",
+      "title": "SFDR disclosure parser (original update ISSUE-0020)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/160"
+    },
+    {
+      "number": 161,
+      "state": "OPEN",
+      "title": "Source conflict resolver and canonical metric selector (original update ISSUE-0021)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/161"
+    },
+    {
+      "number": 162,
+      "state": "CLOSED",
+      "title": "Evidence ledger and score component audit trail",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/162"
+    },
+    {
+      "number": 163,
+      "state": "OPEN",
+      "title": "FMP optional provider adapter (original update ISSUE-0023)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/163"
+    },
+    {
+      "number": 164,
+      "state": "OPEN",
+      "title": "Alpha Vantage verification/fallback adapter (original update ISSUE-0024)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/164"
+    },
+    {
+      "number": 165,
+      "state": "OPEN",
+      "title": "Finnhub experimental adapter with entitlement probes (original update ISSUE-0025)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/165"
+    },
+    {
+      "number": 166,
+      "state": "OPEN",
+      "title": "Candle feature/context/backtest module (original update ISSUE-0026)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/166"
+    },
+    {
+      "number": 167,
+      "state": "OPEN",
+      "title": "UI workflow/button reliability and progress indicators (original update ISSUE-0027)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/167"
+    },
+    {
+      "number": 168,
+      "state": "CLOSED",
+      "title": "Report/audit packet expansion for providers, filings, ETF docs and candles",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/168"
+    },
+    {
+      "number": 169,
+      "state": "OPEN",
+      "title": "Rebuild/test/update discipline automation (original update ISSUE-0029)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/169"
+    },
+    {
+      "number": 170,
+      "state": "OPEN",
+      "title": "Optional OHLCV fallback providers: Stooq, Twelve Data and Tiingo (original update ISSUE-0030)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/170"
+    },
+    {
+      "number": 210,
+      "state": "OPEN",
+      "title": "Freeze the final product scope, completion contract and staged execution authority",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/210"
+    },
+    {
+      "number": 211,
+      "state": "OPEN",
+      "title": "Refactor into bounded domain, application, infrastructure and presentation modules",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/211"
+    },
+    {
+      "number": 212,
+      "state": "OPEN",
+      "title": "Implement the hybrid local analytical and transactional data platform",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/212"
+    },
+    {
+      "number": 213,
+      "state": "OPEN",
+      "title": "Implement a bitemporal point-in-time and data-vintage model",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/213"
+    },
+    {
+      "number": 214,
+      "state": "OPEN",
+      "title": "Unify all scoring into a canonical score engine v3",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/214"
+    },
+    {
+      "number": 215,
+      "state": "OPEN",
+      "title": "Create formula, feature, dataset, model and policy version registries",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/215"
+    },
+    {
+      "number": 216,
+      "state": "OPEN",
+      "title": "Define stable plugin contracts for providers, models, strategies and brokers",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/216"
+    },
+    {
+      "number": 217,
+      "state": "OPEN",
+      "title": "Implement a durable resumable job DAG and workflow scheduler",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/217"
+    },
+    {
+      "number": 218,
+      "state": "OPEN",
+      "title": "Set performance, memory, storage and latency budgets with regression profiling",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/218"
+    },
+    {
+      "number": 219,
+      "state": "OPEN",
+      "title": "Establish open-source intake, licence, provenance and upstream-update governance",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/219"
+    },
+    {
+      "number": 220,
+      "state": "OPEN",
+      "title": "Enforce a mandatory no-subscription, no-vendor-quota local-first data policy",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/220"
+    },
+    {
+      "number": 221,
+      "state": "OPEN",
+      "title": "Build a resumable bulk downloader, content-addressed cache and delta updater",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/221"
+    },
+    {
+      "number": 222,
+      "state": "OPEN",
+      "title": "Create a global entity, instrument, fund, share-class and listing identity master",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/222"
+    },
+    {
+      "number": 223,
+      "state": "OPEN",
+      "title": "Implement automatic asset, sector, industry and strategy classification with confidence",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/223"
+    },
+    {
+      "number": 224,
+      "state": "OPEN",
+      "title": "Build corporate-action, total-return and currency-normalisation services",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/224"
+    },
+    {
+      "number": 225,
+      "state": "OPEN",
+      "title": "Implement exchange calendars, sessions, holidays, auctions and market-state service",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/225"
+    },
+    {
+      "number": 226,
+      "state": "OPEN",
+      "title": "Create user, broker and exchange historical price, position and transaction import pipelines",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/226"
+    },
+    {
+      "number": 227,
+      "state": "OPEN",
+      "title": "Expand official filing discovery and ingestion across supported jurisdictions",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/227"
+    },
+    {
+      "number": 228,
+      "state": "OPEN",
+      "title": "Build a versioned macro, factor, risk-free and benchmark data warehouse",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/228"
+    },
+    {
+      "number": 229,
+      "state": "OPEN",
+      "title": "Implement data anomaly detection, quarantine and cross-source reconciliation",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/229"
+    },
+    {
+      "number": 230,
+      "state": "OPEN",
+      "title": "Create a data catalogue, lineage graph and reproducible dataset snapshots",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/230"
+    },
+    {
+      "number": 231,
+      "state": "OPEN",
+      "title": "Normalise multi-period financial statements, amendments and restatements",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/231"
+    },
+    {
+      "number": 232,
+      "state": "OPEN",
+      "title": "Add profitability, margin durability, earnings quality and accrual analysis",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/232"
+    },
+    {
+      "number": 233,
+      "state": "OPEN",
+      "title": "Add balance-sheet strength, liquidity, leverage and distress analysis",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/233"
+    },
+    {
+      "number": 234,
+      "state": "OPEN",
+      "title": "Add cash-flow quality, capital allocation, shareholder yield and dilution analysis",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/234"
+    },
+    {
+      "number": 235,
+      "state": "OPEN",
+      "title": "Add growth, revisions, guidance and earnings-surprise evidence with optional imports",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/235"
+    },
+    {
+      "number": 236,
+      "state": "OPEN",
+      "title": "Implement relative valuation, intrinsic-value scenarios, reverse DCF and residual-income models",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/236"
+    },
+    {
+      "number": 237,
+      "state": "OPEN",
+      "title": "Add capital efficiency, reinvestment, intangible investment and business-quality proxies",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/237"
+    },
+    {
+      "number": 238,
+      "state": "OPEN",
+      "title": "Create the stock sector-adapter and peer-cohort framework",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/238"
+    },
+    {
+      "number": 239,
+      "state": "OPEN",
+      "title": "Implement bank, insurer and diversified-financial sector adapters",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/239"
+    },
+    {
+      "number": 240,
+      "state": "OPEN",
+      "title": "Implement REIT, utility and infrastructure sector adapters",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/240"
+    },
+    {
+      "number": 241,
+      "state": "OPEN",
+      "title": "Implement energy, materials and industrial cyclical-sector adapters",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/241"
+    },
+    {
+      "number": 242,
+      "state": "OPEN",
+      "title": "Implement software, semiconductor, healthcare and biotechnology adapters",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/242"
+    },
+    {
+      "number": 243,
+      "state": "OPEN",
+      "title": "Implement ETF economics, fee, tracking and closure-quality analysis",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/243"
+    },
+    {
+      "number": 244,
+      "state": "OPEN",
+      "title": "Implement ETF structural, legal, counterparty, lending and collateral risk analysis",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/244"
+    },
+    {
+      "number": 245,
+      "state": "OPEN",
+      "title": "Build complete ETF look-through exposure, factor, valuation and quality analytics",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/245"
+    },
+    {
+      "number": 246,
+      "state": "OPEN",
+      "title": "Implement ETF liquidity, capacity, spread and premium-discount analysis",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/246"
+    },
+    {
+      "number": 247,
+      "state": "OPEN",
+      "title": "Add ETF domicile, tax, distribution, currency and hedging context",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/247"
+    },
+    {
+      "number": 248,
+      "state": "OPEN",
+      "title": "Implement horizon-aware probabilistic total-return distributions",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/248"
+    },
+    {
+      "number": 249,
+      "state": "OPEN",
+      "title": "Implement scenario, uncertainty, confidence and model-disagreement framework",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/249"
+    },
+    {
+      "number": 250,
+      "state": "OPEN",
+      "title": "Build a transparent multi-factor risk model for stocks, ETFs and portfolios",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/250"
+    },
+    {
+      "number": 251,
+      "state": "OPEN",
+      "title": "Implement robust covariance, volatility, correlation and tail-risk estimation",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/251"
+    },
+    {
+      "number": 252,
+      "state": "OPEN",
+      "title": "Create canonical benchmarks, peer sets, cash proxies and reference portfolios",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/252"
+    },
+    {
+      "number": 253,
+      "state": "OPEN",
+      "title": "Implement a constrained portfolio-optimiser suite with robust baselines",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/253"
+    },
+    {
+      "number": 254,
+      "state": "OPEN",
+      "title": "Implement turnover-, cost-, tax-lot- and cash-aware rebalancing",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/254"
+    },
+    {
+      "number": 255,
+      "state": "OPEN",
+      "title": "Build historical, hypothetical and reverse stress-testing engine",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/255"
+    },
+    {
+      "number": 256,
+      "state": "OPEN",
+      "title": "Implement performance, risk, factor and decision attribution",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/256"
+    },
+    {
+      "number": 257,
+      "state": "OPEN",
+      "title": "Implement the local training centre, experiment tracker and model registry",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/257"
+    },
+    {
+      "number": 258,
+      "state": "OPEN",
+      "title": "Create synthetic and adversarial market, data-quality and execution generators",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/258"
+    },
+    {
+      "number": 259,
+      "state": "OPEN",
+      "title": "Build a leakage-safe feature store and target/label registry",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/259"
+    },
+    {
+      "number": 260,
+      "state": "OPEN",
+      "title": "Implement walk-forward, nested, purged and embargoed validation with multiple-testing control",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/260"
+    },
+    {
+      "number": 261,
+      "state": "OPEN",
+      "title": "Create a baseline and challenger model zoo for return, risk and fundamentals",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/261"
+    },
+    {
+      "number": 262,
+      "state": "OPEN",
+      "title": "Implement bounded hyperparameter optimisation, pruning and compute governance",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/262"
+    },
+    {
+      "number": 263,
+      "state": "OPEN",
+      "title": "Implement probabilistic and conformal forecast calibration",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/263"
+    },
+    {
+      "number": 264,
+      "state": "OPEN",
+      "title": "Implement model monitoring, drift, champion/challenger and retirement governance",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/264"
+    },
+    {
+      "number": 265,
+      "state": "OPEN",
+      "title": "Implement a deterministic event-driven, order-level backtest engine",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/265"
+    },
+    {
+      "number": 266,
+      "state": "OPEN",
+      "title": "Implement point-in-time universes, delistings and survivorship-bias controls",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/266"
+    },
+    {
+      "number": 267,
+      "state": "OPEN",
+      "title": "Create the double-entry portfolio, cash, FX, fee, tax and corporate-action ledger",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/267"
+    },
+    {
+      "number": 268,
+      "state": "OPEN",
+      "title": "Implement spread, slippage, market-impact, capacity and execution-cost models",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/268"
+    },
+    {
+      "number": 269,
+      "state": "OPEN",
+      "title": "Implement the full paper broker, frozen proposal ledger and forward evidence service",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/269"
+    },
+    {
+      "number": 270,
+      "state": "OPEN",
+      "title": "Implement the target-to-proposal policy and authority engine",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/270"
+    },
+    {
+      "number": 271,
+      "state": "OPEN",
+      "title": "Implement broker adapter contracts, read-only synchronisation and reconciliation",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/271"
+    },
+    {
+      "number": 272,
+      "state": "OPEN",
+      "title": "Implement independent pre-trade controls, kill switches and operational limits",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/272"
+    },
+    {
+      "number": 273,
+      "state": "OPEN",
+      "title": "Implement staged canary live execution with explicit promotion gates",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/273"
+    },
+    {
+      "number": 274,
+      "state": "OPEN",
+      "title": "Implement post-trade transaction-cost, execution-quality and decision attribution",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/274"
+    },
+    {
+      "number": 275,
+      "state": "OPEN",
+      "title": "Implement incident management, recovery, reconciliation and operational drills",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/275"
+    },
+    {
+      "number": 276,
+      "state": "OPEN",
+      "title": "Create a typed local application API and page-view-model layer",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/276"
+    },
+    {
+      "number": 277,
+      "state": "OPEN",
+      "title": "Deliver frontend v2 design system and task-oriented information architecture",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/277"
+    },
+    {
+      "number": 278,
+      "state": "OPEN",
+      "title": "Build professional research, comparison, charting and screening workspaces",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/278"
+    },
+    {
+      "number": 279,
+      "state": "OPEN",
+      "title": "Build portfolio, training, paper and live operations workspaces",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/279"
+    },
+    {
+      "number": 280,
+      "state": "OPEN",
+      "title": "Complete accessibility, global search, command palette, localisation and unit formatting",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/280"
+    },
+    {
+      "number": 281,
+      "state": "OPEN",
+      "title": "Implement hermetic CI, multi-platform build and release automation",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/281"
+    },
+    {
+      "number": 282,
+      "state": "OPEN",
+      "title": "Add property, metamorphic, golden, differential and mutation testing",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/282"
+    },
+    {
+      "number": 283,
+      "state": "OPEN",
+      "title": "Add visual E2E, load, soak, fault-injection and chaos test programmes",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/283"
+    },
+    {
+      "number": 284,
+      "state": "OPEN",
+      "title": "Harden secrets, parsers, local APIs, files and network access",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/284"
+    },
+    {
+      "number": 285,
+      "state": "OPEN",
+      "title": "Implement software supply-chain, SBOM, vulnerability, signing and secure-update controls",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/285"
+    },
+    {
+      "number": 286,
+      "state": "OPEN",
+      "title": "Implement encryption, privacy controls, backup and disaster recovery",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/286"
+    },
+    {
+      "number": 287,
+      "state": "OPEN",
+      "title": "Deliver audit packet v3 and one-command deterministic reproduction",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/287"
+    },
+    {
+      "number": 288,
+      "state": "OPEN",
+      "title": "Complete developer, plugin, methodology, operations and user documentation",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/288"
+    },
+    {
+      "number": 289,
+      "state": "OPEN",
+      "title": "Complete legal, data/model licence, terms, disclaimer and jurisdiction review",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/289"
+    },
+    {
+      "number": 290,
+      "state": "OPEN",
+      "title": "Audit geographic, sector, size, listing and data-coverage bias",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/290"
+    },
+    {
+      "number": 291,
+      "state": "OPEN",
+      "title": "Define hardware profiles, compute budgets and graceful degradation",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/291"
+    },
+    {
+      "number": 292,
+      "state": "OPEN",
+      "title": "Run final release certification and close the completion programme",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/292"
+    }
+  ],
+  "open_issue_count": 156,
+  "open_pull_request_count": 0,
+  "pull_request_count": 47,
+  "pull_requests": [
+    {
+      "headRefName": "wave0/task3-atomic-recovery",
+      "number": 1,
+      "state": "MERGED",
+      "title": "feat: integrate Wave 0 Task 3 atomic recovery",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/1"
+    },
+    {
+      "headRefName": "wave0/task4-execution-boundary",
+      "number": 2,
+      "state": "MERGED",
+      "title": "feat: enforce Wave 0 no-execution boundary",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/2"
+    },
+    {
+      "headRefName": "wave0/task4-postmerge-hardening",
+      "number": 3,
+      "state": "MERGED",
+      "title": "fix: exclude generated package roots from boundary scan",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/3"
+    },
+    {
+      "headRefName": "wave0/task5-evidence-automation",
+      "number": 4,
+      "state": "MERGED",
+      "title": "feat: add deterministic evidence verification automation",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/4"
+    },
+    {
+      "headRefName": "wave1/governance-task1",
+      "number": 171,
+      "state": "MERGED",
+      "title": "Wave 1 Governance Task 1: fail-closed policy contracts",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/171"
+    },
+    {
+      "headRefName": "wave1/governance-task2",
+      "number": 172,
+      "state": "MERGED",
+      "title": "feat: split public research state from legacy signal intent",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/172"
+    },
+    {
+      "headRefName": "wave1/governance-task3",
+      "number": 173,
+      "state": "MERGED",
+      "title": "Wave 1 Governance Task 3: integrate severity-aware authority into release paths",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/173"
+    },
+    {
+      "headRefName": "wave1/governance-task4",
+      "number": 174,
+      "state": "MERGED",
+      "title": "Wave 1 Governance Task 4: non-executable review reports and Decision Journal",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/174"
+    },
+    {
+      "headRefName": "wave1/governance-task5",
+      "number": 175,
+      "state": "MERGED",
+      "title": "feat: add governance cockpit surfaces",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/175"
+    },
+    {
+      "headRefName": "wave3/task6-workflow-runtime",
+      "number": 176,
+      "state": "MERGED",
+      "title": "fix: make Task 6 workflow controls keyboard operable",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/176"
+    },
+    {
+      "headRefName": "wave3/task7-error-recovery",
+      "number": 177,
+      "state": "MERGED",
+      "title": "feat: complete Wave 3 Task 7 recovery and evidence controls",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/177"
+    },
+    {
+      "headRefName": "wave3/task8-provider-registry",
+      "number": 178,
+      "state": "MERGED",
+      "title": "feat: add canonical provider registry and capability contracts",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/178"
+    },
+    {
+      "headRefName": "wave4/task9-identity-evidence",
+      "number": 179,
+      "state": "MERGED",
+      "title": "feat: add identity conflicts and evidence provenance contracts",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/179"
+    },
+    {
+      "headRefName": "wave4/task10-data-health",
+      "number": 180,
+      "state": "MERGED",
+      "title": "Wave 4 Task 10: Data Health Centre",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/180"
+    },
+    {
+      "headRefName": "wave4/task11-universe",
+      "number": 181,
+      "state": "MERGED",
+      "title": "feat: implement Task 11 universe, onboarding and asset guardrails",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/181"
+    },
+    {
+      "headRefName": "wave4/task12-sec-edgar",
+      "number": 182,
+      "state": "MERGED",
+      "title": "feat: SEC EDGAR provider and official statement facts",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/182"
+    },
+    {
+      "headRefName": "wave4/task13-esef",
+      "number": 183,
+      "state": "MERGED",
+      "title": "feat: add ESEF iXBRL provider and IFRS mapping",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/183"
+    },
+    {
+      "headRefName": "wave4/task14-fund-docs",
+      "number": 184,
+      "state": "MERGED",
+      "title": "feat: add ETF disclosure registry and holdings normaliser",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/184"
+    },
+    {
+      "headRefName": "wave4/task15-parsers",
+      "number": 185,
+      "state": "MERGED",
+      "title": "feat: implement Task 15 PRIIPs KID and index methodology evidence",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/185"
+    },
+    {
+      "headRefName": "wave4/task16-fundamentals-news",
+      "number": 186,
+      "state": "MERGED",
+      "title": "feat: harden fundamentals news and optional providers",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/186"
+    },
+    {
+      "headRefName": "wave4/task17-score-history",
+      "number": 187,
+      "state": "MERGED",
+      "title": "Wave 4 Task 17: score history, run comparison and feature drivers",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/187"
+    },
+    {
+      "headRefName": "wave5/task18-crowding",
+      "number": 188,
+      "state": "MERGED",
+      "title": "Wave 5 Task 18: crowding, attribution and friction evidence",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/188"
+    },
+    {
+      "headRefName": "wave5/task19-instrument-detail",
+      "number": 189,
+      "state": "MERGED",
+      "title": "Wave 5 Task 19: comprehensive instrument detail",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/189"
+    },
+    {
+      "headRefName": "wave5/task20-import-export",
+      "number": 190,
+      "state": "MERGED",
+      "title": "feat: Wave 5 Task20 import export backup restore and analytical tables",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/190"
+    },
+    {
+      "headRefName": "wave5/task21-audit",
+      "number": 191,
+      "state": "MERGED",
+      "title": "[UPDATEV2-0028] Complete audit packet and non-executable external audit import",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/191"
+    },
+    {
+      "headRefName": "wave5/task23-working",
+      "number": 192,
+      "state": "MERGED",
+      "title": "Wave 5 Task 22/23 reconciliation and release-candidate verification",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/192"
+    },
+    {
+      "headRefName": "wave5/task23-closure",
+      "number": 193,
+      "state": "MERGED",
+      "title": "fix: clear post-merge trust test lint finding",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/193"
+    },
+    {
+      "headRefName": "wave4/task13-loader-retry",
+      "number": 194,
+      "state": "MERGED",
+      "title": "fix: preserve nonfatal ESEF loader diagnostics",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/194"
+    },
+    {
+      "headRefName": "wave4/task13-postmerge-check",
+      "number": 195,
+      "state": "MERGED",
+      "title": "chore: synchronise GitHub issue ledger",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/195"
+    },
+    {
+      "headRefName": "wave5/task23-final-records",
+      "number": 196,
+      "state": "MERGED",
+      "title": "docs: record release and issue synchronisation checkpoint",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/196"
+    },
+    {
+      "headRefName": "wave5/task23-final-records",
+      "number": 197,
+      "state": "MERGED",
+      "title": "docs: close UPDATEV2-0013 with verified release evidence",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/197"
+    },
+    {
+      "headRefName": "wave5/task23-final-records",
+      "number": 198,
+      "state": "MERGED",
+      "title": "chore: synchronise UPDATEV2-0013 issue closure",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/198"
+    },
+    {
+      "headRefName": "wave5/task23-final-records",
+      "number": 199,
+      "state": "MERGED",
+      "title": "docs: close UPDATEV2-0028 with verified package evidence",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/199"
+    },
+    {
+      "headRefName": "wave5/task23-final-records",
+      "number": 200,
+      "state": "MERGED",
+      "title": "chore: synchronise UPDATEV2-0028 closure",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/200"
+    },
+    {
+      "headRefName": "wave5/task23-final-records",
+      "number": 201,
+      "state": "MERGED",
+      "title": "feat: close Task 14 ETF evidence issues",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/201"
+    },
+    {
+      "headRefName": "wave5/task23-final-records",
+      "number": 202,
+      "state": "MERGED",
+      "title": "chore: synchronise Task 14 closure records",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/202"
+    },
+    {
+      "headRefName": "wave5/task23-final-records",
+      "number": 203,
+      "state": "MERGED",
+      "title": "chore: record Task 14 synchronisation commit",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/203"
+    },
+    {
+      "headRefName": "wave4/task15-closure-final",
+      "number": 204,
+      "state": "MERGED",
+      "title": "feat: close Task 15 disclosure evidence workflows",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/204"
+    },
+    {
+      "headRefName": "wave4/verification-workflow-refactor",
+      "number": 205,
+      "state": "MERGED",
+      "title": "Complete Phase 2 verification finalisation workflow",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/205"
+    },
+    {
+      "headRefName": "wave4/task16-post-phase2",
+      "number": 206,
+      "state": "MERGED",
+      "title": "Harden Task 16 mixed-direction news validation",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/206"
+    },
+    {
+      "headRefName": "agent/autonomous-controller-guardrails-20260716",
+      "number": 207,
+      "state": "MERGED",
+      "title": "chore: persist autonomous controller guardrails",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/207"
+    },
+    {
+      "headRefName": "maintenance/remove-superpowers-workflow",
+      "number": 208,
+      "state": "MERGED",
+      "title": "chore: remove Superpowers workflow infrastructure",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/208"
+    },
+    {
+      "headRefName": "docs/completion-programme-20260717",
+      "number": 209,
+      "state": "MERGED",
+      "title": "docs: reconcile completion package and programme",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/209"
+    },
+    {
+      "headRefName": "docs/completion-programme-sync-20260717",
+      "number": 293,
+      "state": "MERGED",
+      "title": "docs: apply completion programme GitHub synchronisation",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/293"
+    },
+    {
+      "headRefName": "docs/completion-programme-freshness-20260717",
+      "number": 294,
+      "state": "MERGED",
+      "title": "fix: keep completion registry baseline deterministic",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/294"
+    },
+    {
+      "headRefName": "implementation/step2-integration-20260717",
+      "number": 295,
+      "state": "MERGED",
+      "title": "Bootstrap ISSUE-0070 semantics and responsiveness",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/295"
+    },
+    {
+      "headRefName": "implementation/step2-github-sync-20260717",
+      "number": 296,
+      "state": "MERGED",
+      "title": "Synchronise canonical dependency semantics to GitHub",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/pull/296"
+    }
+  ],
+  "read_only_collection": true,
+  "repository": "Thor2709/etf_ai_cockpit"
+}

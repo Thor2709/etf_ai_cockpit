@@ -25,6 +25,9 @@ def test_system_map_shows_future_execution_as_non_interactive() -> None:
     assert "Not installed" in text
     assert "Enable trading" not in text
     assert "No broker execution" in text
+    assert "Product contract" in text
+    assert "execution: disabled" in text.casefold()
+    assert "ADR ADR-0070-v1" in text
 
 
 def test_system_map_reports_loaded_dependencies_and_data_health_validation() -> None:

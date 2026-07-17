@@ -8,7 +8,7 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.components.governance_badges import status_badge
 from etf_cockpit.app.state import AppState
-from etf_cockpit.governance.product_scope import load_feature_registry
+from etf_cockpit.governance.product_scope import load_authority_matrix, load_feature_registry, load_product_governance
 
 
 def _feature_card(page: ft.Page | None, state: AppState, entry: object) -> ft.Container:
@@ -60,6 +60,8 @@ def _feature_card(page: ft.Page | None, state: AppState, entry: object) -> ft.Co
 
 def system_map_page(page: ft.Page | None, state: AppState) -> ft.Control:
     loaded = load_feature_registry()
+    product = load_product_governance()
+    matrix = load_authority_matrix()
     cards: list[ft.Control] = []
     if loaded.policy is not None and not loaded.diagnostic_mode:
         cards.extend(_feature_card(page, state, entry) for entry in loaded.policy.entries)
@@ -78,6 +80,26 @@ def system_map_page(page: ft.Page | None, state: AppState) -> ft.Control:
             expand=True,
         )
     )
+    if product.policy is not None and matrix.policy is not None:
+        active_stage = next((stage for stage in matrix.policy.authority_stages if stage.enabled_by_default), None)
+        cards.insert(
+            0,
+            panel(
+                ft.Column(
+                    [
+                        ft.Text("Product contract", color=theme.TEXT, size=15, weight=ft.FontWeight.BOLD),
+                        ft.Text(f"{product.policy.product.canonical_name} · ADR {matrix.policy.adr_id}", color=theme.TEXT, selectable=True),
+                        status_badge("Active authority", active_stage.label if active_stage else "Manual review", colour=theme.CYAN),
+                        ft.Text("Execution: disabled by policy; every route, dataset, model, strategy and broker capability is declared.", color=theme.AMBER, selectable=True),
+                        ft.Text(f"Capabilities: {len(matrix.policy.capabilities)} · matrix checksum: {matrix.checksum}", color=theme.MUTED, size=11, selectable=True),
+                    ],
+                    spacing=8,
+                ),
+                expand=True,
+            ),
+        )
+    else:
+        cards.insert(0, panel(ft.Text("Product contract unavailable; authority remains fail-closed and requires manual review.", color=theme.AMBER, selectable=True), expand=True))
     return ft.Column(
         [
             section_header("System Map", "Lifecycle, authority, data readiness and direct routes for the evidence cockpit."),

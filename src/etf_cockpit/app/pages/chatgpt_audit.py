@@ -17,12 +17,14 @@ from etf_cockpit.audit.local_llm import (
     save_local_audit_commentary,
 )
 from etf_cockpit.services import ChatGPTBridge
+from etf_cockpit.governance.product_scope import load_authority_matrix
 
 
 def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
     path_field = ft.TextField(label="External audit commentary JSON path", expand=True)
     output = ft.Text(state.last_message, color=theme.MUTED, selectable=True)
     llm_output = ft.Text("Local LLM audit has not been run in this session.", color=theme.MUTED, selectable=True)
+    authority_matrix = load_authority_matrix()
 
     def export_pack(_event: ft.ControlEvent) -> None:
         state.begin_activity("Export audit packet", "Writing audit packet")
@@ -91,6 +93,22 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
 
     return ft.Column(
         [
+            panel(
+                ft.Column(
+                    [
+                        section_header("Active product authority", "Audit exports include the immutable scope and capability matrix checksum."),
+                        ft.Text(
+                            f"ADR {authority_matrix.policy.adr_id} · active stage: Research · execution_allowed=false · checksum: {authority_matrix.checksum}"
+                            if authority_matrix.policy is not None
+                            else "Authority matrix unavailable; audit remains fail-closed and requires manual review.",
+                            key="chatgpt.authority-matrix",
+                            color=theme.AMBER,
+                            selectable=True,
+                        ),
+                    ],
+                    spacing=8,
+                )
+            ),
             panel(
                 ft.Column(
                     [
