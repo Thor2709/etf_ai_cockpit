@@ -22,6 +22,7 @@ required:
   - {path: evidence_export/benchmark_attribution.csv, schema_version: 1, source_authority: derived, allow_unavailable: true}
   - {path: evidence_export/edge_cost.csv, schema_version: 1, source_authority: derived, allow_unavailable: true}
   - {path: evidence_export/data_health.csv, schema_version: 1, source_authority: derived, allow_unavailable: true}
+  - {path: evidence_export/decision_journal_summary.json, schema_version: 2, source_authority: user_record, allow_unavailable: true}
   - {path: evidence_export/session.jsonl, schema_version: 1, source_authority: workflow, allow_unavailable: true}
   - {path: evidence_export/workflow.jsonl, schema_version: 1, source_authority: workflow, allow_unavailable: true}
   - {path: evidence_export/configs/data_providers_redacted.json, schema_version: 1, source_authority: configuration, allow_unavailable: false}
