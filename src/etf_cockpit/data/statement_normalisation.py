@@ -324,6 +324,7 @@ def _date_text(value: str | date | None) -> str:
 
 
 __all__ = [
+    "STATEMENT_FACTS_PATH",
     "STATEMENT_VIEW_SCHEMA_VERSION",
     "load_statement_evidence",
     "normalise_statement_facts",
