@@ -15,6 +15,7 @@ from etf_cockpit.core.session_log import SESSION_LOG_PATH, log_event, log_except
 from etf_cockpit.core.errors import ErrorStore, classify_exception
 from etf_cockpit.core.timing import timed_step
 from etf_cockpit.core.workflow import WorkflowController, WorkflowStatus, WorkflowStep
+from etf_cockpit.application.api import LocalApplicationApi
 from etf_cockpit.data.trust_artifacts import IDENTITY_PATH, refresh_static_trust_artifacts, write_trust_artifacts_for_scores
 from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
 from etf_cockpit.data.esef_provider import EsefProviderUnavailable, FilingsXbrlOrgProvider
@@ -135,6 +136,10 @@ class AppState:
     error_store: ErrorStore = field(default_factory=ErrorStore, repr=False)
     universe_cache_revision: str = ""
     selected_instrument_score: SimpleInstrumentScore | None = None
+    application_api: LocalApplicationApi = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self.application_api = LocalApplicationApi(lambda: self.snapshot)
 
     @classmethod
     def load(cls) -> "AppState":
