@@ -1,14 +1,10 @@
-# GitHub synchronisation dry-run review
+# GitHub synchronisation review and convergence
 
-The default synchronisation command was run read-only against `Thor2709/etf_ai_cockpit`:
+The synchroniser was run against `Thor2709/etf_ai_cockpit` with dry-run as the default. GitHub writes were permitted only through an approved plan checksum:
 
 ```text
-python scripts/sync_github_issues.py
+python scripts/sync_github_issues.py --apply --approved-plan-sha256 <reviewed-plan-sha256>
 ```
-
-The deterministic action plan is `github-sync-plan.json` with SHA-256:
-
-`ec5f8756d03c7201e3ba2a0f037d4a355d30e8f2f4037ccffef2f9cf85fd46b1`
 
 ## Capability checks
 
@@ -18,19 +14,23 @@ The deterministic action plan is `github-sync-plan.json` with SHA-256:
 - `git push --dry-run origin HEAD:refs/heads/codex-auth-test`: passed
 - `gh issue list`: passed
 - `gh pr list`: passed
+- Specific Issue read before apply: Issue `#137`, passed
 
 No REST `/user` authentication check was used as a gate.
 
-## Plan summary
+## Reviewed duplicate mapping
 
-| Action | Count | Treatment |
-|---|---:|---|
-| Create proposed issues | 83 | Safe to review; no write was performed |
-| Update uniquely mapped legacy records | 30 | Managed block only; unmanaged body text is preserved |
-| Close | 0 | No automatic close action in this snapshot |
-| Reopen | 0 | No reviewed reopen action in this snapshot |
-| Blocked duplicate mappings | 60 | Human reconciliation required; no arbitrary remote issue is selected |
+The generated `github-issue-map.json` contains 60 duplicate legacy-marker groups. For each group, the newest remote record was selected because the older duplicate was already closed; all older duplicate Issue numbers were retained closed and were not deleted or edited. The map records every remote number, selected number and selection basis. Ambiguous groups remain blocked by the synchroniser.
 
-The 60 blocked records correspond to duplicate legacy stable markers on remote issues. Applying the plan is intentionally refused while any blocked action remains. The plan can be regenerated after the duplicate mapping is resolved, then applied only with `--apply --approved-plan-sha256 <reviewed-plan-sha256>` and read-back verification.
+## Approved action sets
 
-The dry run did not create, edit, close or reopen a GitHub Issue.
+| Plan | SHA-256 | Create | Update | Close | Reopen | Blocked |
+|---|---|---:|---:|---:|---:|---:|
+| Initial approved plan | `729cc2c18862316f26983172b4f596bae65d3ed873333e4d54da6dbe9cf5c382` | 83 | 90 | 0 | 1 | 0 |
+| Corrective managed-body plan | `1ecc616f896c2ac6fb6b49a3f8c39002eabe3679d5d87e3572e55b52d6f93bee` | 0 | 83 | 0 | 0 | 0 |
+
+The initial plan created the 83 proposed issues, updated the 90 selected existing records and reopened only `ISSUE-0067` on remote Issue `#137`. The corrective plan filled the complete canonical managed fields into the newly created bodies. No close action was required.
+
+The first immediate read-back exposed GitHub eventual-consistency lag. The verifier now retries only the read-back with bounded backoff. The final approved no-op plan is `0a8d37c38cabcbff725b6fb3d657bc5431954c498b2b8681d16844e4f95d6fcc`, reporting zero actions and `APPLIED_AND_VERIFIED`.
+
+The generated convergence record is `github-convergence.json`. It records both approved plans, the final no-op plan, the 60-group map and the aggregate applied totals: 83 creates, 173 updates, 0 closes and 1 reopen.

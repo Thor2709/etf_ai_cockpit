@@ -57,6 +57,42 @@ def test_duplicate_marker_is_blocked() -> None:
     assert plan["actions"][0]["reason"] == "duplicate_stable_marker"
 
 
+def test_reviewed_duplicate_map_selects_newest_and_retains_closed_legacy_issue() -> None:
+    issue = record()
+    older = remote(issue, number=1, state="closed")
+    newer = remote(issue, number=2, state="open")
+    historical_map = {
+        "mappings": {
+            "ISSUE-0070": {
+                "selected_remote_number": 2,
+                "remote_numbers": [1, 2],
+                "selection_basis": "reviewed test map",
+            }
+        },
+        "map_sha256": "test",
+    }
+    plan = sync.plan_actions(registry(issue), [older, newer], historical_map=historical_map)
+    assert plan["summary"] == {"create": 0, "update": 0, "close": 0, "reopen": 0, "blocked": 0}
+    assert plan["legacy_duplicates"][0]["retained_closed_remote_numbers"] == [1]
+
+
+def test_duplicate_map_cannot_select_while_older_duplicate_is_open() -> None:
+    issue = record()
+    older = remote(issue, number=1, state="open")
+    newer = remote(issue, number=2, state="open")
+    historical_map = {
+        "mappings": {
+            "ISSUE-0070": {
+                "selected_remote_number": 2,
+                "remote_numbers": [1, 2],
+            }
+        }
+    }
+    plan = sync.plan_actions(registry(issue), [older, newer], historical_map=historical_map)
+    assert plan["summary"]["blocked"] == 1
+    assert plan["actions"][0]["reason"] == "duplicate_stable_marker"
+
+
 def test_state_guard_allows_only_reviewed_reopen() -> None:
     ordinary = record("ISSUE-0070")
     ordinary_plan = sync.plan_actions(registry(ordinary), [remote(ordinary, state="closed")])
@@ -83,6 +119,16 @@ def test_missing_open_record_is_create_and_missing_closed_record_is_blocked() ->
     assert plan["summary"]["create"] == 1
     assert plan["summary"]["blocked"] == 1
     assert {action["reason"] for action in plan["actions"] if action["kind"] == "blocked"} == {"missing_closed_record"}
+
+
+def test_create_action_contains_canonical_managed_fields() -> None:
+    issue = record()
+    plan = sync.plan_actions(registry(issue), [])
+    action = next(action for action in plan["actions"] if action["kind"] == "create")
+    body = sync.managed_block(action)
+    assert "Classification: `proposed_new`" in body
+    assert "Programme status: `ready`" in body
+    assert "Owner: `programme-governance`" in body
 
 
 def test_plan_hash_is_required_before_apply() -> None:

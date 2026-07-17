@@ -13,6 +13,8 @@ This directory is the deterministic reconciliation record for baseline `3321ebd0
 - `canonical-dag.json` - acyclic blocking graph plus documented raw candidate cycles.
 - `package-discrepancies.md` - package/ledger differences and scope boundaries.
 - `current-state-diff.md` - current application inventory and limitations.
-- `github-sync-plan.json` and `github-sync-review.md` - safe dry-run action manifest and review record.
+- `github-sync-plan.json` and `github-sync-review.md` - approved synchronisation action manifest and review record.
+- `github-issue-map.json` - reviewed mapping from duplicate legacy records to the selected current remote Issues.
+- `github-convergence.json` - approved action totals, final no-op plan and read-back evidence.
 
 The supplied ZIP is immutable external evidence. It is archived as nine extracted members under `docs/product-completion/sources/2026-07-15/`; the binary ZIP is not committed. No product feature, broker automation, external upload or cloud service was implemented by this task.

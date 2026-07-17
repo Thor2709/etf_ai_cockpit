@@ -11,6 +11,7 @@ import hashlib
 import json
 import re
 import subprocess
+import time
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -30,6 +31,9 @@ MANAGED_END = "<!-- etf-ai-cockpit:managed:end -->"
 LEGACY_MANAGED_START = "<!-- etf-ai-cockpit-managed-start -->"
 LEGACY_MANAGED_END = "<!-- etf-ai-cockpit-managed-end -->"
 REVIEWED_REOPEN_IDS = frozenset({"ISSUE-0067"})
+DEFAULT_MAP_PATH = Path(
+    "docs/product-completion/reconciliation/2026-07-17-3321ebd/github-issue-map.json"
+)
 
 
 def managed_block(record: dict[str, Any]) -> str:
@@ -127,6 +131,17 @@ def _action(kind: str, record: dict[str, Any] | None = None, **values: Any) -> d
         result["stable_id"] = record.get("canonical_id")
         result["title"] = record.get("title", "")
         result["desired_state"] = "closed" if record.get("ledger_state") == "closed" else "open"
+        for field in (
+            "classification",
+            "ledger_state",
+            "programme_status",
+            "priority",
+            "owner",
+            "phase",
+            "blocking_dependencies",
+            "related_issues",
+        ):
+            result[field] = record.get(field, [] if field.endswith("_dependencies") or field.endswith("_issues") else "")
     result.update(values)
     return result
 
@@ -136,23 +151,47 @@ def plan_actions(
     remote_issues: Iterable[dict[str, Any]],
     *,
     reviewed_reopen_ids: Iterable[str] = REVIEWED_REOPEN_IDS,
+    historical_map: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     remote = [normalise_remote_issue(issue) for issue in remote_issues]
     by_marker = marker_ids(remote)
     reopen_ids = set(reviewed_reopen_ids)
     actions: list[dict[str, Any]] = []
+    selected_numbers: dict[str, int] = {}
+    legacy_duplicates: list[dict[str, Any]] = []
     desired_ids = {str(record.get("canonical_id")) for record in registry_sync_records(registry)}
     records = registry_sync_records(registry)
     for stable_id, issues in sorted(by_marker.items()):
         if stable_id not in desired_ids:
             actions.append(_action("blocked", stable_id=stable_id, reason="unmapped_remote_stable_id", remote_numbers=[issue["number"] for issue in issues]))
         elif len(issues) > 1:
-            actions.append(_action("blocked", stable_id=stable_id, reason="duplicate_stable_marker", remote_numbers=[issue["number"] for issue in issues]))
+            mapping = (historical_map or {}).get("mappings", {}).get(stable_id)
+            remote_numbers = sorted(issue["number"] for issue in issues)
+            selected = mapping.get("selected_remote_number") if isinstance(mapping, dict) else None
+            if (
+                isinstance(selected, int)
+                and selected in remote_numbers
+                and sorted(mapping.get("remote_numbers", [])) == remote_numbers
+                and all(issue["state"] == "closed" for issue in issues if issue["number"] != selected)
+            ):
+                selected_numbers[stable_id] = selected
+                legacy_duplicates.append(
+                    {
+                        "stable_id": stable_id,
+                        "selected_remote_number": selected,
+                        "retained_closed_remote_numbers": [number for number in remote_numbers if number != selected],
+                        "selection_basis": mapping.get("selection_basis", "reviewed historical duplicate map"),
+                    }
+                )
+            else:
+                actions.append(_action("blocked", stable_id=stable_id, reason="duplicate_stable_marker", remote_numbers=remote_numbers))
 
     mapped_numbers: set[int] = set()
     for record in records:
         stable_id = str(record["canonical_id"])
         matches = by_marker.get(stable_id, [])
+        if stable_id in selected_numbers:
+            matches = [issue for issue in matches if issue["number"] == selected_numbers[stable_id]]
         if len(matches) > 1:
             continue
         if not matches:
@@ -230,6 +269,8 @@ def plan_actions(
         "desired_record_count": len(records),
         "remote_issue_count": len(remote),
         "reviewed_reopen_ids": sorted(reopen_ids),
+        "historical_map_sha256": (historical_map or {}).get("map_sha256"),
+        "legacy_duplicates": legacy_duplicates,
         "summary": summary,
         "actions": sorted(actions, key=lambda action: (str(action.get("stable_id", "")), action["kind"])),
     }
@@ -250,22 +291,53 @@ def plan_sha256(plan: dict[str, Any]) -> str:
 
 
 def gh_list_issues() -> list[dict[str, Any]]:
-    completed = subprocess.run(
-        ["gh", "issue", "list", "--repo", REPO, "--state", "all", "--limit", "1000", "--json", "number,title,body,state,url"],
-        check=True,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
+    value = json.loads(
+        gh_command(
+            [
+                "issue",
+                "list",
+                "--repo",
+                REPO,
+                "--state",
+                "all",
+                "--limit",
+                "1000",
+                "--json",
+                "number,title,body,state,url",
+            ]
+        )
     )
-    value = json.loads(completed.stdout)
     if not isinstance(value, list):
         raise ValueError("gh issue list did not return a JSON list")
     return value
 
 
 def gh_write(args: list[str]) -> str:
-    completed = subprocess.run(["gh", *args], check=True, capture_output=True, text=True, encoding="utf-8")
-    return completed.stdout
+    return gh_command(args)
+
+
+def gh_command(args: list[str], *, attempts: int = 3) -> str:
+    """Run one gh operation, retrying only transient HTTP 503 failures."""
+
+    for attempt in range(attempts):
+        completed = subprocess.run(
+            ["gh", *args],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        if completed.returncode == 0:
+            return completed.stdout
+        combined = f"{completed.stdout}\n{completed.stderr}"
+        if "503" not in combined or attempt == attempts - 1:
+            raise subprocess.CalledProcessError(
+                completed.returncode,
+                ["gh", *args],
+                output=completed.stdout,
+                stderr=completed.stderr,
+            )
+        time.sleep(2**attempt)
+    raise RuntimeError("unreachable")
 
 
 def apply_actions(plan: dict[str, Any], *, approved_sha256: str) -> None:
@@ -297,6 +369,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--remote-snapshot", type=Path, help="read a saved gh issue JSON list instead of calling gh")
     parser.add_argument("--plan-out", type=Path)
+    parser.add_argument("--historical-map", type=Path, help="reviewed map for duplicate legacy remote issues")
     parser.add_argument("--apply", action="store_true", help="apply only after the approved plan SHA-256 is supplied")
     parser.add_argument("--approved-plan-sha256")
     args = parser.parse_args(argv)
@@ -308,7 +381,11 @@ def main(argv: list[str] | None = None) -> int:
         remote = gh_list_issues()
     if not isinstance(remote, list):
         raise SystemExit("remote snapshot must be a JSON list")
-    plan = plan_actions(registry, remote)
+    map_path = args.historical_map or root / DEFAULT_MAP_PATH
+    historical_map = None
+    if map_path.exists():
+        historical_map = json.loads(map_path.read_text(encoding="utf-8"))
+    plan = plan_actions(registry, remote, historical_map=historical_map)
     output = args.plan_out or root / "docs/product-completion/reconciliation/2026-07-17-3321ebd/github-sync-plan.json"
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_bytes(deterministic_json(plan))
@@ -319,8 +396,15 @@ def main(argv: list[str] | None = None) -> int:
         if not args.approved_plan_sha256:
             raise SystemExit("--apply requires --approved-plan-sha256")
         apply_actions(plan, approved_sha256=args.approved_plan_sha256)
-        readback = plan_actions(registry, gh_list_issues())
-        if readback["summary"] != {"create": 0, "update": 0, "close": 0, "reopen": 0, "blocked": 0}:
+        expected_noop = {"create": 0, "update": 0, "close": 0, "reopen": 0, "blocked": 0}
+        readback = None
+        for attempt in range(4):
+            readback = plan_actions(registry, gh_list_issues(), historical_map=historical_map)
+            if readback["summary"] == expected_noop:
+                break
+            if attempt < 3:
+                time.sleep(2**attempt)
+        if readback is None or readback["summary"] != expected_noop:
             raise SystemExit("GitHub read-back is not idempotent")
         print("APPLIED_AND_VERIFIED")
     return 0 if not plan["summary"]["blocked"] else 2

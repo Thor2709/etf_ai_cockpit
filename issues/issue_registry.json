@@ -8292,7 +8292,7 @@
   ],
   "schema_version": "2.0",
   "source_of_truth": {
-    "baseline_commit": "3321ebd0733f188f25668f67e3b41fd90808591d",
+    "baseline_commit": "c600a131ed955d619c558c5dec57ba172b894d38",
     "closed_ledger_sha256": "2dca7fd65f7a218747bcfb91b4e5c1f734af26f29114cc7dc83b071bb86838d8",
     "open_ledger_sha256": "d667c5ed88ce41585437dc72b57d38b1c0a79a51f3c8cd44059740b7ea27a95e",
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
