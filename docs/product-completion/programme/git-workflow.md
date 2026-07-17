@@ -1,7 +1,7 @@
 # Git workflow
 
-- Working branch: `implementation/step2-next-20260717-b`.
-- Base: `6176dba5def49142e51ffaa77325530ec3374948` (`origin/main`).
+- Working branch: `implementation/step2-issue-0136-20260717`.
+- Base: `fa7675f342056a669f0d6010f9649369877d10a0` (`origin/main`).
 - Worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\step2-integration-20260717`.
 - Keep the primary checkout and its unrelated untracked files untouched.
 - Review `git diff`, run targeted checks, commit the focused change, then use capability-based GitHub checks before any push or issue apply.
