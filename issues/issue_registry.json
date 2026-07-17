@@ -7239,7 +7239,7 @@
       "package_status": "",
       "phase": "phase-07-backtest-paper-execution",
       "priority": "P0/P1",
-      "programme_status": "planned",
+      "programme_status": "implemented_initially",
       "related_issues": [
         "ISSUE-0106"
       ],

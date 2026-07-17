@@ -29,6 +29,7 @@ from etf_cockpit.models.forecast_scores import (
     forecast_score_details,
     load_latest_forecasts,
 )
+from etf_cockpit.portfolio.costs import estimate_execution_cost
 from etf_cockpit.signals.research_states import (
     ALLOWED_EVIDENCE_SOURCE_IDS,
     AnalysisStatus,
@@ -2040,17 +2041,10 @@ def _friction_edge_fields(
 
 
 def _configured_friction_costs(config: AppConfig, instrument_id: str) -> dict[str, float] | None:
-    costs = getattr(config, "costs", None)
-    model = getattr(costs, "cost_model", None)
-    if model is None:
+    try:
+        base = estimate_execution_cost(config, instrument_id, 0.0).total_cost_bps
+    except Exception:
         return None
-    per_instrument = getattr(costs, "per_etf", {}).get(str(instrument_id), {})
-    spread = _safe_float(per_instrument.get("spread_bps", getattr(model, "default_spread_bps", None)))
-    slippage = _safe_float(per_instrument.get("slippage_bps", getattr(model, "default_slippage_bps", None)))
-    fx = _safe_float(getattr(model, "fx_conversion_bps", 0.0))
-    if spread is None or slippage is None or fx is None:
-        return None
-    base = max(0.0, spread + slippage + fx)
     return {"low": base * 0.75, "base": base, "high": base * 1.5}
 
 

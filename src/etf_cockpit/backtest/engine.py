@@ -15,6 +15,7 @@ from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.types import DataQualityReport
 from etf_cockpit.data.validation import validate_prices
 from etf_cockpit.features.feature_pipeline import compute_features, latest_features
+from etf_cockpit.portfolio.costs import COST_MODEL_ID, estimate_rebalance_cost
 from etf_cockpit.signals.signal_pipeline import generate_signals
 
 
@@ -128,7 +129,7 @@ def run_backtest(
     *,
     initial_value_eur: float = 10000,
     rebalance_frequency_days: int = 21,
-    transaction_cost_bps: float = 13.0,
+    transaction_cost_bps: float | None = None,
 ) -> BacktestReport:
     pivot_raw = _price_pivot(prices)
     columns = [column for column in config.universe.enabled_ids if column in pivot_raw.columns]
@@ -158,6 +159,9 @@ def run_backtest(
         "lookahead_protection": "history_truncated_at_signal_date",
         "execution_delay_sessions": 1,
         "same_bar_execution_avoided": True,
+        "cost_model_id": COST_MODEL_ID,
+        "cost_model_execution_allowed": False,
+        "cost_model_mode": "consistent_local_research_estimates",
         "date_range_start": pivot.index.min().date(),
         "date_range_end": pivot.index.max().date(),
         "not_enough_data_policy": "fail_closed",
@@ -264,7 +268,17 @@ def run_backtest(
             for name, new_weight in new_weights.items():
                 diff = (new_weight.reindex(columns).fillna(0) - weights[name].reindex(columns).fillna(0)).abs()
                 step_turnover = float(diff.sum())
-                step_cost = equity[name][-1] * step_turnover * transaction_cost_bps / 10_000
+                if transaction_cost_bps is None:
+                    portfolio_cost = estimate_rebalance_cost(config, equity[name][-1], diff.to_dict())
+                    step_cost = portfolio_cost.total_cost_eur
+                    step_cost_bps = portfolio_cost.weighted_cost_bps
+                    step_cost_quality = ", ".join(sorted({item.data_quality for item in portfolio_cost.estimates})) or "no_trade"
+                    step_capacity_eur = portfolio_cost.capacity_eur
+                else:
+                    step_cost = equity[name][-1] * step_turnover * max(0.0, transaction_cost_bps) / 10_000
+                    step_cost_bps = max(0.0, transaction_cost_bps)
+                    step_cost_quality = "legacy_explicit_override"
+                    step_capacity_eur = None
                 turnover[name] += step_turnover
                 cost_drag[name] += step_cost
                 pending_weights[name] = new_weight.reindex(columns).fillna(0)
@@ -292,6 +306,10 @@ def run_backtest(
                             "strategy": name,
                             "turnover": step_turnover,
                             "cost_eur": step_cost,
+                            "estimated_cost_bps": step_cost_bps,
+                            "cost_model_id": COST_MODEL_ID if transaction_cost_bps is None else "explicit_transaction_cost_bps",
+                            "cost_data_quality": step_cost_quality,
+                            "capacity_eur": step_capacity_eur,
                             **execution_evidence,
                         }
                     )

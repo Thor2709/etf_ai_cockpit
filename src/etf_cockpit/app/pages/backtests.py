@@ -9,7 +9,7 @@ from etf_cockpit.app.components.charts import equity_drawdown_chart, history_cha
 from etf_cockpit.app.components.tables import accessible_table
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import EXPORTS_DIR
-from etf_cockpit.application.ui_facade import NEWS_TIMESTAMP_VALIDATION_PATH, event_engine_status, export_table
+from etf_cockpit.application.ui_facade import NEWS_TIMESTAMP_VALIDATION_PATH, cost_capacity_status, event_engine_status, export_table
 
 
 def _format_number(value: object, *, percent: bool = False, money: bool = False, decimals: int = 2) -> str:
@@ -27,6 +27,7 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
     report = state.snapshot.backtest
     news_warning = _news_validation_warning()
     event_panel = _event_replay_panel()
+    cost_panel = _cost_capacity_panel(state.snapshot.config)
     if report.results.empty or "strategy_name" not in report.results.columns:
         return ft.Column(
             [
@@ -35,6 +36,7 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
                         [
                             section_header("Backtests", "Run Refresh yfinance data and Run algorithms before backtests can be evaluated for the current two-tier universe."),
                             news_warning,
+                            cost_panel,
                             event_panel,
                             ft.Text("\n".join(report.quality_notes or ["Backtest pending."]), color=theme.MUTED, selectable=True),
                         ],
@@ -54,6 +56,7 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
                     ft.Column(
                         [
                             section_header("Backtests", "No signal-strategy backtest row is available for the current run."),
+                            cost_panel,
                             event_panel,
                             ft.Text("\n".join(report.quality_notes or ["Backtest pending."]), color=theme.MUTED, selectable=True),
                         ],
@@ -154,6 +157,7 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
                 spacing=12,
             ),
             news_warning,
+            cost_panel,
             panel(
                 ft.Column(
                     [
@@ -233,6 +237,46 @@ def _event_replay_panel() -> ft.Control:
             [
                 section_header("Event timeline, orders and fills", "The order-level historical replay contract is deterministic and shared with future paper/proposal adapters."),
                 ft.Text("\n".join(lines), color=theme.MUTED, selectable=True),
+            ],
+            spacing=6,
+        )
+    )
+
+
+def _cost_capacity_panel(config: object) -> ft.Control:
+    enabled_ids = list(getattr(getattr(config, "universe", None), "enabled_ids", []) or [])
+    instrument_id = str(enabled_ids[0]) if enabled_ids else "unselected"
+    try:
+        status = cost_capacity_status(config, instrument_id)
+    except Exception as exc:
+        status = {
+            "instrument_id": instrument_id,
+            "order_preview_eur": 10_000.0,
+            "estimated_cost_bps": None,
+            "estimated_cost_eur": None,
+            "capacity_eur": None,
+            "capacity_status": "unavailable",
+            "data_quality": f"unavailable: {exc}",
+            "model_id": "unavailable",
+            "execution_allowed": False,
+            "assumptions": (),
+        }
+    cost_bps = status.get("estimated_cost_bps")
+    cost_eur = status.get("estimated_cost_eur")
+    capacity = status.get("capacity_eur")
+    lines = [
+        f"Instrument: {status.get('instrument_id', instrument_id)}; order preview: EUR {_format_number(status.get('order_preview_eur'), money=True)}",
+        f"Estimated cost: {_format_number(cost_bps)} bps / {_format_number(cost_eur, money=True)}",
+        f"Capacity: {_format_number(capacity, money=True) if capacity is not None else 'unavailable'} ({status.get('capacity_status', 'unavailable')})",
+        f"Data quality: {status.get('data_quality', 'unavailable')}; model: {status.get('model_id', 'unavailable')}",
+        f"Execution allowed: {'yes' if status.get('execution_allowed') else 'no'}",
+    ]
+    return panel(
+        ft.Column(
+            [
+                section_header("Cost/Capacity", "The same local estimate feeds signal netting, rebalance previews and historical backtests; missing microstructure data widens the result."),
+                ft.Text("\n".join(lines), color=theme.MUTED, selectable=True),
+                ft.Text("Order preview is descriptive evidence only. It does not create, submit or amend an order.", color=theme.AMBER, selectable=True),
             ],
             spacing=6,
         )
