@@ -12,6 +12,7 @@ import pandas as pd
 
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.migrations import MIGRATIONS
+from etf_cockpit.data.hybrid_platform import HybridPlatform
 
 
 class DataHealthStatus(StrEnum):
@@ -99,6 +100,7 @@ def build_data_health(
     rows.append(_inspect_file("backtest", project_root / "data" / "backtests" / "backtest_results.csv", "derived", ("end_date",), as_of, stale_after_days))
     rows.append(_inspect_macro(project_root / "data" / "raw" / "macro", as_of, stale_after_days))
     rows.append(_inspect_migrations(project_root))
+    rows.append(_inspect_local_storage(project_root))
     return DataHealthReport(datetime_now(), as_of.isoformat(), tuple(rows))
 
 
@@ -263,6 +265,56 @@ def _inspect_migrations(root: Path) -> DataHealthRow:
         status = DataHealthStatus.HEALTHY
         warnings = ()
     return _make_row("migration_status", status, path, "migration", row_count=len(applied), checksum=checksum, as_of=as_of, freshness="fresh" if status is DataHealthStatus.HEALTHY else "stale", warnings=warnings, history_root=root)
+
+
+def _inspect_local_storage(root: Path) -> DataHealthRow:
+    path = root / "data" / "storage" / "cockpit.sqlite3"
+    if not path.is_file():
+        return _make_row(
+            "local_storage",
+            DataHealthStatus.MISSING,
+            path,
+            "sqlite+duckdb",
+            freshness="unknown",
+            warnings=("transactional_store_missing", "analytical_catalog_unavailable"),
+            history_root=root,
+        )
+    try:
+        with HybridPlatform(root) as platform:
+            summary = platform.summary()
+        integrity = summary.integrity
+        status = DataHealthStatus.HEALTHY if integrity.ok else DataHealthStatus.CORRUPT
+        warnings = (
+            f"schema_version:{summary.schema_version}",
+            f"migrations:{','.join(map(str, summary.migration_versions)) or 'none'}",
+            f"transactional_bytes:{summary.transactional_bytes}",
+            f"analytics_bytes:{summary.analytics_bytes}",
+            f"published_generations:{summary.published_generations}",
+            f"last_compaction:{summary.last_compaction or 'never'}",
+            f"integrity:{integrity.sqlite_integrity}",
+        ) + integrity.errors
+        return _make_row(
+            "local_storage",
+            status,
+            path,
+            "sqlite+duckdb",
+            row_count=summary.transactional_rows,
+            checksum=_sha256(path),
+            as_of=summary.last_compaction,
+            freshness="fresh" if status is DataHealthStatus.HEALTHY else "unavailable",
+            warnings=warnings,
+            history_root=root,
+        )
+    except Exception as exc:
+        return _make_row(
+            "local_storage",
+            DataHealthStatus.CORRUPT,
+            path,
+            "sqlite+duckdb",
+            checksum=_sha256(path),
+            warnings=(f"storage_inspection_failed:{type(exc).__name__}",),
+            history_root=root,
+        )
 
 
 def _make_row(

@@ -14,7 +14,7 @@ import pandas as pd
 from etf_cockpit.core.atomic_io import atomic_write_bytes, parquet_payload, validate_parquet_file
 
 
-STORAGE_SCHEMA_VERSION = 1
+STORAGE_SCHEMA_VERSION = 2
 
 
 class StorageSchemaError(RuntimeError):
@@ -113,7 +113,10 @@ def _apply_migrations(connection: sqlite3.Connection) -> None:
         raise StorageSchemaError(
             f"storage schema {highest} is newer than supported version {STORAGE_SCHEMA_VERSION}"
         )
-    for version, name, migration in ((1, "transactional_records_v1", _migration_v1),):
+    for version, name, migration in (
+        (1, "transactional_records_v1", _migration_v1),
+        (2, "analytical_catalog_v1", _migration_v2),
+    ):
         if version in applied:
             continue
         with connection:
@@ -141,6 +144,53 @@ def _migration_v1(connection: sqlite3.Connection) -> None:
     )
     connection.execute(
         "CREATE INDEX transactional_records_type_updated ON transactional_records(entity_type, updated_at)"
+    )
+
+
+def _migration_v2(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE analytical_generations (
+            dataset_id TEXT NOT NULL,
+            generation_id TEXT NOT NULL,
+            relative_path TEXT NOT NULL UNIQUE,
+            sha256 TEXT NOT NULL,
+            row_count INTEGER NOT NULL CHECK (row_count >= 0),
+            columns_json TEXT NOT NULL,
+            stable_id_count INTEGER NOT NULL CHECK (stable_id_count >= 0),
+            run_id_count INTEGER NOT NULL CHECK (run_id_count >= 0),
+            status TEXT NOT NULL CHECK (status IN ('publishing', 'published')),
+            committed_at TEXT NOT NULL,
+            PRIMARY KEY(dataset_id, generation_id)
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX analytical_generations_latest ON analytical_generations(dataset_id, status, committed_at DESC)"
+    )
+    connection.execute(
+        """
+        CREATE TABLE analytical_generation_keys (
+            dataset_id TEXT NOT NULL,
+            generation_id TEXT NOT NULL,
+            stable_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            PRIMARY KEY(dataset_id, generation_id, stable_id, run_id),
+            FOREIGN KEY(dataset_id, generation_id)
+                REFERENCES analytical_generations(dataset_id, generation_id)
+                ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE storage_operations (
+            operation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            operation TEXT NOT NULL,
+            completed_at TEXT NOT NULL,
+            detail_json TEXT NOT NULL
+        )
+        """
     )
 
 
