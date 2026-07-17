@@ -120,12 +120,14 @@ def read_bounded_file(path: Path, *, max_bytes: int, root: Path | None = None) -
     """Read a regular, non-symlink file without allowing path or size escapes."""
 
     candidate = Path(path)
+    if candidate.is_symlink():
+        raise SecurityPolicyError("symbolic links are not permitted for bounded file reads")
     resolved = candidate.resolve()
     if root is not None:
         allowed_root = Path(root).resolve()
         if resolved != allowed_root and allowed_root not in resolved.parents:
             raise SecurityPolicyError("file path escapes the permitted root")
-    if candidate.is_symlink() or not resolved.is_file():
+    if not resolved.is_file():
         raise SecurityPolicyError("only regular non-symlink files may be read")
     if max_bytes <= 0:
         raise SecurityPolicyError("max_bytes must be positive")
