@@ -6585,7 +6585,7 @@
       "package_status": "",
       "phase": "phase-05-returns-risk-portfolio",
       "priority": "P0",
-      "programme_status": "planned",
+      "programme_status": "integrated",
       "related_issues": [],
       "required_inputs": [],
       "security_and_audit": "Estimator selection, parameters and failures are versioned and audited.",

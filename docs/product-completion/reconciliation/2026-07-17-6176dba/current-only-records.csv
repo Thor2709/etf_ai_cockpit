@@ -1,0 +1,15 @@
+canonical_id,title,ledger_state,classification,priority,reason
+ISSUE-0001,Create durable issue tracker and plan synchronisation,closed,local_only_closed,,closed in the latest ledger after the package snapshot or reconciled from a stale open record
+ISSUE-0002,Add young/noisy evidence and too-good-to-be-true warnings,closed,local_only_closed,,closed in the latest ledger after the package snapshot or reconciled from a stale open record
+ISSUE-0003,Add benchmark alpha/beta/regime attribution,closed,local_only_closed,,closed in the latest ledger after the package snapshot or reconciled from a stale open record
+ISSUE-0004,"Add hit-rate, payoff-ratio and expected-value diagnostics",closed,local_only_closed,,closed in the latest ledger after the package snapshot or reconciled from a stale open record
+ISSUE-0005,Add friction/cost/slippage stress engine,closed,local_only_closed,,closed in the latest ledger after the package snapshot or reconciled from a stale open record
+ISSUE-0006,Add explicit model/backtest contamination validity status,closed,local_only_closed,,closed in the latest ledger after the package snapshot or reconciled from a stale open record
+ISSUE-0009,Add source-credibility scoring for imported research notes,closed,local_only_closed,,closed in the latest ledger after the package snapshot or reconciled from a stale open record
+ISSUE-0035,Data health centre,closed,local_only_closed,,closed in the latest ledger after the package snapshot or reconciled from a stale open record
+ISSUE-0067,Local score history and per-instrument score evolution mini charts,open,local_only_current,P0/P1,present in latest open ledger but absent from the older package snapshot
+ISSUE-0069,Single-file session action logging and diagnostics trace,closed,local_only_closed,,closed in the latest ledger after the package snapshot or reconciled from a stale open record
+UPDATEV2-0010,"Provider registry, capability probes and source authority model (original update ISSUE-0010)",closed,local_only_closed,,closed in the latest ledger after the package snapshot or reconciled from a stale open record
+UPDATEV2-0013,European ESEF/iXBRL filing importer,closed,local_only_closed,,closed in the latest ledger after the package snapshot or reconciled from a stale open record
+UPDATEV2-0022,Evidence ledger and score component audit trail,closed,local_only_closed,,closed in the latest ledger after the package snapshot or reconciled from a stale open record
+UPDATEV2-0028,"Report/audit packet expansion for providers, filings, ETF docs and candles",closed,local_only_closed,,closed in the latest ledger after the package snapshot or reconciled from a stale open record

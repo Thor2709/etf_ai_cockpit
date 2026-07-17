@@ -24,6 +24,7 @@ from etf_cockpit.application.ui_facade import (
     load_reference_dataset,
     normalise_holdings,
     return_correlation_matrix,
+    build_robust_risk_report,
     underlying_holdings_exposure,
 )
 from etf_cockpit.core.paths import DERIVED_DIR
@@ -435,6 +436,119 @@ def _factor_history_panel(report: dict[str, object]) -> ft.Control:
     )
 
 
+def _robust_risk_summary_panel(report: dict[str, object]) -> ft.Control:
+    diagnostics = report.get("diagnostics") if isinstance(report.get("diagnostics"), dict) else {}
+    estimators = diagnostics.get("estimators") if isinstance(diagnostics.get("estimators"), dict) else {}
+    selected = str(report.get("selected_estimator", "n/a"))
+    selected_diagnostics = estimators.get(selected) if isinstance(estimators.get(selected), dict) else {}
+    portfolio = report.get("portfolio") if isinstance(report.get("portfolio"), dict) else {}
+    tail = report.get("tail_risk") if isinstance(report.get("tail_risk"), dict) else {}
+    tail_portfolio = tail.get("portfolio") if isinstance(tail.get("portfolio"), dict) else {}
+    bootstrap = report.get("bootstrap") if isinstance(report.get("bootstrap"), dict) else {}
+    warnings = report.get("warnings", [])
+    warning_text = ", ".join(str(item) for item in warnings) if warnings else "none"
+    confidence_interval = "n/a"
+    if bootstrap.get("status") == "available":
+        confidence_interval = f"{_number(bootstrap.get('lower_5'))} - {_number(bootstrap.get('upper_95'))}"
+    return panel(
+        ft.Column(
+            [
+                section_header("Robust risk model", "Versioned covariance estimators, out-of-sample selection and uncertainty; evidence-only and execution-disabled."),
+                ft.Text(
+                    f"Status: {report.get('status', 'unavailable')} | model={report.get('model_version', 'unknown')} | selected estimator: {selected} | execution_allowed=false",
+                    color=theme.TEXT,
+                    selectable=True,
+                ),
+                ft.Text(
+                    f"Annualised volatility: {_number(portfolio.get('annualised_volatility'))} | bootstrap 5-95% interval: {confidence_interval} | estimator condition number: {_number(selected_diagnostics.get('condition_number'))}",
+                    color=theme.TEXT,
+                    selectable=True,
+                ),
+                ft.Text(
+                    f"Component-share reconciliation: {_number(portfolio.get('component_share_sum'))} | bootstrap observations: {bootstrap.get('observations', 0)} | warnings: {warning_text}",
+                    color=theme.AMBER if warnings else theme.MUTED,
+                    selectable=True,
+                ),
+                ft.Text(
+                    f"Tail VaR 95%: {_pct(tail_portfolio.get('var_95'))} | expected shortfall 95%: {_pct(tail_portfolio.get('expected_shortfall_95'))} | downside volatility: {_number(tail_portfolio.get('downside_vol_ann'))} | maximum drawdown: {_pct(tail_portfolio.get('max_drawdown'))}",
+                    color=theme.TEXT,
+                    selectable=True,
+                ),
+            ],
+            spacing=6,
+        )
+    )
+
+
+def _robust_estimator_panel(report: dict[str, object]) -> ft.Control:
+    frame = report.get("estimator_comparison")
+    frame = frame if isinstance(frame, pd.DataFrame) else pd.DataFrame()
+    rows = [
+        ft.DataRow(
+            cells=[
+                ft.DataCell(ft.Text(str(row.get("estimator", "")), color=theme.TEXT, size=11)),
+                ft.DataCell(ft.Text(_number(row.get("validation_error")), color=theme.TEXT, size=11)),
+                ft.DataCell(ft.Text(str(row.get("validation_observations", "")), color=theme.MUTED, size=11)),
+                ft.DataCell(ft.Text("yes" if bool(row.get("selected")) else "", color=theme.GREEN if bool(row.get("selected")) else theme.MUTED, size=11)),
+            ]
+        )
+        for _, row in frame.iterrows()
+    ]
+    return panel(
+        ft.Column(
+            [
+                section_header("Estimator comparison", "Selection uses held-out covariance error; sample and diagonal baselines remain available."),
+                ft.DataTable(
+                    columns=[ft.DataColumn(ft.Text("Estimator")), ft.DataColumn(ft.Text("OOS error")), ft.DataColumn(ft.Text("Validation N")), ft.DataColumn(ft.Text("Selected"))],
+                    rows=rows,
+                )
+                if rows
+                else ft.Text("Out-of-sample estimator comparison is unavailable; the sample baseline remains explicit.", color=theme.MUTED),
+            ],
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        expand=True,
+    )
+
+
+def _robust_regime_panel(report: dict[str, object]) -> ft.Control:
+    regimes = report.get("regimes")
+    regimes = regimes if isinstance(regimes, pd.DataFrame) else pd.DataFrame()
+    rows = [
+        ft.DataRow(
+            cells=[
+                ft.DataCell(ft.Text(str(row.get("regime", "")), color=theme.TEXT, size=11)),
+                ft.DataCell(ft.Text(str(row.get("observations", "")), color=theme.MUTED, size=11)),
+                ft.DataCell(ft.Text(_number(row.get("portfolio_vol_ann")), color=theme.TEXT, size=11)),
+            ]
+        )
+        for _, row in regimes.iterrows()
+    ]
+    tail = report.get("tail_risk") if isinstance(report.get("tail_risk"), dict) else {}
+    dependence = tail.get("tail_dependence") if isinstance(tail.get("tail_dependence"), dict) else {}
+    liquidity = tail.get("liquidity_adjusted") if isinstance(tail.get("liquidity_adjusted"), dict) else {}
+    return panel(
+        ft.Column(
+            [
+                section_header("Regimes, tail dependence and liquidity", "Calm/stress comparisons and transparent lower-tail and traded-value diagnostics."),
+                ft.DataTable(
+                    columns=[ft.DataColumn(ft.Text("Regime")), ft.DataColumn(ft.Text("N")), ft.DataColumn(ft.Text("Portfolio vol"))],
+                    rows=rows,
+                )
+                if rows
+                else ft.Text("Regime comparison is unavailable.", color=theme.MUTED),
+                ft.Text(
+                    f"Lower-tail dependence: {_pct(dependence.get('mean_lower_tail_dependence'))} across {dependence.get('pairs', 0)} pairs | liquidity proxy: {liquidity.get('status', 'unavailable')} | multiplier: {_number(liquidity.get('multiplier'))}",
+                    color=theme.TEXT,
+                    selectable=True,
+                ),
+            ],
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        expand=True,
+    )
+
+
 def _correlation_table(correlation: pd.DataFrame) -> ft.Control:
     columns = list(correlation.columns)
     rows = []
@@ -619,6 +733,7 @@ def risk_page(_page: ft.Page, state: AppState) -> ft.Control:
     imported_holdings = _load_holdings_evidence()
     eligible_holdings = _exposure_eligible_holdings(imported_holdings)
     factor_report = build_factor_risk_report(state.snapshot.prices, allocation, state.snapshot.latest_features, eligible_holdings)
+    robust_risk_report = build_robust_risk_report(state.snapshot.prices, allocation, factor_report=factor_report)
     top_contributor = contribution.iloc[0]["etf_id"] if not contribution.empty else "n/a"
     export_status = ft.Text("Risk tables show text status independent of colour.", color=theme.MUTED, selectable=True)
 
@@ -683,6 +798,8 @@ def risk_page(_page: ft.Page, state: AppState) -> ft.Control:
             _underlying_holdings_panel(eligible_holdings, allocation),
             _factor_summary_panel(factor_report),
             ft.Row([_factor_contribution_panel(factor_report), _factor_history_panel(factor_report)], spacing=12),
+            _robust_risk_summary_panel(robust_risk_report),
+            ft.Row([_robust_estimator_panel(robust_risk_report), _robust_regime_panel(robust_risk_report)], spacing=12),
             _correlation_table(correlation),
             _crowding_attribution_panel(),
             _friction_edge_panel(),
