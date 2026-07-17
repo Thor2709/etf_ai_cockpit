@@ -7,7 +7,7 @@
 - Components: `4`; locked dependencies: `23`
 - Network calls: `false`
 - Execution allowed: `false`
-- Duration: `80.472 ms`
+- Duration: `78.79 ms`
 
 ## Failures
 

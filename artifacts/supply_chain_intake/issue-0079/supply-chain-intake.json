@@ -397,7 +397,7 @@
     }
   ],
   "dependency_count": 23,
-  "duration_ms": 80.472,
+  "duration_ms": 78.79,
   "execution_allowed": false,
   "failures": [],
   "hardening_required": [
@@ -435,7 +435,7 @@
   "network_calls": false,
   "registry_sha256": "1bf5e532b576cda16bcbf74c2bca98c7f2e251315e317a477c60c7ea0816d325",
   "registry_version": "2026-07-17",
-  "release_commit": "482f2060c43dd915a63a7c68712752077fda43d4",
+  "release_commit": "9fd8f9088e4745601cc0fa48207ca817fbf3df6b",
   "review_status": "hardening_required",
   "schema_version": "supply-chain-intake.v1",
   "signature_status": "missing",
