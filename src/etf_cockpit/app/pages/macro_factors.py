@@ -7,8 +7,8 @@ import flet as ft
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
+from etf_cockpit.application.ui_facade import MacroWarehouse, MacroWarehouseError
 from etf_cockpit.core.paths import ROOT
-from etf_cockpit.data.macro_warehouse import MacroWarehouse, MacroWarehouseError
 
 
 def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
