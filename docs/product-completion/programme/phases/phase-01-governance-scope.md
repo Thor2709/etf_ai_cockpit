@@ -76,7 +76,7 @@ Deliver the bounded governance, scope and completion contract work with local-fi
 | `ISSUE-0075` | `P0` | `integrated` | `reproducibility` | `ISSUE-0072`, `ISSUE-0074` | - | `ISSUE-0077`, `ISSUE-0090`, `ISSUE-0117`, `ISSUE-0141`, `ISSUE-0147` | - |
 | `ISSUE-0076` | `P0/P1` | `integrated` | `platform-and-operations` | `ISSUE-0070`, `ISSUE-0071` | - | `ISSUE-0080`, `ISSUE-0144` | - |
 | `ISSUE-0077` | `P0` | `integrated` | `platform-and-operations` | `ISSUE-0072`, `ISSUE-0075` | - | `ISSUE-0078`, `ISSUE-0081` | - |
-| `ISSUE-0078` | `P0/P1` | `planned` | `platform-and-operations` | `ISSUE-0077` | - | `ISSUE-0151` | - |
+| `ISSUE-0078` | `P0/P1` | `integrated` | `platform-and-operations` | `ISSUE-0077` | - | `ISSUE-0151` | - |
 | `ISSUE-0079` | `P0` | `planned` | `security-and-release` | `ISSUE-0145`, `ISSUE-0149` | - | `ISSUE-0085` | - |
 | `UPDATEV2-0012` | `P0` | `implemented_initially` | `programme-governance` | - | - | `ISSUE-0087`, `ISSUE-0091` | `ISSUE-0073`, `ISSUE-0081`, `ISSUE-0091` |
 | `UPDATEV2-0014` | `P1` | `planned` | `programme-governance` | - | - | `ISSUE-0087` | `ISSUE-0076`, `ISSUE-0087` |

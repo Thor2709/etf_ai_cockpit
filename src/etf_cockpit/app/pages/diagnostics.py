@@ -15,6 +15,7 @@ from etf_cockpit.core.paths import DATA_DIR, LOG_DIR, MODEL_DIR, ROOT
 from etf_cockpit.core.session_log import read_session_events, session_log_status
 from etf_cockpit.core.errors import ErrorStore
 from etf_cockpit.core.timing import timing_summary
+from etf_cockpit.core.performance import PerformanceBudgetError, build_performance_report
 from etf_cockpit.application.ui_facade import TransactionalStore, build_version_registry, compatibility_summary
 from etf_cockpit.operations.event_store import load_events_with_tail_recovery
 
@@ -100,6 +101,10 @@ def _performance_panel(state: AppState) -> ft.Control:
     slow_steps = list(summary["slow_steps"])
     cache_counts = dict(summary["cache_counts"])
     errors = ErrorStore().recent(limit=8)
+    try:
+        budget_report = build_performance_report(ROOT)
+    except PerformanceBudgetError as exc:
+        budget_report = {"status": "failed", "failures": [str(exc)], "storage_bytes": "unavailable"}
     rows: list[ft.Control] = [
         ft.Text(f"Timing trace: {timing_path} | {len(timing_records)} parsed records", color=theme.MUTED, selectable=True),
         ft.Text(
@@ -111,6 +116,12 @@ def _performance_panel(state: AppState) -> ft.Control:
         ),
         ft.Text(f"Controlled errors: {len(errors)} recent records", color=theme.MUTED),
         ft.Text(f"Current workflow: {state.current_activity.label if state.current_activity else 'idle'}", color=theme.MUTED),
+        ft.Text(
+            f"Versioned budgets: {budget_report['status']} | failures={len(budget_report['failures'])} | "
+            f"local storage={budget_report['storage_bytes']} bytes | network_calls=false",
+            color=theme.GREEN if budget_report["status"] in {"passed", "unmeasured"} else theme.RED,
+            selectable=True,
+        ),
     ]
     for record in reversed(timing_records[-6:]):
         if record.get("event_type") == "cache":
@@ -124,7 +135,7 @@ def _performance_panel(state: AppState) -> ft.Control:
                 f"slow={record.get('slow', False)} | action={record.get('action_id') or 'n/a'}"
             )
         rows.append(ft.Text(text, color=theme.MUTED, size=11, selectable=True))
-    return panel(ft.Column([section_header("Performance and recovery", "Workflow timing, slow-step visibility and controlled error counts."), *rows], spacing=6))
+    return panel(ft.Column([section_header("Performance and recovery", "Versioned local timing, memory, storage and cache budgets with no external telemetry."), *rows], spacing=6))
 
 
 def _session_log_panel() -> ft.Control:

@@ -559,6 +559,26 @@ def run_gate(
         command = (sys.executable, str(smoke_script), "--mode", "offline", "--port", str(_free_port()), "--timeout", "30")
         state.add(run_command(smoke_root, output, "package_smoke", command))
 
+    if (root / "configs" / "performance_budgets.yaml").is_file():
+        performance_report_dir = output / "performance"
+        state.add(
+            run_command(
+                root,
+                output,
+                "performance_budgets",
+                _python_command(
+                    root,
+                    "scripts/check_performance_budgets.py",
+                    "--root",
+                    str(root),
+                    "--report-dir",
+                    str(performance_report_dir),
+                ),
+            )
+        )
+    else:
+        state.add(CheckResult("performance_budgets", "skipped", False, "no versioned performance policy present"))
+
     sbom = build_sbom(root, source, policy, artifact_manifest=artifacts)
     _write_json(output / "sbom.cdx.json", sbom)
     state.add(CheckResult("sbom", "passed", True, "CycloneDX 1.5 deterministic SBOM"))

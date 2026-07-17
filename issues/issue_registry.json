@@ -5318,7 +5318,7 @@
       "package_status": "",
       "phase": "phase-01-governance-scope",
       "priority": "P0/P1",
-      "programme_status": "planned",
+      "programme_status": "integrated",
       "related_issues": [],
       "required_inputs": [],
       "security_and_audit": "Telemetry contains no secrets/private thesis content and remains local by default.",

@@ -6,9 +6,10 @@ non-zero, while the JSON and Markdown evidence is still written for diagnosis.
 
 The gate records a pinned Python version, an exact direct-dependency lock,
 normalised source-file hashes, full pytest output, package build output, a
-packaged offline smoke result, a deterministic CycloneDX 1.5 SBOM covering the
-source manifest and packaged artifact manifest, and a detached HMAC-SHA256
-release-manifest signature. The signing key is read only
+packaged offline smoke result, versioned local timing/memory/storage budget
+evidence, a deterministic CycloneDX 1.5 SBOM covering the source manifest and
+packaged artifact manifest, and a detached HMAC-SHA256 release-manifest
+signature. The signing key is read only
 from `ETF_COCKPIT_RELEASE_SIGNING_KEY`; it is never written to the evidence.
 The shared-key signature is an offline local release control, not a public-key
 distribution system. Public-key signing, vulnerability policy and secure
