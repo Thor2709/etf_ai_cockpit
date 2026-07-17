@@ -1,0 +1,58 @@
+{
+  "application": {
+    "applied_action_totals": {
+      "blocked": 0,
+      "close": 0,
+      "create": 0,
+      "reopen": 0,
+      "update": 1
+    },
+    "initial_action_summary": {
+      "blocked": 0,
+      "close": 0,
+      "create": 0,
+      "reopen": 0,
+      "update": 1
+    },
+    "readback_noop": true,
+    "reviewed_reopen_ids": [
+      "ISSUE-0067"
+    ],
+    "status": "APPLIED_AND_VERIFIED"
+  },
+  "approved_plans": [
+    {
+      "legacy_duplicate_count": 60,
+      "plan_sha256": "37852f7716735f4f5273daa81eccd2d13490deb0e28112d2725996b42e1f1850",
+      "remote_inventory_sha256": "5ba8d67c873e46120ba70fa4aaf64cefa8c521292bb0d71f316f871042775b7e",
+      "remote_issue_count": 249,
+      "summary": {
+        "blocked": 0,
+        "close": 0,
+        "create": 0,
+        "reopen": 0,
+        "update": 1
+      }
+    }
+  ],
+  "final_noop_plan": {
+    "legacy_duplicate_count": 60,
+    "plan_sha256": "08b149d7cbe1ea7db12b2413caf1fdffafa6cb9150854e439711bd79cf589cfd",
+    "remote_inventory_sha256": "918e18142f25efb8e63b7611589053095cef39a0977ff4cccc61e1ba258ceed9",
+    "remote_issue_count": 249,
+    "summary": {
+      "blocked": 0,
+      "close": 0,
+      "create": 0,
+      "reopen": 0,
+      "update": 0
+    }
+  },
+  "historical_map": {
+    "duplicate_group_count": 60,
+    "map_sha256": "f1d6422a4aa69ff36d61a264db070492ebb058467ad2093240bd0d4adf3019ce",
+    "remote_inventory_sha256": "3f1d061b61393b1a43f0d3741eb0aa41219ab25bf8cd02620b45c480730f6054"
+  },
+  "repository": "Thor2709/etf_ai_cockpit",
+  "schema_version": "1.0"
+}
