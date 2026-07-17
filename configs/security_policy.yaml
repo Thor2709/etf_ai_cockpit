@@ -1,0 +1,26 @@
+schema_version: "security-policy.v1"
+network:
+  default_deny: true
+  allowed_schemes:
+    - https
+  local_ui_host: "127.0.0.1"
+  http_api_exposed: false
+  require_authentication_if_exposed: true
+  require_csrf_if_exposed: true
+parser_limits:
+  max_file_bytes: 67108864
+  max_csv_bytes: 16777216
+  max_xml_bytes: 16777216
+  max_pdf_bytes: 67108864
+  max_model_bytes: 536870912
+  max_archive_members: 1000
+  max_archive_expanded_bytes: 536870912
+  max_archive_compression_ratio: 100
+credentials:
+  persistent_storage: "os-keychain-or-encrypted-vault"
+  export_allowed: false
+  log_allowed: false
+security_findings:
+  blocking_severities:
+    - critical
+    - high

@@ -1,0 +1,29 @@
+{
+  "blocking_severities": [
+    "critical",
+    "high"
+  ],
+  "default_deny": true,
+  "duration_ms": 1.776,
+  "failures": [],
+  "http_api_auth_required_if_exposed": true,
+  "http_api_csrf_required_if_exposed": true,
+  "http_api_exposed": false,
+  "local_ui_host": "127.0.0.1",
+  "network_calls": false,
+  "parser_limits": {
+    "max_archive_compression_ratio": 100,
+    "max_archive_expanded_bytes": 536870912,
+    "max_archive_members": 1000,
+    "max_csv_bytes": 16777216,
+    "max_file_bytes": 67108864,
+    "max_model_bytes": 536870912,
+    "max_pdf_bytes": 67108864,
+    "max_xml_bytes": 16777216
+  },
+  "persistent_credential_storage": "os-keychain-or-encrypted-vault",
+  "schema_version": "security-policy.v1",
+  "secret_export_allowed": false,
+  "secret_log_allowed": false,
+  "status": "passed"
+}

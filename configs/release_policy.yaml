@@ -13,5 +13,6 @@ mandatory:
   - source_policy
   - performance_budgets
   - bulk_cache
+  - security_policy
   - sbom
   - signature
