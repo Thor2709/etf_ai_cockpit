@@ -36,11 +36,11 @@ Deliver the bounded final certification and programme closure work with local-fi
 
 ## Blockers, dependencies and related links
 
-- Resolve only `blocking_dependencies` as prerequisites. `related_issues` are context and do not block sequencing.
+- Resolve only `blocking_dependencies` as prerequisites; `required_inputs` are policy/evidence inputs and do not block readiness. `downstream_issues` are generated reverse links and `related_issues` are context only.
 - The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-17-3321ebd/dependency-reconciliation.csv`.
 
 ## Issue coverage
 
-| ID | Priority | Programme state | Owner | Blocking dependencies | Related issues |
-|---|---|---|---|---|---|
-| `ISSUE-0152` | `P0` | `planned` | `programme-governance` | - | - |
+| ID | Priority | Programme state | Owner | Blocking dependencies | Required inputs | Downstream issues | Related issues |
+|---|---|---|---|---|---|---|---|
+| `ISSUE-0152` | `P0` | `planned` | `programme-governance` | - | - | `ISSUE-0133` | - |

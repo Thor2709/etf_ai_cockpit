@@ -75,11 +75,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     finally:
         if process is not None and not args.keep_running:
-            process.terminate()
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
+            _terminate_process(process)
 
 
 def _ensure_source_ready(
@@ -102,7 +98,11 @@ def _ensure_source_ready(
         env["ETF_COCKPIT_OFFLINE"] = "1"
     process = subprocess.Popen([str(python), str(ROOT / "scripts" / "run_app.py")], cwd=str(ROOT), env=env)
     verify_process_path(process, python)
-    return _wait_for_process_ready(process, port, timeout)
+    try:
+        return _wait_for_process_ready(process, port, timeout)
+    except BaseException:
+        _terminate_process(process)
+        raise
 
 
 def _ensure_mode_ready(mode: str, port: int, timeout: int, *, already_ready: bool = False) -> subprocess.Popen | None:
@@ -117,7 +117,20 @@ def _ensure_mode_ready(mode: str, port: int, timeout: int, *, already_ready: boo
     env["ETF_COCKPIT_SMOKE_MODE"] = "1"
     process = launcher_core._spawn(command, cwd=cwd, env=env)
     verify_process_path(process, Path(command[0]))
-    return _wait_for_process_ready(process, port, timeout)
+    try:
+        return _wait_for_process_ready(process, port, timeout)
+    except BaseException:
+        _terminate_process(process)
+        raise
+
+
+def _terminate_process(process: subprocess.Popen) -> None:
+    process.terminate()
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=10)
 
 
 def _wait_for_process_ready(process: subprocess.Popen, port: int, timeout: int) -> subprocess.Popen:

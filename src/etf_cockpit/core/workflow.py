@@ -19,6 +19,7 @@ class WorkflowStatus(StrEnum):
     UNAVAILABLE = "unavailable"
     MANUAL_REVIEW = "manual_review"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 @dataclass(frozen=True)
@@ -41,10 +42,20 @@ class WorkflowResult:
     error_fingerprint: str | None
     retryable: bool
     steps: tuple[WorkflowStep, ...] = ()
+    command_key: str = ""
+    input_hash: str = ""
+    deduplication_key: str = ""
+    cancel_requested: bool = False
+    cancelled_at: str = ""
+    progress: float | None = None
 
 
 class WorkflowTransitionError(RuntimeError):
     """Raised when a workflow is used after it reached a terminal state."""
+
+
+class WorkflowDuplicateError(WorkflowTransitionError):
+    """Raised when an equivalent command is already active."""
 
 
 EventLogger = Callable[[dict[str, object]], None]
@@ -62,6 +73,12 @@ class _WorkflowRecord:
     output_paths: tuple[str, ...] = ()
     error_fingerprint: str | None = None
     retryable: bool = False
+    command_key: str = ""
+    input_hash: str = ""
+    deduplication_key: str = ""
+    cancel_requested: bool = False
+    cancelled_at: str = ""
+    progress: float | None = None
 
 
 class WorkflowController:
@@ -78,16 +95,41 @@ class WorkflowController:
         self._records: dict[str, _WorkflowRecord] = {}
         self._lock = threading.RLock()
 
-    def start(self, workflow: str, label: str) -> str:
+    def start(
+        self,
+        workflow: str,
+        label: str,
+        *,
+        command_key: str | None = None,
+        input_payload: object | None = None,
+        input_hash: str | None = None,
+    ) -> str:
         action_id = new_action_id(workflow)
+        safe_workflow = str(workflow)
+        safe_command_key = str(command_key or safe_workflow)
+        resolved_input_hash = input_hash or _input_hash(input_payload)
+        deduplication_key = hashlib.sha256(
+            f"{safe_workflow}:{safe_command_key}:{resolved_input_hash}".encode("utf-8")
+        ).hexdigest()[:24]
         record = _WorkflowRecord(
             action_id=action_id,
-            workflow=str(workflow),
+            workflow=safe_workflow,
             label=str(label),
             started_at=_utc_now(),
             message=f"{label} started.",
+            command_key=safe_command_key,
+            input_hash=resolved_input_hash,
+            deduplication_key=deduplication_key,
         )
         with self._lock:
+            if any(
+                existing.status is WorkflowStatus.RUNNING
+                and existing.deduplication_key == deduplication_key
+                for existing in self._records.values()
+            ):
+                raise WorkflowDuplicateError(
+                    f"An equivalent active workflow already exists for {safe_command_key!r}."
+                )
             self._records[action_id] = record
             self._emit(record, "start")
         return action_id
@@ -103,6 +145,11 @@ class WorkflowController:
             )
             record.steps.append(safe_step)
             record.message = safe_step.label
+            record.progress = (
+                None
+                if safe_step.total_units in (None, 0)
+                else min(1.0, safe_step.completed_units / safe_step.total_units)
+            )
             self._emit(record, "step", step=safe_step)
 
     def finish(
@@ -125,6 +172,23 @@ class WorkflowController:
             record.retryable = bool(retryable)
             self._emit(record, "finish")
             return _result(record)
+
+    def cancel(self, action_id: str, message: str = "Cancelled by user") -> WorkflowResult:
+        with self._lock:
+            record = self._running(action_id)
+            record.cancel_requested = True
+            record.status = WorkflowStatus.CANCELLED
+            record.finished_at = _utc_now()
+            record.cancelled_at = record.finished_at
+            record.message = _redact(str(message))
+            record.progress = record.progress
+            self._emit(record, "finish")
+            return _result(record)
+
+    def is_cancel_requested(self, action_id: str) -> bool:
+        with self._lock:
+            record = self._records.get(action_id)
+            return bool(record and record.cancel_requested)
 
     def fail(self, action_id: str, exc: BaseException, *, retryable: bool) -> WorkflowResult:
         with self._lock:
@@ -172,10 +236,25 @@ class WorkflowController:
                 {
                     "finished_at": record.finished_at,
                     "output_paths": list(record.output_paths),
+                    "outputs": list(record.output_paths),
                     "error_fingerprint": record.error_fingerprint,
                     "retryable": record.retryable,
+                    "cancel_requested": record.cancel_requested,
+                    "cancelled_at": record.cancelled_at,
                 }
             )
+        payload.update(
+            {
+                "started_at": record.started_at,
+                "finished_at": record.finished_at,
+                "command_key": record.command_key,
+                "input_hash": record.input_hash,
+                "deduplication_key": record.deduplication_key,
+                "cancel_requested": record.cancel_requested,
+                "progress": record.progress,
+                "outputs": list(record.output_paths),
+            }
+        )
         if self.log_path is not None:
             self._append(payload)
         try:
@@ -206,9 +285,19 @@ class WorkflowController:
             operation=str(payload.get("event") or ""),
             status=str(payload.get("status") or ""),
             user_message=str(payload.get("message") or ""),
-            output_summary=payload.get("step") or {},
             file_paths=payload.get("output_paths") or [],
             traceback_fingerprint=str(payload.get("error_fingerprint") or "") or None,
+            input_summary={
+                "command_key": payload.get("command_key"),
+                "input_hash": payload.get("input_hash"),
+                "deduplication_key": payload.get("deduplication_key"),
+            },
+            output_summary={
+                "step": payload.get("step") or {},
+                "progress": payload.get("progress"),
+                "outputs": payload.get("outputs") or [],
+                "cancel_requested": payload.get("cancel_requested", False),
+            },
         )
 
 
@@ -224,6 +313,12 @@ def _result(record: _WorkflowRecord) -> WorkflowResult:
         error_fingerprint=record.error_fingerprint,
         retryable=record.retryable,
         steps=tuple(record.steps),
+        command_key=record.command_key,
+        input_hash=record.input_hash,
+        deduplication_key=record.deduplication_key,
+        cancel_requested=record.cancel_requested,
+        cancelled_at=record.cancelled_at,
+        progress=record.progress,
     )
 
 
@@ -245,3 +340,8 @@ def _redact_value(value: object) -> object:
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
+def _input_hash(value: object | None) -> str:
+    payload = json.dumps(value, sort_keys=True, ensure_ascii=True, default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()

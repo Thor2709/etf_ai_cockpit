@@ -96,7 +96,7 @@ def _read_recent_activity(limit: int = 8) -> list[ActivityEntry]:
     except Exception:
         return []
     for event in events:
-        if event.event_type not in {"activity_complete", "activity_failed"}:
+        if event.event_type not in {"activity_complete", "activity_failed", "activity_cancelled"}:
             continue
         data = event.model_dump(mode="json")
         output_summary = data.get("output_summary") or {}
@@ -105,7 +105,13 @@ def _read_recent_activity(limit: int = 8) -> list[ActivityEntry]:
             ActivityEntry(
                 label=str(data.get("button_label") or data.get("feature") or "Workflow action"),
                 status=str(event.status or "unknown"),
-                step="Complete" if event.event_type == "activity_complete" else "Failed",
+                step=(
+                    "Complete"
+                    if event.event_type == "activity_complete"
+                    else "Cancelled"
+                    if event.event_type == "activity_cancelled"
+                    else "Failed"
+                ),
                 started_at=str(data.get("timestamp_local") or data.get("timestamp_utc") or ""),
                 action_id=str(event.action_id or ""),
                 finished_at=str(data.get("timestamp_local") or data.get("timestamp_utc") or ""),
@@ -321,6 +327,33 @@ class AppState:
         )
         return entry
 
+    def cancel_activity(self, message: str = "Cancelled by user") -> ActivityEntry | None:
+        """Request cancellation and publish a terminal, readable activity state."""
+        entry = self.current_activity
+        if entry is None:
+            return None
+        result = self.workflow_controller.cancel(entry.action_id, message)
+        entry.status = result.status.value
+        entry.step = "Cancelled"
+        entry.finished_at = _utc_now()
+        entry.message = result.message
+        self.current_activity = None
+        self.last_message = result.message
+        self.recent_activity = (self.recent_activity + [entry])[-8:]
+        log_event(
+            event_type="activity_cancelled",
+            severity="info",
+            action_id=entry.action_id,
+            component="app_state",
+            button_label=entry.label,
+            feature=entry.label,
+            operation="cancel_activity",
+            status=result.status.value,
+            user_message=result.message,
+            path=ACTIVITY_LOG_PATH,
+        )
+        return entry
+
     def current_activity_view(self):
         """Project the latest visible workflow state from the session trace."""
         try:
@@ -346,31 +379,37 @@ class AppState:
         return message
 
     def refresh_yfinance_data(self) -> str:
-        service = DataService(self.snapshot.config)
-        message = service.refresh_yfinance_data()
-        if getattr(service, "last_operation_succeeded", True):
-            self.snapshot = build_snapshot(force_sample=False)
-            self._write_current_scoreboard()
-            self.last_message = "YFinance data refreshed."
-        else:
-            self.last_message = message
-        return message
+        action_id = self.current_activity.action_id if self.current_activity else "yfinance"
+        with timed_step(action_id, "yfinance_refresh"):
+            service = DataService(self.snapshot.config)
+            message = service.refresh_yfinance_data()
+            if getattr(service, "last_operation_succeeded", True):
+                self.snapshot = build_snapshot(force_sample=False)
+                self._write_current_scoreboard()
+                self.last_message = "YFinance data refreshed."
+            else:
+                self.last_message = message
+            return message
 
     def run_algorithm_scores(self) -> str:
-        message = DataService(self.snapshot.config).run_yfinance_candidate_analysis()
-        self.snapshot = build_snapshot(force_sample=False)
-        scoreboard_path = self._write_current_scoreboard()
-        self.last_message = "Algorithms refreshed from yfinance data."
-        summary = message.split(" Report:", 1)[0]
-        return f"{summary}. Scoreboard updated: {scoreboard_path.name}."
+        action_id = self.current_activity.action_id if self.current_activity else "algorithms"
+        with timed_step(action_id, "algorithm_scores"):
+            message = DataService(self.snapshot.config).run_yfinance_candidate_analysis()
+            self.snapshot = build_snapshot(force_sample=False)
+            scoreboard_path = self._write_current_scoreboard()
+            self.last_message = "Algorithms refreshed from yfinance data."
+            summary = message.split(" Report:", 1)[0]
+            return f"{summary}. Scoreboard updated: {scoreboard_path.name}."
 
     def run_forecasting_models(self) -> str:
-        message = DataService(self.snapshot.config).run_yfinance_forecasts(horizons=[60], live_optional_models=False)
-        self.snapshot = build_snapshot(force_sample=False)
-        scoreboard_path = self._write_current_scoreboard()
-        self.last_message = "Fast forecasts refreshed from yfinance data for the 60-trading-day scoring horizon."
-        summary = "; ".join(line.split(". Output:", 1)[0] for line in message.splitlines() if line.strip())
-        return f"{summary}. Optional TimesFM/Toto live models are kept out of the main workflow if they are not already cached. Scoreboard updated: {scoreboard_path.name}."
+        action_id = self.current_activity.action_id if self.current_activity else "forecasts"
+        with timed_step(action_id, "forecast_models"):
+            message = DataService(self.snapshot.config).run_yfinance_forecasts(horizons=[60], live_optional_models=False)
+            self.snapshot = build_snapshot(force_sample=False)
+            scoreboard_path = self._write_current_scoreboard()
+            self.last_message = "Fast forecasts refreshed from yfinance data for the 60-trading-day scoring horizon."
+            summary = "; ".join(line.split(". Output:", 1)[0] for line in message.splitlines() if line.strip())
+            return f"{summary}. Optional TimesFM/Toto live models are kept out of the main workflow if they are not already cached. Scoreboard updated: {scoreboard_path.name}."
 
     def rollback_latest_prices(self) -> str:
         message = DataService(self.snapshot.config).rollback_latest_price_import()

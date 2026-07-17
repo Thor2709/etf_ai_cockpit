@@ -1,0 +1,72 @@
+{
+  "checks": [
+    {
+      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/validate_issue_registry.py",
+      "duration_ms": 173.697,
+      "exit_code": 0,
+      "failure": "",
+      "name": "issue_registry",
+      "output": "VALID: issue registry, ownership, dependencies, mappings and roadmap coverage",
+      "required": true,
+      "status": "passed"
+    },
+    {
+      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m compileall -q src scripts",
+      "duration_ms": 163.994,
+      "exit_code": 0,
+      "failure": "",
+      "name": "source_compile",
+      "output": "",
+      "required": true,
+      "status": "passed"
+    },
+    {
+      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_app.py --mode offline --port 59368 --timeout 30",
+      "duration_ms": 7768.235,
+      "exit_code": 0,
+      "failure": "",
+      "name": "source_smoke",
+      "output": "smoke_port requested=59368 selected=59368 reason=port 59368 is free\nsmoke_ok mode=offline url=http://127.0.0.1:59368/",
+      "required": true,
+      "status": "passed"
+    }
+  ],
+  "duration_ms": 8108.44,
+  "environment": {
+    "machine": "AMD64",
+    "offline_requested": false,
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.12.10",
+    "root": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\step2-integration-20260717",
+    "system": "Windows"
+  },
+  "failures": [],
+  "finished_at": "2026-07-17T01:59:11.337+00:00",
+  "generated_at": "2026-07-17T01:59:11.337+00:00",
+  "git": {
+    "branch": "implementation/step2-integration-20260717",
+    "dirty": true,
+    "head": "16ed8bfa2377b95cadd74ab9cf1e6a09601e560d",
+    "origin_main": "16ed8bfa2377b95cadd74ab9cf1e6a09601e560d"
+  },
+  "log_paths": [
+    "logs\\chatgpt_audits.jsonl",
+    "logs\\errors.jsonl",
+    "logs\\model_runs.jsonl",
+    "logs\\portfolio_review_adapter.jsonl",
+    "logs\\session.jsonl",
+    "logs\\signal_log.jsonl",
+    "logs\\timings.jsonl"
+  ],
+  "mode": "quick",
+  "schema_version": "1.0",
+  "scope": {
+    "issue_ids": [],
+    "phase_ids": []
+  },
+  "started_at": "2026-07-17T01:59:03.228+00:00",
+  "unavailable_optional_components": [
+    "timesfm",
+    "toto"
+  ]
+}

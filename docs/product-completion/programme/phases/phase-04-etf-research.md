@@ -36,15 +36,15 @@ Deliver the bounded etf economics, structure, exposure and context work with loc
 
 ## Blockers, dependencies and related links
 
-- Resolve only `blocking_dependencies` as prerequisites. `related_issues` are context and do not block sequencing.
+- Resolve only `blocking_dependencies` as prerequisites; `required_inputs` are policy/evidence inputs and do not block readiness. `downstream_issues` are generated reverse links and `related_issues` are context only.
 - The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-17-3321ebd/dependency-reconciliation.csv`.
 
 ## Issue coverage
 
-| ID | Priority | Programme state | Owner | Blocking dependencies | Related issues |
-|---|---|---|---|---|---|
-| `ISSUE-0103` | `P0/P1` | `planned` | `etf-research` | `ISSUE-0084`, `UPDATEV2-0015` | - |
-| `ISSUE-0104` | `P0/P1` | `planned` | `etf-research` | `UPDATEV2-0015`, `UPDATEV2-0018` | - |
-| `ISSUE-0105` | `P0` | `planned` | `etf-research` | `ISSUE-0082`, `UPDATEV2-0016` | - |
-| `ISSUE-0106` | `P0/P1` | `planned` | `etf-research` | `ISSUE-0128` | - |
-| `ISSUE-0107` | `P1/P2` | `planned` | `etf-research` | `ISSUE-0088`, `ISSUE-0104` | - |
+| ID | Priority | Programme state | Owner | Blocking dependencies | Required inputs | Downstream issues | Related issues |
+|---|---|---|---|---|---|---|---|
+| `ISSUE-0103` | `P0/P1` | `planned` | `etf-research` | `ISSUE-0084`, `UPDATEV2-0015` | - | - | - |
+| `ISSUE-0104` | `P0/P1` | `planned` | `etf-research` | `UPDATEV2-0015`, `UPDATEV2-0018` | - | `ISSUE-0107` | - |
+| `ISSUE-0105` | `P0` | `planned` | `etf-research` | `ISSUE-0082`, `UPDATEV2-0016` | - | `ISSUE-0108` | - |
+| `ISSUE-0106` | `P0/P1` | `planned` | `etf-research` | `ISSUE-0128` | - | - | - |
+| `ISSUE-0107` | `P1/P2` | `planned` | `etf-research` | `ISSUE-0088`, `ISSUE-0104` | - | - | - |
