@@ -9,7 +9,7 @@ from etf_cockpit.app.components.charts import equity_drawdown_chart, history_cha
 from etf_cockpit.app.components.tables import accessible_table
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import EXPORTS_DIR
-from etf_cockpit.application.ui_facade import NEWS_TIMESTAMP_VALIDATION_PATH, export_table
+from etf_cockpit.application.ui_facade import NEWS_TIMESTAMP_VALIDATION_PATH, event_engine_status, export_table
 
 
 def _format_number(value: object, *, percent: bool = False, money: bool = False, decimals: int = 2) -> str:
@@ -26,6 +26,7 @@ def _format_number(value: object, *, percent: bool = False, money: bool = False,
 def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
     report = state.snapshot.backtest
     news_warning = _news_validation_warning()
+    event_panel = _event_replay_panel()
     if report.results.empty or "strategy_name" not in report.results.columns:
         return ft.Column(
             [
@@ -34,6 +35,7 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
                         [
                             section_header("Backtests", "Run Refresh yfinance data and Run algorithms before backtests can be evaluated for the current two-tier universe."),
                             news_warning,
+                            event_panel,
                             ft.Text("\n".join(report.quality_notes or ["Backtest pending."]), color=theme.MUTED, selectable=True),
                         ],
                         spacing=10,
@@ -52,6 +54,7 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
                     ft.Column(
                         [
                             section_header("Backtests", "No signal-strategy backtest row is available for the current run."),
+                            event_panel,
                             ft.Text("\n".join(report.quality_notes or ["Backtest pending."]), color=theme.MUTED, selectable=True),
                         ],
                         spacing=10,
@@ -204,11 +207,35 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
                     scroll=ft.ScrollMode.AUTO,
                 )
             ),
+            event_panel,
             panel(ft.Text("Backtest logs are written to data/backtests/ for audit. Diagnostics are local deterministic estimates, not proof of future performance.", color=theme.MUTED, selectable=True)),
         ],
         expand=True,
         spacing=14,
         scroll=ft.ScrollMode.AUTO,
+    )
+
+
+def _event_replay_panel() -> ft.Control:
+    status = event_engine_status()
+    lifecycle = ", ".join(str(item).replace("_", " ") for item in status["lifecycle"])
+    order_types = ", ".join(str(item) for item in status["order_types"])
+    lines = [
+        f"Replay mode: {status['mode']}",
+        f"Supported order types: {order_types}",
+        f"Lifecycle events: {lifecycle}",
+        f"Execution authority: {'enabled' if status['execution_allowed'] else 'disabled'}",
+        f"External broker: {status['external_broker']}",
+        str(status["message"]),
+    ]
+    return panel(
+        ft.Column(
+            [
+                section_header("Event timeline, orders and fills", "The order-level historical replay contract is deterministic and shared with future paper/proposal adapters."),
+                ft.Text("\n".join(lines), color=theme.MUTED, selectable=True),
+            ],
+            spacing=6,
+        )
     )
 
 
