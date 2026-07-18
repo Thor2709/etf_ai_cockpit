@@ -376,7 +376,12 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
         options=[ft.dropdown.Option(value) for value in ("factsheet", "kid", "prospectus_report", "methodology")],
     )
     holdings_date_field = ft.TextField(label="Holdings as-of date", width=190)
-    holdings_source_field = ft.TextField(label="Holdings source", value="issuer", width=150)
+    holdings_source_field = ft.TextField(
+        label="Holdings authority",
+        value="manual_unverified",
+        width=190,
+        disabled=True,
+    )
 
     async def import_document(_event: ft.ControlEvent) -> None:
         files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["pdf", "csv", "xlsx", "xls"], with_data=True)
@@ -417,7 +422,7 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
                 path,
                 str(instrument_field.value or state.selected_etf or "").strip(),
                 str(holdings_date_field.value or "").strip() or None,
-                str(holdings_source_field.value or "issuer").strip() or "issuer",
+                "manual_unverified",
                 configured_instrument_ids=state.snapshot.config.universe.enabled_ids,
             )
             result.value = f"ETF holdings imported for {instrument_field.value}: completeness={imported.completeness}, freshness={imported.freshness}, confidence={imported.confidence:.2f}."

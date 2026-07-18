@@ -6,6 +6,7 @@ import pandas as pd
 
 from etf_cockpit.portfolio.factor_risk import (
     FACTOR_MODEL_VERSION,
+    _lookthrough_map,
     build_factor_exposures,
     build_factor_risk_report,
 )
@@ -67,6 +68,28 @@ def test_factor_exposures_use_full_lookthrough_weights_and_report_coverage() -> 
     assert set(industry["factor"]) == {"industry:Healthcare", "industry:Technology"}
     assert abs(industry["exposure"].sum() - 1.0) < 1e-12
     assert lookthrough["dimensions"]["industry"]["full_coverage"] is True
+
+
+def test_lookthrough_rejects_boolean_and_nonfinite_weights() -> None:
+    holdings = pd.DataFrame(
+        [
+            {"instrument_id": "ETF0", "weight": np.bool_(True), "sector": "Technology"},
+            {"instrument_id": "ETF0", "weight": float("inf"), "sector": "Healthcare"},
+        ]
+    )
+
+    assert _lookthrough_map(holdings) == {}
+
+
+def test_lookthrough_rejects_aggregate_weight_above_tolerance() -> None:
+    holdings = pd.DataFrame(
+        [
+            {"instrument_id": "ETF0", "weight": 1.0, "sector": "Technology"},
+            {"instrument_id": "ETF0", "weight": 1.0, "sector": "Healthcare"},
+        ]
+    )
+
+    assert _lookthrough_map(holdings) == {}
 
 
 def test_constant_or_undercovered_factors_are_excluded_with_a_reason() -> None:

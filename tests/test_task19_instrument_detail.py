@@ -878,6 +878,17 @@ def test_evidence_sections_render_source_authority_and_conflict_badges() -> None
     assert "conflict-1" in rendered
 
 
+def test_evidence_section_preserves_declared_ui_acceptance_key() -> None:
+    control = _render_evidence_section(
+        "ETF direct overlap",
+        {"status": "missing", "execution_allowed": False},
+        key="instrument-detail.etf-overlap",
+    )
+    keys = [getattr(item, "key", None) for item in _walk(control)]
+
+    assert "instrument-detail.etf-overlap" in keys
+
+
 def test_price_panel_rejects_missing_or_malformed_latest_dates() -> None:
     snapshot = build_snapshot()
     for date_value in (None, "not-a-date"):

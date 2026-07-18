@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -55,14 +56,16 @@ def test_candidate_analysis_is_deterministic_and_non_executable() -> None:
     assert candidate.execution_allowed is False
     assert first.execution_allowed is False
     assert first.source_stale is False
-    assert first.overlap_status == "unavailable_pending_issue_0022"
+    assert first.overlap_status == "missing"
+    assert first.overlap.execution_allowed is False
+    assert first.overlap.current_resolved_weight == 0.0
     rows = {row.instrument_id: row for row in first.allocations}
     assert rows["VWCE"].drift == pytest.approx(0.2)
     assert rows["VWCE"].signed_notional_eur == pytest.approx(20_000)
     assert rows["LYP6"].drift == pytest.approx(0.1)
     assert first.cost.total_order_value_eur == pytest.approx(30_000)
     assert any(row.bucket == "Europe" and row.target_weight == pytest.approx(0.3) for row in first.region_exposure)
-    assert any("ISSUE-0022" in warning for warning in first.warnings)
+    assert any("canonical direct holdings evidence is missing" in warning for warning in first.warnings)
 
 
 @pytest.mark.parametrize(
@@ -116,6 +119,7 @@ def test_exposure_totals_and_concentration_warnings_reconcile() -> None:
         ({"VWCE": float("nan")}, 1.0, 100_000, "finite number"),
         ({"VWCE": float("inf")}, 1.0, 100_000, "finite number"),
         ({"VWCE": True}, 0.0, 100_000, "finite number"),
+        ({"VWCE": np.bool_(True)}, 0.0, 100_000, "finite number"),
         ({"VWCE": -0.1}, 1.1, 100_000, "between 0% and 100%"),
         ({"UNKNOWN": 0.5}, 0.5, 100_000, "unknown or disabled"),
         ({"VWCE": 0.5}, 0.4, 100_000, "must equal 100%"),

@@ -11,6 +11,7 @@ from typing import Literal
 import pandas as pd
 
 from etf_cockpit.core.config import AppConfig
+from etf_cockpit.features.overlap import DirectOverlapReport, calculate_direct_overlap
 from etf_cockpit.portfolio.costs import PortfolioCostEstimate, estimate_rebalance_cost
 
 
@@ -67,8 +68,12 @@ class PortfolioAnalysis:
     current_value_eur: float
     current_cash_weight: float
     source_stale: bool
-    overlap_status: str = "unavailable_pending_issue_0022"
+    overlap: DirectOverlapReport
     execution_allowed: Literal[False] = False
+
+    @property
+    def overlap_status(self) -> str:
+        return self.overlap.status
 
 
 def candidate_id(name: str) -> str:
@@ -152,6 +157,7 @@ def analyse_candidate(
     candidate: PortfolioCandidate,
     *,
     current_revision: str,
+    overlap: DirectOverlapReport | None = None,
 ) -> PortfolioAnalysis:
     current_checksum = holdings_checksum(holdings)
     source_stale = (
@@ -201,7 +207,15 @@ def analyse_candidate(
         warnings.insert(0, "No current holdings are available; current-versus-target values use zero current exposure.")
     if source_stale:
         warnings.insert(0, "Saved source binding changed; all derived values were re-evaluated from the current snapshot.")
-    warnings.append("ETF overlap is unavailable until ISSUE-0022 provides complete/partial look-through coverage.")
+    overlap_report = overlap or calculate_direct_overlap(
+        pd.DataFrame(),
+        [row.instrument_id for row in rows],
+        current_weights={row.instrument_id: row.current_weight for row in rows},
+        target_weights={row.instrument_id: row.target_weight for row in rows},
+    )
+    warnings.extend(overlap_report.warnings)
+    if overlap_report.status == "missing":
+        warnings.append("ETF overlap is unavailable because canonical direct holdings evidence is missing.")
     cost = estimate_rebalance_cost(config, candidate.analysis_notional_eur, {row.instrument_id: row.drift for row in rows})
     return PortfolioAnalysis(
         candidate=candidate,
@@ -214,6 +228,7 @@ def analyse_candidate(
         current_value_eur=round(sum(value for _, value in current.values()), 8),
         current_cash_weight=round(max(0.0, 1.0 - sum(weight for weight, _ in current.values())), 10),
         source_stale=source_stale,
+        overlap=overlap_report,
     )
 
 
@@ -265,7 +280,7 @@ def _candidate_name(value: str) -> str:
 
 
 def _finite_number(value: object, label: str) -> float:
-    if isinstance(value, bool):
+    if pd.api.types.is_bool(value):
         raise ValueError(f"{label} must be a finite number")
     try:
         number = float(value)  # type: ignore[arg-type]

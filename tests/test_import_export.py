@@ -96,6 +96,10 @@ def test_etf_holdings_import_retains_existing_instruments(tmp_path: Path) -> Non
     result = ImportService(tmp_path).commit(preview.preview_id)
     saved = pd.read_parquet(result.destination)
     assert set(saved["instrument_id"].astype(str)) == {"OTHER", "VWCE"}
+    imported = saved.loc[saved["instrument_id"].astype(str).eq("VWCE")]
+    assert imported["authority"].eq("unknown").all()
+    assert imported["score_eligible"].eq(False).all()
+    assert imported["source"].eq("manual_unverified").all()
 
 
 def test_etf_holdings_preview_rejects_mixed_parent_instruments(tmp_path: Path) -> None:

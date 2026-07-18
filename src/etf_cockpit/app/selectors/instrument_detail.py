@@ -13,8 +13,10 @@ from etf_cockpit.application.ui_facade import (
     FUNDAMENTAL_CLEAN_PATH,
     FUND_HOLDINGS_PATH,
     NEWS_CLEAN_PATH,
+    build_direct_overlap_view,
     build_document_inventory,
     compare_runs,
+    direct_overlap_payload,
     latest_fundamental_rows,
     load_fundamental_evidence,
     load_news_items,
@@ -52,6 +54,7 @@ _SECTION_NAMES = (
     "fundamentals",
     "etf_disclosures",
     "etf_holdings",
+    "etf_overlap",
     "news",
     "forecasts",
     "backtests",
@@ -1145,6 +1148,12 @@ def build_instrument_detail(
         }
         display_name = identity.name
     disclosure = _etf_disclosure_panel(instrument_id, document_registry=document_registry, holdings=holdings, kid_records=kid_records, methodology_records=methodology_records)
+    overlap = build_direct_overlap_view(
+        snapshot,
+        [str(item.id) for item in snapshot.config.universe.etfs if bool(item.enabled)],
+        focus_instrument_id=instrument_id,
+        holdings=holdings,
+    )
     liquidity = build_etf_liquidity_panel(snapshot, instrument_id)
     return InstrumentDetailViewModel(
         instrument_id,
@@ -1162,6 +1171,7 @@ def build_instrument_detail(
             "fundamentals": _fundamentals_panel(instrument_id, fundamentals),
             "etf_disclosures": disclosure,
             "etf_holdings": disclosure.get("exposure", _unavailable("ETF holdings/exposure unavailable.")),
+            "etf_overlap": direct_overlap_payload(overlap),
             "news": _news_panel(instrument_id, news),
             "forecasts": _forecast_panel(snapshot, instrument_id),
             "backtests": _backtest_panel(snapshot, instrument_id, scoreboard),

@@ -6,6 +6,7 @@ import flet as ft
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
+from etf_cockpit.app.components.overlap import overlap_evidence_panel
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import (
     PortfolioAnalysis,
@@ -184,7 +185,7 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
                             [
                                 evidence_chip("Authority", "portfolio research only", theme.CYAN),
                                 evidence_chip("Persistence", "local revisioned state", theme.BLUE_GREY),
-                                evidence_chip("ETF overlap", "unavailable pending ISSUE-0022", theme.AMBER),
+                                evidence_chip("ETF overlap", "direct evidence enabled", theme.AMBER),
                                 evidence_chip("Execution", "disabled", theme.GREEN),
                             ],
                             spacing=8,
@@ -280,6 +281,7 @@ def _analysis_view(analysis: PortfolioAnalysis) -> ft.Control:
                 spacing=12,
                 wrap=True,
             ),
+            overlap_evidence_panel(analysis.overlap, key="portfolio.etf-overlap"),
             panel(
                 ft.Column(
                     [

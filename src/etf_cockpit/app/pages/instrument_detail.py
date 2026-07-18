@@ -221,24 +221,42 @@ def _render_record_group(label: str, records: object) -> ft.Control:
     return ft.Column(lines, spacing=4, scroll=ft.ScrollMode.AUTO)
 
 
-def _render_evidence_section(title: str, value: object, *, subtitle: str = "Canonical local evidence is shown as stored; unavailable values remain explicit.") -> ft.Control:
+def _render_evidence_section(
+    title: str,
+    value: object,
+    *,
+    subtitle: str = "Canonical local evidence is shown as stored; unavailable values remain explicit.",
+    key: str | None = None,
+) -> ft.Control:
     if not isinstance(value, dict):
         return panel(ft.Column([section_header(title, subtitle), ft.Text(str(value), color=theme.MUTED, selectable=True)], spacing=6))
     lines: list[ft.Control] = [_render_evidence_badges(value)]
-    for key, item in value.items():
-        if key in {"history", "rows", "entries", "signal_rows", "trade_rows", "changes", "document_inventory", "statement_history"}:
-            lines.append(_render_record_group(str(key), item))
+    for field_name, item in value.items():
+        if field_name in {
+            "history",
+            "rows",
+            "entries",
+            "signal_rows",
+            "trade_rows",
+            "changes",
+            "document_inventory",
+            "statement_history",
+            "coverage",
+            "pairs",
+            "concentrations",
+        }:
+            lines.append(_render_record_group(str(field_name), item))
             continue
         if isinstance(item, dict):
             compact = ", ".join(f"{child}={child_value if child_value is not None else 'N/A'}" for child, child_value in item.items())
-            lines.append(ft.Text(f"{key}: {compact or 'unavailable'}", color=theme.MUTED, size=11, selectable=True))
+            lines.append(ft.Text(f"{field_name}: {compact or 'unavailable'}", color=theme.MUTED, size=11, selectable=True))
         elif isinstance(item, (list, tuple)):
-            lines.append(ft.Text(f"{key}: {', '.join(str(child) for child in item) or 'unavailable'}", color=theme.MUTED, size=11, selectable=True))
+            lines.append(ft.Text(f"{field_name}: {', '.join(str(child) for child in item) or 'unavailable'}", color=theme.MUTED, size=11, selectable=True))
         else:
-            lines.append(ft.Text(f"{key}: {item if item is not None else 'N/A'}", color=theme.MUTED, size=11, selectable=True))
+            lines.append(ft.Text(f"{field_name}: {item if item is not None else 'N/A'}", color=theme.MUTED, size=11, selectable=True))
     if not lines:
         lines.append(ft.Text("Unavailable", color=theme.MUTED, size=11, selectable=True))
-    return panel(ft.Column([section_header(title, subtitle), *lines], spacing=5))
+    return panel(ft.Column([section_header(title, subtitle), *lines], key=key, spacing=5))
 
 
 def _render_etf_order_preview(page: ft.Page | None, state: AppState, instrument_id: str, report: object) -> ft.Control:
@@ -339,6 +357,12 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
         _render_evidence_section("Alpha, beta and correlation", model.sections.get("attribution")),
         _render_evidence_section("Fundamentals", model.sections.get("fundamentals")),
         _render_evidence_section("ETF holdings and exposure", model.sections.get("etf_holdings")),
+        _render_evidence_section(
+            "ETF direct overlap",
+            model.sections.get("etf_overlap"),
+            subtitle="Exact typed identities, dated coverage and unresolved exposure; execution_allowed=false.",
+            key="instrument-detail.etf-overlap",
+        ),
         _render_evidence_section("Forecast evidence", model.sections.get("forecasts")),
         _render_evidence_section("Backtest trust", model.sections.get("backtests")),
         _render_evidence_section("Paper-trade history", model.sections.get("paper_trades")),
