@@ -13,6 +13,7 @@ from etf_cockpit.application.ui_facade import (
     FUNDAMENTAL_CLEAN_PATH,
     FUND_HOLDINGS_PATH,
     NEWS_CLEAN_PATH,
+    assess_fundamental_row,
     build_direct_overlap_view,
     build_document_inventory,
     compare_runs,
@@ -410,8 +411,17 @@ def _fundamentals_panel(instrument_id: str, frame: pd.DataFrame | None = None) -
     eligibility = _safe_known_text(row.get("eligibility"), _KNOWN_FUNDAMENTAL_ELIGIBILITY)
     score_eligible, score_eligible_valid = _safe_scalar_bool(row.get("score_eligible"))
     manual_review = _safe_bool(row.get("manual_review"), default=True) if "manual_review" in row.index else False
-    metadata_valid = eligibility is not None and score_eligible_valid
-    if manual_review or not metadata_valid:
+    assessment = assess_fundamental_row(row)
+    values = dict(assessment.values)
+    warnings = _safe_text(row.get("warnings")) or ""
+    stale_fields = _safe_text(row.get("stale_fields")) or ""
+    temporal_warning = any(
+        token in {"ambiguous_as_of", "future_as_of", "stale_fundamentals"}
+        for token in warnings.split("|")
+    )
+    section_metadata = dict(assessment.sections)
+    metadata_valid = eligibility is not None and score_eligible_valid and assessment.score_eligible
+    if manual_review or not metadata_valid or temporal_warning:
         manual_review = True
         score_eligible = False
     return {
@@ -424,8 +434,14 @@ def _fundamentals_panel(instrument_id: str, frame: pd.DataFrame | None = None) -
         "source_authority": row.get("source_authority", "unavailable"),
         "conflict_id": row.get("conflict_id", "unavailable"),
         "as_of": row.get("as_of_date", "unavailable"),
+        "freshness_status": assessment.freshness_status,
+        "freshness_days": assessment.freshness_days,
+        "review_reasons": assessment.reasons,
+        "values": values,
+        "section_metadata": section_metadata,
         "missing_fields": str(row.get("missing_fields", "")),
-        "warnings": str(row.get("warnings", "")),
+        "warnings": warnings,
+        "stale_fields": stale_fields,
         "limitations": str(row.get("limitations", "unavailable")),
         "sector_relative_status": row.get("sector_relative_status", "unavailable"),
         "sector_relative_value": row.get("sector_relative_value", "unavailable"),

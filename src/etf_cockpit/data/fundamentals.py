@@ -22,7 +22,7 @@ from etf_cockpit.core.paths import CLEAN_DIR, RAW_DIR
 from etf_cockpit.data.provenance import sha256_dataframe
 
 
-FUNDAMENTAL_SCHEMA_VERSION = "fundamental_evidence.v3"
+FUNDAMENTAL_SCHEMA_VERSION = "fundamental_evidence.v4"
 FUNDAMENTAL_CLEAN_PATH = CLEAN_DIR / "fundamentals.parquet"
 FUNDAMENTAL_RAW_DIR = RAW_DIR / "fundamentals"
 _FIELDS = ("valuation", "profitability", "leverage", "growth", "shareholder_return")
@@ -44,6 +44,10 @@ class FundamentalEvidence:
     warnings: tuple[str, ...]
     eligibility: str
     source_authority: str
+    source_id: str = "vendor_unofficial"
+    manual_review: bool = False
+    merge_status: str = "single_source"
+    rejected_source_count: int = 0
     sections: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     sector_relative_status: str = "unavailable"
     sector_relative_value: float | None = None
@@ -76,13 +80,24 @@ class FundamentalPersistenceResult:
     idempotent: bool = False
 
 
+@dataclass(frozen=True)
+class FundamentalRowAssessment:
+    score_eligible: bool
+    freshness_status: str
+    freshness_days: int | None
+    values: Mapping[str, float | None]
+    sections: Mapping[str, Mapping[str, Any]]
+    reasons: tuple[str, ...]
+
+
 def build_fundamental_evidence(
     claims: Mapping[str, object],
     instrument_id: str | Mapping[str, object],
     as_of: str,
     *,
-    source_authority: str = "vendor_unofficial",
+    source_authority: str | None = None,
     source: str | None = None,
+    source_id: str | None = None,
     sector_relative: Mapping[str, object] | None = None,
     stale_after_days: int = 120,
     today: date | None = None,
@@ -95,6 +110,10 @@ def build_fundamental_evidence(
     """
 
     canonical_instrument_id = _instrument_id_from_identity(instrument_id)
+    claimed_authority = _first_claim_text(claims, ("source_authority", "source"))
+    authority = str(source_authority or claimed_authority or source or "vendor_unofficial").strip().lower() or "vendor_unofficial"
+    source_name = str(source or claimed_authority or authority).strip().lower() or "vendor"
+    resolved_source_id = _first_claim_text(claims, ("source_id",)) or str(source_id or source_name).strip() or "unavailable"
     values: dict[str, float] = {}
     missing: list[str] = []
     sections: dict[str, Mapping[str, Any]] = {}
@@ -110,26 +129,43 @@ def build_fundamental_evidence(
             elif raw_value is None:
                 raw_value = section_value
         try:
-            if raw_value is None or (isinstance(raw_value, str) and not raw_value.strip()):
+            if pd.api.types.is_bool(raw_value) or raw_value is None or (isinstance(raw_value, str) and not raw_value.strip()):
                 raise ValueError
             value = float(raw_value)
             if pd.isna(value) or not math.isfinite(value):
                 raise ValueError
             values[field_name] = value
-            sections[field_name] = {**metadata, "value": value}
+            sections[field_name] = {
+                **metadata,
+                "value": value,
+                "period_end": str(metadata.get("period_end") or as_of),
+                "source_id": str(metadata.get("source_id") or resolved_source_id),
+            }
         except (TypeError, ValueError):
             missing.append(field_name)
-            sections[field_name] = {**metadata, "value": None, "status": "missing"}
+            sections[field_name] = {
+                **metadata,
+                "value": None,
+                "period_end": str(metadata.get("period_end") or as_of),
+                "source_id": str(metadata.get("source_id") or resolved_source_id),
+                "status": "missing",
+            }
 
     parsed_as_of = _parse_date(as_of)
     reference_date = today or date.today()
     stale_fields: list[str] = []
     warnings: list[str] = []
+    temporal_valid = True
     if parsed_as_of is None:
         warnings.append("ambiguous_as_of")
+        temporal_valid = False
+    elif parsed_as_of > reference_date:
+        warnings.append("future_as_of")
+        temporal_valid = False
     elif (reference_date - parsed_as_of).days > max(0, stale_after_days):
         stale_fields.extend(values.keys())
         warnings.append("stale_fundamentals")
+        temporal_valid = False
     if missing:
         warnings.append("missing_fundamental_fields")
     sector_data = _normalise_sector_relative(sector_relative)
@@ -137,13 +173,21 @@ def build_fundamental_evidence(
     if sector_status == "unavailable":
         warnings.append("sector_relative_unavailable")
 
-    authority = str(source_authority or source or "vendor_unofficial").strip().lower() or "vendor_unofficial"
-    source_name = str(source or authority).strip().lower() or "vendor"
     limitations = _limitations_for_source(authority)
+    raw_manual_review = claims.get("manual_review", False)
+    manual_review = bool(raw_manual_review) if pd.api.types.is_bool(raw_manual_review) else "manual_review" in claims
+    try:
+        rejected_source_count = max(0, int(claims.get("rejected_source_count", 0)))
+    except (TypeError, ValueError):
+        rejected_source_count = 1
+        manual_review = True
+    merge_status = _scalar_text(claims.get("merge_status")) or "single_source"
+    if rejected_source_count or merge_status in {"manual_review", "conflict", "unavailable"}:
+        manual_review = True
 
     # Strict records need all five sections.  Missing sections are unavailable,
     # not negative evidence; only a complete five-section row may be eligible.
-    if not missing:
+    if not missing and temporal_valid and not manual_review:
         eligibility = "eligible_negative_evidence" if any(value < 0 for value in values.values()) else "eligible"
     else:
         eligibility = "not_score_eligible"
@@ -155,6 +199,10 @@ def build_fundamental_evidence(
         warnings=tuple(dict.fromkeys(warnings)),
         eligibility=eligibility,
         source_authority=authority,
+        source_id=resolved_source_id,
+        manual_review=manual_review,
+        merge_status=merge_status,
+        rejected_source_count=rejected_source_count,
         sections=sections,
         sector_relative_status=sector_status,
         sector_relative_value=sector_data["value"],
@@ -201,6 +249,10 @@ def persist_fundamental_evidence(
         "checksum": sha256_dataframe(combined),
         "rows": len(combined),
         "source_authority": evidence.source_authority,
+        "source_id": evidence.source_id,
+        "manual_review": evidence.manual_review,
+        "merge_status": evidence.merge_status,
+        "rejected_source_count": evidence.rejected_source_count,
         "executable_authority": False,
         "limitations": list(evidence.limitations),
         "sector_relative": {
@@ -242,26 +294,204 @@ def merge_fundamental_sources(*sources: Mapping[str, object]) -> dict[str, objec
     """
 
     ranked = {"official": 100, "sec": 100, "sec_edgar": 100, "issuer": 85, "vendor": 55, "vendor_unofficial": 55, "community": 25, "manual": 20}
+    if not sources:
+        return {
+            "source_authority": "unavailable",
+            "source": "unavailable",
+            "limitations": "No fundamental sources supplied.",
+            "rejected_source_count": 0,
+            "merge_status": "unavailable",
+            "manual_review": True,
+            "executable_authority": False,
+        }
+
+    anchor = sources[0]
+    anchor_instrument = _first_claim_text(anchor, ("instrument_id", "id", "ticker", "symbol"))
+    anchor_as_of = _first_claim_text(anchor, ("as_of_date", "as_of"))
+    if not anchor_instrument or not anchor_as_of:
+        return {
+            "source_authority": "unavailable",
+            "source": "unavailable",
+            "limitations": "The anchor source requires a canonical instrument and reporting period.",
+            "rejected_source_count": len(sources),
+            "merge_status": "unavailable",
+            "manual_review": True,
+            "executable_authority": False,
+            "execution_allowed": False,
+        }
     selected: dict[str, object] = {}
-    selected_rank: dict[str, int] = {}
+    selected_owner: dict[str, tuple[int, str, str]] = {}
+    selected_sections: dict[str, dict[str, object]] = {}
+    rejected = 0
     for source in sources:
+        source_instrument = _first_claim_text(source, ("instrument_id", "id", "ticker", "symbol"))
+        source_as_of = _first_claim_text(source, ("as_of_date", "as_of"))
+        identity_matches = source_instrument == anchor_instrument
+        period_matches = source_as_of == anchor_as_of
+        if not identity_matches or not period_matches:
+            rejected += 1
+            continue
         authority = str(source.get("source_authority") or source.get("source") or "vendor").strip().lower()
         rank = ranked.get(authority, 0)
-        for key, value in source.items():
-            if key in {"source", "source_authority", "limitations", "as_of", "as_of_date"} or value is None:
+        source_id = _first_claim_text(source, ("source_id",)) or authority
+        raw_sections = source.get("sections")
+        for key in _FIELDS:
+            value = source.get(key)
+            section: Mapping[str, object] = {}
+            if isinstance(raw_sections, Mapping) and isinstance(raw_sections.get(key), Mapping):
+                section = raw_sections[key]  # type: ignore[assignment]
+                value = section.get("value", section.get("score", value))
+            if value is None:
                 continue
-            if key not in selected or rank > selected_rank.get(key, -1):
+            owner = (rank, source_id, authority)
+            if key not in selected or owner > selected_owner[key]:
                 selected[key] = value
-                selected_rank[key] = rank
-    authorities = [str(item.get("source_authority") or item.get("source") or "vendor").strip().lower() for item in sources]
-    selected["source_authority"] = max(authorities, key=lambda value: ranked.get(value, 0), default="vendor")
+                selected_owner[key] = owner
+                selected_sections[key] = {
+                    **dict(section),
+                    "value": value,
+                    "period_end": str(section.get("period_end") or source_as_of),
+                    "source_id": str(section.get("source_id") or source_id),
+                    "source_authority": authority,
+                }
+    if anchor_instrument:
+        selected["instrument_id"] = anchor_instrument
+    if anchor_as_of:
+        selected["as_of_date"] = anchor_as_of
+    contributing_authorities = sorted({owner[2] for owner in selected_owner.values()})
+    contributing_source_ids = sorted({owner[1] for owner in selected_owner.values()})
+    selected["source_authority"] = contributing_authorities[0] if len(contributing_authorities) == 1 else ("mixed" if contributing_authorities else "unavailable")
+    selected["source_id"] = contributing_source_ids[0] if len(contributing_source_ids) == 1 else ("|".join(contributing_source_ids) if contributing_source_ids else "unavailable")
     selected["source"] = selected["source_authority"]
-    selected["limitations"] = "Official SEC facts outrank vendor fundamentals where identity and period match." if selected["source_authority"] in {"official", "sec", "sec_edgar"} else "Vendor fundamentals may be partial or revised; missing values remain unavailable."
+    selected["sections"] = selected_sections
+    base_limitation = "Official SEC facts outrank vendor fundamentals where identity and period match." if selected["source_authority"] in {"official", "sec", "sec_edgar"} else "Metric-level provenance is retained; mixed or vendor fundamentals may be partial or revised."
+    selected["limitations"] = base_limitation + (f" {rejected} mismatched source record(s) were excluded." if rejected else "")
+    selected["rejected_source_count"] = rejected
+    selected["merge_status"] = "manual_review" if rejected or not selected_owner else "merged"
+    selected["manual_review"] = bool(rejected or not selected_owner)
+    selected["executable_authority"] = False
+    selected["execution_allowed"] = False
     return selected
 
 
 def load_fundamental_evidence(path: Path = FUNDAMENTAL_CLEAN_PATH) -> pd.DataFrame:
     return sort_fundamental_evidence(_read_clean(Path(path)))
+
+
+def assess_fundamental_row(
+    row: Mapping[str, object],
+    *,
+    today: date | None = None,
+    stale_after_days: int = 120,
+) -> FundamentalRowAssessment:
+    """Validate one persisted/UI row against the shared fail-closed contract."""
+
+    reasons: list[str] = []
+    values: dict[str, float | None] = {}
+    for field_name in _FIELDS:
+        raw_value = row.get(field_name)
+        if pd.api.types.is_bool(raw_value):
+            values[field_name] = None
+            reasons.append(f"invalid_{field_name}")
+            continue
+        try:
+            number = float(raw_value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            number = math.nan
+        if not math.isfinite(number):
+            values[field_name] = None
+            reasons.append(f"invalid_{field_name}")
+        else:
+            values[field_name] = number
+
+    eligibility = _scalar_text(row.get("eligibility")).casefold()
+    if eligibility not in {"eligible", "eligible_negative_evidence"}:
+        reasons.append("ineligible_status")
+    score_flag = row.get("score_eligible")
+    if not pd.api.types.is_bool(score_flag) or not bool(score_flag):
+        reasons.append("score_flag_false_or_invalid")
+    manual_review = row.get("manual_review", False)
+    if not pd.api.types.is_bool(manual_review) or bool(manual_review):
+        reasons.append("manual_review_required")
+    rejected_count = row.get("rejected_source_count", 0)
+    if pd.api.types.is_bool(rejected_count):
+        reasons.append("invalid_rejected_source_count")
+    else:
+        try:
+            if int(rejected_count) != 0:
+                reasons.append("rejected_sources_present")
+        except (TypeError, ValueError):
+            reasons.append("invalid_rejected_source_count")
+    merge_status = _scalar_text(row.get("merge_status")) or "single_source"
+    if merge_status in {"manual_review", "conflict", "unavailable"}:
+        reasons.append("unresolved_merge_status")
+
+    source_id = _scalar_text(row.get("source_id"))
+    source_authority = _scalar_text(row.get("source_authority")) or _scalar_text(row.get("source"))
+    if source_id.casefold() in {"", "unavailable", "unknown"}:
+        reasons.append("source_id_unavailable")
+    if source_authority.casefold() in {"", "unavailable", "unknown"}:
+        reasons.append("source_authority_unavailable")
+
+    as_of = _parse_date(row.get("as_of_date", row.get("as_of")))
+    reference_date = today or date.today()
+    freshness_days: int | None = None
+    if as_of is None:
+        freshness_status = "unavailable"
+        reasons.append("ambiguous_as_of")
+    elif as_of > reference_date:
+        freshness_status = "future"
+        freshness_days = (reference_date - as_of).days
+        reasons.append("future_as_of")
+    else:
+        freshness_days = (reference_date - as_of).days
+        if freshness_days > max(0, stale_after_days):
+            freshness_status = "stale"
+            reasons.append("stale_fundamentals")
+        else:
+            freshness_status = "fresh"
+
+    sections = _row_sections(row.get("sections_json"))
+    for field_name in _FIELDS:
+        section = sections.get(field_name)
+        if not isinstance(section, Mapping):
+            reasons.append(f"missing_{field_name}_provenance")
+            continue
+        section_value = section.get("value")
+        if pd.api.types.is_bool(section_value):
+            reasons.append(f"invalid_{field_name}_provenance_value")
+        else:
+            try:
+                section_number = float(section_value)  # type: ignore[arg-type]
+                if not math.isfinite(section_number):
+                    raise ValueError
+            except (TypeError, ValueError):
+                reasons.append(f"invalid_{field_name}_provenance_value")
+            else:
+                row_number = values.get(field_name)
+                if row_number is None or not math.isclose(section_number, row_number, rel_tol=0.0, abs_tol=1e-12):
+                    reasons.append(f"mismatched_{field_name}_provenance_value")
+        period_end = _parse_date(section.get("period_end"))
+        if period_end is None or (as_of is not None and period_end > as_of):
+            reasons.append(f"invalid_{field_name}_period")
+        section_source_id = _scalar_text(section.get("source_id"))
+        if section_source_id.casefold() in {"", "unavailable", "unknown"}:
+            reasons.append(f"invalid_{field_name}_source_id")
+
+    warning_text = _scalar_text(row.get("warnings"))
+    warnings = {item for item in warning_text.split("|") if item}
+    for warning in sorted(warnings & {"ambiguous_as_of", "future_as_of", "stale_fundamentals"}):
+        reasons.append(warning)
+
+    unique_reasons = tuple(dict.fromkeys(reasons))
+    return FundamentalRowAssessment(
+        score_eligible=not unique_reasons,
+        freshness_status=freshness_status,
+        freshness_days=freshness_days,
+        values=values,
+        sections={key: dict(value) for key, value in sections.items() if isinstance(value, Mapping)},
+        reasons=unique_reasons,
+    )
 
 
 def sort_fundamental_evidence(frame: pd.DataFrame) -> pd.DataFrame:
@@ -270,15 +500,20 @@ def sort_fundamental_evidence(frame: pd.DataFrame) -> pd.DataFrame:
     if not isinstance(frame, pd.DataFrame) or frame.empty:
         return frame.copy() if isinstance(frame, pd.DataFrame) else pd.DataFrame()
     result = frame.copy()
-    result["_as_of_sort"] = pd.to_datetime(result.get("as_of_date", pd.Series(index=result.index)), errors="coerce")
+    result["_as_of_sort"] = pd.to_datetime(
+        result.get("as_of_date", pd.Series(index=result.index)),
+        errors="coerce",
+        format="mixed",
+    )
     result["_instrument_sort"] = result.get("instrument_id", pd.Series(index=result.index)).astype(str)
     result["_checksum_sort"] = result.get("evidence_checksum", pd.Series(index=result.index)).astype(str)
+    result["_row_sort"] = result.apply(_stable_row_digest, axis=1)
     result = result.sort_values(
-        ["_as_of_sort", "_instrument_sort", "_checksum_sort"],
+        ["_as_of_sort", "_instrument_sort", "_checksum_sort", "_row_sort"],
         kind="stable",
         na_position="first",
     )
-    return result.drop(columns=["_as_of_sort", "_instrument_sort", "_checksum_sort"]).reset_index(drop=True)
+    return result.drop(columns=["_as_of_sort", "_instrument_sort", "_checksum_sort", "_row_sort"]).reset_index(drop=True)
 
 
 def latest_fundamental_rows(frame: pd.DataFrame) -> pd.DataFrame:
@@ -364,7 +599,17 @@ def _clean_row(evidence: FundamentalEvidence, checksum: str) -> dict[str, Any]:
         "sector_relative_limitation": evidence.sector_relative_limitation,
         "source": evidence.source,
         "source_authority": evidence.source_authority,
+        "source_id": evidence.source_id,
+        "manual_review": evidence.manual_review,
+        "merge_status": evidence.merge_status,
+        "rejected_source_count": evidence.rejected_source_count,
         "limitations": "|".join(evidence.limitations),
+        "sections_json": json.dumps(
+            {key: dict(value) for key, value in evidence.sections.items()},
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ),
         "executable_authority": False,
         "evidence_checksum": checksum,
     }
@@ -380,6 +625,10 @@ def _read_clean(path: Path) -> pd.DataFrame:
         if "executable_authority" in frame.columns:
             frame["executable_authority"] = False
         defaults: dict[str, object] = {
+            "sections_json": "{}",
+            "manual_review": False,
+            "merge_status": "single_source",
+            "rejected_source_count": 0,
             "sector_relative_status": "unavailable",
             "sector_relative_value": None,
             "sector_relative_peer": "unavailable",
@@ -435,6 +684,45 @@ def _instrument_id_from_identity(identity: str | Mapping[str, object]) -> str:
     return str(identity).strip()
 
 
+def _first_claim_text(claims: Mapping[str, object], keys: tuple[str, ...]) -> str:
+    for key in keys:
+        value = claims.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _scalar_text(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    return value.strip()
+
+
+def _row_sections(value: object) -> dict[str, Mapping[str, Any]]:
+    if isinstance(value, Mapping):
+        return {str(key): item for key, item in value.items() if isinstance(item, Mapping)}
+    if not isinstance(value, str) or not value.strip():
+        return {}
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        return {}
+    if not isinstance(parsed, Mapping):
+        return {}
+    return {str(key): item for key, item in parsed.items() if isinstance(item, Mapping)}
+
+
+def _stable_row_digest(row: pd.Series) -> str:
+    payload = {
+        str(key): value
+        for key, value in row.to_dict().items()
+        if not str(key).startswith("_")
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    ).hexdigest()
+
+
 persist_fundamentals = persist_fundamental_evidence
 write_fundamental_evidence = persist_fundamental_evidence
 
@@ -445,6 +733,8 @@ __all__ = [
     "FUNDAMENTAL_SCHEMA_VERSION",
     "FundamentalEvidence",
     "FundamentalPersistenceResult",
+    "FundamentalRowAssessment",
+    "assess_fundamental_row",
     "build_fundamental_evidence",
     "load_fundamental_evidence",
     "latest_fundamental_rows",
