@@ -1,54 +1,5 @@
 {
-  "actions": [
-    {
-      "blocking_dependencies": [],
-      "body": "<!-- etf-ai-cockpit-local-issue-id: ISSUE-0007 -->\r\n<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0007 -->\n## Canonical programme record\n- Title: Add non-executable news/macro contradiction panel\n- Classification: `current_open_retained`\n- Ledger state: `open`\n- Programme status: `implemented_initially`\n- Priority: `P2`\n- Owner: `data-and-evidence`\n- Phase: `phase-02-data-policy-identity`\n- Blocking dependencies: None\n- Required inputs: None\n- Downstream issues: None\n- Related issues: `ISSUE-0024`, `ISSUE-0026`, `ISSUE-0054`, `ISSUE-0073`, `ISSUE-0115`\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
-      "classification": "current_open_retained",
-      "desired_state": "open",
-      "downstream_issues": [],
-      "kind": "update",
-      "ledger_state": "open",
-      "owner": "data-and-evidence",
-      "phase": "phase-02-data-policy-identity",
-      "priority": "P2",
-      "programme_status": "implemented_initially",
-      "related_issues": [
-        "ISSUE-0024",
-        "ISSUE-0026",
-        "ISSUE-0054",
-        "ISSUE-0073",
-        "ISSUE-0115"
-      ],
-      "remote_number": 11,
-      "required_inputs": [],
-      "stable_id": "ISSUE-0007",
-      "title": "Add non-executable news/macro contradiction panel"
-    },
-    {
-      "blocking_dependencies": [
-        "ISSUE-0021",
-        "ISSUE-0110",
-        "ISSUE-0111"
-      ],
-      "body": "<!-- etf-ai-cockpit:managed:start -->\n<!-- etf-ai-cockpit:stable-id=ISSUE-0113 -->\n## Canonical programme record\n- Title: Implement a constrained portfolio-optimiser suite with robust baselines\n- Classification: `proposed_new`\n- Ledger state: `open`\n- Programme status: `implemented_initially`\n- Priority: `P0`\n- Owner: `portfolio-construction`\n- Phase: `phase-05-returns-risk-portfolio`\n- Blocking dependencies: `ISSUE-0021`, `ISSUE-0110`, `ISSUE-0111`\n- Required inputs: None\n- Downstream issues: `ISSUE-0114`\n- Related issues: None\n- Execution allowed: `false`\n<!-- etf-ai-cockpit:managed:end -->",
-      "classification": "proposed_new",
-      "desired_state": "open",
-      "downstream_issues": [
-        "ISSUE-0114"
-      ],
-      "kind": "update",
-      "ledger_state": "open",
-      "owner": "portfolio-construction",
-      "phase": "phase-05-returns-risk-portfolio",
-      "priority": "P0",
-      "programme_status": "implemented_initially",
-      "related_issues": [],
-      "remote_number": 253,
-      "required_inputs": [],
-      "stable_id": "ISSUE-0113",
-      "title": "Implement a constrained portfolio-optimiser suite with robust baselines"
-    }
-  ],
+  "actions": [],
   "desired_record_count": 173,
   "historical_map_sha256": "f1d6422a4aa69ff36d61a264db070492ebb058467ad2093240bd0d4adf3019ce",
   "legacy_duplicates": [
@@ -533,8 +484,8 @@
       "stable_id": "UPDATEV2-0030"
     }
   ],
-  "plan_sha256": "cebff2bcc40b2942b80a3b4e11905bb0205f87efba08024cd45342412ff3edc2",
-  "remote_inventory_sha256": "f9360ea4510cf1210a9a0c7a23afa7deee4a47b46c9fb9d0754982d3d2da2972",
+  "plan_sha256": "80e8706a91fe47307cb8074c407b795589ee74a7e6e4f76229f184b1dd18e6dc",
+  "remote_inventory_sha256": "1578ff9c8dad9fd9dd55e84f41e34adf0708ac617a67583e40ebb22bf3a474d2",
   "remote_issue_count": 249,
   "repository": "Thor2709/etf_ai_cockpit",
   "reviewed_reopen_ids": [
@@ -546,6 +497,6 @@
     "close": 0,
     "create": 0,
     "reopen": 0,
-    "update": 2
+    "update": 0
   }
 }
