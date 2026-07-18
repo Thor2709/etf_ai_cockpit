@@ -30,3 +30,6 @@ def test_release_readiness_shows_fail_closed_certification_evidence() -> None:
     assert "execution_allowed=false" in text
     assert "Legal terms" in text
     assert "Accepted limitations" in text
+    assert "Quality programme" in text
+    assert "ISSUE-0143" in text
+    assert "Markdown:" in text
