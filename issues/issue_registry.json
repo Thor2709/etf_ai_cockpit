@@ -6853,7 +6853,7 @@
       "package_status": "",
       "phase": "phase-06-model-research",
       "priority": "P1",
-      "programme_status": "planned",
+      "programme_status": "implemented_initially",
       "related_issues": [],
       "required_inputs": [],
       "security_and_audit": "Synthetic data are never merged with real raw data or mislabelled in exports.",
