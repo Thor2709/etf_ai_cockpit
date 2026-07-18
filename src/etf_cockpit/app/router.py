@@ -30,6 +30,7 @@ from etf_cockpit.app.pages.help_glossary import help_glossary_page
 from etf_cockpit.app.pages.decision_journal import decision_journal_page
 from etf_cockpit.app.pages.jobs import jobs_page
 from etf_cockpit.app.pages.portfolio import portfolio_page
+from etf_cockpit.app.pages.portfolio_optimiser import portfolio_optimiser_page
 from etf_cockpit.app.pages.risk import risk_page
 from etf_cockpit.app.pages.settings import settings_page
 from etf_cockpit.app.pages.screener import screener_page
@@ -50,6 +51,7 @@ from etf_cockpit.core.session_log import log_event
 PAGES = {
     "/": ("Simple Scores", dashboard_page),
     "/portfolio": ("Portfolio Sandbox", portfolio_page),
+    "/portfolio-optimiser": ("Portfolio Optimiser Lab", portfolio_optimiser_page),
     "/signals": ("Scores", signals_page),
     "/screener": ("Fundamentals Screener", screener_page),
     "/comparison": ("Comparison", comparison_page),
@@ -93,7 +95,7 @@ WORKSPACE_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Home", ("/",)),
     ("Discover", ("/signals", "/screener", "/comparison", "/stock-research", "/universe", "/what-changed")),
     ("Instrument", ("/etf", "/instrument")),
-    ("Portfolio", ("/portfolio", "/risk")),
+    ("Portfolio", ("/portfolio", "/portfolio-optimiser", "/risk")),
     ("Models", ("/data-models", "/forecasts", "/training-centre", "/feature-catalogue", "/macro")),
     ("Backtest/Paper", ("/backtests", "/operations")),
     ("Data Health", ("/providers", "/filings", "/etf-disclosures", "/news-context", "/catalogue", "/data-health")),
