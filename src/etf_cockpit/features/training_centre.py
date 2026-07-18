@@ -218,9 +218,10 @@ class LocalTrainingRegistry:
 
     def verify_artifact(self, artifact_id: str) -> ArtifactVerification:
         artifact = self.require(_ENTITY_ARTIFACT, artifact_id)
-        path = self.root / str(artifact["path"])
-        if not path.is_file():
-            return ArtifactVerification(artifact_id, False, "", str(artifact["sha256"]), "artefact is missing")
+        try:
+            path = self._safe_artifact_path(self.root / str(artifact["path"]))
+        except (OSError, TrainingRegistryError) as exc:
+            return ArtifactVerification(artifact_id, False, "", str(artifact["sha256"]), f"artefact is unavailable: {exc}")
         actual = _sha256_file(path)
         ok = actual == str(artifact["sha256"])
         return ArtifactVerification(artifact_id, ok, actual, str(artifact["sha256"]), "verified" if ok else "checksum mismatch")
@@ -229,7 +230,7 @@ class LocalTrainingRegistry:
         run = self.require(_ENTITY_RUN, run_id)
         if str(run["status"]) != "completed":
             raise TrainingRegistryError("only completed runs can register models")
-        if not artifact_ids:
+        if not artifact_ids or isinstance(artifact_ids, (str, bytes)):
             raise TrainingRegistryError("a model requires at least one verified artefact")
         for artifact_id in artifact_ids:
             artifact = self.require(_ENTITY_ARTIFACT, str(artifact_id))
