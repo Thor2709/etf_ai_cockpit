@@ -15,6 +15,7 @@ from etf_cockpit.app.pages.diagnostics import diagnostics_page
 from etf_cockpit.app.pages.data_health import data_health_page
 from etf_cockpit.app.pages.errors_recovery import errors_recovery_page
 from etf_cockpit.app.pages.onboarding import onboarding_page
+from etf_cockpit.app.pages.operations import operations_page
 from etf_cockpit.app.pages.universe_manager import universe_manager_page
 from etf_cockpit.app.pages.what_changed import what_changed_page
 from etf_cockpit.app.pages.instrument_detail import instrument_detail_page
@@ -72,6 +73,7 @@ PAGES = {
     "/help": ("Help & Glossary", help_glossary_page),
     "/decision-journal": ("Decision Journal", decision_journal_page),
     "/jobs": ("Jobs & Activity", jobs_page),
+    "/operations": ("Operations Centre", operations_page),
     "/release-readiness": ("Release Readiness", release_readiness_page),
 }
 
@@ -83,7 +85,7 @@ WORKSPACE_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Instrument", ("/etf", "/instrument")),
     ("Portfolio", ("/portfolio", "/risk")),
     ("Models", ("/data-models", "/macro")),
-    ("Backtest/Paper", ("/backtests",)),
+    ("Backtest/Paper", ("/backtests", "/operations")),
     ("Data Health", ("/providers", "/filings", "/etf-disclosures", "/news-context", "/catalogue", "/data-health")),
     ("Audit", ("/chatgpt", "/evidence", "/decision-journal", "/release-readiness")),
     ("Settings", ("/settings", "/diagnostics", "/errors", "/onboarding", "/import-export", "/system-map", "/help", "/jobs")),
