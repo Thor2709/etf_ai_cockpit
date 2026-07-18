@@ -2843,7 +2843,7 @@
       "package_status": "Open",
       "phase": "phase-02-data-policy-identity",
       "priority": "P2",
-      "programme_status": "planned",
+      "programme_status": "implemented_initially",
       "related_issues": [
         "ISSUE-0024",
         "ISSUE-0026",
@@ -6663,7 +6663,7 @@
       "package_status": "",
       "phase": "phase-05-returns-risk-portfolio",
       "priority": "P0",
-      "programme_status": "planned",
+      "programme_status": "implemented_initially",
       "related_issues": [],
       "required_inputs": [],
       "security_and_audit": "Solver versions/parameters are audited; no target gains order authority without policy approval.",
