@@ -39,7 +39,8 @@ def test_macro_context_exposes_proxies_breadth_regime_and_provenance() -> None:
     assert report["provenance"] == "local adjusted_close price snapshot"
     assert report["breadth"]["status"] == "available"
     assert report["volatility"]["status"] == "available"
-    assert report["regime"]["label"] != "Regime unavailable"
+    assert report["regime"]["label"] in {"risk-on", "neutral", "defensive", "stressed", "unknown"}
+    assert report["regime"]["source_label"] != report["regime"]["label"]
     assert {row["proxy"] for row in report["proxy_rows"]} == {"equity", "bond_cash", "gold_defensive"}
     assert all(row["status"] == "available" for row in report["proxy_rows"])
 
@@ -73,3 +74,14 @@ def test_macro_context_rejects_explicitly_unadjusted_series() -> None:
 
     assert report["status"] == "unavailable"
     assert "non-adjusted" in report["regime"]["summary"]
+
+
+def test_macro_context_excludes_a_proxy_after_the_fill_bound() -> None:
+    prices = _prices()
+    prices = prices[~((prices["etf_id"] == "GOLD") & (prices["date"] > pd.Timestamp("2024-11-01")))]
+
+    report = build_macro_context(prices, _instruments())
+
+    gold = next(row for row in report["proxy_rows"] if row["proxy"] == "gold_defensive")
+    assert gold["freshness_status"] == "stale"
+    assert report["breadth"]["instrument_count"] == 2

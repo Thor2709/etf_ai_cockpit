@@ -18,10 +18,14 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
     try:
         summary = warehouse.summary(root=ROOT)
         rows = warehouse.observations(root=ROOT)
+        price_dates = state.snapshot.prices.get("date") if hasattr(state.snapshot.prices, "get") else None
+        decision_time = str(price_dates.max()) if price_dates is not None and not price_dates.empty else "9999-12-31T00:00:00+00:00"
+        context_rows = warehouse.observations_as_of(root=ROOT, decision_time=decision_time)
         error_text = ""
     except (MacroWarehouseError, OSError) as exc:
         summary = {"status": "unavailable", "row_count": 0}
         rows = []
+        context_rows = []
         error_text = f"Manual review required: local macro warehouse could not be read ({type(exc).__name__})."
 
     status = str(summary.get("status", "unavailable"))
@@ -50,7 +54,7 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
     if not entries:
         entries = [ft.Text("No local macro/factor observations have been ingested yet.", color=theme.MUTED, selectable=True)]
 
-    macro_context = build_macro_context(state.snapshot.prices, state.snapshot.config.universe.etfs, rows)
+    macro_context = build_macro_context(state.snapshot.prices, state.snapshot.config.universe.etfs, context_rows)
     regime = macro_context["regime"]
     breadth = macro_context["breadth"]
     volatility = macro_context["volatility"]
@@ -60,7 +64,8 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
             f"{row['proxy']}: {row['status']} | "
             f"return20d={_format_metric(row.get('period_return_20d'))} | "
             f"vol={_format_metric(row.get('volatility_annualised'))} | "
-            f"source={row.get('provenance', 'local adjusted_close price snapshot')}",
+            f"source={row.get('source', row.get('provenance', 'local adjusted_close price snapshot'))} | "
+            f"as_of={row.get('as_of', 'unavailable')} | freshness={row.get('freshness_status', 'unavailable')}",
             color=theme.TEXT if row["status"] == "available" else theme.MUTED,
             size=11,
             selectable=True,
@@ -106,9 +111,11 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
                     [
                         ft.Text("Regime and proxy context", color=theme.TEXT, weight=ft.FontWeight.BOLD),
                         ft.Text(
-                            f"Regime: {regime.get('dashboard_label', 'unknown')} ({regime.get('label', 'Regime unavailable')}) | "
-                            f"breadth above SMA200: {_format_metric(breadth.get('pct_above_sma200'))} | "
-                            f"median annualised volatility: {_format_metric(volatility.get('median_annualised'))}",
+                            f"Regime: {regime.get('label', 'unknown')} | "
+                            f"breadth above SMA200: {_format_metric(breadth.get('pct_above_sma200'))} "
+                            f"(source={breadth.get('source', 'unavailable')}, freshness={breadth.get('freshness_status', 'unavailable')}) | "
+                            f"median annualised volatility: {_format_metric(volatility.get('median_annualised'))} "
+                            f"(source={volatility.get('source', 'unavailable')}, freshness={volatility.get('freshness_status', 'unavailable')})",
                             color=theme.TEXT,
                             selectable=True,
                         ),

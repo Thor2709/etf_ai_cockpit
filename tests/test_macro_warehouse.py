@@ -52,10 +52,12 @@ def test_world_bank_parser_and_decision_time_vintage_selection(tmp_path) -> None
 
     historical = warehouse.as_of(root=tmp_path, dataset_id="world-bank-gdp", decision_time="2025-01-01T00:00:00+00:00")
     current = warehouse.as_of(root=tmp_path, dataset_id="world-bank-gdp", decision_time="2026-01-01T00:00:00+00:00")
+    selected = warehouse.observations_as_of(root=tmp_path, decision_time="2025-01-01T00:00:00+00:00")
 
     assert historical.loc[historical["period_start"] == "2024-01-01", "value"].tolist() == [11.0]
     assert current.loc[current["period_start"] == "2024-01-01", "value"].tolist() == [12.0]
     assert historical.loc[0, "country"] == "AUS"
+    assert [row.value for row in selected if row.period_start == "2024-01-01"] == [11.0]
 
 
 def test_csv_parser_and_reversible_unit_frequency_transform(tmp_path) -> None:

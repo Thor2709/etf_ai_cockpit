@@ -67,9 +67,9 @@ def build_macro_context(
     proxy_rows = [_proxy_summary(name, pivot, returns, metadata) for name in _PROXY_KEYWORDS]
     breadth = _breadth_summary(pivot)
     volatility = _volatility_summary(returns)
-    regime_frame = filled.rename_axis("date").stack().rename("adjusted_close").reset_index()
+    regime_frame = filled.rename_axis("date").stack(future_stack=True).rename("adjusted_close").reset_index()
     regime_frame.columns = ["date", "etf_id", "adjusted_close"]
-    regime = build_market_regime(regime_frame.dropna(), None)
+    regime = build_market_regime(regime_frame, None, max_forward_fill=5)
     freshness_days = max(0, (date.today() - latest_date.date()).days)
     dashboard_label = _dashboard_label(regime.get("regime_score_10"))
 
@@ -84,7 +84,8 @@ def build_macro_context(
         "breadth": breadth,
         "volatility": volatility,
         "regime": {
-            "label": str(regime.get("regime_label", "Regime unavailable")),
+            "label": dashboard_label,
+            "source_label": str(regime.get("regime_label", "Regime unavailable")),
             "dashboard_label": dashboard_label,
             "score_10": regime.get("regime_score_10"),
             "summary": str(regime.get("summary", "Regime unavailable.")),
@@ -167,16 +168,21 @@ def _proxy_summary(name: str, pivot: pd.DataFrame, returns: pd.DataFrame, metada
 
 def _breadth_summary(pivot: pd.DataFrame) -> dict[str, object]:
     if len(pivot) < 200:
-        return {"status": "unavailable", "reason": "At least 200 local trading days are required.", "pct_above_sma200": None}
+        return {"status": "unavailable", "reason": "At least 200 local trading days are required.", "pct_above_sma200": None, "source": "local adjusted_close price snapshot", "freshness_status": "unavailable"}
     filled = pivot.ffill(limit=5)
     latest = filled.iloc[-1]
     sma200 = filled.rolling(200, min_periods=200).mean().iloc[-1]
-    values = (latest > sma200).dropna()
+    valid = latest.notna() & sma200.notna()
+    values = (latest[valid] > sma200[valid]).dropna()
+    as_of = pivot.index.max().date()
     return {
         "status": "available" if not values.empty else "unavailable",
         "pct_above_sma200": _rounded(values.mean() if not values.empty else None),
         "instrument_count": int(values.size),
+        "as_of": as_of.isoformat(),
+        "source": "local adjusted_close price snapshot",
         "provenance": "local adjusted_close price snapshot",
+        "freshness_status": "fresh" if (date.today() - as_of).days <= 7 else "stale",
     }
 
 
@@ -188,7 +194,10 @@ def _volatility_summary(returns: pd.DataFrame) -> dict[str, object]:
         "median_annualised": _rounded(values.median() if not values.empty else None),
         "instrument_count": int(values.size),
         "window_days": int(len(sample)),
+        "as_of": returns.index.max().date().isoformat() if not returns.empty else None,
+        "source": "local adjusted_close price snapshot",
         "provenance": "local adjusted_close price snapshot",
+        "freshness_status": "fresh" if not returns.empty and (date.today() - returns.index.max().date()).days <= 7 else "stale" if not returns.empty else "unavailable",
     }
 
 
@@ -210,8 +219,8 @@ def _unavailable(reason: str) -> dict[str, object]:
         "provenance": "local adjusted_close price snapshot",
         "proxy_rows": [{"proxy": name, "status": "unavailable", "instrument_ids": [], "reason": reason, "source": "local adjusted_close price snapshot", "freshness_status": "unavailable"} for name in _PROXY_KEYWORDS],
         "inflation_rates": {"status": "unavailable", "rows": [], "reason": reason},
-        "breadth": {"status": "unavailable", "reason": reason, "pct_above_sma200": None},
-        "volatility": {"status": "unavailable", "reason": reason, "median_annualised": None},
+        "breadth": {"status": "unavailable", "reason": reason, "pct_above_sma200": None, "source": "local adjusted_close price snapshot", "freshness_status": "unavailable"},
+        "volatility": {"status": "unavailable", "reason": reason, "median_annualised": None, "source": "local adjusted_close price snapshot", "freshness_status": "unavailable"},
         "regime": {"label": "Regime unavailable", "dashboard_label": "unknown", "score_10": None, "summary": reason},
         "optional_fred": {"status": "unavailable", "message": "Optional FRED is probe-only and no network request was made.", "source": "FRED", "freshness_status": "unavailable"},
         "authority": "context_only",
@@ -250,6 +259,10 @@ def _macro_observation_summary(observations: Iterable[object], *, decision_time:
         available_at = pd.to_datetime(raw.get("available_at"), errors="coerce", utc=True)
         if pd.isna(available_at) or available_at > decision_time:
             continue
+        if str(raw.get("timezone_confidence") or "unknown").lower() not in {"exact", "assumed"}:
+            continue
+        if str(raw.get("availability_confidence") or "unknown").lower() not in {"exact", "assumed"}:
+            continue
         series_id = str(raw.get("series_id") or "").lower()
         if not any(term in series_id for term in ("inflation", "cpi", "pce", "rate", "yield", "sofr", "policy")):
             continue
@@ -259,6 +272,7 @@ def _macro_observation_summary(observations: Iterable[object], *, decision_time:
                 "value": raw.get("value"),
                 "unit": raw.get("unit"),
                 "source": raw.get("source_id") or "local macro warehouse",
+                "provenance": "local macro warehouse bitemporal as_of selection",
                 "available_at": raw.get("available_at"),
                 "observed_at": raw.get("observed_at"),
                 "freshness_status": "fresh" if (decision_time - available_at).days <= 7 else "stale",
