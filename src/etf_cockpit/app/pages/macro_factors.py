@@ -17,14 +17,12 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
     warehouse = MacroWarehouse()
     try:
         summary = warehouse.summary(root=ROOT)
-        rows = warehouse.observations(root=ROOT)
         price_dates = state.snapshot.prices.get("date") if hasattr(state.snapshot.prices, "get") else None
         decision_time = str(price_dates.max()) if price_dates is not None and not price_dates.empty else "9999-12-31T00:00:00+00:00"
         context_rows = warehouse.observations_as_of(root=ROOT, decision_time=decision_time)
         error_text = ""
     except (MacroWarehouseError, OSError) as exc:
         summary = {"status": "unavailable", "row_count": 0}
-        rows = []
         context_rows = []
         error_text = f"Manual review required: local macro warehouse could not be read ({type(exc).__name__})."
 
