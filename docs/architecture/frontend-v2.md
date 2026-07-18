@@ -52,6 +52,11 @@ objects in a text-first table. It reports units, coverage, data date and
 execution authority explicitly and can save the selected pair to the local
 workspace store for later reproduction.
 
+The initial Operations Centre is available at `/operations` with paper proposal
+previews, durable local workflow acknowledgement, cancellation, result/audit
+references and an explicit live-disabled boundary. Training promotion, broker
+read-only, reconciliation and live submission remain later slices.
+
 ## Evidence modes
 
 - Compact - decision summary for quick scanning.
