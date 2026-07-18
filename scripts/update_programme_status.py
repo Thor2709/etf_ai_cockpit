@@ -79,6 +79,12 @@ def progress_markdown(payload: dict, registry: dict) -> str:
     return "\n".join(lines)
 
 
+def deterministic_text(value: str) -> bytes:
+    """Encode generated text with LF line endings on every platform."""
+
+    return value.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd())
@@ -88,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
     registry = json.loads((root / REGISTRY_PATH).read_text(encoding="utf-8"))
     payload = status_payload(registry)
     status_bytes = deterministic_json(payload)
-    progress_bytes = progress_markdown(payload, registry).encode("utf-8")
+    progress_bytes = deterministic_text(progress_markdown(payload, registry))
     status_path = root / STATUS_PATH
     progress_path = root / PROGRESS_PATH
     if args.check:
