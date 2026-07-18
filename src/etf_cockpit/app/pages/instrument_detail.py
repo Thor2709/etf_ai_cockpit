@@ -269,6 +269,8 @@ def _render_etf_order_preview(page: ft.Page | None, state: AppState, instrument_
         width=180,
         key="instrument-detail.order-size",
     )
+
+
     horizon_field = ft.TextField(
         label="Horizon (days)",
         value=str(initial.get("horizon_days", 1)),
@@ -311,6 +313,43 @@ def _render_etf_order_preview(page: ft.Page | None, state: AppState, instrument_
             spacing=6,
         )
     )
+
+
+def render_event_calendar_panel(model: InstrumentDetailViewModel) -> ft.Control:
+    """Render dated events and high-risk warnings as non-executable context."""
+
+    events = model.sections.get("events")
+    if not isinstance(events, dict):
+        events = {"status": "unavailable", "events": []}
+    records = events.get("events", [])
+    if events.get("status") != "available" or not records:
+        body: ft.Control = ft.Text(str(events.get("message", "Event calendar unavailable.")), color=theme.MUTED, selectable=True)
+    else:
+        body = ft.Column(
+            [
+                ft.Text(
+                    " | ".join(
+                        (
+                            f"{item.get('event_type', 'event')}={item.get('event_date', 'unavailable')}",
+                            f"title={item.get('title') or 'unavailable'}",
+                            f"risk={item.get('risk_level', 'unknown')}",
+                            f"source={item.get('source_id', 'unavailable')}",
+                            f"authority={item.get('source_authority', 'unavailable')}",
+                            f"available_at={item.get('available_at', 'unavailable')}",
+                            f"precision={item.get('precision', 'unavailable')}",
+                            "context_only=true",
+                            "execution_allowed=false",
+                        )
+                    ),
+                    color=theme.AMBER if str(item.get("risk_level", "")).casefold() in {"high", "critical"} else theme.MUTED,
+                    selectable=True,
+                    size=11,
+                )
+                for item in records
+            ],
+            spacing=4,
+        )
+    return panel(ft.Column([section_header("Event calendar", "Upcoming earnings, dividends, splits and high-risk actions are shown with source and availability metadata; events are context-only."), body], spacing=8))
 
 
 def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
@@ -382,6 +421,7 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
             _render_crowding_attribution_panel(model.sections),
             render_etf_disclosure_panel(model),
             render_news_context_panel(model),
+            render_event_calendar_panel(model),
             *rows,
         ],
         expand=True,

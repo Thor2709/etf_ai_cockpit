@@ -20,6 +20,7 @@ from etf_cockpit.application.ui_facade import (
     CORRELATION_CLUSTERS_PATH,
     ETF_DISCLOSURES_PATH,
     EVIDENCE_LEDGER_PATH,
+    EVENT_CLEAN_PATH,
     FEATURE_DRIVERS_PATH,
     FILINGS_STATEMENTS_PATH,
     FUNDAMENTAL_CLEAN_PATH,
@@ -40,6 +41,7 @@ from etf_cockpit.application.ui_facade import (
     import_etf_holdings_with_document,
     legal_terms_rows,
     load_news_items,
+    load_calendar_events,
     persist_index_methodology_with_document,
     persist_priips_kid_with_document,
     read_document_registry,
@@ -244,6 +246,7 @@ def news_context_page(_page: ft.Page, state: AppState) -> ft.Control:
         "Free/manual news and context evidence. News is non-executable and cannot directly change scores or actions.",
         [
             ("News/context inventory", NEWS_CONTEXT_PATH, ["instrument_id", "source_url", "published_at", "ingested_at", "provider_name", "credibility", "instrument_mapping_method", "available_at_decision_time", "timestamp_status", "context_only", "executable_authority", "raw_path"]),
+            ("Event calendar", EVENT_CLEAN_PATH, ["instrument_id", "event_type", "event_date", "event_time", "available_at", "ingested_at", "source_id", "source_authority", "precision", "risk_level", "context_only", "execution_allowed"]),
             ("Point-in-time validation", NEWS_TIMESTAMP_VALIDATION_PATH, ["news_id", "timestamp_status", "backtest_eligible", "reason", "available_at_decision_time", "instrument_mapping_method"]),
             ("Optional free provider status", PROVIDER_PROBE_PATH, ["dataset_type", "provider_name", "status", "message"]),
             ("Fundamental source limitations", FUNDAMENTAL_CLEAN_PATH, ["instrument_id", "source", "source_authority", "limitations", "score_eligible", "executable_authority"]),
@@ -265,11 +268,18 @@ def _news_context_extra(state: AppState) -> ft.Control:
             [ft.Text(f"{row['instrument_id']} | {row['headline']} | headline={row['headline_direction']} price={row['price_direction']} | {row['reason']}", color=theme.AMBER, selectable=True, size=11) for _, row in contradictions.iterrows()],
             spacing=4,
         )
+    try:
+        events = load_calendar_events(EVENT_CLEAN_PATH)
+    except Exception:
+        events = pd.DataFrame()
+    event_text = "Event calendar unavailable; no canonical local event records are registered." if events.empty else f"{len(events)} event records are available. Events remain context-only, execution_allowed=false, and do not change scores or actions."
     return panel(
         ft.Column(
             [
                 section_header("News contradictions", "Explicit headline direction is compared with the next dated deterministic close; this panel is informational and cannot alter scores or actions."),
                 body,
+                section_header("Event calendar status", "Earnings, dividend, split and high-risk action records retain source and availability metadata."),
+                ft.Text(event_text, color=theme.MUTED, selectable=True),
             ],
             spacing=8,
         )

@@ -34,7 +34,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             page.overlay.append(picker)
         except Exception:
             pass
-    import_type = ft.Dropdown(label="Import type", value="broker", options=[ft.dropdown.Option(value, value.replace("_", " ").title()) for value in ("broker", "candidate", "manual_notes", "etf_holdings", "news", "rss_list")], width=190)
+    import_type = ft.Dropdown(label="Import type", value="broker", options=[ft.dropdown.Option(value, value.replace("_", " ").title()) for value in ("broker", "candidate", "manual_notes", "etf_holdings", "news", "events", "rss_list")], width=190)
     path_field = ft.TextField(label="Local source path", hint_text="Choose a CSV, JSON, Parquet or RSS file", expand=True, key="import-export.import-path")
     preview_text = ft.Text("Preview required before commit.", color=theme.MUTED, selectable=True, key="import-export.preview-status")
     commit_button = ft.OutlinedButton("Commit validated import", key="import-export.commit", disabled=True)
