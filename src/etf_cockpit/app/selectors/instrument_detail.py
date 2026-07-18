@@ -26,6 +26,8 @@ from etf_cockpit.application.ui_facade import (
     sort_news_items,
 )
 from etf_cockpit.core.paths import DERIVED_DIR
+from etf_cockpit.core.paths import ETF_QUOTES_PATH
+from etf_cockpit.features.etf_economics import calculate_etf_liquidity
 from etf_cockpit.services import CockpitSnapshot
 from etf_cockpit.application.ui_facade import SimpleInstrumentScore
 
@@ -42,6 +44,7 @@ class InstrumentDetailViewModel:
 _SECTION_NAMES = (
     "identity",
     "price",
+    "etf_liquidity",
     "scores",
     "feature_drivers",
     "risk",
@@ -820,6 +823,46 @@ def _candidate_scoreboard(candidate_score: SimpleInstrumentScore) -> dict[str, A
     }
 
 
+def _load_quote_evidence() -> pd.DataFrame:
+    """Load optional local quote evidence without making provider calls."""
+
+    candidates = (ETF_QUOTES_PATH.with_suffix(".parquet"), ETF_QUOTES_PATH)
+    for path in candidates:
+        try:
+            if path.suffix.casefold() == ".parquet" and path.exists():
+                return pd.read_parquet(path)
+            if path.suffix.casefold() == ".csv" and path.exists():
+                return pd.read_csv(path)
+        except Exception:
+            return pd.DataFrame()
+    return pd.DataFrame()
+
+
+def build_etf_liquidity_panel(
+    snapshot: CockpitSnapshot,
+    instrument_id: str,
+    *,
+    order_value_eur: float = 10_000.0,
+    horizon_days: int = 1,
+    stress_multiplier: float = 1.0,
+    quote_evidence: pd.DataFrame | Mapping[str, object] | None = None,
+) -> dict[str, Any]:
+    """Return the read-only ETF liquidity and capacity panel model."""
+
+    quotes = _load_quote_evidence() if quote_evidence is None else quote_evidence
+    report = calculate_etf_liquidity(
+        snapshot.config,
+        getattr(snapshot, "prices", pd.DataFrame()),
+        instrument_id,
+        order_value_eur=order_value_eur,
+        horizon_days=horizon_days,
+        quote_evidence=quotes,
+        as_of=getattr(getattr(snapshot, "data_report", None), "as_of_date", None),
+        stress_multiplier=stress_multiplier,
+    )
+    return report.as_dict()
+
+
 def _scoreboard_row(instrument_id: str, *, candidate_score: SimpleInstrumentScore | None = None) -> dict[str, Any]:
     if _candidate_score_matches(candidate_score, instrument_id):
         return _candidate_scoreboard(candidate_score)  # type: ignore[arg-type]
@@ -1102,6 +1145,7 @@ def build_instrument_detail(
         }
         display_name = identity.name
     disclosure = _etf_disclosure_panel(instrument_id, document_registry=document_registry, holdings=holdings, kid_records=kid_records, methodology_records=methodology_records)
+    liquidity = build_etf_liquidity_panel(snapshot, instrument_id)
     return InstrumentDetailViewModel(
         instrument_id,
         display_name,
@@ -1110,6 +1154,7 @@ def build_instrument_detail(
         {
             "identity": identity_panel,
             "price": _price_panel(snapshot, instrument_id, candidate_score=candidate),
+            "etf_liquidity": liquidity,
             "scores": _score_panel(signal, scoreboard, derived, friction),
             "feature_drivers": _feature_driver_panel(instrument_id),
             "risk": _risk_panel(features, friction, derived["crowding"]),
