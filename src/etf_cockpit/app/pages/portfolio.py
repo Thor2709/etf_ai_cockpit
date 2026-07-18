@@ -12,8 +12,11 @@ from etf_cockpit.application.ui_facade import (
     PortfolioAnalysis,
     PortfolioCandidate,
     PortfolioSandboxPersistenceError,
+    RebalanceConstraints,
+    RebalanceReport,
     StorageRevisionConflict,
     analyse_portfolio_candidate,
+    build_rebalance_report,
     build_portfolio_candidate,
     candidate_id,
     draft_portfolio_candidate,
@@ -78,6 +81,11 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
         key="portfolio.results",
         spacing=12,
     )
+    rebalance_host = ft.Column(
+        [panel(ft.Text("Select Validate rebalance preview to compare local alternatives.", color=theme.MUTED, selectable=True))],
+        key="portfolio.rebalance-results",
+        spacing=12,
+    )
 
     def values() -> tuple[str, str, dict[str, object], object]:
         targets: dict[str, object] = {}
@@ -113,6 +121,33 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
             result_host.controls = [
                 panel(ft.Text("Candidate results are unavailable until the validation error is corrected.", color=theme.AMBER, selectable=True))
             ]
+            _safe_update(page)
+
+    def rebalance_preview(_event: ft.ControlEvent | None) -> None:
+        try:
+            _, candidate_notional, targets, candidate_cash = values()
+            report = build_rebalance_report(
+                state.snapshot.config,
+                state.snapshot.holdings,
+                targets,
+                target_cash_weight=candidate_cash,
+                portfolio_value_eur=candidate_notional,
+                constraints=RebalanceConstraints(
+                    cash_buffer_weight=0.02,
+                    min_trade_eur=50.0,
+                    lot_size=1.0,
+                    allow_fractional_lots=False,
+                ),
+            )
+            rebalance_host.controls = [_rebalance_view(report)]
+            status.value = "Rebalance preview validated from the current local snapshot; no order or broker action was created."
+            status.color = theme.GREEN if report.feasible else theme.AMBER
+            state.last_message = status.value
+            _safe_update(page)
+        except (TypeError, ValueError) as exc:
+            status.value = f"Rebalance preview unavailable: {exc}"
+            status.color = theme.AMBER
+            rebalance_host.controls = [panel(ft.Text("Rebalance alternatives are unavailable until the validation error is corrected.", color=theme.AMBER, selectable=True))]
             _safe_update(page)
 
     def save(_event: ft.ControlEvent | None) -> None:
@@ -207,6 +242,7 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
                         ft.Row(
                             [
                                 ft.Button("Analyse candidate", key="portfolio.analyse", on_click=analyse),
+                                ft.OutlinedButton("Validate rebalance preview", key="portfolio.rebalance-preview", on_click=rebalance_preview),
                                 ft.OutlinedButton("Save revision", key="portfolio.save", icon=ft.Icons.SAVE, on_click=save),
                                 ft.OutlinedButton("Load latest", key="portfolio.load", on_click=load),
                                 ft.TextButton("Reset to current", key="portfolio.reset-current", on_click=reset_current),
@@ -219,6 +255,7 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
                 )
             ),
             result_host,
+            rebalance_host,
         ],
         expand=True,
         spacing=14,
@@ -237,6 +274,7 @@ def _analysis_view(analysis: PortfolioAnalysis) -> ft.Control:
         spacing=12,
         wrap=True,
     )
+
     allocation = ft.DataTable(
         columns=[
             ft.DataColumn(ft.Text("Instrument")),
@@ -301,6 +339,69 @@ def _analysis_view(analysis: PortfolioAnalysis) -> ft.Control:
     )
 
 
+def _rebalance_view(report: RebalanceReport) -> ft.Control:
+    alternatives = ft.DataTable(
+        columns=[ft.DataColumn(ft.Text("Alternative")), ft.DataColumn(ft.Text("Changes")), ft.DataColumn(ft.Text("Drift proxy")), ft.DataColumn(ft.Text("Cost")), ft.DataColumn(ft.Text("Cash"))],
+        rows=[
+            ft.DataRow(
+                cells=[
+                    ft.DataCell(ft.Text(item.name.replace("_", " ").title(), size=11)),
+                    ft.DataCell(ft.Text(str(item.trade_count), size=11)),
+                    ft.DataCell(ft.Text(f"{item.tracking_error_proxy:.2%}", size=11)),
+                    ft.DataCell(ft.Text(f"EUR {item.estimated_cost_eur:,.2f}", size=11)),
+                    ft.DataCell(ft.Text(f"{item.cash_weight:.2%}", size=11)),
+                ]
+            )
+            for item in report.alternatives.values()
+        ],
+    )
+    trades = ft.DataTable(
+        columns=[ft.DataColumn(ft.Text("Instrument")), ft.DataColumn(ft.Text("Change")), ft.DataColumn(ft.Text("Value")), ft.DataColumn(ft.Text("Status")), ft.DataColumn(ft.Text("Cost"))],
+        rows=[
+            ft.DataRow(
+                cells=[
+                    ft.DataCell(ft.Text(item.instrument_id, size=11)),
+                    ft.DataCell(ft.Text(item.action.replace("buy", "increase").replace("sell", "reduce"), size=11)),
+                    ft.DataCell(ft.Text(f"EUR {item.trade_value_eur:+,.2f}", size=11)),
+                    ft.DataCell(ft.Text(item.status.replace("_", " "), size=11)),
+                    ft.DataCell(ft.Text(f"EUR {item.estimated_cost_eur:,.2f}", size=11)),
+                ]
+            )
+            for item in report.trades
+            if abs(item.trade_value_eur) > 0 or item.status not in {"no_change"}
+        ],
+    )
+    warning_text = "\n".join(report.warnings or ("No rebalance warnings.",))
+    return panel(
+        ft.Column(
+            [
+                section_header("Rebalance workspace", "Compare cost-, cash-, lot- and restriction-aware alternatives. This is advisory evidence only."),
+                ft.Row(
+                    [
+                        evidence_chip("Feasibility", "available" if report.feasible else "manual review", theme.GREEN if report.feasible else theme.AMBER),
+                        evidence_chip("Cash after change", f"{report.cash_weight:.1%}", theme.BLUE_GREY),
+                        evidence_chip("Tax", report.tax_status.replace("_", " "), theme.AMBER),
+                        evidence_chip("Execution", "disabled", theme.GREEN),
+                    ],
+                    wrap=True,
+                    spacing=8,
+                ),
+                ft.Text("Alternatives", weight=ft.FontWeight.BOLD, color=theme.TEXT),
+                ft.Row([alternatives], scroll=ft.ScrollMode.AUTO),
+                ft.Text("Proposed changes", weight=ft.FontWeight.BOLD, color=theme.TEXT),
+                ft.Row([trades], scroll=ft.ScrollMode.AUTO),
+                ft.Text(warning_text, color=theme.MUTED, selectable=True),
+                ft.Text(
+                    f"model_version={report.model_version} | lot_policy={report.assumptions['lot_policy']} | min_trade_eur={report.assumptions['min_trade_eur']:.2f} | tax_jurisdiction={report.tax_jurisdiction} | execution_allowed=false",
+                    color=theme.MUTED,
+                    size=11,
+                    selectable=True,
+                ),
+            ],
+            spacing=10,
+            scroll=ft.ScrollMode.AUTO,
+        )
+    )
 def _exposure_table(title: str, rows: object) -> ft.Control:
     return panel(
         ft.Column(
