@@ -14,6 +14,7 @@ from scripts.issue_registry_core import (
     validate_registry,
 )
 from scripts.generate_completion_documents import write_text
+from scripts.update_programme_status import deterministic_text, progress_markdown, status_payload
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -76,3 +77,12 @@ def test_completion_markdown_writer_is_lf_deterministic(tmp_path: Path) -> None:
 
     assert destination.read_bytes() == b"one\ntwo\nthree\n"
     assert b"\r\n" not in destination.read_bytes()
+
+
+def test_programme_status_markdown_is_lf_deterministic() -> None:
+    registry = json.loads((ROOT / "issues/issue_registry.json").read_text(encoding="utf-8"))
+
+    generated = deterministic_text(progress_markdown(status_payload(registry), registry))
+
+    assert b"\r" not in generated
+    assert generated.endswith(b"\n")
