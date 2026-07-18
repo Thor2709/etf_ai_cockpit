@@ -63,6 +63,10 @@ def test_artefact_integrity_and_approval_gated_promotion(tmp_path: Path) -> None
     registry.update_run("run-001", status="completed", progress=1.0, completion_report={"mae": 0.2})
     artifact = registry.register_artifact("run-001", model_path)
     model = registry.register_model("run-001", name="baseline", artifact_ids=[str(artifact["artifact_id"])], model_card={"method": "deterministic"})
+    model_path.write_text('{"model":"tampered"}', encoding="utf-8")
+    with pytest.raises(TrainingRegistryError, match="integrity"):
+        registry.approve_model(str(model["model_id"]), reviewer="analyst", evaluation={"walk_forward": "passed"})
+    model_path.write_text('{"model":"baseline"}', encoding="utf-8")
     with pytest.raises(TrainingRegistryError, match="approved"):
         registry.promote_model(str(model["model_id"]), "challenger")
     approved = registry.approve_model(str(model["model_id"]), reviewer="analyst", evaluation={"walk_forward": "passed"})

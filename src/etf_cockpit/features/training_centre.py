@@ -247,6 +247,9 @@ class LocalTrainingRegistry:
         run = self.require(_ENTITY_RUN, str(model["run_id"]))
         if str(run["status"]) != "completed":
             raise TrainingRegistryError("only completed runs can be approved")
+        if not evaluation:
+            raise TrainingRegistryError("model approval requires an evaluation report")
+        self._verify_model_artifacts(model)
         payload = dict(model)
         payload.update({"approval_state": "approved", "reviewer": _bounded_text(reviewer, "reviewer"), "evaluation": _safe_mapping(evaluation), "approved_at": _utc_now()})
         return self._put(_ENTITY_MODEL, model_id, payload)
@@ -258,6 +261,7 @@ class LocalTrainingRegistry:
             raise TrainingRegistryError("failed or cancelled runs cannot publish model aliases")
         if str(model["approval_state"]) != "approved":
             raise TrainingRegistryError("only approved models can become challengers or champions")
+        self._verify_model_artifacts(model)
         payload = dict(model)
         aliases = sorted(set(str(item) for item in payload.get("aliases", [])) | {target})
         payload.update({"promotion_state": target, "aliases": aliases, "promoted_at": _utc_now()})
@@ -309,6 +313,12 @@ class LocalTrainingRegistry:
         if resolved.suffix.casefold() in _UNSAFE_SUFFIXES:
             raise TrainingRegistryError("unsafe serialised model artefact format is not accepted")
         return resolved
+
+    def _verify_model_artifacts(self, model: Mapping[str, object]) -> None:
+        artifact_ids = model.get("artifact_ids", ())
+        for artifact_id in artifact_ids if isinstance(artifact_ids, Sequence) and not isinstance(artifact_ids, (str, bytes)) else ():
+            if not self.verify_artifact(str(artifact_id)).verified:
+                raise TrainingRegistryError("model artefact integrity verification failed")
 
 
 def _within(path: Path, parent: Path) -> bool:
