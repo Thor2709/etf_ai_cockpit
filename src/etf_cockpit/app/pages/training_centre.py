@@ -6,11 +6,12 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.core.job_scheduler import DurableJobScheduler
 from etf_cockpit.core.paths import ROOT
+from etf_cockpit.application.validation import build_validation_preview
 from etf_cockpit.features.synthetic_scenarios import SyntheticScenarioGenerator, SyntheticScenarioSpec
 from etf_cockpit.features.training_centre import LocalTrainingRegistry
 
 
-def training_centre_page(page: ft.Page, _state: object) -> ft.Control:
+def training_centre_page(page: ft.Page, state: object) -> ft.Control:
     """Render durable local training evidence without granting model authority."""
 
     registry = LocalTrainingRegistry(ROOT)
@@ -45,6 +46,7 @@ def training_centre_page(page: ft.Page, _state: object) -> ft.Control:
             ),
             panel(ft.Column([section_header("Registry status", "The compatible lightweight adapter uses the existing transactional store."), ft.Text(message, color=theme.MUTED, selectable=True), ft.Text(f"Runs: {len(runs)} · models: {len(models)} · metrics: {len(metrics)} · training workflows: {len([item for item in workflows if item.workflow_type == 'model_training'])}", color=theme.TEXT, selectable=True)])),
             _synthetic_panel(),
+            _validation_panel(page, getattr(getattr(state, "snapshot", None), "prices", None)),
             _runs_panel(runs),
             ft.Row([_metrics_panel(metrics), _models_panel(models)], spacing=14, vertical_alignment=ft.CrossAxisAlignment.START),
             _reports_panel(runs),
@@ -53,6 +55,36 @@ def training_centre_page(page: ft.Page, _state: object) -> ft.Control:
         expand=True,
         scroll=ft.ScrollMode.AUTO,
     )
+
+
+def _validation_panel(page: ft.Page | None, prices: object) -> ft.Container:
+    """Show split and promotion evidence without executing a model."""
+
+    report = build_validation_preview(prices)
+    if report is None:
+        controls: list[ft.Control] = [
+            section_header("Validation Designer", "Purged/embargoed walk-forward reports remain unavailable until sufficient adjusted-price history exists."),
+            ft.Text("Validation preview unavailable: at least one local adjusted-price return history is required.", color=theme.AMBER, selectable=True),
+        ]
+    else:
+        detail = [
+            f"Folds: {len(report.folds)} · trials retained: {len(report.trials)} · selected: {report.selected_trial_id}",
+            f"final_test_used_for_selection={str(report.final_test_used_for_selection).lower()} · promotion_eligible={str(report.promotion_eligible).lower()}",
+            f"Uncertainty: {report.uncertainty.get('status')} · CI {report.uncertainty.get('lower_5')} to {report.uncertainty.get('upper_95')}",
+            f"Regimes: {', '.join(report.regime_results) or 'unavailable'} · subgroups: {', '.join(report.subgroup_results) or 'unavailable'}",
+            f"protocol={report.protocol_version} · fingerprint={report.to_dict()['report_fingerprint'][:12]}",
+        ]
+        controls = [
+            section_header("Validation Designer", "The protocol separates development folds from an untouched final test; discarded trials and promotion limitations remain visible."),
+            ft.Text("\n".join(detail), color=theme.MUTED, selectable=True),
+        ]
+
+    def refresh(_event: ft.ControlEvent) -> None:
+        if page is not None and callable(getattr(page, "go", None)):
+            page.go("/training-centre")
+
+    controls.append(ft.TextButton("Refresh validation report", key="training-centre.validation-refresh", on_click=refresh))
+    return panel(ft.Column(controls, spacing=8))
 
 
 def _synthetic_panel() -> ft.Container:
