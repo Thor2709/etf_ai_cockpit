@@ -48,7 +48,12 @@ def _snapshot():
 def _sections_json(values: dict[str, float], as_of: str) -> str:
     return json.dumps(
         {
-            field: {"value": value, "period_end": as_of, "source_id": "sec-filing"}
+            field: {
+                "value": value,
+                "period_end": as_of,
+                "source_id": "sec-filing",
+                "source_authority": "sec_edgar",
+            }
             for field, value in values.items()
         },
         sort_keys=True,

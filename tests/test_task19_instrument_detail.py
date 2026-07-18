@@ -649,7 +649,12 @@ def test_fundamentals_panel_renders_complete_five_section_provenance() -> None:
         "shareholder_return": 6.0,
     }
     sections = {
-        field: {"value": value, "period_end": as_of, "source_id": "sec-filing-2026-q2"}
+        field: {
+            "value": value,
+            "period_end": as_of,
+            "source_id": "sec-filing-2026-q2",
+            "source_authority": "sec_edgar",
+        }
         for field, value in values.items()
     }
     panel = _fundamentals_panel(
@@ -716,6 +721,7 @@ def test_fundamentals_panel_fails_closed_without_section_source_and_period() -> 
     assert panel["score_eligible"] is False
     assert any(reason.endswith("_period") for reason in panel["review_reasons"])
     assert any(reason.endswith("_source_id") for reason in panel["review_reasons"])
+    assert any(reason.endswith("_source_authority") for reason in panel["review_reasons"])
 
 
 def test_fundamentals_panel_fails_closed_for_malformed_as_of_date() -> None:
@@ -727,7 +733,12 @@ def test_fundamentals_panel_fails_closed_for_malformed_as_of_date() -> None:
         "shareholder_return": 6.0,
     }
     sections = {
-        field: {"value": value, "period_end": "2026-06-30", "source_id": "sec-filing-2026-q2"}
+        field: {
+            "value": value,
+            "period_end": "2026-06-30",
+            "source_id": "sec-filing-2026-q2",
+            "source_authority": "sec_edgar",
+        }
         for field, value in values.items()
     }
     panel = _fundamentals_panel(

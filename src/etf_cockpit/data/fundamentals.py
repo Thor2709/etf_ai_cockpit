@@ -477,6 +477,9 @@ def assess_fundamental_row(
         section_source_id = _scalar_text(section.get("source_id"))
         if section_source_id.casefold() in {"", "unavailable", "unknown"}:
             reasons.append(f"invalid_{field_name}_source_id")
+        section_source_authority = _scalar_text(section.get("source_authority"))
+        if section_source_authority.casefold() in {"", "unavailable", "unknown"}:
+            reasons.append(f"invalid_{field_name}_source_authority")
 
     warning_text = _scalar_text(row.get("warnings"))
     warnings = {item for item in warning_text.split("|") if item}
