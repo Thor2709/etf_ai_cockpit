@@ -6910,7 +6910,7 @@
       "blocking_dependencies": [
         "ISSUE-0119"
       ],
-      "canonical_id": "ISSUE-0120",
+    "canonical_id": "ISSUE-0120",
       "classification": "proposed_new",
       "data_and_dependencies": "['ISSUE-0119; ISSUE-0048; ISSUE-0122.']",
       "dependency_candidates": [
@@ -6932,7 +6932,7 @@
       "package_status": "",
       "phase": "phase-06-model-research",
       "priority": "P0",
-      "programme_status": "planned",
+    "programme_status": "implemented_initially",
       "related_issues": [],
       "required_inputs": [],
       "security_and_audit": "Split definitions and results are immutable and included in audit packets.",
