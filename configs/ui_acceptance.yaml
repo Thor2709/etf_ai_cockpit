@@ -1,5 +1,6 @@
 version: 2
 controls:
+  - {key: shell.evidence-mode, route: /, control_label: Evidence mode, callback: set_evidence_mode, success_signal: evidence_mode_changed, controlled_error_signal: validation_error, acceptance_test: tests/test_frontend_design_system.py, control_type: input}
   # The navigation rail is generated from router.PAGES at desktop and mobile widths.
   - {key: navigation.home, route: /, control_label: Simple Scores, callback: navigate_to, success_signal: route=/, controlled_error_signal: session_event, acceptance_test: tests/test_accessibility_contracts.py, control_type: navigation}
   - {key: navigation.portfolio, route: /portfolio, control_label: Portfolio Context, callback: navigate_to, success_signal: route=/portfolio, controlled_error_signal: session_event, acceptance_test: tests/test_accessibility_contracts.py, control_type: navigation}
