@@ -49,7 +49,7 @@ def load_ui_acceptance_contracts(path: Path | None = None) -> tuple[UIAcceptance
     for item in contracts:
         if not item.acceptance_test:
             raise ValueError(f"missing UI acceptance field: acceptance_test ({item.key})")
-        if item.control_type not in {"navigation", "button", "file_picker", "expandable", "input"}:
+        if item.control_type not in {"navigation", "button", "file_picker", "expandable", "input", "evidence"}:
             raise ValueError(f"unsupported UI acceptance control type: {item.control_type}")
     return tuple(contracts)
 
