@@ -49,7 +49,7 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
             size=11,
             selectable=True,
         )
-        for row in sorted(rows, key=lambda item: (item.dataset_id, item.period_start, item.series_id))[-24:]
+        for row in sorted(context_rows, key=lambda item: (item.dataset_id, item.period_start, item.series_id))[-24:]
     ]
     if not entries:
         entries = [ft.Text("No local macro/factor observations have been ingested yet.", color=theme.MUTED, selectable=True)]
