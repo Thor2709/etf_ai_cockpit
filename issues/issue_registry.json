@@ -6818,7 +6818,7 @@
       "package_status": "",
       "phase": "phase-06-model-research",
       "priority": "P0",
-      "programme_status": "planned",
+      "programme_status": "implemented_initially",
       "related_issues": [],
       "required_inputs": [],
       "security_and_audit": "Model artefacts are verified, unsafe deserialisation is blocked and secrets are excluded.",
