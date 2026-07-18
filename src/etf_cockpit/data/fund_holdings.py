@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import math
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from numbers import Integral
@@ -56,7 +58,7 @@ class HoldingsNormalisationResult:
 
 def _authority_for_source(source: str) -> str:
     value = str(source or "").strip().lower()
-    if value in {"issuer", "official_issuer", "issuer_csv", "issuer_xlsx", "issuer_json", "official"} or value.startswith("issuer"):
+    if value in {"issuer", "official_issuer", "issuer_csv", "issuer_xlsx", "issuer_json", "official"}:
         return "issuer"
     if value in {"yfinance", "yahoo", "vendor", "vendor_top_holdings"} or "yfinance" in value or "yahoo" in value:
         return "vendor"
@@ -131,22 +133,44 @@ def normalise_holdings(
     clean[security_column] = clean[security_column].fillna("").astype(str).str.strip()
     if clean[security_column].eq("").any():
         return _empty_result(instrument, as_of_text, source, "empty_security", authority=authority)
+    if clean[weight_column].map(pd.api.types.is_bool).any():
+        return _empty_result(instrument, as_of_text, source, "boolean_weight", authority=authority)
     clean[weight_column] = pd.to_numeric(clean[weight_column], errors="coerce")
     if clean[weight_column].isna().any():
         return _empty_result(instrument, as_of_text, source, "non_numeric_weight", authority=authority)
     if (clean[weight_column] < 0).any():
         return _empty_result(instrument, as_of_text, source, "negative_weight", authority=authority)
-    raw_max = float(clean[weight_column].max())
-    if raw_max > 100:
-        return _empty_result(instrument, as_of_text, source, "weight_over_100_percent", authority=authority)
     weights = clean[weight_column].astype(float)
-    if weight_column in {"weight_percent", "weight_pct"} or raw_max > 1:
+    if not weights.map(lambda value: math.isfinite(float(value))).all():
+        return _empty_result(instrument, as_of_text, source, "non_finite_weight", authority=authority)
+    if weight_column in {"weight_percent", "weight_pct"}:
+        if (weights > 100).any():
+            return _empty_result(instrument, as_of_text, source, "weight_over_100_percent", authority=authority)
         weights = weights / 100.0
     if (weights > 1).any():
-        return _empty_result(instrument, as_of_text, source, "weight_over_100_percent", authority=authority)
+        return _empty_result(instrument, as_of_text, source, "decimal_weight_over_1_use_weight_percent", authority=authority)
 
     selected = pd.DataFrame({"security": clean[security_column], "weight": weights})
-    for column in ("isin", "ticker", "sector", "region", "currency", "holding_id", "security_id"):
+    for column in (
+        "isin",
+        "ticker",
+        "sector",
+        "region",
+        "country",
+        "currency",
+        "issuer",
+        "company",
+        "holding_id",
+        "holding_id_namespace",
+        "security_id",
+        "security_id_namespace",
+        "exchange",
+        "venue",
+        "identity_type",
+        "identity_namespace",
+        "identity_value",
+        "instrument_type",
+    ):
         if column in clean.columns and column not in selected.columns:
             selected[column] = clean[column]
     duplicate_count = int(selected.duplicated(keep="first").sum())
@@ -168,8 +192,6 @@ def normalise_holdings(
         completeness = "partial"
         if "partial_top_holdings" not in warnings:
             warnings.append("partial_top_holdings")
-    if freshness == "stale":
-        completeness = "stale"
     row_has_explicit_identifier = pd.Series(False, index=clean.index)
     for column in _EXPLICIT_IDENTITY_COLUMNS:
         if column in clean.columns:
@@ -183,7 +205,7 @@ def normalise_holdings(
     if name_only_manual_review:
         confidence = min(confidence, 0.55)
     score_eligible = completeness == "full" and freshness == "fresh" and authority == "issuer" and not name_only_manual_review
-    canonical = selected.sort_values(["security", "weight"], kind="stable").to_json(orient="records", date_format="iso")
+    canonical = _canonical_holdings_json(selected)
     source_id = "fundhold:" + hashlib.sha256(f"{instrument}|{as_of_date.isoformat()}|{source}|{canonical}".encode("utf-8")).hexdigest()[:24]
     selected["instrument_id"] = instrument
     selected["as_of"] = as_of_date.isoformat()
@@ -199,6 +221,26 @@ def normalise_holdings(
     selected["authority"] = authority
     selected["score_eligible"] = score_eligible
     return HoldingsNormalisationResult(selected, completeness, str(source), as_of_date.isoformat(), tuple(warnings), source_id, freshness, confidence, authority, score_eligible)
+
+
+def _canonical_holdings_json(frame: pd.DataFrame) -> str:
+    """Return an order-independent finite JSON representation for provenance."""
+
+    records: list[dict[str, object]] = []
+    for row in frame.to_dict(orient="records"):
+        clean: dict[str, object] = {}
+        for key, value in row.items():
+            if value is None or (not isinstance(value, (str, bytes)) and pd.isna(value)):
+                clean[str(key)] = None
+            elif isinstance(value, float):
+                if not math.isfinite(value):
+                    raise ValueError("canonical holdings contain a non-finite value")
+                clean[str(key)] = float(value)
+            else:
+                clean[str(key)] = value
+        records.append(clean)
+    records.sort(key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str))
+    return json.dumps(records, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False, default=str)
 
 
 def write_holdings_records(
@@ -360,9 +402,30 @@ def _holdings_write_reasons(result: HoldingsNormalisationResult, frame: pd.DataF
         reasons.append("mismatched summary=holding_name")
 
     canonical_columns = ["security", "weight"] + [
-        column for column in ("isin", "ticker", "sector", "region", "currency", "holding_id", "security_id") if column in frame.columns
+        column
+        for column in (
+            "isin",
+            "ticker",
+            "sector",
+            "region",
+            "country",
+            "currency",
+            "issuer",
+            "company",
+            "holding_id",
+            "holding_id_namespace",
+            "security_id",
+            "security_id_namespace",
+            "exchange",
+            "venue",
+            "identity_type",
+            "identity_namespace",
+            "identity_value",
+            "instrument_type",
+        )
+        if column in frame.columns
     ]
-    canonical = frame[canonical_columns].sort_values(["security", "weight"], kind="stable").to_json(orient="records", date_format="iso")
+    canonical = _canonical_holdings_json(frame[canonical_columns])
     expected_source_id = "fundhold:" + hashlib.sha256(
         f"{instrument_values.iloc[0]}|{as_of_date.isoformat() if as_of_date else result.as_of}|{result.source}|{canonical}".encode("utf-8")
     ).hexdigest()[:24]

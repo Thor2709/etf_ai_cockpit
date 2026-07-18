@@ -24,6 +24,7 @@ from etf_cockpit.portfolio.sandbox import (
     candidate_id,
     create_candidate,
 )
+from etf_cockpit.application.overlap import build_direct_overlap_view
 
 
 PORTFOLIO_SANDBOX_ENTITY = "portfolio_sandbox"
@@ -74,11 +75,25 @@ def build_portfolio_candidate(
 
 
 def analyse_portfolio_candidate(snapshot: object, candidate: PortfolioCandidate) -> PortfolioAnalysis:
+    holdings = getattr(snapshot, "holdings")
+    current: dict[str, float] = {}
+    for _, row in holdings.iterrows():
+        instrument_id = str(row.get("etf_id", row.get("instrument_id", ""))).strip()
+        if instrument_id:
+            current[instrument_id] = current.get(instrument_id, 0.0) + float(row.get("current_weight", 0.0))
+    ids = sorted(set(current) | set(candidate.targets))
+    overlap = build_direct_overlap_view(
+        snapshot,
+        ids,
+        current_weights=current,
+        target_weights=candidate.targets,
+    )
     return analyse_candidate(
         getattr(snapshot, "config"),
-        getattr(snapshot, "holdings"),
+        holdings,
         candidate,
         current_revision=str(getattr(snapshot, "universe_revision", "") or "unknown"),
+        overlap=overlap,
     )
 
 

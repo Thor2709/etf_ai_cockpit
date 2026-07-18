@@ -9,6 +9,7 @@ import flet as ft
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import metric_card, panel, section_header
+from etf_cockpit.app.components.overlap import overlap_evidence_panel
 from etf_cockpit.app.components.simple_scores import _is_crowding_warning_state
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import (
@@ -16,6 +17,7 @@ from etf_cockpit.application.ui_facade import (
     CORRELATION_CLUSTERS_PATH,
     FUND_HOLDINGS_PATH,
     allocation_frame,
+    build_direct_overlap_view,
     build_factor_risk_report,
     drawdown_contribution,
     exposure_limit_report,
@@ -27,7 +29,7 @@ from etf_cockpit.application.ui_facade import (
     build_robust_risk_report,
     underlying_holdings_exposure,
 )
-from etf_cockpit.core.paths import DERIVED_DIR
+from etf_cockpit.core.paths import DERIVED_DIR, ROOT
 from etf_cockpit.core.paths import EXPORTS_DIR
 
 SCOREBOARD_PATH = DERIVED_DIR / "scoreboard.parquet"
@@ -162,13 +164,26 @@ def _holdings_quality_panel(holdings: pd.DataFrame) -> ft.Control:
 def _refresh_holdings_freshness(holdings: pd.DataFrame, *, stale_after_days: int = 90) -> pd.DataFrame:
     """Recompute persisted holding freshness before rendering or scoring."""
 
-    if holdings.empty or "as_of_date" not in holdings.columns:
+    if holdings.empty:
         return holdings
     refreshed = holdings.copy()
-    as_of = pd.to_datetime(refreshed["as_of_date"], errors="coerce", utc=True)
+    date_columns = [column for column in ("as_of_date", "as_of") if column in refreshed.columns]
+    if not date_columns:
+        for column, value in (("freshness", "invalid"), ("completeness", "invalid")):
+            if column in refreshed.columns:
+                refreshed[column] = value
+        if "score_eligible" in refreshed.columns:
+            refreshed["score_eligible"] = False
+        if "confidence" in refreshed.columns:
+            refreshed["confidence"] = 0.0
+        return refreshed
+    parsed_dates = [pd.to_datetime(refreshed[column], errors="coerce", utc=True) for column in date_columns]
+    as_of = parsed_dates[0]
     today = pd.Timestamp.now(tz="UTC").normalize()
     age_days = (today - as_of.dt.normalize()).dt.days
     invalid = as_of.isna()
+    for candidate in parsed_dates[1:]:
+        invalid |= candidate.isna() | candidate.dt.normalize().ne(as_of.dt.normalize())
     stale = as_of.notna() & age_days.gt(max(0, int(stale_after_days)))
     future = as_of.notna() & age_days.lt(0)
     if "freshness" in refreshed.columns:
@@ -177,8 +192,6 @@ def _refresh_holdings_freshness(holdings: pd.DataFrame, *, stale_after_days: int
         refreshed.loc[future, "freshness"] = "invalid"
     if "completeness" in refreshed.columns:
         refreshed.loc[invalid, "completeness"] = "invalid"
-        full_stale = stale & refreshed["completeness"].astype(str).str.strip().str.lower().eq("full")
-        refreshed.loc[full_stale, "completeness"] = "stale"
     if "score_eligible" in refreshed.columns:
         refreshed.loc[invalid | stale | future, "score_eligible"] = False
     if "confidence" in refreshed.columns:
@@ -192,37 +205,56 @@ def _refresh_holdings_freshness(holdings: pd.DataFrame, *, stale_after_days: int
 def _holdings_file_candidates() -> tuple[Path, ...]:
     """Return canonical holdings paths, including the runtime portable root."""
 
-    candidates = [FUND_HOLDINGS_PATH]
+    try:
+        FUND_HOLDINGS_PATH.absolute().relative_to(ROOT.absolute())
+        source_root = ROOT
+    except ValueError:
+        # Test and embedded callers may inject an isolated canonical path.
+        source_root = FUND_HOLDINGS_PATH.parent
+    candidates: list[tuple[Path, Path]] = [(FUND_HOLDINGS_PATH, source_root)]
     env_root = os.getenv("ETF_COCKPIT_ROOT", "").strip()
     if env_root:
-        candidates.append(Path(env_root) / "data" / "clean" / "fund_holdings.parquet")
-    candidates.append(Path.cwd() / "data" / "clean" / "fund_holdings.parquet")
+        runtime_root = Path(env_root)
+        candidates.append((runtime_root / "data" / "clean" / "fund_holdings.parquet", runtime_root))
     unique: list[Path] = []
     seen: set[Path] = set()
-    for candidate in candidates:
-        resolved = candidate.expanduser()
-        if resolved not in seen:
+    for candidate, root in candidates:
+        resolved = _resolved_local_path(candidate, root)
+        if resolved is not None and resolved not in seen:
             seen.add(resolved)
             unique.append(resolved)
     return tuple(unique)
+
+
+def _resolved_local_path(path: Path, root: Path) -> Path | None:
+    root_resolved = root.expanduser().resolve()
+    resolved = path.expanduser().resolve()
+    if str(root_resolved).startswith(("\\\\", "//")) or str(resolved).startswith(("\\\\", "//")):
+        return None
+    try:
+        resolved.relative_to(root_resolved)
+    except ValueError:
+        return None
+    return resolved
 
 
 def _load_holdings_evidence() -> pd.DataFrame:
     canonical = pd.DataFrame()
     for holdings_path in _holdings_file_candidates():
         try:
-            csv_path = holdings_path.with_suffix(".csv")
-            if not holdings_path.exists() and not csv_path.exists():
+            csv_candidate = holdings_path.with_suffix(".csv").resolve()
+            csv_path = csv_candidate if csv_candidate.parent == holdings_path.parent else None
+            if not holdings_path.exists() and (csv_path is None or not csv_path.exists()):
                 continue
             try:
                 canonical = pd.read_parquet(holdings_path)
             except Exception:
                 # Portable builds may have a usable CSV mirror even when the
                 # optional parquet engine cannot load a bundled binary.
-                if csv_path.exists():
+                if csv_path is not None and csv_path.exists():
                     canonical = pd.read_csv(csv_path)
             if canonical.empty:
-                if csv_path.exists():
+                if csv_path is not None and csv_path.exists():
                     canonical = pd.read_csv(csv_path)
             if not canonical.empty:
                 break
@@ -247,19 +279,24 @@ def _load_holdings_evidence() -> pd.DataFrame:
         return _refresh_holdings_freshness(legacy_context)
     if legacy_context.empty:
         return _refresh_holdings_freshness(canonical)
-    return _refresh_holdings_freshness(pd.concat([canonical, legacy_context], ignore_index=True, sort=False))
+    canonical_ids = set(canonical.get("instrument_id", pd.Series(dtype=str)).dropna().astype(str))
+    legacy_only = legacy_context.loc[~legacy_context["instrument_id"].astype(str).isin(canonical_ids)]
+    return _refresh_holdings_freshness(pd.concat([canonical, legacy_only], ignore_index=True, sort=False))
 
 
 def _exposure_eligible_holdings(holdings: pd.DataFrame) -> pd.DataFrame:
-    required = {"score_eligible", "authority", "freshness", "completeness"}
+    required = {"score_eligible", "authority", "freshness", "completeness", "source_id", "weight"}
     if holdings.empty or not required.issubset(holdings.columns):
         return pd.DataFrame(columns=holdings.columns)
     eligible = _refresh_holdings_freshness(holdings)
+    valid_weight = eligible["weight"].map(_valid_holding_weight)
     eligible = eligible[
         eligible["score_eligible"].map(_as_bool)
         & eligible["authority"].astype(str).str.strip().str.lower().eq("issuer")
         & eligible["freshness"].astype(str).str.strip().str.lower().eq("fresh")
         & eligible["completeness"].astype(str).str.strip().str.lower().eq("full")
+        & eligible["source_id"].astype(str).str.strip().ne("")
+        & valid_weight
     ]
     if "as_of_date" in eligible.columns:
         as_of = pd.to_datetime(eligible["as_of_date"], errors="coerce", utc=True)
@@ -267,6 +304,16 @@ def _exposure_eligible_holdings(holdings: pd.DataFrame) -> pd.DataFrame:
         valid_as_of = as_of.notna() & as_of.le(today)
         eligible = eligible[valid_as_of]
     return eligible
+
+
+def _valid_holding_weight(value: object) -> bool:
+    if pd.api.types.is_bool(value):
+        return False
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(number) and 0 <= number <= 1
 
 
 def _as_bool(value: object) -> bool:
@@ -732,6 +779,13 @@ def risk_page(_page: ft.Page, state: AppState) -> ft.Control:
     contribution = drawdown_contribution(allocation, state.snapshot.latest_features)
     imported_holdings = _load_holdings_evidence()
     eligible_holdings = _exposure_eligible_holdings(imported_holdings)
+    overlap = build_direct_overlap_view(
+        state.snapshot,
+        list(state.snapshot.config.universe.enabled_ids),
+        current_weights={str(row["etf_id"]): float(row["current_weight"]) for _, row in allocation.iterrows()},
+        target_weights={str(row["etf_id"]): float(row["target_weight"]) for _, row in allocation.iterrows()},
+        holdings=imported_holdings,
+    )
     factor_report = build_factor_risk_report(state.snapshot.prices, allocation, state.snapshot.latest_features, eligible_holdings)
     robust_risk_report = build_robust_risk_report(state.snapshot.prices, allocation, factor_report=factor_report)
     top_contributor = contribution.iloc[0]["etf_id"] if not contribution.empty else "n/a"
@@ -795,6 +849,7 @@ def risk_page(_page: ft.Page, state: AppState) -> ft.Control:
                 spacing=12,
             ),
             _holdings_quality_panel(imported_holdings),
+            overlap_evidence_panel(overlap, key="risk.etf-overlap"),
             _underlying_holdings_panel(eligible_holdings, allocation),
             _factor_summary_panel(factor_report),
             ft.Row([_factor_contribution_panel(factor_report), _factor_history_panel(factor_report)], spacing=12),

@@ -72,7 +72,8 @@ def test_portfolio_sandbox_exposes_non_executable_controls_and_results() -> None
     text = _text(root)
     assert "Portfolio Sandbox" in text
     assert "Execution" in text and "disabled" in text
-    assert "unavailable pending ISSUE-0022" in text
+    assert "ETF direct overlap" in text
+    assert "coverage_status=missing" in text
     assert "execution_allowed=false" in text
     assert PAGES["/portfolio"] == ("Portfolio Sandbox", portfolio.portfolio_page)
 
@@ -91,6 +92,9 @@ def test_portfolio_sandbox_validation_and_analysis_are_readable() -> None:
     assert "Current versus candidate" in result_text
     assert "EUR +12,000.00" in result_text
     assert "ETF overlap is unavailable" in result_text
+    overlap_text = _text(_by_key(root, "portfolio.etf-overlap"))
+    assert "coverage_status=missing" in overlap_text
+    assert "No holdings evidence is available" in overlap_text
 
 
 def test_portfolio_sandbox_save_load_and_stale_states(monkeypatch, tmp_path) -> None:

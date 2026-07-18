@@ -188,9 +188,14 @@ class ImportService:
             if date_column is None or instrument_column is None:
                 raise ValueError("ETF holdings import requires as_of date and instrument identity")
             instrument_id = str(frame[instrument_column].dropna().iloc[0]).strip()
-            source_column = _first_column(frame, ("source", "provider", "source_name"))
-            source_name = str(frame[source_column].dropna().iloc[0]).strip() if source_column and not frame[source_column].dropna().empty else "issuer"
-            result = normalise_holdings(frame, instrument_id, frame[date_column].dropna().iloc[0], source_name)
+            # User-owned generic imports are context evidence. Authority must
+            # never be promoted from a free-text column in the imported file.
+            result = normalise_holdings(
+                frame,
+                instrument_id,
+                frame[date_column].dropna().iloc[0],
+                "manual_unverified",
+            )
             if result.frame.empty:
                 raise ValueError("ETF holdings import is invalid; no data changed")
             destination = self.root / "data" / "clean" / "fund_holdings.parquet"

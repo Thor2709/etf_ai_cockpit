@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -37,10 +38,44 @@ def test_vendor_top_holdings_remain_partial_even_when_weights_sum_to_one() -> No
 
 def test_stale_holdings_are_explicit_and_capped_for_current_exposure() -> None:
     result = normalise_holdings(pd.DataFrame({"security": ["A"], "weight": [1.0]}), "VWCE", "2025-01-01", "issuer", today="2026-07-11")
-    assert result.completeness == "stale"
+    assert result.completeness == "full"
     assert result.freshness == "stale"
     assert result.confidence <= 0.25
     assert result.score_eligible is False
+
+
+@pytest.mark.parametrize("bad_weight", [True, np.bool_(True), float("nan"), float("inf"), 60.0])
+def test_canonical_decimal_weights_reject_boolean_non_finite_and_implicit_percentages(bad_weight: object) -> None:
+    frame = pd.DataFrame({"security": ["A"], "ticker": ["A"], "weight": pd.Series([bad_weight], dtype=object)})
+    result = normalise_holdings(frame, "VWCE", "2026-07-10", "issuer", today="2026-07-11")
+    assert result.completeness == "invalid"
+    assert result.score_eligible is False
+
+
+def test_source_authority_requires_an_exact_allowlisted_label() -> None:
+    result = normalise_holdings(
+        pd.DataFrame({"security": ["A"], "ticker": ["A"], "weight": [1.0]}),
+        "VWCE",
+        "2026-07-10",
+        "issuer_spoof",
+        today="2026-07-11",
+    )
+    assert result.authority == "unknown"
+    assert result.score_eligible is False
+
+
+def test_source_id_is_order_independent_when_primary_sort_fields_tie() -> None:
+    frame = pd.DataFrame(
+        {
+            "security": ["A", "A"],
+            "isin": ["GB0000000001", "GB0000000002"],
+            "weight": [0.5, 0.5],
+            "sector": ["Technology", "Financials"],
+        }
+    )
+    first = normalise_holdings(frame, "VWCE", "2026-07-10", "issuer", today="2026-07-11")
+    second = normalise_holdings(frame.iloc[::-1], "VWCE", "2026-07-10", "issuer", today="2026-07-11")
+    assert first.source_id == second.source_id
 
 
 def test_future_holdings_are_invalid_and_never_score_eligible() -> None:
@@ -427,6 +462,77 @@ def test_risk_holdings_loader_uses_nonempty_csv_when_packaged_parquet_is_empty(t
     loaded = risk_page_module._load_holdings_evidence()
 
     assert loaded.loc[0, "instrument_id"] == "VWCE"
+
+
+def test_risk_holdings_loader_never_mixes_legacy_when_canonical_exists(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    canonical = tmp_path / "fund_holdings.parquet"
+    pd.DataFrame(
+        {
+            "instrument_id": ["VWCE"],
+            "as_of_date": ["2026-07-10"],
+            "source_id": ["canonical-source"],
+            "completeness": ["partial"],
+            "freshness": ["fresh"],
+            "confidence": [0.55],
+            "authority": ["issuer"],
+            "score_eligible": [False],
+        }
+    ).to_parquet(canonical, index=False)
+    monkeypatch.setattr(risk_page_module, "_holdings_file_candidates", lambda: (canonical,))
+    monkeypatch.setattr(
+        risk_page_module,
+        "load_reference_dataset",
+        lambda _dataset: pd.DataFrame(
+            {
+                "etf_id": ["VWCE"],
+                "as_of_date": ["2026-07-11"],
+                "holding_name": ["Newer legacy row"],
+                "weight": [1.0],
+                "source": ["yfinance"],
+            }
+        ),
+    )
+
+    loaded = risk_page_module._load_holdings_evidence()
+
+    assert loaded["source_id"].tolist() == ["canonical-source"]
+
+
+@pytest.mark.parametrize("weight", [True, float("inf"), float("nan")])
+def test_risk_exposure_eligibility_rejects_untrusted_weights(weight: object) -> None:
+    holdings = pd.DataFrame(
+        [{
+            "instrument_id": "VWCE",
+            "as_of": "2026-07-10",
+            "weight": weight,
+            "source_id": "issuer-source",
+            "completeness": "full",
+            "freshness": "fresh",
+            "confidence": 0.9,
+            "authority": "issuer",
+            "score_eligible": True,
+        }]
+    )
+
+    assert risk_page_module._exposure_eligible_holdings(holdings).empty
+
+
+def test_risk_exposure_eligibility_requires_provenance_and_ages_as_of_only() -> None:
+    holdings = pd.DataFrame(
+        [{
+            "instrument_id": "VWCE",
+            "as_of": "2000-01-01",
+            "weight": 1.0,
+            "source_id": "",
+            "completeness": "full",
+            "freshness": "fresh",
+            "confidence": 0.9,
+            "authority": "issuer",
+            "score_eligible": True,
+        }]
+    )
+
+    assert risk_page_module._exposure_eligible_holdings(holdings).empty
 
 
 def test_risk_exposure_eligibility_fails_closed_on_malformed_persisted_date() -> None:

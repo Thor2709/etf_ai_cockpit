@@ -213,8 +213,10 @@ def _lookthrough_map(holdings: pd.DataFrame | None) -> dict[str, dict[str, dict[
     if id_column is None or "weight" not in holdings.columns:
         return result
     frame = holdings.copy()
-    frame["weight"] = pd.to_numeric(frame["weight"], errors="coerce")
+    frame["weight"] = frame["weight"].map(_safe_holding_weight)
     for instrument_id, group in frame.dropna(subset=[id_column, "weight"]).groupby(id_column, sort=True):
+        if math.fsum(float(value) for value in group["weight"]) > 1.01 + 1e-9:
+            continue
         dimensions: dict[str, dict[str, float]] = {}
         for dimension, column in (("industry", "sector"), ("country", "region"), ("currency", "currency")):
             if column not in group.columns:
@@ -229,6 +231,16 @@ def _lookthrough_map(holdings: pd.DataFrame | None) -> dict[str, dict[str, dict[
         if dimensions:
             result[str(instrument_id)] = dimensions
     return result
+
+
+def _safe_holding_weight(value: object) -> float | None:
+    if pd.api.types.is_bool(value):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) and 0 <= number <= 1 else None
 
 
 def _descriptor_name(factor: str) -> str:

@@ -55,4 +55,5 @@ from etf_cockpit.portfolio.robust_risk import *  # noqa: F401,F403
 from etf_cockpit.portfolio.risk import *  # noqa: F401,F403
 from etf_cockpit.portfolio.risk_analytics import *  # noqa: F401,F403
 from etf_cockpit.application.portfolio_sandbox import *  # noqa: F401,F403
+from etf_cockpit.application.overlap import *  # noqa: F401,F403
 from etf_cockpit.signals.simple_scores import *  # noqa: F401,F403

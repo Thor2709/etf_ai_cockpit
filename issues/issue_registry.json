@@ -3352,7 +3352,7 @@
       "package_status": "Open",
       "phase": "phase-02-data-policy-identity",
       "priority": "P1",
-      "programme_status": "planned",
+      "programme_status": "implemented_initially",
       "related_issues": [
         "ISSUE-0082",
         "ISSUE-0105",
