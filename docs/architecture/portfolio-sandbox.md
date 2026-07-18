@@ -1,0 +1,7 @@
+# Portfolio sandbox boundary
+
+`etf_cockpit.portfolio.sandbox` owns deterministic candidate validation and analysis. `etf_cockpit.application.portfolio_sandbox` binds those calculations to the current local snapshot, validates saved state and mediates `TransactionalStore`; `/portfolio` consumes this boundary through `application.ui_facade` and does not call providers, storage or broker code.
+
+Saved `portfolio_sandbox.v1` records contain only the candidate name, opaque identity, target/cash weights, analysis notional and source revision/checksum/as-of binding. A canonical payload checksum and optimistic expected revision make malformed records and stale writers fail closed. Drift, exposures, warnings and estimated costs are never persisted; they are recomputed from the current holdings snapshot. A changed binding is shown as stale and re-evaluated rather than silently replaying old derived values.
+
+The initial ISSUE-0021 slice provides named create/edit/save/load, current-versus-target drift, signed analysis notional, sector/region/currency exposure, concentration warnings and conservative rebalance-cost estimates. ETF look-through remains explicitly unavailable pending ISSUE-0022. Optimisation, tax lots, scenario analysis, attribution, proposals, orders and broker integration are outside this slice. `execution_allowed=false` is structural in domain, persistence and presentation results.

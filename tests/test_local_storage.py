@@ -9,6 +9,7 @@ import pytest
 
 from etf_cockpit.data.local_storage import (
     STORAGE_SCHEMA_VERSION,
+    StorageRevisionConflict,
     StorageSchemaError,
     TransactionalStore,
     initialise_storage,
@@ -41,6 +42,36 @@ def test_transactional_records_are_versioned_soft_deletable_and_recoverable(tmp_
         assert store.get("journal", "decision-1") is None
         deleted = store.get("journal", "decision-1", include_deleted=True)
         assert deleted is not None and deleted.deleted_at is not None
+
+
+def test_transactional_put_can_reject_stale_or_duplicate_writers(tmp_path):
+    with TransactionalStore(tmp_path) as first, TransactionalStore(tmp_path) as second:
+        created = first.put("portfolio", "candidate-1", {"cash": 1.0}, expected_revision=0)
+        assert created.revision == 1
+
+        updated = second.put("portfolio", "candidate-1", {"cash": 0.5}, expected_revision=1)
+        assert updated.revision == 2
+
+        with pytest.raises(StorageRevisionConflict, match="expected revision 1, current revision is 2"):
+            first.put("portfolio", "candidate-1", {"cash": 0.0}, expected_revision=1)
+        with pytest.raises(StorageRevisionConflict, match="expected revision 0, current revision is 2"):
+            first.put("portfolio", "candidate-1", {"cash": 0.0}, expected_revision=0)
+        assert first.get("portfolio", "candidate-1").payload == {"cash": 0.5}
+
+
+def test_transactional_put_rejects_non_finite_json(tmp_path):
+    with TransactionalStore(tmp_path) as store:
+        with pytest.raises(ValueError, match="Out of range float values"):
+            store.put("portfolio", "candidate-1", {"cash": float("nan")})
+
+
+def test_transactional_put_returns_its_committed_row_without_a_post_commit_read(tmp_path, monkeypatch):
+    with TransactionalStore(tmp_path) as store:
+        monkeypatch.setattr(store, "get", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("post-commit read")))
+        record = store.put("portfolio", "candidate-1", {"weights": (0.4, 0.6)}, expected_revision=0)
+
+    assert record.revision == 1
+    assert record.payload == {"weights": [0.4, 0.6]}
 
 
 def test_explicit_transaction_rolls_back_all_records_on_failure(tmp_path):

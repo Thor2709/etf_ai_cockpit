@@ -46,7 +46,7 @@ from etf_cockpit.core.session_log import log_event
 
 PAGES = {
     "/": ("Simple Scores", dashboard_page),
-    "/portfolio": ("Portfolio Context", portfolio_page),
+    "/portfolio": ("Portfolio Sandbox", portfolio_page),
     "/signals": ("Scores", signals_page),
     "/screener": ("Fundamentals Screener", screener_page),
     "/comparison": ("Comparison", comparison_page),

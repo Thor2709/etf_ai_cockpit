@@ -26,7 +26,7 @@ authority_stages:
   - {stage_id: disabled, label: Disabled, description: Declared capability is unavailable and cannot influence mandatory workflows., enabled_by_default: false, execution_allowed: false}
 capabilities:
   - {capability_id: "route:/", kind: route, authority_stage: research, description: Simple Scores workspace}
-  - {capability_id: "route:/portfolio", kind: route, authority_stage: shadow_proposal, description: Portfolio context workspace}
+  - {capability_id: "route:/portfolio", kind: route, authority_stage: research, description: Local non-executable portfolio candidate sandbox}
   - {capability_id: "route:/signals", kind: route, authority_stage: research, description: Scores workspace}
   - {capability_id: "route:/screener", kind: route, authority_stage: research, description: Fundamentals screener workspace}
   - {capability_id: "route:/risk", kind: route, authority_stage: research, description: Risk evidence workspace}
