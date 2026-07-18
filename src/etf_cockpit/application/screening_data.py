@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 import pandas as pd
 
 from etf_cockpit.application.screening import ScreenQuery, records_checksum
+from etf_cockpit.data.fundamentals import assess_fundamental_row, latest_fundamental_rows
 
 
 _FACTOR_FIELDS = (
@@ -35,7 +37,7 @@ def build_screen_rows(snapshot: Any, fundamentals: pd.DataFrame) -> pd.DataFrame
 
     fundamentals = fundamentals.copy() if isinstance(fundamentals, pd.DataFrame) else pd.DataFrame()
     if "instrument_id" in fundamentals.columns:
-        fundamentals = fundamentals.drop_duplicates("instrument_id", keep="last").set_index("instrument_id")
+        fundamentals = latest_fundamental_rows(fundamentals).set_index("instrument_id")
     else:
         fundamentals = pd.DataFrame()
     signals = {str(signal.etf_id): signal for signal in getattr(snapshot, "signals", ())}
@@ -46,6 +48,7 @@ def build_screen_rows(snapshot: Any, fundamentals: pd.DataFrame) -> pd.DataFrame
         signal = signals.get(instrument_id)
         metrics = getattr(signal, "supporting_metrics", {}) if signal is not None else {}
         fundamental = fundamentals.loc[instrument_id] if instrument_id in fundamentals.index else pd.Series(dtype=object)
+        fundamental_eligible = _fundamental_score_eligible(fundamental, assessment_date=_as_of_date(snapshot))
         blocked = tuple(getattr(signal, "blocked_by", ()) or ())
         warnings = tuple(getattr(signal, "warnings", ()) or ())
         as_of = fundamental.get("as_of_date", fundamental.get("as_of", _as_of(snapshot)))
@@ -74,12 +77,12 @@ def build_screen_rows(snapshot: Any, fundamentals: pd.DataFrame) -> pd.DataFrame
                 "trend": _metric(metrics, "trend_200"),
                 "volatility": _metric(metrics, "vol_60d_ann"),
                 "drawdown": _metric(metrics, "drawdown_current"),
-                "valuation": fundamental.get("valuation"),
-                "profitability": fundamental.get("profitability"),
-                "leverage": fundamental.get("leverage"),
-                "growth": fundamental.get("growth"),
-                "shareholder_return": fundamental.get("shareholder_return"),
-                "quality": _quality(fundamental),
+                "valuation": fundamental.get("valuation") if fundamental_eligible else None,
+                "profitability": fundamental.get("profitability") if fundamental_eligible else None,
+                "leverage": fundamental.get("leverage") if fundamental_eligible else None,
+                "growth": fundamental.get("growth") if fundamental_eligible else None,
+                "shareholder_return": fundamental.get("shareholder_return") if fundamental_eligible else None,
+                "quality": _quality(fundamental) if fundamental_eligible else None,
                 "liquidity": _metric(metrics, "capacity_eur"),
                 "portfolio_impact": _metric(metrics, "drift_percent"),
                 "model_availability": _model_availability(model_status),
@@ -144,6 +147,12 @@ def _quality(fundamental: pd.Series) -> float | None:
     return float(values.mean()) if not values.empty else None
 
 
+def _fundamental_score_eligible(fundamental: pd.Series, *, assessment_date: date | None = None) -> bool:
+    if fundamental.empty or assessment_date is None:
+        return False
+    return assess_fundamental_row(fundamental, today=assessment_date).score_eligible
+
+
 def _model_availability(status: dict[str, bool]) -> str:
     available = sorted(str(key) for key, value in status.items() if value)
     return "|".join(available) if available else "baseline_only"
@@ -152,6 +161,14 @@ def _model_availability(status: dict[str, bool]) -> str:
 def _as_of(snapshot: Any) -> str:
     value = getattr(getattr(snapshot, "data_report", None), "as_of_date", None)
     return str(value or "unavailable")
+
+
+def _as_of_date(snapshot: Any) -> date | None:
+    try:
+        value = pd.Timestamp(_as_of(snapshot))
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return value.date() if not pd.isna(value) else None
 
 
 def _freshness(value: object, snapshot_as_of: str) -> tuple[str, int | None]:

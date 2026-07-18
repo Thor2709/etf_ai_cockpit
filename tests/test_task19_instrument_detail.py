@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import date
+import json
 
 import numpy as np
 import pandas as pd
@@ -599,6 +601,171 @@ def test_fundamentals_panel_fails_closed_for_nullable_score_eligibility() -> Non
     assert panel["score_eligible"] is False
 
 
+def test_fundamentals_panel_exposes_five_values_provenance_and_stale_state() -> None:
+    panel = _fundamentals_panel(
+        "VWCE",
+        pd.DataFrame(
+            {
+                "instrument_id": ["VWCE"],
+                "as_of_date": ["2026-07-10"],
+                "eligibility": ["eligible"],
+                "score_eligible": [True],
+                "valuation": [7.0],
+                "profitability": [8.0],
+                "leverage": [5.0],
+                "growth": [9.0],
+                "shareholder_return": [6.0],
+                "source_authority": ["sec_edgar"],
+                "source_id": ["sec-filing-2026-q2"],
+                "warnings": ["stale_fundamentals"],
+                "stale_fields": ["valuation|profitability"],
+                "sections_json": ['{"valuation":{"period_end":"2026-06-30","source_id":"sec-filing-2026-q2","value":7.0}}'],
+            }
+        ),
+    )
+
+    assert panel["values"] == {
+        "valuation": 7.0,
+        "profitability": 8.0,
+        "leverage": 5.0,
+        "growth": 9.0,
+        "shareholder_return": 6.0,
+    }
+    assert panel["section_metadata"]["valuation"]["period_end"] == "2026-06-30"
+    assert panel["source_id"] == "sec-filing-2026-q2"
+    assert panel["stale_fields"] == "valuation|profitability"
+    assert panel["status"] == "manual_review"
+    assert panel["score_eligible"] is False
+    assert panel["execution_allowed"] is False
+
+
+def test_fundamentals_panel_renders_complete_five_section_provenance() -> None:
+    as_of = date.today().isoformat()
+    values = {
+        "valuation": 7.0,
+        "profitability": 8.0,
+        "leverage": 5.0,
+        "growth": 9.0,
+        "shareholder_return": 6.0,
+    }
+    sections = {
+        field: {
+            "value": value,
+            "period_end": as_of,
+            "source_id": "sec-filing-2026-q2",
+            "source_authority": "sec_edgar",
+        }
+        for field, value in values.items()
+    }
+    panel = _fundamentals_panel(
+        "VWCE",
+        pd.DataFrame(
+            [
+                {
+                    "instrument_id": "VWCE",
+                    "as_of_date": as_of,
+                    "eligibility": "eligible",
+                    "score_eligible": True,
+                    "source_authority": "sec_edgar",
+                    "source_id": "sec-filing-2026-q2",
+                    "warnings": "",
+                    "stale_fields": "",
+                    "sections_json": json.dumps(sections, sort_keys=True),
+                    **values,
+                }
+            ]
+        ),
+    )
+
+    control = _render_evidence_section("Fundamentals", panel, key="instrument-detail.fundamentals")
+    text = "\n".join(_text_values(control))
+
+    assert panel["status"] == "available"
+    assert "valuation=7.0" in text
+    assert "period_end" in text
+    assert as_of in text
+    assert "source_id: sec-filing-2026-q2" in text
+    assert "freshness_status: fresh" in text
+    assert "execution_allowed: False" in text
+
+
+def test_fundamentals_panel_fails_closed_without_section_source_and_period() -> None:
+    as_of = date.today().isoformat()
+    values = {
+        "valuation": 7.0,
+        "profitability": 8.0,
+        "leverage": 5.0,
+        "growth": 9.0,
+        "shareholder_return": 6.0,
+    }
+    panel = _fundamentals_panel(
+        "VWCE",
+        pd.DataFrame(
+            [
+                {
+                    "instrument_id": "VWCE",
+                    "as_of_date": as_of,
+                    "eligibility": "eligible",
+                    "score_eligible": True,
+                    "source_authority": "sec_edgar",
+                    "source_id": "sec-filing-2026-q2",
+                    "warnings": "",
+                    "sections_json": json.dumps({field: {"value": value} for field, value in values.items()}),
+                    **values,
+                }
+            ]
+        ),
+    )
+
+    assert panel["status"] == "manual_review"
+    assert panel["score_eligible"] is False
+    assert any(reason.endswith("_period") for reason in panel["review_reasons"])
+    assert any(reason.endswith("_source_id") for reason in panel["review_reasons"])
+    assert any(reason.endswith("_source_authority") for reason in panel["review_reasons"])
+
+
+def test_fundamentals_panel_fails_closed_for_malformed_as_of_date() -> None:
+    values = {
+        "valuation": 7.0,
+        "profitability": 8.0,
+        "leverage": 5.0,
+        "growth": 9.0,
+        "shareholder_return": 6.0,
+    }
+    sections = {
+        field: {
+            "value": value,
+            "period_end": "2026-06-30",
+            "source_id": "sec-filing-2026-q2",
+            "source_authority": "sec_edgar",
+        }
+        for field, value in values.items()
+    }
+    panel = _fundamentals_panel(
+        "VWCE",
+        pd.DataFrame(
+            [
+                {
+                    "instrument_id": "VWCE",
+                    "as_of_date": "unavailable",
+                    "eligibility": "eligible",
+                    "score_eligible": True,
+                    "source_authority": "sec_edgar",
+                    "source_id": "sec-filing-2026-q2",
+                    "warnings": "",
+                    "sections_json": json.dumps(sections),
+                    **values,
+                }
+            ]
+        ),
+    )
+
+    assert panel["status"] == "manual_review"
+    assert panel["freshness_status"] == "unavailable"
+    assert panel["score_eligible"] is False
+    assert "ambiguous_as_of" in panel["review_reasons"]
+
+
 def test_crowding_attribution_renders_canonical_broad_alpha_value() -> None:
     control = _render_crowding_attribution_panel(
         {
@@ -649,6 +816,30 @@ def test_instrument_detail_exposes_functional_export_control_and_disabled_state(
     disabled_export = next(item for item in _walk(unavailable) if getattr(item, "key", "") == "instrument-detail.export-evidence")
     assert disabled_export.disabled is True
     assert "unavailable" in "\n".join(_text_values(unavailable)).casefold()
+
+
+def test_instrument_detail_registers_visible_fundamentals_acceptance_surface() -> None:
+    snapshot = build_snapshot()
+    state = type("State", (), {"snapshot": snapshot, "selected_etf": "VWCE", "last_export_path": None, "last_message": "Ready"})()
+
+    control = instrument_detail_page(None, state)
+    fundamentals = next(item for item in _walk(control) if getattr(item, "key", "") == "instrument-detail.fundamentals")
+    text = "\n".join(_text_values(fundamentals))
+
+    assert "Fundamentals" in text
+    assert "Five-section values" in text
+    assert "execution_allowed=false" in text
+
+
+def test_evidence_section_preserves_fundamentals_key_when_unavailable() -> None:
+    control = _render_evidence_section(
+        "Fundamentals",
+        "unavailable",
+        key="instrument-detail.fundamentals",
+    )
+
+    assert any(getattr(item, "key", "") == "instrument-detail.fundamentals" for item in _walk(control))
+    assert "unavailable" in "\n".join(_text_values(control)).casefold()
 
 
 def test_news_item_record_nullable_provenance_fails_closed() -> None:

@@ -229,7 +229,7 @@ def _render_evidence_section(
     key: str | None = None,
 ) -> ft.Control:
     if not isinstance(value, dict):
-        return panel(ft.Column([section_header(title, subtitle), ft.Text(str(value), color=theme.MUTED, selectable=True)], spacing=6))
+        return panel(ft.Column([section_header(title, subtitle), ft.Text(str(value), color=theme.MUTED, selectable=True)], key=key, spacing=6))
     lines: list[ft.Control] = [_render_evidence_badges(value)]
     for field_name, item in value.items():
         if field_name in {
@@ -355,7 +355,12 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
         _render_evidence_section("Evidence Score", model.sections.get("scores"), subtitle="Authority score, quality, final label/reason and blocked gates; execution_allowed=false."),
         _render_evidence_section("Risk and feature evidence", model.sections.get("risk"), subtitle="Momentum, trend, relative strength, volatility, drawdown and liquidity/cost."),
         _render_evidence_section("Alpha, beta and correlation", model.sections.get("attribution")),
-        _render_evidence_section("Fundamentals", model.sections.get("fundamentals")),
+        _render_evidence_section(
+            "Fundamentals",
+            model.sections.get("fundamentals"),
+            subtitle="Five-section values, statement coverage, source, period, freshness and limitations; execution_allowed=false.",
+            key="instrument-detail.fundamentals",
+        ),
         _render_evidence_section("ETF holdings and exposure", model.sections.get("etf_holdings")),
         _render_evidence_section(
             "ETF direct overlap",
