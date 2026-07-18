@@ -45,6 +45,7 @@ FEATURES_DIR = DATA_DIR / "features"
 FORECASTS_DIR = DATA_DIR / "forecasts"
 BACKTESTS_DIR = DATA_DIR / "backtests"
 PORTFOLIOS_DIR = DATA_DIR / "portfolios"
+WORKSPACES_DIR = DATA_DIR / "workspaces"
 CHATGPT_EXPORTS_DIR = DATA_DIR / "chatgpt_exports"
 CHATGPT_IMPORTS_DIR = DATA_DIR / "chatgpt_imports"
 SNAPSHOTS_DIR = DATA_DIR / "snapshots"
@@ -85,6 +86,7 @@ REQUIRED_DIRS = [
     FORECASTS_DIR,
     BACKTESTS_DIR,
     PORTFOLIOS_DIR,
+    WORKSPACES_DIR,
     CHATGPT_EXPORTS_DIR,
     CHATGPT_IMPORTS_DIR,
     MODEL_DIR / "timesfm",

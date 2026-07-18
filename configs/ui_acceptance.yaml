@@ -6,6 +6,7 @@ controls:
   - {key: navigation.portfolio, route: /portfolio, control_label: Portfolio Context, callback: navigate_to, success_signal: route=/portfolio, controlled_error_signal: session_event, acceptance_test: tests/test_accessibility_contracts.py, control_type: navigation}
   - {key: navigation.signals, route: /signals, control_label: Scores, callback: navigate_to, success_signal: route=/signals, controlled_error_signal: session_event, acceptance_test: tests/test_accessibility_contracts.py, control_type: navigation}
   - {key: navigation.screener, route: /screener, control_label: Fundamentals Screener, callback: navigate_to, success_signal: route=/screener, controlled_error_signal: session_event, acceptance_test: tests/ui/test_screener_ui.py, control_type: navigation}
+  - {key: navigation.comparison, route: /comparison, control_label: Comparison, callback: navigate_to, success_signal: route=/comparison, controlled_error_signal: session_event, acceptance_test: tests/test_comparison_workspace.py, control_type: navigation}
   - {key: navigation.stock-research, route: /stock-research, control_label: Stock Research, callback: navigate_to, success_signal: route=/stock-research, controlled_error_signal: session_event, acceptance_test: tests/test_stock_research_ui.py, control_type: navigation}
   - {key: navigation.risk, route: /risk, control_label: Risk Evidence, callback: navigate_to, success_signal: route=/risk, controlled_error_signal: session_event, acceptance_test: tests/test_accessibility_contracts.py, control_type: navigation}
   - {key: navigation.etf, route: /etf, control_label: Instrument Detail, callback: navigate_to, success_signal: route=/etf, controlled_error_signal: session_event, acceptance_test: tests/test_accessibility_contracts.py, control_type: navigation}
@@ -79,6 +80,7 @@ controls:
   - {key: dashboard.renew-dry-run, route: /, control_label: Validate current data, callback: _run_dialog_action, success_signal: activity_complete, controlled_error_signal: activity_failed, acceptance_test: tests/test_button_contracts.py, control_type: button}
   - {key: dashboard.renew-rollback, route: /, control_label: Rollback prices, callback: _run_dialog_action, success_signal: activity_complete, controlled_error_signal: activity_failed, acceptance_test: tests/test_button_contracts.py, control_type: button}
   - {key: dashboard.renew-close, route: /, control_label: Close, callback: close_dialog, success_signal: dialog_closed, controlled_error_signal: session_event, acceptance_test: tests/test_button_contracts.py, control_type: button}
+  - {key: comparison.save-workspace, route: /comparison, control_label: Save workspace, callback: save_workspace, success_signal: workspace_saved, controlled_error_signal: controlled_recovery_state, acceptance_test: tests/test_comparison_workspace.py, control_type: button}
 
   # Recovery, data import and audit controls.
   - {key: errors.retry.*, route: /errors, control_label: Retry, callback: retry_request, success_signal: retry_requested, controlled_error_signal: session_event, acceptance_test: tests/test_error_recovery.py, control_type: button}
