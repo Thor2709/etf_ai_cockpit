@@ -38,6 +38,7 @@ from etf_cockpit.app.pages.trust_evidence import (
     provider_status_page,
 )
 from etf_cockpit.app.pages.release_readiness import release_readiness_page
+from etf_cockpit.app.pages.programme_map import programme_map_page
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.session_log import log_event
 
@@ -75,6 +76,7 @@ PAGES = {
     "/jobs": ("Jobs & Activity", jobs_page),
     "/operations": ("Operations Centre", operations_page),
     "/release-readiness": ("Release Readiness", release_readiness_page),
+    "/roadmap": ("Programme Map", programme_map_page),
 }
 
 # One stable information architecture for the existing routes. The pages stay
@@ -87,7 +89,7 @@ WORKSPACE_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Models", ("/data-models", "/macro")),
     ("Backtest/Paper", ("/backtests", "/operations")),
     ("Data Health", ("/providers", "/filings", "/etf-disclosures", "/news-context", "/catalogue", "/data-health")),
-    ("Audit", ("/chatgpt", "/evidence", "/decision-journal", "/release-readiness")),
+    ("Audit", ("/chatgpt", "/evidence", "/decision-journal", "/release-readiness", "/roadmap")),
     ("Settings", ("/settings", "/diagnostics", "/errors", "/onboarding", "/import-export", "/system-map", "/help", "/jobs")),
 )
 
