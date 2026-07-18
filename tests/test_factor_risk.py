@@ -121,3 +121,11 @@ def test_risk_workspace_surfaces_factor_model_evidence_and_exports() -> None:
     assert "build_factor_risk_report" in source
     assert "risk_factor_contributions.csv" in source
     assert "risk_factor_returns.csv" in source
+
+
+def test_risk_workspace_surfaces_performance_attribution() -> None:
+    from etf_cockpit.app.pages.risk import risk_page
+
+    source = inspect.getsource(risk_page)
+    assert "build_performance_attribution" in source
+    assert "risk.export-performance-attribution" in source

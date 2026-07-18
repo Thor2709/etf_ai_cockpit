@@ -17,6 +17,7 @@ from etf_cockpit.application.ui_facade import (
     CORRELATION_CLUSTERS_PATH,
     FUND_HOLDINGS_PATH,
     allocation_frame,
+    build_performance_attribution,
     build_direct_overlap_view,
     build_factor_risk_report,
     drawdown_contribution,
@@ -483,6 +484,51 @@ def _factor_history_panel(report: dict[str, object]) -> ft.Control:
     )
 
 
+def _performance_attribution_panel(report: dict[str, object]) -> ft.Control:
+    coverage = report.get("coverage") if isinstance(report.get("coverage"), dict) else {}
+    warnings = report.get("warnings") if isinstance(report.get("warnings"), list) else []
+    asset = report.get("asset_contributions")
+    asset = asset if isinstance(asset, pd.DataFrame) else pd.DataFrame()
+    rows = [
+        ft.DataRow(
+            cells=[
+                ft.DataCell(ft.Text(str(row.get("instrument_id", "")), color=theme.TEXT, size=11)),
+                ft.DataCell(ft.Text(_pct(row.get("contribution")), color=theme.TEXT, size=11)),
+                ft.DataCell(ft.Text(str(row.get("observations", "")), color=theme.MUTED, size=11)),
+                ft.DataCell(ft.Text(_pct(row.get("coverage")), color=theme.MUTED, size=11)),
+            ]
+        )
+        for _, row in asset.head(8).iterrows()
+    ]
+    return panel(
+        ft.Column(
+            [
+                section_header("Performance and decision attribution", "Linked adjusted-price contributions reconcile gross performance; missing costs, FX and journal evidence remain explicit."),
+                ft.Text(
+                    f"Status: {report.get('status', 'unavailable')} | time-weighted return: {_pct(report.get('time_weighted_return'))} | money-weighted: {_pct(report.get('money_weighted_return'))} ({report.get('money_weighted_status', 'unavailable')}) | net after explicit costs: {_pct(report.get('net_return_after_explicit_costs'))}",
+                    color=theme.TEXT,
+                    selectable=True,
+                ),
+                ft.Text(
+                    f"Gross identity residual: {_pct(report.get('identity_residual'))} | factor: {coverage.get('factor_status', 'unavailable')} | currency: {coverage.get('currency_status', 'unavailable')} | decisions: {coverage.get('decision_status', 'unavailable')} | execution_allowed=false",
+                    color=theme.AMBER if warnings else theme.MUTED,
+                    selectable=True,
+                ),
+                ft.Text(f"Warnings: {', '.join(str(item) for item in warnings) or 'none'}", color=theme.AMBER if warnings else theme.MUTED, selectable=True),
+                ft.DataTable(
+                    columns=[ft.DataColumn(ft.Text("Instrument")), ft.DataColumn(ft.Text("Contribution")), ft.DataColumn(ft.Text("N")), ft.DataColumn(ft.Text("Coverage"))],
+                    rows=rows,
+                )
+                if rows
+                else ft.Text("Asset attribution is unavailable; adjusted-price history and a valid allocation are required.", color=theme.MUTED),
+            ],
+            spacing=6,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        expand=True,
+    )
+
+
 def _robust_risk_summary_panel(report: dict[str, object]) -> ft.Control:
     diagnostics = report.get("diagnostics") if isinstance(report.get("diagnostics"), dict) else {}
     estimators = diagnostics.get("estimators") if isinstance(diagnostics.get("estimators"), dict) else {}
@@ -787,6 +833,12 @@ def risk_page(_page: ft.Page, state: AppState) -> ft.Control:
         holdings=imported_holdings,
     )
     factor_report = build_factor_risk_report(state.snapshot.prices, allocation, state.snapshot.latest_features, eligible_holdings)
+    attribution_report = build_performance_attribution(
+        state.snapshot.prices,
+        allocation,
+        factor_returns=factor_report.get("factor_returns"),
+        factor_exposures=factor_report.get("exposure_matrix"),
+    )
     robust_risk_report = build_robust_risk_report(state.snapshot.prices, allocation, factor_report=factor_report)
     top_contributor = contribution.iloc[0]["etf_id"] if not contribution.empty else "n/a"
     export_status = ft.Text("Risk tables show text status independent of colour.", color=theme.MUTED, selectable=True)
@@ -821,6 +873,9 @@ def risk_page(_page: ft.Page, state: AppState) -> ft.Control:
     def export_factor_history(_event: ft.ControlEvent) -> None:
         export_risk_frame("risk_factor_returns", factor_report.get("factor_returns", pd.DataFrame()), "risk_factor_returns.csv")
 
+    def export_attribution(_event: ft.ControlEvent) -> None:
+        export_risk_frame("risk_performance_attribution", attribution_report.get("asset_contributions", pd.DataFrame()), "risk_performance_attribution.csv")
+
     return ft.Column(
         [
             ft.Row(
@@ -853,13 +908,14 @@ def risk_page(_page: ft.Page, state: AppState) -> ft.Control:
             _underlying_holdings_panel(eligible_holdings, allocation),
             _factor_summary_panel(factor_report),
             ft.Row([_factor_contribution_panel(factor_report), _factor_history_panel(factor_report)], spacing=12),
+            _performance_attribution_panel(attribution_report),
             _robust_risk_summary_panel(robust_risk_report),
             ft.Row([_robust_estimator_panel(robust_risk_report), _robust_regime_panel(robust_risk_report)], spacing=12),
             _correlation_table(correlation),
             _crowding_attribution_panel(),
             _friction_edge_panel(),
             _drawdown_table(contribution),
-            panel(ft.Column([section_header("Risk evidence export", "CSV output is local-only and does not trigger execution. Empty canonical sources report unavailable and do not write placeholders."), ft.Row([ft.OutlinedButton("Export risk limits CSV", key="risk.export-limits", icon=ft.Icons.DOWNLOAD, on_click=export_limits), ft.OutlinedButton("Export allocation CSV", key="risk.export-allocation", icon=ft.Icons.DOWNLOAD, on_click=export_allocation), ft.OutlinedButton("Export holdings CSV", key="risk.export-holdings", icon=ft.Icons.DOWNLOAD, on_click=export_holdings), ft.OutlinedButton("Export correlation CSV", key="risk.export-correlation", icon=ft.Icons.DOWNLOAD, on_click=export_correlation), ft.OutlinedButton("Export drawdown CSV", key="risk.export-drawdown", icon=ft.Icons.DOWNLOAD, on_click=export_drawdown), ft.OutlinedButton("Export factor contributions CSV", key="risk.export-factor-contributions", icon=ft.Icons.DOWNLOAD, on_click=export_factor_contributions), ft.OutlinedButton("Export factor returns CSV", key="risk.export-factor-returns", icon=ft.Icons.DOWNLOAD, on_click=export_factor_history)], wrap=True), export_status], spacing=8)),
+            panel(ft.Column([section_header("Risk evidence export", "CSV output is local-only and does not trigger execution. Empty canonical sources report unavailable and do not write placeholders."), ft.Row([ft.OutlinedButton("Export risk limits CSV", key="risk.export-limits", icon=ft.Icons.DOWNLOAD, on_click=export_limits), ft.OutlinedButton("Export allocation CSV", key="risk.export-allocation", icon=ft.Icons.DOWNLOAD, on_click=export_allocation), ft.OutlinedButton("Export holdings CSV", key="risk.export-holdings", icon=ft.Icons.DOWNLOAD, on_click=export_holdings), ft.OutlinedButton("Export correlation CSV", key="risk.export-correlation", icon=ft.Icons.DOWNLOAD, on_click=export_correlation), ft.OutlinedButton("Export drawdown CSV", key="risk.export-drawdown", icon=ft.Icons.DOWNLOAD, on_click=export_drawdown), ft.OutlinedButton("Export factor contributions CSV", key="risk.export-factor-contributions", icon=ft.Icons.DOWNLOAD, on_click=export_factor_contributions), ft.OutlinedButton("Export factor returns CSV", key="risk.export-factor-returns", icon=ft.Icons.DOWNLOAD, on_click=export_factor_history), ft.OutlinedButton("Export performance attribution CSV", key="risk.export-performance-attribution", icon=ft.Icons.DOWNLOAD, on_click=export_attribution)], wrap=True), export_status], spacing=8)),
         ],
         expand=True,
         spacing=14,
