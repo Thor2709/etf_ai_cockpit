@@ -125,6 +125,30 @@ def test_news_preview_rejects_headline_source_url_without_publication_date(tmp_p
     assert any("published" in error or "date" in error for error in preview.errors)
 
 
+def test_event_calendar_import_uses_availability_aware_contract(tmp_path: Path) -> None:
+    source = tmp_path / "events.csv"
+    pd.DataFrame(
+        {
+            "event_id": ["earnings-1"],
+            "instrument_id": ["VWCE"],
+            "event_type": ["earnings"],
+            "event_date": ["2026-07-30"],
+            "available_at": ["2026-07-01T09:00:00+00:00"],
+            "ingested_at": ["2026-07-01T09:01:00+00:00"],
+            "source_id": ["issuer-calendar"],
+            "source_authority": ["issuer"],
+            "title": ["Quarterly earnings"],
+            "risk_level": ["high"],
+        }
+    ).to_csv(source, index=False)
+    preview = validate_import("event_calendar", source)
+    assert preview.valid is True
+    result = ImportService(tmp_path).commit(preview.preview_id)
+    assert result.destination == tmp_path / "data" / "clean" / "event_calendar.parquet"
+    assert result.execution_allowed is False
+    assert bool(result.frame.iloc[0]["context_only"]) is True
+
+
 def test_export_result_reports_path_and_controlled_failure(tmp_path: Path) -> None:
     destination = tmp_path / "scoreboard.csv"
     result = export_table("scoreboard", pd.DataFrame({"score": [1]}), destination)

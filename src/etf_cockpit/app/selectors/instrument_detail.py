@@ -10,6 +10,7 @@ from etf_cockpit.application.ui_facade import (
     BENCHMARK_ATTRIBUTION_PATH,
     CORRELATION_CLUSTERS_PATH,
     FEATURE_DRIVERS_PATH,
+    EVENT_CLEAN_PATH,
     FUNDAMENTAL_CLEAN_PATH,
     FUND_HOLDINGS_PATH,
     NEWS_CLEAN_PATH,
@@ -21,12 +22,14 @@ from etf_cockpit.application.ui_facade import (
     latest_fundamental_rows,
     load_fundamental_evidence,
     load_news_items,
+    load_calendar_events,
     load_statement_evidence,
     read_document_registry,
     read_index_methodology_records,
     read_priips_kid_records,
     score_history_frame,
     sort_news_items,
+    sort_calendar_events,
 )
 from etf_cockpit.core.paths import DERIVED_DIR
 from etf_cockpit.core.paths import ETF_QUOTES_PATH
@@ -57,6 +60,7 @@ _SECTION_NAMES = (
     "etf_holdings",
     "etf_overlap",
     "news",
+    "events",
     "forecasts",
     "backtests",
     "paper_trades",
@@ -479,6 +483,29 @@ def _news_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[s
         return _unavailable("News unavailable for this instrument.") | {"items": [], "context_only": True, "executable_authority": False}
     items = [_news_item_record(row) for row in scoped.tail(20).to_dict("records")]
     return {"status": "available", "message": "News is context-only and cannot change deterministic scores.", "items": items, "context_only": True, "executable_authority": False, "execution_allowed": False}
+
+
+def _event_calendar_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
+    """Return upcoming event evidence without allowing it into score paths."""
+
+    try:
+        source = frame if isinstance(frame, pd.DataFrame) else load_calendar_events(EVENT_CLEAN_PATH)
+    except Exception:
+        return _unavailable("Event calendar unavailable; the optional local store is missing or corrupt.") | {"events": [], "context_only": True, "executable_authority": False}
+    if source.empty or "instrument_id" not in source.columns:
+        return _unavailable("Event calendar unavailable; no local earnings, dividend or action records are registered.") | {"events": [], "context_only": True, "executable_authority": False}
+    try:
+        scoped = sort_calendar_events(_instrument_rows(source, instrument_id))
+    except Exception:
+        return _unavailable("Event calendar unavailable; the local store is malformed.") | {"events": [], "context_only": True, "executable_authority": False}
+    if scoped.empty:
+        return _unavailable("Event calendar unavailable for this instrument.") | {"events": [], "context_only": True, "executable_authority": False}
+    events = []
+    for row in scoped.to_dict("records")[:30]:
+        item = dict(row)
+        item.update({"context_only": True, "execution_allowed": False, "executable_authority": False})
+        events.append(item)
+    return {"status": "available", "message": "Events are context-only risk evidence and cannot change deterministic scores or actions.", "events": events, "context_only": True, "executable_authority": False, "execution_allowed": False}
 
 
 def _news_item_record(row: Mapping[str, Any]) -> dict[str, Any]:
@@ -1119,6 +1146,7 @@ def build_instrument_detail(
     methodology_records: pd.DataFrame | None = None,
     fundamentals: pd.DataFrame | None = None,
     news: pd.DataFrame | None = None,
+    events: pd.DataFrame | None = None,
     score_history: pd.DataFrame | None = None,
     paper_trades: pd.DataFrame | None = None,
     journal: pd.DataFrame | None = None,
@@ -1189,6 +1217,7 @@ def build_instrument_detail(
             "etf_holdings": disclosure.get("exposure", _unavailable("ETF holdings/exposure unavailable.")),
             "etf_overlap": direct_overlap_payload(overlap),
             "news": _news_panel(instrument_id, news),
+            "events": _event_calendar_panel(instrument_id, events),
             "forecasts": _forecast_panel(snapshot, instrument_id),
             "backtests": _backtest_panel(snapshot, instrument_id, scoreboard),
             "paper_trades": _paper_trade_panel(instrument_id, paper_trades),

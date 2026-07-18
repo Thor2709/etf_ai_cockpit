@@ -61,6 +61,9 @@ _ALIASES = {
     "etf_factsheet": "etf_metadata",
     "etf_factsheets": "etf_metadata",
     "etf_holdings": "etf_holdings",
+    "events": "events",
+    "event_calendar": "events",
+    "calendar": "events",
 }
 
 _REQUIRED: dict[str, tuple[tuple[str, ...], ...]] = {
@@ -73,6 +76,7 @@ _REQUIRED: dict[str, tuple[tuple[str, ...], ...]] = {
     "etf_metadata": (("as_of_date", "date", "factsheet_date", "holdings_date", "report_date"), ("etf_id", "fund_id", "isin", "fund_isin", "ticker", "fund_ticker")),
     "etf_holdings": (("as_of_date", "date", "holdings_date", "report_date"), ("etf_id", "parent_etf_id", "isin", "fund_isin", "ticker"), ("holding_name", "security_name", "name", "constituent_name"), ("weight", "weight_decimal", "weight_percent", "weight_pct")),
     "news": (("published_at", "published_date", "date", "as_of_date", "timestamp"), ("headline", "title", "summary", "text", "note")),
+    "events": (("event_id", "id"), ("instrument_id", "etf_id", "ticker"), ("event_type", "type"), ("event_date", "date"), ("available_at", "available_at_timestamp"), ("ingested_at", "ingested_at_timestamp"), ("source_id", "source"), ("source_authority", "authority")),
 }
 
 _DESTINATION_NAMES = {
@@ -83,6 +87,7 @@ _DESTINATION_NAMES = {
     # Keep imports on the canonical point-in-time news ledger consumed by
     # ``news_context.load_news_items`` and the dashboard/scoring surfaces.
     "news": Path("data/clean/news_context.parquet"),
+    "events": Path("data/clean/event_calendar.parquet"),
     "etf_metadata": Path("data/clean/etf_metadata.parquet"),
     "etf_holdings": Path("data/clean/etf_holdings.parquet"),
     "prices": Path("data/clean/prices.parquet"),
@@ -180,6 +185,16 @@ class ImportService:
                     audit_path=destination.with_name("news_context_audit.json"),
                 )
             committed = pd.read_parquet(destination)
+        elif preview.import_type == "events":
+            from etf_cockpit.data.event_calendar import persist_calendar_events
+
+            persist_calendar_events(
+                _event_items(frame),
+                raw_dir=self.root / "data" / "raw" / "event_calendar",
+                clean_path=destination,
+                audit_path=destination.with_name("event_calendar_audit.json"),
+            )
+            committed = pd.read_parquet(destination)
         elif preview.import_type == "etf_holdings":
             from etf_cockpit.data.fund_holdings import _merge_holdings_frame, _read_existing_holdings, _write_holdings_frame, normalise_holdings
 
@@ -242,6 +257,15 @@ def _validate_frame(import_type: str, frame: pd.DataFrame) -> tuple[list[str], l
         if not columns.intersection(group):
             errors.append("missing_column:" + "/".join(group))
     if errors:
+        return errors, warnings
+    if import_type == "events":
+        from etf_cockpit.data.event_calendar import validate_event
+
+        for index, row in frame.iterrows():
+            event = _event_from_row(row, index)
+            validation = validate_event(event)
+            if not validation.backtest_eligible:
+                errors.append(f"invalid_event:{index}:{validation.status}")
         return errors, warnings
     date_columns = ("date", "as_of_date", "published_at", "published_date", "factsheet_date", "holdings_date", "report_date", "timestamp")
     for name in date_columns:
@@ -447,6 +471,39 @@ def _news_items(frame: pd.DataFrame):
             )
         )
     return items
+
+
+def _event_items(frame: pd.DataFrame):
+    return [_event_from_row(row, index) for index, row in frame.iterrows()]
+
+
+def _event_from_row(row: pd.Series, index: object):
+    from etf_cockpit.data.event_calendar import CalendarEvent
+
+    def value(*names: str, default: str = "") -> str:
+        column = _first_column(pd.DataFrame([row]), names)
+        raw = row.get(column, default) if column is not None else default
+        if raw is None or (not isinstance(raw, str) and pd.isna(raw)):
+            return default
+        return str(raw).strip()
+
+    return CalendarEvent(
+        event_id=value("event_id", "id", default=f"import-{index}"),
+        instrument_id=value("instrument_id", "etf_id", "ticker"),
+        event_type=value("event_type", "type"),
+        event_date=value("event_date", "date"),
+        event_time=value("event_time", "timestamp", default=""),
+        available_at=value("available_at", "available_at_timestamp"),
+        ingested_at=value("ingested_at", "ingested_at_timestamp"),
+        source_id=value("source_id", "source"),
+        source_authority=value("source_authority", "authority"),
+        source_url=value("source_url", "url", "link"),
+        timezone_name=value("timezone_name", "timezone", default="UTC"),
+        precision=value("precision", default="date") or "date",
+        title=value("title", "headline", default=""),
+        description=value("description", "summary", "text", default=""),
+        risk_level=value("risk_level", "risk", default="unknown") or "unknown",
+    )
 
 
 def _timestamp_text(value: object) -> str:
