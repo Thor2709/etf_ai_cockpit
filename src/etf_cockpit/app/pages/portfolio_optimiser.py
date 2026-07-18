@@ -7,11 +7,10 @@ import flet as ft
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
 from etf_cockpit.app.state import AppState
-from etf_cockpit.portfolio.optimiser import (
+from etf_cockpit.application.portfolio_optimiser import (
     METHODS,
     OptimiserConstraints,
-    PortfolioOptimiser,
-    returns_from_adjusted_prices,
+    build_portfolio_optimiser,
 )
 
 
@@ -28,8 +27,7 @@ _METHOD_LABELS = {
 
 
 def portfolio_optimiser_page(page: ft.Page | None, state: AppState) -> ft.Control:
-    returns = returns_from_adjusted_prices(getattr(state.snapshot, "prices", None))
-    optimiser = PortfolioOptimiser(returns)
+    optimiser, returns = build_portfolio_optimiser(getattr(state.snapshot, "prices", None))
     method = ft.Dropdown(
         key="portfolio-optimiser.method",
         label="Method",
