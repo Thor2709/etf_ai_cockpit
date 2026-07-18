@@ -191,3 +191,15 @@ def test_portfolio_storage_failure_is_reported_without_crashing(monkeypatch) -> 
     root = portfolio.portfolio_page(None, _state())
     _by_key(root, "portfolio.load").on_click(None)
     assert "Candidate not loaded: local store is read-only" in str(_by_key(root, "portfolio.status").value)
+
+def test_portfolio_rebalance_preview_exposes_alternatives_and_assumptions() -> None:
+    root = portfolio.portfolio_page(None, _state())
+    _set_candidate(root)
+    _by_key(root, "portfolio.rebalance-preview").on_click(None)
+    result_text = _text(_by_key(root, "portfolio.rebalance-results"))
+    assert "Rebalance workspace" in result_text
+    assert "Alternatives" in result_text
+    assert "Full" in result_text and "No Trade" in result_text
+    assert "lot_policy=integer_lots" in result_text
+    assert "tax_jurisdiction=not_provided" in result_text
+    assert "execution_allowed=false" in result_text
