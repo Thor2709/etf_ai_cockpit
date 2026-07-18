@@ -40,7 +40,6 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
                             news_warning,
                             validation_panel,
                             cost_panel,
-                            validation_panel,
                             event_panel,
                             ft.Text("\n".join(report.quality_notes or ["Backtest pending."]), color=theme.MUTED, selectable=True),
                         ],
@@ -60,6 +59,7 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
                     ft.Column(
                         [
                             section_header("Backtests", "No signal-strategy backtest row is available for the current run."),
+                            validation_panel,
                             cost_panel,
                             event_panel,
                             ft.Text("\n".join(report.quality_notes or ["Backtest pending."]), color=theme.MUTED, selectable=True),
