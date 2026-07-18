@@ -122,6 +122,24 @@ def test_initialise_page_preserves_initial_non_default_route() -> None:
     assert page.go_calls == []
 
 
+def test_initialise_page_rebuilds_shell_only_when_resize_crosses_layout_breakpoint() -> None:
+    snapshot = build_snapshot()
+    state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
+    page = FakePage("/backtests")
+    page.width = 1200
+    initialise_page(page, state)
+    initial_updates = page.update_count
+
+    page.width = 1150
+    page.on_resize(SimpleNamespace(control=page))
+    assert page.update_count == initial_updates
+
+    page.width = 900
+    page.on_resize(SimpleNamespace(control=page))
+    assert page.update_count > initial_updates
+    assert page.views[0].route == "/backtests"
+
+
 def test_direct_navigation_renders_target_route() -> None:
     snapshot = build_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
