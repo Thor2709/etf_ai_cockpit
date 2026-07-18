@@ -29,6 +29,7 @@ from etf_cockpit.operations.event_store import current_activity_view, load_event
 from etf_cockpit.portfolio.review_reports import create_portfolio_review_report
 from etf_cockpit.services import ChatGPTBridge, CockpitSnapshot, DataService, build_snapshot
 from etf_cockpit.signals.simple_scores import SimpleInstrumentScore, build_simple_instrument_scores, load_latest_candidate_report, simple_scoreboard_frame, write_simple_scoreboard
+from etf_cockpit.app import theme
 
 
 # Compatibility seam for existing callers and tests. This is the session trace,
@@ -136,10 +137,21 @@ class AppState:
     error_store: ErrorStore = field(default_factory=ErrorStore, repr=False)
     universe_cache_revision: str = ""
     selected_instrument_score: SimpleInstrumentScore | None = None
+    evidence_mode: str = "default"
     application_api: LocalApplicationApi = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         self.application_api = LocalApplicationApi(lambda: self.snapshot)
+
+    def set_evidence_mode(self, mode: str) -> str:
+        """Set the visible evidence density without changing authority."""
+
+        value = str(mode or "").strip().lower()
+        if value not in theme.EVIDENCE_MODES:
+            raise ValueError(f"Unsupported evidence mode: {mode}")
+        self.evidence_mode = value
+        self.last_message = theme.EVIDENCE_MODE_LABELS[value]
+        return value
 
     @classmethod
     def load(cls) -> "AppState":

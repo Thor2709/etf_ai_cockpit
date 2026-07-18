@@ -7583,7 +7583,7 @@
       "package_status": "",
       "phase": "phase-08-frontend-api",
       "priority": "P0/P1",
-      "programme_status": "planned",
+      "programme_status": "implemented_initially",
       "related_issues": [],
       "required_inputs": [],
       "security_and_audit": "No remote telemetry by default; new web dependencies receive supply-chain review.",

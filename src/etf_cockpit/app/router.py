@@ -73,6 +73,20 @@ PAGES = {
     "/release-readiness": ("Release Readiness", release_readiness_page),
 }
 
+# One stable information architecture for the existing routes. The pages stay
+# independently testable while the shell gives them a decision-oriented home.
+WORKSPACE_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Home", ("/",)),
+    ("Discover", ("/signals", "/screener", "/stock-research", "/universe", "/what-changed")),
+    ("Instrument", ("/etf", "/instrument")),
+    ("Portfolio", ("/portfolio", "/risk")),
+    ("Models", ("/data-models", "/macro")),
+    ("Backtest/Paper", ("/backtests",)),
+    ("Data Health", ("/providers", "/filings", "/etf-disclosures", "/news-context", "/catalogue", "/data-health")),
+    ("Audit", ("/chatgpt", "/evidence", "/decision-journal", "/release-readiness")),
+    ("Settings", ("/settings", "/diagnostics", "/errors", "/onboarding", "/import-export", "/system-map", "/help", "/jobs")),
+)
+
 
 def instrument_detail_route(instrument_id: str) -> str:
     """Return the canonical inspect route for a configured instrument ID."""
@@ -88,6 +102,14 @@ def _page_route(route: str) -> str:
     if value.startswith("/instrument/"):
         return "/instrument"
     return value
+
+
+def workspace_for_route(route: str) -> str:
+    canonical_route = _page_route(route)
+    for workspace, routes in WORKSPACE_GROUPS:
+        if canonical_route in routes:
+            return workspace
+    return "Home"
 
 
 def navigate_to(page: ft.Page, state: AppState, route: str, *, candidate_score: object | None = None) -> None:
@@ -131,23 +153,48 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
             tooltip=label,
             content=button,
             bgcolor=theme.SURFACE_2 if selected else None,
-            border_radius=6,
-            padding=padding_symmetric(horizontal=12, vertical=10),
+            border_radius=theme.RADIUS_SM,
+            padding=padding_symmetric(horizontal=theme.SPACE_3, vertical=theme.SPACE_2),
         )
 
-    nav_items = [nav_button(path, page_title) for path, (page_title, _) in PAGES.items()]
+    def navigation_controls() -> list[ft.Control]:
+        controls: list[ft.Control] = []
+        for workspace, routes in WORKSPACE_GROUPS:
+            controls.append(ft.Text(workspace, color=theme.MUTED, size=theme.FONT_XS, weight=ft.FontWeight.BOLD))
+            controls.extend(nav_button(path, PAGES[path][0]) for path in routes)
+        return controls
+
+    active_workspace = workspace_for_route(canonical_route)
+    mode_options = [ft.dropdown.Option(value, theme.EVIDENCE_MODE_LABELS[value]) for value in theme.EVIDENCE_MODES]
+
+    def evidence_mode_changed(event: ft.ControlEvent) -> None:
+        value = getattr(getattr(event, "control", None), "value", None) or getattr(event, "data", None)
+        if value in theme.EVIDENCE_MODES:
+            state.set_evidence_mode(value)
+            page.update()
+
+    evidence_mode = ft.Dropdown(
+        key="shell.evidence-mode",
+        label="Evidence mode",
+        value=state.evidence_mode,
+        options=mode_options,
+        width=210 if not narrow else 170,
+        dense=True,
+        on_select=evidence_mode_changed,
+    )
     sidebar = ft.Container(
         width=220,
         bgcolor=theme.SURFACE,
         border=border_only(right=ft.BorderSide(width=1, color=theme.BORDER)),
-        padding=14,
+        padding=theme.SPACE_3,
         content=ft.Column(
             [
-                ft.Text("AI Evidence\nCockpit", color=theme.TEXT, size=18, weight=ft.FontWeight.BOLD),
-                ft.Text("Simple yfinance scores", color=theme.MUTED, size=11),
+                ft.Text(theme.APP_NAME, color=theme.TEXT, size=theme.FONT_XL, weight=ft.FontWeight.BOLD),
+                ft.Text(theme.APP_TAGLINE, color=theme.MUTED, size=theme.FONT_XS),
+                ft.Text(f"Workspace: {active_workspace}", color=theme.CYAN, size=theme.FONT_XS),
             ]
-            + nav_items,
-            spacing=8,
+            + navigation_controls(),
+            spacing=theme.SPACE_2,
             scroll=ft.ScrollMode.AUTO,
             expand=True,
         ),
@@ -155,33 +202,42 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
     mobile_nav = ft.Container(
         bgcolor=theme.SURFACE,
         border=border_only(bottom=ft.BorderSide(width=1, color=theme.BORDER)),
-        padding=padding_symmetric(horizontal=12, vertical=10),
+        padding=padding_symmetric(horizontal=theme.SPACE_3, vertical=theme.SPACE_2),
         content=ft.Column(
             [
                 ft.Row(
                     [
-                        ft.Text("AI Evidence Cockpit", color=theme.TEXT, size=17, weight=ft.FontWeight.BOLD),
+                        ft.Text(theme.APP_NAME, color=theme.TEXT, size=theme.FONT_LG, weight=ft.FontWeight.BOLD),
                         ft.Text("local", color=theme.MUTED, size=11),
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
-                ft.Row(nav_items, spacing=6, wrap=True, scroll=ft.ScrollMode.AUTO),
+                ft.Text(f"Workspace: {active_workspace}", color=theme.CYAN, size=theme.FONT_XS),
+                ft.Row(navigation_controls(), spacing=theme.SPACE_1, wrap=True, scroll=ft.ScrollMode.AUTO),
             ],
-            spacing=8,
+            spacing=theme.SPACE_2,
         ),
     )
     header = ft.Container(
         height=58 if narrow else 64,
         bgcolor=theme.BG,
         border=border_only(bottom=ft.BorderSide(width=1, color=theme.BORDER)),
-        padding=padding_symmetric(horizontal=14 if narrow else 18, vertical=10 if narrow else 12),
+        padding=padding_symmetric(horizontal=theme.SPACE_3 if narrow else theme.SPACE_5, vertical=theme.SPACE_2 if narrow else theme.SPACE_3),
         content=ft.Row(
             [
-                ft.Text(title, color=theme.TEXT, size=19 if narrow else 20, weight=ft.FontWeight.BOLD),
-                ft.Text(f"Data date {state.snapshot.data_report.as_of_date}", color=theme.MUTED, size=12),
-                ft.Text("" if narrow else state.last_message, color=theme.MUTED, size=12, expand=True, text_align=ft.TextAlign.RIGHT),
+                ft.Column(
+                    [
+                        ft.Text(title, color=theme.TEXT, size=theme.FONT_LG if narrow else theme.FONT_XL, weight=ft.FontWeight.BOLD),
+                        ft.Text(f"{active_workspace} | Data date {state.snapshot.data_report.as_of_date}", color=theme.MUTED, size=theme.FONT_XS),
+                    ],
+                    spacing=theme.SPACE_1,
+                    expand=True,
+                ),
+                ft.Text("" if narrow else state.last_message, color=theme.MUTED, size=theme.FONT_XS, text_align=ft.TextAlign.RIGHT),
+                evidence_mode,
             ],
-            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            spacing=theme.SPACE_2,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
         ),
     )
     progress_strip: ft.Control
@@ -189,14 +245,14 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
         progress_strip = ft.Container(
             bgcolor=theme.SURFACE,
             border=border_only(bottom=ft.BorderSide(width=1, color=theme.BORDER)),
-            padding=padding_symmetric(horizontal=18, vertical=8),
+            padding=padding_symmetric(horizontal=theme.SPACE_5, vertical=theme.SPACE_2),
             content=ft.Column(
                 [
                     ft.Row(
                         [
                             ft.ProgressRing(width=16, height=16, stroke_width=2, color=theme.CYAN),
-                            ft.Text(state.current_activity.label, color=theme.TEXT, size=12, weight=ft.FontWeight.BOLD),
-                            ft.Text(state.current_activity.step, color=theme.MUTED, size=12, expand=True),
+                            ft.Text(state.current_activity.label, color=theme.TEXT, size=theme.FONT_SM, weight=ft.FontWeight.BOLD),
+                            ft.Text(state.current_activity.step, color=theme.MUTED, size=theme.FONT_SM, expand=True),
                         ],
                         spacing=8,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -212,13 +268,13 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
         [
             header,
             progress_strip,
-            ft.Container(content=builder(page, state), expand=True, padding=12 if narrow else 18),
+            ft.Container(content=builder(page, state), expand=True, padding=theme.SPACE_3 if narrow else theme.SPACE_5),
             ft.Container(
                 height=28,
                 bgcolor=theme.SURFACE,
                 border=border_only(top=ft.BorderSide(width=1, color=theme.BORDER)),
-                padding=padding_symmetric(horizontal=18, vertical=5),
-                content=ft.Text("Local evidence scoring only. No broker execution. Model and LLM output are advisory inputs, not trading authority.", color=theme.MUTED, size=11),
+                padding=padding_symmetric(horizontal=theme.SPACE_5, vertical=theme.SPACE_1),
+                content=ft.Text("Local evidence scoring only. No broker execution. Model and LLM output are advisory inputs, not trading authority.", color=theme.MUTED, size=theme.FONT_XS),
             ),
         ],
         expand=True,

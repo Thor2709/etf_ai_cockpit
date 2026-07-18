@@ -10,6 +10,7 @@ import pandas as pd
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, metric_card, panel, section_header
 from etf_cockpit.app.components.simple_scores import score_colour, simple_score_grouped_sections, simple_score_legend
+from etf_cockpit.app.components.states import state_panel
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import FORECASTS_DIR
 from etf_cockpit.core.paths import DERIVED_DIR
@@ -58,6 +59,7 @@ def dashboard_page(page: ft.Page, state: AppState) -> ft.Control:
 
     return ft.Column(
         [
+            _evidence_state_panel(state),
             cards,
             _run_changes_digest(page, state),
             _news_digest(page, state),
@@ -81,6 +83,17 @@ def dashboard_page(page: ft.Page, state: AppState) -> ft.Control:
         expand=True,
         spacing=14,
         scroll=ft.ScrollMode.AUTO,
+    )
+
+
+def _evidence_state_panel(state: AppState) -> ft.Container:
+    status = str(state.snapshot.data_report.status or "").casefold()
+    state_name = "success" if status == "clean" else "warning" if status == "warning" else "error" if status == "blocked" else "empty"
+    return state_panel(
+        state_name,
+        "Evidence state",
+        f"Data health is {state.snapshot.data_report.status}; scores and model outputs remain advisory evidence.",
+        details=f"Evidence mode: {theme.EVIDENCE_MODE_LABELS.get(state.evidence_mode, state.evidence_mode)} | execution_allowed=false",
     )
 
 
