@@ -10,6 +10,7 @@ from etf_cockpit.app.components.tables import accessible_table
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import EXPORTS_DIR
 from etf_cockpit.application.ui_facade import NEWS_TIMESTAMP_VALIDATION_PATH, cost_capacity_status, event_engine_status, export_table
+from etf_cockpit.application.validation import build_validation_preview
 
 
 def _format_number(value: object, *, percent: bool = False, money: bool = False, decimals: int = 2) -> str:
@@ -26,6 +27,7 @@ def _format_number(value: object, *, percent: bool = False, money: bool = False,
 def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
     report = state.snapshot.backtest
     news_warning = _news_validation_warning()
+    validation_panel = _validation_panel(getattr(state.snapshot, "prices", None))
     event_panel = _event_replay_panel()
     cost_panel = _cost_capacity_panel(state.snapshot.config)
     if report.results.empty or "strategy_name" not in report.results.columns:
@@ -36,7 +38,9 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
                         [
                             section_header("Backtests", "Run Refresh yfinance data and Run algorithms before backtests can be evaluated for the current two-tier universe."),
                             news_warning,
+                            validation_panel,
                             cost_panel,
+                            validation_panel,
                             event_panel,
                             ft.Text("\n".join(report.quality_notes or ["Backtest pending."]), color=theme.MUTED, selectable=True),
                         ],
@@ -157,6 +161,7 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
                 spacing=12,
             ),
             news_warning,
+            validation_panel,
             cost_panel,
             panel(
                 ft.Column(
@@ -277,6 +282,30 @@ def _cost_capacity_panel(config: object) -> ft.Control:
                 section_header("Cost/Capacity", "The same local estimate feeds signal netting, rebalance previews and historical backtests; missing microstructure data widens the result."),
                 ft.Text("\n".join(lines), color=theme.MUTED, selectable=True),
                 ft.Text("Order preview is descriptive evidence only. It does not create, submit or amend an order.", color=theme.AMBER, selectable=True),
+            ],
+            spacing=6,
+        )
+    )
+
+
+def _validation_panel(prices: object) -> ft.Control:
+    report = build_validation_preview(prices)
+    if report is None:
+        message = "Validation Designer unavailable: local adjusted-price history is insufficient for the configured folds."
+    else:
+        message = "\n".join(
+            [
+                f"Protocol: {report.protocol_version} · folds={len(report.folds)} · trials_retained={len(report.trials)}",
+                f"Selected={report.selected_trial_id} · final_test_used_for_selection={str(report.final_test_used_for_selection).lower()}",
+                f"promotion_eligible={str(report.promotion_eligible).lower()} · pbo={report.probability_of_backtest_overfitting}",
+                f"Regimes={len(report.regime_results)} · subgroups={len(report.subgroup_results)} · fingerprint={report.to_dict()['report_fingerprint'][:12]}",
+            ]
+        )
+    return panel(
+        ft.Column(
+            [
+                section_header("Validation Designer and report", "Walk-forward folds purge overlapping labels, embargo future observations and keep the final test untouched for selection."),
+                ft.Text(message, color=theme.MUTED if report is not None else theme.AMBER, selectable=True),
             ],
             spacing=6,
         )
