@@ -6,8 +6,9 @@ import flet as ft
 import pytest
 
 from etf_cockpit.app import theme
+from etf_cockpit.app import router
 from etf_cockpit.app.components.states import STATE_NAMES, state_panel
-from etf_cockpit.app.router import PAGES, WORKSPACE_GROUPS, build_shell, workspace_for_route
+from etf_cockpit.app.router import PAGES, WORKSPACE_GROUPS, build_shell, uses_narrow_layout, workspace_for_route
 from etf_cockpit.app.state import AppState
 from etf_cockpit.services import build_snapshot
 
@@ -59,7 +60,7 @@ def test_evidence_mode_is_presentation_only_and_validated() -> None:
         state.set_evidence_mode("execute")
 
 
-@pytest.mark.parametrize("width", [640, 1200])
+@pytest.mark.parametrize("width", [640, 759, 760, 900, 1100, 1200])
 def test_shell_has_grouped_navigation_and_evidence_mode_at_responsive_widths(width: int) -> None:
     snapshot = build_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
@@ -71,6 +72,65 @@ def test_shell_has_grouped_navigation_and_evidence_mode_at_responsive_widths(wid
     labels = {str(control.value) for control in controls if isinstance(control, ft.Text)}
 
     assert "shell.evidence-mode" in keys
+    assert "shell.command-palette" in keys
     assert "Workspace: Home" in labels
     assert theme.APP_NAME in labels
     assert all(workspace in labels for workspace, _routes in WORKSPACE_GROUPS)
+    assert uses_narrow_layout(page, state) is (width < 1100)
+
+
+def test_shell_command_palette_exposes_search_and_enter_instructions() -> None:
+    snapshot = build_snapshot()
+    state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
+    page = SimpleNamespace(width=1200, route="/")
+
+    view = build_shell(page, state, "/")
+    text = " ".join(str(control.value) for control in _walk(view) if isinstance(control, ft.Text))
+    fields = [control for control in _walk(view) if isinstance(control, ft.TextField)]
+
+    assert any(field.label == "Command palette" and field.hint_text == "Search pages or commands" for field in fields)
+    assert "Workspace: Home" in text
+
+
+def test_shell_command_palette_filters_and_navigates(monkeypatch: pytest.MonkeyPatch) -> None:
+    snapshot = build_snapshot()
+    state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
+    page = SimpleNamespace(width=1200, route="/", update=lambda: None)
+    selected: list[str] = []
+    monkeypatch.setattr(router, "navigate_to", lambda _page, _state, route: selected.append(route))
+
+    view = build_shell(page, state, "/")
+    palette = next(control for control in _walk(view) if getattr(control, "key", None) == "shell.command-palette")
+    palette.value = "comparison"
+    palette.on_change(SimpleNamespace(control=palette))
+
+    result = next(control for control in _walk(view) if getattr(control, "key", None) == "shell.command.comparison")
+    result.on_click(SimpleNamespace(control=result))
+    assert selected == ["/comparison"]
+
+    palette.value = "data"
+    palette.on_change(SimpleNamespace(control=palette))
+    later_result = next(control for control in _walk(view) if getattr(control, "key", None) == "shell.command.data-health")
+    later_result.on_click(SimpleNamespace(control=later_result))
+    assert selected == ["/comparison", "/data-health"]
+
+    palette.value = "Backtest/Paper"
+    palette.on_submit(SimpleNamespace(control=palette))
+    assert selected == ["/comparison", "/data-health", "/backtests"]
+
+    palette.value = "no such route"
+    palette.on_change(SimpleNamespace(control=palette))
+    palette.on_submit(SimpleNamespace(control=palette))
+    assert any(
+        isinstance(control, ft.Text) and control.value == "No matching workspace"
+        for control in _walk(view)
+    )
+    assert selected == ["/comparison", "/data-health", "/backtests"]
+
+    palette.value = ""
+    palette.on_submit(SimpleNamespace(control=palette))
+    assert any(
+        isinstance(control, ft.Text) and control.value == "Enter a page or workspace to search"
+        for control in _walk(view)
+    )
+    assert selected == ["/comparison", "/data-health", "/backtests"]

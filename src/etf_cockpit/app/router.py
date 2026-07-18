@@ -3,6 +3,8 @@ from __future__ import annotations
 import flet as ft
 
 from etf_cockpit.app import theme
+from etf_cockpit.app.command_palette import PaletteCommand, search_commands
+from etf_cockpit.app.components.cards import panel
 from etf_cockpit.app.components.flet_compat import border_only, padding_symmetric
 from etf_cockpit.app.pages.backtests import backtests_page
 from etf_cockpit.app.pages.catalogue import catalogue_page
@@ -93,6 +95,8 @@ WORKSPACE_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Settings", ("/settings", "/diagnostics", "/errors", "/onboarding", "/import-export", "/system-map", "/help", "/jobs")),
 )
 
+NARROW_LAYOUT_BREAKPOINT = 1100
+
 
 def instrument_detail_route(instrument_id: str) -> str:
     """Return the canonical inspect route for a configured instrument ID."""
@@ -116,6 +120,13 @@ def workspace_for_route(route: str) -> str:
         if canonical_route in routes:
             return workspace
     return "Home"
+
+
+def uses_narrow_layout(page: ft.Page, state: AppState) -> bool:
+    """Return whether the shell should use its stacked, sidebar-free layout."""
+
+    page_width = float(getattr(page, "width", 0) or state.snapshot.config.ui.window_width)
+    return page_width < NARROW_LAYOUT_BREAKPOINT
 
 
 def navigate_to(page: ft.Page, state: AppState, route: str, *, candidate_score: object | None = None) -> None:
@@ -144,8 +155,7 @@ def navigate_to(page: ft.Page, state: AppState, route: str, *, candidate_score: 
 def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
     canonical_route = _page_route(route)
     title, builder = PAGES.get(canonical_route, PAGES["/"])
-    page_width = float(getattr(page, "width", 0) or state.snapshot.config.ui.window_width)
-    narrow = page_width < 760
+    narrow = uses_narrow_layout(page, state)
 
     def nav_button(path: str, label: str) -> ft.Container:
         selected = path == canonical_route
@@ -188,6 +198,61 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
         dense=True,
         on_select=evidence_mode_changed,
     )
+
+    palette_results = ft.Container(visible=False)
+
+    def select_palette_command(command: PaletteCommand) -> None:
+        navigate_to(page, state, command.route)
+
+    def show_palette_message(message: str) -> None:
+        palette_results.content = panel(ft.Column([ft.Text(message, color=theme.AMBER, size=theme.FONT_SM, selectable=True)]))
+        palette_results.visible = True
+        state.last_message = message
+        if callable(getattr(page, "update", None)):
+            page.update()
+
+    def render_palette_results(event: ft.ControlEvent) -> None:
+        query = str(getattr(getattr(event, "control", None), "value", None) or "")
+        matches = search_commands(PAGES, WORKSPACE_GROUPS, query)
+        result_controls: list[ft.Control] = [
+            ft.Text("Command palette results", color=theme.MUTED, size=theme.FONT_XS, weight=ft.FontWeight.BOLD)
+        ]
+        result_controls.extend(
+            ft.TextButton(
+                f"{command.title} · {command.workspace} · {command.route}",
+                key=f"shell.command.{command.route.strip('/').replace('/', '-') or 'home'}",
+                tooltip=f"Open {command.title}",
+                on_click=lambda _event, item=command: select_palette_command(item),
+            )
+            for command in matches
+        )
+        if not matches:
+            result_controls.append(ft.Text("No matching workspace", color=theme.AMBER, size=theme.FONT_SM, selectable=True))
+        palette_results.content = panel(ft.Column(result_controls, spacing=2))
+        palette_results.visible = bool(query.strip())
+        if callable(getattr(page, "update", None)):
+            page.update()
+
+    def submit_palette(event: ft.ControlEvent) -> None:
+        query = str(getattr(getattr(event, "control", None), "value", None) or "")
+        if not query.strip():
+            show_palette_message("Enter a page or workspace to search")
+            return
+        matches = search_commands(PAGES, WORKSPACE_GROUPS, query, limit=1)
+        if matches:
+            select_palette_command(matches[0])
+        else:
+            show_palette_message("No matching workspace")
+
+    palette_field = ft.TextField(
+        key="shell.command-palette",
+        label="Command palette",
+        hint_text="Search pages or commands",
+        dense=True,
+        width=250 if not narrow else 220,
+        on_change=render_palette_results,
+        on_submit=submit_palette,
+    )
     sidebar = ft.Container(
         width=220,
         bgcolor=theme.SURFACE,
@@ -224,27 +289,39 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
             spacing=theme.SPACE_2,
         ),
     )
-    header = ft.Container(
-        height=58 if narrow else 64,
-        bgcolor=theme.BG,
-        border=border_only(bottom=ft.BorderSide(width=1, color=theme.BORDER)),
-        padding=padding_symmetric(horizontal=theme.SPACE_3 if narrow else theme.SPACE_5, vertical=theme.SPACE_2 if narrow else theme.SPACE_3),
-        content=ft.Row(
+    header_content: ft.Control
+    title_column = ft.Column(
+        [
+            ft.Text(title, color=theme.TEXT, size=theme.FONT_LG if narrow else theme.FONT_XL, weight=ft.FontWeight.BOLD),
+            ft.Text(f"{active_workspace} | Data date {state.snapshot.data_report.as_of_date}", color=theme.MUTED, size=theme.FONT_XS),
+        ],
+        spacing=theme.SPACE_1,
+        expand=True,
+    )
+    if narrow:
+        header_content = ft.Column(
             [
-                ft.Column(
-                    [
-                        ft.Text(title, color=theme.TEXT, size=theme.FONT_LG if narrow else theme.FONT_XL, weight=ft.FontWeight.BOLD),
-                        ft.Text(f"{active_workspace} | Data date {state.snapshot.data_report.as_of_date}", color=theme.MUTED, size=theme.FONT_XS),
-                    ],
-                    spacing=theme.SPACE_1,
-                    expand=True,
-                ),
-                ft.Text("" if narrow else state.last_message, color=theme.MUTED, size=theme.FONT_XS, text_align=ft.TextAlign.RIGHT),
+                ft.Row([title_column, evidence_mode], spacing=theme.SPACE_2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                palette_field,
+            ],
+            spacing=theme.SPACE_2,
+        )
+    else:
+        header_content = ft.Row(
+            [
+                title_column,
+                palette_field,
+                ft.Text(state.last_message, color=theme.MUTED, size=theme.FONT_XS, text_align=ft.TextAlign.RIGHT),
                 evidence_mode,
             ],
             spacing=theme.SPACE_2,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        ),
+        )
+    header = ft.Container(
+        bgcolor=theme.BG,
+        border=border_only(bottom=ft.BorderSide(width=1, color=theme.BORDER)),
+        padding=padding_symmetric(horizontal=theme.SPACE_3 if narrow else theme.SPACE_5, vertical=theme.SPACE_2 if narrow else theme.SPACE_3),
+        content=header_content,
     )
     progress_strip: ft.Control
     if state.current_activity is not None:
@@ -273,6 +350,7 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
     body = ft.Column(
         [
             header,
+            palette_results,
             progress_strip,
             ft.Container(content=builder(page, state), expand=True, padding=theme.SPACE_3 if narrow else theme.SPACE_5),
             ft.Container(
