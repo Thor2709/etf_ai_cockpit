@@ -10,7 +10,20 @@ import pandas as pd
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, metric_card, panel, section_header
 from etf_cockpit.app.state import AppState
-from etf_cockpit.application.ui_facade import FUNDAMENTAL_CLEAN_PATH, latest_fundamental_rows, load_fundamental_evidence
+from etf_cockpit.application.ui_facade import (
+    FUNDAMENTAL_CLEAN_PATH,
+    ScreenFilter,
+    ScreenSort,
+    build_screen_rows,
+    export_screen_csv,
+    latest_fundamental_rows,
+    load_fundamental_evidence,
+    load_screen,
+    query_for_snapshot,
+    run_screen,
+    save_screen,
+)
+from etf_cockpit.core.paths import EXPORTS_DIR
 
 
 _FUNDAMENTAL_FIELDS = (
@@ -23,7 +36,7 @@ _FUNDAMENTAL_FIELDS = (
 
 
 def screener_page(_page: ft.Page, _state: AppState) -> ft.Control:
-    """Render canonical fundamentals without changing score or action authority."""
+    """Render and query local evidence without changing score or authority."""
 
     frame = load_fundamental_evidence(FUNDAMENTAL_CLEAN_PATH)
     frame = frame.copy() if isinstance(frame, pd.DataFrame) else pd.DataFrame()
@@ -31,6 +44,157 @@ def screener_page(_page: ft.Page, _state: AppState) -> ft.Control:
         frame = pd.DataFrame()
     if "instrument_id" in frame.columns:
         frame = latest_fundamental_rows(frame)
+
+    screen_frame = build_screen_rows(_state.snapshot, frame)
+    filters: list[ScreenFilter] = []
+    current_query = [query_for_snapshot(_state.snapshot, screen_frame)]
+    current_result = [run_screen(screen_frame, current_query[0])]
+
+    field_options = sorted(str(field) for field in screen_frame.columns)
+    filter_field = ft.Dropdown(
+        key="screener.filter.field",
+        label="Filter field",
+        value="region" if "region" in field_options else (field_options[0] if field_options else None),
+        options=[ft.DropdownOption(field) for field in field_options],
+        width=210,
+        dense=True,
+    )
+    filter_operator = ft.Dropdown(
+        key="screener.filter.operator",
+        label="Operator",
+        value="eq",
+        options=[ft.DropdownOption("eq", "equals"), ft.DropdownOption("min", "minimum"), ft.DropdownOption("max", "maximum")],
+        width=140,
+        dense=True,
+    )
+    filter_value = ft.TextField(key="screener.filter.value", label="Value", width=190, dense=True)
+    sort_field = ft.Dropdown(
+        key="screener.sort.field",
+        label="Sort field",
+        value="score" if "score" in field_options else (field_options[0] if field_options else None),
+        options=[ft.DropdownOption(field) for field in field_options],
+        width=210,
+        dense=True,
+    )
+    sort_direction = ft.Dropdown(
+        key="screener.sort.direction",
+        label="Direction",
+        value="descending",
+        options=[ft.DropdownOption("descending"), ft.DropdownOption("ascending")],
+        width=150,
+        dense=True,
+    )
+    saved_name = ft.TextField(key="screener.saved.name", label="Saved screen name", width=240, dense=True)
+    filter_summary = ft.Text("No active filters.", key="screener.filter.summary", color=theme.MUTED, selectable=True)
+    result_status = ft.Text(
+        f"{current_result[0].total_matched} of {current_result[0].total_input} local instruments shown.",
+        key="screener.result.status",
+        color=theme.MUTED,
+        selectable=True,
+    )
+    lineage_status = ft.Text(
+        _lineage_text(current_query[0]),
+        key="screener.lineage",
+        color=theme.MUTED,
+        size=11,
+        selectable=True,
+    )
+    results_host = ft.Column([_screen_results(current_result[0])], key="screener.results", scroll=ft.ScrollMode.AUTO)
+
+    def refresh() -> None:
+        query = query_for_snapshot(
+            _state.snapshot,
+            screen_frame,
+            filters=tuple(filters),
+            sort=(
+                ScreenSort(
+                    str(sort_field.value),
+                    descending=sort_direction.value == "descending",
+                ),
+            )
+            if sort_field.value
+            else (),
+        )
+        result = run_screen(screen_frame, query)
+        current_query[0] = query
+        current_result[0] = result
+        results_host.controls = [_screen_results(result)]
+        warning = f" Warnings: {', '.join(result.warnings)}." if result.warnings else ""
+        result_status.value = f"{result.total_matched} of {result.total_input} local instruments shown.{warning}"
+        result_status.color = theme.AMBER if result.warnings else theme.MUTED
+        filter_summary.value = _filter_summary(filters)
+        lineage_status.value = _lineage_text(query)
+        _safe_update(_page)
+
+    def add_filter(_event: ft.ControlEvent | None) -> None:
+        try:
+            filters.append(ScreenFilter(str(filter_field.value or ""), str(filter_operator.value or "eq"), filter_value.value or ""))  # type: ignore[arg-type]
+            filter_value.value = ""
+            refresh()
+        except ValueError as exc:
+            result_status.value = f"Filter not applied: {exc}"
+            result_status.color = theme.AMBER
+            _safe_update(_page)
+
+    def clear_filters(_event: ft.ControlEvent | None) -> None:
+        filters.clear()
+        refresh()
+
+    def run_query(_event: ft.ControlEvent | None) -> None:
+        try:
+            refresh()
+        except ValueError as exc:
+            result_status.value = f"Screen unavailable: {exc}"
+            result_status.color = theme.AMBER
+            _safe_update(_page)
+
+    def save_query(_event: ft.ControlEvent | None) -> None:
+        try:
+            path = save_screen(str(saved_name.value or ""), current_query[0])
+            result_status.value = f"Saved local screen revision: {path}"
+            result_status.color = theme.GREEN
+            _state.last_message = result_status.value
+        except (OSError, ValueError) as exc:
+            result_status.value = f"Screen not saved: {exc}"
+            result_status.color = theme.AMBER
+        _safe_update(_page)
+
+    def load_query(_event: ft.ControlEvent | None) -> None:
+        try:
+            query = load_screen(str(saved_name.value or ""))
+            filters[:] = list(query.filters)
+            if query.sort:
+                sort_field.value = query.sort[0].field
+                sort_direction.value = "descending" if query.sort[0].descending else "ascending"
+            current_query[0] = query_for_snapshot(
+                _state.snapshot,
+                screen_frame,
+                filters=query.filters,
+                sort=query.sort,
+                requested_fields=query.requested_fields,
+            )
+            current_result[0] = run_screen(screen_frame, current_query[0])
+            results_host.controls = [_screen_results(current_result[0])]
+            filter_summary.value = _filter_summary(filters)
+            lineage_status.value = _lineage_text(current_query[0])
+            result_status.value = f"Loaded latest saved screen; {current_result[0].total_matched} instruments shown."
+            result_status.color = theme.GREEN
+        except (OSError, ValueError) as exc:
+            result_status.value = f"Screen not loaded: {exc}"
+            result_status.color = theme.AMBER
+        _safe_update(_page)
+
+    def export_results(_event: ft.ControlEvent | None) -> None:
+        try:
+            path = export_screen_csv(current_result[0], current_query[0], EXPORTS_DIR / "screener_results.csv")
+            _state.last_export_path = path
+            _state.last_message = f"Screener CSV exported: {path}"
+            result_status.value = _state.last_message
+            result_status.color = theme.GREEN
+        except (OSError, ValueError) as exc:
+            result_status.value = f"Screener export unavailable: {exc}"
+            result_status.color = theme.AMBER
+        _safe_update(_page)
 
     rows = _table_rows(frame)
     available_count = sum(_has_five_values(row) for _, row in frame.iterrows()) if not frame.empty else 0
@@ -74,6 +238,48 @@ def screener_page(_page: ft.Page, _state: AppState) -> ft.Control:
             ft.Column(
                 [
                     section_header(
+                        "Reproducible local screen",
+                        "Filter and sort the evidence already loaded in this snapshot. Missing dimensions remain explicit; screens never refresh providers, change scores or grant execution authority.",
+                    ),
+                    ft.Row(
+                        [
+                            filter_field,
+                            filter_operator,
+                            filter_value,
+                            ft.Button("Add filter", key="screener.filter.add", on_click=add_filter),
+                            ft.TextButton("Clear filters", key="screener.filter.clear", on_click=clear_filters),
+                        ],
+                        wrap=True,
+                    ),
+                    ft.Row(
+                        [
+                            sort_field,
+                            sort_direction,
+                            ft.OutlinedButton("Run screen", key="screener.run", icon=ft.Icons.SEARCH, on_click=run_query),
+                        ],
+                        wrap=True,
+                    ),
+                    filter_summary,
+                    ft.Row(
+                        [
+                            saved_name,
+                            ft.OutlinedButton("Save revision", key="screener.saved.save", icon=ft.Icons.SAVE, on_click=save_query),
+                            ft.OutlinedButton("Load latest", key="screener.saved.load", on_click=load_query),
+                            ft.OutlinedButton("Export CSV", key="screener.export.csv", icon=ft.Icons.DOWNLOAD, on_click=export_results),
+                        ],
+                        wrap=True,
+                    ),
+                    result_status,
+                    lineage_status,
+                    results_host,
+                ],
+                spacing=8,
+            )
+        ),
+        panel(
+            ft.Column(
+                [
+                    section_header(
                         "Instrument fundamentals",
                         "Every canonical row shows valuation, profitability, leverage, growth and shareholder return plus eligibility, provenance, freshness and limitations.",
                     ),
@@ -86,6 +292,46 @@ def screener_page(_page: ft.Page, _state: AppState) -> ft.Control:
         ),
     ]
     return ft.Column(controls, spacing=14, expand=True, scroll=ft.ScrollMode.AUTO)
+
+
+def _screen_results(result: object) -> ft.Control:
+    rows = getattr(result, "rows", ())
+    if not rows:
+        return ft.Text("No instruments match the current local evidence screen.", color=theme.MUTED, selectable=True)
+    fields = ("instrument_id", "region", "sector", "score", "quality", "risk_friction", "momentum", "volatility", "coverage")
+    return ft.Row(
+        [
+            ft.DataTable(
+                columns=[ft.DataColumn(ft.Text(field.replace("_", " ").title(), size=11)) for field in fields],
+                rows=[
+                    ft.DataRow(
+                        cells=[ft.DataCell(ft.Text(_display(row.get(field)), size=11, selectable=True)) for field in fields]
+                    )
+                    for row in rows
+                ],
+            )
+        ],
+        scroll=ft.ScrollMode.AUTO,
+    )
+
+
+def _filter_summary(filters: list[ScreenFilter]) -> str:
+    if not filters:
+        return "No active filters."
+    return "Active filters: " + "; ".join(f"{item.field} {item.operator} {item.value}" for item in filters)
+
+
+def _lineage_text(query: object) -> str:
+    return (
+        f"as_of={getattr(query, 'as_of', 'unavailable')} | "
+        f"universe_revision={getattr(query, 'universe_revision', 'unavailable')} | "
+        f"query_checksum={getattr(query, 'checksum', 'unavailable')} | execution_allowed=false"
+    )
+
+
+def _safe_update(page: ft.Page | None) -> None:
+    if page is not None:
+        page.update()
 
 
 def _summary(

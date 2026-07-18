@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pandas as pd
 
 from etf_cockpit.app.router import PAGES
 from etf_cockpit.app.state import AppState
+from etf_cockpit.application.screening import ScreenQuery, ScreenSort
 from etf_cockpit.services import build_snapshot
 
 
@@ -139,3 +142,80 @@ def test_screener_renders_sector_relative_comparison_values_and_limitation(monke
     assert "MSCI World Information Technology" in text
     assert "1.4" in text
     assert "Peer set is provider-defined." in text
+
+
+def _by_key(control, key: str):
+    return next(item for item in _walk(control) if getattr(item, "key", None) == key)
+
+
+def test_screener_applies_typed_filter_and_updates_visible_results(monkeypatch) -> None:
+    from etf_cockpit.app.pages import screener
+
+    snapshot = build_snapshot()
+    first, second = snapshot.config.universe.etfs[:2]
+    frame = pd.DataFrame(
+        [
+            {"instrument_id": first.id, "region": "Europe", "valuation": 8.0},
+            {"instrument_id": second.id, "region": "World", "valuation": 4.0},
+        ]
+    )
+    monkeypatch.setattr(screener, "load_fundamental_evidence", lambda _path: frame)
+    state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
+    page = screener.screener_page(None, state)
+
+    _by_key(page, "screener.filter.field").value = "instrument_id"
+    _by_key(page, "screener.filter.operator").value = "eq"
+    _by_key(page, "screener.filter.value").value = f" {first.id.lower()} "
+    _by_key(page, "screener.filter.add").on_click(None)
+
+    assert f"Active filters: instrument_id eq {first.id.lower()}" in _visible_text(page)
+    assert f"1 of {len(snapshot.config.universe.etfs)} local instruments shown" in _visible_text(page)
+    assert first.id in _visible_text(_by_key(page, "screener.results"))
+    assert second.id not in _visible_text(_by_key(page, "screener.results"))
+
+
+def test_screener_save_load_and_export_callbacks_report_readable_status(monkeypatch) -> None:
+    from etf_cockpit.app.pages import screener
+
+    snapshot = build_snapshot()
+    monkeypatch.setattr(screener, "load_fundamental_evidence", lambda _path: pd.DataFrame())
+    saved = []
+    exported = []
+    monkeypatch.setattr(screener, "save_screen", lambda name, query: saved.append((name, query)) or Path("data/screens/my-screen/000001.json"))
+    loaded_query = ScreenQuery(sort=(ScreenSort("quality", descending=False),))
+    monkeypatch.setattr(screener, "load_screen", lambda _name: loaded_query)
+    monkeypatch.setattr(screener, "export_screen_csv", lambda result, query, path: exported.append((result, query, path)) or path)
+    state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
+    page = screener.screener_page(None, state)
+    _by_key(page, "screener.saved.name").value = "my screen"
+
+    _by_key(page, "screener.saved.save").on_click(None)
+    assert saved and "Saved local screen revision" in _visible_text(page)
+    _by_key(page, "screener.saved.load").on_click(None)
+    assert "Loaded latest saved screen" in _visible_text(page)
+    assert _by_key(page, "screener.sort.field").value == "quality"
+    assert _by_key(page, "screener.sort.direction").value == "ascending"
+    _by_key(page, "screener.filter.field").value = "asset_type"
+    _by_key(page, "screener.filter.value").value = "etf"
+    _by_key(page, "screener.filter.add").on_click(None)
+    _by_key(page, "screener.export.csv").on_click(None)
+    assert exported and exported[0][2].name == "screener_results.csv"
+    assert "Screener CSV exported" in _visible_text(page)
+    assert state.last_export_path == exported[0][2]
+    assert exported[0][1].sort == loaded_query.sort
+
+
+def test_screener_invalid_filter_is_controlled_and_does_not_change_results(monkeypatch) -> None:
+    from etf_cockpit.app.pages import screener
+
+    snapshot = build_snapshot()
+    monkeypatch.setattr(screener, "load_fundamental_evidence", lambda _path: pd.DataFrame())
+    state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
+    page = screener.screener_page(None, state)
+    _by_key(page, "screener.filter.operator").value = "min"
+    _by_key(page, "screener.filter.value").value = "not-a-number"
+
+    _by_key(page, "screener.filter.add").on_click(None)
+
+    assert "Filter not applied" in _visible_text(page)
+    assert "numeric filter value must be finite" in _visible_text(page)
