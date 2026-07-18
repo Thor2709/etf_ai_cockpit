@@ -10,3 +10,11 @@ This project follows the workspace instructions plus these durable rules:
 - New user data should live under `data/`, configs under `configs/`, logs under `logs/` and model files under `models/`.
 - Tests must cover deterministic calculations and safety gates before claiming changes are working.
 - Issue workflow: document the issue, assign priority and dependencies, implement on a normal branch, run targeted tests, review, merge, then include the change in later consolidated milestone and release testing.
+
+## Native Codex agents and tools
+
+- Native Codex subagents are allowed, up to four concurrent threads; this supersedes earlier prohibitions on native subagents. Use them only for genuinely independent, bounded work.
+- The root agent owns integration and shared state, including routers, schemas, migrations, public interfaces, canonical registries, generated programme evidence, commits, pull requests, merges and GitHub issue synchronisation.
+- Subagents are read-only by default. An isolated writer may use a separate Git worktree and branch for an explicitly disjoint file boundary, run focused tests and return a local commit; it must not push, merge or update canonical or GitHub issue state.
+- Ordinary non-Superpowers plugins, MCP servers and tools are allowed. Only Superpowers skills, workflows, controllers and related content are prohibited; do not invoke, read or follow them.
+- After context compaction, continuation, resumption or hand-off, reread the applicable `AGENTS.md` files, `PLAN_step2.md`, `issues/issue_registry.json` and `docs/product-completion/CURRENT_STATUS.json` before acting.
