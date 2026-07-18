@@ -21,6 +21,10 @@ class StorageSchemaError(RuntimeError):
     """Raised when a local store cannot be read safely by this application."""
 
 
+class StorageRevisionConflict(RuntimeError):
+    """Raised when a stale writer attempts to replace newer local state."""
+
+
 @dataclass(frozen=True)
 class StorageLayout:
     root: Path
@@ -371,17 +375,41 @@ class TransactionalStore:
         else:
             self.connection.commit()
 
-    def put(self, entity_type: str, entity_id: str, payload: Mapping[str, Any]) -> StoredRecord:
+    def put(
+        self,
+        entity_type: str,
+        entity_id: str,
+        payload: Mapping[str, Any],
+        *,
+        expected_revision: int | None = None,
+    ) -> StoredRecord:
         entity_type, entity_id = _validate_identity(entity_type, entity_id)
         if not isinstance(payload, Mapping):
             raise TypeError("payload must be a mapping")
-        encoded = json.dumps(dict(payload), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        if expected_revision is not None and (
+            isinstance(expected_revision, bool)
+            or not isinstance(expected_revision, int)
+            or expected_revision < 0
+        ):
+            raise ValueError("expected_revision must be a non-negative integer")
+        encoded = json.dumps(
+            dict(payload),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
         now = _utc_now()
         with self.transaction() as connection:
             previous = connection.execute(
                 "SELECT revision, created_at FROM transactional_records WHERE entity_type = ? AND entity_id = ?",
                 (entity_type, entity_id),
             ).fetchone()
+            current_revision = int(previous[0]) if previous else 0
+            if expected_revision is not None and current_revision != expected_revision:
+                raise StorageRevisionConflict(
+                    f"expected revision {expected_revision}, current revision is {current_revision}"
+                )
             revision = int(previous[0]) + 1 if previous else 1
             created_at = str(previous[1]) if previous else now
             connection.execute(
@@ -397,7 +425,15 @@ class TransactionalStore:
                 """,
                 (entity_type, entity_id, encoded, revision, created_at, now),
             )
-        return self.get(entity_type, entity_id, include_deleted=True)  # type: ignore[return-value]
+            stored = StoredRecord(
+                entity_type=entity_type,
+                entity_id=entity_id,
+                payload=dict(json.loads(encoded)),
+                revision=revision,
+                created_at=created_at,
+                updated_at=now,
+            )
+        return stored
 
     def get(self, entity_type: str, entity_id: str, *, include_deleted: bool = False) -> StoredRecord | None:
         entity_type, entity_id = _validate_identity(entity_type, entity_id)
