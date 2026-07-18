@@ -140,6 +140,7 @@ def build_fundamental_evidence(
                 "value": value,
                 "period_end": str(metadata.get("period_end") or as_of),
                 "source_id": str(metadata.get("source_id") or resolved_source_id),
+                "source_authority": str(metadata.get("source_authority") or authority),
             }
         except (TypeError, ValueError):
             missing.append(field_name)
@@ -148,6 +149,7 @@ def build_fundamental_evidence(
                 "value": None,
                 "period_end": str(metadata.get("period_end") or as_of),
                 "source_id": str(metadata.get("source_id") or resolved_source_id),
+                "source_authority": str(metadata.get("source_authority") or authority),
                 "status": "missing",
             }
 

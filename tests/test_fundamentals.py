@@ -272,9 +272,12 @@ def test_fundamental_persistence_preserves_section_provenance(tmp_path) -> None:
 
     persist_fundamental_evidence(evidence, raw_dir=tmp_path / "raw", clean_path=clean_path)
     row = load_fundamental_evidence(clean_path).iloc[0]
+    assessment = assess_fundamental_row(row, today=date(2026, 7, 18))
 
     assert '"period_end":"2026-06-30"' in row["sections_json"]
     assert '"source_id":"sec-filing-2026-q2"' in row["sections_json"]
+    assert '"source_authority":"sec_edgar"' in row["sections_json"]
+    assert assessment.score_eligible is True
     assert row["schema_version"] == FUNDAMENTAL_SCHEMA_VERSION == "fundamental_evidence.v4"
     assert bool(row["executable_authority"]) is False
 
