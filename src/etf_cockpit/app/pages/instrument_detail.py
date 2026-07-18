@@ -7,7 +7,7 @@ import flet as ft
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
-from etf_cockpit.app.selectors.instrument_detail import InstrumentDetailViewModel, build_etf_disclosure_panel, build_instrument_detail
+from etf_cockpit.app.selectors.instrument_detail import InstrumentDetailViewModel, build_etf_disclosure_panel, build_etf_liquidity_panel, build_instrument_detail
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import bitemporal_history_summary
 
@@ -241,6 +241,60 @@ def _render_evidence_section(title: str, value: object, *, subtitle: str = "Cano
     return panel(ft.Column([section_header(title, subtitle), *lines], spacing=5))
 
 
+def _render_etf_order_preview(page: ft.Page | None, state: AppState, instrument_id: str, report: object) -> ft.Control:
+    """Render a small local order-size preview without granting execution authority."""
+
+    initial = report if isinstance(report, dict) else {}
+    order_field = ft.TextField(
+        label="Order value (EUR)",
+        value=str(initial.get("order_value_eur", 10_000.0)),
+        width=180,
+        key="instrument-detail.order-size",
+    )
+    horizon_field = ft.TextField(
+        label="Horizon (days)",
+        value=str(initial.get("horizon_days", 1)),
+        width=150,
+        key="instrument-detail.capacity-horizon",
+    )
+    result = ft.Text(color=theme.MUTED, selectable=True, size=11)
+
+    def _format_preview(value: dict[str, object]) -> str:
+        return (
+            f"Capacity: {value.get('capacity_status', 'unavailable')} | "
+            f"exchange capacity={value.get('exchange_capacity_eur', 'N/A')} EUR | "
+            f"headroom={value.get('capacity_headroom_eur', 'N/A')} EUR | "
+            f"estimated cost={value.get('estimated_cost_bps', 'N/A')} bps | "
+            f"stressed={value.get('stressed_cost_bps', 'N/A')} bps | "
+            "execution_allowed=false"
+        )
+
+    result.value = _format_preview(initial)
+
+    def preview(_event: ft.ControlEvent) -> None:
+        try:
+            order_value = max(0.0, float(order_field.value or 0.0))
+            horizon = max(1, int(float(horizon_field.value or 1)))
+        except (TypeError, ValueError):
+            result.value = "Capacity preview failed: enter a non-negative order value and a positive whole-day horizon."
+        else:
+            refreshed = build_etf_liquidity_panel(state.snapshot, instrument_id, order_value_eur=order_value, horizon_days=horizon)
+            result.value = _format_preview(refreshed)
+        if page is not None and hasattr(page, "update"):
+            page.update()
+
+    return panel(
+        ft.Column(
+            [
+                section_header("ETF order-preview capacity meter", "Preview only: exchange volume and optional primary-market context remain separate; no order is submitted."),
+                ft.Row([order_field, horizon_field, ft.OutlinedButton("Preview capacity", key="instrument-detail.preview-capacity", on_click=preview)], wrap=True),
+                result,
+            ],
+            spacing=6,
+        )
+    )
+
+
 def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
     route = str(getattr(page, "route", "") or "") if page is not None else ""
     selected = route.split("/", 2)[-1].split("?", 1)[0].split("#", 1)[0] if route.startswith("/instrument/") else state.selected_etf
@@ -278,6 +332,8 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
     )
     rows = [
         _render_evidence_section("Price history", model.sections.get("price"), subtitle="Adjusted-price history, latest value/date and freshness."),
+        _render_evidence_section("ETF Liquidity", model.sections.get("etf_liquidity"), subtitle="Rolling turnover, spread/gap proxies, zero-volume days, quote/NAV evidence and primary-market context remain explicit."),
+        _render_etf_order_preview(page, state, selected, model.sections.get("etf_liquidity")),
         _render_evidence_section("Evidence Score", model.sections.get("scores"), subtitle="Authority score, quality, final label/reason and blocked gates; execution_allowed=false."),
         _render_evidence_section("Risk and feature evidence", model.sections.get("risk"), subtitle="Momentum, trend, relative strength, volatility, drawdown and liquidity/cost."),
         _render_evidence_section("Alpha, beta and correlation", model.sections.get("attribution")),

@@ -34,6 +34,8 @@ ROOT = project_root()
 CONFIG_DIR = ROOT / "configs"
 DATA_DIR = ROOT / "data"
 RAW_DIR = DATA_DIR / "raw"
+ETF_QUOTES_DIR = RAW_DIR / "etf_quotes"
+ETF_QUOTES_PATH = ETF_QUOTES_DIR / "quotes.csv"
 CLEAN_DIR = DATA_DIR / "clean"
 STATEMENT_FACTS_PATH = CLEAN_DIR / "statement_facts.parquet"
 FILINGS_STATEMENTS_PATH = CLEAN_DIR / "filings_statements.parquet"
@@ -69,6 +71,7 @@ REQUIRED_DIRS = [
     RAW_DIR / "esef",
     RAW_DIR / "priips_kids",
     RAW_DIR / "etf_reports",
+    ETF_QUOTES_DIR,
     RAW_DIR / "index_methodology",
     RAW_DIR / "rss",
     CLEAN_DIR,
