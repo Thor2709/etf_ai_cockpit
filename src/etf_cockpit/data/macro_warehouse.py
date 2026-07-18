@@ -396,6 +396,16 @@ class MacroWarehouse:
             rows = store.observations(dataset_id)
         return [MacroObservation.from_ledger(row.__dict__) for row in rows]
 
+    def observations_as_of(self, *, root: Path, decision_time: str) -> list[MacroObservation]:
+        """Return the latest valid revision available at a decision cutoff."""
+
+        dataset_ids = sorted({row.dataset_id for row in self.observations(root=root)})
+        selected: list[MacroObservation] = []
+        for dataset_id in dataset_ids:
+            frame = self.as_of(root=root, dataset_id=dataset_id, decision_time=decision_time)
+            selected.extend(MacroObservation.model_validate(row) for row in frame.to_dict("records"))
+        return selected
+
     def as_of(self, *, root: Path, dataset_id: str, decision_time: str) -> pd.DataFrame:
         with BitemporalStore(Path(root)) as store:
             frame = store.as_of(dataset_id, decision_time)

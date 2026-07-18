@@ -10,29 +10,36 @@ from etf_cockpit.core.paths import DERIVED_DIR
 from etf_cockpit.features.benchmark_attribution import build_benchmark_attribution
 
 
-def build_market_regime(prices: pd.DataFrame, candidate_report: pd.DataFrame | None = None) -> dict[str, object]:
+def build_market_regime(
+    prices: pd.DataFrame,
+    candidate_report: pd.DataFrame | None = None,
+    *,
+    max_forward_fill: int | None = None,
+) -> dict[str, object]:
     if prices.empty or not {"etf_id", "date", "adjusted_close"}.issubset(prices.columns):
         return _empty_regime("No clean yfinance price panel is available.")
     frame = prices.copy()
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
     frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
-    pivot = frame.dropna(subset=["date", "adjusted_close"]).pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
+    pivot = frame.dropna(subset=["date"]).pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
     pivot = pivot.dropna(how="all")
     if len(pivot) < 220:
         return _empty_regime("Less than 220 trading days are available for regime scoring.")
 
-    latest = pivot.ffill().iloc[-1]
-    sma200 = pivot.ffill().rolling(200, min_periods=160).mean().iloc[-1]
-    above = (latest > sma200).dropna()
+    filled = pivot.ffill(limit=max_forward_fill)
+    latest = filled.iloc[-1]
+    sma200 = filled.rolling(200, min_periods=160).mean().iloc[-1]
+    valid = latest.notna() & sma200.notna()
+    above = (latest[valid] > sma200[valid]).dropna()
     configured_pct_above = float(above.mean()) if not above.empty else 0.0
     benchmark_id = str(pivot.columns[0])
     benchmark = pivot[benchmark_id].dropna()
     benchmark_above_sma200 = bool(latest.get(benchmark_id, np.nan) > sma200.get(benchmark_id, np.nan))
     benchmark_return_60d = _horizon_return(benchmark, 60)
     benchmark_return_120d = _horizon_return(benchmark, 120)
-    returns = pivot.ffill().pct_change(fill_method=None)
+    returns = filled.pct_change(fill_method=None)
     median_vol_60d = float(returns.tail(60).std(skipna=True).median() * np.sqrt(252)) if len(returns) >= 60 else None
-    drawdowns = pivot.ffill() / pivot.ffill().cummax() - 1.0
+    drawdowns = filled / filled.cummax() - 1.0
     median_drawdown = float(drawdowns.iloc[-1].median(skipna=True))
     candidate_pct_above = _candidate_pct_above_sma200(candidate_report)
     combined_pct_above = _weighted_available(

@@ -9,18 +9,21 @@ from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import MacroWarehouse, MacroWarehouseError
 from etf_cockpit.core.paths import ROOT
+from etf_cockpit.features.macro import build_macro_context
 
 
 def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
-    del page, state
+    del page
     warehouse = MacroWarehouse()
     try:
         summary = warehouse.summary(root=ROOT)
-        rows = warehouse.observations(root=ROOT)
+        price_dates = state.snapshot.prices.get("date") if hasattr(state.snapshot.prices, "get") else None
+        decision_time = str(price_dates.max()) if price_dates is not None and not price_dates.empty else "9999-12-31T00:00:00+00:00"
+        context_rows = warehouse.observations_as_of(root=ROOT, decision_time=decision_time)
         error_text = ""
     except (MacroWarehouseError, OSError) as exc:
         summary = {"status": "unavailable", "row_count": 0}
-        rows = []
+        context_rows = []
         error_text = f"Manual review required: local macro warehouse could not be read ({type(exc).__name__})."
 
     status = str(summary.get("status", "unavailable"))
@@ -44,10 +47,41 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
             size=11,
             selectable=True,
         )
-        for row in sorted(rows, key=lambda item: (item.dataset_id, item.period_start, item.series_id))[-24:]
+        for row in sorted(context_rows, key=lambda item: (item.dataset_id, item.period_start, item.series_id))[-24:]
     ]
     if not entries:
         entries = [ft.Text("No local macro/factor observations have been ingested yet.", color=theme.MUTED, selectable=True)]
+
+    macro_context = build_macro_context(state.snapshot.prices, state.snapshot.config.universe.etfs, context_rows)
+    regime = macro_context["regime"]
+    breadth = macro_context["breadth"]
+    volatility = macro_context["volatility"]
+    inflation_rates = macro_context["inflation_rates"]
+    proxy_entries = [
+        ft.Text(
+            f"{row['proxy']}: {row['status']} | "
+            f"return20d={_format_metric(row.get('period_return_20d'))} | "
+            f"vol={_format_metric(row.get('volatility_annualised'))} | "
+            f"source={row.get('source', row.get('provenance', 'local adjusted_close price snapshot'))} | "
+            f"as_of={row.get('as_of', 'unavailable')} | freshness={row.get('freshness_status', 'unavailable')}",
+            color=theme.TEXT if row["status"] == "available" else theme.MUTED,
+            size=11,
+            selectable=True,
+        )
+        for row in macro_context["proxy_rows"]
+    ]
+    inflation_entries = [
+        ft.Text(
+            f"{row['series_id']}: {row['value']} {row.get('unit') or ''} | "
+            f"source={row['source']} | available={row['available_at']} | freshness={row['freshness_status']}",
+            color=theme.TEXT,
+            size=11,
+            selectable=True,
+        )
+        for row in inflation_rates.get("rows", [])
+    ]
+    if not inflation_entries:
+        inflation_entries = [ft.Text("No local inflation or rates series is available.", color=theme.MUTED, size=11, selectable=True)]
 
     return ft.Column(
         [
@@ -73,6 +107,44 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
             panel(
                 ft.Column(
                     [
+                        ft.Text("Regime and proxy context", color=theme.TEXT, weight=ft.FontWeight.BOLD),
+                        ft.Text(
+                            f"Regime: {regime.get('label', 'unknown')} | "
+                            f"breadth above SMA200: {_format_metric(breadth.get('pct_above_sma200'))} "
+                            f"(source={breadth.get('source', 'unavailable')}, freshness={breadth.get('freshness_status', 'unavailable')}) | "
+                            f"median annualised volatility: {_format_metric(volatility.get('median_annualised'))} "
+                            f"(source={volatility.get('source', 'unavailable')}, freshness={volatility.get('freshness_status', 'unavailable')})",
+                            color=theme.TEXT,
+                            selectable=True,
+                        ),
+                        ft.Text(
+                            f"As of: {macro_context.get('as_of') or 'unavailable'} | "
+                            f"freshness: {macro_context.get('freshness_status', 'unavailable')} | "
+                            f"provenance: {macro_context.get('provenance', 'unavailable')}",
+                            color=theme.MUTED,
+                            selectable=True,
+                        ),
+                        ft.Column(proxy_entries, spacing=6),
+                        ft.Text(
+                            f"Inflation/rates context: {inflation_rates.get('status', 'unavailable')} | "
+                            f"series shown: {len(inflation_rates.get('rows', []))}",
+                            color=theme.TEXT if inflation_rates.get("status") == "available" else theme.MUTED,
+                            selectable=True,
+                        ),
+                        ft.Column(inflation_entries, spacing=6),
+                        ft.Text(
+                            "Context only (context_only=true, score_eligible=false): this dashboard does not produce scores, expected returns or orders. "
+                            "Optional FRED: unavailable; no network request was made.",
+                            color=theme.AMBER,
+                            selectable=True,
+                        ),
+                    ],
+                    spacing=8,
+                )
+            ),
+            panel(
+                ft.Column(
+                    [
                         ft.Text("Latest local observations", color=theme.TEXT, weight=ft.FontWeight.BOLD),
                         ft.Column(entries, spacing=6, scroll=ft.ScrollMode.AUTO),
                     ],
@@ -88,3 +160,12 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
 
 
 __all__ = ["macro_factors_page"]
+
+
+def _format_metric(value: object) -> str:
+    if value is None:
+        return "unavailable"
+    try:
+        return f"{float(value):.2%}"
+    except (TypeError, ValueError):
+        return "unavailable"
