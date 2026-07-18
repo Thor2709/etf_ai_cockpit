@@ -47,6 +47,11 @@ The shell groups existing routes into Home, Discover, Instrument, Portfolio,
 Models, Backtest/Paper, Data Health, Audit and Settings. Mobile layouts keep
 the same groups and wrap navigation controls instead of hiding routes.
 
+The initial Discover comparison workspace aligns two canonical local score
+objects in a text-first table. It reports units, coverage, data date and
+execution authority explicitly and can save the selected pair to the local
+workspace store for later reproduction.
+
 ## Evidence modes
 
 - Compact - decision summary for quick scanning.

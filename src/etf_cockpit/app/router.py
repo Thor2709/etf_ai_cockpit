@@ -6,6 +6,7 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.flet_compat import border_only, padding_symmetric
 from etf_cockpit.app.pages.backtests import backtests_page
 from etf_cockpit.app.pages.catalogue import catalogue_page
+from etf_cockpit.app.pages.comparison import comparison_page
 from etf_cockpit.app.pages.chatgpt_audit import chatgpt_audit_page
 from etf_cockpit.app.pages.dashboard import dashboard_page
 from etf_cockpit.app.pages.data_models import data_models_page
@@ -44,6 +45,7 @@ PAGES = {
     "/portfolio": ("Portfolio Context", portfolio_page),
     "/signals": ("Scores", signals_page),
     "/screener": ("Fundamentals Screener", screener_page),
+    "/comparison": ("Comparison", comparison_page),
     "/stock-research": ("Stock Research", stock_research_page),
     "/risk": ("Risk Evidence", risk_page),
     "/etf": ("Instrument Detail", instrument_detail_page),
@@ -77,7 +79,7 @@ PAGES = {
 # independently testable while the shell gives them a decision-oriented home.
 WORKSPACE_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Home", ("/",)),
-    ("Discover", ("/signals", "/screener", "/stock-research", "/universe", "/what-changed")),
+    ("Discover", ("/signals", "/screener", "/comparison", "/stock-research", "/universe", "/what-changed")),
     ("Instrument", ("/etf", "/instrument")),
     ("Portfolio", ("/portfolio", "/risk")),
     ("Models", ("/data-models", "/macro")),
