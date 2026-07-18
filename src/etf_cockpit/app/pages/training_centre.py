@@ -6,6 +6,7 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.core.job_scheduler import DurableJobScheduler
 from etf_cockpit.core.paths import ROOT
+from etf_cockpit.features.synthetic_scenarios import SyntheticScenarioGenerator, SyntheticScenarioSpec
 from etf_cockpit.features.training_centre import LocalTrainingRegistry
 
 
@@ -43,6 +44,7 @@ def training_centre_page(page: ft.Page, _state: object) -> ft.Control:
                 wrap=True,
             ),
             panel(ft.Column([section_header("Registry status", "The compatible lightweight adapter uses the existing transactional store."), ft.Text(message, color=theme.MUTED, selectable=True), ft.Text(f"Runs: {len(runs)} · models: {len(models)} · metrics: {len(metrics)} · training workflows: {len([item for item in workflows if item.workflow_type == 'model_training'])}", color=theme.TEXT, selectable=True)])),
+            _synthetic_panel(),
             _runs_panel(runs),
             ft.Row([_metrics_panel(metrics), _models_panel(models)], spacing=14, vertical_alignment=ft.CrossAxisAlignment.START),
             _reports_panel(runs),
@@ -50,6 +52,30 @@ def training_centre_page(page: ft.Page, _state: object) -> ft.Control:
         spacing=14,
         expand=True,
         scroll=ft.ScrollMode.AUTO,
+    )
+
+
+def _synthetic_panel() -> ft.Container:
+    """Show a deterministic robustness fixture without granting promotion authority."""
+
+    spec = SyntheticScenarioSpec(periods=60, seed=42, missing_rate=0.04, jump_probability=0.03)
+    try:
+        dataset = SyntheticScenarioGenerator().generate(spec)
+        evidence = SyntheticScenarioGenerator.validate(dataset)
+        summary = f"{evidence['rows']['prices']} price rows · {evidence['rows']['data_quality']} quality rows · {evidence['rows']['execution_events']} execution fixtures"
+        detail = f"Seed {spec.seed} · hash {str(dataset.metadata['dataset_hash'])[:12]} · labels {evidence['status']}"
+    except Exception as exc:
+        summary = "Synthetic scenario unavailable"
+        detail = f"Controlled failure: {type(exc).__name__}: {exc}"
+    return panel(
+        ft.Column(
+            [
+                section_header("Synthetic Scenario Builder", "Seeded market, data-quality and execution fixtures for invariants and robustness only."),
+                ft.Row([ft.TextButton("Generate seeded scenario", key="training-centre.synthetic-scenario", on_click=lambda _event: None), ft.Text("synthetic=true · promotion_eligible=false", color=theme.MUTED, selectable=True)], wrap=True),
+                ft.Text(summary, color=theme.TEXT, selectable=True),
+                ft.Text(detail, color=theme.MUTED, selectable=True),
+            ]
+        )
     )
 
 
