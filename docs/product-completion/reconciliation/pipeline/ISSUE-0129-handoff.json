@@ -21,13 +21,17 @@
     "docs/product-completion/PROGRESS.md",
     "docs/product-completion/reconciliation/pipeline/ISSUE-0129-handoff.json",
     "issues/issue_registry.json",
+    "scripts/issue_registry_core.py",
+    "scripts/status_transition_guard.py",
     "src/etf_cockpit/app/pages/operations.py",
     "src/etf_cockpit/application/api.py",
     "src/etf_cockpit/application/contracts.py",
     "src/etf_cockpit/portfolio/paper_trading.py",
     "tests/test_application_api.py",
     "tests/test_operations_workspace.py",
-    "tests/test_paper_trading.py"
+    "tests/test_paper_trading.py",
+    "tests/test_issue_registry.py",
+    "tests/test_status_transition_guard.py"
   ],
   "completed_checks": [
     "paper ledger, application API and Operations Centre focused tests passed",
@@ -35,7 +39,8 @@
     "Ruff passed for changed Python files",
     "compileall passed",
     "offline source smoke passed",
-    "scripts/validate_app.py --changed passed with structured JSON and Markdown evidence"
+    "scripts/validate_app.py --changed passed with structured JSON and Markdown evidence",
+    "cross-platform source-manifest hash regression and status-transition guard tests passed"
   ],
   "authorised_baseline_fingerprints": [
     "tests/scope_boundary/test_package_inventory.py::test_current_production_package_inventory_passes",
