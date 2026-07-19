@@ -1,0 +1,49 @@
+{
+  "issue_ids": [
+    "ISSUE-0057"
+  ],
+  "stage": "frozen_feature_checkpoint",
+  "base_sha": "5c7f55d7895cdcad21a2e5ecf871e49408fdd1a1",
+  "checkpoint_sha": "716a5c5a70b743a7dde1affd3db297616e885f3e",
+  "branch": "codex/issue-0057-forward-evidence-diary-20260719",
+  "worktree": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\issue0057-forward-evidence-diary-20260719",
+  "expected_status_transition": {
+    "ISSUE-0057": [
+      "planned",
+      "integrated"
+    ]
+  },
+  "allowed_paths": [
+    "AGENTS.md",
+    "artifacts/validation/latest/validation.json",
+    "artifacts/validation/latest/validation.md",
+    "configs/feature_registry.yaml",
+    "configs/ui_acceptance.yaml",
+    "docs/product-completion/AGENT_PIPELINE.md",
+    "docs/product-completion/reconciliation/pipeline/ISSUE-0057-handoff.json",
+    "src/etf_cockpit/app/pages/forward_evidence.py",
+    "src/etf_cockpit/app/router.py",
+    "src/etf_cockpit/application/ui_facade.py",
+    "src/etf_cockpit/data/forward_evidence_diary.py",
+    "tests/test_forward_evidence_application.py",
+    "tests/test_forward_evidence_diary.py",
+    "tests/ui/test_forward_evidence_ui.py"
+  ],
+  "completed_checks": [
+    "focused diary, application and UI tests passed",
+    "affected architecture, button and feature-registry tests passed",
+    "Ruff passed for changed Python files",
+    "compileall passed",
+    "offline source smoke passed",
+    "changed validator passed"
+  ],
+  "authorised_baseline_fingerprints": [],
+  "stop_conditions": [
+    "unexpected changed path or status transition",
+    "changed checkpoint head or merge conflict",
+    "current-feature test failure",
+    "ambiguous baseline mismatch",
+    "product-code correction required during release"
+  ],
+  "notes": "Refresh base_sha and checkpoint_sha after the preceding ISSUE-0048 merge before release hand-off. ISSUE-0057 is local-only forward evidence; execution_allowed remains false."
+}
