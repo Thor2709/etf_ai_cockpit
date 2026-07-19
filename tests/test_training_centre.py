@@ -152,3 +152,6 @@ def test_validation_evidence_retains_all_trials_and_fails_closed_without_researc
             variants={},
             selection_method="invalid",
         )
+
+    with pytest.raises(TrainingRegistryError, match="report not found"):
+        registry.validation_promotion_result("missing-report")

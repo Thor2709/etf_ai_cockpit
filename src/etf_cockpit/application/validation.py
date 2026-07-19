@@ -6,11 +6,14 @@ import hashlib
 import inspect
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pandas as pd
 
 from etf_cockpit.features.training_centre import LocalTrainingRegistry
+from etf_cockpit.portfolio import optimiser as optimiser_module
 from etf_cockpit.portfolio.optimiser import returns_from_adjusted_prices
+from etf_cockpit.validation import protocol as validation_protocol
 from etf_cockpit.validation.protocol import ValidationReport, ValidationSpec, evaluate_trials, report_fingerprint
 
 
@@ -124,8 +127,19 @@ def _sha256(value: bytes) -> str:
 def _validation_code_hash() -> str:
     """Hash the executable preview implementation used for retained evidence."""
 
-    source = "\n".join(inspect.getsource(function) for function in (build_validation_preview, record_validation_preview, _preview_inputs))
-    return _sha256(source.encode("utf-8"))
+    sources = [Path(__file__).read_bytes(), _module_source(validation_protocol), _module_source(optimiser_module)]
+    return _sha256(b"\n".join(source.replace(b"\r\n", b"\n").replace(b"\r", b"\n") for source in sources))
+
+
+def _module_source(module: object) -> bytes:
+    """Return a stable source representation for a validation dependency."""
+
+    module_path = getattr(module, "__file__", None)
+    if module_path:
+        path = Path(str(module_path))
+        if path.suffix == ".py" and path.is_file():
+            return path.read_bytes()
+    return inspect.getsource(module).encode("utf-8")
 
 
 __all__ = ["build_validation_preview", "load_training_evidence", "record_validation_preview"]

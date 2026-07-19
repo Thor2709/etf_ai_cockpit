@@ -310,8 +310,8 @@ class LocalTrainingRegistry:
     def validation_promotion_result(self, report_id: str) -> dict[str, object]:
         report = self.get(_ENTITY_VALIDATION_REPORT, report_id)
         if report is None:
-            payload = {"promotion_id": f"promotion_{_hash_payload([report_id, 'report_unavailable'])[:20]}", "report_id": report_id, "eligible": False, "reasons": ["report_unavailable"], "execution_allowed": False, "evaluated_at": ""}
-            return self._put_immutable(_ENTITY_VALIDATION_PROMOTION, str(payload["promotion_id"]), payload)
+            raise TrainingRegistryError("validation report not found")
+        self.require(_ENTITY_RUN, str(report["run_id"]))
         trial_ids = report.get("trial_ids", [])
         missing = [trial_id for trial_id in trial_ids if self.get(_ENTITY_VALIDATION_TRIAL, f"{report_id}:{trial_id}") is None]
         decisions = [item for item in self.list_records(_ENTITY_VALIDATION_DECISION) if item.get("report_id") == report_id]

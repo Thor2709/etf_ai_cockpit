@@ -100,34 +100,8 @@ def _validation_panel(
     latest_decisions = [item for item in retained_decisions if latest_report and item.get("report_id") == latest_report.get("report_id")]
     latest_promotions = [item for item in retained_promotions if latest_report and item.get("report_id") == latest_report.get("report_id")]
     if latest_report:
-        latest_decision = max(latest_decisions, key=lambda item: str(item.get("decided_at", "")), default=None)
-        latest_promotion = max(latest_promotions, key=lambda item: str(item.get("evaluated_at", "")), default=None)
-        diagnostic = (
-            f"Retained report {latest_report.get('report_id')} · trials={len(latest_trials)} · "
-            f"DSR={latest_report.get('deflated_sharpe')} · PBO={latest_report.get('probability_of_backtest_overfitting')} · "
-            f"FDR={latest_report.get('false_discovery_rate')} · decision={latest_decision.get('decision') if latest_decision else 'pending'}"
-        )
-        trial_detail = " · ".join(
-            f"{item.get('trial_id')}={'selected' if item.get('selected') else 'discarded'} "
-            f"series={len(item.get('return_series', []))} parameters={item.get('parameters')} "
-            f"scores={item.get('validation_scores')} discarded_reason={item.get('discarded_reason') or 'none'}"
-            for item in latest_trials
-        ) or "no trial rows"
-        fold_detail = "; ".join(
-            f"fold {fold.get('fold')}: train={fold.get('train_indices')} validation={fold.get('validation_indices')} "
-            f"purged={fold.get('purged_indices')} embargoed={fold.get('embargoed_indices')}"
-            for fold in latest_report.get("folds", [])
-        ) or "no fold boundaries"
-        promotion_detail = (
-            f"eligible={latest_promotion.get('eligible')} reasons={latest_promotion.get('reasons')}"
-            if latest_promotion
-            else "no persisted promotion result"
-        )
         retained_text = ft.Text(
-            f"{diagnostic}\n{trial_detail}\nfeatures={latest_report.get('features')} · thresholds={latest_report.get('thresholds')} · variants={latest_report.get('variants')}\n"
-            f"folds={len(latest_report.get('folds', []))} · {fold_detail}\nselection={latest_report.get('selection_method')} · "
-            f"data_hash={latest_report.get('data_hash')} · code_hash={latest_report.get('code_hash')}\n"
-            f"researcher_decision={latest_decision} · promotion={promotion_detail} · execution_allowed=false",
+            _retained_validation_text(latest_report, latest_trials, latest_decisions, latest_promotions),
             color=theme.MUTED,
             selectable=True,
         )
@@ -148,6 +122,12 @@ def _validation_panel(
                     f"Retained report {report.get('report_id')} with {len(report.get('trial_ids', []))} trials; "
                     f"promotion_eligible={str(promotion.get('eligible', False)).lower()} · execution_allowed=false"
                 )
+                updated_snapshot = load_training_evidence(ROOT)
+                updated_report = next((item for item in updated_snapshot.get("validation.report", ()) if item.get("report_id") == report.get("report_id")), report)
+                updated_trials = [item for item in updated_snapshot.get("validation.trial", ()) if item.get("report_id") == report.get("report_id")]
+                updated_decisions = [item for item in updated_snapshot.get("validation.researcher_decision", ()) if item.get("report_id") == report.get("report_id")]
+                updated_promotions = [item for item in updated_snapshot.get("validation.promotion_result", ()) if item.get("report_id") == report.get("report_id")]
+                retained_text.value = _retained_validation_text(updated_report, updated_trials, updated_decisions, updated_promotions)
         except Exception as exc:
             evidence_status.value = f"Trial evidence failed safely: {type(exc).__name__}: {exc}"
         if page is not None and callable(getattr(page, "update", None)):
@@ -165,6 +145,45 @@ def _validation_panel(
         )
     ])
     return panel(ft.Column(controls, spacing=8))
+
+
+def _retained_validation_text(
+    report: dict[str, object],
+    trials: list[dict[str, object]],
+    decisions: list[dict[str, object]],
+    promotions: list[dict[str, object]],
+) -> str:
+    """Format all retained search and promotion evidence for the workspace."""
+
+    latest_decision = max(decisions, key=lambda item: str(item.get("decided_at", "")), default=None)
+    latest_promotion = max(promotions, key=lambda item: str(item.get("evaluated_at", "")), default=None)
+    diagnostic = (
+        f"Retained report {report.get('report_id')} · trials={len(trials)} · "
+        f"DSR={report.get('deflated_sharpe')} · PBO={report.get('probability_of_backtest_overfitting')} · "
+        f"FDR={report.get('false_discovery_rate')} · decision={latest_decision.get('decision') if latest_decision else 'pending'}"
+    )
+    trial_detail = " · ".join(
+        f"{item.get('trial_id')}={'selected' if item.get('selected') else 'discarded'} "
+        f"series={len(item.get('return_series', []))} parameters={item.get('parameters')} "
+        f"scores={item.get('validation_scores')} discarded_reason={item.get('discarded_reason') or 'none'}"
+        for item in trials
+    ) or "no trial rows"
+    fold_detail = "; ".join(
+        f"fold {fold.get('fold')}: train={fold.get('train_indices')} validation={fold.get('validation_indices')} "
+        f"purged={fold.get('purged_indices')} embargoed={fold.get('embargoed_indices')}"
+        for fold in report.get("folds", [])
+    ) or "no fold boundaries"
+    promotion_detail = (
+        f"eligible={latest_promotion.get('eligible')} reasons={latest_promotion.get('reasons')}"
+        if latest_promotion
+        else "no persisted promotion result"
+    )
+    return (
+        f"{diagnostic}\n{trial_detail}\nfeatures={report.get('features')} · thresholds={report.get('thresholds')} · variants={report.get('variants')}\n"
+        f"folds={len(report.get('folds', []))} · {fold_detail}\nselection={report.get('selection_method')} · "
+        f"data_hash={report.get('data_hash')} · code_hash={report.get('code_hash')}\n"
+        f"researcher_decision={latest_decision} · promotion={promotion_detail} · execution_allowed=false"
+    )
 
 
 def _synthetic_panel() -> ft.Container:
