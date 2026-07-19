@@ -31,6 +31,8 @@ from typing import Iterable
 SCHEMA_VERSION = "1.0"
 DEFAULT_POLICY = Path("configs/release_policy.yaml")
 DEFAULT_OUTPUT = Path("artifacts/release/latest")
+COMMAND_TIMEOUT_SECONDS = 1800
+FULL_TEST_TIMEOUT_SECONDS = 7200
 SIGNING_KEY_ENV = "ETF_COCKPIT_RELEASE_SIGNING_KEY"
 SIGNING_KEY_ID_ENV = "ETF_COCKPIT_RELEASE_SIGNING_KEY_ID"
 TEXT_SUFFIXES = frozenset(
@@ -292,7 +294,15 @@ def _command_text(command: Iterable[str]) -> str:
     return " ".join(shlex.quote(str(part)) for part in command)
 
 
-def run_command(root: Path, output_dir: Path, name: str, command: tuple[str, ...], *, required: bool = True) -> CheckResult:
+def run_command(
+    root: Path,
+    output_dir: Path,
+    name: str,
+    command: tuple[str, ...],
+    *,
+    required: bool = True,
+    timeout_seconds: int = COMMAND_TIMEOUT_SECONDS,
+) -> CheckResult:
     started = time.perf_counter()
     try:
         completed = subprocess.run(
@@ -302,7 +312,7 @@ def run_command(root: Path, output_dir: Path, name: str, command: tuple[str, ...
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=1800,
+            timeout=timeout_seconds,
             check=False,
         )
         output = (completed.stdout + completed.stderr).strip()
@@ -536,7 +546,15 @@ def run_gate(
     if skip_tests:
         state.add(CheckResult("full_tests", "skipped", False, "pytest -q"))
     else:
-        state.add(run_command(root, output, "full_tests", _python_command(root, "-m", "pytest", "-q")))
+        state.add(
+            run_command(
+                root,
+                output,
+                "full_tests",
+                _python_command(root, "-m", "pytest", "-q"),
+                timeout_seconds=FULL_TEST_TIMEOUT_SECONDS,
+            )
+        )
 
     if skip_package:
         state.add(CheckResult("package_build", "skipped", False, _command_text(package_command(root))))
