@@ -6,6 +6,9 @@ implementations remain compatible while later slices move them behind typed
 ports and application commands.
 """
 
+from pathlib import Path
+
+
 from etf_cockpit.chatgpt_bridge.audit_packet import *  # noqa: F401,F403
 from etf_cockpit.data.backup_restore import *  # noqa: F401,F403
 from etf_cockpit.data.bitemporal import *  # noqa: F401,F403
@@ -61,3 +64,14 @@ from etf_cockpit.portfolio.risk_analytics import *  # noqa: F401,F403
 from etf_cockpit.application.portfolio_sandbox import *  # noqa: F401,F403
 from etf_cockpit.application.overlap import *  # noqa: F401,F403
 from etf_cockpit.signals.simple_scores import *  # noqa: F401,F403
+
+
+def load_paper_trade_rows(root: Path) -> tuple[dict[str, object], ...]:
+    """Return safe, local paper-trade rows for presentation selectors."""
+
+    from etf_cockpit.portfolio.paper_trading import PaperLedger, PaperLedgerError
+
+    try:
+        return PaperLedger(root).trade_rows()
+    except (OSError, PaperLedgerError, ValueError):
+        return ()

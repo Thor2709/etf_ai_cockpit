@@ -14,6 +14,8 @@ from etf_cockpit.application.api import LocalApplicationApi
 from etf_cockpit.application.contracts import (
     ApiStatus,
     CancelWorkflowCommand,
+    PaperAccountOpenRequest,
+    PaperPositionMarkRequest,
     PageRequest,
     ProposalReviewRequest,
     QueryRequest,
@@ -57,6 +59,26 @@ def test_queries_return_immutable_paginated_view_models_without_domain_frames() 
         universe.items = ()
 
 
+def test_typed_paper_account_exposes_provenanced_marks_and_orders(tmp_path: Path) -> None:
+    api = LocalApplicationApi(_snapshot, root=tmp_path)
+
+    opened = api.open_paper_account(PaperAccountOpenRequest(initial_cash=1_000))
+    marked = api.mark_paper_position(
+        PaperPositionMarkRequest(
+            instrument_id="ETF1",
+            adjusted_close=101,
+            as_of=datetime(2026, 7, 19, tzinfo=timezone.utc),
+            source_authority="test-adjusted-close",
+            source_checksum="a" * 64,
+        )
+    )
+
+    assert opened.status == "ready"
+    assert marked.reconciliation_status == "ready"
+    assert marked.execution_allowed is False
+    assert api.get_paper_orders().total == 0
+
+
 def test_typed_proposal_review_stays_inside_application_boundary(tmp_path, monkeypatch) -> None:
     import etf_cockpit.portfolio.proposal_policy as proposal_policy
 
@@ -98,6 +120,20 @@ def test_typed_proposal_review_stays_inside_application_boundary(tmp_path, monke
     assert view.execution_allowed is False
     assert view.failed_gate_count == 9
     assert api.query(QueryRequest(resource="proposals")).total == 1
+
+
+def test_paper_account_is_exposed_through_typed_application_boundary(tmp_path) -> None:
+    api = LocalApplicationApi(_snapshot, root=tmp_path)
+
+    opened = api.open_paper_account(PaperAccountOpenRequest(initial_cash=10_000))
+    queried = api.query(QueryRequest(resource="paper"))
+
+    assert opened.status == "ready"
+    assert opened.execution_allowed is False
+    assert opened.cash == pytest.approx(10_000)
+    assert opened.reconciliation_status == "ready"
+    assert queried.items[0].account_id == "local-paper"
+    assert queried.items[0].equity == pytest.approx(10_000)
 
 
 def test_commands_are_idempotent_and_reject_stale_revisions() -> None:

@@ -24,6 +24,7 @@ from etf_cockpit.application.ui_facade import (
     load_news_items,
     load_calendar_events,
     load_statement_evidence,
+    load_paper_trade_rows,
     read_document_registry,
     read_index_methodology_records,
     read_priips_kid_records,
@@ -1070,6 +1071,8 @@ def _backtest_panel(snapshot: CockpitSnapshot, instrument_id: str, scoreboard: M
 
 def _paper_trade_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
     source = frame if isinstance(frame, pd.DataFrame) else _load_parquet(PAPER_TRADES_PATH)
+    if not isinstance(frame, pd.DataFrame) and source.empty:
+        source = pd.DataFrame(load_paper_trade_rows(PAPER_TRADES_PATH.parents[1].parent))
     rows = _instrument_rows(source, instrument_id)
     if rows.empty:
         return _unavailable("Paper-trade history unavailable; no local paper-trade records are registered.") | {"rows": []}
