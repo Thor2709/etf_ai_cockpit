@@ -26,6 +26,7 @@ from etf_cockpit.models.calibration import calibration_lookup, evaluate_forecast
 from etf_cockpit.models.forecast_scores import (
     filter_forecasts_for_universe,
     forecast_component_maps,
+    forecast_return_distributions,
     forecast_score_details,
     load_latest_forecasts,
 )
@@ -44,7 +45,7 @@ from etf_cockpit.signals.research_states import (
     research_state_for_legacy_action,
 )
 from etf_cockpit.signals.strategy_templates import strategy_template_frame, strategy_template_labels, template_description
-from etf_cockpit.signals.friction_edge import estimate_friction_edge
+from etf_cockpit.signals.friction_edge import estimate_friction_adjusted_return, estimate_friction_edge
 from etf_cockpit.signals.canonical_scoring import CanonicalScore, canonical_score_from_simple_components
 
 
@@ -314,6 +315,19 @@ class SimpleInstrumentScore:
     theme_sample_size: int | None = None
     friction_status: str = "unavailable"
     friction_reason: str = "Friction-adjusted edge unavailable."
+    gross_expected_return: float | None = None
+    q10_expected_return: float | None = None
+    q50_expected_return: float | None = None
+    q90_expected_return: float | None = None
+    net_q10_expected_return: float | None = None
+    net_expected_return: float | None = None
+    net_q90_expected_return: float | None = None
+    expected_return_order_value_eur: float | None = None
+    expected_return_cost_bps: float | None = None
+    expected_return_cost_eur: float | None = None
+    expected_return_cost_ratio: float | None = None
+    expected_return_distribution_version: str = "expected-return-distribution.v1"
+    expected_return_source_dataset: str = "forecast_return_distribution"
     # v2 public authority fields.  ``final_action`` is retained solely as an
     # internal compatibility seam and is omitted by ``to_v2_dict``.
     research_state: ResearchState = ResearchState.MANUAL_REVIEW
@@ -843,6 +857,19 @@ def simple_scoreboard_frame(
             "net_expected_edge_bps": score.net_expected_edge_bps,
             "edge_to_cost_ratio": score.edge_to_cost_ratio,
             "cost_stress_scenario": score.cost_stress_scenario,
+            "gross_expected_return": score.gross_expected_return,
+            "q10_expected_return": score.q10_expected_return,
+            "q50_expected_return": score.q50_expected_return,
+            "q90_expected_return": score.q90_expected_return,
+            "net_q10_expected_return": score.net_q10_expected_return,
+            "net_expected_return": score.net_expected_return,
+            "net_q90_expected_return": score.net_q90_expected_return,
+            "expected_return_order_value_eur": score.expected_return_order_value_eur,
+            "expected_return_cost_bps": score.expected_return_cost_bps,
+            "expected_return_cost_eur": score.expected_return_cost_eur,
+            "expected_return_cost_ratio": score.expected_return_cost_ratio,
+            "expected_return_distribution_version": score.expected_return_distribution_version,
+            "expected_return_source_dataset": score.expected_return_source_dataset,
             "crowding_cluster_id": score.crowding_cluster_id,
             "crowding_cluster_label": score.crowding_cluster_label,
             "crowding_warning": score.crowding_warning,
@@ -930,6 +957,7 @@ def build_universe_simple_scores(
     crowding: ClusterReport | None = None,
 ) -> list[SimpleInstrumentScore]:
     raw_forecast_scores = forecast_component_maps(forecasts)
+    return_distributions = forecast_return_distributions(forecasts)
     forecast_details = forecast_score_details(forecasts)
     latest_prices = _latest_price_lookup(prices)
     price_quality = _price_quality_lookup(prices)
@@ -1121,6 +1149,13 @@ def build_universe_simple_scores(
                     components,
                     volatility=_safe_float(signal.supporting_metrics.get("vol_60d_ann")),
                     costs=_configured_friction_costs(config, signal.etf_id),
+                    expected_return_distribution=return_distributions.get(signal.etf_id),
+                    order_value_eur=_positive_order_value(signal.supporting_metrics.get("trade_value_eur")),
+                    cost_estimate=_order_size_cost_estimate(
+                        config,
+                        signal.etf_id,
+                        signal.supporting_metrics.get("trade_value_eur"),
+                    ),
                 ),
             )
         )
@@ -1159,6 +1194,7 @@ def build_candidate_simple_scores(
         return []
 
     raw_forecast_scores = forecast_component_maps(forecasts)
+    return_distributions = forecast_return_distributions(forecasts)
     forecast_details = forecast_score_details(forecasts)
     source = _candidate_source_frame(report, forecasts)
     relative_reference = _candidate_relative_reference(source)
@@ -1315,6 +1351,9 @@ def build_candidate_simple_scores(
                     evidence_score,
                     components,
                     volatility=_safe_float(row.get("volatility_60d_ann")),
+                    expected_return_distribution=return_distributions.get(instrument_id),
+                    order_value_eur=None,
+                    cost_estimate=None,
                 ),
             )
         )
@@ -2016,18 +2055,49 @@ def _friction_edge_fields(
     volatility: float | None = None,
     costs: dict[str, float] | None = None,
     scenario: str = "base",
+    expected_return_distribution: dict[str, object] | None = None,
+    order_value_eur: float | None = None,
+    cost_estimate: dict[str, object] | None = None,
 ) -> dict[str, object]:
+    # Production callers supply the distribution and order-size estimate.  A
+    # missing distribution therefore stays unavailable and never falls back
+    # to the ordinal score proxy.  The old branch remains for direct migration
+    # callers until their readers move to the v1 distribution fields.
+    if expected_return_distribution is not None or order_value_eur is not None or cost_estimate is not None:
+        result = estimate_friction_adjusted_return(
+            expected_return_distribution,
+            order_value_eur=order_value_eur,
+            cost_estimate=cost_estimate,
+        )
+        if result.status != "available":
+            return _unavailable_friction_fields(result.reason)
+        gross_bps = None if result.q50_return is None else result.q50_return * 10_000.0
+        net_bps = None if result.net_expected_return is None else result.net_expected_return * 10_000.0
+        return {
+            "gross_expected_edge_bps": gross_bps,
+            "estimated_total_cost_bps": result.cost_bps,
+            "net_expected_edge_bps": net_bps,
+            "edge_to_cost_ratio": result.return_to_cost_ratio,
+            "cost_stress_scenario": "base_order_size",
+            "friction_status": result.status,
+            "friction_reason": result.reason,
+            "gross_expected_return": result.q50_return,
+            "q10_expected_return": result.q10_return,
+            "q50_expected_return": result.q50_return,
+            "q90_expected_return": result.q90_return,
+            "net_q10_expected_return": result.net_q10_return,
+            "net_expected_return": result.net_expected_return,
+            "net_q90_expected_return": result.net_q90_return,
+            "expected_return_order_value_eur": result.order_value_eur,
+            "expected_return_cost_bps": result.cost_bps,
+            "expected_return_cost_eur": result.cost_eur,
+            "expected_return_cost_ratio": result.return_to_cost_ratio,
+            "expected_return_distribution_version": result.distribution_version,
+            "expected_return_source_dataset": result.source_dataset,
+        }
     selected_scenario = str(scenario or "base").strip().lower()
     if evidence_score is None:
-        return {
-            "gross_expected_edge_bps": None,
-            "estimated_total_cost_bps": None,
-            "net_expected_edge_bps": None,
-            "edge_to_cost_ratio": None,
-            "cost_stress_scenario": "not_available_no_score",
-            "friction_status": "unavailable",
-            "friction_reason": "Friction-adjusted edge unavailable because the evidence score is missing.",
-        }
+        return _unavailable_friction_fields("Friction-adjusted edge unavailable because the evidence score is missing.")
     result = estimate_friction_edge(evidence_score, volatility, costs, selected_scenario)
     return {
         "gross_expected_edge_bps": result.gross_bps,
@@ -2037,6 +2107,44 @@ def _friction_edge_fields(
         "cost_stress_scenario": result.scenario,
         "friction_status": result.status,
         "friction_reason": result.reason,
+        "gross_expected_return": None,
+        "q10_expected_return": None,
+        "q50_expected_return": None,
+        "q90_expected_return": None,
+        "net_q10_expected_return": None,
+        "net_expected_return": None,
+        "net_q90_expected_return": None,
+        "expected_return_order_value_eur": None,
+        "expected_return_cost_bps": None,
+        "expected_return_cost_eur": None,
+        "expected_return_cost_ratio": None,
+        "expected_return_distribution_version": "migration-legacy-v0",
+        "expected_return_source_dataset": "score_to_edge_proxy_legacy",
+    }
+
+
+def _unavailable_friction_fields(reason: str) -> dict[str, object]:
+    return {
+        "gross_expected_edge_bps": None,
+        "estimated_total_cost_bps": None,
+        "net_expected_edge_bps": None,
+        "edge_to_cost_ratio": None,
+        "cost_stress_scenario": "unavailable",
+        "friction_status": "unavailable",
+        "friction_reason": reason,
+        "gross_expected_return": None,
+        "q10_expected_return": None,
+        "q50_expected_return": None,
+        "q90_expected_return": None,
+        "net_q10_expected_return": None,
+        "net_expected_return": None,
+        "net_q90_expected_return": None,
+        "expected_return_order_value_eur": None,
+        "expected_return_cost_bps": None,
+        "expected_return_cost_eur": None,
+        "expected_return_cost_ratio": None,
+        "expected_return_distribution_version": "expected-return-distribution.v1",
+        "expected_return_source_dataset": "forecast_return_distribution",
     }
 
 
@@ -2046,6 +2154,21 @@ def _configured_friction_costs(config: AppConfig, instrument_id: str) -> dict[st
     except Exception:
         return None
     return {"low": base * 0.75, "base": base, "high": base * 1.5}
+
+
+def _positive_order_value(value: object) -> float | None:
+    parsed = _safe_float(value)
+    return parsed if parsed is not None and parsed > 0.0 else None
+
+
+def _order_size_cost_estimate(config: AppConfig, instrument_id: str, value: object) -> dict[str, object] | None:
+    order_value = _positive_order_value(value)
+    if order_value is None:
+        return None
+    try:
+        return estimate_execution_cost(config, instrument_id, order_value).as_dict()
+    except Exception:
+        return None
 
 
 def _calibration_info(lookup: dict[str, dict[str, object]], instrument_id: str) -> dict[str, object]:

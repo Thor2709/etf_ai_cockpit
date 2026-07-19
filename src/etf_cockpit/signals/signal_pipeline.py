@@ -34,6 +34,7 @@ def generate_signals(
     toto_available: bool = False,
     timesfm_available: bool = False,
     forecast_scores: dict[str, dict[str, float]] | None = None,
+    forecast_distributions: dict[str, dict[str, object]] | None = None,
 ) -> list[SignalResult]:
     run_id = run_id or current_run_id("signals")
     signal_date = as_of_date or data_report.as_of_date
@@ -48,11 +49,21 @@ def generate_signals(
     )
     scored = scored.merge(allocation[["etf_id", "drift", "role", "name"]], on="etf_id", how="left")
     scored["cost_bps"] = scored["etf_id"].map(lambda etf_id: estimated_cost_bps(config, str(etf_id)))
-    scored["expected_edge_60d"] = (
-        0.50 * scored["momentum_60d"].fillna(0)
-        + 0.25 * scored["momentum_120d"].fillna(0)
-        + 0.25 * scored["relative_strength_60d"].fillna(0)
-    ).clip(-0.30, 0.30)
+    if forecast_distributions is None:
+        # Compatibility for backtest and diagnostic callers that have not
+        # loaded forecast rows.  The application service passes the explicit
+        # distribution map below, so ordinal scores are not published as
+        # return percentages on the normal path.
+        scored["expected_edge_60d"] = (
+            0.50 * scored["momentum_60d"].fillna(0)
+            + 0.25 * scored["momentum_120d"].fillna(0)
+            + 0.25 * scored["relative_strength_60d"].fillna(0)
+        ).clip(-0.30, 0.30)
+    else:
+        scored["expected_edge_60d"] = scored["etf_id"].map(
+            lambda etf_id: _distribution_value(forecast_distributions.get(str(etf_id)), "q50_return")
+        )
+        scored["expected_edge_60d"] = pd.to_numeric(scored["expected_edge_60d"], errors="coerce").fillna(0.0)
 
     total_value = portfolio_value(holdings)
     cash_weight = max(0.0, 1.0 - float(holdings["current_weight"].sum()))
@@ -170,6 +181,12 @@ def generate_signals(
                 "drift_eur": drift_eur,
                 "drift_percent": drift_percent,
                 "expected_edge_bps": expected_edge_bps,
+                "gross_expected_return": _distribution_value(forecast_distributions.get(str(row["etf_id"])) if forecast_distributions is not None else None, "q50_return"),
+                "q10_expected_return": _distribution_value(forecast_distributions.get(str(row["etf_id"])) if forecast_distributions is not None else None, "q10_return"),
+                "q50_expected_return": _distribution_value(forecast_distributions.get(str(row["etf_id"])) if forecast_distributions is not None else None, "q50_return"),
+                "q90_expected_return": _distribution_value(forecast_distributions.get(str(row["etf_id"])) if forecast_distributions is not None else None, "q90_return"),
+                "expected_return_distribution_status": _distribution_value(forecast_distributions.get(str(row["etf_id"])) if forecast_distributions is not None else None, "status") or "legacy_compatibility",
+                "expected_return_distribution_reason": _distribution_value(forecast_distributions.get(str(row["etf_id"])) if forecast_distributions is not None else None, "reason") or "Legacy diagnostic path without a loaded return distribution.",
                 "estimated_cost_bps": estimated_cost,
                 "cost_model_id": cost_estimate.model_id,
                 "cost_data_quality": cost_estimate.data_quality,
@@ -343,3 +360,12 @@ def _edge_to_cost(expected_edge_bps: float, cost_bps: float) -> float | None:
     if cost_bps <= 0:
         return None
     return abs(expected_edge_bps) / cost_bps
+
+
+def _distribution_value(distribution: dict[str, object] | None, key: str) -> object | None:
+    if not isinstance(distribution, dict):
+        return None
+    value = distribution.get(key)
+    if isinstance(value, (int, float)):
+        return float(value) if isfinite(float(value)) else None
+    return value if isinstance(value, str) else None

@@ -37,7 +37,7 @@ from etf_cockpit.data.yfinance_provider import YFinanceProvider
 from etf_cockpit.data.universe_store import load_universe
 from etf_cockpit.features.feature_pipeline import compute_features, latest_features
 from etf_cockpit.models.baseline_models import baseline_forecast
-from etf_cockpit.models.forecast_scores import forecast_component_maps, load_latest_forecasts
+from etf_cockpit.models.forecast_scores import forecast_component_maps, forecast_return_distributions, load_latest_forecasts
 from etf_cockpit.models.local_weights import LocalModelStatus
 from etf_cockpit.models.registry import model_availability, model_diagnostics
 from etf_cockpit.portfolio.risk import target_policy_issues
@@ -704,6 +704,7 @@ class SignalService:
             toto_available=status["toto"],
             timesfm_available=status["timesfm"],
             forecast_scores=forecast_component_maps(forecasts),
+            forecast_distributions=forecast_return_distributions(forecasts),
         )
 
 
@@ -926,6 +927,7 @@ def _build_snapshot(force_sample: bool = False) -> CockpitSnapshot:
             toto_available=status["toto"],
             timesfm_available=status["timesfm"],
             forecast_scores=forecast_component_maps(forecasts),
+            forecast_distributions=forecast_return_distributions(forecasts),
         )
     )
     backtest = _empty_backtest_report("Backtest skipped because no clean prices exist for the current two-tier universe yet.") if prices.empty else BacktestService(config, universe_revision=universe_revision).load_or_run_backtest(data_report.as_of_date)

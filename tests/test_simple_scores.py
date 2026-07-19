@@ -487,6 +487,10 @@ def test_scoreboard_frame_contains_quality_and_authority_columns() -> None:
     assert frame.loc[0, "evidence_quality_10"] is not None
     assert frame.loc[0, "risk_friction_10"] is not None
     assert frame.loc[0, "model_authority_label"] == "Model evidence unavailable"
+    assert "q10_expected_return" in frame.columns
+    assert "net_expected_return" in frame.columns
+    assert "expected_return_order_value_eur" in frame.columns
+    assert "expected_return_distribution_version" in frame.columns
     assert "liquidity_cost_score_10" in frame.columns
     assert "model_calibration_label" in frame.columns
     assert "market_regime_label" in frame.columns
@@ -523,6 +527,24 @@ def test_score_friction_fields_equal_selected_friction_edge_calculator_output() 
     assert fields["net_expected_edge_bps"] == expected.net_bps
     assert fields["edge_to_cost_ratio"] == expected.edge_to_cost_ratio
     assert fields["cost_stress_scenario"] == "high"
+
+
+def test_score_friction_fields_use_distribution_and_order_size_when_supplied() -> None:
+    fields = simple_scores_module._friction_edge_fields(
+        8.0,
+        [],
+        expected_return_distribution={"q10_return": -0.03, "q50_return": 0.05, "q90_return": 0.12, "status": "available"},
+        order_value_eur=1_000.0,
+        cost_estimate={"total_cost_bps": 20.0, "total_cost_eur": 2.0},
+    )
+
+    assert fields["friction_status"] == "available"
+    assert fields["gross_expected_edge_bps"] == 500.0
+    assert fields["net_expected_edge_bps"] == 480.0
+    assert fields["q10_expected_return"] == -0.03
+    assert fields["net_expected_return"] == 0.048
+    assert fields["expected_return_order_value_eur"] == 1_000.0
+    assert fields["expected_return_source_dataset"] == "forecast_return_distribution"
 
 
 def test_model_backtest_validity_marks_uncalibrated_optional_models_unverified() -> None:

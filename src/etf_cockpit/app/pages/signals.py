@@ -62,7 +62,7 @@ def signals_page(_page: ft.Page, state: AppState) -> ft.Control:
                 [
                     section_header(
                         "All stock and ETF scores",
-                        "Rows include primary tier instruments, yfinance-only secondary tier instruments and Sparebanken equity certificates. Expand a row for evidence quality, risk/friction, algorithms and model authority.",
+                        "Rows include primary tier instruments, yfinance-only secondary tier instruments and Sparebanken equity certificates. Expand a row for evidence quality, distribution-based expected return, order-size friction, algorithms and model authority.",
                     ),
                     simple_score_grouped_sections(scores, page=_page, state=state),
                 ],
