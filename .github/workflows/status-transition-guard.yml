@@ -1,0 +1,43 @@
+name: Status transition guard
+
+on:
+  pull_request:
+    paths:
+      - "issues/issue_registry.json"
+      - "docs/product-completion/CURRENT_STATUS.json"
+      - "docs/product-completion/PROGRESS.md"
+
+permissions:
+  contents: read
+
+jobs:
+  status-transition-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out source and history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Validate canonical registry
+        run: python scripts/validate_issue_registry.py --root .
+
+      - name: Check generated programme status freshness
+        run: python scripts/update_programme_status.py --root . --check
+
+      - name: Guard allowlisted status transition
+        env:
+          GUARD_BASE_COMMIT: ${{ github.event.pull_request.base.sha }}
+          GUARD_BASE_REF: origin/${{ github.event.pull_request.base.ref }}
+          GUARD_BRANCH: ${{ github.head_ref }}
+          GUARD_HEAD_COMMIT: ${{ github.event.pull_request.head.sha }}
+        run: >-
+          python scripts/status_transition_guard.py
+          --root .
+          --manifest .github/status-transition-guard-manifest.json
+          --base-commit "$GUARD_BASE_COMMIT"
+          --latest-ref "$GUARD_BASE_REF"
+          --branch "$GUARD_BRANCH"
+          --head-commit "$GUARD_HEAD_COMMIT"
