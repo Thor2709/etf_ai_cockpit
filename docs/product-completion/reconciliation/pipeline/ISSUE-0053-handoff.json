@@ -4,7 +4,7 @@
   ],
   "stage": "frozen_feature_checkpoint",
   "base_sha": "2fa669f8ec6d49c94214188b06e89f0e24603600",
-  "checkpoint_sha": "a24a14b2eafde7a7b51bdb7d9e76ac69ef4aeafa",
+  "checkpoint_sha": "a51abb6e9d7cf5c9406e8092adecba27a50a5b97",
   "branch": "codex/issue-0053-what-matters-20260720",
   "worktree": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\issue0053-what-matters-20260720",
   "expected_status_transition": {
@@ -27,12 +27,13 @@
     "tests/test_issue_0053_digest.py"
   ],
   "completed_checks": [
-    "focused ISSUE-0053 digest tests passed (9 tests)",
+    "focused ISSUE-0053 digest tests passed (11 tests)",
     "application API, accessibility, button-contract and dashboard E2E regressions passed",
     "Ruff passed for changed Python files",
     "compileall passed",
     "issue-scoped validator passed: registry scope, registry validation, source compile and offline source smoke after local digest-source projection",
     "targeted navigation diagnostic passed in 53.94 seconds under an external 180-second bound",
+    "root mismatch and malformed proposal states remain explicit manual-review evidence",
     "validation evidence records zero failures at source checkpoint a24a14b"
   ],
   "authorised_baseline_fingerprints": [],
