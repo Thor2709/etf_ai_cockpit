@@ -90,7 +90,7 @@ def test_full_test_command_uses_extended_but_bounded_timeout(tmp_path: Path, mon
     )
 
     assert result.status == "passed"
-    assert captured["timeout"] == 7200
+    assert captured["timeout"] == 14400
     assert release_gate.COMMAND_TIMEOUT_SECONDS == 1800
 
 
@@ -153,7 +153,7 @@ def test_release_workflow_is_matrixed_isolated_and_read_only() -> None:
     assert "windows-latest" in workflow
     assert "ubuntu-latest" in workflow
     assert "fail-fast: false" in workflow
-    assert "timeout-minutes: 135" in workflow
+    assert "timeout-minutes: 270" in workflow
     assert "Configure isolated user profile" in workflow
     assert "requirements-release-parsers.txt" in workflow
     assert "ETF_COCKPIT_RELEASE_BUILD: \"1\"" in workflow
