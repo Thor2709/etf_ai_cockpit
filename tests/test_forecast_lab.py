@@ -54,6 +54,8 @@ def test_forecast_lab_reports_maturity_walk_forward_and_shadow_only_governance()
 
     assert report["status"] == "ok"
     assert report["execution_allowed"] is False
+    assert {"naive_drift", "linear_ridge", "timesfm"}.issubset(set(report["model_catalogue"]["model_id"]))
+    assert report["model_catalogue"].set_index("model_id").loc["timesfm", "state"] == "unavailable"
     assert len(report["runs"]) == 1
     baseline = report["models"].set_index("model_name").loc["baseline"]
     assert baseline["forecast_rows"] == 6

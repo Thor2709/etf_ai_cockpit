@@ -1,8 +1,18 @@
 {
   "checks": [
     {
+      "command": "registry scope issue",
+      "duration_ms": 1.957,
+      "exit_code": 0,
+      "failure": "",
+      "name": "scope_selection",
+      "output": "Validated issue scope: ISSUE-0121",
+      "required": true,
+      "status": "passed"
+    },
+    {
       "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/validate_issue_registry.py",
-      "duration_ms": 103.475,
+      "duration_ms": 96.704,
       "exit_code": 0,
       "failure": "",
       "name": "issue_registry",
@@ -12,7 +22,7 @@
     },
     {
       "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m compileall -q src scripts",
-      "duration_ms": 116.582,
+      "duration_ms": 117.362,
       "exit_code": 0,
       "failure": "",
       "name": "source_compile",
@@ -21,43 +31,33 @@
       "status": "passed"
     },
     {
-      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_app.py --mode offline --port 55304 --timeout 30",
-      "duration_ms": 5846.425,
+      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_app.py --mode offline --port 49209 --timeout 30",
+      "duration_ms": 5946.168,
       "exit_code": 0,
       "failure": "",
       "name": "source_smoke",
-      "output": "smoke_port requested=55304 selected=55304 reason=port 55304 is free\nsmoke_ok mode=offline url=http://127.0.0.1:55304/",
-      "required": true,
-      "status": "passed"
-    },
-    {
-      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -c \"print('No changed test paths detected')\"",
-      "duration_ms": 21.947,
-      "exit_code": 0,
-      "failure": "",
-      "name": "changed_scope",
-      "output": "No changed test paths detected",
+      "output": "smoke_port requested=49209 selected=49209 reason=port 49209 is free\nsmoke_ok mode=offline url=http://127.0.0.1:49209/",
       "required": true,
       "status": "passed"
     }
   ],
-  "duration_ms": 6121.935,
+  "duration_ms": 6164.488,
   "environment": {
     "machine": "AMD64",
     "offline_requested": false,
     "platform": "Windows-11-10.0.26200-SP0",
     "python": "3.12.10",
-    "root": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\issue0115-stress-lab-20260719",
+    "root": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\issue0121-model-zoo-20260719",
     "system": "Windows"
   },
   "failures": [],
-  "finished_at": "2026-07-19T06:55:18.126+00:00",
-  "generated_at": "2026-07-19T06:55:18.126+00:00",
+  "finished_at": "2026-07-19T07:21:31.574+00:00",
+  "generated_at": "2026-07-19T07:21:31.574+00:00",
   "git": {
-    "branch": "codex/issue-0115-stress-lab-20260719",
-    "dirty": false,
-    "head": "3b8159d50d0bac577ef6e1d59ce46b308bf3840d",
-    "origin_main": "4627118588a0764459ef1552f7d201331db127a3"
+    "branch": "codex/issue-0121-model-zoo-20260719",
+    "dirty": true,
+    "head": "1da9ecfad64194a137bba88cd6d36dd2a124afd5",
+    "origin_main": "37a7a85c769609c486a5595cc1aa27dcd8d462e9"
   },
   "log_paths": [
     "logs\\model_runs.jsonl",
@@ -65,13 +65,15 @@
     "logs\\signal_log.jsonl",
     "logs\\timings.jsonl"
   ],
-  "mode": "changed",
+  "mode": "issue",
   "schema_version": "1.0",
   "scope": {
-    "issue_ids": [],
+    "issue_ids": [
+      "ISSUE-0121"
+    ],
     "phase_ids": []
   },
-  "started_at": "2026-07-19T06:55:12.004+00:00",
+  "started_at": "2026-07-19T07:21:25.409+00:00",
   "unavailable_optional_components": [
     "timesfm",
     "toto"

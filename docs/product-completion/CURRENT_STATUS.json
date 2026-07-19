@@ -6,10 +6,10 @@
     "blocked": 1,
     "closed": 4,
     "hardening_required": 3,
-    "implemented_initially": 54,
+    "implemented_initially": 55,
     "in_progress": 9,
     "integrated": 28,
-    "planned": 58,
+    "planned": 57,
     "research_only": 2
   },
   "phase_counts": {
@@ -33,7 +33,6 @@
     "optional_providers_non_blocking": true
   },
   "ready_issue_ids": [
-    "ISSUE-0121",
     "ISSUE-0150",
     "ISSUE-0060",
     "ISSUE-0063",
@@ -62,5 +61,5 @@
     "UPDATEV2-0030"
   ],
   "schema_version": "1.0",
-  "source_registry_sha256": "cc43565d19b1b5e155d99da92b4ba6ecb6230e029b786eec79efd5847472c2dd"
+  "source_registry_sha256": "1382625af0fb9100f44ba438ec11612c3876b4d6a4f60d08fe62bcc089e32ddf"
 }

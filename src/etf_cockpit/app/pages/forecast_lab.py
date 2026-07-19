@@ -15,6 +15,7 @@ def forecast_lab_page(page: ft.Page, state: AppState) -> ft.Control:
 
     report = build_forecast_lab_report(state.snapshot.forecasts, state.snapshot.prices)
     models = report["models"]
+    model_catalogue = report["model_catalogue"]
     runs = report["runs"]
     splits = report["walk_forward_splits"]
     status = str(report["status"])
@@ -106,6 +107,7 @@ def forecast_lab_page(page: ft.Page, state: AppState) -> ft.Control:
                 spacing=14,
                 vertical_alignment=ft.CrossAxisAlignment.START,
             ),
+            _catalogue_panel(model_catalogue),
         ],
         spacing=14,
         expand=True,
@@ -181,6 +183,47 @@ def _split_panel(frame: pd.DataFrame) -> ft.Container:
     else:
         body = ft.Text("\n".join(f"{r.split_id}: train through {r.train_end}; test {r.test_start}–{r.test_end}" for r in frame.itertuples()), color=theme.MUTED, selectable=True)
     return panel(ft.Column([section_header("Walk-forward protocol", "Expanding date folds prevent future rows entering an earlier evaluation window."), body], spacing=8), expand=True)
+
+
+def _catalogue_panel(frame: pd.DataFrame) -> ft.Container:
+    rows = []
+    for _, row in frame.iterrows():
+        rows.append(
+            ft.DataRow(
+                cells=[
+                    ft.DataCell(ft.Text(str(row["display_name"]), color=theme.TEXT, size=12)),
+                    ft.DataCell(ft.Text(str(row["family"]), color=theme.MUTED, size=12)),
+                    ft.DataCell(ft.Text(", ".join(row["tasks"]), color=theme.MUTED, size=12)),
+                    ft.DataCell(ft.Text(str(row["state"]), color=theme.MUTED, size=12)),
+                    ft.DataCell(ft.Text(str(row["licence"]), color=theme.MUTED, size=12)),
+                    ft.DataCell(ft.Text(f"{row['latency_class']}/{row['resource_class']}", color=theme.MUTED, size=12)),
+                    ft.DataCell(ft.Text(str(row["promotion_state"]), color=theme.MUTED, size=12)),
+                ]
+            )
+        )
+    body: ft.Control = ft.DataTable(
+        columns=[
+            ft.DataColumn(ft.Text("Model card")),
+            ft.DataColumn(ft.Text("Family")),
+            ft.DataColumn(ft.Text("Tasks")),
+            ft.DataColumn(ft.Text("Availability")),
+            ft.DataColumn(ft.Text("Licence")),
+            ft.DataColumn(ft.Text("Latency/resources")),
+            ft.DataColumn(ft.Text("Promotion")),
+        ],
+        rows=rows,
+    ) if rows else ft.Text("No model cards are registered.", color=theme.MUTED)
+    return panel(
+        ft.Column(
+            [
+                section_header("Model cards", "Capabilities, data needs, licence and resource classes are descriptive evidence only."),
+                body,
+                ft.Text("Unavailable optional packages or weights are shown as N/A; no model is selected on in-sample accuracy.", color=theme.MUTED, selectable=True),
+            ],
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        expand=True,
+    )
 
 
 def _metric(value: object) -> str:

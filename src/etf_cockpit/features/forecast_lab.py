@@ -13,6 +13,8 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
+from etf_cockpit.models.model_zoo import model_zoo_frame
+
 
 FORECAST_REQUIRED_COLUMNS = {
     "model_name",
@@ -71,6 +73,7 @@ def build_forecast_lab_report(
     empty_models = pd.DataFrame(columns=LAB_MODEL_COLUMNS)
     empty_runs = pd.DataFrame(columns=LAB_RUN_COLUMNS)
     empty_splits = pd.DataFrame(columns=SPLIT_COLUMNS)
+    model_catalogue = model_zoo_frame()
     missing_forecasts = sorted(FORECAST_REQUIRED_COLUMNS - set(forecasts.columns))
     missing_prices = sorted(PRICE_REQUIRED_COLUMNS - set(prices.columns))
     if missing_forecasts or missing_prices:
@@ -78,6 +81,7 @@ def build_forecast_lab_report(
             "status": "unavailable",
             "as_of_date": None,
             "models": empty_models,
+            "model_catalogue": model_catalogue,
             "runs": empty_runs,
             "walk_forward_splits": empty_splits,
             "notes": tuple(
@@ -93,6 +97,7 @@ def build_forecast_lab_report(
             "status": "unavailable",
             "as_of_date": None,
             "models": empty_models,
+            "model_catalogue": model_catalogue,
             "runs": empty_runs,
             "walk_forward_splits": empty_splits,
             "notes": ("Unadjusted price rows were rejected; forecast diagnostics require adjusted_close.",),
@@ -115,12 +120,18 @@ def build_forecast_lab_report(
     for column in ("expected_return", "q10_return", "q90_return"):
         frame[column] = pd.to_numeric(frame.get(column), errors="coerce")
     frame["status"] = frame["status"].astype(str).str.lower()
+    optional_status = {
+        model: bool((frame.loc[frame["model_name"] == model, "status"] == "ok").any())
+        for model in ("timesfm", "toto")
+    }
+    model_catalogue = model_zoo_frame(optional_status=optional_status)
     frame = frame.dropna(subset=["model_name", "etf_id", "forecast_date", "horizon_days"])
     if frame.empty:
         return {
             "status": "unavailable",
             "as_of_date": None,
             "models": empty_models,
+            "model_catalogue": model_catalogue,
             "runs": empty_runs,
             "walk_forward_splits": empty_splits,
             "notes": ("No dated forecast rows are available in the local cache.",),
@@ -135,6 +146,7 @@ def build_forecast_lab_report(
             "status": "unavailable",
             "as_of_date": effective_as_of.date().isoformat(),
             "models": empty_models,
+            "model_catalogue": model_catalogue,
             "runs": empty_runs,
             "walk_forward_splits": empty_splits,
             "notes": ("No forecast rows are available at the selected as-of date.",),
@@ -154,6 +166,7 @@ def build_forecast_lab_report(
         "status": "ok",
         "as_of_date": effective_as_of.date().isoformat(),
         "models": model_rows,
+        "model_catalogue": model_catalogue,
         "runs": run_rows,
         "walk_forward_splits": split_rows,
         "notes": tuple(notes),
