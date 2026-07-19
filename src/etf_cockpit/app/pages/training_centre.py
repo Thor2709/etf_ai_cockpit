@@ -6,7 +6,7 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.core.job_scheduler import DurableJobScheduler
 from etf_cockpit.core.paths import ROOT
-from etf_cockpit.application.validation import build_validation_preview, load_training_evidence, record_validation_preview
+from etf_cockpit.application.validation import build_validation_preview, load_optimisation_evidence, load_training_evidence, record_validation_preview
 from etf_cockpit.features.synthetic_scenarios import SyntheticScenarioGenerator, SyntheticScenarioSpec
 
 
@@ -15,6 +15,7 @@ def training_centre_page(page: ft.Page, state: object) -> ft.Control:
 
     try:
         snapshot = load_training_evidence(ROOT)
+        optimisation = load_optimisation_evidence(ROOT)
         workflows = DurableJobScheduler(ROOT).list_workflows(limit=100)
         runs = snapshot["training.run"]
         models = snapshot["training.model"]
@@ -22,6 +23,7 @@ def training_centre_page(page: ft.Page, state: object) -> ft.Control:
         message = "Lightweight local registry; no MLflow service, external upload or model execution is required."
     except Exception as exc:
         snapshot = {key: () for key in ("training.run", "training.model", "training.metric")}
+        optimisation = {"trials": (), "summaries": ()}
         workflows = ()
         runs = models = metrics = ()
         message = f"Training evidence is unavailable: {type(exc).__name__}: {exc}"
@@ -44,6 +46,7 @@ def training_centre_page(page: ft.Page, state: object) -> ft.Control:
             ),
             panel(ft.Column([section_header("Registry status", "The compatible lightweight adapter uses the existing transactional store."), ft.Text(message, color=theme.MUTED, selectable=True), ft.Text(f"Runs: {len(runs)} · models: {len(models)} · metrics: {len(metrics)} · training workflows: {len([item for item in workflows if item.workflow_type == 'model_training'])}", color=theme.TEXT, selectable=True)])),
             _synthetic_panel(),
+            render_optimisation_history(optimisation["trials"], optimisation["summaries"]),
             _validation_panel(
                 page,
                 getattr(getattr(state, "snapshot", None), "prices", None),
@@ -145,6 +148,39 @@ def _validation_panel(
         )
     ])
     return panel(ft.Column(controls, spacing=8))
+
+
+def render_optimisation_history(
+    trials: tuple[dict[str, object], ...], summaries: tuple[dict[str, object], ...]
+) -> ft.Container:
+    """Show bounded search history and resource evidence without promotion."""
+
+    latest = summaries[-1] if summaries else None
+    summary_text = (
+        "No bounded optimisation runs have been recorded."
+        if latest is None
+        else (
+            f"run={latest.get('run_id')} · status={latest.get('status')} · trials={latest.get('trial_count')} · "
+            f"best={latest.get('best_trial_id')} · importance={latest.get('parameter_importance')} · "
+            f"peak_memory_mb={latest.get('peak_memory_mb')} · elapsed_seconds={latest.get('elapsed_seconds')} · "
+            f"quota_stop={latest.get('stop_reason')} · promotion_eligible=false · execution_allowed=false"
+        )
+    )
+    lines = [
+        f"{item.get('run_id')} · {item.get('trial_id')} · {item.get('status')} · score={item.get('score')} · "
+        f"duration_ms={item.get('duration_ms')} · peak_memory_mb={item.get('peak_memory_mb')} · parameters={item.get('parameters')}"
+        for item in trials[-40:]
+    ]
+    return panel(
+        ft.Column(
+            [
+                section_header("Bounded optimisation", "Serial local search retains completed, pruned, failed and cancelled trials; final-test metrics are unavailable during search."),
+                ft.Text(summary_text, color=theme.MUTED, selectable=True),
+                ft.Text("\n".join(lines) or "No optimisation trial rows are available.", color=theme.MUTED, selectable=True),
+            ],
+            scroll=ft.ScrollMode.AUTO,
+        )
+    )
 
 
 def _retained_validation_text(

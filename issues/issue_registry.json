@@ -7004,7 +7004,7 @@
       "package_status": "",
       "phase": "phase-06-model-research",
       "priority": "P1",
-      "programme_status": "planned",
+      "programme_status": "implemented_initially",
       "related_issues": [],
       "required_inputs": [],
       "security_and_audit": "No arbitrary user code in objectives outside explicit developer/sandbox mode; artefacts are redacted.",
