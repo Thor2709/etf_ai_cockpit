@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from collections import Counter
 from datetime import date
 import json
@@ -15,7 +15,15 @@ from etf_cockpit.chatgpt_bridge.schemas import ChatGPTAudit, ChatGPTAuditV2
 from etf_cockpit.core.config import AppConfig, load_config
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_bytes, atomic_write_group
 from etf_cockpit.core.logging import append_jsonl, configure_logging
-from etf_cockpit.core.paths import BACKTESTS_DIR, FORECASTS_DIR, ensure_project_dirs
+from etf_cockpit.core.paths import (
+    BACKUPS_DIR,
+    BACKTESTS_DIR,
+    EXPORTS_DIR,
+    FORECASTS_DIR,
+    LOG_DIR,
+    ROOT,
+    ensure_project_dirs,
+)
 from etf_cockpit.core.timing import record_cache_event, timed_step
 from etf_cockpit.core.types import DataQualityReport, ForecastResult, SignalResult
 from etf_cockpit.core.versioning import ensure_run_manifest
@@ -41,6 +49,7 @@ from etf_cockpit.models.forecast_scores import forecast_component_maps, load_lat
 from etf_cockpit.models.local_weights import LocalModelStatus
 from etf_cockpit.models.registry import model_availability, model_diagnostics
 from etf_cockpit.portfolio.risk import target_policy_issues
+from etf_cockpit.portfolio.paper_trading import PaperLedger
 from etf_cockpit.signals.signal_pipeline import generate_signals
 
 
@@ -87,6 +96,10 @@ class CockpitSnapshot:
     model_inventory: list[LocalModelStatus]
     # Revision of the canonical universe used to build cached derived data.
     universe_revision: str = ""
+    # Local, already-built source records for the dashboard digest.  The
+    # records are snapshots, not providers: missing or malformed inputs stay
+    # visible to the application layer as unavailable/manual-review states.
+    digest_records: dict[str, tuple[dict[str, object], ...]] = field(default_factory=dict)
 
 
 class DataService:
@@ -929,6 +942,13 @@ def _build_snapshot(force_sample: bool = False) -> CockpitSnapshot:
         )
     )
     backtest = _empty_backtest_report("Backtest skipped because no clean prices exist for the current two-tier universe yet.") if prices.empty else BacktestService(config, universe_revision=universe_revision).load_or_run_backtest(data_report.as_of_date)
+    digest_records = _build_digest_records(
+        data_report=data_report,
+        signals=signals,
+        forecasts=forecasts,
+        model_status=status,
+        universe_revision=universe_revision,
+    )
     return CockpitSnapshot(
         config=config,
         prices=prices,
@@ -942,7 +962,260 @@ def _build_snapshot(force_sample: bool = False) -> CockpitSnapshot:
         model_status=status,
         model_inventory=inventory,
         universe_revision=universe_revision,
+        digest_records=digest_records,
     )
+
+
+def _build_digest_records(
+    *,
+    data_report: DataQualityReport,
+    signals: list[SignalResult],
+    forecasts: pd.DataFrame,
+    model_status: dict[str, bool],
+    universe_revision: str,
+) -> dict[str, tuple[dict[str, object], ...]]:
+    """Project existing local artefacts into the dashboard digest contract.
+
+    This deliberately does not fetch providers or infer a quiet state.  It
+    exposes the sources that already exist in the local application and leaves
+    absent sources empty so ``build_digest`` reports them as unavailable.
+    """
+
+    records: dict[str, list[dict[str, object]]] = {name: [] for name in (
+        "alerts",
+        "source_revisions",
+        "events",
+        "model_drift",
+        "portfolio_risk",
+        "paper_incidents",
+        "recovery_export",
+    )}
+
+    metadata_by_source = {str(item.source_name): item for item in data_report.dataset_metadata}
+    for issue in data_report.issues:
+        metadata = metadata_by_source.get(str(issue.code))
+        provenance = str(getattr(metadata, "checksum", "") or f"data-quality:{issue.code}")
+        records["alerts"].append(
+            {
+                "item_id": f"data-quality:{issue.etf_id}:{issue.code}",
+                "category": "data_quality",
+                "severity": "critical" if issue.severity == "block" else issue.severity,
+                "status": "manual_review" if issue.severity != "info" else "available",
+                "title": f"{issue.code} ({issue.etf_id})",
+                "rationale": issue.message,
+                "as_of": _digest_text(issue.date_value or data_report.as_of_date),
+                "provenance": provenance,
+            }
+        )
+    for signal in signals:
+        for index, warning in enumerate(signal.warnings):
+            records["alerts"].append(
+                {
+                    "item_id": f"signal-warning:{signal.etf_id}:{index}:{signal.run_id}",
+                    "category": "signal_quality",
+                    "severity": "warning",
+                    "status": "manual_review",
+                    "title": f"Signal evidence requires review for {signal.etf_id}",
+                    "rationale": str(warning),
+                    "as_of": _digest_text(signal.signal_date),
+                    "provenance": str(signal.gate_policy_checksum or signal.run_id),
+                }
+            )
+
+    if universe_revision:
+        records["source_revisions"].append(
+            {
+                "item_id": "source-revision:universe",
+                "category": "source_revision",
+                "severity": "info",
+                "status": "available",
+                "title": "Canonical universe revision is loaded",
+                "rationale": f"Derived evidence was built against universe revision {universe_revision}.",
+                "as_of": _digest_text(data_report.as_of_date),
+                "provenance": f"universe:{universe_revision}",
+            }
+        )
+    for source_name, metadata in sorted(metadata_by_source.items()):
+        checksum = str(getattr(metadata, "checksum", "") or "")
+        if not checksum:
+            continue
+        state = str(getattr(metadata, "staleness_status", "unknown"))
+        records["source_revisions"].append(
+            {
+                "item_id": f"source-revision:{source_name}",
+                "category": "source_revision",
+                "severity": "warning" if state != "ok" else "info",
+                "status": "available" if state == "ok" else "manual_review",
+                "title": f"{source_name} source revision is {state}",
+                "rationale": str(getattr(metadata, "notes", None) or "Local source metadata is retained for audit and freshness review."),
+                "as_of": _digest_text(getattr(metadata, "as_of_date", None) or data_report.as_of_date),
+                "provenance": checksum,
+            }
+        )
+
+    records["events"].extend(_load_digest_events(LOG_DIR / "session.jsonl"))
+
+    for _, row in forecasts.tail(50).iterrows() if isinstance(forecasts, pd.DataFrame) else ():
+        row_data = row.to_dict()
+        model_name = str(row_data.get("model_name") or row_data.get("model") or "model")
+        calibration = str(row_data.get("calibration_status") or "not_evaluated")
+        status = "available" if calibration in {"good", "mixed"} else "manual_review"
+        records["model_drift"].append(
+            {
+                "item_id": f"model-drift:{model_name}:{row_data.get('etf_id', 'universe')}",
+                "category": "model_drift",
+                "severity": "info" if status == "available" else "warning",
+                "status": status,
+                "title": f"{model_name} calibration is {calibration}",
+                "rationale": str(row_data.get("error_message") or row_data.get("reason_unavailable") or "Forecast calibration remains an advisory local evidence input."),
+                "as_of": _digest_text(row_data.get("forecast_date") or data_report.as_of_date),
+                "provenance": str(row_data.get("run_id") or row_data.get("model_version") or model_name),
+            }
+        )
+    for model_name, available in sorted(model_status.items()):
+        if not available:
+            records["model_drift"].append(
+                {
+                    "item_id": f"model-drift:{model_name}:unavailable",
+                    "category": "model_drift",
+                    "severity": "warning",
+                    "status": "unavailable",
+                    "title": f"Optional model {model_name} is unavailable",
+                    "rationale": "Optional model packages or weights are unavailable; the deterministic baseline remains authoritative.",
+                    "as_of": _digest_text(data_report.as_of_date),
+                    "provenance": f"model-status:{model_name}",
+                }
+            )
+
+    for signal in signals:
+        portfolio_state = str(signal.portfolio_review_state)
+        records["portfolio_risk"].append(
+            {
+                "item_id": f"portfolio-risk:{signal.etf_id}",
+                "category": "portfolio_risk",
+                "severity": "warning" if signal.blocked_by or portfolio_state != "not_applicable" else "info",
+                "status": "manual_review" if signal.blocked_by else "available",
+                "title": f"Portfolio fit for {signal.etf_id} is {portfolio_state}",
+                "rationale": signal.reason_short,
+                "as_of": _digest_text(signal.signal_date),
+                "provenance": str(signal.gate_policy_checksum or signal.run_id),
+            }
+        )
+
+    try:
+        for incident in PaperLedger(ROOT).operational_errors():
+            records["paper_incidents"].append(
+                {
+                    **incident,
+                    "category": "paper_incident",
+                    "severity": "critical",
+                    "status": "manual_review",
+                    "title": f"Paper incident: {incident.get('code', 'unknown')}",
+                    "rationale": str(incident.get("message") or "Paper operational incident requires review."),
+                    "provenance": str(incident.get("incident_id") or "paper-ledger"),
+                }
+            )
+    except (OSError, ValueError, TypeError):
+        records["paper_incidents"].append(
+            {
+                "item_id": "paper-incidents:unavailable",
+                "category": "paper_incident",
+                "severity": "warning",
+                "status": "manual_review",
+                "title": "Paper incident ledger requires review",
+                "rationale": "The local paper incident ledger could not be read safely.",
+                "provenance": "paper-ledger",
+            }
+        )
+
+    for label, directory in (("export", EXPORTS_DIR), ("backup", BACKUPS_DIR)):
+        latest = _latest_local_file(directory)
+        if latest is not None:
+            relative = latest.relative_to(ROOT).as_posix()
+            records["recovery_export"].append(
+                {
+                    "item_id": f"recovery-export:{label}",
+                    "category": "recovery_export",
+                    "severity": "info",
+                    "status": "available",
+                    "title": f"Latest local {label} evidence is present",
+                    "rationale": f"The most recent local {label} artefact is available for recovery and export review.",
+                    "as_of": _digest_text(date.fromtimestamp(latest.stat().st_mtime)),
+                    "provenance": f"local-file:{relative}",
+                }
+            )
+
+    return {source: tuple(values) for source, values in records.items()}
+
+
+def _load_digest_events(path: Path) -> tuple[dict[str, object], ...]:
+    if not path.is_file():
+        return ()
+    records: list[dict[str, object]] = []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return (
+            {
+                "item_id": "events:unavailable",
+                "category": "event_trace",
+                "severity": "warning",
+                "status": "manual_review",
+                "title": "Local event trace requires review",
+                "rationale": "The append-only session trace could not be read safely.",
+                "provenance": "session-trace",
+            },
+        )
+    for line in lines[-50:]:
+        try:
+            payload = json.loads(line)
+        except (json.JSONDecodeError, TypeError):
+            records.append(
+                {
+                    "item_id": "events:malformed",
+                    "category": "event_trace",
+                    "severity": "warning",
+                    "status": "manual_review",
+                    "title": "Malformed local event trace requires review",
+                    "rationale": "At least one complete session event could not be decoded safely.",
+                    "provenance": "session-trace",
+                }
+            )
+            continue
+        if not isinstance(payload, dict):
+            continue
+        event_id = str(payload.get("event_id") or payload.get("event_hash") or "")
+        if not event_id:
+            continue
+        state = str(payload.get("status") or "unknown")
+        records.append(
+            {
+                "item_id": f"event:{event_id}",
+                "category": "event_trace",
+                "severity": "warning" if state in {"failed", "cancelled", "error"} else "info",
+                "status": "available" if state in {"complete", "completed", "success", "started", "running"} else "manual_review",
+                "title": str(payload.get("event_type") or payload.get("operation") or "Local workflow event"),
+                "rationale": str(payload.get("user_message") or payload.get("exception_message_redacted") or payload.get("operation") or "Local workflow activity was recorded."),
+                "as_of": _digest_text(payload.get("timestamp_local") or payload.get("timestamp_utc")),
+                "provenance": str(payload.get("event_hash") or event_id),
+            }
+        )
+    return tuple(records)
+
+
+def _latest_local_file(directory: Path) -> Path | None:
+    try:
+        files = [path for path in directory.rglob("*") if path.is_file()]
+    except OSError:
+        return None
+    return max(files, key=lambda path: path.stat().st_mtime, default=None)
+
+
+def _digest_text(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def _empty_backtest_report(note: str) -> BacktestReport:

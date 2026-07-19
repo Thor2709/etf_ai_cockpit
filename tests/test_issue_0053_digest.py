@@ -95,13 +95,45 @@ def test_snapshot_adapter_includes_data_health_and_proposals() -> None:
     digest = build_digest_from_snapshot(
         snapshot,
         proposal_records=(
-            {"proposal_id": "proposal-1", "outcome": "blocked", "rationale": "Risk gate failed", "input_checksum": "a" * 64},
+            {"proposal_id": "proposal-1", "outcome": "approved", "rationale": "Risk gates passed", "input_checksum": "a" * 64},
         ),
     )
 
     assert {item.source for item in digest.items} >= {"data_health", "events", "proposal_state"}
     assert any(item.status == "manual_review" for item in digest.items)
+    assert any(item.source == "proposal_state" and item.status == "available" for item in digest.items)
+    assert any(item.source == "proposal_state" and item.provenance == "a" * 64 for item in digest.items)
     assert digest.as_of == "2026-07-19"
+
+
+def test_snapshot_adapter_preserves_all_local_digest_sources() -> None:
+    sources = {
+        source: ({
+            "item_id": f"{source}-1",
+            "title": f"{source} evidence",
+            "rationale": "A local source record is available.",
+            "status": "available",
+            "provenance": f"{source}:checksum",
+        },)
+        for source in (
+            "alerts",
+            "source_revisions",
+            "events",
+            "model_drift",
+            "portfolio_risk",
+            "paper_incidents",
+            "recovery_export",
+        )
+    }
+    snapshot = SimpleNamespace(
+        data_report=SimpleNamespace(status="Clean", as_of_date="2026-07-19"),
+        digest_records=sources,
+    )
+
+    digest = build_digest_from_snapshot(snapshot)
+
+    assert {item.source for item in digest.items} >= {"data_health", *sources}
+    assert all(item.execution_allowed is False for item in digest.items)
 
 
 def test_digest_is_available_through_the_typed_application_query() -> None:
@@ -130,7 +162,7 @@ def test_dashboard_digest_has_stable_acceptance_key() -> None:
 def test_dashboard_digest_failure_is_readable_and_fail_closed() -> None:
     class Api:
         def get_digest(self) -> DigestViewModel:
-            raise RuntimeError("digest source unavailable")
+            raise ValueError("digest source unavailable")
 
     rendered = "\n".join(_text_values(_what_matters_today(SimpleNamespace(application_api=Api()))))
     assert "Digest unavailable" in rendered

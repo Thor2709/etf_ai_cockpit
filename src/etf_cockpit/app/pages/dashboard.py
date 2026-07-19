@@ -15,6 +15,7 @@ from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import FORECASTS_DIR
 from etf_cockpit.core.paths import DERIVED_DIR
 from etf_cockpit.application.ui_facade import (
+    DigestUnavailableError,
     NEWS_CLEAN_PATH,
     SimpleInstrumentScore,
     build_simple_instrument_scores,
@@ -126,7 +127,7 @@ def _what_matters_today(state: AppState) -> ft.Container:
                 )
             )
         body: ft.Control = ft.Column(rows, spacing=4)
-    except Exception as exc:
+    except (DigestUnavailableError, OSError, TypeError, ValueError) as exc:
         body = ft.Text(
             f"Digest unavailable; manual review required ({type(exc).__name__}). execution_allowed=false",
             color=theme.AMBER,

@@ -31,6 +31,10 @@ _SEVERITY_RANK = {"critical": 0, "warning": 10, "info": 20}
 _STATUS_RANK = {"manual_review": 0, "unavailable": 5, "available": 10}
 
 
+class DigestUnavailableError(RuntimeError):
+    """Raised when a known local digest source cannot be adapted safely."""
+
+
 def build_digest(
     records: Mapping[str, Iterable[Mapping[str, object] | object] | None],
     *,
@@ -116,6 +120,11 @@ def build_digest_from_snapshot(
         "paper_incidents": _records(snapshot, "paper_incidents"),
         "recovery_export": _records(snapshot, "recovery_export") or _records(snapshot, "recovery_status"),
     }
+    snapshot_records = getattr(snapshot, "digest_records", None)
+    if isinstance(snapshot_records, Mapping):
+        for source in _SOURCE_NAMES:
+            if source in snapshot_records:
+                records[source] = snapshot_records.get(source)
     if report is not None:
         report_status = _text(getattr(report, "status", None)) or "unavailable"
         records["data_health"] = (
@@ -146,9 +155,17 @@ def _build_item(source: str, index: int, record: Mapping[str, object], *, as_of:
     ) or f"{source}:{index}"
     category = _text(record.get("category")) or source
     title = _text(record.get("title") or record.get("name"))
+    if not title and source == "proposal_state":
+        outcome = _text(record.get("outcome") or record.get("status")) or "pending"
+        title = f"Proposal {_text(record.get('proposal_id')) or item_id} is {outcome}"
     rationale = _text(record.get("rationale") or record.get("message") or record.get("reason"))
-    provenance = _text(record.get("provenance") or record.get("source_checksum") or record.get("source_id"))
-    status = _normalise_status(record.get("status"))
+    provenance = _text(
+        record.get("provenance")
+        or record.get("source_checksum")
+        or record.get("source_id")
+        or record.get("input_checksum")
+    )
+    status = _normalise_status(record.get("status") or record.get("outcome"))
     if not title or not rationale or not provenance:
         status = "manual_review"
     if not title:
@@ -182,10 +199,12 @@ def _prefer(existing: DigestItemViewModel | None, candidate: DigestItemViewModel
 
 def _normalise_status(value: object) -> str:
     status = (_text(value) or "").casefold()
-    if status in {"ok", "clean", "ready", "success", "available", "passed", "complete"}:
+    if status in {"ok", "clean", "ready", "success", "available", "passed", "complete", "approved", "accepted"}:
         return "available"
     if status in {"missing", "unavailable", "unknown", "not_configured"}:
         return "unavailable"
+    if status in {"blocked", "deferred", "rejected", "expired", "failed", "cancelled", "error"}:
+        return "manual_review"
     return "manual_review" if status not in _STATUSES else status
 
 
@@ -227,4 +246,4 @@ def _text(value: Any) -> str | None:
     return text or None
 
 
-__all__ = ["build_digest", "build_digest_from_snapshot"]
+__all__ = ["DigestUnavailableError", "build_digest", "build_digest_from_snapshot"]
