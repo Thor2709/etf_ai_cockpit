@@ -2,7 +2,7 @@
   "checks": [
     {
       "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/validate_issue_registry.py",
-      "duration_ms": 105.715,
+      "duration_ms": 129.793,
       "exit_code": 0,
       "failure": "",
       "name": "issue_registry",
@@ -12,7 +12,7 @@
     },
     {
       "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m compileall -q src scripts",
-      "duration_ms": 124.71,
+      "duration_ms": 140.677,
       "exit_code": 0,
       "failure": "",
       "name": "source_compile",
@@ -21,27 +21,27 @@
       "status": "passed"
     },
     {
-      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_app.py --mode offline --port 62194 --timeout 30",
-      "duration_ms": 5987.179,
+      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_app.py --mode offline --port 60120 --timeout 30",
+      "duration_ms": 8103.264,
       "exit_code": 0,
       "failure": "",
       "name": "source_smoke",
-      "output": "smoke_port requested=62194 selected=62194 reason=port 62194 is free\nsmoke_ok mode=offline url=http://127.0.0.1:62194/",
+      "output": "smoke_port requested=60120 selected=60120 reason=port 60120 is free\nsmoke_ok mode=offline url=http://127.0.0.1:60120/",
       "required": true,
       "status": "passed"
     },
     {
-      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m pytest -q tests/test_stress_testing.py tests/ui/test_stress_lab_ui.py",
-      "duration_ms": 2157.952,
+      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -c \"print('No changed test paths detected')\"",
+      "duration_ms": 33.918,
       "exit_code": 0,
       "failure": "",
-      "name": "changed_tests",
-      "output": "......                                                                   [100%]",
+      "name": "changed_scope",
+      "output": "No changed test paths detected",
       "required": true,
       "status": "passed"
     }
   ],
-  "duration_ms": 8412.581,
+  "duration_ms": 8454.707,
   "environment": {
     "machine": "AMD64",
     "offline_requested": false,
@@ -51,12 +51,12 @@
     "system": "Windows"
   },
   "failures": [],
-  "finished_at": "2026-07-19T06:44:00.348+00:00",
-  "generated_at": "2026-07-19T06:44:00.348+00:00",
+  "finished_at": "2026-07-19T06:48:59.428+00:00",
+  "generated_at": "2026-07-19T06:48:59.428+00:00",
   "git": {
     "branch": "codex/issue-0115-stress-lab-20260719",
-    "dirty": true,
-    "head": "81973a06d9b3bc1bdd891999d48413a4cd0a4b68",
+    "dirty": false,
+    "head": "94c25274e0ecfdb19853d5803cb19235541b0c71",
     "origin_main": "81973a06d9b3bc1bdd891999d48413a4cd0a4b68"
   },
   "log_paths": [
@@ -72,7 +72,7 @@
     "issue_ids": [],
     "phase_ids": []
   },
-  "started_at": "2026-07-19T06:43:51.935+00:00",
+  "started_at": "2026-07-19T06:48:50.974+00:00",
   "unavailable_optional_components": [
     "timesfm",
     "toto"
