@@ -2,7 +2,7 @@
   "checks": [
     {
       "command": "registry scope issue",
-      "duration_ms": 2.027,
+      "duration_ms": 2.092,
       "exit_code": 0,
       "failure": "",
       "name": "scope_selection",
@@ -12,7 +12,7 @@
     },
     {
       "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/validate_issue_registry.py",
-      "duration_ms": 110.223,
+      "duration_ms": 117.311,
       "exit_code": 0,
       "failure": "",
       "name": "issue_registry",
@@ -22,7 +22,7 @@
     },
     {
       "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m compileall -q src scripts",
-      "duration_ms": 160.201,
+      "duration_ms": 150.115,
       "exit_code": 0,
       "failure": "",
       "name": "source_compile",
@@ -31,17 +31,17 @@
       "status": "passed"
     },
     {
-      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_app.py --mode offline --port 62369 --timeout 30",
-      "duration_ms": 7735.591,
+      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_app.py --mode offline --port 54589 --timeout 30",
+      "duration_ms": 7547.842,
       "exit_code": 0,
       "failure": "",
       "name": "source_smoke",
-      "output": "smoke_port requested=62369 selected=62369 reason=port 62369 is free\nsmoke_ok mode=offline url=http://127.0.0.1:62369/",
+      "output": "smoke_port requested=54589 selected=54589 reason=port 54589 is free\nsmoke_ok mode=offline url=http://127.0.0.1:54589/",
       "required": true,
       "status": "passed"
     }
   ],
-  "duration_ms": 8010.295,
+  "duration_ms": 7819.619,
   "environment": {
     "machine": "AMD64",
     "offline_requested": false,
@@ -51,12 +51,12 @@
     "system": "Windows"
   },
   "failures": [],
-  "finished_at": "2026-07-19T17:58:28.508+00:00",
-  "generated_at": "2026-07-19T17:58:28.508+00:00",
+  "finished_at": "2026-07-19T17:59:24.112+00:00",
+  "generated_at": "2026-07-19T17:59:24.112+00:00",
   "git": {
     "branch": "codex/issue-0053-what-matters-20260720",
-    "dirty": true,
-    "head": "1d8b8ad50c2c9d087ad8a35508a1a18feb00c439",
+    "dirty": false,
+    "head": "2f26fc4b0cdf3d3f6183a2b1cf8672187de8eec7",
     "origin_main": "2fa669f8ec6d49c94214188b06e89f0e24603600"
   },
   "log_paths": [
@@ -74,7 +74,7 @@
     ],
     "phase_ids": []
   },
-  "started_at": "2026-07-19T17:58:20.498+00:00",
+  "started_at": "2026-07-19T17:59:16.293+00:00",
   "unavailable_optional_components": [
     "timesfm",
     "toto"
