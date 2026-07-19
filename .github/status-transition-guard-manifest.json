@@ -3,13 +3,13 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "issue_id": "ISSUE-0121",
+      "issue_id": "ISSUE-0122",
       "from": "planned",
       "to": "implemented_initially"
     }
   ],
-  "base_commit": "37a7a85c769609c486a5595cc1aa27dcd8d462e9",
-  "branch": "codex/issue-0121-model-zoo-20260719",
-  "issue_ids": ["ISSUE-0121"],
+  "base_commit": "493b58f859577173c0ac5dfe948c9be3aa2b0209",
+  "branch": "codex/issue-0122-optimisation-20260719",
+  "issue_ids": ["ISSUE-0122"],
   "schema_version": "1.0"
 }

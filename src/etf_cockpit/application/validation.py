@@ -15,6 +15,7 @@ from etf_cockpit.portfolio import optimiser as optimiser_module
 from etf_cockpit.portfolio.optimiser import returns_from_adjusted_prices
 from etf_cockpit.validation import protocol as validation_protocol
 from etf_cockpit.validation.protocol import ValidationReport, ValidationSpec, evaluate_trials, report_fingerprint
+from etf_cockpit.validation.optimisation import OptimisationLedger
 
 
 def build_validation_preview(prices: pd.DataFrame | None, *, spec: ValidationSpec | None = None) -> ValidationReport | None:
@@ -106,6 +107,13 @@ def load_training_evidence(root) -> dict[str, tuple[dict[str, object], ...]]:
     return LocalTrainingRegistry(root).snapshot()
 
 
+def load_optimisation_evidence(root) -> dict[str, tuple[dict[str, object], ...]]:
+    """Load bounded optimisation history through the application boundary."""
+
+    ledger = OptimisationLedger(root)
+    return {"trials": ledger.list_all(), "summaries": ledger.list_summaries()}
+
+
 def _preview_inputs(prices: pd.DataFrame | None, spec: ValidationSpec | None) -> tuple[object, ValidationSpec, list[str], list[str]]:
     returns = returns_from_adjusted_prices(prices if prices is not None else pd.DataFrame(), window=0)
     if returns.empty:
@@ -142,4 +150,4 @@ def _module_source(module: object) -> bytes:
     return inspect.getsource(module).encode("utf-8")
 
 
-__all__ = ["build_validation_preview", "load_training_evidence", "record_validation_preview"]
+__all__ = ["build_validation_preview", "load_optimisation_evidence", "load_training_evidence", "record_validation_preview"]
