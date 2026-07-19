@@ -136,6 +136,18 @@ def test_paper_account_is_exposed_through_typed_application_boundary(tmp_path) -
     assert queried.items[0].equity == pytest.approx(10_000)
 
 
+def test_typed_paper_boundary_keeps_named_accounts_separate(tmp_path: Path) -> None:
+    api = LocalApplicationApi(_snapshot, root=tmp_path)
+
+    opened = api.open_paper_account(PaperAccountOpenRequest(account_id="research-a", initial_cash=2_000))
+    queried = api.get_paper(account_id="research-a")
+
+    assert opened.account_id == "research-a"
+    assert queried.items[0].account_id == "research-a"
+    assert queried.items[0].cash == pytest.approx(2_000)
+    assert api.get_paper(account_id="research-b").items[0].status == "unavailable"
+
+
 def test_commands_are_idempotent_and_reject_stale_revisions() -> None:
     calls: list[str] = []
 

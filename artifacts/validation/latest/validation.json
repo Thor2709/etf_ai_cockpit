@@ -2,7 +2,7 @@
   "checks": [
     {
       "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/validate_issue_registry.py",
-      "duration_ms": 105.385,
+      "duration_ms": 108.323,
       "exit_code": 0,
       "failure": "",
       "name": "issue_registry",
@@ -12,7 +12,7 @@
     },
     {
       "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m compileall -q src scripts",
-      "duration_ms": 130.365,
+      "duration_ms": 133.627,
       "exit_code": 0,
       "failure": "",
       "name": "source_compile",
@@ -21,47 +21,49 @@
       "status": "passed"
     },
     {
-      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_app.py --mode offline --port 59400 --timeout 30",
-      "duration_ms": 7557.441,
+      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_app.py --mode offline --port 49271 --timeout 30",
+      "duration_ms": 6013.226,
       "exit_code": 0,
       "failure": "",
       "name": "source_smoke",
-      "output": "smoke_port requested=59400 selected=59400 reason=port 59400 is free\nsmoke_ok mode=offline url=http://127.0.0.1:59400/",
+      "output": "smoke_port requested=49271 selected=49271 reason=port 49271 is free\nsmoke_ok mode=offline url=http://127.0.0.1:49271/",
       "required": true,
       "status": "passed"
     },
     {
-      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m pytest -q tests/test_forward_evidence_diary.py tests/ui/test_forward_evidence_ui.py",
-      "duration_ms": 12075.833,
+      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -c \"print('No changed test paths detected')\"",
+      "duration_ms": 24.372,
       "exit_code": 0,
       "failure": "",
-      "name": "changed_tests",
-      "output": ".................                                                        [100%]",
+      "name": "changed_scope",
+      "output": "No changed test paths detected",
       "required": true,
       "status": "passed"
     }
   ],
-  "duration_ms": 19908.135,
+  "duration_ms": 6315.83,
   "environment": {
     "machine": "AMD64",
     "offline_requested": false,
     "platform": "Windows-11-10.0.26200-SP0",
     "python": "3.12.10",
-    "root": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\issue0057-forward-evidence-diary-20260719",
+    "root": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\issue0129-paper-broker-20260719",
     "system": "Windows"
   },
   "failures": [],
-  "finished_at": "2026-07-19T04:21:53.616+00:00",
-  "generated_at": "2026-07-19T04:21:53.616+00:00",
+  "finished_at": "2026-07-19T06:12:09.196+00:00",
+  "generated_at": "2026-07-19T06:12:09.196+00:00",
   "git": {
-    "branch": "codex/issue-0057-forward-evidence-diary-20260719",
+    "branch": "codex/issue-0129-paper-broker-20260719",
     "dirty": true,
-    "head": "70a0560a3035888d7a90bcdb79242b6f0c15a713",
-    "origin_main": "70ff6a8c15160e6d38d9f1a0dadee4277a5b3341"
+    "head": "692344d6a7efb48d946854e54c06c1ec49ae4e30",
+    "origin_main": "81973a06d9b3bc1bdd891999d48413a4cd0a4b68"
   },
   "log_paths": [
+    "logs\\chatgpt_audits.jsonl",
     "logs\\errors.jsonl",
     "logs\\model_runs.jsonl",
+    "logs\\portfolio_review_adapter.jsonl",
     "logs\\session.jsonl",
     "logs\\signal_log.jsonl",
     "logs\\timings.jsonl"
@@ -72,7 +74,7 @@
     "issue_ids": [],
     "phase_ids": []
   },
-  "started_at": "2026-07-19T04:21:33.708+00:00",
+  "started_at": "2026-07-19T06:12:02.881+00:00",
   "unavailable_optional_components": [
     "timesfm",
     "toto"

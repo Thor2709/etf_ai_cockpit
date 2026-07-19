@@ -11,6 +11,7 @@ from scripts.issue_registry_core import (
     parse_closed_index,
     parse_open_ledger,
     ready_records,
+    sha256_text_file,
     validate_registry,
 )
 from scripts.generate_completion_documents import write_text
@@ -86,3 +87,13 @@ def test_programme_status_markdown_is_lf_deterministic() -> None:
 
     assert b"\r" not in generated
     assert generated.endswith(b"\n")
+
+
+def test_source_manifest_hash_is_stable_across_checkout_line_endings(tmp_path: Path) -> None:
+    manifest = tmp_path / "SOURCE_MANIFEST.sha256"
+    manifest.write_bytes(b"# manifest\r\nabc  file.txt\r\n")
+    crlf_hash = sha256_text_file(manifest)
+
+    manifest.write_bytes(b"# manifest\nabc  file.txt\n")
+
+    assert sha256_text_file(manifest) == crlf_hash

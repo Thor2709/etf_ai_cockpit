@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import inspect
 import json
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from etf_cockpit.portfolio.paper_trading import (
     PaperLedger,
     PaperLedgerError,
     PaperLedgerIntegrityError,
+    NETWORK_ACCESS_ALLOWED,
     _digest,
 )
 from etf_cockpit.portfolio.proposal_policy import REQUIRED_GATES, current_authority_policy_checksum
@@ -133,6 +135,16 @@ def test_paper_fill_retries_are_idempotent_and_use_acceptance_fee(tmp_path: Path
     assert ledger.snapshot().cash == pytest.approx(890)
 
 
+def test_fill_retry_with_changed_fee_is_rejected(tmp_path: Path) -> None:
+    ledger = PaperLedger(tmp_path)
+    ledger.open_account(initial_cash=1_000)
+    order = ledger.accept_proposal(_proposal(source="fee-mismatch"), execution_price=10)
+    ledger.record_fill(str(order["order_id"]), fill_id="fee-fill", quantity=1, price=10, fee=1)
+    assert ledger.record_fill(str(order["order_id"]), fill_id="fee-fill", quantity=1, price=10) == ledger.orders()[0]
+    with pytest.raises(PaperLedgerError, match="different terms"):
+        ledger.record_fill(str(order["order_id"]), fill_id="fee-fill", quantity=1, price=10, fee=2)
+
+
 def test_paper_corporate_action_retry_does_not_double_adjust_account(tmp_path: Path) -> None:
     ledger = PaperLedger(tmp_path)
     ledger.open_account(initial_cash=1_000)
@@ -162,7 +174,8 @@ def test_paper_rejected_proposal_cannot_be_accepted_and_fill_ids_cannot_cross_or
     ledger = PaperLedger(tmp_path)
     ledger.open_account(initial_cash=1_000)
     rejected = _proposal(source="reject-first")
-    ledger.reject_proposal(rejected, reason="Manual no-trade")
+    rejection = ledger.reject_proposal(rejected, reason="Manual no-trade")
+    assert set(rejection["proposal_evidence_hashes"]) == {"data", "formula", "model", "portfolio", "policy"}
     with pytest.raises(PaperLedgerError, match="rejected"):
         ledger.accept_proposal(rejected, execution_price=10)
 
@@ -217,3 +230,110 @@ def test_instrument_detail_reads_the_local_paper_ledger(tmp_path: Path, monkeypa
     panel = instrument_detail._paper_trade_panel("VWCE")
     assert panel["status"] == "available"
     assert panel["rows"][0]["source_authority"] == "local_paper_ledger"
+
+
+def test_named_paper_accounts_are_isolated_and_replay_after_restart(tmp_path: Path) -> None:
+    first = PaperLedger(tmp_path, account_id="research-a")
+    second = PaperLedger(tmp_path, account_id="research-b")
+    first.open_account(initial_cash=1_000)
+    second.open_account(initial_cash=2_000)
+    first_order = first.accept_proposal(_proposal(source="account-a"), execution_price=10)
+    first.record_fill(str(first_order["order_id"]), quantity=10, price=10)
+    second_order = second.accept_proposal(_proposal(source="account-b"), execution_price=10)
+    second.record_fill(str(second_order["order_id"]), quantity=10, price=10)
+
+    assert first.path != second.path
+    assert PaperLedger(tmp_path, account_id="research-a").snapshot().cash == pytest.approx(900)
+    assert PaperLedger(tmp_path, account_id="research-b").snapshot().cash == pytest.approx(1_900)
+    assert PaperLedger(tmp_path, account_id="research-a").orders()[0]["account_id"] == "research-a"
+    with pytest.raises(PaperLedgerError, match="unsafe identifier"):
+        PaperLedger(tmp_path, account_id="..")
+    with pytest.raises(PaperLedgerError, match="unsafe identifier"):
+        PaperLedger(tmp_path, account_id="CON")
+
+
+def test_deferred_and_auto_paper_decisions_are_append_only_outcomes(tmp_path: Path) -> None:
+    ledger = PaperLedger(tmp_path)
+    ledger.open_account(initial_cash=1_000)
+    deferred = _proposal(source="defer")
+    result = ledger.defer_proposal(deferred, reason="Wait for a fresh evidence window")
+    assert result["reason"] == "Wait for a fresh evidence window"
+    assert ledger.snapshot().order_count == 0
+    with pytest.raises(PaperLedgerError, match="deferred"):
+        ledger.accept_proposal(deferred, execution_price=10)
+
+    auto_proposal = _proposal(source="auto")
+    auto = ledger.auto_paper_proposal(auto_proposal, execution_price=10)
+    auto_proposal["input_material"] = {"tampered": True}
+    assert auto["decision_mode"] == "auto_paper"
+    assert auto["execution_allowed"] is False
+    assert set(auto["proposal_evidence_hashes"]) == {"data", "formula", "model", "portfolio", "policy"}
+    assert all(len(value) == 64 for value in auto["proposal_evidence_hashes"].values())
+    persisted_auto = next(item for item in PaperLedger(tmp_path).orders() if item["order_id"] == auto["order_id"])
+    assert persisted_auto["proposal_snapshot"]["input_material"]["source"] == "auto"
+    assert "proposal_deferred" in ledger.path.read_text(encoding="utf-8")
+
+
+def test_matured_outcome_compares_adjusted_price_benchmark_and_cash_and_incident_is_separate(tmp_path: Path) -> None:
+    ledger = PaperLedger(tmp_path)
+    ledger.open_account(initial_cash=1_000)
+    order = ledger.accept_proposal(_proposal(source="mature"), execution_price=10, fee=2)
+    ledger.record_fill(str(order["order_id"]), quantity=10, price=10)
+    as_of = datetime(2026, 7, 20, tzinfo=timezone.utc)
+    outcome = ledger.mature_outcome(
+        str(order["order_id"]),
+        adjusted_close=12,
+        benchmark_return=0.10,
+        cash_return=0.01,
+        source_authority="test-adjusted-close",
+        source_checksum="d" * 64,
+        occurred_at=as_of,
+    )
+    retry = ledger.mature_outcome(
+        str(order["order_id"]),
+        adjusted_close=12,
+        benchmark_return=0.10,
+        cash_return=0.01,
+        source_authority="test-adjusted-close",
+        source_checksum="d" * 64,
+        occurred_at=as_of,
+    )
+    assert retry == outcome
+    assert outcome["net_return"] == pytest.approx(0.18)
+    assert outcome["excess_return_vs_benchmark"] == pytest.approx(0.08)
+    with pytest.raises(PaperLedgerError, match="different evidence"):
+        ledger.mature_outcome(
+            str(order["order_id"]),
+            adjusted_close=13,
+            benchmark_return=0.10,
+            cash_return=0.01,
+            source_authority="test-adjusted-close",
+            source_checksum="e" * 64,
+            occurred_at=as_of,
+        )
+    with pytest.raises(PaperLedgerError, match="different evidence"):
+        ledger.mature_outcome(
+            str(order["order_id"]),
+            adjusted_close=12,
+            benchmark_return=0.10,
+            cash_return=0.01,
+            source_authority="different-authority",
+            source_checksum="d" * 64,
+            occurred_at=as_of,
+        )
+    before = ledger.snapshot().pnl
+    incident = ledger.record_operational_error("quote_unavailable", message="Adjusted-close source was unavailable.", related_id=str(order["order_id"]))
+    after = ledger.snapshot()
+    assert incident["execution_allowed"] is False
+    assert after.pnl == pytest.approx(before)
+    assert after.matured_outcomes == 1
+    assert after.operational_incidents == 1
+    assert PaperLedger(tmp_path).operational_errors()[0]["code"] == "quote_unavailable"
+
+
+def test_paper_mode_has_no_network_authority() -> None:
+    source = inspect.getsource(__import__("etf_cockpit.portfolio.paper_trading", fromlist=["PaperLedger"]))
+    assert NETWORK_ACCESS_ALLOWED is False
+    assert "requests" not in source
+    assert "httpx" not in source
+    assert "urllib" not in source

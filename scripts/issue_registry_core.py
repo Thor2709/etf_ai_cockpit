@@ -173,6 +173,16 @@ def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def canonical_text_bytes(payload: bytes) -> bytes:
+    """Return text bytes with platform line endings represented as LF."""
+    return payload.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+
+
+def sha256_text_file(path: Path) -> str:
+    """Hash a UTF-8 text file independently of its checkout line endings."""
+    return sha256_bytes(canonical_text_bytes(path.read_bytes()))
+
+
 def sha256_file(path: Path) -> str:
     return sha256_bytes(path.read_bytes())
 
@@ -589,7 +599,7 @@ def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]
             "package_reviewed_commit": package.get("reviewed_commit", ""),
             "package_sha256": package_sha,
             "package_registry_sha256": package_digest,
-            "source_manifest_sha256": sha256_file(root / SOURCE_MANIFEST),
+            "source_manifest_sha256": sha256_text_file(root / SOURCE_MANIFEST),
             "open_ledger_sha256": open_digest,
             "closed_ledger_sha256": closed_digest,
         },
@@ -790,6 +800,7 @@ __all__ = [
     "PROGRESS_PATH",
     "RECONCILIATION_ROOT",
     "build_registry",
+    "canonical_text_bytes",
     "deterministic_json",
     "load_package_registry",
     "parse_closed_index",
@@ -797,6 +808,7 @@ __all__ = [
     "ready_records",
     "records_by_phase",
     "sha256_file",
+    "sha256_text_file",
     "validate_registry",
     "write_json",
 ]

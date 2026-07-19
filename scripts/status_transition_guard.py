@@ -17,6 +17,7 @@ try:
         REGISTRY_PATH,
         SOURCE_MANIFEST,
         STATUS_PATH,
+        sha256_text_file,
         deterministic_json,
     )
     from scripts.update_programme_status import (
@@ -31,6 +32,7 @@ except ModuleNotFoundError:
         REGISTRY_PATH,
         SOURCE_MANIFEST,
         STATUS_PATH,
+        sha256_text_file,
         deterministic_json,
     )
     from update_programme_status import (  # type: ignore[no-redef]
@@ -252,11 +254,15 @@ def guard_proposal(
         proposed_comparable["programme_status"] = base_status
         if base_comparable != proposed_comparable:
             _error(errors, f"non-allowlisted registry change: {issue_id}")
-    if {
-        key: value for key, value in base_registry.items() if key != "records"
-    } != {
-        key: value for key, value in proposed_registry.items() if key != "records"
-    }:
+    base_top_level = {key: value for key, value in base_registry.items() if key != "records"}
+    proposed_top_level = {key: value for key, value in proposed_registry.items() if key != "records"}
+    for top_level in (base_top_level, proposed_top_level):
+        source_of_truth = top_level.get("source_of_truth")
+        if isinstance(source_of_truth, dict):
+            source_of_truth = dict(source_of_truth)
+            source_of_truth.pop("source_manifest_sha256", None)
+            top_level["source_of_truth"] = source_of_truth
+    if base_top_level != proposed_top_level:
         _error(errors, "non-allowlisted registry change: top-level registry data")
 
     changed_issue_ids = set(changed_statuses)
@@ -373,7 +379,7 @@ def main(argv: list[str] | None = None) -> int:
         proposed_registry = _load_json(root / REGISTRY_PATH)
         current_status = _load_json(_path(root, args.status))
         current_progress = _path(root, args.progress).read_bytes()
-        source_manifest_sha256 = hashlib.sha256(_path(root, args.source_manifest).read_bytes()).hexdigest()
+        source_manifest_sha256 = sha256_text_file(_path(root, args.source_manifest))
         errors = guard_proposal(
             base_registry=base_registry,
             latest_registry=latest_registry,

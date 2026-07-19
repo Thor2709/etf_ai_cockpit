@@ -90,6 +90,28 @@ def test_allows_one_legitimate_planned_to_integrated_transition() -> None:
     ) == []
 
 
+def test_allows_deterministic_source_manifest_hash_recalculation() -> None:
+    base = _registry({"ISSUE-0070": "planned"})
+    proposed = _registry({"ISSUE-0070": "integrated"})
+    proposed["source_of_truth"]["source_manifest_sha256"] = "c" * 64
+    expected_status = status_payload(proposed)
+    expected_progress = deterministic_text(progress_markdown(expected_status, proposed))
+
+    assert guard_proposal(
+        base_registry=base,
+        latest_registry=copy.deepcopy(base),
+        proposed_registry=proposed,
+        manifest=_manifest(("ISSUE-0070", "planned", "integrated")),
+        current_status=expected_status,
+        current_progress=expected_progress,
+        source_manifest_sha256="c" * 64,
+        expected_base_commit=BASE_COMMIT,
+        latest_commit=BASE_COMMIT,
+        branch="feature/status-guard",
+        base_is_ancestor=True,
+    ) == []
+
+
 def test_rejects_stale_implemented_initially_to_planned_reversion() -> None:
     base = _registry({"ISSUE-0070": "implemented_initially"})
     proposed = _registry({"ISSUE-0070": "planned"})
