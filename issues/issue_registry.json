@@ -6700,7 +6700,7 @@
       "package_status": "",
       "phase": "phase-05-returns-risk-portfolio",
       "priority": "P0/P1",
-      "programme_status": "planned",
+      "programme_status": "implemented_initially",
       "related_issues": [],
       "required_inputs": [],
       "security_and_audit": "Personal tax assumptions are informational and broker constraints are validated before submission.",
