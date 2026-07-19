@@ -2,7 +2,7 @@
   "allow_downgrades": false,
   "allow_other_status_changes": false,
   "allowed_status_transitions": [],
-  "base_commit": "26febe8d77468c7e7adac3d6fe8867c3d8baf927",
+  "base_commit": "40eda5a13cb4fd74c3e39bf15723aa12767f1469",
   "branch": "codex/status-transition-guard-20260719",
   "issue_ids": [],
   "schema_version": "1.0"
