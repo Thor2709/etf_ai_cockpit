@@ -3,7 +3,7 @@
   "stage": "frozen_feature_checkpoint",
   "issue_ids": ["ISSUE-0063"],
   "base_sha": "2fa669f8ec6d49c94214188b06e89f0e24603600",
-  "checkpoint_sha": "8b5dd9aac11122a3f39830099d11004552ee3847",
+  "checkpoint_sha": "3ce775839e7bdf1171b3f1ef9e29fa646478144a",
   "branch": "codex/issue-0063-quality-momentum-20260719",
   "worktree": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\issue0063-quality-momentum-20260719",
   "root_role_model": "root implementation · gpt-5.6 Luna High",
@@ -14,6 +14,7 @@
   },
   "allowed_paths": [
     ".github/status-transition-guard-manifest.json",
+    ".github/workflows/release-gate.yml",
     "artifacts/validation/latest/validation.json",
     "artifacts/validation/latest/validation.md",
     "configs/feature_registry.yaml",
@@ -22,6 +23,7 @@
     "docs/product-completion/reconciliation/pipeline/ISSUE-0063-handoff.json",
     "issues/issue_registry.json",
     "scripts/issue_registry_core.py",
+    "scripts/release_gate.py",
     "src/etf_cockpit/app/pages/backtests.py",
     "src/etf_cockpit/app/pages/forward_evidence.py",
     "src/etf_cockpit/backtest/engine.py",
@@ -31,6 +33,7 @@
     "tests/test_backtest_lab.py",
     "tests/test_fundamentals.py",
     "tests/test_quality_momentum.py",
+    "tests/test_release_gate.py",
     "tests/ui/test_forward_evidence_ui.py"
   ],
   "completed_checks": [
@@ -40,6 +43,9 @@
     "compileall passed",
     "offline source smoke passed",
     "scripts/validate_app.py --issue ISSUE-0063 passed with JSON and Markdown evidence",
+    "bounded full-suite timeout diagnostic completed in 6003.13s: 1409 passed, 1 skipped and only the four authorised baselines failed",
+    "representative slow-node reproduction passed in 88.76s under a 180s timeout",
+    "full_tests timeout correction keeps the mandatory suite enabled at 7200s with a 135-minute job budget",
     "status-transition guard passed against latest origin/main",
     "generated registry and programme status are fresh"
   ],
@@ -62,5 +68,5 @@
     "ambiguous baseline mismatch",
     "product-code correction required during release"
   ],
-  "notes": "Local-first quality and canonical adjusted-price momentum evidence with official availability timestamps, sector-neutral rankings, next-session adjusted-close fills, costs/capacity and forward paper visibility; execution_allowed remains false."
+  "notes": "Local-first quality and canonical adjusted-price momentum evidence with official availability timestamps, sector-neutral rankings, next-session adjusted-close fills, costs/capacity and forward paper visibility; execution_allowed remains false. The release-gate timeout correction is infrastructure-only and does not skip or weaken the full suite."
 }
