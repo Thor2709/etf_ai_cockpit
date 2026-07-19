@@ -65,6 +65,22 @@ def test_transactional_put_rejects_non_finite_json(tmp_path):
             store.put("portfolio", "candidate-1", {"cash": float("nan")})
 
 
+def test_immutable_batch_is_atomic_and_idempotent(tmp_path):
+    with TransactionalStore(tmp_path) as store:
+        store.put("validation", "existing", {"value": 1})
+        with pytest.raises(StorageRevisionConflict, match="immutable"):
+            store.put_many(
+                [
+                    ("validation", "new", {"value": 2}),
+                    ("validation", "existing", {"value": 3}),
+                ],
+                immutable=True,
+            )
+        assert store.get("validation", "new") is None
+        rows = store.put_many([("validation", "existing", {"value": 1})], immutable=True)
+        assert rows[0].revision == 1
+
+
 def test_transactional_put_returns_its_committed_row_without_a_post_commit_read(tmp_path, monkeypatch):
     with TransactionalStore(tmp_path) as store:
         monkeypatch.setattr(store, "get", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("post-commit read")))

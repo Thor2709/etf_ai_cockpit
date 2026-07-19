@@ -6,17 +6,15 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.core.job_scheduler import DurableJobScheduler
 from etf_cockpit.core.paths import ROOT
-from etf_cockpit.application.validation import build_validation_preview
+from etf_cockpit.application.validation import build_validation_preview, load_training_evidence, record_validation_preview
 from etf_cockpit.features.synthetic_scenarios import SyntheticScenarioGenerator, SyntheticScenarioSpec
-from etf_cockpit.features.training_centre import LocalTrainingRegistry
 
 
 def training_centre_page(page: ft.Page, state: object) -> ft.Control:
     """Render durable local training evidence without granting model authority."""
 
-    registry = LocalTrainingRegistry(ROOT)
     try:
-        snapshot = registry.snapshot()
+        snapshot = load_training_evidence(ROOT)
         workflows = DurableJobScheduler(ROOT).list_workflows(limit=100)
         runs = snapshot["training.run"]
         models = snapshot["training.model"]
@@ -46,7 +44,14 @@ def training_centre_page(page: ft.Page, state: object) -> ft.Control:
             ),
             panel(ft.Column([section_header("Registry status", "The compatible lightweight adapter uses the existing transactional store."), ft.Text(message, color=theme.MUTED, selectable=True), ft.Text(f"Runs: {len(runs)} · models: {len(models)} · metrics: {len(metrics)} · training workflows: {len([item for item in workflows if item.workflow_type == 'model_training'])}", color=theme.TEXT, selectable=True)])),
             _synthetic_panel(),
-            _validation_panel(page, getattr(getattr(state, "snapshot", None), "prices", None)),
+            _validation_panel(
+                page,
+                getattr(getattr(state, "snapshot", None), "prices", None),
+                snapshot.get("validation.report", ()),
+                snapshot.get("validation.trial", ()),
+                snapshot.get("validation.researcher_decision", ()),
+                snapshot.get("validation.promotion_result", ()),
+            ),
             _runs_panel(runs),
             ft.Row([_metrics_panel(metrics), _models_panel(models)], spacing=14, vertical_alignment=ft.CrossAxisAlignment.START),
             _reports_panel(runs),
@@ -57,7 +62,14 @@ def training_centre_page(page: ft.Page, state: object) -> ft.Control:
     )
 
 
-def _validation_panel(page: ft.Page | None, prices: object) -> ft.Container:
+def _validation_panel(
+    page: ft.Page | None,
+    prices: object,
+    retained_reports: tuple[dict[str, object], ...] = (),
+    retained_trials: tuple[dict[str, object], ...] = (),
+    retained_decisions: tuple[dict[str, object], ...] = (),
+    retained_promotions: tuple[dict[str, object], ...] = (),
+) -> ft.Container:
     """Show split and promotion evidence without executing a model."""
 
     report = build_validation_preview(prices)
@@ -83,7 +95,75 @@ def _validation_panel(page: ft.Page | None, prices: object) -> ft.Container:
         if page is not None and callable(getattr(page, "go", None)):
             page.go("/training-centre")
 
-    controls.append(ft.TextButton("Refresh validation report", key="training-centre.validation-refresh", on_click=refresh))
+    latest_report = max(retained_reports, key=lambda item: str(item.get("run_id", "")), default=None)
+    latest_trials = [item for item in retained_trials if latest_report and item.get("report_id") == latest_report.get("report_id")]
+    latest_decisions = [item for item in retained_decisions if latest_report and item.get("report_id") == latest_report.get("report_id")]
+    latest_promotions = [item for item in retained_promotions if latest_report and item.get("report_id") == latest_report.get("report_id")]
+    if latest_report:
+        latest_decision = max(latest_decisions, key=lambda item: str(item.get("decided_at", "")), default=None)
+        latest_promotion = max(latest_promotions, key=lambda item: str(item.get("evaluated_at", "")), default=None)
+        diagnostic = (
+            f"Retained report {latest_report.get('report_id')} · trials={len(latest_trials)} · "
+            f"DSR={latest_report.get('deflated_sharpe')} · PBO={latest_report.get('probability_of_backtest_overfitting')} · "
+            f"FDR={latest_report.get('false_discovery_rate')} · decision={latest_decision.get('decision') if latest_decision else 'pending'}"
+        )
+        trial_detail = " · ".join(
+            f"{item.get('trial_id')}={'selected' if item.get('selected') else 'discarded'} "
+            f"series={len(item.get('return_series', []))} parameters={item.get('parameters')} "
+            f"scores={item.get('validation_scores')} discarded_reason={item.get('discarded_reason') or 'none'}"
+            for item in latest_trials
+        ) or "no trial rows"
+        fold_detail = "; ".join(
+            f"fold {fold.get('fold')}: train={fold.get('train_indices')} validation={fold.get('validation_indices')} "
+            f"purged={fold.get('purged_indices')} embargoed={fold.get('embargoed_indices')}"
+            for fold in latest_report.get("folds", [])
+        ) or "no fold boundaries"
+        promotion_detail = (
+            f"eligible={latest_promotion.get('eligible')} reasons={latest_promotion.get('reasons')}"
+            if latest_promotion
+            else "no persisted promotion result"
+        )
+        retained_text = ft.Text(
+            f"{diagnostic}\n{trial_detail}\nfeatures={latest_report.get('features')} · thresholds={latest_report.get('thresholds')} · variants={latest_report.get('variants')}\n"
+            f"folds={len(latest_report.get('folds', []))} · {fold_detail}\nselection={latest_report.get('selection_method')} · "
+            f"data_hash={latest_report.get('data_hash')} · code_hash={latest_report.get('code_hash')}\n"
+            f"researcher_decision={latest_decision} · promotion={promotion_detail} · execution_allowed=false",
+            color=theme.MUTED,
+            selectable=True,
+        )
+        evidence_status = ft.Text("Retained evidence is loaded from the local transactional store.", color=theme.MUTED, selectable=True)
+    else:
+        retained_text = ft.Text("No retained trial evidence is available yet.", color=theme.MUTED, selectable=True)
+        evidence_status = ft.Text("Trial evidence is not yet retained.", color=theme.MUTED, selectable=True)
+
+    def record_evidence(_event: ft.ControlEvent) -> None:
+        try:
+            result = record_validation_preview(ROOT, prices if hasattr(prices, "columns") else None)
+            if result is None:
+                evidence_status.value = "Trial evidence unavailable: local adjusted-price history is insufficient."
+            else:
+                report = result["report"]
+                promotion = result["promotion"]
+                evidence_status.value = (
+                    f"Retained report {report.get('report_id')} with {len(report.get('trial_ids', []))} trials; "
+                    f"promotion_eligible={str(promotion.get('eligible', False)).lower()} · execution_allowed=false"
+                )
+        except Exception as exc:
+            evidence_status.value = f"Trial evidence failed safely: {type(exc).__name__}: {exc}"
+        if page is not None and callable(getattr(page, "update", None)):
+            page.update()
+
+    controls.extend([
+        retained_text,
+        ft.Row(
+            [
+                ft.OutlinedButton("Retain trial evidence", key="training-centre.record-evidence", on_click=record_evidence),
+                ft.TextButton("Refresh validation report", key="training-centre.validation-refresh", on_click=refresh),
+                evidence_status,
+            ],
+            wrap=True,
+        )
+    ])
     return panel(ft.Column(controls, spacing=8))
 
 
