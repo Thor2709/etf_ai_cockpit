@@ -1,0 +1,60 @@
+{
+  "schema_version": "1.0",
+  "stage": "frozen_feature_checkpoint",
+  "issue_ids": ["ISSUE-0129"],
+  "base_sha": "81973a06d9b3bc1bdd891999d48413a4cd0a4b68",
+  "checkpoint_sha": "b0033f8fd5dc0bfe5c14bee6e66923ee1a67f588",
+  "branch": "codex/issue-0129-paper-broker-20260719",
+  "worktree": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\issue0129-paper-broker-20260719",
+  "root_role_model": "root implementation · gpt-5.6 Luna High",
+  "scout_role_model": "scout_reviewer · gpt-5.6 Luna Medium",
+  "release_steward_role_model": "release_steward · gpt-5.6 Luna Medium",
+  "expected_status_transition": {
+    "ISSUE-0129": ["planned", "integrated"]
+  },
+  "allowed_paths": [
+    ".github/status-transition-guard-manifest.json",
+    "artifacts/validation/latest/validation.json",
+    "artifacts/validation/latest/validation.md",
+    "configs/ui_acceptance.yaml",
+    "docs/product-completion/CURRENT_STATUS.json",
+    "docs/product-completion/PROGRESS.md",
+    "docs/product-completion/reconciliation/pipeline/ISSUE-0129-handoff.json",
+    "issues/issue_registry.json",
+    "src/etf_cockpit/app/pages/operations.py",
+    "src/etf_cockpit/application/api.py",
+    "src/etf_cockpit/application/contracts.py",
+    "src/etf_cockpit/portfolio/paper_trading.py",
+    "tests/test_application_api.py",
+    "tests/test_operations_workspace.py",
+    "tests/test_paper_trading.py"
+  ],
+  "completed_checks": [
+    "paper ledger, application API and Operations Centre focused tests passed",
+    "UI acceptance and button contract tests passed",
+    "Ruff passed for changed Python files",
+    "compileall passed",
+    "offline source smoke passed",
+    "scripts/validate_app.py --changed passed with structured JSON and Markdown evidence"
+  ],
+  "authorised_baseline_fingerprints": [
+    "tests/scope_boundary/test_package_inventory.py::test_current_production_package_inventory_passes",
+    "tests/test_governance_review_regressions.py::test_audit_manifest_includes_governance_checksums_version_and_diagnostic_marker",
+    "tests/test_product_governance.py::test_authority_matrix_covers_runtime_capabilities_and_stays_disabled",
+    "tests/ui/test_system_map_ui.py::test_system_map_shows_future_execution_as_non_interactive"
+  ],
+  "merge_conditions": [
+    "head and base match the handoff",
+    "changed paths and exact ISSUE-0129 planned-to-integrated transition match",
+    "required CI checks pass or match only the authorised fingerprints",
+    "post-merge quick validation, registry readback and GitHub issue sync no-op converge"
+  ],
+  "stop_conditions": [
+    "unexpected changed path or status transition",
+    "changed checkpoint head, stale base or merge conflict",
+    "current-feature test failure",
+    "ambiguous baseline mismatch",
+    "product-code correction required during release"
+  ],
+  "notes": "Local-first paper accounts, immutable proposal evidence, deferred/auto-paper decisions, configurable adjusted-close outcomes and separate operational incidents; execution_allowed remains false and no broker/network path exists."
+}

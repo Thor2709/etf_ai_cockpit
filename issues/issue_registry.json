@@ -7278,7 +7278,7 @@
       "package_status": "",
       "phase": "phase-07-backtest-paper-execution",
       "priority": "P0",
-      "programme_status": "planned",
+      "programme_status": "integrated",
       "related_issues": [],
       "required_inputs": [],
       "security_and_audit": "Hard network isolation, separate configuration and immutable evidence ledger.",
