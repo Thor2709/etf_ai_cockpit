@@ -13,6 +13,7 @@ def test_forecast_lab_workspace_is_registered_and_safe() -> None:
     for label in (
         "Experiment runs",
         "Model comparison",
+        "Model cards",
         "Walk-forward protocol",
         "shadow_only",
         "execution_allowed=false",

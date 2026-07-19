@@ -3,13 +3,13 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "issue_id": "ISSUE-0115",
+      "issue_id": "ISSUE-0121",
       "from": "planned",
-      "to": "integrated"
+      "to": "implemented_initially"
     }
   ],
-  "base_commit": "4627118588a0764459ef1552f7d201331db127a3",
-  "branch": "codex/issue-0115-stress-lab-20260719",
-  "issue_ids": ["ISSUE-0115"],
+  "base_commit": "37a7a85c769609c486a5595cc1aa27dcd8d462e9",
+  "branch": "codex/issue-0121-model-zoo-20260719",
+  "issue_ids": ["ISSUE-0121"],
   "schema_version": "1.0"
 }

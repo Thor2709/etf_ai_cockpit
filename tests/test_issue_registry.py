@@ -71,6 +71,17 @@ def test_registry_json_and_ready_order_are_deterministic() -> None:
     )
 
 
+def test_registry_generation_preserves_accepted_statuses_when_adding_one_transition() -> None:
+    registry = build_registry(ROOT, baseline="4627118588a0764459ef1552f7d201331db127a3")
+    statuses = {record["canonical_id"]: record["programme_status"] for record in registry["records"]}
+
+    assert statuses["ISSUE-0121"] == "implemented_initially"
+    assert statuses["ISSUE-0129"] == "integrated"
+    assert statuses["ISSUE-0130"] == "integrated"
+    assert statuses["ISSUE-0117"] == "implemented_initially"
+    assert statuses["ISSUE-0120"] == "implemented_initially"
+
+
 def test_completion_markdown_writer_is_lf_deterministic(tmp_path: Path) -> None:
     destination = tmp_path / "generated.md"
 
