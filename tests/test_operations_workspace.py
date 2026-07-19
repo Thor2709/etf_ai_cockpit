@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import threading
 import time
+from types import SimpleNamespace
 
 import flet as ft
 import pytest
@@ -11,6 +12,7 @@ from etf_cockpit.app.operations import build_operation_preview, load_operation_r
 from etf_cockpit.app.pages.operations import operations_page
 from etf_cockpit.app.router import PAGES
 from etf_cockpit.app.state import AppState
+from etf_cockpit.portfolio.proposal_policy import load_proposal_records
 from etf_cockpit.services import build_snapshot
 
 
@@ -25,6 +27,26 @@ def _walk(control: object):
 
 def _text(control: object) -> str:
     return "\n".join(str(item.value) for item in _walk(control) if isinstance(item, ft.Text))
+
+
+def _stub_authority_matrix(monkeypatch) -> None:
+    import etf_cockpit.portfolio.proposal_policy as proposal_policy
+
+    capabilities = tuple(
+        SimpleNamespace(capability_id=capability_id, authority_stage=stage, availability="mandatory")
+        for capability_id, stage in (
+            ("strategy:manual_review", "research"),
+            ("model:baseline", "research"),
+            ("broker:paper_portfolio", "paper"),
+        )
+    )
+    result = SimpleNamespace(
+        diagnostic_mode=False,
+        diagnostics=(),
+        checksum="a" * 64,
+        policy=SimpleNamespace(capabilities=capabilities),
+    )
+    monkeypatch.setattr(proposal_policy, "load_authority_matrix", lambda: result)
 
 
 def test_operation_preview_has_separate_authority_and_result_sections() -> None:
@@ -79,6 +101,27 @@ def test_operations_workspace_exposes_paper_live_training_and_audit_states() -> 
     assert any(getattr(item, "key", None) == "operations.preview" for item in _walk(rendered))
     assert any(getattr(item, "key", None) == "operations.confirm" for item in _walk(rendered))
     assert any(getattr(item, "key", None) == "operations.cancel" for item in _walk(rendered))
+    assert any(getattr(item, "key", None) == "operations.proposal-review" for item in _walk(rendered))
+
+
+def test_proposal_review_records_manual_review_until_immutable_evidence_exists(tmp_path: Path, monkeypatch) -> None:
+    import etf_cockpit.app.pages.operations as module
+
+    _stub_authority_matrix(monkeypatch)
+    snapshot = build_snapshot()
+    state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
+    state.application_api = type(state.application_api)(lambda: state.snapshot, root=tmp_path)
+    rendered = module.operations_page(None, state)
+    button = next(item for item in _walk(rendered) if getattr(item, "key", None) == "operations.proposal-review")
+
+    button.on_click(None)
+    text = _text(rendered)
+    records = load_proposal_records(directory=tmp_path / "data" / "operations" / "proposals")
+    assert "Proposal review: manual_review" in text
+    assert "execution_allowed=false" in text
+    assert "optimizer_output=failed" in text
+    assert "alternatives=no_trade" in text
+    assert records and records[0]["outcome"] == "manual_review"
 
 
 def test_paper_preview_starts_once_and_reaches_a_durable_result(tmp_path: Path, monkeypatch) -> None:

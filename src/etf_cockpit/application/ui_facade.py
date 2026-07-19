@@ -54,6 +54,7 @@ from etf_cockpit.portfolio.costs import *  # noqa: F401,F403
 from etf_cockpit.portfolio.factor_risk import *  # noqa: F401,F403
 from etf_cockpit.portfolio.attribution import *  # noqa: F401,F403
 from etf_cockpit.portfolio.rebalancing import *  # noqa: F401,F403
+from etf_cockpit.portfolio.proposal_policy import *  # noqa: F401,F403
 from etf_cockpit.portfolio.robust_risk import *  # noqa: F401,F403
 from etf_cockpit.portfolio.risk import *  # noqa: F401,F403
 from etf_cockpit.portfolio.risk_analytics import *  # noqa: F401,F403

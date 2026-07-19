@@ -4,7 +4,7 @@ This document is generated from `etf_cockpit.application.contracts` (`applicatio
 
 ## Query resources
 
-`QueryRequest.resource` supports `universe`, `instruments`, `scores`, `forecasts`, `portfolios`, `jobs`, `paper` and `operations`. Each query returns an immutable `PageView` with `total`, `offset`, `limit` and `next_offset`.
+`QueryRequest.resource` supports `universe`, `instruments`, `scores`, `forecasts`, `portfolios`, `jobs`, `paper`, `proposals` and `operations`. Each query returns an immutable `PageView` with `total`, `offset`, `limit` and `next_offset`. Proposal review creation uses the typed `ProposalReviewRequest` through the same local boundary and returns gate evidence with execution disabled.
 
 ## Commands
 

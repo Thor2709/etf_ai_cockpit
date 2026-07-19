@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import threading
 
 import flet as ft
@@ -11,7 +11,7 @@ from etf_cockpit.app.components.states import state_panel
 from etf_cockpit.app.formatting import format_currency, format_number
 from etf_cockpit.app.operations import OperationRecord, build_operation_preview, load_operation_records, save_operation_record
 from etf_cockpit.app.state import AppState
-from etf_cockpit.application.contracts import ApiStatus, CancelWorkflowCommand, SubmitWorkflowCommand
+from etf_cockpit.application.contracts import ApiStatus, CancelWorkflowCommand, ProposalReviewRequest, SubmitWorkflowCommand
 
 
 def _safe_update(page: ft.Page | None) -> None:
@@ -31,6 +31,8 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
     authority_text = ft.Text("Authority: paper preview or live disabled", color=theme.MUTED, selectable=True)
     result_text = ft.Text("Result: none", color=theme.MUTED, selectable=True)
     audit_text = ft.Text("Audit: none", color=theme.MUTED, selectable=True)
+    proposal_state = ft.Text("Proposal review: not evaluated", color=theme.MUTED, selectable=True)
+    proposal_evidence = ft.Text("Proposal evidence: validated optimiser output and all policy gates are required.", color=theme.MUTED, selectable=True)
     instrument = ft.TextField(label="Instrument", value=state.selected_etf or "VWCE", key="operations.instrument", width=180)
     quantity = ft.TextField(label="Quantity", value="1", key="operations.quantity", width=130, keyboard_type=ft.KeyboardType.NUMBER)
     environment = ft.Dropdown(
@@ -43,6 +45,7 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
     preview_button = ft.OutlinedButton("Preview selected operation", key="operations.preview", icon=ft.Icons.PREVIEW)
     confirm_button = ft.OutlinedButton("Confirm paper workflow", key="operations.confirm", icon=ft.Icons.CHECK, disabled=True)
     cancel_button = ft.TextButton("Cancel workflow", key="operations.cancel", icon=ft.Icons.CANCEL, disabled=True)
+    proposal_button = ft.OutlinedButton("Validate proposal review", key="operations.proposal-review", icon=ft.Icons.RULE)
     records_body = ft.Column(spacing=6)
     active_record: OperationRecord | None = None
     busy = False
@@ -102,6 +105,42 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
                 finish(record, "completed", "Paper proposal preview completed; no order was transmitted.", workflow_id=workflow_id)
         except Exception as exc:
             finish(record, "failed", f"Paper preview failed safely: {type(exc).__name__}: {exc}", workflow_id=workflow_id)
+
+    def proposal_review(_event: ft.ControlEvent) -> None:
+        try:
+            selected_quantity = float(str(quantity.value or "0").replace(",", ""))
+            as_of = datetime.combine(state.snapshot.data_report.as_of_date, datetime.min.time(), tzinfo=timezone.utc)
+            decision = api.review_proposal(
+                ProposalReviewRequest(
+                    instrument_id=str(instrument.value or ""),
+                    current_quantity=0.0,
+                    target_quantity=selected_quantity,
+                    strategy_id="strategy:manual_review",
+                    strategy_stage="research",
+                    model_id="model:baseline",
+                    model_stage="research",
+                    account_id="broker:paper_portfolio",
+                    account_stage="paper",
+                    optimiser_output_id=None,
+                    portfolio_revision=None,
+                    data_revision=None,
+                    as_of=as_of,
+                    expires_at=as_of + timedelta(days=1),
+                    authority_policy_checksum=api.get_authority_policy_checksum(),
+                    rationale="Manual input is shown as review-only until validated optimiser and portfolio evidence is supplied.",
+                )
+            )
+            failed = sum(not item.passed for item in decision.gates)
+            alternatives = ", ".join(decision.alternatives)
+            gate_summary = ", ".join(f"{item.gate_id}={'passed' if item.passed else 'failed'}" for item in decision.gates)
+            proposal_state.value = f"Proposal review: {decision.outcome} · authority={decision.authority_stage} · allowed={str(decision.proposal_allowed).lower()}"
+            proposal_evidence.value = f"Proposal evidence: {failed} gate(s) failed; gates={gate_summary}; alternatives={alternatives}; execution_allowed=false. {decision.rationale}"
+            message.value = "Proposal review recorded locally. No order or draft-order authority was created."
+            _safe_update(page)
+        except (OSError, TypeError, ValueError) as exc:
+            proposal_state.value = "Proposal review: manual_review"
+            proposal_evidence.value = f"Proposal evidence unavailable: {exc}"
+            _safe_update(page)
 
     def preview(_event: ft.ControlEvent) -> None:
         if busy:
@@ -193,6 +232,7 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
             _safe_update(page)
 
     preview_button.on_click = preview
+    proposal_button.on_click = proposal_review
     confirm_button.on_click = confirm
     cancel_button.on_click = cancel
     refresh_records()
@@ -217,12 +257,14 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
                     [
                         section_header("Preview and confirm", "A command preview is stored before a local workflow is acknowledged. The selected environment is never inferred from colour."),
                         ft.ResponsiveRow([ft.Container(content=instrument, col={"sm": 12, "md": 3}), ft.Container(content=quantity, col={"sm": 12, "md": 2}), ft.Container(content=environment, col={"sm": 12, "md": 3})], spacing=8),
-                        ft.Row([preview_button, confirm_button, cancel_button], wrap=True),
+                        ft.Row([preview_button, proposal_button, confirm_button, cancel_button], wrap=True),
                         operation_state,
                         preview_text,
                         authority_text,
                         result_text,
                         audit_text,
+                        proposal_state,
+                        proposal_evidence,
                     ],
                     spacing=8,
                 )

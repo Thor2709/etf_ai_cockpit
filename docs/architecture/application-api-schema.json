@@ -567,6 +567,391 @@
       "title": "PortfolioViewModel",
       "type": "object"
     },
+    "ProposalGateEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "blocker": {
+          "default": true,
+          "title": "Blocker",
+          "type": "boolean"
+        },
+        "gate_id": {
+          "minLength": 1,
+          "title": "Gate Id",
+          "type": "string"
+        },
+        "passed": {
+          "title": "Passed",
+          "type": "boolean"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "gate_id",
+        "passed"
+      ],
+      "title": "ProposalGateEvidence",
+      "type": "object"
+    },
+    "ProposalGateViewModel": {
+      "additionalProperties": false,
+      "properties": {
+        "blocker": {
+          "title": "Blocker",
+          "type": "boolean"
+        },
+        "gate_id": {
+          "title": "Gate Id",
+          "type": "string"
+        },
+        "passed": {
+          "title": "Passed",
+          "type": "boolean"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "gate_id",
+        "passed",
+        "reason",
+        "blocker"
+      ],
+      "title": "ProposalGateViewModel",
+      "type": "object"
+    },
+    "ProposalReviewRequest": {
+      "$defs": {
+        "ProposalGateEvidence": {
+          "additionalProperties": false,
+          "properties": {
+            "blocker": {
+              "default": true,
+              "title": "Blocker",
+              "type": "boolean"
+            },
+            "gate_id": {
+              "minLength": 1,
+              "title": "Gate Id",
+              "type": "string"
+            },
+            "passed": {
+              "title": "Passed",
+              "type": "boolean"
+            },
+            "reason": {
+              "default": "",
+              "title": "Reason",
+              "type": "string"
+            }
+          },
+          "required": [
+            "gate_id",
+            "passed"
+          ],
+          "title": "ProposalGateEvidence",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "minLength": 1,
+          "title": "Account Id",
+          "type": "string"
+        },
+        "account_stage": {
+          "enum": [
+            "research",
+            "shadow_proposal",
+            "paper",
+            "broker_read_only",
+            "draft_order",
+            "capped_automatic",
+            "disabled"
+          ],
+          "title": "Account Stage",
+          "type": "string"
+        },
+        "as_of": {
+          "format": "date-time",
+          "title": "As Of",
+          "type": "string"
+        },
+        "authority_policy_checksum": {
+          "maxLength": 64,
+          "minLength": 64,
+          "title": "Authority Policy Checksum",
+          "type": "string"
+        },
+        "current_quantity": {
+          "minimum": 0,
+          "title": "Current Quantity",
+          "type": "number"
+        },
+        "data_revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Data Revision"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "gate_evidence": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ProposalGateEvidence"
+          },
+          "title": "Gate Evidence",
+          "type": "array"
+        },
+        "instrument_id": {
+          "minLength": 1,
+          "title": "Instrument Id",
+          "type": "string"
+        },
+        "model_id": {
+          "minLength": 1,
+          "title": "Model Id",
+          "type": "string"
+        },
+        "model_stage": {
+          "enum": [
+            "research",
+            "shadow_proposal",
+            "paper",
+            "broker_read_only",
+            "draft_order",
+            "capped_automatic",
+            "disabled"
+          ],
+          "title": "Model Stage",
+          "type": "string"
+        },
+        "optimiser_output_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Optimiser Output Id"
+        },
+        "portfolio_revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Portfolio Revision"
+        },
+        "rationale": {
+          "default": "",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "strategy_id": {
+          "minLength": 1,
+          "title": "Strategy Id",
+          "type": "string"
+        },
+        "strategy_stage": {
+          "enum": [
+            "research",
+            "shadow_proposal",
+            "paper",
+            "broker_read_only",
+            "draft_order",
+            "capped_automatic",
+            "disabled"
+          ],
+          "title": "Strategy Stage",
+          "type": "string"
+        },
+        "target_quantity": {
+          "minimum": 0,
+          "title": "Target Quantity",
+          "type": "number"
+        }
+      },
+      "required": [
+        "instrument_id",
+        "current_quantity",
+        "target_quantity",
+        "strategy_id",
+        "strategy_stage",
+        "model_id",
+        "model_stage",
+        "account_id",
+        "account_stage",
+        "as_of",
+        "expires_at",
+        "authority_policy_checksum"
+      ],
+      "title": "ProposalReviewRequest",
+      "type": "object"
+    },
+    "ProposalViewModel": {
+      "$defs": {
+        "ProposalGateViewModel": {
+          "additionalProperties": false,
+          "properties": {
+            "blocker": {
+              "title": "Blocker",
+              "type": "boolean"
+            },
+            "gate_id": {
+              "title": "Gate Id",
+              "type": "string"
+            },
+            "passed": {
+              "title": "Passed",
+              "type": "boolean"
+            },
+            "reason": {
+              "title": "Reason",
+              "type": "string"
+            }
+          },
+          "required": [
+            "gate_id",
+            "passed",
+            "reason",
+            "blocker"
+          ],
+          "title": "ProposalGateViewModel",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "alternatives": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Alternatives",
+          "type": "array"
+        },
+        "as_of": {
+          "title": "As Of",
+          "type": "string"
+        },
+        "authority_policy_checksum": {
+          "default": "",
+          "title": "Authority Policy Checksum",
+          "type": "string"
+        },
+        "authority_stage": {
+          "title": "Authority Stage",
+          "type": "string"
+        },
+        "execution_allowed": {
+          "const": false,
+          "default": false,
+          "title": "Execution Allowed",
+          "type": "boolean"
+        },
+        "expires_at": {
+          "title": "Expires At",
+          "type": "string"
+        },
+        "failed_gate_count": {
+          "minimum": 0,
+          "title": "Failed Gate Count",
+          "type": "integer"
+        },
+        "gate_count": {
+          "minimum": 0,
+          "title": "Gate Count",
+          "type": "integer"
+        },
+        "gate_policy_checksum": {
+          "default": "",
+          "title": "Gate Policy Checksum",
+          "type": "string"
+        },
+        "gate_policy_version": {
+          "default": "",
+          "title": "Gate Policy Version",
+          "type": "string"
+        },
+        "gates": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ProposalGateViewModel"
+          },
+          "title": "Gates",
+          "type": "array"
+        },
+        "input_checksum": {
+          "title": "Input Checksum",
+          "type": "string"
+        },
+        "instrument_id": {
+          "title": "Instrument Id",
+          "type": "string"
+        },
+        "outcome": {
+          "title": "Outcome",
+          "type": "string"
+        },
+        "proposal_allowed": {
+          "title": "Proposal Allowed",
+          "type": "boolean"
+        },
+        "proposal_id": {
+          "title": "Proposal Id",
+          "type": "string"
+        },
+        "quantity_delta": {
+          "title": "Quantity Delta",
+          "type": "number"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        }
+      },
+      "required": [
+        "proposal_id",
+        "instrument_id",
+        "outcome",
+        "authority_stage",
+        "proposal_allowed",
+        "quantity_delta",
+        "rationale",
+        "as_of",
+        "expires_at",
+        "gate_count",
+        "failed_gate_count",
+        "input_checksum"
+      ],
+      "title": "ProposalViewModel",
+      "type": "object"
+    },
     "QueryRequest": {
       "$defs": {
         "PageRequest": {
@@ -604,6 +989,7 @@
             "portfolios",
             "jobs",
             "paper",
+            "proposals",
             "operations"
           ],
           "title": "Resource",

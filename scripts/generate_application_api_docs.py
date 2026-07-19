@@ -26,6 +26,10 @@ def generate(root: Path) -> tuple[Path, Path]:
         "PageView",
         "PaperViewModel",
         "PortfolioViewModel",
+        "ProposalGateEvidence",
+        "ProposalGateViewModel",
+        "ProposalReviewRequest",
+        "ProposalViewModel",
         "QueryRequest",
         "RefreshDataCommand",
         "ScoreViewModel",
@@ -44,7 +48,10 @@ def generate(root: Path) -> tuple[Path, Path]:
         "models": schemas,
     }
     schema_path = destination / "application-api-schema.json"
-    schema_path.write_text(json.dumps(schema, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    # Keep generated artefacts byte-stable with the repository's Windows checkout
+    # convention, independent of the platform running the generator.
+    with schema_path.open("w", encoding="utf-8", newline="\r\n") as handle:
+        handle.write(json.dumps(schema, indent=2, sort_keys=True) + "\n")
     lines = [
         "# Local application API",
         "",
@@ -52,7 +59,7 @@ def generate(root: Path) -> tuple[Path, Path]:
         "",
         "## Query resources",
         "",
-        "`QueryRequest.resource` supports `universe`, `instruments`, `scores`, `forecasts`, `portfolios`, `jobs`, `paper` and `operations`. Each query returns an immutable `PageView` with `total`, `offset`, `limit` and `next_offset`.",
+        "`QueryRequest.resource` supports `universe`, `instruments`, `scores`, `forecasts`, `portfolios`, `jobs`, `paper`, `proposals` and `operations`. Each query returns an immutable `PageView` with `total`, `offset`, `limit` and `next_offset`. Proposal review creation uses the typed `ProposalReviewRequest` through the same local boundary and returns gate evidence with execution disabled.",
         "",
         "## Commands",
         "",
@@ -67,7 +74,8 @@ def generate(root: Path) -> tuple[Path, Path]:
         "",
     ]
     guide_path = destination / "application-api.md"
-    guide_path.write_text("\n".join(lines), encoding="utf-8")
+    with guide_path.open("w", encoding="utf-8", newline="\r\n") as handle:
+        handle.write("\n".join(lines))
     return schema_path, guide_path
 
 
