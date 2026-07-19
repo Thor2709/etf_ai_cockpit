@@ -70,6 +70,8 @@ def build_digest(
             item = _build_item(source, index, record, as_of=as_of)
             if item.status == "manual_review":
                 source_state = "manual_review"
+            elif item.status == "unavailable" and source_state == "available":
+                source_state = "unavailable"
             items[item.item_id] = _prefer(items.get(item.item_id), item)
         source_status.append((source, source_state))
 

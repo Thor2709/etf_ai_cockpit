@@ -66,6 +66,9 @@ def test_digest_exposes_missing_inputs_and_incomplete_records() -> None:
     assert dict(digest.source_status)["alerts"] == "manual_review"
     assert dict(digest.source_status)["events"] == "unavailable"
 
+    unavailable = build_digest({"alerts": [{"status": "unavailable", "title": "No alert feed", "rationale": "The local feed is missing.", "provenance": "alerts:missing"}]})
+    assert dict(unavailable.source_status)["alerts"] == "unavailable"
+
 
 def test_empty_digest_is_an_explicit_manual_review_state() -> None:
     digest = build_digest({}, as_of=None)
@@ -118,3 +121,31 @@ def test_dashboard_digest_has_stable_acceptance_key() -> None:
 
     control = _what_matters_today(SimpleNamespace(application_api=Api()))
     assert control.key == "dashboard.what-matters-today"
+    rendered = "\n".join(_text_values(control))
+    assert "What matters today" in rendered
+    assert "No local evidence" in rendered
+    assert "execution_allowed=false" in rendered
+
+
+def test_dashboard_digest_failure_is_readable_and_fail_closed() -> None:
+    class Api:
+        def get_digest(self) -> DigestViewModel:
+            raise RuntimeError("digest source unavailable")
+
+    rendered = "\n".join(_text_values(_what_matters_today(SimpleNamespace(application_api=Api()))))
+    assert "Digest unavailable" in rendered
+    assert "manual review required" in rendered
+    assert "execution_allowed=false" in rendered
+
+
+def _text_values(node: object) -> list[str]:
+    values: list[str] = []
+    value = getattr(node, "value", None)
+    if isinstance(value, str):
+        values.append(value)
+    for child in getattr(node, "controls", []) or []:
+        values.extend(_text_values(child))
+    content = getattr(node, "content", None)
+    if content is not None:
+        values.extend(_text_values(content))
+    return values

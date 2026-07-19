@@ -394,7 +394,12 @@ class LocalApplicationApi:
         from etf_cockpit.application.digest import build_digest_from_snapshot
 
         try:
-            proposals = self.get_proposals(PageRequest(offset=0, limit=500)).items
+            from etf_cockpit.portfolio.proposal_policy import load_proposal_records
+
+            proposals = tuple(
+                _proposal_view_model(item)
+                for item in load_proposal_records(directory=self._root / "data" / "operations" / "proposals")
+            )
         except Exception:
             # A malformed proposal record must make that source unavailable,
             # not prevent the dashboard from rendering its other evidence.
