@@ -127,29 +127,41 @@ class PaperViewModel(ContractModel):
     payoff_ratio: float | None = None
     positions: tuple[PaperPositionViewModel, ...] = ()
     reconciliation_status: str = "unavailable"
+    matured_outcomes: int = Field(ge=0, default=0)
+    operational_incidents: int = Field(ge=0, default=0)
     execution_allowed: Literal[False] = False
     message: str = ""
 
 
 class PaperAccountOpenRequest(ContractModel):
-    account_id: Literal["local-paper"] = "local-paper"
+    account_id: str = Field(default="local-paper", min_length=1, max_length=128)
     initial_cash: float = Field(gt=0)
     base_currency: str = Field(default="EUR", min_length=3, max_length=3)
 
 
 class PaperProposalRejectRequest(ContractModel):
+    account_id: str = Field(default="local-paper", min_length=1, max_length=128)
     proposal_id: str = Field(min_length=1, max_length=128)
     reason: str = Field(min_length=1, max_length=500)
 
 
 class PaperProposalAcceptRequest(ContractModel):
+    account_id: str = Field(default="local-paper", min_length=1, max_length=128)
     proposal_id: str = Field(min_length=1, max_length=128)
     execution_price: float = Field(gt=0)
     fee: float = Field(default=0, ge=0)
     fx_rate: float = Field(default=1, gt=0)
+    mode: Literal["manual_accept", "auto_paper"] = "manual_accept"
+
+
+class PaperProposalDeferRequest(ContractModel):
+    account_id: str = Field(default="local-paper", min_length=1, max_length=128)
+    proposal_id: str = Field(min_length=1, max_length=128)
+    reason: str = Field(min_length=1, max_length=500)
 
 
 class PaperFillRequest(ContractModel):
+    account_id: str = Field(default="local-paper", min_length=1, max_length=128)
     order_id: str = Field(min_length=1, max_length=128)
     fill_id: str | None = Field(default=None, min_length=1, max_length=128)
     quantity: float = Field(gt=0)
@@ -159,11 +171,13 @@ class PaperFillRequest(ContractModel):
 
 
 class PaperOrderCancelRequest(ContractModel):
+    account_id: str = Field(default="local-paper", min_length=1, max_length=128)
     order_id: str = Field(min_length=1, max_length=128)
     reason: str = Field(min_length=1, max_length=500)
 
 
 class PaperPositionMarkRequest(ContractModel):
+    account_id: str = Field(default="local-paper", min_length=1, max_length=128)
     instrument_id: str = Field(min_length=1, max_length=80)
     adjusted_close: float = Field(gt=0)
     as_of: datetime
@@ -174,6 +188,7 @@ class PaperPositionMarkRequest(ContractModel):
 
 
 class PaperCorporateActionRequest(ContractModel):
+    account_id: str = Field(default="local-paper", min_length=1, max_length=128)
     action_id: str | None = Field(default=None, min_length=1, max_length=128)
     instrument_id: str = Field(min_length=1, max_length=80)
     split_ratio: float = Field(gt=0)
@@ -184,7 +199,27 @@ class PaperCorporateActionRequest(ContractModel):
     fx_rate: float = Field(default=1, gt=0)
 
 
+class PaperOutcomeMatureRequest(ContractModel):
+    account_id: str = Field(default="local-paper", min_length=1, max_length=128)
+    reference_id: str = Field(min_length=1, max_length=128)
+    adjusted_close: float = Field(gt=0)
+    benchmark_return: float
+    cash_return: float
+    horizon_days: int = Field(default=20, ge=1, le=3650)
+    as_of: datetime
+    source_authority: str = Field(min_length=1, max_length=160)
+    source_checksum: str = Field(min_length=64, max_length=64)
+
+
+class PaperOperationalErrorRequest(ContractModel):
+    account_id: str = Field(default="local-paper", min_length=1, max_length=128)
+    code: str = Field(min_length=1, max_length=80)
+    message: str = Field(min_length=1, max_length=500)
+    related_id: str | None = Field(default=None, min_length=1, max_length=128)
+
+
 class PaperOrderViewModel(ContractModel):
+    account_id: str = "local-paper"
     order_id: str
     proposal_id: str
     instrument_id: str
@@ -199,10 +234,37 @@ class PaperOrderViewModel(ContractModel):
 
 
 class PaperProposalDecisionViewModel(ContractModel):
+    account_id: str = "local-paper"
     proposal_id: str
     instrument_id: str
-    status: Literal["rejected"]
+    status: Literal["rejected", "deferred"]
     reason: str
+    execution_allowed: Literal[False] = False
+
+
+class PaperOutcomeViewModel(ContractModel):
+    account_id: str = "local-paper"
+    outcome_id: str
+    reference_id: str
+    order_id: str
+    proposal_id: str
+    instrument_id: str
+    net_return: float
+    benchmark_return: float
+    cash_return: float
+    horizon_days: int = Field(ge=1, le=3650, default=20)
+    excess_return_vs_benchmark: float
+    excess_return_vs_cash: float
+    price_basis: Literal["adjusted_close"] = "adjusted_close"
+    execution_allowed: Literal[False] = False
+
+
+class PaperOperationalIncidentViewModel(ContractModel):
+    account_id: str = "local-paper"
+    incident_id: str
+    code: str
+    message: str
+    related_id: str | None = None
     execution_allowed: Literal[False] = False
 
 
@@ -353,10 +415,15 @@ __all__ = [
     "PaperOrderViewModel",
     "PaperPositionMarkRequest",
     "PaperCorporateActionRequest",
+    "PaperOutcomeMatureRequest",
+    "PaperOperationalErrorRequest",
     "PaperPositionViewModel",
     "PaperProposalDecisionViewModel",
     "PaperProposalAcceptRequest",
+    "PaperProposalDeferRequest",
     "PaperProposalRejectRequest",
+    "PaperOutcomeViewModel",
+    "PaperOperationalIncidentViewModel",
     "PageRequest",
     "PageView",
     "PaperViewModel",

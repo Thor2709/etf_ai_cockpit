@@ -28,9 +28,14 @@ from etf_cockpit.application.contracts import (
     PaperFillRequest,
     PaperOrderCancelRequest,
     PaperOrderViewModel,
+    PaperOperationalErrorRequest,
+    PaperOperationalIncidentViewModel,
+    PaperOutcomeMatureRequest,
+    PaperOutcomeViewModel,
     PaperPositionMarkRequest,
     PaperPositionViewModel,
     PaperProposalAcceptRequest,
+    PaperProposalDeferRequest,
     PaperProposalDecisionViewModel,
     PaperProposalRejectRequest,
     PageRequest,
@@ -201,14 +206,14 @@ class LocalApplicationApi:
             rows = []
         return _page(tuple(sorted(rows, key=lambda item: item.created_at, reverse=True)), page)
 
-    def get_paper(self, page: PageRequest = PageRequest()) -> PageView[PaperViewModel]:
+    def get_paper(self, page: PageRequest = PageRequest(), *, account_id: str = "local-paper") -> PageView[PaperViewModel]:
         from etf_cockpit.portfolio.paper_trading import PaperLedger, PaperLedgerError
 
-        ledger = PaperLedger(self._root)
+        ledger = PaperLedger(self._root, account_id=account_id)
         try:
             snapshot = ledger.snapshot()
         except PaperLedgerError as exc:
-            rows = (PaperViewModel(account_id="local-paper", status="corrupt", reconciliation_status="blocked", message=str(exc)),)
+            rows = (PaperViewModel(account_id=account_id, status="corrupt", reconciliation_status="blocked", message=str(exc)),)
             return _page(rows, page)
         if snapshot.status == "ready":
             return _page((_paper_view_model(snapshot.to_payload()),), page)
@@ -223,10 +228,10 @@ class LocalApplicationApi:
                 message=str(item.get("message", "")),
             )
             for item in source
-            if isinstance(item, Mapping)
+            if isinstance(item, Mapping) and str(item.get("account_id", "")) == account_id
         )
         if not rows:
-            rows = (PaperViewModel(account_id="local-paper", status="unavailable", message="No paper account is configured."),)
+            rows = (PaperViewModel(account_id=account_id, status="unavailable", message="No paper account is configured."),)
         return _page(rows, page)
 
     def open_paper_account(self, request: PaperAccountOpenRequest) -> PaperViewModel:
@@ -242,11 +247,12 @@ class LocalApplicationApi:
         from etf_cockpit.portfolio.paper_trading import PaperLedger, load_proposal_for_paper
 
         proposal = load_proposal_for_paper(self._root, request.proposal_id)
-        order = PaperLedger(self._root).accept_proposal(
+        order = PaperLedger(self._root, account_id=request.account_id).accept_proposal(
             proposal,
             execution_price=request.execution_price,
             fee=request.fee,
             fx_rate=request.fx_rate,
+            decision_mode=request.mode,
         )
         return _paper_order_view_model(order)
 
@@ -254,18 +260,32 @@ class LocalApplicationApi:
         from etf_cockpit.portfolio.paper_trading import PaperLedger, load_proposal_for_paper
 
         proposal = load_proposal_for_paper(self._root, request.proposal_id)
-        rejection = PaperLedger(self._root).reject_proposal(proposal, reason=request.reason)
+        rejection = PaperLedger(self._root, account_id=request.account_id).reject_proposal(proposal, reason=request.reason)
         return PaperProposalDecisionViewModel(
+            account_id=request.account_id,
             proposal_id=str(rejection["proposal_id"]),
             instrument_id=str(proposal.get("instrument_id", "")),
             status="rejected",
             reason=str(rejection["reason"]),
         )
 
+    def defer_paper_proposal(self, request: PaperProposalDeferRequest) -> PaperProposalDecisionViewModel:
+        from etf_cockpit.portfolio.paper_trading import PaperLedger, load_proposal_for_paper
+
+        proposal = load_proposal_for_paper(self._root, request.proposal_id)
+        deferred = PaperLedger(self._root, account_id=request.account_id).defer_proposal(proposal, reason=request.reason)
+        return PaperProposalDecisionViewModel(
+            account_id=request.account_id,
+            proposal_id=str(deferred["proposal_id"]),
+            instrument_id=str(proposal.get("instrument_id", "")),
+            status="deferred",
+            reason=str(deferred["reason"]),
+        )
+
     def fill_paper_order(self, request: PaperFillRequest) -> PaperOrderViewModel:
         from etf_cockpit.portfolio.paper_trading import PaperLedger
 
-        order = PaperLedger(self._root).record_fill(
+        order = PaperLedger(self._root, account_id=request.account_id).record_fill(
             request.order_id,
             fill_id=request.fill_id,
             quantity=request.quantity,
@@ -278,14 +298,14 @@ class LocalApplicationApi:
     def cancel_paper_order(self, request: PaperOrderCancelRequest) -> PaperOrderViewModel:
         from etf_cockpit.portfolio.paper_trading import PaperLedger
 
-        order = PaperLedger(self._root).cancel_order(request.order_id, reason=request.reason)
+        order = PaperLedger(self._root, account_id=request.account_id).cancel_order(request.order_id, reason=request.reason)
         return _paper_order_view_model(order)
 
-    def get_paper_orders(self, page: PageRequest = PageRequest()) -> PageView[PaperOrderViewModel]:
+    def get_paper_orders(self, page: PageRequest = PageRequest(), *, account_id: str = "local-paper") -> PageView[PaperOrderViewModel]:
         from etf_cockpit.portfolio.paper_trading import PaperLedger, PaperLedgerError
 
         try:
-            orders = tuple(_paper_order_view_model(item) for item in PaperLedger(self._root).orders())
+            orders = tuple(_paper_order_view_model(item) for item in PaperLedger(self._root, account_id=account_id).orders())
         except PaperLedgerError:
             orders = ()
         return _page(orders, page)
@@ -293,7 +313,7 @@ class LocalApplicationApi:
     def mark_paper_position(self, request: PaperPositionMarkRequest) -> PaperViewModel:
         from etf_cockpit.portfolio.paper_trading import PaperLedger
 
-        snapshot = PaperLedger(self._root).mark(
+        snapshot = PaperLedger(self._root, account_id=request.account_id).mark(
             request.instrument_id,
             adjusted_close=request.adjusted_close,
             fx_rate=request.fx_rate,
@@ -307,7 +327,7 @@ class LocalApplicationApi:
     def apply_paper_corporate_action(self, request: PaperCorporateActionRequest) -> PaperViewModel:
         from etf_cockpit.portfolio.paper_trading import PaperLedger
 
-        snapshot = PaperLedger(self._root).apply_corporate_action(
+        snapshot = PaperLedger(self._root, account_id=request.account_id).apply_corporate_action(
             request.instrument_id,
             split_ratio=request.split_ratio,
             cash_dividend_per_unit=request.cash_dividend_per_unit,
@@ -318,6 +338,31 @@ class LocalApplicationApi:
             source_checksum=request.source_checksum,
         )
         return _paper_view_model(snapshot.to_payload())
+
+    def mature_paper_outcome(self, request: PaperOutcomeMatureRequest) -> PaperOutcomeViewModel:
+        from etf_cockpit.portfolio.paper_trading import PaperLedger
+
+        outcome = PaperLedger(self._root, account_id=request.account_id).mature_outcome(
+            request.reference_id,
+            adjusted_close=request.adjusted_close,
+            benchmark_return=request.benchmark_return,
+            cash_return=request.cash_return,
+            horizon_days=request.horizon_days,
+            source_authority=request.source_authority,
+            source_checksum=request.source_checksum,
+            occurred_at=request.as_of,
+        )
+        return _paper_outcome_view_model(outcome, request.account_id)
+
+    def record_paper_operational_error(self, request: PaperOperationalErrorRequest) -> PaperOperationalIncidentViewModel:
+        from etf_cockpit.portfolio.paper_trading import PaperLedger
+
+        incident = PaperLedger(self._root, account_id=request.account_id).record_operational_error(
+            request.code,
+            message=request.message,
+            related_id=request.related_id,
+        )
+        return _paper_incident_view_model(incident, request.account_id)
 
     def get_operations(self, page: PageRequest = PageRequest()) -> PageView[OperationViewModel]:
         operations = getattr(self._snapshot(), "operations", ())
@@ -529,6 +574,8 @@ def _paper_view_model(item: Mapping[str, object]) -> PaperViewModel:
         closed_trades=int(item.get("closed_trades", 0)),
         win_rate=_finite(item.get("win_rate")),
         payoff_ratio=_finite(item.get("payoff_ratio")),
+        matured_outcomes=int(item.get("matured_outcomes", 0)),
+        operational_incidents=int(item.get("operational_incidents", 0)),
         positions=positions,
         reconciliation_status=str(item.get("reconciliation_status", "unavailable")),
         execution_allowed=False,
@@ -538,6 +585,7 @@ def _paper_view_model(item: Mapping[str, object]) -> PaperViewModel:
 
 def _paper_order_view_model(item: Mapping[str, object]) -> PaperOrderViewModel:
     return PaperOrderViewModel(
+        account_id=str(item.get("account_id", "local-paper")),
         order_id=str(item.get("order_id", item.get("rejection_id", ""))),
         proposal_id=str(item.get("proposal_id", "")),
         instrument_id=str(item.get("instrument_id", "")),
@@ -549,6 +597,33 @@ def _paper_order_view_model(item: Mapping[str, object]) -> PaperOrderViewModel:
         currency=str(item.get("currency", "EUR")),
         status=str(item.get("status", "unknown")),
         execution_allowed=False,
+    )
+
+
+def _paper_outcome_view_model(item: Mapping[str, object], account_id: str) -> PaperOutcomeViewModel:
+    return PaperOutcomeViewModel(
+        account_id=account_id,
+        outcome_id=str(item.get("outcome_id", "")),
+        reference_id=str(item.get("reference_id", "")),
+        order_id=str(item.get("order_id", "")),
+        proposal_id=str(item.get("proposal_id", "")),
+        instrument_id=str(item.get("instrument_id", "")),
+        net_return=float(item.get("net_return", 0.0)),
+        benchmark_return=float(item.get("benchmark_return", 0.0)),
+        cash_return=float(item.get("cash_return", 0.0)),
+        horizon_days=int(item.get("horizon_days", 20)),
+        excess_return_vs_benchmark=float(item.get("excess_return_vs_benchmark", 0.0)),
+        excess_return_vs_cash=float(item.get("excess_return_vs_cash", 0.0)),
+    )
+
+
+def _paper_incident_view_model(item: Mapping[str, object], account_id: str) -> PaperOperationalIncidentViewModel:
+    return PaperOperationalIncidentViewModel(
+        account_id=account_id,
+        incident_id=str(item.get("incident_id", "")),
+        code=str(item.get("code", "")),
+        message=str(item.get("message", "")),
+        related_id=None if item.get("related_id") is None else str(item.get("related_id")),
     )
 
 

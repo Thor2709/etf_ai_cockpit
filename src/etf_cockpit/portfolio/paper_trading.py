@@ -1,4 +1,4 @@
-"""Local, append-only paper account ledger for ISSUE-0031.
+"""Local, append-only paper account ledger for ISSUE-0129.
 
 The ledger is a simulation and evidence store, not a broker adapter.  It only
 accepts a proposal that has already passed the non-executable proposal policy,
@@ -21,6 +21,7 @@ from typing import Literal, Mapping
 
 PAPER_SCHEMA_VERSION = "paper_ledger.v1"
 EXECUTION_ALLOWED = False
+NETWORK_ACCESS_ALLOWED = False
 PriceBasis = Literal["execution_quote", "adjusted_close"]
 
 
@@ -76,6 +77,8 @@ class PaperAccountSnapshot:
     ledger_hash: str
     reconciliation_status: str
     message: str
+    matured_outcomes: int = 0
+    operational_incidents: int = 0
 
     def to_payload(self) -> dict[str, object]:
         return {
@@ -97,6 +100,8 @@ class PaperAccountSnapshot:
             "ledger_hash": self.ledger_hash,
             "reconciliation_status": self.reconciliation_status,
             "message": self.message,
+            "matured_outcomes": self.matured_outcomes,
+            "operational_incidents": self.operational_incidents,
             "execution_allowed": False,
         }
 
@@ -107,7 +112,14 @@ class PaperLedger:
     def __init__(self, root: Path, *, account_id: str = "local-paper") -> None:
         self.root = root
         self.account_id = _clean_id(account_id, "account_id")
-        self.path = root / "data" / "operations" / "paper" / "ledger.jsonl"
+        paper_root = root / "data" / "operations" / "paper"
+        # Keep the original local-paper location compatible while ensuring
+        # named paper accounts can never replay one another's events.
+        self.path = (
+            paper_root / "ledger.jsonl"
+            if self.account_id == "local-paper"
+            else paper_root / "accounts" / self.account_id / "ledger.jsonl"
+        )
         self._lock = threading.RLock()
 
     def open_account(
@@ -142,11 +154,19 @@ class PaperLedger:
         execution_price: float,
         fee: float = 0.0,
         fx_rate: float = 1.0,
+        decision_mode: Literal["manual_accept", "auto_paper"] = "manual_accept",
         occurred_at: datetime | None = None,
     ) -> dict[str, object]:
-        """Accept one policy-approved proposal as a simulated open order."""
+        """Accept one policy-approved proposal as a simulated open order.
+
+        ``auto_paper`` is an explicit paper-only decision label.  It changes
+        attribution, not authority: both modes remain local simulations and
+        retain ``execution_allowed=false``.
+        """
 
         self._validate_proposal(proposal)
+        if decision_mode not in {"manual_accept", "auto_paper"}:
+            raise PaperLedgerError("Unsupported paper decision mode.")
         price = _positive(execution_price, "execution_price")
         fee_value = _non_negative(fee, "fee")
         fx = _positive(fx_rate, "fx_rate")
@@ -165,6 +185,8 @@ class PaperLedger:
             self._require_open(state)
             if proposal_id in state["rejections"]:
                 raise PaperLedgerError("A rejected proposal cannot be accepted later.")
+            if proposal_id in state["deferred"]:
+                raise PaperLedgerError("A deferred proposal cannot be accepted later.")
             existing = state["orders"].get(order_id)
             if existing is not None:
                 if any(
@@ -172,12 +194,15 @@ class PaperLedger:
                     for key, value in (("execution_price", price), ("fee", fee_value), ("fx_rate", fx))
                 ):
                     raise PaperLedgerError("The paper proposal was already accepted with different terms.")
+                if existing.get("decision_mode", "manual_accept") != decision_mode:
+                    raise PaperLedgerError("The paper proposal was already accepted with a different decision mode.")
                 return dict(existing)
             if quantity_delta < 0 and state["positions"].get(instrument_id, {}).get("quantity", 0.0) + 1e-8 < quantity:
                 raise PaperLedgerError("A paper sell cannot exceed the current simulated position.")
             if quantity_delta > 0 and state["cash"] + 1e-8 < quantity * price * fx + fee_value:
                 raise PaperLedgerError("Insufficient paper cash for the accepted proposal.")
             order = {
+                "account_id": self.account_id,
                 "order_id": order_id,
                 "proposal_id": proposal_id,
                 "instrument_id": instrument_id,
@@ -192,6 +217,8 @@ class PaperLedger:
                 "fx_rate": fx,
                 "price_basis": "execution_quote",
                 "proposal_snapshot": _json_copy(proposal),
+                "proposal_evidence_hashes": _freeze_proposal_evidence(proposal),
+                "decision_mode": decision_mode,
                 "execution_allowed": False,
             }
             self._append("order_accepted", order, occurred_at=occurred_at)
@@ -223,10 +250,74 @@ class PaperLedger:
                 "proposal_id": proposal_id,
                 "reason": text,
                 "proposal_snapshot": _json_copy(proposal),
+                "proposal_evidence_hashes": _freeze_proposal_evidence(proposal),
                 "execution_allowed": False,
             }
             self._append("proposal_rejected", rejection, occurred_at=occurred_at)
             return rejection
+
+    def defer_proposal(
+        self,
+        proposal: Mapping[str, object],
+        *,
+        reason: str,
+        occurred_at: datetime | None = None,
+    ) -> dict[str, object]:
+        """Persist a no-order decision until a later evidence window."""
+
+        self._validate_proposal_identity(proposal)
+        text = str(reason).strip()
+        if not text:
+            raise PaperLedgerError("A deferral reason is required.")
+        proposal_id = _clean_id(proposal.get("proposal_id"), "proposal_id")
+        deferred_id = "deferred_" + _digest({"account_id": self.account_id, "proposal_id": proposal_id})[:20]
+        with self._lock, self._file_lock():
+            events = self._read_events()
+            state = self._replay(events)
+            self._require_open(state)
+            if any(item.get("proposal_id") == proposal_id for item in state["orders"].values()):
+                raise PaperLedgerError("A proposal that has been accepted cannot also be deferred.")
+            if proposal_id in state["rejections"]:
+                raise PaperLedgerError("A rejected proposal cannot also be deferred.")
+            existing = state["deferred"].get(proposal_id)
+            if existing is not None:
+                if existing.get("reason") != text:
+                    raise PaperLedgerError("The proposal was already deferred with a different reason.")
+                return dict(existing)
+            deferred = {
+                "deferred_id": deferred_id,
+                "proposal_id": proposal_id,
+                "reason": text,
+                "proposal_snapshot": _json_copy(proposal),
+                "proposal_evidence_hashes": _freeze_proposal_evidence(proposal),
+                "execution_allowed": False,
+            }
+            self._append("proposal_deferred", deferred, occurred_at=occurred_at)
+            return deferred
+
+    def auto_paper_proposal(
+        self,
+        proposal: Mapping[str, object],
+        *,
+        execution_price: float,
+        fee: float = 0.0,
+        fx_rate: float = 1.0,
+        occurred_at: datetime | None = None,
+    ) -> dict[str, object]:
+        """Record an explicitly selected automatic paper decision.
+
+        This is deliberately a convenience wrapper around the same guarded
+        local order path; it never creates a broker or live execution route.
+        """
+
+        return self.accept_proposal(
+            proposal,
+            execution_price=execution_price,
+            fee=fee,
+            fx_rate=fx_rate,
+            decision_mode="auto_paper",
+            occurred_at=occurred_at,
+        )
 
     def record_fill(
         self,
@@ -250,6 +341,9 @@ class PaperLedger:
             order = state["orders"].get(_clean_id(order_id, "order_id"))
             if order is None:
                 raise PaperLedgerError("The paper order does not exist.")
+            supplied_fee = fill_fee
+            if fill_id is None and fill_fee is None:
+                fill_fee = float(order.get("fee", 0.0)) * fill_quantity / float(order["quantity"])
             requested_fill_id = _clean_id(fill_id, "fill_id") if fill_id is not None else "fill_" + _digest(
                 {"order_id": order["order_id"], "quantity": fill_quantity, "price": fill_price, "fee": fill_fee, "fx_rate": fill_fx}
             )[:20]
@@ -260,13 +354,15 @@ class PaperLedger:
                         raise PaperLedgerError("The fill ID was already used for another paper order.")
                     if any(previous_fill.get(key) != value for key, value in (("quantity", fill_quantity), ("price", fill_price), ("fx_rate", fill_fx))):
                         raise PaperLedgerError("The fill ID was already used with different terms.")
+                    if supplied_fee is not None and previous_fill.get("fee") != fill_fee:
+                        raise PaperLedgerError("The fill ID was already used with different terms.")
                     return dict(state["orders"][order["order_id"]])
+            if fill_fee is None:
+                fill_fee = float(order.get("fee", 0.0)) * fill_quantity / float(order["quantity"])
             if order["status"] in {"filled", "cancelled"}:
                 raise PaperLedgerError(f"The paper order is already {order['status']}.")
             if fill_quantity > float(order["remaining_quantity"]) + 1e-8:
                 raise PaperLedgerError("A fill cannot exceed the remaining paper order quantity.")
-            if fill_fee is None:
-                fill_fee = float(order.get("fee", 0.0)) * fill_quantity / float(order["quantity"])
             value = fill_quantity * fill_price * fill_fx
             instrument_id = str(order["instrument_id"])
             position = state["positions"].get(instrument_id, {"quantity": 0.0, "average_cost": 0.0})
@@ -308,6 +404,143 @@ class PaperLedger:
             self._append("order_cancelled", {"order_id": key, "reason": text}, occurred_at=occurred_at)
             events = self._read_events()
             return dict(self._replay(events)["orders"][key])
+
+    def mature_outcome(
+        self,
+        reference_id: str,
+        *,
+        adjusted_close: float,
+        benchmark_return: float,
+        cash_return: float,
+        source_authority: str,
+        source_checksum: str,
+        horizon_days: int = 20,
+        occurred_at: datetime | None = None,
+    ) -> dict[str, object]:
+        """Mature one filled proposal against adjusted-price, benchmark and cash evidence."""
+
+        exit_price = _positive(adjusted_close, "adjusted_close")
+        benchmark = _number(benchmark_return, "benchmark_return")
+        cash = _number(cash_return, "cash_return")
+        if not isinstance(horizon_days, int) or not 1 <= horizon_days <= 3_650:
+            raise PaperLedgerError("horizon_days must be an integer between 1 and 3650.")
+        provenance = _provenance(source_authority, source_checksum)
+        reference = _clean_id(reference_id, "reference_id")
+        with self._lock, self._file_lock():
+            events = self._read_events()
+            state = self._replay(events)
+            self._require_open(state)
+            orders = state["orders"]
+            fills = state["fills"]
+            assert isinstance(orders, dict) and isinstance(fills, list)
+            order = orders.get(reference)
+            if order is None:
+                order = next(
+                    (candidate for candidate in orders.values() if candidate.get("proposal_id") == reference),
+                    None,
+                )
+            if not isinstance(order, Mapping):
+                raise PaperLedgerError("The paper order or proposal does not exist.")
+            order_fills = [
+                item
+                for item in fills
+                if isinstance(item, Mapping) and item.get("order_id") == order.get("order_id")
+            ]
+            if not order_fills:
+                raise PaperLedgerError("A paper outcome requires at least one recorded fill.")
+            quantity = sum(float(item["quantity"]) for item in order_fills)
+            entry_value = sum(float(item["quantity"]) * float(item["price"]) * float(item.get("fx_rate", 1.0)) for item in order_fills)
+            fees = sum(float(item.get("fee", 0.0)) for item in order_fills)
+            entry_price = entry_value / quantity
+            direction = 1.0 if order.get("side") == "buy" else -1.0
+            gross_return = direction * (exit_price - entry_price) / entry_price
+            cost_return = fees / entry_value if entry_value else 0.0
+            net_return = gross_return - cost_return
+            outcome_id = "outcome_" + _digest(
+                {"account_id": self.account_id, "order_id": order["order_id"], "adjusted_close": exit_price, "benchmark_return": benchmark, "cash_return": cash, "horizon_days": horizon_days, "source_checksum": provenance["source_checksum"]}
+            )[:20]
+            existing = next(
+                (
+                    item
+                    for item in state["outcomes"].values()
+                    if item.get("order_id") == order["order_id"] and int(item.get("horizon_days", 20)) == horizon_days
+                ),
+                None,
+            )
+            if existing is not None:
+                if any(
+                    existing.get(key) != value
+                    for key, value in (
+                        ("adjusted_close", exit_price),
+                        ("benchmark_return", benchmark),
+                        ("cash_return", cash),
+                        ("source_authority", provenance["source_authority"]),
+                        ("source_checksum", provenance["source_checksum"]),
+                    )
+                ):
+                    raise PaperLedgerError("The paper outcome was already matured with different evidence.")
+                return dict(existing)
+            outcome = {
+                "outcome_id": outcome_id,
+                "reference_id": reference,
+                "order_id": str(order["order_id"]),
+                "proposal_id": str(order["proposal_id"]),
+                "instrument_id": str(order["instrument_id"]),
+                "quantity": round(quantity, 8),
+                "entry_price": round(entry_price, 8),
+                "adjusted_close": exit_price,
+                "fees": round(fees, 8),
+                "gross_return": round(gross_return, 12),
+                "net_return": round(net_return, 12),
+                "benchmark_return": benchmark,
+                "cash_return": cash,
+                "horizon_days": horizon_days,
+                "excess_return_vs_benchmark": round(net_return - benchmark, 12),
+                "excess_return_vs_cash": round(net_return - cash, 12),
+                "price_basis": "adjusted_close",
+                "outcome_as_of": _timestamp(occurred_at),
+                **provenance,
+                "execution_allowed": False,
+            }
+            self._append("outcome_matured", outcome, occurred_at=occurred_at)
+            return outcome
+
+    def record_operational_error(
+        self,
+        code: str,
+        *,
+        message: str,
+        related_id: str | None = None,
+        occurred_at: datetime | None = None,
+    ) -> dict[str, object]:
+        """Record a bounded operational incident without changing performance state."""
+
+        code_text = _bounded_text(code, "code", 80)
+        message_text = _bounded_text(message, "message", 500)
+        related = None if related_id is None else _clean_id(related_id, "related_id")
+        incident = {
+            "incident_id": "incident_" + _digest({"account_id": self.account_id, "code": code_text, "message": message_text, "related_id": related, "occurred_at": _timestamp(occurred_at)})[:20],
+            "code": code_text,
+            "message": message_text,
+            "related_id": related,
+            "execution_allowed": False,
+        }
+        with self._lock, self._file_lock():
+            events = self._read_events()
+            state = self._replay(events)
+            self._require_open(state)
+            self._append("operational_error", incident, occurred_at=occurred_at)
+            return incident
+
+    def outcomes(self) -> tuple[dict[str, object], ...]:
+        with self._lock, self._file_lock():
+            state = self._replay(self._read_events())
+            return tuple(dict(item) for item in state["outcomes"].values())
+
+    def operational_errors(self) -> tuple[dict[str, object], ...]:
+        with self._lock, self._file_lock():
+            state = self._replay(self._read_events())
+            return tuple(dict(item) for item in state["operational_errors"])
 
     def mark(
         self,
@@ -551,7 +784,11 @@ class PaperLedger:
             "equity_peak": 0.0,
             "orders": {},
             "rejections": {},
+            "deferred": {},
             "corporate_actions": {},
+            "fills": [],
+            "outcomes": {},
+            "operational_errors": [],
             "positions": {},
             "trade_pnls": [],
             "benchmark_return": None,
@@ -579,7 +816,12 @@ class PaperLedger:
                 order_id = str(payload["order_id"])
                 if order_id in orders:
                     raise PaperLedgerIntegrityError("A paper order was accepted twice.")
-                if any(item.get("proposal_id") == payload.get("proposal_id") for item in orders.values()) or str(payload.get("proposal_id")) in state["rejections"]:
+                _validate_frozen_evidence(payload.get("proposal_evidence_hashes"))
+                if (
+                    any(item.get("proposal_id") == payload.get("proposal_id") for item in orders.values())
+                    or str(payload.get("proposal_id")) in state["rejections"]
+                    or str(payload.get("proposal_id")) in state["deferred"]
+                ):
                     raise PaperLedgerIntegrityError("A paper proposal has contradictory decisions.")
                 orders[order_id] = dict(payload)
             elif kind == "proposal_rejected":
@@ -587,9 +829,43 @@ class PaperLedger:
                 assert isinstance(rejections, dict)
                 if any(item.get("proposal_id") == payload.get("proposal_id") for item in state["orders"].values()):
                     raise PaperLedgerIntegrityError("A paper proposal has contradictory decisions.")
+                if str(payload.get("proposal_id")) in state["deferred"]:
+                    raise PaperLedgerIntegrityError("A paper proposal has contradictory decisions.")
+                _validate_frozen_evidence(payload.get("proposal_evidence_hashes"))
                 rejections[str(payload["proposal_id"])] = dict(payload)
+            elif kind == "proposal_deferred":
+                deferred = state["deferred"]
+                assert isinstance(deferred, dict)
+                proposal_id = str(payload["proposal_id"])
+                if (
+                    proposal_id in deferred
+                    or proposal_id in state["rejections"]
+                    or any(item.get("proposal_id") == proposal_id for item in state["orders"].values())
+                ):
+                    raise PaperLedgerIntegrityError("A paper proposal has contradictory decisions.")
+                _validate_frozen_evidence(payload.get("proposal_evidence_hashes"))
+                deferred[proposal_id] = dict(payload)
             elif kind == "fill_recorded":
                 self._apply_fill(state, payload)
+            elif kind == "outcome_matured":
+                outcomes = state["outcomes"]
+                assert isinstance(outcomes, dict)
+                outcome_id = str(payload["outcome_id"])
+                outcome_key = (str(payload["order_id"]), int(payload.get("horizon_days", 20)))
+                if outcome_id in outcomes or any(
+                    (str(item.get("order_id")), int(item.get("horizon_days", 20))) == outcome_key
+                    for item in outcomes.values()
+                ):
+                    raise PaperLedgerIntegrityError("A paper outcome was recorded twice.")
+                try:
+                    _provenance(payload.get("source_authority"), payload.get("source_checksum"))
+                except PaperLedgerError as exc:
+                    raise PaperLedgerIntegrityError("A paper outcome has invalid source provenance.") from exc
+                outcomes[outcome_id] = dict(payload)
+            elif kind == "operational_error":
+                errors = state["operational_errors"]
+                assert isinstance(errors, list)
+                errors.append(dict(payload))
             elif kind == "order_cancelled":
                 orders = state["orders"]
                 assert isinstance(orders, dict)
@@ -667,6 +943,11 @@ class PaperLedger:
         order["filled_quantity"] = float(order["filled_quantity"]) + quantity
         order["remaining_quantity"] = float(order["remaining_quantity"]) - quantity
         order["status"] = "filled" if order["remaining_quantity"] <= 1e-8 else "partially_filled"
+        fills = state["fills"]
+        assert isinstance(fills, list)
+        if any(str(item.get("fill_id")) == str(payload.get("fill_id")) for item in fills if isinstance(item, Mapping)):
+            raise PaperLedgerIntegrityError("A paper fill ID was recorded twice.")
+        fills.append(dict(payload))
 
     @staticmethod
     def _apply_corporate_action(state: dict[str, object], payload: Mapping[str, object]) -> None:
@@ -787,6 +1068,8 @@ class PaperLedger:
             ledger_hash="" if not events else str(events[-1]["event_hash"]),
             reconciliation_status="ready",
             message="Local paper simulation only; execution_allowed=false.",
+            matured_outcomes=len(state["outcomes"]),
+            operational_incidents=len(state["operational_errors"]),
         )
 
 
@@ -815,6 +1098,17 @@ def _clean_id(value: object, label: str) -> str:
     text = str(value or "").strip()
     if not text:
         raise PaperLedgerError(f"{label} must not be blank.")
+    if len(text) > 128 or text in {".", ".."} or "/" in text or "\\" in text or "\x00" in text or _is_reserved_windows_name(text):
+        raise PaperLedgerError(f"{label} contains an unsafe identifier.")
+    return text
+
+
+def _bounded_text(value: object, label: str, maximum: int) -> str:
+    text = str(value or "").strip()
+    if not text:
+        raise PaperLedgerError(f"{label} must not be blank.")
+    if len(text) > maximum:
+        raise PaperLedgerError(f"{label} must be at most {maximum} characters.")
     return text
 
 
@@ -860,6 +1154,53 @@ def _digest(value: object) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
+def _is_reserved_windows_name(value: str) -> bool:
+    stem = value.rstrip(" .").split(".", 1)[0].upper()
+    return stem in {"CON", "PRN", "AUX", "NUL"} or (
+        len(stem) == 4 and stem[:3] in {"COM", "LPT"} and stem[3] in "123456789"
+    )
+
+
+def _freeze_proposal_evidence(proposal: Mapping[str, object]) -> dict[str, str]:
+    """Derive stable, immutable evidence hashes from the proposal manifest."""
+
+    groups = {
+        "data": ("data_checksum", "data_revision", "input_checksum"),
+        "formula": ("formula_checksum", "formula_version", "strategy_id"),
+        "model": ("model_checksum", "model_revision", "model_id"),
+        "portfolio": ("portfolio_checksum", "portfolio_revision", "account_id"),
+        "policy": (
+            "policy_checksum",
+            "authority_policy_checksum",
+            "gate_policy_checksum",
+            "policy_version",
+            "gate_policy_version",
+        ),
+    }
+    frozen: dict[str, str] = {}
+    for name, fields in groups.items():
+        values = {field: proposal.get(field) for field in fields if proposal.get(field) is not None}
+        explicit = next(
+            (str(values[field]).lower() for field in fields if field.endswith("checksum") and _is_checksum(str(values.get(field, "")))),
+            None,
+        )
+        frozen[name] = explicit or _digest({"evidence_type": name, "fields": fields, "values": values})
+    return frozen
+
+
+def _validate_frozen_evidence(value: object) -> None:
+    if value is None:
+        return  # Backward-compatible replay for ISSUE-0031 ledger rows.
+    if not isinstance(value, Mapping) or set(value) != {"data", "formula", "model", "portfolio", "policy"}:
+        raise PaperLedgerIntegrityError("Frozen paper proposal evidence is incomplete.")
+    if any(not isinstance(item, str) or not _is_checksum(item) for item in value.values()):
+        raise PaperLedgerIntegrityError("Frozen paper proposal evidence has an invalid checksum.")
+
+
+def _is_checksum(value: str) -> bool:
+    return len(value) == 64 and all(character in "0123456789abcdef" for character in value.lower())
+
+
 def load_proposal_for_paper(root: Path, proposal_id: str) -> dict[str, object]:
     """Load one validated proposal record for an explicit paper action."""
 
@@ -874,6 +1215,7 @@ def load_proposal_for_paper(root: Path, proposal_id: str) -> dict[str, object]:
 
 __all__ = [
     "EXECUTION_ALLOWED",
+    "NETWORK_ACCESS_ALLOWED",
     "PAPER_SCHEMA_VERSION",
     "PaperAccountSnapshot",
     "PaperLedger",
