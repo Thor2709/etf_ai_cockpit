@@ -102,12 +102,108 @@ class JobViewModel(ContractModel):
     error_message: str = ""
 
 
+class PaperPositionViewModel(ContractModel):
+    instrument_id: str
+    quantity: float
+    average_cost: float
+    mark_price: float | None = None
+    unrealised_pnl: float | None = None
+    currency: str
+
+
 class PaperViewModel(ContractModel):
     account_id: str
     status: str
     as_of: str | None = None
     equity: float | None = None
+    base_currency: str = "EUR"
+    cash: float | None = None
+    pnl: float | None = None
+    benchmark_return: float | None = None
+    drawdown: float | None = None
+    open_positions: int = Field(ge=0, default=0)
+    closed_trades: int = Field(ge=0, default=0)
+    win_rate: float | None = None
+    payoff_ratio: float | None = None
+    positions: tuple[PaperPositionViewModel, ...] = ()
+    reconciliation_status: str = "unavailable"
+    execution_allowed: Literal[False] = False
     message: str = ""
+
+
+class PaperAccountOpenRequest(ContractModel):
+    account_id: Literal["local-paper"] = "local-paper"
+    initial_cash: float = Field(gt=0)
+    base_currency: str = Field(default="EUR", min_length=3, max_length=3)
+
+
+class PaperProposalRejectRequest(ContractModel):
+    proposal_id: str = Field(min_length=1, max_length=128)
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class PaperProposalAcceptRequest(ContractModel):
+    proposal_id: str = Field(min_length=1, max_length=128)
+    execution_price: float = Field(gt=0)
+    fee: float = Field(default=0, ge=0)
+    fx_rate: float = Field(default=1, gt=0)
+
+
+class PaperFillRequest(ContractModel):
+    order_id: str = Field(min_length=1, max_length=128)
+    fill_id: str | None = Field(default=None, min_length=1, max_length=128)
+    quantity: float = Field(gt=0)
+    price: float = Field(gt=0)
+    fee: float | None = Field(default=None, ge=0)
+    fx_rate: float = Field(default=1, gt=0)
+
+
+class PaperOrderCancelRequest(ContractModel):
+    order_id: str = Field(min_length=1, max_length=128)
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class PaperPositionMarkRequest(ContractModel):
+    instrument_id: str = Field(min_length=1, max_length=80)
+    adjusted_close: float = Field(gt=0)
+    as_of: datetime
+    source_authority: str = Field(min_length=1, max_length=160)
+    source_checksum: str = Field(min_length=64, max_length=64)
+    fx_rate: float = Field(default=1, gt=0)
+    benchmark_return: float | None = None
+
+
+class PaperCorporateActionRequest(ContractModel):
+    action_id: str | None = Field(default=None, min_length=1, max_length=128)
+    instrument_id: str = Field(min_length=1, max_length=80)
+    split_ratio: float = Field(gt=0)
+    cash_dividend_per_unit: float = Field(default=0, ge=0)
+    as_of: datetime
+    source_authority: str = Field(min_length=1, max_length=160)
+    source_checksum: str = Field(min_length=64, max_length=64)
+    fx_rate: float = Field(default=1, gt=0)
+
+
+class PaperOrderViewModel(ContractModel):
+    order_id: str
+    proposal_id: str
+    instrument_id: str
+    side: Literal["buy", "sell"]
+    quantity: float
+    filled_quantity: float
+    remaining_quantity: float
+    execution_price: float
+    currency: str
+    status: str
+    execution_allowed: Literal[False] = False
+
+
+class PaperProposalDecisionViewModel(ContractModel):
+    proposal_id: str
+    instrument_id: str
+    status: Literal["rejected"]
+    reason: str
+    execution_allowed: Literal[False] = False
 
 
 ProposalAuthorityStage = Literal[
@@ -251,6 +347,16 @@ __all__ = [
     "InstrumentViewModel",
     "JobViewModel",
     "OperationViewModel",
+    "PaperAccountOpenRequest",
+    "PaperFillRequest",
+    "PaperOrderCancelRequest",
+    "PaperOrderViewModel",
+    "PaperPositionMarkRequest",
+    "PaperCorporateActionRequest",
+    "PaperPositionViewModel",
+    "PaperProposalDecisionViewModel",
+    "PaperProposalAcceptRequest",
+    "PaperProposalRejectRequest",
     "PageRequest",
     "PageView",
     "PaperViewModel",

@@ -452,7 +452,517 @@
       "title": "PageView",
       "type": "object"
     },
+    "PaperAccountOpenRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "const": "local-paper",
+          "default": "local-paper",
+          "title": "Account Id",
+          "type": "string"
+        },
+        "base_currency": {
+          "default": "EUR",
+          "maxLength": 3,
+          "minLength": 3,
+          "title": "Base Currency",
+          "type": "string"
+        },
+        "initial_cash": {
+          "exclusiveMinimum": 0,
+          "title": "Initial Cash",
+          "type": "number"
+        }
+      },
+      "required": [
+        "initial_cash"
+      ],
+      "title": "PaperAccountOpenRequest",
+      "type": "object"
+    },
+    "PaperCorporateActionRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Action Id"
+        },
+        "as_of": {
+          "format": "date-time",
+          "title": "As Of",
+          "type": "string"
+        },
+        "cash_dividend_per_unit": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Cash Dividend Per Unit",
+          "type": "number"
+        },
+        "fx_rate": {
+          "default": 1,
+          "exclusiveMinimum": 0,
+          "title": "Fx Rate",
+          "type": "number"
+        },
+        "instrument_id": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Instrument Id",
+          "type": "string"
+        },
+        "source_authority": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Source Authority",
+          "type": "string"
+        },
+        "source_checksum": {
+          "maxLength": 64,
+          "minLength": 64,
+          "title": "Source Checksum",
+          "type": "string"
+        },
+        "split_ratio": {
+          "exclusiveMinimum": 0,
+          "title": "Split Ratio",
+          "type": "number"
+        }
+      },
+      "required": [
+        "instrument_id",
+        "split_ratio",
+        "as_of",
+        "source_authority",
+        "source_checksum"
+      ],
+      "title": "PaperCorporateActionRequest",
+      "type": "object"
+    },
+    "PaperFillRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "fee": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fee"
+        },
+        "fill_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fill Id"
+        },
+        "fx_rate": {
+          "default": 1,
+          "exclusiveMinimum": 0,
+          "title": "Fx Rate",
+          "type": "number"
+        },
+        "order_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Order Id",
+          "type": "string"
+        },
+        "price": {
+          "exclusiveMinimum": 0,
+          "title": "Price",
+          "type": "number"
+        },
+        "quantity": {
+          "exclusiveMinimum": 0,
+          "title": "Quantity",
+          "type": "number"
+        }
+      },
+      "required": [
+        "order_id",
+        "quantity",
+        "price"
+      ],
+      "title": "PaperFillRequest",
+      "type": "object"
+    },
+    "PaperOrderCancelRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "order_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Order Id",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "order_id",
+        "reason"
+      ],
+      "title": "PaperOrderCancelRequest",
+      "type": "object"
+    },
+    "PaperOrderViewModel": {
+      "additionalProperties": false,
+      "properties": {
+        "currency": {
+          "title": "Currency",
+          "type": "string"
+        },
+        "execution_allowed": {
+          "const": false,
+          "default": false,
+          "title": "Execution Allowed",
+          "type": "boolean"
+        },
+        "execution_price": {
+          "title": "Execution Price",
+          "type": "number"
+        },
+        "filled_quantity": {
+          "title": "Filled Quantity",
+          "type": "number"
+        },
+        "instrument_id": {
+          "title": "Instrument Id",
+          "type": "string"
+        },
+        "order_id": {
+          "title": "Order Id",
+          "type": "string"
+        },
+        "proposal_id": {
+          "title": "Proposal Id",
+          "type": "string"
+        },
+        "quantity": {
+          "title": "Quantity",
+          "type": "number"
+        },
+        "remaining_quantity": {
+          "title": "Remaining Quantity",
+          "type": "number"
+        },
+        "side": {
+          "enum": [
+            "buy",
+            "sell"
+          ],
+          "title": "Side",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "order_id",
+        "proposal_id",
+        "instrument_id",
+        "side",
+        "quantity",
+        "filled_quantity",
+        "remaining_quantity",
+        "execution_price",
+        "currency",
+        "status"
+      ],
+      "title": "PaperOrderViewModel",
+      "type": "object"
+    },
+    "PaperPositionMarkRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "adjusted_close": {
+          "exclusiveMinimum": 0,
+          "title": "Adjusted Close",
+          "type": "number"
+        },
+        "as_of": {
+          "format": "date-time",
+          "title": "As Of",
+          "type": "string"
+        },
+        "benchmark_return": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Benchmark Return"
+        },
+        "fx_rate": {
+          "default": 1,
+          "exclusiveMinimum": 0,
+          "title": "Fx Rate",
+          "type": "number"
+        },
+        "instrument_id": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Instrument Id",
+          "type": "string"
+        },
+        "source_authority": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Source Authority",
+          "type": "string"
+        },
+        "source_checksum": {
+          "maxLength": 64,
+          "minLength": 64,
+          "title": "Source Checksum",
+          "type": "string"
+        }
+      },
+      "required": [
+        "instrument_id",
+        "adjusted_close",
+        "as_of",
+        "source_authority",
+        "source_checksum"
+      ],
+      "title": "PaperPositionMarkRequest",
+      "type": "object"
+    },
+    "PaperPositionViewModel": {
+      "additionalProperties": false,
+      "properties": {
+        "average_cost": {
+          "title": "Average Cost",
+          "type": "number"
+        },
+        "currency": {
+          "title": "Currency",
+          "type": "string"
+        },
+        "instrument_id": {
+          "title": "Instrument Id",
+          "type": "string"
+        },
+        "mark_price": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mark Price"
+        },
+        "quantity": {
+          "title": "Quantity",
+          "type": "number"
+        },
+        "unrealised_pnl": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unrealised Pnl"
+        }
+      },
+      "required": [
+        "instrument_id",
+        "quantity",
+        "average_cost",
+        "currency"
+      ],
+      "title": "PaperPositionViewModel",
+      "type": "object"
+    },
+    "PaperProposalAcceptRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "execution_price": {
+          "exclusiveMinimum": 0,
+          "title": "Execution Price",
+          "type": "number"
+        },
+        "fee": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Fee",
+          "type": "number"
+        },
+        "fx_rate": {
+          "default": 1,
+          "exclusiveMinimum": 0,
+          "title": "Fx Rate",
+          "type": "number"
+        },
+        "proposal_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Proposal Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "proposal_id",
+        "execution_price"
+      ],
+      "title": "PaperProposalAcceptRequest",
+      "type": "object"
+    },
+    "PaperProposalDecisionViewModel": {
+      "additionalProperties": false,
+      "properties": {
+        "execution_allowed": {
+          "const": false,
+          "default": false,
+          "title": "Execution Allowed",
+          "type": "boolean"
+        },
+        "instrument_id": {
+          "title": "Instrument Id",
+          "type": "string"
+        },
+        "proposal_id": {
+          "title": "Proposal Id",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "status": {
+          "const": "rejected",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "proposal_id",
+        "instrument_id",
+        "status",
+        "reason"
+      ],
+      "title": "PaperProposalDecisionViewModel",
+      "type": "object"
+    },
+    "PaperProposalRejectRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "proposal_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Proposal Id",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "proposal_id",
+        "reason"
+      ],
+      "title": "PaperProposalRejectRequest",
+      "type": "object"
+    },
     "PaperViewModel": {
+      "$defs": {
+        "PaperPositionViewModel": {
+          "additionalProperties": false,
+          "properties": {
+            "average_cost": {
+              "title": "Average Cost",
+              "type": "number"
+            },
+            "currency": {
+              "title": "Currency",
+              "type": "string"
+            },
+            "instrument_id": {
+              "title": "Instrument Id",
+              "type": "string"
+            },
+            "mark_price": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Mark Price"
+            },
+            "quantity": {
+              "title": "Quantity",
+              "type": "number"
+            },
+            "unrealised_pnl": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Unrealised Pnl"
+            }
+          },
+          "required": [
+            "instrument_id",
+            "quantity",
+            "average_cost",
+            "currency"
+          ],
+          "title": "PaperPositionViewModel",
+          "type": "object"
+        }
+      },
       "additionalProperties": false,
       "properties": {
         "account_id": {
@@ -471,6 +981,53 @@
           "default": null,
           "title": "As Of"
         },
+        "base_currency": {
+          "default": "EUR",
+          "title": "Base Currency",
+          "type": "string"
+        },
+        "benchmark_return": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Benchmark Return"
+        },
+        "cash": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cash"
+        },
+        "closed_trades": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Closed Trades",
+          "type": "integer"
+        },
+        "drawdown": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Drawdown"
+        },
         "equity": {
           "anyOf": [
             {
@@ -483,14 +1040,75 @@
           "default": null,
           "title": "Equity"
         },
+        "execution_allowed": {
+          "const": false,
+          "default": false,
+          "title": "Execution Allowed",
+          "type": "boolean"
+        },
         "message": {
           "default": "",
           "title": "Message",
           "type": "string"
         },
+        "open_positions": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Open Positions",
+          "type": "integer"
+        },
+        "payoff_ratio": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Payoff Ratio"
+        },
+        "pnl": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pnl"
+        },
+        "positions": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PaperPositionViewModel"
+          },
+          "title": "Positions",
+          "type": "array"
+        },
+        "reconciliation_status": {
+          "default": "unavailable",
+          "title": "Reconciliation Status",
+          "type": "string"
+        },
         "status": {
           "title": "Status",
           "type": "string"
+        },
+        "win_rate": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Win Rate"
         }
       },
       "required": [

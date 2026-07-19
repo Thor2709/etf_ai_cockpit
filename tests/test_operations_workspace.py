@@ -102,6 +102,11 @@ def test_operations_workspace_exposes_paper_live_training_and_audit_states() -> 
     assert any(getattr(item, "key", None) == "operations.confirm" for item in _walk(rendered))
     assert any(getattr(item, "key", None) == "operations.cancel" for item in _walk(rendered))
     assert any(getattr(item, "key", None) == "operations.proposal-review" for item in _walk(rendered))
+    assert any(getattr(item, "key", None) == "operations.paper-open" for item in _walk(rendered))
+    assert any(getattr(item, "key", None) == "operations.paper-fill" for item in _walk(rendered))
+    assert any(getattr(item, "key", None) == "operations.paper-order-cancel" for item in _walk(rendered))
+    assert any(getattr(item, "key", None) == "operations.paper-mark" for item in _walk(rendered))
+    assert any(getattr(item, "key", None) == "operations.paper-corporate-action" for item in _walk(rendered))
 
 
 def test_proposal_review_records_manual_review_until_immutable_evidence_exists(tmp_path: Path, monkeypatch) -> None:
@@ -122,6 +127,23 @@ def test_proposal_review_records_manual_review_until_immutable_evidence_exists(t
     assert "optimizer_output=failed" in text
     assert "alternatives=no_trade" in text
     assert records and records[0]["outcome"] == "manual_review"
+
+
+def test_operations_workspace_can_open_local_paper_account(tmp_path: Path) -> None:
+    snapshot = build_snapshot()
+    state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
+    state.application_api = type(state.application_api)(lambda: state.snapshot, root=tmp_path)
+    rendered = operations_page(None, state)
+    open_button = next(item for item in _walk(rendered) if getattr(item, "key", None) == "operations.paper-open")
+
+    open_button.on_click(None)
+    text = _text(rendered)
+    assert "Paper account: ready" in text
+    assert "execution_allowed=false" in text
+
+    mark_button = next(item for item in _walk(rendered) if getattr(item, "key", None) == "operations.paper-mark")
+    mark_button.on_click(None)
+    assert "Adjusted-close mark recorded" in _text(rendered)
 
 
 def test_paper_preview_starts_once_and_reaches_a_durable_result(tmp_path: Path, monkeypatch) -> None:

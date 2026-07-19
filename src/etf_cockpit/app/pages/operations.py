@@ -11,7 +11,19 @@ from etf_cockpit.app.components.states import state_panel
 from etf_cockpit.app.formatting import format_currency, format_number
 from etf_cockpit.app.operations import OperationRecord, build_operation_preview, load_operation_records, save_operation_record
 from etf_cockpit.app.state import AppState
-from etf_cockpit.application.contracts import ApiStatus, CancelWorkflowCommand, ProposalReviewRequest, SubmitWorkflowCommand
+from etf_cockpit.application.contracts import (
+    ApiStatus,
+    CancelWorkflowCommand,
+    PaperCorporateActionRequest,
+    PaperAccountOpenRequest,
+    PaperFillRequest,
+    PaperOrderCancelRequest,
+    PaperPositionMarkRequest,
+    PaperProposalAcceptRequest,
+    PaperProposalRejectRequest,
+    ProposalReviewRequest,
+    SubmitWorkflowCommand,
+)
 
 
 def _safe_update(page: ft.Page | None) -> None:
@@ -33,6 +45,28 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
     audit_text = ft.Text("Audit: none", color=theme.MUTED, selectable=True)
     proposal_state = ft.Text("Proposal review: not evaluated", color=theme.MUTED, selectable=True)
     proposal_evidence = ft.Text("Proposal evidence: validated optimiser output and all policy gates are required.", color=theme.MUTED, selectable=True)
+    paper_account_text = ft.Text(_paper_summary(paper.items[0] if paper.items else None), color=theme.MUTED, selectable=True)
+    paper_initial_cash = ft.TextField(label="Opening cash (EUR)", value="100000", key="operations.paper-initial-cash", width=180)
+    paper_open_button = ft.OutlinedButton("Open local paper account", key="operations.paper-open", icon=ft.Icons.ACCOUNT_BALANCE)
+    paper_proposal_id = ft.TextField(label="Validated proposal ID", key="operations.paper-proposal-id", width=230)
+    paper_execution_price = ft.TextField(label="Paper fill price", value="100", key="operations.paper-price", width=150, keyboard_type=ft.KeyboardType.NUMBER)
+    paper_accept_button = ft.OutlinedButton("Accept to paper", key="operations.paper-accept", icon=ft.Icons.CHECK)
+    paper_reject_reason = ft.TextField(label="Reject reason", value="Manual review required", key="operations.paper-reject-reason", width=230)
+    paper_reject_button = ft.TextButton("Reject proposal", key="operations.paper-reject", icon=ft.Icons.BLOCK)
+    paper_order_id = ft.TextField(label="Paper order ID", key="operations.paper-order-id", width=230)
+    paper_fill_quantity = ft.TextField(label="Fill quantity", value="1", key="operations.paper-fill-quantity", width=130, keyboard_type=ft.KeyboardType.NUMBER)
+    paper_fill_price = ft.TextField(label="Fill price", value="100", key="operations.paper-fill-price", width=130, keyboard_type=ft.KeyboardType.NUMBER)
+    paper_fill_button = ft.OutlinedButton("Record fill", key="operations.paper-fill", icon=ft.Icons.ADD_TASK)
+    paper_cancel_reason = ft.TextField(label="Cancel reason", value="Manual review deferred", key="operations.paper-cancel-reason", width=230)
+    paper_cancel_button = ft.TextButton("Cancel paper order", key="operations.paper-order-cancel", icon=ft.Icons.CANCEL)
+    paper_mark_instrument = ft.TextField(label="Mark instrument", value=state.selected_etf or "VWCE", key="operations.paper-mark-instrument", width=180)
+    paper_mark_price = ft.TextField(label="Adjusted-close mark", value="100", key="operations.paper-mark-price", width=160, keyboard_type=ft.KeyboardType.NUMBER)
+    paper_mark_checksum = ft.TextField(label="Mark source checksum", value="a" * 64, key="operations.paper-mark-checksum", width=280)
+    paper_mark_button = ft.OutlinedButton("Record adjusted-close mark", key="operations.paper-mark", icon=ft.Icons.QUERY_STATS)
+    paper_split_ratio = ft.TextField(label="Split ratio", value="1", key="operations.paper-split-ratio", width=130, keyboard_type=ft.KeyboardType.NUMBER)
+    paper_dividend = ft.TextField(label="Dividend/unit", value="0", key="operations.paper-dividend", width=130, keyboard_type=ft.KeyboardType.NUMBER)
+    paper_action_checksum = ft.TextField(label="Action source checksum", value="b" * 64, key="operations.paper-action-checksum", width=280)
+    paper_action_button = ft.OutlinedButton("Apply corporate action", key="operations.paper-corporate-action", icon=ft.Icons.ACCOUNT_BALANCE)
     instrument = ft.TextField(label="Instrument", value=state.selected_etf or "VWCE", key="operations.instrument", width=180)
     quantity = ft.TextField(label="Quantity", value="1", key="operations.quantity", width=130, keyboard_type=ft.KeyboardType.NUMBER)
     environment = ft.Dropdown(
@@ -142,6 +176,110 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
             proposal_evidence.value = f"Proposal evidence unavailable: {exc}"
             _safe_update(page)
 
+    def refresh_paper_account() -> None:
+        current = api.get_paper().items
+        paper_account_text.value = _paper_summary(current[0] if current else None)
+
+    def open_paper_account(_event: ft.ControlEvent) -> None:
+        try:
+            view = api.open_paper_account(
+                PaperAccountOpenRequest(initial_cash=float(str(paper_initial_cash.value or "0").replace(",", "")))
+            )
+            paper_account_text.value = _paper_summary(view)
+            message.value = "Local paper account is ready. No broker credentials or order route were used."
+        except (OSError, TypeError, ValueError) as exc:
+            paper_account_text.value = f"Paper account unavailable: {exc}"
+            message.value = f"Paper account could not be opened safely: {exc}"
+        _safe_update(page)
+
+    def accept_paper_proposal(_event: ft.ControlEvent) -> None:
+        try:
+            result = api.accept_paper_proposal(
+                PaperProposalAcceptRequest(
+                    proposal_id=str(paper_proposal_id.value or ""),
+                    execution_price=float(str(paper_execution_price.value or "0").replace(",", "")),
+                )
+            )
+            message.value = f"Paper order {result.order_id} accepted locally ({result.status}); execution_allowed=false."
+            refresh_paper_account()
+        except (OSError, TypeError, ValueError) as exc:
+            message.value = f"Paper acceptance blocked safely: {exc}"
+        _safe_update(page)
+
+    def reject_paper_proposal(_event: ft.ControlEvent) -> None:
+        try:
+            result = api.reject_paper_proposal(
+                PaperProposalRejectRequest(
+                    proposal_id=str(paper_proposal_id.value or ""),
+                    reason=str(paper_reject_reason.value or ""),
+                )
+            )
+            message.value = f"Proposal {result.proposal_id} rejected locally; no paper order was created."
+        except (OSError, TypeError, ValueError) as exc:
+            message.value = f"Proposal rejection could not be recorded safely: {exc}"
+        _safe_update(page)
+
+    def fill_paper_order(_event: ft.ControlEvent) -> None:
+        try:
+            result = api.fill_paper_order(
+                PaperFillRequest(
+                    order_id=str(paper_order_id.value or ""),
+                    quantity=float(str(paper_fill_quantity.value or "0").replace(",", "")),
+                    price=float(str(paper_fill_price.value or "0").replace(",", "")),
+                )
+            )
+            paper_order_id.value = result.order_id
+            message.value = f"Paper fill recorded for {result.order_id}; status={result.status}; execution_allowed=false."
+            refresh_paper_account()
+        except (OSError, TypeError, ValueError) as exc:
+            message.value = f"Paper fill blocked safely: {exc}"
+        _safe_update(page)
+
+    def cancel_paper_order(_event: ft.ControlEvent) -> None:
+        try:
+            result = api.cancel_paper_order(
+                PaperOrderCancelRequest(order_id=str(paper_order_id.value or ""), reason=str(paper_cancel_reason.value or ""))
+            )
+            message.value = f"Paper order {result.order_id} is {result.status}; no order was transmitted."
+        except (OSError, TypeError, ValueError) as exc:
+            message.value = f"Paper cancellation blocked safely: {exc}"
+        _safe_update(page)
+
+    def mark_paper_position(_event: ft.ControlEvent) -> None:
+        try:
+            view = api.mark_paper_position(
+                PaperPositionMarkRequest(
+                    instrument_id=str(paper_mark_instrument.value or ""),
+                    adjusted_close=float(str(paper_mark_price.value or "0").replace(",", "")),
+                    as_of=datetime.now(timezone.utc),
+                    source_authority="local_manual_adjusted_close",
+                    source_checksum=str(paper_mark_checksum.value or ""),
+                )
+            )
+            paper_account_text.value = _paper_summary(view)
+            message.value = "Adjusted-close mark recorded with source provenance; execution_allowed=false."
+        except (OSError, TypeError, ValueError) as exc:
+            message.value = f"Adjusted-close mark blocked safely: {exc}"
+        _safe_update(page)
+
+    def apply_paper_corporate_action(_event: ft.ControlEvent) -> None:
+        try:
+            view = api.apply_paper_corporate_action(
+                PaperCorporateActionRequest(
+                    instrument_id=str(paper_mark_instrument.value or ""),
+                    split_ratio=float(str(paper_split_ratio.value or "0").replace(",", "")),
+                    cash_dividend_per_unit=float(str(paper_dividend.value or "0").replace(",", "")),
+                    as_of=datetime.now(timezone.utc),
+                    source_authority="local_manual_corporate_action",
+                    source_checksum=str(paper_action_checksum.value or ""),
+                )
+            )
+            paper_account_text.value = _paper_summary(view)
+            message.value = "Corporate action recorded with source provenance; execution_allowed=false."
+        except (OSError, TypeError, ValueError) as exc:
+            message.value = f"Corporate action blocked safely: {exc}"
+        _safe_update(page)
+
     def preview(_event: ft.ControlEvent) -> None:
         if busy:
             message.value = "Duplicate click ignored: the current operation is already running."
@@ -233,6 +371,13 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
 
     preview_button.on_click = preview
     proposal_button.on_click = proposal_review
+    paper_open_button.on_click = open_paper_account
+    paper_accept_button.on_click = accept_paper_proposal
+    paper_reject_button.on_click = reject_paper_proposal
+    paper_fill_button.on_click = fill_paper_order
+    paper_cancel_button.on_click = cancel_paper_order
+    paper_mark_button.on_click = mark_paper_position
+    paper_action_button.on_click = apply_paper_corporate_action
     confirm_button.on_click = confirm
     cancel_button.on_click = cancel
     refresh_records()
@@ -269,6 +414,23 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
                     spacing=8,
                 )
             ),
+            panel(
+                ft.Column(
+                    [
+                        section_header("Paper account and ledger", "Manual paper actions consume only validated proposal records. The append-only local ledger replays after restart."),
+                        paper_account_text,
+                        ft.Row([paper_initial_cash, paper_open_button], wrap=True),
+                        ft.Row([paper_proposal_id, paper_execution_price, paper_accept_button], wrap=True),
+                        ft.Row([paper_reject_reason, paper_reject_button], wrap=True),
+                        ft.Row([paper_order_id, paper_fill_quantity, paper_fill_price, paper_fill_button], wrap=True),
+                        ft.Row([paper_cancel_reason, paper_cancel_button], wrap=True),
+                        ft.Row([paper_mark_instrument, paper_mark_price, paper_mark_checksum, paper_mark_button], wrap=True),
+                        ft.Row([paper_split_ratio, paper_dividend, paper_action_checksum, paper_action_button], wrap=True),
+                        ft.Text("Paper marks use adjusted-close evidence and retain source provenance; live broker access, credentials and transmission remain disabled.", color=theme.MUTED, selectable=True),
+                    ],
+                    spacing=8,
+                )
+            ),
             panel(ft.Column([section_header("Training Centre", "Training jobs, trials, validation and model promotion remain explicitly unavailable until their governed workflow slice is implemented."), ft.Text("State: empty · use Jobs & Activity for existing local durable self-checks; no model is promoted by this page.", color=theme.MUTED, selectable=True)], spacing=6)),
             panel(ft.Column([section_header("Recent operation records", "Local JSON records are reproducible evidence; they are not broker or account truth."), records_body], spacing=6)),
         ],
@@ -279,3 +441,14 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
 
 
 __all__ = ["operations_page"]
+
+
+def _paper_summary(item: object | None) -> str:
+    if item is None:
+        return "Paper account: unavailable · open a local account before paper activity."
+    return (
+        f"Paper account: {getattr(item, 'status', 'unavailable')} · cash={getattr(item, 'cash', None)} · "
+        f"equity={getattr(item, 'equity', None)} · PnL={getattr(item, 'pnl', None)} · "
+        f"positions={getattr(item, 'open_positions', 0)} · reconciliation={getattr(item, 'reconciliation_status', 'unavailable')} · "
+        "execution_allowed=false"
+    )

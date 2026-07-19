@@ -23,6 +23,16 @@ from etf_cockpit.application.contracts import (
     InstrumentViewModel,
     JobViewModel,
     OperationViewModel,
+    PaperAccountOpenRequest,
+    PaperCorporateActionRequest,
+    PaperFillRequest,
+    PaperOrderCancelRequest,
+    PaperOrderViewModel,
+    PaperPositionMarkRequest,
+    PaperPositionViewModel,
+    PaperProposalAcceptRequest,
+    PaperProposalDecisionViewModel,
+    PaperProposalRejectRequest,
     PageRequest,
     PageView,
     PaperViewModel,
@@ -192,6 +202,16 @@ class LocalApplicationApi:
         return _page(tuple(sorted(rows, key=lambda item: item.created_at, reverse=True)), page)
 
     def get_paper(self, page: PageRequest = PageRequest()) -> PageView[PaperViewModel]:
+        from etf_cockpit.portfolio.paper_trading import PaperLedger, PaperLedgerError
+
+        ledger = PaperLedger(self._root)
+        try:
+            snapshot = ledger.snapshot()
+        except PaperLedgerError as exc:
+            rows = (PaperViewModel(account_id="local-paper", status="corrupt", reconciliation_status="blocked", message=str(exc)),)
+            return _page(rows, page)
+        if snapshot.status == "ready":
+            return _page((_paper_view_model(snapshot.to_payload()),), page)
         snapshot = self._snapshot()
         source = getattr(snapshot, "paper_accounts", ())
         rows = tuple(
@@ -208,6 +228,96 @@ class LocalApplicationApi:
         if not rows:
             rows = (PaperViewModel(account_id="local-paper", status="unavailable", message="No paper account is configured."),)
         return _page(rows, page)
+
+    def open_paper_account(self, request: PaperAccountOpenRequest) -> PaperViewModel:
+        from etf_cockpit.portfolio.paper_trading import PaperLedger
+
+        snapshot = PaperLedger(self._root, account_id=request.account_id).open_account(
+            initial_cash=request.initial_cash,
+            base_currency=request.base_currency,
+        )
+        return _paper_view_model(snapshot.to_payload())
+
+    def accept_paper_proposal(self, request: PaperProposalAcceptRequest) -> PaperOrderViewModel:
+        from etf_cockpit.portfolio.paper_trading import PaperLedger, load_proposal_for_paper
+
+        proposal = load_proposal_for_paper(self._root, request.proposal_id)
+        order = PaperLedger(self._root).accept_proposal(
+            proposal,
+            execution_price=request.execution_price,
+            fee=request.fee,
+            fx_rate=request.fx_rate,
+        )
+        return _paper_order_view_model(order)
+
+    def reject_paper_proposal(self, request: PaperProposalRejectRequest) -> PaperProposalDecisionViewModel:
+        from etf_cockpit.portfolio.paper_trading import PaperLedger, load_proposal_for_paper
+
+        proposal = load_proposal_for_paper(self._root, request.proposal_id)
+        rejection = PaperLedger(self._root).reject_proposal(proposal, reason=request.reason)
+        return PaperProposalDecisionViewModel(
+            proposal_id=str(rejection["proposal_id"]),
+            instrument_id=str(proposal.get("instrument_id", "")),
+            status="rejected",
+            reason=str(rejection["reason"]),
+        )
+
+    def fill_paper_order(self, request: PaperFillRequest) -> PaperOrderViewModel:
+        from etf_cockpit.portfolio.paper_trading import PaperLedger
+
+        order = PaperLedger(self._root).record_fill(
+            request.order_id,
+            fill_id=request.fill_id,
+            quantity=request.quantity,
+            price=request.price,
+            fee=request.fee,
+            fx_rate=request.fx_rate,
+        )
+        return _paper_order_view_model(order)
+
+    def cancel_paper_order(self, request: PaperOrderCancelRequest) -> PaperOrderViewModel:
+        from etf_cockpit.portfolio.paper_trading import PaperLedger
+
+        order = PaperLedger(self._root).cancel_order(request.order_id, reason=request.reason)
+        return _paper_order_view_model(order)
+
+    def get_paper_orders(self, page: PageRequest = PageRequest()) -> PageView[PaperOrderViewModel]:
+        from etf_cockpit.portfolio.paper_trading import PaperLedger, PaperLedgerError
+
+        try:
+            orders = tuple(_paper_order_view_model(item) for item in PaperLedger(self._root).orders())
+        except PaperLedgerError:
+            orders = ()
+        return _page(orders, page)
+
+    def mark_paper_position(self, request: PaperPositionMarkRequest) -> PaperViewModel:
+        from etf_cockpit.portfolio.paper_trading import PaperLedger
+
+        snapshot = PaperLedger(self._root).mark(
+            request.instrument_id,
+            adjusted_close=request.adjusted_close,
+            fx_rate=request.fx_rate,
+            benchmark_return=request.benchmark_return,
+            occurred_at=request.as_of,
+            source_authority=request.source_authority,
+            source_checksum=request.source_checksum,
+        )
+        return _paper_view_model(snapshot.to_payload())
+
+    def apply_paper_corporate_action(self, request: PaperCorporateActionRequest) -> PaperViewModel:
+        from etf_cockpit.portfolio.paper_trading import PaperLedger
+
+        snapshot = PaperLedger(self._root).apply_corporate_action(
+            request.instrument_id,
+            split_ratio=request.split_ratio,
+            cash_dividend_per_unit=request.cash_dividend_per_unit,
+            action_id=request.action_id,
+            fx_rate=request.fx_rate,
+            occurred_at=request.as_of,
+            source_authority=request.source_authority,
+            source_checksum=request.source_checksum,
+        )
+        return _paper_view_model(snapshot.to_payload())
 
     def get_operations(self, page: PageRequest = PageRequest()) -> PageView[OperationViewModel]:
         operations = getattr(self._snapshot(), "operations", ())
@@ -389,6 +499,56 @@ def _proposal_view_model(item: Mapping[str, object]) -> ProposalViewModel:
         authority_policy_checksum=str(item.get("authority_policy_checksum", "")),
         gate_policy_version=str(item.get("gate_policy_version", "")),
         gate_policy_checksum=str(item.get("gate_policy_checksum", "")),
+    )
+
+
+def _paper_view_model(item: Mapping[str, object]) -> PaperViewModel:
+    raw_positions = item.get("positions", ())
+    positions = tuple(
+        PaperPositionViewModel(
+            instrument_id=str(position.get("instrument_id", "")),
+            quantity=float(position.get("quantity", 0.0)),
+            average_cost=float(position.get("average_cost", 0.0)),
+            mark_price=_finite(position.get("mark_price")),
+            unrealised_pnl=_finite(position.get("unrealised_pnl")),
+            currency=str(position.get("currency", item.get("base_currency", "EUR"))),
+        )
+        for position in raw_positions
+        if isinstance(position, Mapping)
+    ) if isinstance(raw_positions, (tuple, list)) else ()
+    return PaperViewModel(
+        account_id=str(item.get("account_id", "local-paper")),
+        status=str(item.get("status", "unavailable")),
+        equity=_finite(item.get("equity")),
+        base_currency=str(item.get("base_currency", "EUR")),
+        cash=_finite(item.get("cash")),
+        pnl=_finite(item.get("pnl")),
+        benchmark_return=_finite(item.get("benchmark_return")),
+        drawdown=_finite(item.get("drawdown")),
+        open_positions=int(item.get("open_positions", 0)),
+        closed_trades=int(item.get("closed_trades", 0)),
+        win_rate=_finite(item.get("win_rate")),
+        payoff_ratio=_finite(item.get("payoff_ratio")),
+        positions=positions,
+        reconciliation_status=str(item.get("reconciliation_status", "unavailable")),
+        execution_allowed=False,
+        message=str(item.get("message", "")),
+    )
+
+
+def _paper_order_view_model(item: Mapping[str, object]) -> PaperOrderViewModel:
+    return PaperOrderViewModel(
+        order_id=str(item.get("order_id", item.get("rejection_id", ""))),
+        proposal_id=str(item.get("proposal_id", "")),
+        instrument_id=str(item.get("instrument_id", "")),
+        side=str(item.get("side", "buy")),
+        quantity=float(item.get("quantity", 0.0)),
+        filled_quantity=float(item.get("filled_quantity", 0.0)),
+        remaining_quantity=float(item.get("remaining_quantity", 0.0)),
+        execution_price=float(item.get("execution_price", 0.0)),
+        currency=str(item.get("currency", "EUR")),
+        status=str(item.get("status", "unknown")),
+        execution_allowed=False,
     )
 
 
