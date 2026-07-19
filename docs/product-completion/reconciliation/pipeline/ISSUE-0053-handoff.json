@@ -34,7 +34,7 @@
     "issue-scoped validator passed: registry scope, registry validation, source compile and offline source smoke after local digest-source projection",
     "targeted navigation diagnostic passed in 53.94 seconds under an external 180-second bound",
     "root mismatch and malformed proposal states remain explicit manual-review evidence",
-    "validation evidence records zero failures at source checkpoint a24a14b"
+    "validation evidence records zero failures at source checkpoint a51abb6"
   ],
   "authorised_baseline_fingerprints": [],
   "stop_conditions": [
