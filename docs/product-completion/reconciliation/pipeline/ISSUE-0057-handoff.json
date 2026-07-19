@@ -4,7 +4,7 @@
   ],
   "stage": "frozen_feature_checkpoint",
   "base_sha": "26febe8d77468c7e7adac3d6fe8867c3d8baf927",
-  "checkpoint_sha": "e5005a7b6b55af7a11f65fb0432cab5f4c1d8988",
+  "checkpoint_sha": "4282cb2a7f8080bc74067389760a396ddc0fa02c",
   "branch": "codex/issue-0057-forward-evidence-diary-20260719",
   "worktree": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\issue0057-forward-evidence-diary-20260719",
   "expected_status_transition": {
