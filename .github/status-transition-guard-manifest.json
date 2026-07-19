@@ -3,13 +3,13 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "issue_id": "ISSUE-0122",
+      "issue_id": "ISSUE-0063",
       "from": "planned",
       "to": "implemented_initially"
     }
   ],
-  "base_commit": "493b58f859577173c0ac5dfe948c9be3aa2b0209",
-  "branch": "codex/issue-0122-optimisation-20260719",
-  "issue_ids": ["ISSUE-0122"],
+  "base_commit": "9edceb416e336885f18a56a9136ef09e4d4d04a7",
+  "branch": "codex/issue-0063-quality-momentum-20260719",
+  "issue_ids": ["ISSUE-0063"],
   "schema_version": "1.0"
 }

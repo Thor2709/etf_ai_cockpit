@@ -44,6 +44,7 @@ class FundamentalEvidence:
     warnings: tuple[str, ...]
     eligibility: str
     source_authority: str
+    available_at: str | None = None
     source_id: str = "vendor_unofficial"
     manual_review: bool = False
     merge_status: str = "single_source"
@@ -98,6 +99,7 @@ def build_fundamental_evidence(
     source_authority: str | None = None,
     source: str | None = None,
     source_id: str | None = None,
+    available_at: str | None = None,
     sector_relative: Mapping[str, object] | None = None,
     stale_after_days: int = 120,
     today: date | None = None,
@@ -114,6 +116,12 @@ def build_fundamental_evidence(
     authority = str(source_authority or claimed_authority or source or "vendor_unofficial").strip().lower() or "vendor_unofficial"
     source_name = str(source or claimed_authority or authority).strip().lower() or "vendor"
     resolved_source_id = _first_claim_text(claims, ("source_id",)) or str(source_id or source_name).strip() or "unavailable"
+    resolved_available_at = (
+        str(available_at).strip()
+        if available_at is not None and str(available_at).strip()
+        else _first_claim_text(claims, ("available_at", "availability_date", "published_at", "publication_date", "filing_date"))
+        or None
+    )
     values: dict[str, float] = {}
     missing: list[str] = []
     sections: dict[str, Mapping[str, Any]] = {}
@@ -196,6 +204,7 @@ def build_fundamental_evidence(
     return FundamentalEvidence(
         instrument_id=canonical_instrument_id,
         as_of=str(as_of),
+        available_at=resolved_available_at,
         values=values,
         missing_fields=tuple(missing),
         warnings=tuple(dict.fromkeys(warnings)),
@@ -252,6 +261,7 @@ def persist_fundamental_evidence(
         "rows": len(combined),
         "source_authority": evidence.source_authority,
         "source_id": evidence.source_id,
+        "available_at": evidence.available_at,
         "manual_review": evidence.manual_review,
         "merge_status": evidence.merge_status,
         "rejected_source_count": evidence.rejected_source_count,
@@ -324,6 +334,7 @@ def merge_fundamental_sources(*sources: Mapping[str, object]) -> dict[str, objec
     selected: dict[str, object] = {}
     selected_owner: dict[str, tuple[int, str, str]] = {}
     selected_sections: dict[str, dict[str, object]] = {}
+    availability_candidates: list[str] = []
     rejected = 0
     for source in sources:
         source_instrument = _first_claim_text(source, ("instrument_id", "id", "ticker", "symbol"))
@@ -333,6 +344,12 @@ def merge_fundamental_sources(*sources: Mapping[str, object]) -> dict[str, objec
         if not identity_matches or not period_matches:
             rejected += 1
             continue
+        availability = _first_claim_text(
+            source,
+            ("available_at", "availability_date", "published_at", "publication_date", "filing_date"),
+        )
+        if availability:
+            availability_candidates.append(availability)
         authority = str(source.get("source_authority") or source.get("source") or "vendor").strip().lower()
         rank = ranked.get(authority, 0)
         source_id = _first_claim_text(source, ("source_id",)) or authority
@@ -362,6 +379,8 @@ def merge_fundamental_sources(*sources: Mapping[str, object]) -> dict[str, objec
         selected["as_of_date"] = anchor_as_of
     contributing_authorities = sorted({owner[2] for owner in selected_owner.values()})
     contributing_source_ids = sorted({owner[1] for owner in selected_owner.values()})
+    if availability_candidates:
+        selected["available_at"] = availability_candidates[0]
     selected["source_authority"] = contributing_authorities[0] if len(contributing_authorities) == 1 else ("mixed" if contributing_authorities else "unavailable")
     selected["source_id"] = contributing_source_ids[0] if len(contributing_source_ids) == 1 else ("|".join(contributing_source_ids) if contributing_source_ids else "unavailable")
     selected["source"] = selected["source_authority"]
@@ -591,6 +610,7 @@ def _clean_row(evidence: FundamentalEvidence, checksum: str) -> dict[str, Any]:
         "schema_version": evidence.schema_version,
         "instrument_id": evidence.instrument_id,
         "as_of_date": evidence.as_of,
+        "available_at": evidence.available_at,
         "eligibility": evidence.eligibility,
         "score_eligible": evidence.score_eligible,
         "missing_fields": "|".join(evidence.missing_fields),
@@ -640,6 +660,7 @@ def _read_clean(path: Path) -> pd.DataFrame:
             "sector_relative_benchmark": "unavailable",
             "sector_relative_delta": None,
             "sector_relative_limitation": "No sector-relative comparison evidence supplied.",
+            "available_at": None,
         }
         for column, default in defaults.items():
             if column not in frame.columns:

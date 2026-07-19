@@ -282,6 +282,24 @@ def test_fundamental_persistence_preserves_section_provenance(tmp_path) -> None:
     assert bool(row["executable_authority"]) is False
 
 
+def test_fundamental_persistence_preserves_official_availability_timestamp(tmp_path) -> None:
+    from etf_cockpit.data.fundamentals import persist_fundamental_evidence
+
+    evidence = build_fundamental_evidence(
+        _complete_claims(),
+        "MSFT",
+        "2026-06-30",
+        source_authority="sec_edgar",
+        available_at="2026-07-15T21:00:00Z",
+    )
+    clean_path = tmp_path / "clean.parquet"
+
+    persist_fundamental_evidence(evidence, raw_dir=tmp_path / "raw", clean_path=clean_path)
+    row = load_fundamental_evidence(clean_path).iloc[0]
+
+    assert row["available_at"] == "2026-07-15T21:00:00Z"
+
+
 def test_fundamental_atomic_failure_preserves_existing_clean_generation(tmp_path, monkeypatch) -> None:
     import etf_cockpit.data.fundamentals as module
 

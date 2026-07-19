@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+import hashlib
+import json
 from itertools import combinations
 from statistics import NormalDist
 
@@ -14,8 +16,10 @@ from etf_cockpit.core.constants import TRADING_DAYS_PER_YEAR
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.types import DataQualityReport
 from etf_cockpit.data.validation import validate_prices
+from etf_cockpit.data.provenance import sha256_dataframe
 from etf_cockpit.features.feature_pipeline import compute_features, latest_features
 from etf_cockpit.portfolio.costs import COST_MODEL_ID, estimate_rebalance_cost
+from etf_cockpit.signals.quality_momentum import FRAME_COLUMNS, QUALITY_MOMENTUM_VERSION, build_quality_momentum_frame, quality_momentum_weights
 from etf_cockpit.signals.signal_pipeline import generate_signals
 
 
@@ -29,10 +33,50 @@ class BacktestReport:
     quality_label: str = "low"
     quality_notes: list[str] | None = None
     metadata: dict[str, object] = field(default_factory=dict)
+    quality_momentum_evidence: pd.DataFrame = field(default_factory=pd.DataFrame)
 
 
 class BacktestDataUnavailableError(ValueError):
     """Raised when a backtest cannot be evaluated from a complete price panel."""
+
+
+def backtest_input_checksum(
+    config: AppConfig,
+    prices: pd.DataFrame,
+    fundamentals: pd.DataFrame | None,
+) -> str:
+    """Fingerprint every local input that can change a cached backtest."""
+
+    def _stable(frame: pd.DataFrame | None, preferred_sort: tuple[str, ...]) -> str:
+        if not isinstance(frame, pd.DataFrame):
+            return sha256_dataframe(pd.DataFrame())
+        result = frame.copy()
+        sort_columns = [column for column in preferred_sort if column in result.columns]
+        if sort_columns and not result.empty:
+            result = result.sort_values(sort_columns, kind="stable").reset_index(drop=True)
+        return sha256_dataframe(result)
+
+    universe_payload = {
+        "enabled_ids": list(config.universe.enabled_ids),
+        "sectors": {
+            item.id: item.sector
+            for item in config.universe.etfs
+            if item.id in config.universe.enabled_ids
+        },
+        "costs": config.costs.model_dump(mode="json"),
+    }
+    payload = {
+        "prices": _stable(prices, ("date", "etf_id", "instrument_id")),
+        "fundamentals": _stable(fundamentals, ("instrument_id", "as_of_date", "available_at", "evidence_checksum")),
+        "universe": universe_payload,
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
+def quality_momentum_evidence_checksum(evidence: pd.DataFrame) -> str:
+    """Checksum the exact CSV representation persisted beside a report."""
+
+    return hashlib.sha256(evidence.to_csv(index=False).encode("utf-8")).hexdigest()
 
 
 def _price_pivot(prices: pd.DataFrame) -> pd.DataFrame:
@@ -73,6 +117,7 @@ def _weighted_reference_price(values: pd.Series, weights: pd.Series) -> float | 
 def _execution_evidence(
     *,
     current_prices: pd.Series,
+    next_adjusted_close: pd.Series,
     next_open: pd.Series,
     next_high: pd.Series,
     next_low: pd.Series,
@@ -80,12 +125,12 @@ def _execution_evidence(
 ) -> dict[str, object]:
     decision_price = _weighted_reference_price(current_prices, changed_weights)
     next_open_reference = _weighted_reference_price(next_open, changed_weights)
-    next_close_reference = _weighted_reference_price(current_prices, changed_weights)
+    next_close_reference = _weighted_reference_price(next_adjusted_close, changed_weights)
     spread_values = (
         pd.to_numeric(next_high, errors="coerce") - pd.to_numeric(next_low, errors="coerce")
     ) / pd.to_numeric(next_open, errors="coerce")
     spread_proxy = _weighted_reference_price(spread_values, changed_weights)
-    arrival_assumption = "next_open" if next_open_reference is not None else "next_adjusted_close"
+    arrival_assumption = "next_adjusted_close" if next_close_reference is not None else "unavailable"
     close_to_next_open = None
     if decision_price is not None and next_open_reference is not None and decision_price != 0:
         close_to_next_open = float(next_open_reference / decision_price - 1.0)
@@ -127,6 +172,7 @@ def run_backtest(
     config: AppConfig,
     prices: pd.DataFrame,
     *,
+    fundamentals: pd.DataFrame | None = None,
     initial_value_eur: float = 10000,
     rebalance_frequency_days: int = 21,
     transaction_cost_bps: float | None = None,
@@ -165,16 +211,29 @@ def run_backtest(
         "date_range_start": pivot.index.min().date(),
         "date_range_end": pivot.index.max().date(),
         "not_enough_data_policy": "fail_closed",
+        "quality_momentum_strategy_version": QUALITY_MOMENTUM_VERSION,
+        "quality_momentum_evidence": "pending",
+        "input_checksum": backtest_input_checksum(config, prices, fundamentals),
     }
     if missing_observation_rows:
         metadata["data_warning"] = "Incomplete adjusted-price rows were excluded; no forward-fill was applied."
     log_returns = np.log(pivot / pivot.shift(1)).fillna(0.0)
     start_index = 220
     rebalance_indexes = set(range(start_index, len(pivot), rebalance_frequency_days))
-    strategies = ["buy_and_hold", "equal_weight", "momentum_only", "trend_only", "signal_strategy"]
+    strategies = [
+        "buy_and_hold",
+        "equal_weight",
+        "momentum_only",
+        "trend_only",
+        "quality_only",
+        "quality_momentum",
+        "signal_strategy",
+    ]
     weights = {name: target_weights(config, columns) for name in strategies}
     if "equal_weight" in weights:
         weights["equal_weight"] = equal_weights(columns)
+    weights["quality_only"] = pd.Series(0.0, index=columns, dtype=float)
+    weights["quality_momentum"] = pd.Series(0.0, index=columns, dtype=float)
     equity = {name: [initial_value_eur] for name in strategies}
     index_values = [pivot.index[start_index]]
     turnover = {name: 0.0 for name in strategies}
@@ -184,26 +243,33 @@ def run_backtest(
     pending_execution_date: pd.Timestamp | None = None
     trade_rows: list[dict[str, object]] = []
     signal_rows: list[dict[str, object]] = []
+    quality_evidence_rows: list[dict[str, object]] = []
 
     for i in range(start_index + 1, len(pivot)):
         dt = pivot.index[i]
         execution_costs: dict[str, float] = {}
         if pending_execution_date is not None and dt == pending_execution_date:
             execution_costs = pending_costs
-            for name, new_weight in pending_weights.items():
-                weights[name] = new_weight.reindex(columns).fillna(0)
-            pending_weights = {}
-            pending_costs = {}
-            pending_execution_date = None
 
         day_return = log_returns.loc[dt, columns]
         for name in strategies:
             previous_equity = equity[name][-1]
             portfolio_return = float((weights[name].reindex(columns).fillna(0) * day_return).sum())
-            equity_after_cost = max(previous_equity - execution_costs.get(name, 0.0), 0.0)
-            new_equity = equity_after_cost * np.exp(portfolio_return)
+            new_equity = previous_equity * np.exp(portfolio_return)
+            if execution_costs.get(name, 0.0):
+                new_equity = max(new_equity - execution_costs[name], 0.0)
             equity[name].append(max(new_equity, 0.0))
         index_values.append(dt)
+
+        # Orders are filled at the next session's adjusted close.  The
+        # signal-day return therefore remains attributed to the old weights;
+        # the new weights affect the following session only.
+        if pending_execution_date is not None and dt == pending_execution_date:
+            for name, new_weight in pending_weights.items():
+                weights[name] = new_weight.reindex(columns).fillna(0)
+            pending_weights = {}
+            pending_costs = {}
+            pending_execution_date = None
 
         if i in rebalance_indexes and i + 1 < len(pivot):
             history = pivot.iloc[: i + 1]
@@ -212,8 +278,31 @@ def run_backtest(
                 "equal_weight": equal_weights(columns),
                 "momentum_only": momentum_weights(history, columns),
                 "trend_only": trend_weights(config, history, columns),
+                "quality_only": pd.Series(0.0, index=columns, dtype=float),
+                "quality_momentum": pd.Series(0.0, index=columns, dtype=float),
                 "signal_strategy": weights["signal_strategy"],
             }
+            quality_prices = history.rename_axis("date").reset_index().melt(
+                id_vars=["date"], var_name="etf_id", value_name="adjusted_close"
+            )
+            sector_map = {
+                item.id: str(item.sector or "")
+                for item in config.universe.etfs
+                if item.id in columns and item.sector
+            }
+            quality_evidence = build_quality_momentum_frame(
+                quality_prices,
+                fundamentals if fundamentals is not None else pd.DataFrame(),
+                as_of_date=dt.date(),
+                sector_by_instrument=sector_map,
+            )
+            quality_evidence_rows.extend(quality_evidence.to_dict("records"))
+            new_weights["quality_only"] = quality_momentum_weights(quality_evidence, columns, mode="quality")
+            new_weights["quality_momentum"] = quality_momentum_weights(quality_evidence, columns, mode="quality_momentum")
+            if not quality_evidence.empty and (quality_evidence["status"] == "available").any():
+                metadata["quality_momentum_evidence"] = "available"
+            elif metadata.get("quality_momentum_evidence") != "available":
+                metadata["quality_momentum_evidence"] = "unavailable"
             # The signal strategy uses the same live signal pipeline, then tilts around targets.
             truncated_prices = prices[pd.to_datetime(prices["date"]) <= dt].copy()
             features = compute_features(truncated_prices, benchmark_etf_id=columns[0])
@@ -287,6 +376,7 @@ def run_backtest(
                     empty_reference = pd.Series(index=columns, dtype=float)
                     execution_evidence = _execution_evidence(
                         current_prices=pivot.iloc[i].reindex(columns),
+                        next_adjusted_close=pivot.iloc[i + 1].reindex(columns),
                         next_open=open_pivot.loc[execution_dt].reindex(columns)
                         if execution_dt in open_pivot.index
                         else empty_reference,
@@ -324,6 +414,12 @@ def run_backtest(
     metadata["walk_forward_periods"] = rebalance_count
     metadata["strategies"] = strategies
     metadata["same_bar_execution_count"] = 0
+    metadata["quality_momentum_evidence_rows"] = len(quality_evidence_rows)
+    metadata["quality_momentum_evidence_available_rows"] = sum(
+        row.get("status") == "available" for row in quality_evidence_rows
+    )
+    quality_evidence_frame = pd.DataFrame(quality_evidence_rows, columns=FRAME_COLUMNS)
+    metadata["quality_momentum_evidence_checksum"] = quality_momentum_evidence_checksum(quality_evidence_frame)
     for name in strategies:
         metrics = performance_metrics(equity_curves[name], benchmark=benchmark, turnover=turnover[name], cost_drag=cost_drag[name])
         strategy_trades = [row for row in trade_rows if row["strategy"] == name]
@@ -377,6 +473,7 @@ def run_backtest(
             "Next-open and spread evidence is unavailable when the source panel does not provide OHLC fields.",
         ],
         metadata=metadata,
+        quality_momentum_evidence=quality_evidence_frame,
     )
 
 

@@ -8,7 +8,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from etf_cockpit.backtest.engine import BacktestDataUnavailableError, BacktestReport, run_backtest
+from etf_cockpit.backtest.engine import (
+    BacktestDataUnavailableError,
+    BacktestReport,
+    backtest_input_checksum,
+    quality_momentum_evidence_checksum,
+    run_backtest,
+)
 from etf_cockpit.chatgpt_bridge.export_pack import export_review_pack
 from etf_cockpit.chatgpt_bridge.import_audit import import_audit_json
 from etf_cockpit.chatgpt_bridge.schemas import ChatGPTAudit, ChatGPTAuditV2
@@ -21,6 +27,7 @@ from etf_cockpit.core.types import DataQualityReport, ForecastResult, SignalResu
 from etf_cockpit.core.versioning import ensure_run_manifest
 from etf_cockpit.data.duckdb_store import initialise_store, load_holdings, load_prices, write_features
 from etf_cockpit.data.fx_data import commit_fx_import, fx_data_inventory, load_fx_rates, validate_fx_rates
+from etf_cockpit.data.fundamentals import load_fundamental_evidence
 from etf_cockpit.data.import_pipeline import commit_price_import, rollback_latest_price_import as rollback_price_store
 from etf_cockpit.data.manual_notes import commit_manual_news_import, load_manual_news, validate_manual_news
 from etf_cockpit.data.providers import GenericHTTPProvider, ManualLocalFileProvider, ProviderResult
@@ -42,6 +49,7 @@ from etf_cockpit.models.local_weights import LocalModelStatus
 from etf_cockpit.models.registry import model_availability, model_diagnostics
 from etf_cockpit.portfolio.risk import target_policy_issues
 from etf_cockpit.signals.signal_pipeline import generate_signals
+from etf_cockpit.signals.quality_momentum import FRAME_COLUMNS, QUALITY_MOMENTUM_VERSION
 
 
 def _universe_cache_meta_path(path: Path) -> Path:
@@ -774,8 +782,10 @@ class BacktestService:
         return self.run_backtest()
 
     def run_backtest(self) -> BacktestReport:
+        prices = load_prices()
+        fundamentals = load_fundamental_evidence()
         try:
-            report = run_backtest(self.config, load_prices())
+            report = run_backtest(self.config, prices, fundamentals=fundamentals)
         except BacktestDataUnavailableError as exc:
             return _empty_backtest_report(str(exc))
         BACKTESTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -784,6 +794,7 @@ class BacktestService:
             AtomicWriteRequest(BACKTESTS_DIR / "equity_curves.csv", report.equity_curves.to_csv().encode("utf-8"), lambda path: _validate_csv(path, index_col=0)),
             AtomicWriteRequest(BACKTESTS_DIR / "trade_log.csv", report.trade_log.to_csv(index=False).encode("utf-8"), lambda path: _validate_csv(path)),
             AtomicWriteRequest(BACKTESTS_DIR / "signal_log.csv", report.signal_log.to_csv(index=False).encode("utf-8"), lambda path: _validate_csv(path)),
+            AtomicWriteRequest(BACKTESTS_DIR / "quality_momentum_evidence.csv", report.quality_momentum_evidence.to_csv(index=False).encode("utf-8"), lambda path: _validate_csv(path)),
             AtomicWriteRequest(
                 BACKTESTS_DIR / "backtest_metadata.json",
                 json.dumps(report.metadata, default=str, sort_keys=True, indent=2).encode("utf-8"),
@@ -796,6 +807,7 @@ class BacktestService:
             BACKTESTS_DIR / "backtest_results.csv",
             BACKTESTS_DIR / "equity_curves.csv",
             BACKTESTS_DIR / "signal_log.csv",
+            BACKTESTS_DIR / "quality_momentum_evidence.csv",
         ):
             _write_universe_cache_metadata(output, self.universe_revision)
         ensure_run_manifest(
@@ -819,6 +831,7 @@ class BacktestService:
         trade_path = BACKTESTS_DIR / "trade_log.csv"
         signal_path = BACKTESTS_DIR / "signal_log.csv"
         metadata_path = BACKTESTS_DIR / "backtest_metadata.json"
+        quality_evidence_path = BACKTESTS_DIR / "quality_momentum_evidence.csv"
         if not results_path.exists() or not equity_path.exists():
             return None
         if not _cache_matches_universe(results_path, self.universe_revision) or not _cache_matches_universe(equity_path, self.universe_revision):
@@ -829,6 +842,8 @@ class BacktestService:
                 return None
             if not self.REQUIRED_RESULT_COLUMNS.issubset(results.columns):
                 return None
+            if "quality_momentum" not in set(results.get("strategy_name", ())):
+                return None
             if as_of_date is not None and "end_date" in results.columns:
                 end_dates = pd.to_datetime(results["end_date"], errors="coerce").dt.date.dropna()
                 if end_dates.empty or max(end_dates) != as_of_date:
@@ -836,9 +851,27 @@ class BacktestService:
             equity_curves = pd.read_csv(equity_path, index_col=0, parse_dates=True)
             trade_log = pd.read_csv(trade_path) if trade_path.exists() else pd.DataFrame()
             signal_log = pd.read_csv(signal_path) if signal_path.exists() else pd.DataFrame()
+            quality_momentum_evidence = pd.read_csv(quality_evidence_path) if quality_evidence_path.exists() else pd.DataFrame()
             metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
             if not isinstance(metadata, dict):
                 metadata = {}
+            if metadata.get("quality_momentum_strategy_version") != QUALITY_MOMENTUM_VERSION:
+                return None
+            if metadata.get("input_checksum") != backtest_input_checksum(
+                self.config,
+                load_prices(),
+                load_fundamental_evidence(),
+            ):
+                return None
+            if not quality_evidence_path.exists():
+                return None
+            if set(FRAME_COLUMNS) - set(quality_momentum_evidence.columns):
+                return None
+            quality_momentum_evidence = quality_momentum_evidence.reindex(columns=FRAME_COLUMNS)
+            if metadata.get("quality_momentum_evidence_checksum") != quality_momentum_evidence_checksum(
+                quality_momentum_evidence
+            ):
+                return None
             ai_added_value = False
             if {"strategy_name", "calmar"}.issubset(results.columns):
                 momentum = results.loc[results["strategy_name"] == "momentum_only", "calmar"]
@@ -858,6 +891,7 @@ class BacktestService:
                     "Use the Backtests page or diagnostics scripts to regenerate full backtest files after changing assumptions.",
                 ],
                 metadata=metadata,
+                quality_momentum_evidence=quality_momentum_evidence,
             )
         except Exception:
             return None

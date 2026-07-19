@@ -2,17 +2,17 @@
   "checks": [
     {
       "command": "registry scope issue",
-      "duration_ms": 2.074,
+      "duration_ms": 1.879,
       "exit_code": 0,
       "failure": "",
       "name": "scope_selection",
-      "output": "Validated issue scope: ISSUE-0122",
+      "output": "Validated issue scope: ISSUE-0063",
       "required": true,
       "status": "passed"
     },
     {
       "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/validate_issue_registry.py",
-      "duration_ms": 123.483,
+      "duration_ms": 99.706,
       "exit_code": 0,
       "failure": "",
       "name": "issue_registry",
@@ -22,7 +22,7 @@
     },
     {
       "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m compileall -q src scripts",
-      "duration_ms": 151.471,
+      "duration_ms": 126.931,
       "exit_code": 0,
       "failure": "",
       "name": "source_compile",
@@ -31,46 +31,49 @@
       "status": "passed"
     },
     {
-      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_app.py --mode offline --port 54164 --timeout 30",
-      "duration_ms": 8355.395,
+      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_app.py --mode offline --port 50091 --timeout 30",
+      "duration_ms": 7970.345,
       "exit_code": 0,
       "failure": "",
       "name": "source_smoke",
-      "output": "smoke_port requested=54164 selected=54164 reason=port 54164 is free\nsmoke_ok mode=offline url=http://127.0.0.1:54164/",
+      "output": "smoke_port requested=50091 selected=50091 reason=port 50091 is free\nsmoke_ok mode=offline url=http://127.0.0.1:50091/",
       "required": true,
       "status": "passed"
     }
   ],
-  "duration_ms": 8636.077,
+  "duration_ms": 8201.897,
   "environment": {
     "machine": "AMD64",
     "offline_requested": false,
     "platform": "Windows-11-10.0.26200-SP0",
     "python": "3.12.10",
-    "root": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\issue0122-optimisation-20260719",
+    "root": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\issue0063-quality-momentum-20260719",
     "system": "Windows"
   },
   "failures": [],
-  "finished_at": "2026-07-19T07:57:00.920+00:00",
-  "generated_at": "2026-07-19T07:57:00.920+00:00",
+  "finished_at": "2026-07-19T09:42:39.216+00:00",
+  "generated_at": "2026-07-19T09:42:39.216+00:00",
   "git": {
-    "branch": "codex/issue-0122-optimisation-20260719",
+    "branch": "codex/issue-0063-quality-momentum-20260719",
     "dirty": true,
-    "head": "8c90f0abad17e7d46853fe51271130d9520815ea",
-    "origin_main": "493b58f859577173c0ac5dfe948c9be3aa2b0209"
+    "head": "9edceb416e336885f18a56a9136ef09e4d4d04a7",
+    "origin_main": "9edceb416e336885f18a56a9136ef09e4d4d04a7"
   },
   "log_paths": [
-    "logs\\session.jsonl"
+    "logs\\model_runs.jsonl",
+    "logs\\session.jsonl",
+    "logs\\signal_log.jsonl",
+    "logs\\timings.jsonl"
   ],
   "mode": "issue",
   "schema_version": "1.0",
   "scope": {
     "issue_ids": [
-      "ISSUE-0122"
+      "ISSUE-0063"
     ],
     "phase_ids": []
   },
-  "started_at": "2026-07-19T07:56:52.284+00:00",
+  "started_at": "2026-07-19T09:42:31.014+00:00",
   "unavailable_optional_components": [
     "timesfm",
     "toto"

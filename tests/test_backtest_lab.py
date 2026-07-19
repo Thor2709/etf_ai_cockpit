@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from etf_cockpit.app.pages.backtests import backtests_page
-from etf_cockpit.backtest.engine import BacktestDataUnavailableError, run_backtest
+from etf_cockpit.backtest.engine import BacktestDataUnavailableError, _execution_evidence, run_backtest
 from etf_cockpit.backtest.metrics import tail_event_diagnostics
 from etf_cockpit.core.config import load_config
 from etf_cockpit.data.sample_data import generate_sample_prices
@@ -61,6 +61,9 @@ def test_backtest_report_makes_data_and_execution_assumptions_explicit() -> None
         "arrival_price_assumption",
         "spread_proxy",
         "same_bar_execution_avoided",
+        "capacity_eur",
+        "cost_data_quality",
+        "next_period_reference_price",
     }
     assert required_trade_fields <= set(report.trade_log.columns)
     assert report.trade_log["same_bar_execution_avoided"].eq(True).all()
@@ -77,10 +80,39 @@ def test_backtest_report_makes_data_and_execution_assumptions_explicit() -> None
     assert report.results["overfitting_warning"].notna().all()
 
 
+def test_execution_evidence_uses_next_session_adjusted_close() -> None:
+    evidence = _execution_evidence(
+        current_prices=pd.Series({"A": 100.0}),
+        next_adjusted_close=pd.Series({"A": 105.0}),
+        next_open=pd.Series({"A": 106.0}),
+        next_high=pd.Series({"A": 108.0}),
+        next_low=pd.Series({"A": 104.0}),
+        changed_weights=pd.Series({"A": 1.0}),
+    )
+
+    assert evidence["next_period_reference_price"] == 105.0
+    assert evidence["arrival_price_assumption"] == "next_adjusted_close"
+    assert evidence["next_period_reference_price"] != evidence["decision_price"]
+
+
 def test_backtests_page_exposes_lab_evidence_sections() -> None:
     source = inspect.getsource(backtests_page)
 
     assert "Tail-event diagnostics" in source
     assert "Operational execution evidence" in source
+    assert "quality-momentum" in source
     assert "Overfitting warning" in source
     assert "next-open" in source
+
+
+def test_backtest_registers_quality_momentum_and_quality_only_baselines() -> None:
+    config = load_config()
+    prices = generate_sample_prices(config, periods=360, end_date=pd.Timestamp("2026-06-26").date())
+
+    report = run_backtest(config, prices, rebalance_frequency_days=42)
+
+    assert {"quality_only", "quality_momentum", "momentum_only", "equal_weight"} <= set(report.results["strategy_name"])
+    assert report.metadata["quality_momentum_strategy_version"] == "quality_momentum.v1"
+    assert report.metadata["quality_momentum_evidence"] == "unavailable"
+    assert report.metadata["quality_momentum_evidence_available_rows"] == 0
+    assert set(report.quality_momentum_evidence.columns) >= {"signal_date", "status", "reason", "execution_allowed"}
