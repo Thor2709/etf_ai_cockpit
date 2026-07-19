@@ -13,7 +13,7 @@ from etf_cockpit.chatgpt_bridge.export_pack import export_review_pack
 from etf_cockpit.chatgpt_bridge.import_audit import import_audit_json
 from etf_cockpit.chatgpt_bridge.schemas import ChatGPTAudit, ChatGPTAuditV2
 from etf_cockpit.core.config import AppConfig, load_config
-from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_bytes, atomic_write_group
+from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_bytes, atomic_write_group, sha256_file
 from etf_cockpit.core.logging import append_jsonl, configure_logging
 from etf_cockpit.core.paths import (
     BACKUPS_DIR,
@@ -100,6 +100,7 @@ class CockpitSnapshot:
     # records are snapshots, not providers: missing or malformed inputs stay
     # visible to the application layer as unavailable/manual-review states.
     digest_records: dict[str, tuple[dict[str, object], ...]] = field(default_factory=dict)
+    digest_root: str = ""
 
 
 class DataService:
@@ -963,6 +964,7 @@ def _build_snapshot(force_sample: bool = False) -> CockpitSnapshot:
         model_inventory=inventory,
         universe_revision=universe_revision,
         digest_records=digest_records,
+        digest_root=str(ROOT),
     )
 
 
@@ -1131,7 +1133,6 @@ def _build_digest_records(
     for label, directory in (("export", EXPORTS_DIR), ("backup", BACKUPS_DIR)):
         latest = _latest_local_file(directory)
         if latest is not None:
-            relative = latest.relative_to(ROOT).as_posix()
             records["recovery_export"].append(
                 {
                     "item_id": f"recovery-export:{label}",
@@ -1141,7 +1142,7 @@ def _build_digest_records(
                     "title": f"Latest local {label} evidence is present",
                     "rationale": f"The most recent local {label} artefact is available for recovery and export review.",
                     "as_of": _digest_text(date.fromtimestamp(latest.stat().st_mtime)),
-                    "provenance": f"local-file:{relative}",
+                    "provenance": f"sha256:{sha256_file(latest)}",
                 }
             )
 
@@ -1153,7 +1154,16 @@ def _load_digest_events(path: Path) -> tuple[dict[str, object], ...]:
         return ()
     records: list[dict[str, object]] = []
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        with path.open("rb") as handle:
+            size = handle.seek(0, 2)
+            offset = max(0, size - 1_000_000)
+            handle.seek(offset)
+            raw = handle.read()
+        lines = raw.decode("utf-8").splitlines()
+        if offset:
+            # The first line may be a partial record because the read is
+            # intentionally bounded to the recent tail of the trace.
+            lines = lines[1:]
     except (OSError, UnicodeDecodeError):
         return (
             {

@@ -9,6 +9,7 @@ mistake an empty cache for a quiet day.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
 from etf_cockpit.application.contracts import DigestItemViewModel, DigestViewModel
@@ -105,6 +106,7 @@ def build_digest_from_snapshot(
     snapshot: object,
     *,
     proposal_records: Sequence[object] = (),
+    local_root: Path | str | None = None,
 ) -> DigestViewModel:
     """Adapt a snapshot and optional proposal view models into the digest."""
 
@@ -121,10 +123,25 @@ def build_digest_from_snapshot(
         "recovery_export": _records(snapshot, "recovery_export") or _records(snapshot, "recovery_status"),
     }
     snapshot_records = getattr(snapshot, "digest_records", None)
-    if isinstance(snapshot_records, Mapping):
+    snapshot_root = _text(getattr(snapshot, "digest_root", None))
+    requested_root = _text(local_root)
+    roots_match = not snapshot_root or not requested_root or _normalise_root(snapshot_root) == _normalise_root(requested_root)
+    if isinstance(snapshot_records, Mapping) and roots_match:
         for source in _SOURCE_NAMES:
             if source in snapshot_records:
                 records[source] = snapshot_records.get(source)
+    elif isinstance(snapshot_records, Mapping):
+        records["source_revisions"] = (
+            {
+                "item_id": "digest:root-mismatch",
+                "category": "source_revision",
+                "severity": "warning",
+                "status": "manual_review",
+                "title": "Digest source root changed",
+                "rationale": "The snapshot was built from a different local root; source records were withheld to prevent mixed-workspace evidence.",
+                "provenance": f"snapshot-root:{snapshot_root}",
+            },
+        )
     if report is not None:
         report_status = _text(getattr(report, "status", None)) or "unavailable"
         records["data_health"] = (
@@ -244,6 +261,10 @@ def _as_mapping(value: object) -> Mapping[str, object] | None:
 def _text(value: Any) -> str | None:
     text = str(value).strip() if value is not None else ""
     return text or None
+
+
+def _normalise_root(value: str) -> str:
+    return str(Path(value).expanduser().resolve()).casefold()
 
 
 __all__ = ["DigestUnavailableError", "build_digest", "build_digest_from_snapshot"]

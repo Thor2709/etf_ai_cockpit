@@ -6,6 +6,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 import hashlib
+import json
 import math
 from pathlib import Path
 import threading
@@ -393,15 +394,8 @@ class LocalApplicationApi:
         del page
         from etf_cockpit.application.digest import build_digest_from_snapshot
 
-        try:
-            from etf_cockpit.portfolio.proposal_policy import load_proposal_records
-
-            proposals = tuple(load_proposal_records(directory=self._root / "data" / "operations" / "proposals"))
-        except Exception:
-            # A malformed proposal record must make that source unavailable,
-            # not prevent the dashboard from rendering its other evidence.
-            proposals = ()
-        return build_digest_from_snapshot(self._snapshot(), proposal_records=proposals)
+        proposals = _load_digest_proposals(self._root / "data" / "operations" / "proposals")
+        return build_digest_from_snapshot(self._snapshot(), proposal_records=proposals, local_root=self._root)
 
     def get_proposals(self, page: PageRequest = PageRequest()) -> PageView[ProposalViewModel]:
         from etf_cockpit.portfolio.proposal_policy import load_proposal_records
@@ -530,6 +524,47 @@ class LocalApplicationApi:
 
     def _snapshot(self) -> object:
         return self._snapshot_provider()
+
+
+def _load_digest_proposals(directory: Path) -> tuple[dict[str, object], ...]:
+    """Load valid proposals and retain malformed files as manual review."""
+
+    from etf_cockpit.portfolio.proposal_policy import load_proposal_records
+
+    valid = tuple(load_proposal_records(directory=directory))
+    valid_ids = {str(item.get("proposal_id")) for item in valid}
+    review: list[dict[str, object]] = []
+    if not directory.exists():
+        return valid
+    try:
+        paths = sorted(directory.glob("proposal_*.json"), reverse=True)
+    except OSError:
+        return (
+            *valid,
+            {
+                "item_id": "proposal-state:unavailable",
+                "status": "manual_review",
+                "title": "Proposal state requires review",
+                "rationale": "The local proposal directory could not be enumerated safely.",
+                "provenance": "proposal-directory",
+            },
+        )
+    for path in paths:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            payload = None
+        if not isinstance(payload, Mapping) or str(payload.get("proposal_id")) not in valid_ids:
+            review.append(
+                {
+                    "item_id": f"proposal-review:{path.name}",
+                    "status": "manual_review",
+                    "title": f"Proposal record {path.name} requires review",
+                    "rationale": "The local proposal record is malformed, stale or failed its authority checks.",
+                    "provenance": f"proposal-file:{path.name}",
+                }
+            )
+    return (*valid, *review)
 
 
 def _proposal_view_model(item: Mapping[str, object]) -> ProposalViewModel:

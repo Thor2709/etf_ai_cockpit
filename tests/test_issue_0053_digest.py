@@ -146,6 +146,44 @@ def test_digest_is_available_through_the_typed_application_query() -> None:
     assert result.items[0].source == "data_health"
 
 
+def test_digest_does_not_mix_snapshot_and_api_roots(tmp_path) -> None:
+    snapshot = SimpleNamespace(
+        data_report=SimpleNamespace(status="Clean", as_of_date="2026-07-19"),
+        digest_root=str(tmp_path / "other-workspace"),
+        digest_records={
+            "alerts": (
+                {
+                    "item_id": "wrong-root-alert",
+                    "title": "Wrong root evidence",
+                    "rationale": "This record must not cross workspace boundaries.",
+                    "status": "available",
+                    "provenance": "wrong-root:checksum",
+                },
+            )
+        },
+    )
+    api = LocalApplicationApi(lambda: snapshot, root=tmp_path)
+
+    digest = api.get_digest()
+
+    assert dict(digest.source_status)["alerts"] == "unavailable"
+    assert dict(digest.source_status)["source_revisions"] == "manual_review"
+    assert any(item.item_id == "digest:root-mismatch" for item in digest.items)
+
+
+def test_digest_retains_malformed_proposal_as_manual_review(tmp_path) -> None:
+    proposal_dir = tmp_path / "data" / "operations" / "proposals"
+    proposal_dir.mkdir(parents=True)
+    (proposal_dir / "proposal_bad.json").write_text("{not-json", encoding="utf-8")
+    snapshot = SimpleNamespace(data_report=SimpleNamespace(status="Clean", as_of_date="2026-07-19"))
+    api = LocalApplicationApi(lambda: snapshot, root=tmp_path)
+
+    digest = api.get_digest()
+
+    assert dict(digest.source_status)["proposal_state"] == "manual_review"
+    assert any(item.source == "proposal_state" and "proposal_bad.json" in item.title for item in digest.items)
+
+
 def test_dashboard_digest_has_stable_acceptance_key() -> None:
     class Api:
         def get_digest(self) -> DigestViewModel:
