@@ -145,8 +145,19 @@ class AuthorityCapability(ImmutableModel):
     authority_stage: AuthorityStage
     description: str = Field(min_length=1)
     required_evidence: tuple[str, ...] = ()
+    required_approvals: tuple[str, ...] = ()
+    max_quantity_delta: float | None = Field(default=None, gt=0)
     availability: Literal["mandatory", "optional", "future", "disabled"] = "mandatory"
     execution_allowed: Literal[False] = False
+
+    @field_validator("required_approvals")
+    @classmethod
+    def validate_required_approvals(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not item.strip() for item in value):
+            raise ValueError("required approvals must be non-empty strings")
+        if len(value) != len(set(value)):
+            raise ValueError("required approvals must be unique")
+        return value
 
 
 class ProductDefinition(ImmutableModel):
