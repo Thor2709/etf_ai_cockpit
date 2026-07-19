@@ -72,6 +72,18 @@ def test_friction_adjusted_return_fails_closed_without_positive_order_or_cost() 
         assert result.reason
 
 
+def test_friction_adjusted_return_reports_no_ratio_when_cost_is_zero() -> None:
+    result = estimate_friction_adjusted_return(
+        {"q10_return": 0.0, "q50_return": 0.01, "q90_return": 0.02},
+        order_value_eur=1_000.0,
+        cost_estimate={"total_cost_bps": 0.0, "total_cost_eur": 0.0},
+    )
+
+    assert result.status == "available"
+    assert result.net_expected_return == 0.01
+    assert result.return_to_cost_ratio is None
+
+
 def test_forecast_return_distribution_aggregates_allowed_model_quantiles() -> None:
     forecasts = pd.DataFrame(
         [
