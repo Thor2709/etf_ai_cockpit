@@ -41,7 +41,7 @@ def test_friction_edge_rejects_missing_non_finite_and_unsupported_inputs() -> No
 
 def test_friction_adjusted_return_uses_order_size_and_preserves_quantile_order() -> None:
     result = estimate_friction_adjusted_return(
-        {"q10_return": -0.04, "q50_return": 0.06, "q90_return": 0.14},
+        {"q10_return": -0.04, "q50_return": 0.06, "q90_return": 0.14, "horizon_days": 60},
         order_value_eur=2_000.0,
         cost_estimate={"total_cost_bps": 25.0, "total_cost_eur": 5.0},
     )
@@ -63,7 +63,7 @@ def test_friction_adjusted_return_fails_closed_without_positive_order_or_cost() 
         (1_000.0, {"total_cost_bps": -1.0, "total_cost_eur": 1.0}),
     ):
         result = estimate_friction_adjusted_return(
-            {"q10_return": 0.0, "q50_return": 0.01, "q90_return": 0.02},
+            {"q10_return": 0.0, "q50_return": 0.01, "q90_return": 0.02, "horizon_days": 60},
             order_value_eur=order_value,
             cost_estimate=cost,
         )
@@ -74,7 +74,7 @@ def test_friction_adjusted_return_fails_closed_without_positive_order_or_cost() 
 
 def test_friction_adjusted_return_reports_no_ratio_when_cost_is_zero() -> None:
     result = estimate_friction_adjusted_return(
-        {"q10_return": 0.0, "q50_return": 0.01, "q90_return": 0.02},
+        {"q10_return": 0.0, "q50_return": 0.01, "q90_return": 0.02, "horizon_days": 60},
         order_value_eur=1_000.0,
         cost_estimate={"total_cost_bps": 0.0, "total_cost_eur": 0.0},
     )

@@ -533,7 +533,7 @@ def test_score_friction_fields_use_distribution_and_order_size_when_supplied() -
     fields = simple_scores_module._friction_edge_fields(
         8.0,
         [],
-        expected_return_distribution={"q10_return": -0.03, "q50_return": 0.05, "q90_return": 0.12, "status": "available"},
+        expected_return_distribution={"q10_return": -0.03, "q50_return": 0.05, "q90_return": 0.12, "horizon_days": 60, "status": "available"},
         order_value_eur=1_000.0,
         cost_estimate={"total_cost_bps": 20.0, "total_cost_eur": 2.0},
     )
@@ -542,6 +542,7 @@ def test_score_friction_fields_use_distribution_and_order_size_when_supplied() -
     assert fields["gross_expected_edge_bps"] == 500.0
     assert fields["net_expected_edge_bps"] == 480.0
     assert fields["q10_expected_return"] == -0.03
+    assert fields["expected_return_horizon_days"] == 60
     assert fields["net_expected_return"] == 0.048
     assert fields["expected_return_order_value_eur"] == 1_000.0
     assert fields["expected_return_source_dataset"] == "forecast_return_distribution"
@@ -564,6 +565,22 @@ def test_order_size_cost_estimate_uses_absolute_trade_value_and_fails_closed_at_
     assert estimate is not None
     assert estimate["total_cost_bps"] == 30.0
     assert unavailable is None
+
+
+def test_missing_production_distribution_does_not_use_legacy_score_proxy() -> None:
+    fields = simple_scores_module._friction_edge_fields(
+        8.0,
+        [],
+        volatility=0.2,
+        costs={"base": 15.0},
+        expected_return_distribution={},
+        order_value_eur=None,
+        cost_estimate=None,
+    )
+
+    assert fields["friction_status"] == "unavailable"
+    assert fields["gross_expected_edge_bps"] is None
+    assert fields["expected_return_source_dataset"] == "forecast_return_distribution"
 
 
 def test_model_backtest_validity_marks_uncalibrated_optional_models_unverified() -> None:

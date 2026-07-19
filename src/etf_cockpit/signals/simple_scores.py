@@ -319,6 +319,7 @@ class SimpleInstrumentScore:
     q10_expected_return: float | None = None
     q50_expected_return: float | None = None
     q90_expected_return: float | None = None
+    expected_return_horizon_days: int | None = None
     net_q10_expected_return: float | None = None
     net_expected_return: float | None = None
     net_q90_expected_return: float | None = None
@@ -861,6 +862,7 @@ def simple_scoreboard_frame(
             "q10_expected_return": score.q10_expected_return,
             "q50_expected_return": score.q50_expected_return,
             "q90_expected_return": score.q90_expected_return,
+            "expected_return_horizon_days": score.expected_return_horizon_days,
             "net_q10_expected_return": score.net_q10_expected_return,
             "net_expected_return": score.net_expected_return,
             "net_q90_expected_return": score.net_q90_expected_return,
@@ -1149,7 +1151,7 @@ def build_universe_simple_scores(
                     components,
                     volatility=_safe_float(signal.supporting_metrics.get("vol_60d_ann")),
                     costs=_configured_friction_costs(config, signal.etf_id),
-                    expected_return_distribution=return_distributions.get(signal.etf_id),
+                    expected_return_distribution=return_distributions.get(signal.etf_id) or {},
                     order_value_eur=_positive_order_value(signal.supporting_metrics.get("trade_value_eur")),
                     cost_estimate=_order_size_cost_estimate(
                         config,
@@ -1351,7 +1353,7 @@ def build_candidate_simple_scores(
                     evidence_score,
                     components,
                     volatility=_safe_float(row.get("volatility_60d_ann")),
-                    expected_return_distribution=return_distributions.get(instrument_id),
+                    expected_return_distribution=return_distributions.get(instrument_id) or {},
                     order_value_eur=None,
                     cost_estimate=None,
                 ),
@@ -2085,6 +2087,7 @@ def _friction_edge_fields(
             "q10_expected_return": result.q10_return,
             "q50_expected_return": result.q50_return,
             "q90_expected_return": result.q90_return,
+            "expected_return_horizon_days": result.horizon_days,
             "net_q10_expected_return": result.net_q10_return,
             "net_expected_return": result.net_expected_return,
             "net_q90_expected_return": result.net_q90_return,
@@ -2111,6 +2114,7 @@ def _friction_edge_fields(
         "q10_expected_return": None,
         "q50_expected_return": None,
         "q90_expected_return": None,
+        "expected_return_horizon_days": None,
         "net_q10_expected_return": None,
         "net_expected_return": None,
         "net_q90_expected_return": None,
@@ -2136,6 +2140,7 @@ def _unavailable_friction_fields(reason: str) -> dict[str, object]:
         "q10_expected_return": None,
         "q50_expected_return": None,
         "q90_expected_return": None,
+        "expected_return_horizon_days": None,
         "net_q10_expected_return": None,
         "net_expected_return": None,
         "net_q90_expected_return": None,

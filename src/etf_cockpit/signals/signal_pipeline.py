@@ -57,7 +57,7 @@ def generate_signals(
         scored["expected_edge_60d"] = fallback_edge
     else:
         scored["expected_edge_60d"] = scored["etf_id"].map(
-            lambda etf_id: _distribution_value(forecast_distributions.get(str(etf_id)), "q50_return")
+            lambda etf_id: _primary_horizon_distribution_value(forecast_distributions.get(str(etf_id)), "q50_return")
         )
         scored["expected_edge_60d"] = pd.to_numeric(scored["expected_edge_60d"], errors="coerce").fillna(fallback_edge)
 
@@ -184,6 +184,7 @@ def generate_signals(
                 "q10_expected_return": _distribution_value(distribution, "q10_return"),
                 "q50_expected_return": _distribution_value(distribution, "q50_return"),
                 "q90_expected_return": _distribution_value(distribution, "q90_return"),
+                "expected_return_horizon_days": _distribution_value(distribution, "horizon_days"),
                 "expected_return_distribution_status": distribution_status or ("legacy_compatibility" if forecast_distributions is None else "unavailable"),
                 "expected_return_distribution_reason": distribution_reason or ("Legacy diagnostic path without a loaded return distribution." if forecast_distributions is None else "No valid forecast return distribution is available."),
                 "estimated_cost_bps": estimated_cost,
@@ -378,3 +379,9 @@ def _distribution_value(distribution: dict[str, object] | None, key: str) -> obj
     if isinstance(value, (int, float)):
         return float(value) if isfinite(float(value)) else None
     return value if isinstance(value, str) else None
+
+
+def _primary_horizon_distribution_value(distribution: dict[str, object] | None, key: str) -> object | None:
+    if _distribution_value(distribution, "horizon_days") != 60:
+        return None
+    return _distribution_value(distribution, key)

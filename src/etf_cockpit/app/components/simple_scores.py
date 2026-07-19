@@ -212,7 +212,7 @@ def _score_tile(item: SimpleInstrumentScore, history_rows: list[dict[str, object
                     wrap=True,
                 ),
                 ft.Text(
-                    f"Expected-return distribution: {_pct_badge(item.q10_expected_return)} / {_pct_badge(item.q50_expected_return)} / {_pct_badge(item.q90_expected_return)} gross; "
+                    f"Expected-return distribution ({item.expected_return_horizon_days or 'N/A'}d): {_pct_badge(item.q10_expected_return)} / {_pct_badge(item.q50_expected_return)} / {_pct_badge(item.q90_expected_return)} gross; "
                     f"{_pct_badge(item.net_expected_return)} net on {_euro_badge(item.expected_return_order_value_eur)} order | "
                     f"cost {_bps_badge(item.expected_return_cost_bps)} | ratio {_number_badge(item.expected_return_cost_ratio)} | {item.expected_return_source_dataset}",
                     color=theme.MUTED if item.friction_status == "available" else theme.AMBER,

@@ -27,6 +27,7 @@ class FrictionAdjustedReturnResult:
     q10_return: float | None
     q50_return: float | None
     q90_return: float | None
+    horizon_days: int | None
     net_q10_return: float | None
     net_expected_return: float | None
     net_q90_return: float | None
@@ -60,7 +61,8 @@ def estimate_friction_adjusted_return(
     q10 = _finite(distribution.get("q10_return"))
     q50 = _finite(distribution.get("q50_return"))
     q90 = _finite(distribution.get("q90_return"))
-    if any(value is None for value in (q10, q50, q90)) or not q10 <= q50 <= q90:
+    horizon = _finite(distribution.get("horizon_days"))
+    if any(value is None for value in (q10, q50, q90, horizon)) or horizon <= 0 or not q10 <= q50 <= q90:
         return _return_unavailable("Expected-return quantiles are missing, non-finite or not ordered.")
     order_value = _finite(order_value_eur)
     if order_value is None or order_value <= 0.0:
@@ -80,6 +82,7 @@ def estimate_friction_adjusted_return(
         q10_return=round(q10, 12),
         q50_return=round(q50, 12),
         q90_return=round(q90, 12),
+        horizon_days=int(horizon),
         net_q10_return=round(net_q10, 12),
         net_expected_return=round(net_q50, 12),
         net_q90_return=round(net_q90, 12),
@@ -150,7 +153,20 @@ def _unavailable(scenario: str, reason: str) -> FrictionEdgeResult:
 
 
 def _return_unavailable(reason: str) -> FrictionAdjustedReturnResult:
-    return FrictionAdjustedReturnResult(None, None, None, None, None, None, None, None, None, None, reason=reason)
+    return FrictionAdjustedReturnResult(
+        q10_return=None,
+        q50_return=None,
+        q90_return=None,
+        horizon_days=None,
+        net_q10_return=None,
+        net_expected_return=None,
+        net_q90_return=None,
+        order_value_eur=None,
+        cost_bps=None,
+        cost_eur=None,
+        return_to_cost_ratio=None,
+        reason=reason,
+    )
 
 
 __all__ = [

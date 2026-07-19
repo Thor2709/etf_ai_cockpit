@@ -33,7 +33,7 @@
     "tests/test_task18_ui.py"
   ],
   "completed_checks": [
-    "distribution and friction regression tests passed, including optional-forecast fallback and order-size boundaries",
+    "distribution and friction regression tests passed, including optional-forecast fallback, order-size boundaries and horizon propagation",
     "score, signal-gate, instrument-detail, friction UI and optional-forecast fallback regressions passed",
     "Ruff passed for changed Python files",
     "compileall passed",

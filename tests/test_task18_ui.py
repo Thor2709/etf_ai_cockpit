@@ -92,6 +92,7 @@ def test_score_tile_renders_distribution_cost_and_non_execution_state() -> None:
         q10_expected_return=-0.02,
         q50_expected_return=0.05,
         q90_expected_return=0.12,
+        expected_return_horizon_days=60,
         net_expected_return=0.048,
         expected_return_order_value_eur=1_000.0,
         expected_return_cost_bps=20.0,
@@ -102,7 +103,7 @@ def test_score_tile_renders_distribution_cost_and_non_execution_state() -> None:
 
     rendered = "\n".join(_text_values(_score_tile(score, [])))
 
-    assert "Expected-return distribution" in rendered
+    assert "Expected-return distribution (60d)" in rendered
     assert "-2.0% / +5.0% / +12.0% gross" in rendered
     assert "EUR 1,000.00 order" in rendered
     assert "+20.0 bps" in rendered
