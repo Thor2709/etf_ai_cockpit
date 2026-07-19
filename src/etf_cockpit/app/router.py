@@ -33,6 +33,7 @@ from etf_cockpit.app.pages.jobs import jobs_page
 from etf_cockpit.app.pages.portfolio import portfolio_page
 from etf_cockpit.app.pages.portfolio_optimiser import portfolio_optimiser_page
 from etf_cockpit.app.pages.risk import risk_page
+from etf_cockpit.app.pages.stress_lab import stress_lab_page
 from etf_cockpit.app.pages.settings import settings_page
 from etf_cockpit.app.pages.screener import screener_page
 from etf_cockpit.app.pages.stock_research import stock_research_page
@@ -58,6 +59,7 @@ PAGES = {
     "/comparison": ("Comparison", comparison_page),
     "/stock-research": ("Stock Research", stock_research_page),
     "/risk": ("Risk Evidence", risk_page),
+    "/stress-lab": ("Stress Lab", stress_lab_page),
     "/etf": ("Instrument Detail", instrument_detail_page),
     "/backtests": ("Backtests", backtests_page),
     "/chatgpt": ("Audit Notes", chatgpt_audit_page),
@@ -97,7 +99,7 @@ WORKSPACE_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Home", ("/",)),
     ("Discover", ("/signals", "/screener", "/comparison", "/stock-research", "/universe", "/what-changed")),
     ("Instrument", ("/etf", "/instrument")),
-    ("Portfolio", ("/portfolio", "/portfolio-optimiser", "/risk")),
+    ("Portfolio", ("/portfolio", "/portfolio-optimiser", "/risk", "/stress-lab")),
     ("Models", ("/data-models", "/forecasts", "/training-centre", "/feature-catalogue", "/macro")),
     ("Backtest/Paper", ("/backtests", "/operations", "/forward-evidence")),
     ("Data Health", ("/providers", "/filings", "/etf-disclosures", "/news-context", "/catalogue", "/data-health")),

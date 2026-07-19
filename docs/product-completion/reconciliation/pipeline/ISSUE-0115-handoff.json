@@ -1,0 +1,60 @@
+{
+  "schema_version": "1.0",
+  "stage": "frozen_feature_checkpoint",
+  "issue_ids": ["ISSUE-0115"],
+  "base_sha": "4627118588a0764459ef1552f7d201331db127a3",
+  "checkpoint_sha": "59d68a7e61e901849a1b38eec4f65ca653e079a8",
+  "branch": "codex/issue-0115-stress-lab-20260719",
+  "worktree": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\issue0115-stress-lab-20260719",
+  "root_role_model": "root implementation · gpt-5.6 Luna High",
+  "scout_role_model": "scout_reviewer · gpt-5.6 Luna Medium",
+  "release_steward_role_model": "release_steward · gpt-5.6 Luna Medium",
+  "expected_status_transition": {
+    "ISSUE-0115": ["planned", "integrated"]
+  },
+  "allowed_paths": [
+    ".github/status-transition-guard-manifest.json",
+    "artifacts/validation/latest/validation.json",
+    "artifacts/validation/latest/validation.md",
+    "configs/feature_registry.yaml",
+    "configs/ui_acceptance.yaml",
+    "docs/product-completion/CURRENT_STATUS.json",
+    "docs/product-completion/PROGRESS.md",
+    "docs/product-completion/reconciliation/pipeline/ISSUE-0115-handoff.json",
+    "issues/issue_registry.json",
+    "src/etf_cockpit/app/pages/stress_lab.py",
+    "src/etf_cockpit/app/router.py",
+    "src/etf_cockpit/application/stress_lab.py",
+    "src/etf_cockpit/portfolio/stress_testing.py",
+    "tests/test_stress_testing.py",
+    "tests/ui/test_stress_lab_ui.py"
+  ],
+  "completed_checks": [
+    "Stress Lab engine and persistence focused tests passed",
+    "Stress Lab UI, feature registry, button contract and frontend architecture tests passed",
+    "Ruff and compileall passed for changed code",
+    "offline source smoke passed",
+    "scripts/validate_app.py --changed passed with structured JSON and Markdown evidence",
+    "issue registry validation and exact status-transition guard passed"
+  ],
+  "authorised_baseline_fingerprints": [
+    "tests/scope_boundary/test_package_inventory.py::test_current_production_package_inventory_passes",
+    "tests/test_governance_review_regressions.py::test_audit_manifest_includes_governance_checksums_version_and_diagnostic_marker",
+    "tests/test_product_governance.py::test_authority_matrix_covers_runtime_capabilities_and_stays_disabled",
+    "tests/ui/test_system_map_ui.py::test_system_map_shows_future_execution_as_non_interactive"
+  ],
+  "merge_conditions": [
+    "head and base match the handoff",
+    "changed paths and exact ISSUE-0115 planned-to-integrated transition match",
+    "required CI checks pass or match only the authorised fingerprints",
+    "post-merge quick validation, registry readback and GitHub issue sync no-op converge"
+  ],
+  "stop_conditions": [
+    "unexpected changed path or status transition",
+    "changed checkpoint head, stale base or merge conflict",
+    "current-feature test failure",
+    "ambiguous baseline mismatch",
+    "product-code correction required during release"
+  ],
+  "notes": "Local-first deterministic historical, hypothetical and reverse stress evidence with checksum-protected versioned scenarios; instrument/factor/residual contributions remain visible, execution_allowed is false and probabilities/live execution are out of scope."
+}
