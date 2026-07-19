@@ -9,17 +9,18 @@ promotion state; model execution remains disabled by policy.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
 from typing import Any, Literal
 
 from etf_cockpit.core.job_scheduler import DurableJobScheduler, JobSpec, WorkflowRecord
 from etf_cockpit.core.session_log import redact_text
-from etf_cockpit.data.local_storage import StoredRecord, TransactionalStore
+from etf_cockpit.data.local_storage import StoredRecord, StorageRevisionConflict, TransactionalStore
 
 
 RunStatus = Literal["queued", "running", "completed", "failed", "cancelled"]
@@ -31,6 +32,10 @@ _ENTITY_METRIC = "training.metric"
 _ENTITY_DATASET = "training.dataset"
 _ENTITY_ARTIFACT = "training.artifact"
 _ENTITY_MODEL = "training.model"
+_ENTITY_VALIDATION_REPORT = "validation.report"
+_ENTITY_VALIDATION_TRIAL = "validation.trial"
+_ENTITY_VALIDATION_DECISION = "validation.researcher_decision"
+_ENTITY_VALIDATION_PROMOTION = "validation.promotion_result"
 _SAFE_HASH = re.compile(r"^[0-9a-f]{64}$")
 _UNSAFE_SUFFIXES = {".pkl", ".pickle", ".joblib", ".dill", ".pt", ".pth"}
 _SECRET_KEY = re.compile(r"(?:api[_-]?key|access[_-]?token|client[_-]?secret|password|passwd|authorization|bearer|secret|token)", re.I)
@@ -196,6 +201,147 @@ class LocalTrainingRegistry:
         metric_id = f"{run_id}:{_identifier(name, 'metric_name')}:{step}"
         return self._put(_ENTITY_METRIC, metric_id, {"metric_id": metric_id, "run_id": run_id, "name": _bounded_text(name, "metric_name"), "value": float(value), "step": int(step), "recorded_at": _utc_now()})
 
+    def record_validation_report(
+        self,
+        run_id: str,
+        report: object,
+        *,
+        trial_returns: Mapping[str, Sequence[float]],
+        data_hash: str,
+        code_hash: str,
+        features: Mapping[str, object],
+        thresholds: Mapping[str, object],
+        variants: Mapping[str, object],
+        selection_method: str,
+    ) -> dict[str, object]:
+        """Persist complete validation search evidence without promotion authority."""
+
+        from etf_cockpit.validation.protocol import ValidationReport, report_fingerprint
+
+        self.require(_ENTITY_RUN, run_id)
+        if not isinstance(report, ValidationReport):
+            raise TrainingRegistryError("validation evidence requires a ValidationReport")
+        for label, value in (("data_hash", data_hash), ("code_hash", code_hash)):
+            _require_hash(value, label)
+        trial_ids = {trial.trial_id for trial in report.trials}
+        if set(trial_returns) != trial_ids:
+            raise TrainingRegistryError("every retained validation trial must have a return series")
+        validated_returns: dict[str, list[float]] = {}
+        for trial_id in trial_ids:
+            series = [float(value) for value in trial_returns[trial_id]]
+            if not series or len(series) > 100_000 or any(not math.isfinite(value) for value in series):
+                raise TrainingRegistryError(f"trial {trial_id} has an invalid return series")
+            validated_returns[trial_id] = series
+        report_hash = report_fingerprint(report)
+        report_id = f"validation_report_{_identifier(run_id, 'run_id')}_{report_hash[:12]}"
+        report_payload = {
+            "report_id": report_id,
+            "run_id": _identifier(run_id, "run_id"),
+            "report_fingerprint": report_hash,
+            "protocol_version": report.protocol_version,
+            "spec": report.spec.__dict__,
+            "folds": [asdict(fold) for fold in report.folds],
+            "trial_ids": sorted(trial_ids),
+            "selected_trial_id": report.selected_trial_id,
+            "final_test_score": report.final_test_score,
+            "final_test_used_for_selection": report.final_test_used_for_selection,
+            "uncertainty": _safe_mapping(report.uncertainty),
+            "regime_results": _safe_mapping(report.regime_results),
+            "subgroup_results": _safe_mapping(report.subgroup_results),
+            "effective_independent_trial_count": report.effective_independent_trial_count,
+            "deflated_sharpe": report.deflated_sharpe,
+            "probability_of_backtest_overfitting": report.probability_of_backtest_overfitting,
+            "false_discovery_rate": report.false_discovery_rate,
+            "promotion_eligible": report.promotion_eligible,
+            "warnings": list(report.warnings),
+            "data_hash": data_hash,
+            "code_hash": code_hash,
+            "features": _safe_mapping(features),
+            "thresholds": _safe_mapping(thresholds),
+            "variants": _safe_mapping(variants),
+            "selection_method": _bounded_text(selection_method, "selection_method", limit=500),
+            "execution_allowed": False,
+        }
+        records: list[tuple[str, str, Mapping[str, object]]] = [(_ENTITY_VALIDATION_REPORT, report_id, report_payload)]
+        for trial in report.trials:
+            trial_payload = {
+                "evidence_id": f"{report_id}:{_identifier(trial.trial_id, 'trial_id')}",
+                "report_id": report_id,
+                "run_id": _identifier(run_id, "run_id"),
+                "trial_id": trial.trial_id,
+                "return_series": validated_returns[trial.trial_id],
+                "parameters": _safe_mapping(trial.parameters),
+                "validation_scores": list(trial.validation_scores),
+                "validation_mean": trial.validation_mean,
+                "final_test_score": trial.final_test_score,
+                "selected": trial.selected,
+                "discarded_reason": trial.discarded_reason,
+                "data_hash": data_hash,
+                "code_hash": code_hash,
+                "execution_allowed": False,
+            }
+            records.append((_ENTITY_VALIDATION_TRIAL, str(trial_payload["evidence_id"]), trial_payload))
+        self._put_many_immutable(records)
+        return report_payload
+
+    def record_researcher_decision(self, report_id: str, *, decision: Literal["pending", "approved", "rejected"], reviewer: str, rationale: str) -> dict[str, object]:
+        report = self.require(_ENTITY_VALIDATION_REPORT, report_id)
+        if decision not in {"pending", "approved", "rejected"}:
+            raise TrainingRegistryError("researcher decision is unsupported")
+        if decision == "approved" and not bool(report.get("promotion_eligible")):
+            raise TrainingRegistryError("an ineligible validation report cannot receive an approval decision")
+        payload = {
+            "decision_id": f"decision_{_hash_payload([report_id, decision, reviewer, rationale])[:20]}",
+            "report_id": _identifier(report_id, "report_id"),
+            "decision": decision,
+            "reviewer": _bounded_text(reviewer, "reviewer"),
+            "rationale": _bounded_text(rationale, "rationale", limit=2_000),
+            "decided_at": _utc_now(),
+            "execution_allowed": False,
+        }
+        existing = self.get(_ENTITY_VALIDATION_DECISION, str(payload["decision_id"]))
+        if existing is not None:
+            comparable = {key: value for key, value in payload.items() if key != "decided_at"}
+            previous = {key: value for key, value in existing.items() if key != "decided_at"}
+            if comparable == previous:
+                return existing
+        return self._put_immutable(_ENTITY_VALIDATION_DECISION, str(payload["decision_id"]), payload)
+
+    def validation_promotion_result(self, report_id: str) -> dict[str, object]:
+        report = self.get(_ENTITY_VALIDATION_REPORT, report_id)
+        if report is None:
+            raise TrainingRegistryError("validation report not found")
+        self.require(_ENTITY_RUN, str(report["run_id"]))
+        trial_ids = report.get("trial_ids", [])
+        missing = [trial_id for trial_id in trial_ids if self.get(_ENTITY_VALIDATION_TRIAL, f"{report_id}:{trial_id}") is None]
+        decisions = [item for item in self.list_records(_ENTITY_VALIDATION_DECISION) if item.get("report_id") == report_id]
+        latest = max(decisions, key=lambda item: str(item.get("decided_at", "")), default=None)
+        reasons = []
+        if missing:
+            reasons.append("trial_evidence_incomplete")
+        if not bool(report.get("promotion_eligible")):
+            reasons.append("protocol_promotion_ineligible")
+        if latest is None or latest.get("decision") != "approved":
+            reasons.append("researcher_approval_missing")
+        decision_id = str(latest.get("decision_id", "")) if latest else ""
+        payload = {
+            "promotion_id": f"promotion_{_hash_payload([report_id, decision_id, not reasons, reasons])[:20]}",
+            "report_id": report_id,
+            "eligible": not reasons,
+            "reasons": reasons,
+            "researcher_decision": latest,
+            "execution_allowed": False,
+            "evaluated_at": str(latest.get("decided_at", "")) if latest else "",
+        }
+        return self._put_immutable(_ENTITY_VALIDATION_PROMOTION, str(payload["promotion_id"]), payload)
+
+    def list_validation_reports(self) -> tuple[dict[str, object], ...]:
+        return self.list_records(_ENTITY_VALIDATION_REPORT)
+
+    def list_validation_trials(self, report_id: str | None = None) -> tuple[dict[str, object], ...]:
+        rows = self.list_records(_ENTITY_VALIDATION_TRIAL)
+        return tuple(row for row in rows if report_id is None or row.get("report_id") == report_id)
+
     def register_dataset(self, dataset_id: str, *, sha256: str, source: str, feature_hash: str = "") -> dict[str, object]:
         _require_hash(sha256, "sha256")
         if feature_hash:
@@ -278,7 +424,7 @@ class LocalTrainingRegistry:
         return tuple(record.payload for record in self._list(entity_type))
 
     def snapshot(self) -> dict[str, tuple[dict[str, object], ...]]:
-        return {key: self.list_records(key) for key in (_ENTITY_EXPERIMENT, _ENTITY_RUN, _ENTITY_METRIC, _ENTITY_DATASET, _ENTITY_ARTIFACT, _ENTITY_MODEL)}
+        return {key: self.list_records(key) for key in (_ENTITY_EXPERIMENT, _ENTITY_RUN, _ENTITY_METRIC, _ENTITY_DATASET, _ENTITY_ARTIFACT, _ENTITY_MODEL, _ENTITY_VALIDATION_REPORT, _ENTITY_VALIDATION_TRIAL, _ENTITY_VALIDATION_DECISION, _ENTITY_VALIDATION_PROMOTION)}
 
     def get(self, entity_type: str, entity_id: str) -> dict[str, object] | None:
         record = self._store_get(entity_type, entity_id)
@@ -292,6 +438,17 @@ class LocalTrainingRegistry:
 
     def _put(self, entity_type: str, entity_id: str, payload: Mapping[str, object]) -> dict[str, object]:
         return self._store_put(entity_type, entity_id, payload).payload
+
+    def _put_immutable(self, entity_type: str, entity_id: str, payload: Mapping[str, object]) -> dict[str, object]:
+        try:
+            with TransactionalStore(self.root) as store:
+                return store.put_many([(entity_type, entity_id, payload)], immutable=True)[0].payload
+        except StorageRevisionConflict as exc:
+            raise TrainingRegistryError(f"immutable validation evidence already exists with different content: {entity_id}") from exc
+
+    def _put_many_immutable(self, records: Sequence[tuple[str, str, Mapping[str, object]]]) -> None:
+        with TransactionalStore(self.root) as store:
+            store.put_many(records, immutable=True)
 
     def _list(self, entity_type: str) -> tuple[StoredRecord, ...]:
         with TransactionalStore(self.root) as store:

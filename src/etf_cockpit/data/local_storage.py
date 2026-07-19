@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -434,6 +434,53 @@ class TransactionalStore:
                 updated_at=now,
             )
         return stored
+
+    def put_many(
+        self,
+        records: Sequence[tuple[str, str, Mapping[str, Any]]],
+        *,
+        immutable: bool = False,
+    ) -> tuple[StoredRecord, ...]:
+        """Write a batch atomically, optionally preserving immutable records."""
+
+        prepared = []
+        for entity_type, entity_id, payload in records:
+            entity_type, entity_id = _validate_identity(entity_type, entity_id)
+            if not isinstance(payload, Mapping):
+                raise TypeError("payload must be a mapping")
+            encoded = json.dumps(dict(payload), sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+            prepared.append((entity_type, entity_id, dict(payload), encoded))
+        now = _utc_now()
+        stored: list[StoredRecord] = []
+        with self.transaction() as connection:
+            for entity_type, entity_id, payload, encoded in prepared:
+                previous = connection.execute(
+                    "SELECT revision, created_at, payload_json, updated_at FROM transactional_records WHERE entity_type = ? AND entity_id = ?",
+                    (entity_type, entity_id),
+                ).fetchone()
+                if previous and immutable:
+                    if dict(json.loads(str(previous[2]))) != payload:
+                        raise StorageRevisionConflict(f"immutable record already exists with different content: {entity_id}")
+                    stored.append(StoredRecord(entity_type, entity_id, payload, int(previous[0]), str(previous[1]), str(previous[3])))
+                    continue
+                current_revision = int(previous[0]) if previous else 0
+                revision = current_revision + 1
+                created_at = str(previous[1]) if previous else now
+                connection.execute(
+                    """
+                    INSERT INTO transactional_records
+                        (entity_type, entity_id, payload_json, revision, created_at, updated_at, deleted_at)
+                    VALUES (?, ?, ?, ?, ?, ?, NULL)
+                    ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+                        payload_json = excluded.payload_json,
+                        revision = excluded.revision,
+                        updated_at = excluded.updated_at,
+                        deleted_at = NULL
+                    """,
+                    (entity_type, entity_id, encoded, revision, created_at, now),
+                )
+                stored.append(StoredRecord(entity_type, entity_id, payload, revision, created_at, now))
+        return tuple(stored)
 
     def get(self, entity_type: str, entity_id: str, *, include_deleted: bool = False) -> StoredRecord | None:
         entity_type, entity_id = _validate_identity(entity_type, entity_id)

@@ -3,9 +3,11 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from etf_cockpit.features.training_centre import LocalTrainingRegistry, TrainingRegistryError
+from etf_cockpit.validation.protocol import ValidationSpec, evaluate_trials
 
 
 def _hash(value: str) -> str:
@@ -105,3 +107,51 @@ def test_registered_run_uses_durable_job_lifecycle(tmp_path: Path) -> None:
     run = registry.require("training.run", "run-001")
     assert run["status"] == "completed"
     assert run["workflow_id"] == workflow.workflow_id
+
+
+def test_validation_evidence_retains_all_trials_and_fails_closed_without_researcher_approval(tmp_path: Path) -> None:
+    registry, run = _registry(tmp_path)
+    values = {"baseline": np.full(20, 0.1), "challenger": np.full(20, 0.2)}
+    report = evaluate_trials(values, spec=ValidationSpec(n_splits=2, test_size=5, final_test_size=5, bootstrap_repetitions=10))
+
+    stored = registry.record_validation_report(
+        str(run["run_id"]),
+        report,
+        trial_returns={key: value.tolist() for key, value in values.items()},
+        data_hash=_hash("data"),
+        code_hash=_hash("code"),
+        features={"price_basis": "adjusted_close"},
+        thresholds={"minimum_score": 0.0},
+        variants={"baseline": "naive", "challenger": "candidate"},
+        selection_method="highest development-fold mean",
+    )
+
+    assert len(registry.list_validation_reports()) == 1
+    assert len(registry.list_validation_reports()[0]["folds"]) == 2
+    retained_report = registry.list_validation_reports()[0]
+    assert {"data_hash", "code_hash", "features", "thresholds", "variants", "selection_method"} <= retained_report.keys()
+    retained_trials = registry.list_validation_trials(str(stored["report_id"]))
+    assert len(retained_trials) == 2
+    assert {"return_series", "parameters", "validation_scores", "discarded_reason", "data_hash", "code_hash"} <= retained_trials[0].keys()
+    result = registry.validation_promotion_result(str(stored["report_id"]))
+    assert result["eligible"] is False
+    assert "researcher_approval_missing" in result["reasons"]
+    assert registry.snapshot()["validation.promotion_result"]
+    decision = registry.record_researcher_decision(str(stored["report_id"]), decision="pending", reviewer="analyst", rationale="Review required")
+    assert decision["execution_allowed"] is False
+
+    with pytest.raises(TrainingRegistryError, match="return series"):
+        registry.record_validation_report(
+            str(run["run_id"]),
+            report,
+            trial_returns={"baseline": [0.1]},
+            data_hash=_hash("data"),
+            code_hash=_hash("code"),
+            features={},
+            thresholds={},
+            variants={},
+            selection_method="invalid",
+        )
+
+    with pytest.raises(TrainingRegistryError, match="report not found"):
+        registry.validation_promotion_result("missing-report")
