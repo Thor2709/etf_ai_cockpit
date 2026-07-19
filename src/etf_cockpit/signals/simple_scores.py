@@ -2158,7 +2158,7 @@ def _configured_friction_costs(config: AppConfig, instrument_id: str) -> dict[st
 
 def _positive_order_value(value: object) -> float | None:
     parsed = _safe_float(value)
-    return parsed if parsed is not None and parsed > 0.0 else None
+    return abs(parsed) if parsed is not None and parsed != 0.0 else None
 
 
 def _order_size_cost_estimate(config: AppConfig, instrument_id: str, value: object) -> dict[str, object] | None:

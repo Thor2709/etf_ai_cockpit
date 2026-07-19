@@ -6,7 +6,7 @@ from etf_cockpit.core.config import load_config
 from etf_cockpit.core.types import DataQualityReport
 from etf_cockpit.signals.actions import preliminary_action
 from etf_cockpit.signals.gates import evaluate_risk_gates
-from etf_cockpit.signals.signal_pipeline import _cost_stress_metrics
+from etf_cockpit.signals.signal_pipeline import _cost_stress_metrics, _technical_expected_edge
 
 
 def test_action_threshold_mapping_add_and_trim() -> None:
@@ -80,3 +80,17 @@ def test_cost_stress_metrics_include_low_base_high_scenarios() -> None:
         "insufficient_edge_or_cost",
     }
     assert "configured spread+slippage+FX" in metrics["cost_stress_assumptions"]
+
+
+def test_missing_forecast_distribution_keeps_deterministic_baseline_edge_input() -> None:
+    scored = pd.DataFrame(
+        {
+            "momentum_60d": [0.10, None],
+            "momentum_120d": [0.20, 0.10],
+            "relative_strength_60d": [0.30, 0.20],
+        }
+    )
+
+    fallback = _technical_expected_edge(scored)
+
+    assert fallback.round(12).tolist() == [0.175, 0.075]

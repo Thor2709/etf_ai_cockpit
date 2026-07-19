@@ -64,6 +64,53 @@ def test_instrument_detail_renders_cost_edge_fields(tmp_path, monkeypatch) -> No
         assert expected in rendered
 
 
+def test_score_tile_renders_distribution_cost_and_non_execution_state() -> None:
+    from dataclasses import replace
+
+    from etf_cockpit.app.components.simple_scores import _score_tile
+    from etf_cockpit.signals.simple_scores import build_candidate_simple_scores
+
+    report = pd.DataFrame(
+        [{
+            "instrument_id": "ABC",
+            "name": "ABC Test Stock",
+            "yahoo_symbol": "ABC.DE",
+            "latest_date": "2026-07-10",
+            "latest_price": 100.0,
+            "return_3m": 0.10,
+            "return_6m": 0.18,
+            "return_12m": 0.25,
+            "volatility_60d_ann": 0.18,
+            "current_drawdown": -0.04,
+            "sma50_signal": True,
+            "sma200_signal": True,
+            "blocked_by": "",
+        }]
+    )
+    score = replace(
+        build_candidate_simple_scores(report, pd.DataFrame())[0],
+        q10_expected_return=-0.02,
+        q50_expected_return=0.05,
+        q90_expected_return=0.12,
+        net_expected_return=0.048,
+        expected_return_order_value_eur=1_000.0,
+        expected_return_cost_bps=20.0,
+        expected_return_cost_ratio=24.0,
+        expected_return_source_dataset="forecast_return_distribution",
+        friction_status="available",
+    )
+
+    rendered = "\n".join(_text_values(_score_tile(score, [])))
+
+    assert "Expected-return distribution" in rendered
+    assert "-2.0% / +5.0% / +12.0% gross" in rendered
+    assert "EUR 1,000.00 order" in rendered
+    assert "+20.0 bps" in rendered
+    assert "24.00" in rendered
+    assert score.execution_allowed is False
+    assert "Place order" not in rendered
+
+
 def test_risk_page_renders_cost_edge_fields_and_unavailable_state(tmp_path, monkeypatch) -> None:
     from etf_cockpit.app.pages import risk as page_module
 

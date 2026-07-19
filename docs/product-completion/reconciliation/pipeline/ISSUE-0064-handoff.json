@@ -28,11 +28,13 @@
     "src/etf_cockpit/signals/signal_pipeline.py",
     "src/etf_cockpit/signals/simple_scores.py",
     "tests/test_friction_edge.py",
-    "tests/test_simple_scores.py"
+    "tests/test_signal_gates.py",
+    "tests/test_simple_scores.py",
+    "tests/test_task18_ui.py"
   ],
   "completed_checks": [
-    "distribution and friction regression tests passed",
-    "score, signal-gate, instrument-detail and friction UI regressions passed",
+    "distribution and friction regression tests passed, including optional-forecast fallback and order-size boundaries",
+    "score, signal-gate, instrument-detail, friction UI and optional-forecast fallback regressions passed",
     "Ruff passed for changed Python files",
     "compileall passed",
     "offline source smoke passed",

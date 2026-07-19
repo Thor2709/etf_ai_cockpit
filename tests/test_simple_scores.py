@@ -547,6 +547,25 @@ def test_score_friction_fields_use_distribution_and_order_size_when_supplied() -
     assert fields["expected_return_source_dataset"] == "forecast_return_distribution"
 
 
+def test_order_size_cost_estimate_uses_absolute_trade_value_and_fails_closed_at_zero(monkeypatch) -> None:
+    calls: list[float] = []
+
+    def fake_estimate(_config, _instrument_id, order_value):
+        calls.append(order_value)
+        return SimpleNamespace(as_dict=lambda: {"total_cost_bps": 30.0, "total_cost_eur": 3.0})
+
+    monkeypatch.setattr(simple_scores_module, "estimate_execution_cost", fake_estimate)
+    config = load_config()
+
+    estimate = simple_scores_module._order_size_cost_estimate(config, "VWCE", -250.0)
+    unavailable = simple_scores_module._order_size_cost_estimate(config, "VWCE", 0.0)
+
+    assert calls == [250.0]
+    assert estimate is not None
+    assert estimate["total_cost_bps"] == 30.0
+    assert unavailable is None
+
+
 def test_model_backtest_validity_marks_uncalibrated_optional_models_unverified() -> None:
     components = [
         SimpleScoreComponent("baseline", "Baseline", 6.0, 0.2, "OK", "", "", "", authority="low", score_role="model_confirmation"),
