@@ -424,6 +424,7 @@ class LocalApplicationApi:
                     for item in request.gate_evidence
                 ),
                 rationale=request.rationale,
+                approvals=request.approvals,
             )
         )
         save_proposal_decision(decision, directory=self._root / "data" / "operations" / "proposals")

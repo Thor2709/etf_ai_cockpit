@@ -304,6 +304,7 @@ class ProposalReviewRequest(ContractModel):
     authority_policy_checksum: str = Field(min_length=64, max_length=64)
     gate_evidence: tuple[ProposalGateEvidence, ...] = ()
     rationale: str = ""
+    approvals: tuple[str, ...] = ()
 
 
 class ProposalGateViewModel(ContractModel):

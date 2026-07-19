@@ -1,0 +1,66 @@
+{
+  "schema_version": "1.0",
+  "stage": "frozen_feature_checkpoint",
+  "issue_ids": ["ISSUE-0063"],
+  "base_sha": "2fa669f8ec6d49c94214188b06e89f0e24603600",
+  "checkpoint_sha": "8b5dd9aac11122a3f39830099d11004552ee3847",
+  "branch": "codex/issue-0063-quality-momentum-20260719",
+  "worktree": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\issue0063-quality-momentum-20260719",
+  "root_role_model": "root implementation · gpt-5.6 Luna High",
+  "scout_role_model": "scout_reviewer · gpt-5.6 Luna Medium",
+  "release_steward_role_model": "release_steward · gpt-5.6 Luna Medium",
+  "expected_status_transition": {
+    "ISSUE-0063": ["planned", "implemented_initially"]
+  },
+  "allowed_paths": [
+    ".github/status-transition-guard-manifest.json",
+    "artifacts/validation/latest/validation.json",
+    "artifacts/validation/latest/validation.md",
+    "configs/feature_registry.yaml",
+    "docs/product-completion/CURRENT_STATUS.json",
+    "docs/product-completion/PROGRESS.md",
+    "docs/product-completion/reconciliation/pipeline/ISSUE-0063-handoff.json",
+    "issues/issue_registry.json",
+    "scripts/issue_registry_core.py",
+    "src/etf_cockpit/app/pages/backtests.py",
+    "src/etf_cockpit/app/pages/forward_evidence.py",
+    "src/etf_cockpit/backtest/engine.py",
+    "src/etf_cockpit/data/fundamentals.py",
+    "src/etf_cockpit/services.py",
+    "src/etf_cockpit/signals/quality_momentum.py",
+    "tests/test_backtest_lab.py",
+    "tests/test_fundamentals.py",
+    "tests/test_quality_momentum.py",
+    "tests/ui/test_forward_evidence_ui.py"
+  ],
+  "completed_checks": [
+    "quality-momentum, backtest, fundamentals and forward-evidence focused tests passed",
+    "one complete pytest gate passed for ISSUE-0063; final result contained only the four authorised baselines",
+    "Ruff passed for changed Python files",
+    "compileall passed",
+    "offline source smoke passed",
+    "scripts/validate_app.py --issue ISSUE-0063 passed with JSON and Markdown evidence",
+    "status-transition guard passed against latest origin/main",
+    "generated registry and programme status are fresh"
+  ],
+  "authorised_baseline_fingerprints": [
+    "tests/scope_boundary/test_package_inventory.py::test_current_production_package_inventory_passes",
+    "tests/test_governance_review_regressions.py::test_audit_manifest_includes_governance_checksums_version_and_diagnostic_marker",
+    "tests/test_product_governance.py::test_authority_matrix_covers_runtime_capabilities_and_stays_disabled",
+    "tests/ui/test_system_map_ui.py::test_system_map_shows_future_execution_as_non_interactive"
+  ],
+  "merge_conditions": [
+    "head and base match the handoff",
+    "changed paths and exact ISSUE-0063 planned-to-implemented_initially transition match",
+    "required CI checks pass or match only the authorised fingerprints",
+    "post-merge quick validation, registry readback and GitHub issue sync no-op converge"
+  ],
+  "stop_conditions": [
+    "unexpected changed path or status transition",
+    "changed checkpoint head, stale base or merge conflict",
+    "current-feature test failure",
+    "ambiguous baseline mismatch",
+    "product-code correction required during release"
+  ],
+  "notes": "Local-first quality and canonical adjusted-price momentum evidence with official availability timestamps, sector-neutral rankings, next-session adjusted-close fills, costs/capacity and forward paper visibility; execution_allowed remains false."
+}

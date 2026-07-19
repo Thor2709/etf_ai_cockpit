@@ -21,14 +21,28 @@ from etf_cockpit.portfolio.proposal_policy import (
 
 @pytest.fixture(autouse=True)
 def _authority_matrix(monkeypatch):
+    envelope = {
+        "strategy:paper_portfolio": (("paper_simulation_review",), 10_000.0),
+        "strategy:etf_trend_momentum": (("shadow_proposal_review",), 10_000.0),
+        "model:paper": (("paper_simulation_review",), 10_000.0),
+        "broker:paper_portfolio": (("paper_simulation_review",), 10_000.0),
+    }
     capabilities = tuple(
-        SimpleNamespace(capability_id=capability_id, authority_stage=stage, availability=availability)
+        SimpleNamespace(
+            capability_id=capability_id,
+            authority_stage=stage,
+            availability=availability,
+            required_approvals=envelope.get(capability_id, ((), None))[0],
+            max_quantity_delta=envelope.get(capability_id, ((), None))[1],
+        )
         for capability_id, stage, availability in (
             ("strategy:paper_portfolio", "paper", "mandatory"),
             ("strategy:etf_trend_momentum", "shadow_proposal", "mandatory"),
             ("model:paper", "paper", "mandatory"),
             ("model:baseline", "research", "mandatory"),
             ("broker:paper_portfolio", "paper", "mandatory"),
+            ("strategy:llm_assistance", "research", "mandatory"),
+            ("strategy:provider_news_context", "research", "mandatory"),
             ("strategy:future_disabled", "disabled", "disabled"),
         )
     )
@@ -61,6 +75,7 @@ def _request(**changes: object) -> ProposalRequest:
         "authority_policy_checksum": "a" * 64,
         "gate_evidence": gates,
         "rationale": "Target tracks the approved local optimiser output.",
+        "approvals": ("paper_simulation_review",),
     }
     values.update(changes)
     return ProposalRequest(**values)  # type: ignore[arg-type]
@@ -84,7 +99,11 @@ def test_complete_inputs_create_deterministic_non_executable_proposal() -> None:
 
 def test_policy_resolves_registered_stage_and_rejects_caller_escalation() -> None:
     permitted = build_proposal_decision(
-        _request(strategy_id="strategy:etf_trend_momentum", strategy_stage="shadow_proposal")
+        _request(
+            strategy_id="strategy:etf_trend_momentum",
+            strategy_stage="shadow_proposal",
+            approvals=("shadow_proposal_review", "paper_simulation_review"),
+        )
     )
     assert permitted.authority_stage == "shadow_proposal"
     assert permitted.proposal_allowed is True
@@ -95,6 +114,50 @@ def test_policy_resolves_registered_stage_and_rejects_caller_escalation() -> Non
         )
 
 
+def test_stage_limit_and_approval_envelope_fails_closed(monkeypatch) -> None:
+    capabilities = tuple(
+        SimpleNamespace(
+            capability_id=capability_id,
+            authority_stage="paper",
+            availability="mandatory",
+            required_approvals=("paper_simulation_review",),
+            max_quantity_delta=5.0,
+        )
+        for capability_id in (
+            "strategy:paper_portfolio",
+            "model:paper",
+            "broker:paper_portfolio",
+        )
+    )
+    monkeypatch.setattr(
+        proposal_policy,
+        "load_authority_matrix",
+        lambda: SimpleNamespace(diagnostic_mode=False, diagnostics=(), checksum="a" * 64, policy=SimpleNamespace(capabilities=capabilities)),
+    )
+
+    missing = build_proposal_decision(_request(approvals=()))
+    assert missing.outcome == "manual_review"
+    assert "paper_simulation_review" in missing.rationale
+
+    over_limit = build_proposal_decision(_request(approvals=("paper_simulation_review",), target_quantity=20.0))
+    assert over_limit.outcome == "manual_review"
+    assert "exceeds authority limit" in over_limit.rationale
+
+    permitted = build_proposal_decision(_request(approvals=("paper_simulation_review",)))
+    assert permitted.outcome == "proposal_ready"
+    assert permitted.input_material["authority_limit"] == 5.0
+    assert permitted.input_material["required_approvals"] == ["paper_simulation_review"]
+
+
+@pytest.mark.parametrize("strategy_id", ("strategy:llm_assistance", "strategy:provider_news_context"))
+def test_llm_or_news_only_strategy_cannot_create_a_proposal(strategy_id: str) -> None:
+    decision = build_proposal_decision(_request(strategy_id=strategy_id, strategy_stage="research"))
+
+    assert decision.outcome == "manual_review"
+    assert decision.proposal_allowed is False
+    assert decision.quantity_delta == 0.0
+
+
 def test_real_authority_matrix_is_typed_and_checksumed(monkeypatch) -> None:
     monkeypatch.undo()
     policy, checksum = proposal_policy._load_proposal_authority()
@@ -102,6 +165,9 @@ def test_real_authority_matrix_is_typed_and_checksumed(monkeypatch) -> None:
     capabilities = {item.capability_id: item for item in policy.capabilities}
     assert capabilities["strategy:etf_trend_momentum"].authority_stage == "shadow_proposal"
     assert capabilities["model:baseline"].authority_stage == "research"
+    assert capabilities["strategy:paper_portfolio"].required_approvals == ("paper_simulation_review",)
+    assert capabilities["model:paper"].max_quantity_delta == 10000
+    assert capabilities["broker:paper_portfolio"].max_quantity_delta == 10000
     assert len(checksum) == 64
 
 

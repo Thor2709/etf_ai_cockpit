@@ -1,8 +1,9 @@
-"""Deterministic, non-executable proposal policy for ISSUE-0130.
+"""Deterministic, non-executable proposal policy for ISSUE-0060 and ISSUE-0130.
 
 The policy consumes an immutable optimiser/portfolio snapshot and explicit gate
 evidence.  A score, signal or UI action alone can never create a proposal.
-The result is a review decision with alternatives and an authority envelope;
+Stage, quantity-limit and approval requirements are resolved from the signed
+authority matrix before a proposal can be ready.  The result is a review decision with alternatives and an authority envelope;
 it is not an order and never grants execution authority.
 """
 
@@ -95,6 +96,7 @@ class ProposalRequest:
     authority_policy_checksum: str
     gate_evidence: tuple[GateEvidence, ...] = ()
     rationale: str = ""
+    approvals: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -175,7 +177,7 @@ def build_proposal_decision(request: ProposalRequest) -> ProposalDecision:
         raise ValueError("quantities must be non-negative")
     if request.expires_at <= request.as_of:
         raise ValueError("expires_at must be after as_of")
-    authority_policy_checksum, resolved_stages = _resolve_authority(request)
+    authority_policy_checksum, resolved_stages, max_quantity_delta, required_approvals = _resolve_authority(request)
     gate_policy_version, gate_policy_checksum = _gate_policy_metadata()
 
     gates_by_id = {item.gate_id: item for item in request.gate_evidence}
@@ -200,6 +202,8 @@ def build_proposal_decision(request: ProposalRequest) -> ProposalDecision:
     authority_stage = _lowest_stage(resolved_stages)
     quantity_delta = round(float(request.target_quantity - request.current_quantity), 8)
     failures = [item for item in gates if not item.passed]
+    supplied_approvals = {item.strip() for item in request.approvals if item.strip()}
+    missing_approvals = tuple(sorted(set(required_approvals) - supplied_approvals))
 
     if failures:
         outcome: ProposalOutcome = "manual_review"
@@ -209,6 +213,14 @@ def build_proposal_decision(request: ProposalRequest) -> ProposalDecision:
         outcome = "manual_review"
         allowed = False
         rationale = f"Proposal blocked: authority stage {authority_stage} cannot create a shadow or paper proposal."
+    elif max_quantity_delta is not None and abs(quantity_delta) > max_quantity_delta:
+        outcome = "manual_review"
+        allowed = False
+        rationale = f"Proposal blocked: quantity delta {abs(quantity_delta):g} exceeds authority limit {max_quantity_delta:g}."
+    elif missing_approvals:
+        outcome = "manual_review"
+        allowed = False
+        rationale = "Proposal blocked: required approvals are missing: " + ", ".join(missing_approvals)
     elif abs(quantity_delta) <= 0:
         outcome = "no_trade"
         allowed = False
@@ -240,6 +252,9 @@ def build_proposal_decision(request: ProposalRequest) -> ProposalDecision:
         "as_of": _timestamp(request.as_of),
         "expires_at": _timestamp(request.expires_at),
         "authority_policy_checksum": authority_policy_checksum,
+        "authority_limit": max_quantity_delta,
+        "required_approvals": list(required_approvals),
+        "supplied_approvals": sorted(supplied_approvals),
         "gates": [item.to_payload() for item in gates],
         "outcome": outcome,
         "quantity_delta": quantity_delta,
@@ -378,7 +393,9 @@ def current_authority_policy_checksum() -> str:
     return checksum
 
 
-def _resolve_authority(request: ProposalRequest) -> tuple[str, tuple[AuthorityStage, AuthorityStage, AuthorityStage]]:
+def _resolve_authority(
+    request: ProposalRequest,
+) -> tuple[str, tuple[AuthorityStage, AuthorityStage, AuthorityStage], float | None, tuple[str, ...]]:
     policy, policy_checksum = _load_proposal_authority()
     supplied_checksum = str(request.authority_policy_checksum).strip().lower()
     if supplied_checksum != policy_checksum:
@@ -386,6 +403,9 @@ def _resolve_authority(request: ProposalRequest) -> tuple[str, tuple[AuthoritySt
 
     capabilities = {item.capability_id: item for item in policy.capabilities}
     resolved: list[AuthorityStage] = []
+    quantity_limits: list[float] = []
+    required_approvals: set[str] = set()
+    incomplete_staged_envelopes: list[str] = []
     for role, capability_id, claimed_stage in (
         ("strategy", request.strategy_id, request.strategy_stage),
         ("model", request.model_id, request.model_stage),
@@ -403,8 +423,30 @@ def _resolve_authority(request: ProposalRequest) -> tuple[str, tuple[AuthoritySt
             )
         if actual_stage == "disabled" or str(getattr(capability, "availability", "mandatory")) == "disabled":
             raise ValueError(f"{role} capability is disabled: {capability_id}")
+        limit = getattr(capability, "max_quantity_delta", None)
+        approvals = tuple(
+            str(item).strip()
+            for item in getattr(capability, "required_approvals", ())
+            if str(item).strip()
+        )
+        if actual_stage in {"shadow_proposal", "paper"} and (limit is None or not approvals):
+            incomplete_staged_envelopes.append(str(capability_id))
+        if limit is not None:
+            quantity_limits.append(float(limit))
+        required_approvals.update(approvals)
         resolved.append(actual_stage)  # type: ignore[arg-type]
-    return policy_checksum, (resolved[0], resolved[1], resolved[2])
+    authority_stage = _lowest_stage(resolved)
+    if authority_stage in {"shadow_proposal", "paper"} and incomplete_staged_envelopes:
+        raise ValueError(
+            "staged authority envelope is incomplete: "
+            + ", ".join(sorted(incomplete_staged_envelopes))
+        )
+    return (
+        policy_checksum,
+        (resolved[0], resolved[1], resolved[2]),
+        min(quantity_limits) if quantity_limits else None,
+        tuple(sorted(required_approvals)),
+    )
 
 
 def _load_proposal_authority() -> tuple[AuthorityMatrixPolicy, str]:

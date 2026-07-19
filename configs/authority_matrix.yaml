@@ -79,21 +79,22 @@ capabilities:
   - {capability_id: "dataset:score_history", kind: dataset, authority_stage: research, description: Score history evidence}
   - {capability_id: "dataset:universe", kind: dataset, authority_stage: research, description: Universe and identity evidence}
   - {capability_id: "model:baseline", kind: model, authority_stage: research, description: Deterministic baseline model, availability: mandatory}
+  - {capability_id: "model:paper", kind: model, authority_stage: paper, description: Paper simulation model, required_approvals: [paper_simulation_review], max_quantity_delta: 10000}
   - {capability_id: "model:timesfm", kind: model, authority_stage: research, description: Optional local TimesFM challenger, availability: optional}
   - {capability_id: "model:toto", kind: model, authority_stage: research, description: Optional local Toto challenger, availability: optional}
   - {capability_id: "model:lightgbm", kind: model, authority_stage: disabled, description: Future model challenger remains disabled, availability: disabled}
   - {capability_id: "strategy:baseline_simple_scores", kind: strategy, authority_stage: research, description: Deterministic baseline ranking}
-  - {capability_id: "strategy:etf_trend_momentum", kind: strategy, authority_stage: shadow_proposal, description: ETF trend and momentum review}
-  - {capability_id: "strategy:defensive_rotation", kind: strategy, authority_stage: shadow_proposal, description: Defensive rotation review}
-  - {capability_id: "strategy:stock_quality_momentum", kind: strategy, authority_stage: shadow_proposal, description: Stock quality and momentum review}
-  - {capability_id: "strategy:stock_value_momentum", kind: strategy, authority_stage: shadow_proposal, description: Stock value and momentum review}
+  - {capability_id: "strategy:etf_trend_momentum", kind: strategy, authority_stage: shadow_proposal, description: ETF trend and momentum review, required_approvals: [shadow_proposal_review], max_quantity_delta: 10000}
+  - {capability_id: "strategy:defensive_rotation", kind: strategy, authority_stage: shadow_proposal, description: Defensive rotation review, required_approvals: [shadow_proposal_review], max_quantity_delta: 10000}
+  - {capability_id: "strategy:stock_quality_momentum", kind: strategy, authority_stage: shadow_proposal, description: Stock quality and momentum review, required_approvals: [shadow_proposal_review], max_quantity_delta: 10000}
+  - {capability_id: "strategy:stock_value_momentum", kind: strategy, authority_stage: shadow_proposal, description: Stock value and momentum review, required_approvals: [shadow_proposal_review], max_quantity_delta: 10000}
   - {capability_id: "strategy:long_only_ranking", kind: strategy, authority_stage: research, description: Long-only research ranking}
   - {capability_id: "strategy:timesfm_challenger", kind: strategy, authority_stage: research, description: Experimental TimesFM comparison, availability: optional}
   - {capability_id: "strategy:toto_challenger", kind: strategy, authority_stage: research, description: Experimental Toto comparison, availability: optional}
   - {capability_id: "strategy:future_ml_challenger", kind: strategy, authority_stage: disabled, description: Future ML challenger, availability: future}
   - {capability_id: "strategy:llm_assistance", kind: strategy, authority_stage: research, description: Context-only LLM assistance}
   - {capability_id: "strategy:provider_news_context", kind: strategy, authority_stage: research, description: Context-only provider news}
-  - {capability_id: "strategy:paper_portfolio", kind: strategy, authority_stage: paper, description: Local paper portfolio simulation}
+  - {capability_id: "strategy:paper_portfolio", kind: strategy, authority_stage: paper, description: Local paper portfolio simulation, required_approvals: [paper_simulation_review], max_quantity_delta: 10000}
   - {capability_id: "strategy:pair_trading", kind: strategy, authority_stage: research, description: Research-only pair trading}
   - {capability_id: "strategy:triple_barrier_research", kind: strategy, authority_stage: research, description: Research-only triple-barrier analysis}
   - {capability_id: "strategy:manual_review", kind: strategy, authority_stage: research, description: Human manual review}
@@ -109,7 +110,7 @@ capabilities:
   - {capability_id: "strategy:model_only_trading", kind: strategy, authority_stage: disabled, description: Rejected model-only trading, availability: disabled}
   - {capability_id: "strategy:return_screenshots", kind: strategy, authority_stage: disabled, description: Rejected screenshot evidence shortcut, availability: disabled}
   - {capability_id: "strategy:unvalidated_sentiment", kind: strategy, authority_stage: disabled, description: Rejected unvalidated sentiment, availability: disabled}
-  - {capability_id: "broker:paper_portfolio", kind: broker, authority_stage: paper, description: Local simulation only}
+  - {capability_id: "broker:paper_portfolio", kind: broker, authority_stage: paper, description: Local simulation only, required_approvals: [paper_simulation_review], max_quantity_delta: 10000}
   - {capability_id: "broker:future_read_only", kind: broker, authority_stage: broker_read_only, description: Reserved read-only broker reconciliation, availability: future}
   - {capability_id: "broker:order_transmission", kind: broker, authority_stage: disabled, description: Broker order transmission is forbidden, availability: disabled}
 completion_contract:
