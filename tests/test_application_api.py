@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from datetime import datetime, timezone
 import inspect
 import json
 from pathlib import Path
@@ -14,6 +15,7 @@ from etf_cockpit.application.contracts import (
     ApiStatus,
     CancelWorkflowCommand,
     PageRequest,
+    ProposalReviewRequest,
     QueryRequest,
     RefreshDataCommand,
     SubmitWorkflowCommand,
@@ -53,6 +55,49 @@ def test_queries_return_immutable_paginated_view_models_without_domain_frames() 
 
     with pytest.raises(ValidationError):
         universe.items = ()
+
+
+def test_typed_proposal_review_stays_inside_application_boundary(tmp_path, monkeypatch) -> None:
+    import etf_cockpit.portfolio.proposal_policy as proposal_policy
+
+    capabilities = tuple(
+        SimpleNamespace(capability_id=capability_id, authority_stage=stage, availability="mandatory")
+        for capability_id, stage in (
+            ("strategy:manual_review", "research"),
+            ("model:baseline", "research"),
+            ("broker:paper_portfolio", "paper"),
+        )
+    )
+    matrix = SimpleNamespace(
+        diagnostic_mode=False,
+        diagnostics=(),
+        checksum="a" * 64,
+        policy=SimpleNamespace(capabilities=capabilities),
+    )
+    monkeypatch.setattr(proposal_policy, "load_authority_matrix", lambda: matrix)
+    api = LocalApplicationApi(_snapshot, root=tmp_path)
+
+    view = api.review_proposal(
+        ProposalReviewRequest(
+            instrument_id="ETF1",
+            current_quantity=0,
+            target_quantity=1,
+            strategy_id="strategy:manual_review",
+            strategy_stage="research",
+            model_id="model:baseline",
+            model_stage="research",
+            account_id="broker:paper_portfolio",
+            account_stage="paper",
+            as_of=datetime(2026, 7, 19, tzinfo=timezone.utc),
+            expires_at=datetime(2026, 7, 20, tzinfo=timezone.utc),
+            authority_policy_checksum="a" * 64,
+        )
+    )
+
+    assert view.outcome == "manual_review"
+    assert view.execution_allowed is False
+    assert view.failed_gate_count == 9
+    assert api.query(QueryRequest(resource="proposals")).total == 1
 
 
 def test_commands_are_idempotent_and_reject_stale_revisions() -> None:

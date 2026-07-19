@@ -7,6 +7,7 @@ frontend can consume the same query and command shapes.
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import StrEnum
 from typing import Generic, Literal, TypeVar
 
@@ -109,6 +110,51 @@ class PaperViewModel(ContractModel):
     message: str = ""
 
 
+ProposalAuthorityStage = Literal[
+    "research",
+    "shadow_proposal",
+    "paper",
+    "broker_read_only",
+    "draft_order",
+    "capped_automatic",
+    "disabled",
+]
+
+
+class ProposalGateEvidence(ContractModel):
+    gate_id: str = Field(min_length=1)
+    passed: bool
+    reason: str = ""
+    blocker: bool = True
+
+
+class ProposalReviewRequest(ContractModel):
+    instrument_id: str = Field(min_length=1)
+    current_quantity: float = Field(ge=0)
+    target_quantity: float = Field(ge=0)
+    strategy_id: str = Field(min_length=1)
+    strategy_stage: ProposalAuthorityStage
+    model_id: str = Field(min_length=1)
+    model_stage: ProposalAuthorityStage
+    account_id: str = Field(min_length=1)
+    account_stage: ProposalAuthorityStage
+    optimiser_output_id: str | None = None
+    portfolio_revision: str | None = None
+    data_revision: str | None = None
+    as_of: datetime
+    expires_at: datetime
+    authority_policy_checksum: str = Field(min_length=64, max_length=64)
+    gate_evidence: tuple[ProposalGateEvidence, ...] = ()
+    rationale: str = ""
+
+
+class ProposalGateViewModel(ContractModel):
+    gate_id: str
+    passed: bool
+    reason: str
+    blocker: bool
+
+
 class ProposalViewModel(ContractModel):
     proposal_id: str
     instrument_id: str
@@ -124,6 +170,10 @@ class ProposalViewModel(ContractModel):
     failed_gate_count: int = Field(ge=0)
     alternatives: tuple[str, ...] = ()
     input_checksum: str
+    gates: tuple[ProposalGateViewModel, ...] = ()
+    authority_policy_checksum: str = ""
+    gate_policy_version: str = ""
+    gate_policy_checksum: str = ""
 
 
 class OperationViewModel(ContractModel):
@@ -205,6 +255,10 @@ __all__ = [
     "PageView",
     "PaperViewModel",
     "PortfolioViewModel",
+    "ProposalAuthorityStage",
+    "ProposalGateEvidence",
+    "ProposalGateViewModel",
+    "ProposalReviewRequest",
     "ProposalViewModel",
     "QueryRequest",
     "RefreshDataCommand",

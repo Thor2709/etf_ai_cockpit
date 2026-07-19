@@ -27,6 +27,8 @@ from etf_cockpit.application.contracts import (
     PageView,
     PaperViewModel,
     PortfolioViewModel,
+    ProposalGateViewModel,
+    ProposalReviewRequest,
     ProposalViewModel,
     QueryRequest,
     RefreshDataCommand,
@@ -227,32 +229,50 @@ class LocalApplicationApi:
 
         rows: list[ProposalViewModel] = []
         for item in load_proposal_records(directory=self._root / "data" / "operations" / "proposals"):
-            raw_gates = item.get("gates", ())
-            gates = tuple(gate for gate in raw_gates if isinstance(gate, Mapping)) if isinstance(raw_gates, (tuple, list)) else ()
-            raw_alternatives = item.get("alternatives", ())
-            alternatives = tuple(
-                str(alternative.get("name", ""))
-                for alternative in raw_alternatives
-                if isinstance(alternative, Mapping)
-            ) if isinstance(raw_alternatives, (tuple, list)) else ()
-            rows.append(
-                ProposalViewModel(
-                    proposal_id=str(item.get("proposal_id", "")),
-                    instrument_id=str(item.get("instrument_id", "")),
-                    outcome=str(item.get("outcome", "manual_review")),
-                    authority_stage=str(item.get("authority_stage", "disabled")),
-                    proposal_allowed=bool(item.get("proposal_allowed", False)),
-                    quantity_delta=float(item.get("quantity_delta", 0.0)),
-                    rationale=str(item.get("rationale", "")),
-                    as_of=str(item.get("as_of", "")),
-                    expires_at=str(item.get("expires_at", "")),
-                    gate_count=len(gates),
-                    failed_gate_count=sum(not bool(gate.get("passed", False)) for gate in gates),
-                    alternatives=alternatives,
-                    input_checksum=str(item.get("input_checksum", "")),
-                )
-            )
+            rows.append(_proposal_view_model(item))
         return _page(tuple(rows), page)
+
+    def get_authority_policy_checksum(self) -> str:
+        from etf_cockpit.portfolio.proposal_policy import current_authority_policy_checksum
+
+        return current_authority_policy_checksum()
+
+    def review_proposal(self, request: ProposalReviewRequest) -> ProposalViewModel:
+        """Create and persist one non-executable proposal review decision."""
+
+        from etf_cockpit.portfolio.proposal_policy import (
+            GateEvidence,
+            ProposalRequest,
+            build_proposal_decision,
+            save_proposal_decision,
+        )
+
+        decision = build_proposal_decision(
+            ProposalRequest(
+                instrument_id=request.instrument_id,
+                current_quantity=request.current_quantity,
+                target_quantity=request.target_quantity,
+                strategy_id=request.strategy_id,
+                strategy_stage=request.strategy_stage,
+                model_id=request.model_id,
+                model_stage=request.model_stage,
+                account_id=request.account_id,
+                account_stage=request.account_stage,
+                optimiser_output_id=request.optimiser_output_id,
+                portfolio_revision=request.portfolio_revision,
+                data_revision=request.data_revision,
+                as_of=request.as_of,
+                expires_at=request.expires_at,
+                authority_policy_checksum=request.authority_policy_checksum,
+                gate_evidence=tuple(
+                    GateEvidence(item.gate_id, item.passed, item.reason, item.blocker)
+                    for item in request.gate_evidence
+                ),
+                rationale=request.rationale,
+            )
+        )
+        save_proposal_decision(decision, directory=self._root / "data" / "operations" / "proposals")
+        return _proposal_view_model(decision.to_payload())
 
     def execute(self, command: ApplicationCommand) -> CommandResult:
         fingerprint = hashlib.sha256(command.model_dump_json().encode("utf-8")).hexdigest()
@@ -330,6 +350,46 @@ class LocalApplicationApi:
 
     def _snapshot(self) -> object:
         return self._snapshot_provider()
+
+
+def _proposal_view_model(item: Mapping[str, object]) -> ProposalViewModel:
+    raw_gates = item.get("gates", ())
+    gates = tuple(
+        ProposalGateViewModel(
+            gate_id=str(gate.get("gate_id", "")),
+            passed=bool(gate.get("passed", False)),
+            reason=str(gate.get("reason", "")),
+            blocker=bool(gate.get("blocker", True)),
+        )
+        for gate in raw_gates
+        if isinstance(gate, Mapping)
+    ) if isinstance(raw_gates, (tuple, list)) else ()
+    raw_alternatives = item.get("alternatives", ())
+    alternatives = tuple(
+        str(alternative.get("name", ""))
+        for alternative in raw_alternatives
+        if isinstance(alternative, Mapping)
+    ) if isinstance(raw_alternatives, (tuple, list)) else ()
+    return ProposalViewModel(
+        proposal_id=str(item.get("proposal_id", "")),
+        instrument_id=str(item.get("instrument_id", "")),
+        outcome=str(item.get("outcome", "manual_review")),
+        authority_stage=str(item.get("authority_stage", "disabled")),
+        proposal_allowed=bool(item.get("proposal_allowed", False)),
+        execution_allowed=False,
+        quantity_delta=float(item.get("quantity_delta", 0.0)),
+        rationale=str(item.get("rationale", "")),
+        as_of=str(item.get("as_of", "")),
+        expires_at=str(item.get("expires_at", "")),
+        gate_count=len(gates),
+        failed_gate_count=sum(not gate.passed for gate in gates),
+        alternatives=alternatives,
+        input_checksum=str(item.get("input_checksum", "")),
+        gates=gates,
+        authority_policy_checksum=str(item.get("authority_policy_checksum", "")),
+        gate_policy_version=str(item.get("gate_policy_version", "")),
+        gate_policy_checksum=str(item.get("gate_policy_checksum", "")),
+    )
 
 
 def _page(items: Sequence[PageItemT], page: PageRequest) -> PageView[PageItemT]:

@@ -11,8 +11,7 @@ from etf_cockpit.app.components.states import state_panel
 from etf_cockpit.app.formatting import format_currency, format_number
 from etf_cockpit.app.operations import OperationRecord, build_operation_preview, load_operation_records, save_operation_record
 from etf_cockpit.app.state import AppState
-from etf_cockpit.application.contracts import ApiStatus, CancelWorkflowCommand, SubmitWorkflowCommand
-from etf_cockpit.application.ui_facade import ProposalRequest, build_proposal_decision, save_proposal_decision
+from etf_cockpit.application.contracts import ApiStatus, CancelWorkflowCommand, ProposalReviewRequest, SubmitWorkflowCommand
 
 
 def _safe_update(page: ft.Page | None) -> None:
@@ -111,34 +110,34 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
         try:
             selected_quantity = float(str(quantity.value or "0").replace(",", ""))
             as_of = datetime.combine(state.snapshot.data_report.as_of_date, datetime.min.time(), tzinfo=timezone.utc)
-            decision = build_proposal_decision(
-                ProposalRequest(
+            decision = api.review_proposal(
+                ProposalReviewRequest(
                     instrument_id=str(instrument.value or ""),
                     current_quantity=0.0,
                     target_quantity=selected_quantity,
-                    strategy_id="strategy:manual_input",
+                    strategy_id="strategy:manual_review",
                     strategy_stage="research",
-                    model_id="model:not_provided",
+                    model_id="model:baseline",
                     model_stage="research",
-                    account_id="local-paper",
+                    account_id="broker:paper_portfolio",
                     account_stage="paper",
                     optimiser_output_id=None,
                     portfolio_revision=None,
                     data_revision=None,
                     as_of=as_of,
                     expires_at=as_of + timedelta(days=1),
-                    authority_policy_checksum="ui-review-requires-policy-load",
+                    authority_policy_checksum=api.get_authority_policy_checksum(),
                     rationale="Manual input is shown as review-only until validated optimiser and portfolio evidence is supplied.",
                 )
             )
-            save_proposal_decision(decision)
             failed = sum(not item.passed for item in decision.gates)
-            alternatives = ", ".join(item.name for item in decision.alternatives)
+            alternatives = ", ".join(decision.alternatives)
+            gate_summary = ", ".join(f"{item.gate_id}={'passed' if item.passed else 'failed'}" for item in decision.gates)
             proposal_state.value = f"Proposal review: {decision.outcome} · authority={decision.authority_stage} · allowed={str(decision.proposal_allowed).lower()}"
-            proposal_evidence.value = f"Proposal evidence: {failed} required gate(s) failed; alternatives={alternatives}; execution_allowed=false. {decision.rationale}"
+            proposal_evidence.value = f"Proposal evidence: {failed} gate(s) failed; gates={gate_summary}; alternatives={alternatives}; execution_allowed=false. {decision.rationale}"
             message.value = "Proposal review recorded locally. No order or draft-order authority was created."
             _safe_update(page)
-        except (TypeError, ValueError) as exc:
+        except (OSError, TypeError, ValueError) as exc:
             proposal_state.value = "Proposal review: manual_review"
             proposal_evidence.value = f"Proposal evidence unavailable: {exc}"
             _safe_update(page)
