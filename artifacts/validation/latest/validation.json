@@ -2,7 +2,7 @@
   "checks": [
     {
       "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/validate_issue_registry.py",
-      "duration_ms": 108.323,
+      "duration_ms": 105.715,
       "exit_code": 0,
       "failure": "",
       "name": "issue_registry",
@@ -12,7 +12,7 @@
     },
     {
       "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m compileall -q src scripts",
-      "duration_ms": 133.627,
+      "duration_ms": 124.71,
       "exit_code": 0,
       "failure": "",
       "name": "source_compile",
@@ -21,47 +21,45 @@
       "status": "passed"
     },
     {
-      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_app.py --mode offline --port 49271 --timeout 30",
-      "duration_ms": 6013.226,
+      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_app.py --mode offline --port 62194 --timeout 30",
+      "duration_ms": 5987.179,
       "exit_code": 0,
       "failure": "",
       "name": "source_smoke",
-      "output": "smoke_port requested=49271 selected=49271 reason=port 49271 is free\nsmoke_ok mode=offline url=http://127.0.0.1:49271/",
+      "output": "smoke_port requested=62194 selected=62194 reason=port 62194 is free\nsmoke_ok mode=offline url=http://127.0.0.1:62194/",
       "required": true,
       "status": "passed"
     },
     {
-      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -c \"print('No changed test paths detected')\"",
-      "duration_ms": 24.372,
+      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m pytest -q tests/test_stress_testing.py tests/ui/test_stress_lab_ui.py",
+      "duration_ms": 2157.952,
       "exit_code": 0,
       "failure": "",
-      "name": "changed_scope",
-      "output": "No changed test paths detected",
+      "name": "changed_tests",
+      "output": "......                                                                   [100%]",
       "required": true,
       "status": "passed"
     }
   ],
-  "duration_ms": 6315.83,
+  "duration_ms": 8412.581,
   "environment": {
     "machine": "AMD64",
     "offline_requested": false,
     "platform": "Windows-11-10.0.26200-SP0",
     "python": "3.12.10",
-    "root": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\issue0129-paper-broker-20260719",
+    "root": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\issue0115-stress-lab-20260719",
     "system": "Windows"
   },
   "failures": [],
-  "finished_at": "2026-07-19T06:12:09.196+00:00",
-  "generated_at": "2026-07-19T06:12:09.196+00:00",
+  "finished_at": "2026-07-19T06:44:00.348+00:00",
+  "generated_at": "2026-07-19T06:44:00.348+00:00",
   "git": {
-    "branch": "codex/issue-0129-paper-broker-20260719",
+    "branch": "codex/issue-0115-stress-lab-20260719",
     "dirty": true,
-    "head": "692344d6a7efb48d946854e54c06c1ec49ae4e30",
+    "head": "81973a06d9b3bc1bdd891999d48413a4cd0a4b68",
     "origin_main": "81973a06d9b3bc1bdd891999d48413a4cd0a4b68"
   },
   "log_paths": [
-    "logs\\chatgpt_audits.jsonl",
-    "logs\\errors.jsonl",
     "logs\\model_runs.jsonl",
     "logs\\portfolio_review_adapter.jsonl",
     "logs\\session.jsonl",
@@ -74,7 +72,7 @@
     "issue_ids": [],
     "phase_ids": []
   },
-  "started_at": "2026-07-19T06:12:02.881+00:00",
+  "started_at": "2026-07-19T06:43:51.935+00:00",
   "unavailable_optional_components": [
     "timesfm",
     "toto"
