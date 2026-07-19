@@ -60,6 +60,7 @@ def dashboard_page(page: ft.Page, state: AppState) -> ft.Control:
     return ft.Column(
         [
             _evidence_state_panel(state),
+            _what_matters_today(state),
             cards,
             _run_changes_digest(page, state),
             _news_digest(page, state),
@@ -95,6 +96,56 @@ def _evidence_state_panel(state: AppState) -> ft.Container:
         f"Data health is {state.snapshot.data_report.status}; scores and model outputs remain advisory evidence.",
         details=f"Evidence mode: {theme.EVIDENCE_MODE_LABELS.get(state.evidence_mode, state.evidence_mode)} | execution_allowed=false",
     )
+
+
+def _what_matters_today(state: AppState) -> ft.Container:
+    """Render the local, prioritised evidence queue without granting authority."""
+
+    try:
+        digest = state.application_api.get_digest()
+        rows: list[ft.Control] = []
+        for item in digest.items[:5]:
+            as_of = item.as_of or "as-of unavailable"
+            rows.append(
+                ft.Text(
+                    f"{item.severity.upper()} | {item.status} | {item.title} — {item.rationale} "
+                    f"(source={item.provenance}, as_of={as_of}, execution_allowed=false)",
+                    color=theme.TEXT if item.status == "available" else theme.AMBER,
+                    selectable=True,
+                    size=11,
+                )
+            )
+        unavailable = [source for source, status in digest.source_status if status != "available"]
+        if unavailable:
+            rows.append(
+                ft.Text(
+                    "Unavailable/manual-review inputs: " + ", ".join(unavailable),
+                    color=theme.MUTED,
+                    selectable=True,
+                    size=11,
+                )
+            )
+        body: ft.Control = ft.Column(rows, spacing=4)
+    except Exception as exc:
+        body = ft.Text(
+            f"Digest unavailable; manual review required ({type(exc).__name__}). execution_allowed=false",
+            color=theme.AMBER,
+            selectable=True,
+        )
+    control = panel(
+        ft.Column(
+            [
+                section_header(
+                    "What matters today",
+                    "Prioritised local evidence and explicit unavailable states; this queue is informational and cannot authorise execution.",
+                ),
+                body,
+            ],
+            spacing=8,
+        )
+    )
+    control.key = "dashboard.what-matters-today"
+    return control
 
 
 def _run_changes_digest(_page: ft.Page, _state: AppState) -> ft.Control:

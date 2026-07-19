@@ -19,6 +19,7 @@ from etf_cockpit.application.contracts import (
     ApplicationCommand,
     CancelWorkflowCommand,
     CommandResult,
+    DigestViewModel,
     ForecastViewModel,
     InstrumentViewModel,
     JobViewModel,
@@ -92,8 +93,8 @@ class LocalApplicationApi:
         self._ledger: dict[str, _LedgerEntry] = {}
         self._lock = threading.RLock()
 
-    def query(self, request: QueryRequest) -> PageView[object]:
-        queries: dict[str, Callable[[PageRequest], PageView[object]]] = {
+    def query(self, request: QueryRequest) -> PageView[object] | DigestViewModel:
+        queries: dict[str, Callable[[PageRequest], PageView[object] | DigestViewModel]] = {
             "universe": self.get_universe,
             "instruments": self.get_instruments,
             "scores": self.get_scores,
@@ -103,6 +104,7 @@ class LocalApplicationApi:
             "paper": self.get_paper,
             "proposals": self.get_proposals,
             "operations": self.get_operations,
+            "digest": self.get_digest,
         }
         return queries[request.resource](request.page)
 
@@ -378,6 +380,26 @@ class LocalApplicationApi:
             if isinstance(item, Mapping)
         )
         return _page(rows, page)
+
+    def get_digest(self, page: PageRequest = PageRequest()) -> DigestViewModel:
+        """Return the prioritised local evidence queue for the dashboard.
+
+        The digest is an application query: it adapts cached snapshot data and
+        proposal view models without fetching providers or changing state.
+        ``page`` is accepted for query-boundary symmetry; the digest itself is
+        intentionally small and returned as one immutable view model.
+        """
+
+        del page
+        from etf_cockpit.application.digest import build_digest_from_snapshot
+
+        try:
+            proposals = self.get_proposals(PageRequest(offset=0, limit=500)).items
+        except Exception:
+            # A malformed proposal record must make that source unavailable,
+            # not prevent the dashboard from rendering its other evidence.
+            proposals = ()
+        return build_digest_from_snapshot(self._snapshot(), proposal_records=proposals)
 
     def get_proposals(self, page: PageRequest = PageRequest()) -> PageView[ProposalViewModel]:
         from etf_cockpit.portfolio.proposal_policy import load_proposal_records

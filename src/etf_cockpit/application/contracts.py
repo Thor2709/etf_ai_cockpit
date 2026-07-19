@@ -48,7 +48,7 @@ class PageView(ContractModel, Generic[ViewT]):
 
 
 class QueryRequest(ContractModel):
-    resource: Literal["universe", "instruments", "scores", "forecasts", "portfolios", "jobs", "paper", "proposals", "operations"]
+    resource: Literal["universe", "instruments", "scores", "forecasts", "portfolios", "jobs", "paper", "proposals", "operations", "digest"]
     page: PageRequest = Field(default_factory=PageRequest)
 
 
@@ -343,6 +343,27 @@ class OperationViewModel(ContractModel):
     message: str = ""
 
 
+class DigestItemViewModel(ContractModel):
+    item_id: str
+    source: str
+    category: str
+    severity: Literal["critical", "warning", "info"]
+    status: Literal["available", "unavailable", "manual_review"]
+    title: str
+    rationale: str
+    as_of: str | None = None
+    provenance: str = "unavailable"
+    priority: int = Field(ge=0)
+    execution_allowed: Literal[False] = False
+
+
+class DigestViewModel(ContractModel):
+    as_of: str | None = None
+    items: tuple[DigestItemViewModel, ...]
+    source_status: tuple[tuple[str, Literal["available", "unavailable", "manual_review"]], ...]
+    execution_allowed: Literal[False] = False
+
+
 class CommandModel(ContractModel):
     idempotency_key: str = Field(min_length=8, max_length=128)
     expected_revision: str | None = Field(default=None, min_length=1, max_length=256)
@@ -406,6 +427,8 @@ __all__ = [
     "ApplicationCommand",
     "CancelWorkflowCommand",
     "CommandResult",
+    "DigestItemViewModel",
+    "DigestViewModel",
     "ForecastViewModel",
     "InstrumentViewModel",
     "JobViewModel",

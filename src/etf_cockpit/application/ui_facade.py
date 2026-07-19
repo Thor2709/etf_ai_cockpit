@@ -46,6 +46,7 @@ from etf_cockpit.data.trust_artifacts import *  # noqa: F401,F403
 from etf_cockpit.data.universe_store import *  # noqa: F401,F403
 from etf_cockpit.application.api import *  # noqa: F401,F403
 from etf_cockpit.application.contracts import *  # noqa: F401,F403
+from etf_cockpit.application.digest import *  # noqa: F401,F403
 from etf_cockpit.application.screening import *  # noqa: F401,F403
 from etf_cockpit.application.screening_data import *  # noqa: F401,F403
 from etf_cockpit.data.screen_store import *  # noqa: F401,F403
