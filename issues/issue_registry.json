@@ -4578,7 +4578,7 @@
       "package_status": "Open",
       "phase": "phase-07-backtest-paper-execution",
       "priority": "P1",
-      "programme_status": "planned",
+      "programme_status": "integrated",
       "related_issues": [
         "ISSUE-0075",
         "ISSUE-0129",

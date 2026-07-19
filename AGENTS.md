@@ -18,3 +18,10 @@ This project follows the workspace instructions plus these durable rules:
 - Subagents are read-only by default. An isolated writer may use a separate Git worktree and branch for an explicitly disjoint file boundary, run focused tests and return a local commit; it must not push, merge or update canonical or GitHub issue state.
 - Ordinary non-Superpowers plugins, MCP servers and tools are allowed. Only Superpowers skills, workflows, controllers and related content are prohibited; do not invoke, read or follow them.
 - After context compaction, continuation, resumption or hand-off, reread the applicable `AGENTS.md` files, `PLAN_step2.md`, `issues/issue_registry.json` and `docs/product-completion/CURRENT_STATUS.json` before acting.
+
+## Canonical programme-status safeguards
+
+- Fetch and verify the latest `origin/main` before generating programme status or reconciliation evidence.
+- Compare every proposed `programme_status` against that exact base and the recorded last-good map; only explicitly handed-off issue IDs may transition.
+- Validate every status transition, expected count, checksum and generated-document freshness before release. Freshness alone is not evidence of correctness.
+- Stop release on any unexpected downgrade, stale-base generation, changed head, unexpected file or ambiguous status diff; preserve the exact evidence for root review.

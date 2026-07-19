@@ -28,6 +28,7 @@ from etf_cockpit.app.pages.import_export import import_export_page
 from etf_cockpit.app.pages.system_map import system_map_page
 from etf_cockpit.app.pages.help_glossary import help_glossary_page
 from etf_cockpit.app.pages.decision_journal import decision_journal_page
+from etf_cockpit.app.pages.forward_evidence import forward_evidence_page
 from etf_cockpit.app.pages.jobs import jobs_page
 from etf_cockpit.app.pages.portfolio import portfolio_page
 from etf_cockpit.app.pages.portfolio_optimiser import portfolio_optimiser_page
@@ -83,6 +84,7 @@ PAGES = {
     "/system-map": ("System Map", system_map_page),
     "/help": ("Help & Glossary", help_glossary_page),
     "/decision-journal": ("Decision Journal", decision_journal_page),
+    "/forward-evidence": ("Forward Evidence Diary", forward_evidence_page),
     "/jobs": ("Jobs & Activity", jobs_page),
     "/operations": ("Operations Centre", operations_page),
     "/release-readiness": ("Release Readiness", release_readiness_page),
@@ -97,7 +99,7 @@ WORKSPACE_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Instrument", ("/etf", "/instrument")),
     ("Portfolio", ("/portfolio", "/portfolio-optimiser", "/risk")),
     ("Models", ("/data-models", "/forecasts", "/training-centre", "/feature-catalogue", "/macro")),
-    ("Backtest/Paper", ("/backtests", "/operations")),
+    ("Backtest/Paper", ("/backtests", "/operations", "/forward-evidence")),
     ("Data Health", ("/providers", "/filings", "/etf-disclosures", "/news-context", "/catalogue", "/data-health")),
     ("Audit", ("/chatgpt", "/evidence", "/decision-journal", "/release-readiness", "/roadmap")),
     ("Settings", ("/settings", "/diagnostics", "/errors", "/onboarding", "/import-export", "/system-map", "/help", "/jobs")),
