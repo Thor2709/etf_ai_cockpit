@@ -48,6 +48,7 @@ _ROOT_NAME = "forward_evidence_diary"
 _LOCK_TIMEOUT_SECONDS = 10.0
 _LOCK = threading.RLock()
 _MAX_IDENTIFIERS = 128
+_MAX_OBSERVATION_ID_LENGTH = 110
 _MAX_METRICS = 64
 _MAX_METRIC_NAME_LENGTH = 80
 _MAX_METRIC_TEXT_LENGTH = 1_000
@@ -133,7 +134,10 @@ class ForwardEvidenceObservation(BaseModel):
     @field_validator("observation_id")
     @classmethod
     def validate_observation_id(cls, value: str) -> str:
-        return _validate_id(value, "observation_id")
+        cleaned = _validate_id(value, "observation_id")
+        if len(cleaned) > _MAX_OBSERVATION_ID_LENGTH:
+            raise ValueError(f"observation_id cannot exceed {_MAX_OBSERVATION_ID_LENGTH} characters")
+        return cleaned
 
     @field_validator("created_at")
     @classmethod
@@ -319,6 +323,7 @@ class ForwardEvidenceDiary:
             raise ForwardEvidenceIntegrityError("forward-evidence observation files do not match the index")
         outcome_paths = tuple((directory / "outcomes").glob("*.json")) if (directory / "outcomes").is_dir() else ()
         versions: dict[str, list[int]] = {}
+        outcomes_by_id: dict[str, ForwardEvidenceOutcome] = {}
         for row in index:
             observation_id = str(row["observation_id"])
             self._stored_observation(root, observation_paths[observation_id], str(row["observation_checksum"]))
@@ -337,18 +342,64 @@ class ForwardEvidenceDiary:
             if not outcome.checksum or outcome.checksum != _checksum(outcome):
                 raise ForwardEvidenceIntegrityError(f"forward-evidence outcome checksum mismatch: {path.name}")
             versions.setdefault(outcome.observation_id, []).append(outcome.version)
+            if outcome.outcome_id in outcomes_by_id:
+                raise ForwardEvidenceIntegrityError(f"forward-evidence outcome id is duplicated: {path.name}")
+            outcomes_by_id[outcome.outcome_id] = outcome
         for observation_id in index_ids:
             observed_versions = sorted(versions.get(observation_id, ()))
             if observed_versions != list(range(1, max(observed_versions, default=0) + 1)):
                 raise ForwardEvidenceIntegrityError(f"forward-evidence outcome history has a gap: {observation_id}")
-        if index:
-            operations_path = self._operations_path(root)
-            if not operations_path.is_file():
-                raise ForwardEvidenceIntegrityError("forward-evidence operation log is missing")
-            raw = self._read_operations(root)
-            operation_ids = {json.loads(line)["observation_id"] for line in raw.decode("utf-8").splitlines() if line.strip()}
-            if not index_ids.issubset(operation_ids):
-                raise ForwardEvidenceIntegrityError("forward-evidence operation log is incomplete")
+        operations_path = self._operations_path(root)
+        if not index:
+            if operations_path.is_file() and self._read_operations(root):
+                raise ForwardEvidenceIntegrityError("forward-evidence operation log has no indexed observations")
+            return
+        if not operations_path.is_file():
+            raise ForwardEvidenceIntegrityError("forward-evidence operation log is missing")
+        records = self._validate_operations_bytes(self._read_operations(root))
+        records_by_observation: dict[str, list[dict[str, object]]] = {}
+        for record in records:
+            observation_id = str(record["observation_id"])
+            if observation_id not in index_ids:
+                raise ForwardEvidenceIntegrityError("forward-evidence operation references an unknown observation")
+            records_by_observation.setdefault(observation_id, []).append(record)
+        for row in index:
+            observation_id = str(row["observation_id"])
+            observation_records = records_by_observation.get(observation_id, [])
+            expected_observation = {
+                "operation": "observed",
+                "observation_id": observation_id,
+                "record_id": observation_id,
+                "checksum": str(row["observation_checksum"]),
+                "schema_version": _SCHEMA_VERSION,
+            }
+            if not observation_records or observation_records[0] != expected_observation:
+                raise ForwardEvidenceIntegrityError(f"forward-evidence observation operation is invalid: {observation_id}")
+            expected_outcomes = {
+                f"{observation_id}-outcome-{outcome.version}": outcome
+                for outcome in outcomes_by_id.values()
+                if outcome.observation_id == observation_id
+            }
+            expected_records = [expected_observation]
+            for version in range(1, max(versions.get(observation_id, ()), default=0) + 1):
+                outcome_id = f"{observation_id}-outcome-{version}"
+                outcome = expected_outcomes.get(outcome_id)
+                if outcome is None:
+                    raise ForwardEvidenceIntegrityError(f"forward-evidence outcome operation is missing: {outcome_id}")
+                expected_records.append({
+                    "operation": "outcome_updated",
+                    "observation_id": observation_id,
+                    "record_id": outcome_id,
+                    "checksum": str(outcome.checksum),
+                    "schema_version": _SCHEMA_VERSION,
+                })
+            if observation_records != expected_records:
+                raise ForwardEvidenceIntegrityError(f"forward-evidence operation sequence is invalid: {observation_id}")
+            current_row = next(item for item in index if str(item["observation_id"]) == observation_id)
+            if int(current_row["version"]) != len(expected_records) - 1:
+                raise ForwardEvidenceIntegrityError(f"forward-evidence current outcome version is invalid: {observation_id}")
+        if len(records) != sum(len(items) for items in records_by_observation.values()):
+            raise ForwardEvidenceIntegrityError("forward-evidence operation log contains invalid records")
 
     def _read_operations(self, root: Path) -> bytes:
         path = self._operations_path(root)
@@ -364,18 +415,40 @@ class ForwardEvidenceDiary:
             raise ForwardEvidenceIntegrityError("forward-evidence operation log is unreadable") from exc
 
     @staticmethod
-    def _validate_operations_bytes(raw: bytes) -> None:
-        for line in raw.decode("utf-8").splitlines():
-            if not line.strip():
-                continue
-            row = json.loads(line)
-            if not isinstance(row, dict) or set(row) != {"operation", "observation_id", "record_id", "checksum", "schema_version"}:
-                raise ForwardEvidenceIntegrityError("forward-evidence operation row is malformed")
-            if row["operation"] not in {"observed", "outcome_updated"} or row["schema_version"] != _SCHEMA_VERSION:
-                raise ForwardEvidenceIntegrityError("forward-evidence operation row is invalid")
-            _validate_id(str(row["observation_id"]), "observation_id")
-            _validate_id(str(row["record_id"]), "record_id")
-            _validate_hash(str(row["checksum"]), "checksum")
+    def _validate_operations_bytes(raw: bytes) -> tuple[dict[str, object], ...]:
+        try:
+            records: list[dict[str, object]] = []
+            seen: set[tuple[str, str]] = set()
+            for line in raw.decode("utf-8").splitlines():
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                required = {"operation", "observation_id", "record_id", "checksum", "schema_version"}
+                if not isinstance(row, dict) or set(row) != required:
+                    raise ForwardEvidenceIntegrityError("forward-evidence operation row is malformed")
+                if (
+                    not isinstance(row["operation"], str)
+                    or row["operation"] not in {"observed", "outcome_updated"}
+                    or not isinstance(row["observation_id"], str)
+                    or not isinstance(row["record_id"], str)
+                    or not isinstance(row["checksum"], str)
+                    or row["schema_version"] != _SCHEMA_VERSION
+                ):
+                    raise ForwardEvidenceIntegrityError("forward-evidence operation row is invalid")
+                operation = str(row["operation"])
+                observation_id = _validate_id(str(row["observation_id"]), "observation_id")
+                record_id = _validate_id(str(row["record_id"]), "record_id")
+                checksum = _validate_hash(str(row["checksum"]), "checksum")
+                identity = (operation, record_id)
+                if identity in seen:
+                    raise ForwardEvidenceIntegrityError("forward-evidence operation log contains a duplicate record")
+                seen.add(identity)
+                records.append({"operation": operation, "observation_id": observation_id, "record_id": record_id, "checksum": checksum, "schema_version": _SCHEMA_VERSION})
+            return tuple(records)
+        except ForwardEvidenceIntegrityError:
+            raise
+        except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise ForwardEvidenceIntegrityError("forward-evidence operation log is malformed") from exc
 
     def _stored_observation(self, root: Path, path: Path, expected_checksum: str) -> ForwardEvidenceObservation:
         try:

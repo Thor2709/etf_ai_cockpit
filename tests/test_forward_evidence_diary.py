@@ -139,3 +139,24 @@ def test_orphaned_outcome_and_stale_lock_are_handled_without_silent_loss(tmp_pat
     monkeypatch.setattr("etf_cockpit.data.forward_evidence_diary._LOCK_TIMEOUT_SECONDS", 0.0)
     diary.record_observation(_observation("stale-lock-observation"), root=clean_root)
     assert diary.get("stale-lock-observation", root=clean_root).outcome.status == "pending"
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    (
+        ("record_id", "forged-outcome-1", "operation sequence"),
+        ("checksum", "0" * 64, "operation sequence"),
+        ("observation_id", "unknown-observation", "unknown observation"),
+    ),
+)
+def test_operation_log_rejects_forged_or_orphaned_records(
+    tmp_path: Path, field: str, value: str, message: str
+) -> None:
+    diary = ForwardEvidenceDiary()
+    diary.record_observation(_observation(), root=tmp_path)
+    operations_path = tmp_path / "forward_evidence_diary" / "operations.jsonl"
+    rows = [json.loads(line) for line in operations_path.read_text(encoding="utf-8").splitlines()]
+    rows[1][field] = value
+    operations_path.write_text("\n".join(json.dumps(row, sort_keys=True, separators=(",", ":")) for row in rows) + "\n", encoding="utf-8")
+    with pytest.raises(ForwardEvidenceIntegrityError, match=message):
+        diary.list_entries(root=tmp_path)
