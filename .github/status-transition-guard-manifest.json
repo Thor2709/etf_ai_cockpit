@@ -3,13 +3,13 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "issue_id": "ISSUE-0129",
+      "issue_id": "ISSUE-0115",
       "from": "planned",
       "to": "integrated"
     }
   ],
-  "base_commit": "81973a06d9b3bc1bdd891999d48413a4cd0a4b68",
-  "branch": "codex/issue-0129-paper-broker-20260719",
-  "issue_ids": ["ISSUE-0129"],
+  "base_commit": "4627118588a0764459ef1552f7d201331db127a3",
+  "branch": "codex/issue-0115-stress-lab-20260719",
+  "issue_ids": ["ISSUE-0115"],
   "schema_version": "1.0"
 }
