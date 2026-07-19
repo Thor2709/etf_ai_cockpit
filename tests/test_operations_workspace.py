@@ -11,6 +11,7 @@ from etf_cockpit.app.operations import build_operation_preview, load_operation_r
 from etf_cockpit.app.pages.operations import operations_page
 from etf_cockpit.app.router import PAGES
 from etf_cockpit.app.state import AppState
+from etf_cockpit.portfolio.proposal_policy import load_proposal_records, save_proposal_decision
 from etf_cockpit.services import build_snapshot
 
 
@@ -79,6 +80,24 @@ def test_operations_workspace_exposes_paper_live_training_and_audit_states() -> 
     assert any(getattr(item, "key", None) == "operations.preview" for item in _walk(rendered))
     assert any(getattr(item, "key", None) == "operations.confirm" for item in _walk(rendered))
     assert any(getattr(item, "key", None) == "operations.cancel" for item in _walk(rendered))
+    assert any(getattr(item, "key", None) == "operations.proposal-review" for item in _walk(rendered))
+
+
+def test_proposal_review_records_manual_review_until_immutable_evidence_exists(tmp_path: Path, monkeypatch) -> None:
+    import etf_cockpit.app.pages.operations as module
+
+    monkeypatch.setattr(module, "save_proposal_decision", lambda decision: save_proposal_decision(decision, directory=tmp_path))
+    snapshot = build_snapshot()
+    state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
+    rendered = module.operations_page(None, state)
+    button = next(item for item in _walk(rendered) if getattr(item, "key", None) == "operations.proposal-review")
+
+    button.on_click(None)
+    text = _text(rendered)
+    records = load_proposal_records(directory=tmp_path)
+    assert "Proposal review: manual_review" in text
+    assert "execution_allowed=false" in text
+    assert records and records[0]["outcome"] == "manual_review"
 
 
 def test_paper_preview_starts_once_and_reaches_a_durable_result(tmp_path: Path, monkeypatch) -> None:

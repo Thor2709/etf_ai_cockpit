@@ -49,6 +49,7 @@ def test_queries_return_immutable_paginated_view_models_without_domain_frames() 
     assert api.get_scores().items[0].state == "manual_review"
     assert api.get_forecasts().items[0].expected_return == pytest.approx(0.02)
     assert api.get_portfolios().items[0].market_value == pytest.approx(1000.0)
+    assert api.query(QueryRequest(resource="proposals")).total == 0
 
     with pytest.raises(ValidationError):
         universe.items = ()

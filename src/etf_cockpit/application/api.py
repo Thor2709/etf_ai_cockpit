@@ -27,6 +27,7 @@ from etf_cockpit.application.contracts import (
     PageView,
     PaperViewModel,
     PortfolioViewModel,
+    ProposalViewModel,
     QueryRequest,
     RefreshDataCommand,
     ScoreViewModel,
@@ -67,6 +68,7 @@ class LocalApplicationApi:
         root: Path = ROOT,
     ) -> None:
         self._snapshot_provider = snapshot_provider
+        self._root = root
         self._scheduler = scheduler or DurableJobScheduler(root)
         self._revision_provider = revision_provider
         self._command_handlers = dict(command_handlers or {})
@@ -82,6 +84,7 @@ class LocalApplicationApi:
             "portfolios": self.get_portfolios,
             "jobs": self.get_jobs,
             "paper": self.get_paper,
+            "proposals": self.get_proposals,
             "operations": self.get_operations,
         }
         return queries[request.resource](request.page)
@@ -218,6 +221,38 @@ class LocalApplicationApi:
             if isinstance(item, Mapping)
         )
         return _page(rows, page)
+
+    def get_proposals(self, page: PageRequest = PageRequest()) -> PageView[ProposalViewModel]:
+        from etf_cockpit.portfolio.proposal_policy import load_proposal_records
+
+        rows: list[ProposalViewModel] = []
+        for item in load_proposal_records(directory=self._root / "data" / "operations" / "proposals"):
+            raw_gates = item.get("gates", ())
+            gates = tuple(gate for gate in raw_gates if isinstance(gate, Mapping)) if isinstance(raw_gates, (tuple, list)) else ()
+            raw_alternatives = item.get("alternatives", ())
+            alternatives = tuple(
+                str(alternative.get("name", ""))
+                for alternative in raw_alternatives
+                if isinstance(alternative, Mapping)
+            ) if isinstance(raw_alternatives, (tuple, list)) else ()
+            rows.append(
+                ProposalViewModel(
+                    proposal_id=str(item.get("proposal_id", "")),
+                    instrument_id=str(item.get("instrument_id", "")),
+                    outcome=str(item.get("outcome", "manual_review")),
+                    authority_stage=str(item.get("authority_stage", "disabled")),
+                    proposal_allowed=bool(item.get("proposal_allowed", False)),
+                    quantity_delta=float(item.get("quantity_delta", 0.0)),
+                    rationale=str(item.get("rationale", "")),
+                    as_of=str(item.get("as_of", "")),
+                    expires_at=str(item.get("expires_at", "")),
+                    gate_count=len(gates),
+                    failed_gate_count=sum(not bool(gate.get("passed", False)) for gate in gates),
+                    alternatives=alternatives,
+                    input_checksum=str(item.get("input_checksum", "")),
+                )
+            )
+        return _page(tuple(rows), page)
 
     def execute(self, command: ApplicationCommand) -> CommandResult:
         fingerprint = hashlib.sha256(command.model_dump_json().encode("utf-8")).hexdigest()

@@ -47,7 +47,7 @@ class PageView(ContractModel, Generic[ViewT]):
 
 
 class QueryRequest(ContractModel):
-    resource: Literal["universe", "instruments", "scores", "forecasts", "portfolios", "jobs", "paper", "operations"]
+    resource: Literal["universe", "instruments", "scores", "forecasts", "portfolios", "jobs", "paper", "proposals", "operations"]
     page: PageRequest = Field(default_factory=PageRequest)
 
 
@@ -107,6 +107,23 @@ class PaperViewModel(ContractModel):
     as_of: str | None = None
     equity: float | None = None
     message: str = ""
+
+
+class ProposalViewModel(ContractModel):
+    proposal_id: str
+    instrument_id: str
+    outcome: str
+    authority_stage: str
+    proposal_allowed: bool
+    execution_allowed: Literal[False] = False
+    quantity_delta: float
+    rationale: str
+    as_of: str
+    expires_at: str
+    gate_count: int = Field(ge=0)
+    failed_gate_count: int = Field(ge=0)
+    alternatives: tuple[str, ...] = ()
+    input_checksum: str
 
 
 class OperationViewModel(ContractModel):
@@ -188,6 +205,7 @@ __all__ = [
     "PageView",
     "PaperViewModel",
     "PortfolioViewModel",
+    "ProposalViewModel",
     "QueryRequest",
     "RefreshDataCommand",
     "ScoreViewModel",

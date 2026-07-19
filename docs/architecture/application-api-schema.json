@@ -567,6 +567,91 @@
       "title": "PortfolioViewModel",
       "type": "object"
     },
+    "ProposalViewModel": {
+      "additionalProperties": false,
+      "properties": {
+        "alternatives": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Alternatives",
+          "type": "array"
+        },
+        "as_of": {
+          "title": "As Of",
+          "type": "string"
+        },
+        "authority_stage": {
+          "title": "Authority Stage",
+          "type": "string"
+        },
+        "execution_allowed": {
+          "const": false,
+          "default": false,
+          "title": "Execution Allowed",
+          "type": "boolean"
+        },
+        "expires_at": {
+          "title": "Expires At",
+          "type": "string"
+        },
+        "failed_gate_count": {
+          "minimum": 0,
+          "title": "Failed Gate Count",
+          "type": "integer"
+        },
+        "gate_count": {
+          "minimum": 0,
+          "title": "Gate Count",
+          "type": "integer"
+        },
+        "input_checksum": {
+          "title": "Input Checksum",
+          "type": "string"
+        },
+        "instrument_id": {
+          "title": "Instrument Id",
+          "type": "string"
+        },
+        "outcome": {
+          "title": "Outcome",
+          "type": "string"
+        },
+        "proposal_allowed": {
+          "title": "Proposal Allowed",
+          "type": "boolean"
+        },
+        "proposal_id": {
+          "title": "Proposal Id",
+          "type": "string"
+        },
+        "quantity_delta": {
+          "title": "Quantity Delta",
+          "type": "number"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        }
+      },
+      "required": [
+        "proposal_id",
+        "instrument_id",
+        "outcome",
+        "authority_stage",
+        "proposal_allowed",
+        "quantity_delta",
+        "rationale",
+        "as_of",
+        "expires_at",
+        "gate_count",
+        "failed_gate_count",
+        "input_checksum"
+      ],
+      "title": "ProposalViewModel",
+      "type": "object"
+    },
     "QueryRequest": {
       "$defs": {
         "PageRequest": {
@@ -604,6 +689,7 @@
             "portfolios",
             "jobs",
             "paper",
+            "proposals",
             "operations"
           ],
           "title": "Resource",
