@@ -36,7 +36,10 @@ def stress_lab_page(page: ft.Page | None, state: AppState) -> ft.Control:
         options=[ft.dropdown.Option(value) for value in ("equity", "rates", "fx", "credit", "commodity", "liquidity")],
     )
     status = ft.Text("No probability or execution authority is created; execution_allowed=false.", color=theme.MUTED, selectable=True, key="stress-lab.status")
-    result_host = ft.Column(spacing=8)
+    result_host = ft.Column(
+        [ft.Text("Instrument contributions and factor contributions (including residual) appear after a scenario run.", color=theme.MUTED, selectable=True)],
+        spacing=8,
+    )
     revision = 0
     current_scenario = None
 
@@ -140,9 +143,21 @@ def stress_lab_page(page: ft.Page | None, state: AppState) -> ft.Control:
 
 
 def _result_view(result) -> ft.Control:
+    instrument_rows = [
+        ft.DataRow(cells=[ft.DataCell(ft.Text(str(row["instrument_id"]))), ft.DataCell(ft.Text(_display(row["pnl"]))), ft.DataCell(ft.Text(str(row["source"]))), ft.DataCell(ft.Text(str(row["factor_components"])))])
+        for row in result.instrument_contributions
+    ]
+    factor_rows = [
+        ft.DataRow(cells=[ft.DataCell(ft.Text(str(row["factor"]))), ft.DataCell(ft.Text(_display(row["pnl"]))), ft.DataCell(ft.Text(_display(row["share"])))])
+        for row in result.factor_contributions
+    ]
     rows = [
         ft.Text(f"status={result.status} | total_pnl={_display(result.total_pnl)} | execution_allowed=false", selectable=True),
         ft.Text(f"coverage={result.coverage}", selectable=True, size=11),
+        ft.Text("Instrument contributions", weight=ft.FontWeight.BOLD),
+        ft.DataTable(columns=[ft.DataColumn(ft.Text(label)) for label in ("Instrument", "PnL", "Source", "Components")], rows=instrument_rows),
+        ft.Text("Factor contributions (including residual)", weight=ft.FontWeight.BOLD),
+        ft.DataTable(columns=[ft.DataColumn(ft.Text(label)) for label in ("Factor", "PnL", "Share")], rows=factor_rows),
         ft.Text("limitations=" + " | ".join(result.limitations), selectable=True, size=11),
     ]
     return panel(ft.Column(rows, spacing=6))

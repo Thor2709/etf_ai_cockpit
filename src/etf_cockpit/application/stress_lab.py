@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import math
 from pathlib import Path
 import sqlite3
 from typing import Mapping
@@ -57,9 +58,9 @@ def build_stress_scenario(
             scenario_id=scenario_id,
             name=name,
             shocks=parsed_shocks,
-            horizon_days=int(horizon_days),
+            horizon_days=_integer(horizon_days, "horizon_days"),
             historical_date=historical_date or None,
-            version=int(version),
+            version=_integer(version, "version"),
         )
     except (TypeError, ValueError, StressScenarioError) as exc:
         raise StressScenarioError(f"scenario inputs are invalid: {exc}") from exc
@@ -218,6 +219,18 @@ def _scenario_from_record(record: StoredRecord) -> StressScenario:
 def _payload_checksum(payload: Mapping[str, object]) -> str:
     encoded = json.dumps(dict(payload), sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _integer(value: object, label: str) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{label} must be an integer")
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{label} must be an integer") from exc
+    if not math.isfinite(number) or not number.is_integer():
+        raise ValueError(f"{label} must be an integer")
+    return int(number)
 
 
 __all__ = [

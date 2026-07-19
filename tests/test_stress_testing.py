@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sqlite3
 from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 
-from etf_cockpit.application.stress_lab import StressLabFacade, build_stress_scenario
+from etf_cockpit.application.stress_lab import StressLabFacade, StressLabPersistenceError, build_stress_scenario
 from etf_cockpit.data.local_storage import StorageRevisionConflict
 from etf_cockpit.portfolio.stress_testing import StressScenario, StressScenarioError, reverse_stress, run_stress_scenario
 
@@ -47,7 +48,7 @@ def test_factor_shock_and_wide_exposure_matrix_are_visible() -> None:
     result = run_stress_scenario(scenario, allocation, factor_exposures=exposures, notional=100_000)
 
     assert result.total_pnl == pytest.approx(-10_000)
-    assert result.instrument_contributions[0]["factor_components"] == {"factor:value": -0.1}
+    assert result.instrument_contributions[0]["factor_components"] == {"factor:value": -0.1, "residual": 0.0}
 
 
 def test_historical_replay_requires_exact_adjusted_return_date() -> None:
@@ -84,6 +85,8 @@ def test_scenario_validation_and_persistence_are_versioned_and_no_execution(tmp_
         StressScenario("", "invalid", {"equity": 0.1})
     with pytest.raises(StressScenarioError):
         StressScenario("bad", "invalid", {"equity": 0.1}, version=0)
+    with pytest.raises(StressScenarioError, match="horizon_days"):
+        build_stress_scenario(scenario_id="fractional", name="Invalid", shocks={"equity": -0.1}, horizon_days=1.5)
     scenario = build_stress_scenario(scenario_id="saved", name="Saved", shocks={"equity": -0.1})
     facade = StressLabFacade(SimpleNamespace(holdings=pd.DataFrame()), root=tmp_path)
 
@@ -98,3 +101,10 @@ def test_scenario_validation_and_persistence_are_versioned_and_no_execution(tmp_
 
     record_path = tmp_path / "data" / "storage" / "cockpit.sqlite3"
     assert record_path.exists()
+    with sqlite3.connect(record_path) as connection:
+        connection.execute(
+            "UPDATE transactional_records SET payload_json = ? WHERE entity_type = ? AND entity_id = ?",
+            ('{"tampered":true}', "stress_scenario", "saved"),
+        )
+    with pytest.raises(StressLabPersistenceError, match="invalid field set"):
+        facade.load("saved")

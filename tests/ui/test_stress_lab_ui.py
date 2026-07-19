@@ -44,3 +44,5 @@ def test_stress_lab_exposes_stable_controls_route_and_disabled_authority() -> No
     assert workspace_for_route("/stress-lab") == "Portfolio"
     assert "execution_allowed=false" in _text(root)
     assert "Probability" in _text(root)
+    assert "Instrument contributions" in _text(root)
+    assert "residual" in _text(root)

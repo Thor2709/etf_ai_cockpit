@@ -138,6 +138,10 @@ def run_stress_scenario(
                 factor_totals[shock_name] = factor_totals.get(shock_name, 0.0) + weight * notional * value
         if not components and (scenario.historical_date or not any(name in scenario.shocks for name in SHOCK_NAMES)):
             missing.append(instrument_id)
+        residual_return = shock - math.fsum(components.values())
+        residual_pnl = weight * notional * residual_return
+        components["residual"] = residual_return
+        factor_totals["residual"] = factor_totals.get("residual", 0.0) + residual_pnl
         pnl = weight * notional * shock
         liquidity_cost = abs(weight * notional) * max(0.0, scenario.shocks.get("liquidity", 0.0))
         pnl -= liquidity_cost
