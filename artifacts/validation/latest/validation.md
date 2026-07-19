@@ -2,17 +2,17 @@
 
 - Schema: `1.0`
 - Mode: `changed`
-- Generated: `2026-07-19T06:52:14.859+00:00`
-- Duration: `6436.902 ms`
+- Generated: `2026-07-19T06:55:18.126+00:00`
+- Duration: `6121.935 ms`
 
 ## Checks
 
 | Check | Status | Exit code | Duration | Required |
 |---|---|---:|---:|---|
-| `issue_registry` | `passed` | 0 | 127.58 ms | True |
-| `source_compile` | `passed` | 0 | 318.935 ms | True |
-| `source_smoke` | `passed` | 0 | 5925.507 ms | True |
-| `changed_scope` | `passed` | 0 | 25.014 ms | True |
+| `issue_registry` | `passed` | 0 | 103.475 ms | True |
+| `source_compile` | `passed` | 0 | 116.582 ms | True |
+| `source_smoke` | `passed` | 0 | 5846.425 ms | True |
+| `changed_scope` | `passed` | 0 | 21.947 ms | True |
 
 ## Failures
 
