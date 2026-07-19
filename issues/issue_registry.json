@@ -7315,7 +7315,7 @@
       "package_status": "",
       "phase": "phase-07-backtest-paper-execution",
       "priority": "P0",
-      "programme_status": "planned",
+      "programme_status": "integrated",
       "related_issues": [],
       "required_inputs": [],
       "security_and_audit": "Policy versions are signed/audited; overrides require reason, scope and limits.",
