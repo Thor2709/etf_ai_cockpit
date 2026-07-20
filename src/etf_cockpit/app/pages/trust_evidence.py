@@ -29,6 +29,7 @@ from etf_cockpit.application.ui_facade import (
     INDEX_METHODOLOGY_RECORDS_PATH,
     NEWS_CONTEXT_PATH,
     NEWS_TIMESTAMP_VALIDATION_PATH,
+    OAM_DISCOVERY_PATH,
     PRIIPS_KID_RECORDS_PATH,
     PROVIDER_PROBE_PATH,
     SCORE_COMPONENTS_PATH,
@@ -216,6 +217,7 @@ def filings_page(page: ft.Page, state: AppState) -> ft.Control:
         "Official SEC/ESEF/local filing evidence. Missing filings remain missing; vendor fundamentals cannot outrank official matched filings.",
         [
             ("Filings inventory", FILINGS_STATEMENTS_PATH, ["instrument_id", "document_type", "source_authority", "coverage_status", "fact_count", "mapping_warnings", "checksum", "executable_authority", "path"]),
+            ("National OAM discovery", OAM_DISCOVERY_PATH, ["provider_id", "country", "issuer", "isin", "title", "document_type", "published_at", "source_url", "document_url", "source_authority", "terms_url", "coverage_status", "snapshot_sha256", "adapter_status", "manual_fallback"]),
             ("SEC statement facts", STATEMENT_FACTS_PATH, ["instrument_id", "taxonomy", "concept", "canonical_metric", "mapping_status", "is_custom", "unit", "end", "filed", "form", "accession", "source_id"]),
             ("Provider probes", PROVIDER_PROBE_PATH, ["dataset_type", "provider_name", "status", "source_authority", "message"]),
             ("Identity mappings", IDENTITY_PATH, ["instrument_id", "isin", "yahoo_symbol", "exchange", "mic", "currency", "share_class", "listing", "identity_confidence", "warnings"]),
@@ -322,6 +324,13 @@ def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
     cik_field = ft.TextField(label="SEC CIK", value="789019", width=180)
     country_field = ft.TextField(label="ESEF country", value="NL", width=120)
     filing_id_field = ft.TextField(label="ESEF filing ID", width=250)
+    oam_country_field = ft.Dropdown(label="OAM country", value="FR", width=150, options=[ft.dropdown.Option("FR"), ft.dropdown.Option("NL")])
+    oam_issuer_field = ft.TextField(label="OAM issuer (optional)", width=190)
+    oam_isin_field = ft.TextField(label="OAM ISIN (optional)", width=170)
+    oam_document_type_field = ft.TextField(label="OAM document type (optional)", width=220)
+    oam_date_from_field = ft.TextField(label="OAM date from (optional)", width=190)
+    oam_date_to_field = ft.TextField(label="OAM date to (optional)", width=190)
+    oam_endpoint_field = ft.TextField(label="Official structured OAM endpoint (optional)", width=330, hint_text="Disabled when blank; HTML pages are rejected")
     picker = _attach_picker(page, "filings.import.file-picker")
 
     async def import_sec(_event: ft.ControlEvent) -> None:
@@ -370,7 +379,21 @@ def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
         result.value = state.download_esef_package(filing_id) if filing_id else "ESEF download requires a discovered filing ID."
         page.update()
 
-    return panel(ft.Column([section_header("Official filing import", "SEC EDGAR and filings.xbrl.org ESEF evidence. Local fixtures remain functional offline; network failures and mapping warnings are explicit and never start scoring or broker workflows."), ft.Row([cik_field, ft.OutlinedButton("Fetch SEC companyfacts", key="filings.fetch-sec", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=fetch_sec), ft.OutlinedButton("Import SEC companyfacts", key="filings.import-sec", icon=ft.Icons.UPLOAD_FILE, on_click=import_sec)], wrap=True), ft.Row([country_field, filing_id_field, ft.OutlinedButton("Discover ESEF filings", key="filings.discover-esef", icon=ft.Icons.SEARCH, on_click=discover_esef), ft.OutlinedButton("Download ESEF package", key="filings.download-esef", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=download_esef), ft.OutlinedButton("Import ESEF package", key="filings.import-esef", icon=ft.Icons.UPLOAD_FILE, on_click=import_esef)], wrap=True), result], spacing=8))
+    async def discover_oam(_event: ft.ControlEvent) -> None:
+        result.value = "OAM discovery status: preparing a bounded official structured-export request..."
+        page.update()
+        result.value = state.discover_oam(
+            str(oam_country_field.value or "FR"),
+            issuer=str(oam_issuer_field.value or ""),
+            isin=str(oam_isin_field.value or ""),
+            document_type=str(oam_document_type_field.value or ""),
+            date_from=str(oam_date_from_field.value or ""),
+            date_to=str(oam_date_to_field.value or ""),
+            endpoint=str(oam_endpoint_field.value or ""),
+        )
+        page.update()
+
+    return panel(ft.Column([section_header("Official filing import", "SEC EDGAR and filings.xbrl.org ESEF evidence. Local fixtures remain functional offline; network failures and mapping warnings are explicit and never start scoring or broker workflows."), ft.Row([cik_field, ft.OutlinedButton("Fetch SEC companyfacts", key="filings.fetch-sec", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=fetch_sec), ft.OutlinedButton("Import SEC companyfacts", key="filings.import-sec", icon=ft.Icons.UPLOAD_FILE, on_click=import_sec)], wrap=True), ft.Row([country_field, filing_id_field, ft.OutlinedButton("Discover ESEF filings", key="filings.discover-esef", icon=ft.Icons.SEARCH, on_click=discover_esef), ft.OutlinedButton("Download ESEF package", key="filings.download-esef", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=download_esef), ft.OutlinedButton("Import ESEF package", key="filings.import-esef", icon=ft.Icons.UPLOAD_FILE, on_click=import_esef)], wrap=True), ft.Row([oam_country_field, oam_issuer_field, oam_isin_field, oam_document_type_field], wrap=True), ft.Row([oam_date_from_field, oam_date_to_field, oam_endpoint_field, ft.OutlinedButton("Discover national OAM", key="filings.discover-oam", icon=ft.Icons.SEARCH, on_click=discover_oam)], wrap=True), result], spacing=8))
 
 
 def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:

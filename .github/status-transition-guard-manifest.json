@@ -3,13 +3,13 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "issue_id": "ISSUE-0060",
+      "issue_id": "UPDATEV2-0014",
       "from": "planned",
       "to": "implemented_initially"
     }
   ],
-  "base_commit": "9edceb416e336885f18a56a9136ef09e4d4d04a7",
-  "branch": "codex/issue-0060-strategy-rejection-20260719",
-  "issue_ids": ["ISSUE-0060"],
+  "base_commit": "7bf380a93af16f792729dbb84089a7ef08586f53",
+  "branch": "codex/updatev2-0014-20260720",
+  "issue_ids": ["UPDATEV2-0014"],
   "schema_version": "1.0"
 }
