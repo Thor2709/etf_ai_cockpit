@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "issue_ids": ["ISSUE-0150"],
   "base_sha": "7bf380a93af16f792729dbb84089a7ef08586f53",
-  "checkpoint_sha": "77ad298afde6f176cc034b377f9c84a9cdc4b5d3",
+  "checkpoint_sha": "2a79e9bf38c4268d41775e4de5dfec6e0bac140c",
   "root_role": "Luna High root implementation lane",
   "scout_role": "Luna Medium scout_reviewer",
   "release_steward_role": "Luna Medium release_steward",
