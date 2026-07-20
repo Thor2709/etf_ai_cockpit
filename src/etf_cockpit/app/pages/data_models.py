@@ -9,7 +9,15 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import DERIVED_DIR, FORECASTS_DIR, MODEL_DIR, REPORTS_DIR
-from etf_cockpit.application.ui_facade import format_model_inventory_line, fx_data_inventory, load_manual_news, reference_data_inventory
+from etf_cockpit.application.ui_facade import (
+    build_coverage_audit,
+    coverage_summary_lines,
+    format_model_inventory_line,
+    fx_data_inventory,
+    load_manual_news,
+    reference_data_inventory,
+    write_coverage_audit,
+)
 from etf_cockpit.plugins.builtins import plugin_status_rows
 
 
@@ -82,6 +90,27 @@ def data_models_page(_page: ft.Page, state: AppState) -> ft.Control:
         )
     else:
         reference_lines.append("fx: not imported")
+    coverage_report = build_coverage_audit(
+        state.snapshot.config.universe.etfs,
+        state.snapshot.prices,
+        state.snapshot.forecasts,
+        state.snapshot.signals,
+        as_of_date=state.snapshot.data_report.as_of_date,
+    )
+    coverage_status = ft.Text("", color=theme.MUTED, selectable=True)
+
+    def export_coverage(_event: ft.ControlEvent) -> None:
+        try:
+            json_path, markdown_path = write_coverage_audit(coverage_report)
+            coverage_status.value = f"Coverage audit exported: {json_path.name}, {markdown_path.name}"
+            state.last_message = coverage_status.value
+        except (OSError, ValueError, TypeError) as exc:
+            coverage_status.value = f"Coverage audit export failed: {type(exc).__name__}: {exc}"
+            state.last_message = coverage_status.value
+        try:
+            _page.update()
+        except (AttributeError, RuntimeError):
+            pass
     latest_status_panel = panel(
         ft.Column(
             [
@@ -156,6 +185,20 @@ def data_models_page(_page: ft.Page, state: AppState) -> ft.Control:
                         section_header("Manual thesis and news notes", "Dated notes are evidence only and never executable authority."),
                         ft.Text("\n".join(manual_note_lines), color=theme.MUTED, selectable=True),
                     ]
+                )
+            ),
+            panel(
+                ft.Column(
+                    [
+                        section_header(
+                            "Data coverage and model monitoring",
+                            "Local adjusted-price coverage and subgroup evidence. Unsupported groups stay in manual review; aggregate metrics never grant subgroup authority.",
+                        ),
+                        ft.Text("\n".join(coverage_summary_lines(coverage_report)), color=theme.MUTED, selectable=True),
+                        ft.OutlinedButton("Export coverage audit", key="data-models.export-coverage", icon=ft.Icons.DOWNLOAD, on_click=export_coverage),
+                        coverage_status,
+                    ],
+                    spacing=8,
                 )
             ),
             panel(
