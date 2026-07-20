@@ -1,15 +1,9 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [
-    {
-      "issue_id": "ISSUE-0063",
-      "from": "planned",
-      "to": "implemented_initially"
-    }
-  ],
-  "base_commit": "c4890a4d74e1131e2e1d161356d98289d83f0932",
-  "branch": "codex/issue-0063-quality-momentum-20260719",
-  "issue_ids": ["ISSUE-0063"],
+  "allowed_status_transitions": [],
+  "base_commit": "4bfdfe03c844a8b3066a1c8eeb3a02c7a36c7c43",
+  "branch": "codex/issue-0063-test-isolation-20260720",
+  "issue_ids": [],
   "schema_version": "1.0"
 }
