@@ -55,6 +55,16 @@ capabilities:
   - {capability_id: "route:/operations", kind: route, authority_stage: shadow_proposal, description: Local proposal review and paper-preview workspace}
   - {capability_id: "route:/release-readiness", kind: route, authority_stage: research, description: Read-only release certification evidence workspace}
   - {capability_id: "route:/roadmap", kind: route, authority_stage: research, description: Canonical programme map workspace}
+  - {capability_id: "route:/catalogue", kind: route, authority_stage: research, description: Data catalogue workspace}
+  - {capability_id: "route:/comparison", kind: route, authority_stage: research, description: Instrument comparison workspace}
+  - {capability_id: "route:/feature-catalogue", kind: route, authority_stage: research, description: Feature catalogue workspace}
+  - {capability_id: "route:/forecasts", kind: route, authority_stage: research, description: Forecast evidence workspace}
+  - {capability_id: "route:/forward-evidence", kind: route, authority_stage: research, description: Forward evidence workspace}
+  - {capability_id: "route:/macro", kind: route, authority_stage: research, description: Macro context workspace}
+  - {capability_id: "route:/portfolio-optimiser", kind: route, authority_stage: research, description: Portfolio optimisation workspace}
+  - {capability_id: "route:/stock-research", kind: route, authority_stage: research, description: Stock research workspace}
+  - {capability_id: "route:/stress-lab", kind: route, authority_stage: research, description: Stress testing workspace}
+  - {capability_id: "route:/training-centre", kind: route, authority_stage: research, description: Training evidence workspace}
   - {capability_id: "dataset:audit_manifest", kind: dataset, authority_stage: research, description: Audit manifest evidence}
   - {capability_id: "dataset:configuration", kind: dataset, authority_stage: research, description: Local configuration evidence}
   - {capability_id: "dataset:costs", kind: dataset, authority_stage: research, description: Cost assumption evidence}
@@ -71,6 +81,7 @@ capabilities:
   - {capability_id: "dataset:logs", kind: dataset, authority_stage: research, description: Append-only operational logs}
   - {capability_id: "dataset:models", kind: dataset, authority_stage: research, description: Model availability evidence}
   - {capability_id: "dataset:news", kind: dataset, authority_stage: research, description: Context-only news evidence}
+  - {capability_id: "dataset:oam_discovery", kind: dataset, authority_stage: research, description: Official national OAM discovery evidence}
   - {capability_id: "dataset:policy", kind: dataset, authority_stage: research, description: Governance policy evidence}
   - {capability_id: "dataset:prices", kind: dataset, authority_stage: research, description: Adjusted-price evidence}
   - {capability_id: "dataset:provider_status", kind: dataset, authority_stage: research, description: Provider capability evidence}
@@ -78,6 +89,43 @@ capabilities:
   - {capability_id: "dataset:risk", kind: dataset, authority_stage: research, description: Risk evidence}
   - {capability_id: "dataset:score_history", kind: dataset, authority_stage: research, description: Score history evidence}
   - {capability_id: "dataset:universe", kind: dataset, authority_stage: research, description: Universe and identity evidence}
+  - {capability_id: "dataset:adjusted_prices", kind: dataset, authority_stage: research, description: Adjusted-price return inputs}
+  - {capability_id: "dataset:application_api", kind: dataset, authority_stage: research, description: Typed local application boundary}
+  - {capability_id: "dataset:attribution", kind: dataset, authority_stage: research, description: Portfolio attribution evidence}
+  - {capability_id: "dataset:authority_matrix", kind: dataset, authority_stage: research, description: Capability authority matrix}
+  - {capability_id: "dataset:bitemporal_store", kind: dataset, authority_stage: research, description: Point-in-time local store}
+  - {capability_id: "dataset:bulk_cache", kind: dataset, authority_stage: research, description: Local bulk data cache}
+  - {capability_id: "dataset:canonical_statements", kind: dataset, authority_stage: research, description: Canonical statement evidence}
+  - {capability_id: "dataset:cost_model", kind: dataset, authority_stage: research, description: Transaction cost assumptions}
+  - {capability_id: "dataset:data_catalogue", kind: dataset, authority_stage: research, description: Data catalogue records}
+  - {capability_id: "dataset:durable_jobs", kind: dataset, authority_stage: research, description: Durable local job records}
+  - {capability_id: "dataset:event_calendar", kind: dataset, authority_stage: research, description: Event calendar evidence}
+  - {capability_id: "dataset:factor_risk", kind: dataset, authority_stage: research, description: Factor risk evidence}
+  - {capability_id: "dataset:forecasts", kind: dataset, authority_stage: research, description: Forecast evidence}
+  - {capability_id: "dataset:holdings", kind: dataset, authority_stage: research, description: Holdings evidence}
+  - {capability_id: "dataset:historical_events", kind: dataset, authority_stage: research, description: Historical event evidence}
+  - {capability_id: "dataset:hybrid_storage", kind: dataset, authority_stage: research, description: Hybrid local storage}
+  - {capability_id: "dataset:issue_registry", kind: dataset, authority_stage: research, description: Canonical issue registry}
+  - {capability_id: "dataset:legal_terms", kind: dataset, authority_stage: research, description: Legal terms and source policy}
+  - {capability_id: "dataset:local_snapshot", kind: dataset, authority_stage: research, description: Local application snapshot}
+  - {capability_id: "dataset:macro_warehouse", kind: dataset, authority_stage: research, description: Macro warehouse evidence}
+  - {capability_id: "dataset:market_inputs", kind: dataset, authority_stage: research, description: Market input evidence}
+  - {capability_id: "dataset:model_registry", kind: dataset, authority_stage: research, description: Model registry evidence}
+  - {capability_id: "dataset:optional_quote_import", kind: dataset, authority_stage: research, description: Optional user-owned quote imports}
+  - {capability_id: "dataset:plugin_registry", kind: dataset, authority_stage: research, description: Local plugin registry}
+  - {capability_id: "dataset:portfolio", kind: dataset, authority_stage: research, description: Portfolio evidence}
+  - {capability_id: "dataset:portfolio_risk", kind: dataset, authority_stage: research, description: Portfolio risk evidence}
+  - {capability_id: "dataset:proposal_policy", kind: dataset, authority_stage: research, description: Proposal policy evidence}
+  - {capability_id: "dataset:quality_programme", kind: dataset, authority_stage: research, description: Quality programme evidence}
+  - {capability_id: "dataset:release_manifest", kind: dataset, authority_stage: research, description: Release manifest evidence}
+  - {capability_id: "dataset:robust_risk", kind: dataset, authority_stage: research, description: Robust risk evidence}
+  - {capability_id: "dataset:saved_screens", kind: dataset, authority_stage: research, description: Saved screen definitions}
+  - {capability_id: "dataset:scores", kind: dataset, authority_stage: research, description: Score evidence}
+  - {capability_id: "dataset:source_policy", kind: dataset, authority_stage: research, description: Source policy evidence}
+  - {capability_id: "dataset:supply_chain_intake", kind: dataset, authority_stage: research, description: Supply-chain intake evidence}
+  - {capability_id: "dataset:synthetic_fixtures", kind: dataset, authority_stage: research, description: Synthetic validation fixtures}
+  - {capability_id: "dataset:validation_protocol", kind: dataset, authority_stage: research, description: Validation protocol evidence}
+  - {capability_id: "dataset:version_registry", kind: dataset, authority_stage: research, description: Version registry evidence}
   - {capability_id: "model:baseline", kind: model, authority_stage: research, description: Deterministic baseline model, availability: mandatory}
   - {capability_id: "model:paper", kind: model, authority_stage: paper, description: Paper simulation model, required_approvals: [paper_simulation_review], max_quantity_delta: 10000}
   - {capability_id: "model:timesfm", kind: model, authority_stage: research, description: Optional local TimesFM challenger, availability: optional}

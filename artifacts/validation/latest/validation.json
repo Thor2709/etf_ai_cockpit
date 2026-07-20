@@ -2,7 +2,7 @@
   "checks": [
     {
       "command": "registry scope issue",
-      "duration_ms": 2.014,
+      "duration_ms": 2.326,
       "exit_code": 0,
       "failure": "",
       "name": "scope_selection",
@@ -12,7 +12,7 @@
     },
     {
       "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/validate_issue_registry.py",
-      "duration_ms": 105.043,
+      "duration_ms": 176.943,
       "exit_code": 0,
       "failure": "",
       "name": "issue_registry",
@@ -22,7 +22,7 @@
     },
     {
       "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m compileall -q src scripts",
-      "duration_ms": 113.796,
+      "duration_ms": 274.85,
       "exit_code": 0,
       "failure": "",
       "name": "source_compile",
@@ -31,17 +31,17 @@
       "status": "passed"
     },
     {
-      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_app.py --mode offline --port 57354 --timeout 30",
-      "duration_ms": 5859.093,
+      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_app.py --mode offline --port 62129 --timeout 30",
+      "duration_ms": 7566.056,
       "exit_code": 0,
       "failure": "",
       "name": "source_smoke",
-      "output": "smoke_port requested=57354 selected=57354 reason=port 57354 is free\nsmoke_ok mode=offline url=http://127.0.0.1:57354/",
+      "output": "smoke_port requested=62129 selected=62129 reason=port 62129 is free\nsmoke_ok mode=offline url=http://127.0.0.1:62129/",
       "required": true,
       "status": "passed"
     }
   ],
-  "duration_ms": 6082.01,
+  "duration_ms": 8022.825,
   "environment": {
     "machine": "AMD64",
     "offline_requested": false,
@@ -51,13 +51,13 @@
     "system": "Windows"
   },
   "failures": [],
-  "finished_at": "2026-07-19T11:22:00.745+00:00",
-  "generated_at": "2026-07-19T11:22:00.745+00:00",
+  "finished_at": "2026-07-20T07:45:09.436+00:00",
+  "generated_at": "2026-07-20T07:45:09.436+00:00",
   "git": {
     "branch": "codex/issue-0063-quality-momentum-20260719",
-    "dirty": false,
-    "head": "4b6040a166f00bc593b9355d55d3bdc5d1aaf660",
-    "origin_main": "2fa669f8ec6d49c94214188b06e89f0e24603600"
+    "dirty": true,
+    "head": "bd7d6c230ca46ca95734c2a6e77a11ec6ded2a17",
+    "origin_main": "2ed7acff35be6d4f1e2b2b3536fa8225d43e54e6"
   },
   "log_paths": [
     "logs\\chatgpt_audits.jsonl",
@@ -76,7 +76,7 @@
     ],
     "phase_ids": []
   },
-  "started_at": "2026-07-19T11:21:54.662+00:00",
+  "started_at": "2026-07-20T07:45:01.413+00:00",
   "unavailable_optional_components": [
     "timesfm",
     "toto"

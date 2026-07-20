@@ -19,6 +19,12 @@ from etf_cockpit.application.api import LocalApplicationApi
 from etf_cockpit.data.trust_artifacts import IDENTITY_PATH, refresh_static_trust_artifacts, write_trust_artifacts_for_scores
 from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
 from etf_cockpit.data.esef_provider import EsefProviderUnavailable, FilingsXbrlOrgProvider
+from etf_cockpit.data.oam_adapters import (
+    FranceDilaOamAdapter,
+    NetherlandsAfmOamAdapter,
+    OAMDiscoveryRequest,
+    write_oam_discovery_registry,
+)
 from etf_cockpit.data.instrument_identity import CanonicalIdentity
 from etf_cockpit.parsers.contracts import RawDocument, load_fixture_manifest
 from etf_cockpit.parsers.esef_ixbrl import parse_esef_package
@@ -581,6 +587,45 @@ class AppState:
             return self.last_message
         except Exception as exc:
             self.last_message = f"ESEF discovery unavailable: {type(exc).__name__}. Local data was not changed."
+            return self.last_message
+
+    def discover_oam(
+        self,
+        country: str,
+        *,
+        issuer: str = "",
+        isin: str = "",
+        document_type: str = "",
+        date_from: str = "",
+        date_to: str = "",
+        endpoint: str = "",
+        cache_dir: Path | None = None,
+    ) -> str:
+        """Discover one official OAM export without changing clean evidence on failure."""
+
+        try:
+            start = datetime.fromisoformat(date_from.strip()).date() if date_from.strip() else None
+            end = datetime.fromisoformat(date_to.strip()).date() if date_to.strip() else None
+            if start and end and start > end:
+                raise ValueError("OAM date_from must not be after date_to")
+            country_code = str(country or "").strip().upper()
+            adapter_type = FranceDilaOamAdapter if country_code == "FR" else NetherlandsAfmOamAdapter if country_code == "NL" else None
+            if adapter_type is None:
+                raise ValueError("OAM country must be FR or NL")
+            adapter = adapter_type(
+                cache_dir=cache_dir,
+                endpoint=endpoint or None,
+                enabled=bool(endpoint.strip()),
+            )
+            result = adapter.discover(OAMDiscoveryRequest(issuer=issuer, isin=isin, document_type=document_type, date_from=start, date_to=end))
+            if result.status == "ok":
+                write_oam_discovery_registry(result)
+                self.last_message = f"{result.message} Snapshot checksum={result.snapshot.sha256[:12] if result.snapshot else 'unavailable'}..."
+            else:
+                self.last_message = f"{result.message} Manual fallback remains available; no clean evidence was changed."
+            return self.last_message
+        except Exception as exc:
+            self.last_message = f"OAM discovery unavailable: {type(exc).__name__}. Manual fallback remains available; no clean evidence was changed."
             return self.last_message
 
     def download_esef_package(self, filing_id: str, *, package_url: str | None = None, cache_dir: Path | None = None) -> str:
