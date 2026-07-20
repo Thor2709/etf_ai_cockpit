@@ -211,6 +211,14 @@ def _score_tile(item: SimpleInstrumentScore, history_rows: list[dict[str, object
                     spacing=8,
                     wrap=True,
                 ),
+                ft.Text(
+                    f"Expected-return distribution ({item.expected_return_horizon_days or 'N/A'}d): {_pct_badge(item.q10_expected_return)} / {_pct_badge(item.q50_expected_return)} / {_pct_badge(item.q90_expected_return)} gross; "
+                    f"{_pct_badge(item.net_expected_return)} net on {_euro_badge(item.expected_return_order_value_eur)} order | "
+                    f"cost {_bps_badge(item.expected_return_cost_bps)} | ratio {_number_badge(item.expected_return_cost_ratio)} | {item.expected_return_source_dataset}",
+                    color=theme.MUTED if item.friction_status == "available" else theme.AMBER,
+                    size=11,
+                    selectable=True,
+                ),
                 ft.Text(f"Cost scenario: {item.cost_stress_scenario}", color=theme.MUTED, size=11),
                 ft.Text(item.benchmark_attribution_label, color=theme.MUTED, size=11),
                 ft.Text(
@@ -464,6 +472,10 @@ def _benchmark_badge(item: SimpleInstrumentScore) -> str:
 
 def _pct_badge(value: float | None) -> str:
     return "N/A" if value is None else f"{value:+.1%}"
+
+
+def _euro_badge(value: float | None) -> str:
+    return "N/A" if value is None else f"EUR {value:,.2f}"
 
 
 def _number_badge(value: float | None) -> str:

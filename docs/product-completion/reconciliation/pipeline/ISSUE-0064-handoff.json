@@ -1,0 +1,70 @@
+{
+  "schema_version": "1.0",
+  "stage": "frozen_feature_checkpoint",
+  "issue_ids": ["ISSUE-0064"],
+  "base_sha": "2dcf6ef32356260fa31e334f4f2aab7f9448a750",
+  "checkpoint_sha": "f1bd6ce5e726ef9c1237da9b3aaa26c97928c08f",
+  "branch": "codex/issue-0064-friction-adjusted-20260719",
+  "worktree": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\issue0064-friction-adjusted-20260719",
+  "workflow": "root-only implementation, review and release; native agents disabled by current user instruction",
+  "expected_status_transition": {
+    "ISSUE-0064": ["implemented_initially", "integrated"]
+  },
+  "allowed_paths": [
+    ".github/status-transition-guard-manifest.json",
+    "artifacts/validation/latest/validation.json",
+    "artifacts/validation/latest/validation.md",
+    "configs/feature_registry.yaml",
+    "docs/product-completion/CURRENT_STATUS.json",
+    "docs/product-completion/PROGRESS.md",
+    "docs/product-completion/reconciliation/pipeline/ISSUE-0064-handoff.json",
+    "issues/issue_registry.json",
+    "scripts/issue_registry_core.py",
+    "src/etf_cockpit/app/components/simple_scores.py",
+    "src/etf_cockpit/app/pages/instrument_detail.py",
+    "src/etf_cockpit/app/pages/signals.py",
+    "src/etf_cockpit/app/selectors/instrument_detail.py",
+    "src/etf_cockpit/data/trust_artifacts.py",
+    "src/etf_cockpit/models/forecast_scores.py",
+    "src/etf_cockpit/services.py",
+    "src/etf_cockpit/signals/friction_edge.py",
+    "src/etf_cockpit/signals/signal_pipeline.py",
+    "src/etf_cockpit/signals/simple_scores.py",
+    "tests/test_friction_edge.py",
+    "tests/test_signal_gates.py",
+    "tests/test_simple_scores.py",
+    "tests/test_task18_ui.py",
+    "tests/test_trust_critical_artifacts.py"
+  ],
+  "completed_checks": [
+    "distribution and friction regression tests passed, including optional-forecast fallback, order-size identity, cost consistency, integer-horizon boundaries and horizon propagation",
+    "score, signal-gate, instrument-detail, durable score-history audit, friction UI and optional-forecast fallback regressions passed",
+    "Ruff passed for changed Python files",
+    "compileall passed",
+    "offline source smoke passed",
+    "scripts/validate_app.py --issue ISSUE-0064 passed with JSON and Markdown evidence",
+    "real Flet Instrument Detail rendering showed the expected-return distribution line, explicit unavailable values, forecast_return_distribution provenance and execution_allowed=false with no browser warnings or errors",
+    "git diff --check passed",
+    "no full suite was repeated locally; release CI is the broader gate"
+  ],
+  "authorised_baseline_fingerprints": [
+    "tests/scope_boundary/test_package_inventory.py::test_current_production_package_inventory_passes",
+    "tests/test_governance_review_regressions.py::test_audit_manifest_includes_governance_checksums_version_and_diagnostic_marker",
+    "tests/test_product_governance.py::test_authority_matrix_covers_runtime_capabilities_and_stays_disabled",
+    "tests/ui/test_system_map_ui.py::test_system_map_shows_future_execution_as_non_interactive"
+  ],
+  "merge_conditions": [
+    "head and base match the handoff after rebase onto latest origin/main",
+    "changed paths and exact ISSUE-0064 implemented_initially-to-integrated transition match",
+    "required CI checks pass or match only the authorised fingerprints",
+    "post-merge quick validation, registry readback and GitHub issue sync no-op converge"
+  ],
+  "stop_conditions": [
+    "unexpected changed path or status transition",
+    "changed checkpoint head, stale base or merge conflict",
+    "current-feature test failure",
+    "ambiguous baseline mismatch",
+    "product-code correction required during release"
+  ],
+  "notes": "Advisory expected-return quantiles are adjusted with the shared local order-size cost model; ordinal score-to-edge fields remain migration output and execution_allowed remains false."
+}

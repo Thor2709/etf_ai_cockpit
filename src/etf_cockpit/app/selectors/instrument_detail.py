@@ -719,17 +719,43 @@ def build_etf_disclosure_panel(model: InstrumentDetailViewModel) -> dict[str, An
 
 
 def _friction_panel(instrument_id: str, *, candidate_score: SimpleInstrumentScore | None = None) -> dict[str, Any]:
-    fields = ("gross_expected_edge_bps", "estimated_total_cost_bps", "net_expected_edge_bps", "edge_to_cost_ratio")
+    fields = (
+        "gross_expected_edge_bps",
+        "estimated_total_cost_bps",
+        "net_expected_edge_bps",
+        "edge_to_cost_ratio",
+        "gross_expected_return",
+        "q10_expected_return",
+        "q50_expected_return",
+        "q90_expected_return",
+        "expected_return_horizon_days",
+        "net_q10_expected_return",
+        "net_expected_return",
+        "net_q90_expected_return",
+        "expected_return_order_value_eur",
+        "expected_return_cost_bps",
+        "expected_return_cost_eur",
+        "expected_return_cost_ratio",
+    )
     empty = {field: None for field in fields}
-    empty.update({"cost_stress_scenario": "unavailable", "status": "unavailable", "execution_allowed": False})
+    empty.update(
+        {
+            "cost_stress_scenario": "unavailable",
+            "friction_reason": "Friction-adjusted return unavailable.",
+            "expected_return_distribution_version": "expected-return-distribution.v1",
+            "expected_return_source_dataset": "forecast_return_distribution",
+            "status": "unavailable",
+            "execution_allowed": False,
+        }
+    )
     if candidate_score is not None and str(candidate_score.display_id).strip() == str(instrument_id).strip():
         row = pd.Series(
             {
-                "gross_expected_edge_bps": candidate_score.gross_expected_edge_bps,
-                "estimated_total_cost_bps": candidate_score.estimated_total_cost_bps,
-                "net_expected_edge_bps": candidate_score.net_expected_edge_bps,
-                "edge_to_cost_ratio": candidate_score.edge_to_cost_ratio,
+                **{field: getattr(candidate_score, field, None) for field in fields},
                 "cost_stress_scenario": candidate_score.cost_stress_scenario,
+                "friction_reason": candidate_score.friction_reason,
+                "expected_return_distribution_version": candidate_score.expected_return_distribution_version,
+                "expected_return_source_dataset": candidate_score.expected_return_source_dataset,
                 "source_id": candidate_score.instrument_key,
                 "source_authority": "score_row",
             }
@@ -753,16 +779,46 @@ def _friction_panel(instrument_id: str, *, candidate_score: SimpleInstrumentScor
         return number if math.isfinite(number) else None
 
     result = {field: _finite(row.get(field)) if field in row.index else None for field in fields}
-    scenario_text = _safe_known_text(row.get("cost_stress_scenario"), frozenset({"low", "base", "high"}))
+    scenario_text = _safe_known_text(
+        row.get("cost_stress_scenario"),
+        frozenset({"low", "base", "high", "base_order_size"}),
+    )
     scenario_valid = scenario_text is not None
     if not scenario_valid:
         scenario_text = "unavailable"
-    numeric_available = any(result[field] is not None for field in fields)
+    legacy_complete = all(
+        result[field] is not None
+        for field in ("gross_expected_edge_bps", "estimated_total_cost_bps", "net_expected_edge_bps")
+    )
+    distribution_complete = all(
+        result[field] is not None
+        for field in (
+            "q10_expected_return",
+            "q50_expected_return",
+            "q90_expected_return",
+            "expected_return_horizon_days",
+            "net_q10_expected_return",
+            "net_expected_return",
+            "net_q90_expected_return",
+            "expected_return_order_value_eur",
+            "expected_return_cost_bps",
+            "expected_return_cost_eur",
+        )
+    )
+    complete = legacy_complete or distribution_complete
+    has_numeric = any(result[field] is not None for field in fields)
     result.update(
         {
             "cost_stress_scenario": scenario_text,
-            "status": "available" if numeric_available and scenario_valid else "manual_review" if numeric_available else "unavailable",
-            "manual_review": numeric_available and not scenario_valid,
+            "friction_reason": str(row.get("friction_reason") or "Friction-adjusted return unavailable."),
+            "expected_return_distribution_version": str(
+                row.get("expected_return_distribution_version") or "expected-return-distribution.v1"
+            ),
+            "expected_return_source_dataset": str(
+                row.get("expected_return_source_dataset") or "forecast_return_distribution"
+            ),
+            "status": "available" if complete and scenario_valid else "manual_review" if has_numeric else "unavailable",
+            "manual_review": has_numeric and not (complete and scenario_valid),
             "execution_allowed": False,
             **_provenance_fields(row),
         }
