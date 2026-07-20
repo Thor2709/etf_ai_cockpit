@@ -30,7 +30,7 @@ MANAGED_START = "<!-- etf-ai-cockpit:managed:start -->"
 MANAGED_END = "<!-- etf-ai-cockpit:managed:end -->"
 LEGACY_MANAGED_START = "<!-- etf-ai-cockpit-managed-start -->"
 LEGACY_MANAGED_END = "<!-- etf-ai-cockpit-managed-end -->"
-REVIEWED_REOPEN_IDS = frozenset({"ISSUE-0067"})
+REVIEWED_REOPEN_IDS = frozenset({"ISSUE-0048", "ISSUE-0067", "ISSUE-0122"})
 DEFAULT_MAP_PATH = Path(
     "docs/product-completion/reconciliation/2026-07-17-3321ebd/github-issue-map.json"
 )

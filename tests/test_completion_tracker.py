@@ -100,10 +100,11 @@ def test_state_guard_allows_only_reviewed_reopen() -> None:
     ordinary_plan = sync.plan_actions(registry(ordinary), [remote(ordinary, state="closed")])
     assert any(action["reason"] == "unexpected_transition_closed_to_open" for action in ordinary_plan["actions"])
 
-    reviewed = record("ISSUE-0067")
-    reviewed_plan = sync.plan_actions(registry(reviewed), [remote(reviewed, state="closed")])
-    assert reviewed_plan["summary"]["reopen"] == 1
-    assert reviewed_plan["summary"]["blocked"] == 0
+    for stable_id in ("ISSUE-0048", "ISSUE-0067", "ISSUE-0122"):
+        reviewed = record(stable_id)
+        reviewed_plan = sync.plan_actions(registry(reviewed), [remote(reviewed, state="closed")])
+        assert reviewed_plan["summary"]["reopen"] == 1
+        assert reviewed_plan["summary"]["blocked"] == 0
 
 
 def test_legacy_unmanaged_match_is_not_edited_or_duplicated() -> None:

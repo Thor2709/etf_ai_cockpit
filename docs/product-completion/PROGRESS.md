@@ -9,15 +9,15 @@ This file is generated from `issues/issue_registry.json`; it contains no wall-cl
 | `blocked` | 1 |
 | `closed` | 4 |
 | `hardening_required` | 3 |
-| `implemented_initially` | 57 |
+| `implemented_initially` | 59 |
 | `in_progress` | 9 |
-| `integrated` | 28 |
-| `planned` | 55 |
+| `integrated` | 30 |
+| `planned` | 51 |
 | `research_only` | 2 |
 
 ## Ready issues
 
-`ISSUE-0150`, `ISSUE-0063`, `ISSUE-0095`, `ISSUE-0097`, `ISSUE-0151`, `UPDATEV2-0014`, `UPDATEV2-0018`, `UPDATEV2-0020`, `UPDATEV2-0023`, `UPDATEV2-0026`, `ISSUE-0029`, `ISSUE-0037`, `ISSUE-0046`, `ISSUE-0051`, `ISSUE-0053`, `ISSUE-0010`, `ISSUE-0032`, `ISSUE-0033`, `ISSUE-0043`, `ISSUE-0058`, `ISSUE-0066`, `UPDATEV2-0024`, `UPDATEV2-0025`, `UPDATEV2-0030`
+`ISSUE-0095`, `ISSUE-0097`, `ISSUE-0151`, `UPDATEV2-0018`, `UPDATEV2-0020`, `UPDATEV2-0023`, `UPDATEV2-0026`, `ISSUE-0029`, `ISSUE-0037`, `ISSUE-0046`, `ISSUE-0051`, `ISSUE-0053`, `ISSUE-0010`, `ISSUE-0032`, `ISSUE-0033`, `ISSUE-0043`, `ISSUE-0058`, `ISSUE-0066`, `UPDATEV2-0024`, `UPDATEV2-0025`, `UPDATEV2-0030`
 
 ## Phase coverage
 

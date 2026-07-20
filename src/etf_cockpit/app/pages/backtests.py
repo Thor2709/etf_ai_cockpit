@@ -166,7 +166,7 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
             panel(
                 ft.Column(
                     [
-                        section_header("Strategy diagnostics", "After-cost results versus buy-and-hold, equal-weight, momentum-only and trend-only baselines."),
+                        section_header("Strategy diagnostics", "After-cost results versus equal-weight, quality-only, momentum-only, quality-momentum and trend-only baselines."),
                         strategy_table.search_control,
                         strategy_table.control,
                         strategy_table.status_control,
@@ -190,7 +190,7 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
             panel(
                 ft.Column(
                     [
-                        section_header("Operational execution evidence", "Decision-price and next-open assumptions are descriptive evidence only; same-bar execution is forbidden."),
+                        section_header("Operational execution evidence", "Quality-momentum uses point-in-time evidence and next-session simulation; decision-price assumptions are descriptive only and same-bar execution is forbidden."),
                         ft.Text("\n".join(operational_evidence), color=theme.MUTED, selectable=True),
                     ],
                     spacing=6,

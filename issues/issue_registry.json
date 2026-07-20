@@ -4791,7 +4791,7 @@
       "package_status": "Open",
       "phase": "phase-01-governance-scope",
       "priority": "P1",
-      "programme_status": "planned",
+      "programme_status": "integrated",
       "related_issues": [
         "ISSUE-0092",
         "ISSUE-0098",
@@ -5675,7 +5675,7 @@
       "package_status": "",
       "phase": "phase-02-data-policy-identity",
       "priority": "P0/P1",
-      "programme_status": "planned",
+      "programme_status": "integrated",
       "related_issues": [],
       "required_inputs": [],
       "security_and_audit": "Host allow-list, fair-access scheduler, parser sandbox and immutable raw evidence.",
@@ -8089,7 +8089,7 @@
       "package_status": "",
       "phase": "phase-10-audit-documentation-governance",
       "priority": "P0/P1",
-      "programme_status": "planned",
+      "programme_status": "implemented_initially",
       "related_issues": [],
       "required_inputs": [],
       "security_and_audit": "No protected or personal attribute inference; geographic data terms are honoured.",
@@ -8264,7 +8264,7 @@
       "package_status": "Open",
       "phase": "phase-01-governance-scope",
       "priority": "P1",
-      "programme_status": "planned",
+      "programme_status": "implemented_initially",
       "related_issues": [
         "ISSUE-0076",
         "ISSUE-0087"
