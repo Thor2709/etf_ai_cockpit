@@ -2,7 +2,7 @@
   "checks": [
     {
       "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/validate_issue_registry.py",
-      "duration_ms": 101.041,
+      "duration_ms": 98.995,
       "exit_code": 0,
       "failure": "",
       "name": "issue_registry",
@@ -12,7 +12,7 @@
     },
     {
       "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m compileall -q src scripts",
-      "duration_ms": 138.372,
+      "duration_ms": 118.572,
       "exit_code": 0,
       "failure": "",
       "name": "source_compile",
@@ -21,27 +21,27 @@
       "status": "passed"
     },
     {
-      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_app.py --mode offline --port 61483 --timeout 30",
-      "duration_ms": 5877.878,
+      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_app.py --mode offline --port 61481 --timeout 30",
+      "duration_ms": 5785.805,
       "exit_code": 0,
       "failure": "",
       "name": "source_smoke",
-      "output": "smoke_port requested=61483 selected=61483 reason=port 61483 is free\nsmoke_ok mode=offline url=http://127.0.0.1:61483/",
+      "output": "smoke_port requested=61481 selected=61481 reason=port 61481 is free\nsmoke_ok mode=offline url=http://127.0.0.1:61481/",
       "required": true,
       "status": "passed"
     },
     {
       "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m pytest -q tests/scope_boundary/test_execution_boundary.py",
-      "duration_ms": 587.508,
+      "duration_ms": 509.45,
       "exit_code": 0,
       "failure": "",
       "name": "changed_tests",
-      "output": "..................                                                       [100%]",
+      "output": "...................                                                      [100%]",
       "required": true,
       "status": "passed"
     }
   ],
-  "duration_ms": 6740.092,
+  "duration_ms": 6550.509,
   "environment": {
     "machine": "AMD64",
     "offline_requested": false,
@@ -51,12 +51,12 @@
     "system": "Windows"
   },
   "failures": [],
-  "finished_at": "2026-07-20T00:40:28.583+00:00",
-  "generated_at": "2026-07-20T00:40:28.583+00:00",
+  "finished_at": "2026-07-20T00:46:16.877+00:00",
+  "generated_at": "2026-07-20T00:46:16.877+00:00",
   "git": {
     "branch": "codex/baseline-gate-20260720",
     "dirty": true,
-    "head": "2fa669f8ec6d49c94214188b06e89f0e24603600",
+    "head": "a79bed9fb79c64822016d502da6c7a02e2972113",
     "origin_main": "2fa669f8ec6d49c94214188b06e89f0e24603600"
   },
   "log_paths": [
@@ -71,7 +71,7 @@
     "issue_ids": [],
     "phase_ids": []
   },
-  "started_at": "2026-07-20T00:40:21.843+00:00",
+  "started_at": "2026-07-20T00:46:10.326+00:00",
   "unavailable_optional_components": [
     "timesfm",
     "toto"

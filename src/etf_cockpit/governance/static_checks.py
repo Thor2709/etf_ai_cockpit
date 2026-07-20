@@ -371,6 +371,41 @@ def _ui_order_context(targets: Sequence[str]) -> bool:
     return False
 
 
+def _is_safe_local_order_node(relative_path: str, node: ast.AST, parents: Mapping[int, ast.AST]) -> bool:
+    """Allow only the known local replay/paper declarations and references."""
+
+    if relative_path == "src/etf_cockpit/portfolio/paper_trading.py":
+        return isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "cancel_order"
+    if relative_path == "src/etf_cockpit/backtest/event_engine.py":
+        if isinstance(node, ast.ClassDef):
+            return node.name == "OrderRequest"
+        if isinstance(node, ast.Name) and node.id == "OrderRequest":
+            parent = parents.get(id(node))
+            if isinstance(parent, ast.arg) or isinstance(parent, ast.BinOp):
+                return True
+            if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef)) and parent.returns is node:
+                return True
+            return isinstance(parent, ast.Call) and (
+                parent.func is node
+                or (_dotted_name(parent.func) or "").casefold() == "isinstance"
+            )
+        return False
+    if relative_path == "src/etf_cockpit/application/api.py":
+        return (
+            isinstance(node, ast.Attribute)
+            and node.attr == "cancel_order"
+            and isinstance(node.value, ast.Call)
+            and _dotted_name(node.value.func) == "PaperLedger"
+        )
+    if relative_path == "src/etf_cockpit/plugins/contracts.py":
+        if isinstance(node, ast.Attribute):
+            return _dotted_name(node) == "PluginKind.BROKER_ADAPTER"
+        if isinstance(node, ast.Name) and node.id == "BROKER_ADAPTER" and isinstance(node.ctx, ast.Store):
+            parent = parents.get(id(node))
+            return isinstance(parent, ast.Assign) and isinstance(parent.value, ast.Constant) and parent.value.value == "broker_adapter"
+    return False
+
+
 def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
     try:
         tree = ast.parse(text, filename=str(path))
@@ -388,7 +423,9 @@ def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
         ]
 
     violations: list[BoundaryViolation] = []
-    safe_local_symbols = _SAFE_LOCAL_ORDER_SYMBOLS.get(_relative_path(root, path), frozenset())
+    relative_path = _relative_path(root, path)
+    safe_local_symbols = _SAFE_LOCAL_ORDER_SYMBOLS.get(relative_path, frozenset())
+    parents = {id(child): node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
     string_bindings: dict[str, tuple[str, ...]] = {}
     for binding in ast.walk(tree):
         if isinstance(binding, ast.Assign):
@@ -408,7 +445,9 @@ def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             symbol = _normalise_symbol(node.name)
-            if symbol in _PROHIBITED_ORDER_SYMBOLS and symbol not in safe_local_symbols:
+            if symbol in _PROHIBITED_ORDER_SYMBOLS and (
+                symbol not in safe_local_symbols or not _is_safe_local_order_node(relative_path, node, parents)
+            ):
                 violations.append(
                     _violation(
                         root,
@@ -421,7 +460,10 @@ def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
                 )
         elif isinstance(node, (ast.Name, ast.Attribute)):
             raw_name = node.id if isinstance(node, ast.Name) else node.attr
-            if _normalise_symbol(raw_name) in _PROHIBITED_ORDER_SYMBOLS and _normalise_symbol(raw_name) not in safe_local_symbols:
+            if _normalise_symbol(raw_name) in _PROHIBITED_ORDER_SYMBOLS and (
+                _normalise_symbol(raw_name) not in safe_local_symbols
+                or not _is_safe_local_order_node(relative_path, node, parents)
+            ):
                 violations.append(
                     _violation(
                         root,
@@ -448,7 +490,10 @@ def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
                             evidence=alias.name,
                         )
                     )
-                if isinstance(node, ast.ImportFrom) and _normalise_symbol(alias.name) in _PROHIBITED_ORDER_SYMBOLS and _normalise_symbol(alias.name) not in safe_local_symbols:
+                if isinstance(node, ast.ImportFrom) and _normalise_symbol(alias.name) in _PROHIBITED_ORDER_SYMBOLS and (
+                    _normalise_symbol(alias.name) not in safe_local_symbols
+                    or not _is_safe_local_order_node(relative_path, alias, parents)
+                ):
                     violations.append(
                         _violation(
                             root,
