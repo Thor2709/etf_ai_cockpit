@@ -8,7 +8,7 @@
       "to": "implemented_initially"
     }
   ],
-  "base_commit": "4bfdfe03c844a8b3066a1c8eeb3a02c7a36c7c43",
+  "base_commit": "d0bbd530efc614fed0266e1500e48c6590d1e747",
   "branch": "codex/issue-0087-filings-20260720",
   "issue_ids": ["ISSUE-0087"],
   "schema_version": "1.0"
