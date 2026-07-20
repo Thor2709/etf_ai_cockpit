@@ -120,9 +120,11 @@ capabilities:
   - {capability_id: "dataset:plugin_registry", kind: dataset, authority_stage: research, description: Local plugin registry}
   - {capability_id: "dataset:portfolio", kind: dataset, authority_stage: research, description: Portfolio evidence}
   - {capability_id: "dataset:portfolio_risk", kind: dataset, authority_stage: research, description: Portfolio risk evidence}
+  - {capability_id: "dataset:performance_budgets", kind: dataset, authority_stage: research, description: Local performance and resource budget policy}
   - {capability_id: "dataset:proposal_policy", kind: dataset, authority_stage: research, description: Proposal policy evidence}
   - {capability_id: "dataset:quality_programme", kind: dataset, authority_stage: research, description: Quality programme evidence}
   - {capability_id: "dataset:release_manifest", kind: dataset, authority_stage: research, description: Release manifest evidence}
+  - {capability_id: "dataset:resource_profiles", kind: dataset, authority_stage: research, description: Local hardware profile and bounded job resource evidence}
   - {capability_id: "dataset:robust_risk", kind: dataset, authority_stage: research, description: Robust risk evidence}
   - {capability_id: "dataset:saved_screens", kind: dataset, authority_stage: research, description: Saved screen definitions}
   - {capability_id: "dataset:scores", kind: dataset, authority_stage: research, description: Score evidence}
