@@ -2,3 +2,4 @@
 issues/issue_registry.json text eol=lf
 data/.schema_versions/*.json text eol=lf
 docs/product-completion/*.json text eol=lf
+docs/product-completion/PROGRESS.md text eol=lf
