@@ -3,13 +3,13 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "issue_id": "ISSUE-0151",
+      "issue_id": "ISSUE-0097",
       "from": "planned",
-      "to": "hardening_required"
+      "to": "implemented_initially"
     }
   ],
-  "base_commit": "5607b1680bf354ece617ff36c502ba239b16403c",
-  "branch": "codex/issue-0151-hardware-profiles-20260720",
-  "issue_ids": ["ISSUE-0151"],
+  "base_commit": "e31dcfda69383cc9066a4fe747caa1e8ca81f2a0",
+  "branch": "codex/issue-0097-capital-efficiency-20260720",
+  "issue_ids": ["ISSUE-0097"],
   "schema_version": "1.0"
 }
