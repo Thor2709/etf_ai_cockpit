@@ -3,7 +3,7 @@
   "stage": "frozen_feature_checkpoint",
   "issue_ids": ["ISSUE-0087"],
   "base_sha": "4bfdfe03c844a8b3066a1c8eeb3a02c7a36c7c43",
-  "checkpoint_sha": "c8c000a0dfb7c3ec78142b377557ea7f6b7ec2b7",
+  "checkpoint_sha": "df3423d56fe42dc6accb2ea6aaeb7190da689efb",
   "branch": "codex/issue-0087-filings-20260720",
   "worktree": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\issue0087-filings-20260720",
   "workflow": "root-only implementation, review and release; native agents disabled by current user instruction",
