@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pandas as pd
 
 from etf_cockpit.data.stock_research import (
     balance_sheet_analysis,
     build_stock_research_report,
     growth_analysis,
+    load_optional_research_import,
     profitability_analysis,
     valuation_analysis,
 )
@@ -122,10 +125,11 @@ def test_valuation_fails_closed_when_cash_flow_inputs_are_unavailable() -> None:
     assert result["relative_metrics"]["price_to_earnings"]["status"] == "missing"
 
 
-def test_combined_report_keeps_three_sections_and_provenance_boundary() -> None:
+def test_combined_report_keeps_research_sections_and_provenance_boundary() -> None:
     report = build_stock_research_report(_statements(), instrument_id="ACME", market_inputs={"market_cap": 300.0}, assumptions={})
 
-    assert set(report) >= {"profitability", "balance_sheet", "valuation", "execution_allowed", "source_lineage"}
+    assert report["schema_version"] == "stock_research.v2"
+    assert set(report) >= {"profitability", "balance_sheet", "valuation", "growth", "expectations", "execution_allowed", "source_lineage"}
     assert report["execution_allowed"] is False
     assert report["source_lineage"]["statement_view"] == "latest_restated"
 
@@ -284,3 +288,52 @@ def test_expectations_reject_malformed_dates_and_forged_current_analyst_authorit
     rejected = report["expectations"]["consensus"]["rejected_records"]
     assert any("missing_or_unlicensed_provenance" in reason for reason in rejected)
     assert any("current_or_restricted_provider_rejected" in reason for reason in rejected)
+
+
+def test_optional_consensus_import_is_instrument_scoped_and_file_checksummed(tmp_path: Path) -> None:
+    path = tmp_path / "consensus.csv"
+    pd.DataFrame([
+        {"instrument_id": "ACME", "metric": "revenue", "period_key": "FY2026", "value": 121.0, "available_at": "2026-01-30", "source_id": "licensed-import", "source_authority": "broker_licensed"},
+        {"instrument_id": "OTHER", "metric": "revenue", "period_key": "FY2026", "value": 999.0, "available_at": "2026-01-30", "source_id": "other-import", "source_authority": "broker_licensed"},
+    ]).to_csv(path, index=False)
+
+    evidence = load_optional_research_import(path, instrument_id="ACME")
+    report = build_stock_research_report(_statements(), instrument_id="ACME", expectation_evidence=evidence, as_known_at="2026-02-01")
+
+    assert evidence["instrument_id"].tolist() == ["ACME"]
+    assert len(evidence.loc[0, "source_checksum"]) == 64
+    item = report["expectations"]["consensus"]["metrics"]["revenue"]["FY2026"]
+    assert item["latest_value"] == 121.0
+    assert item["license_statuses"] == ["broker_licensed"]
+
+
+def test_shared_optional_import_without_instrument_identity_fails_closed(tmp_path: Path) -> None:
+    path = tmp_path / "guidance.csv"
+    pd.DataFrame([{"metric": "revenue", "period_key": "FY2026", "lower": 118.0, "upper": 123.0, "available_at": "2026-02-01", "source_id": "issuer-release", "source_authority": "official", "review_status": "structured"}]).to_csv(path, index=False)
+
+    evidence = load_optional_research_import(path, instrument_id="ACME")
+    report = build_stock_research_report(_statements(), instrument_id="ACME", guidance_evidence=evidence)
+
+    assert evidence.empty
+    assert evidence.attrs["import_status"] == "rejected"
+    assert report["expectations"]["guidance"]["rejected_records"] == ["import:missing_instrument_id"]
+
+
+def test_consensus_and_guidance_authority_classes_do_not_cross() -> None:
+    common = {"metric": "revenue", "period_key": "FY2026", "value": 121.0, "available_at": "2026-01-30", "source_id": "evidence", "source_checksum": "a" * 64}
+    report = build_stock_research_report(_statements(), instrument_id="ACME", expectation_evidence=[{**common, "source_authority": "official"}], guidance_evidence=[{**common, "source_authority": "user_owned", "review_status": "human_reviewed"}])
+
+    assert report["expectations"]["consensus"]["status"] == "unavailable"
+    assert report["expectations"]["guidance"]["status"] == "unavailable"
+    assert all("missing_or_unlicensed_provenance" in reason for reason in report["expectations"]["consensus"]["rejected_records"])
+    assert all("missing_or_unlicensed_provenance" in reason for reason in report["expectations"]["guidance"]["rejected_records"])
+
+
+def test_optional_evidence_rejects_missing_periods_and_incoherent_guidance_ranges() -> None:
+    consensus = {"metric": "revenue", "value": 121.0, "available_at": "2026-01-30", "source_id": "licensed-import", "source_authority": "user_owned", "source_checksum": "a" * 64}
+    guidance = {"metric": "revenue", "period_key": "FY2026", "lower": 125.0, "upper": 120.0, "available_at": "2026-01-30", "source_id": "issuer-release", "source_authority": "official", "source_checksum": "b" * 64, "review_status": "structured"}
+
+    report = build_stock_research_report(_statements(), instrument_id="ACME", expectation_evidence=[consensus], guidance_evidence=[guidance])
+
+    assert report["expectations"]["consensus"]["rejected_records"] == ["row_0:missing_metric_period_or_value"]
+    assert report["expectations"]["guidance"]["rejected_records"] == ["row_0:invalid_guidance_range"]

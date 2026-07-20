@@ -6,8 +6,11 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, metric_card, panel, section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import (
+    CONSENSUS_IMPORT_PATH,
+    GUIDANCE_IMPORT_PATH,
     STATEMENT_FACTS_PATH,
     build_stock_research_report,
+    load_optional_research_import,
     load_stock_research_frame,
 )
 
@@ -15,7 +18,9 @@ from etf_cockpit.application.ui_facade import (
 def stock_research_page(_page: ft.Page, state: AppState) -> ft.Control:
     instrument_id = str(getattr(state, "selected_etf", "") or state.snapshot.config.ui.default_etf)
     statements = load_stock_research_frame(STATEMENT_FACTS_PATH, instrument_id=instrument_id)
-    report = build_stock_research_report(statements, instrument_id=instrument_id, market_inputs={}, assumptions={})
+    consensus = load_optional_research_import(CONSENSUS_IMPORT_PATH, instrument_id=instrument_id)
+    guidance = load_optional_research_import(GUIDANCE_IMPORT_PATH, instrument_id=instrument_id)
+    report = build_stock_research_report(statements, instrument_id=instrument_id, market_inputs={}, assumptions={}, expectation_evidence=consensus, guidance_evidence=guidance)
     return ft.Column(
         [
             panel(
@@ -98,7 +103,50 @@ def _expectations_panel(section: object) -> ft.Control:
     guidance = value.get("guidance", {}) if isinstance(value, dict) else {}
     consensus_status = consensus.get("status", "unavailable") if isinstance(consensus, dict) else "unavailable"
     guidance_status = guidance.get("status", "unavailable") if isinstance(guidance, dict) else "unavailable"
-    return panel(ft.Column([section_header("Growth & Expectations", "Realised reported growth, reviewed management guidance and optional licensed point-in-time consensus are separate evidence classes."), ft.Text(f"Reported: available in the Growth panel; Management guidance: {guidance_status}; Optional consensus: {consensus_status}.", color=theme.MUTED, selectable=True), ft.Text("Consensus, revisions, dispersion, surprises and staleness remain n/a without point-in-time licensed evidence. Current analyst fields are rejected.", color=theme.AMBER, selectable=True), ft.Text("execution_allowed=false", color=theme.GREEN, selectable=True)], spacing=8))
+    guidance_rejected = len(guidance.get("rejected_records", [])) if isinstance(guidance, dict) else 0
+    consensus_rejected = len(consensus.get("rejected_records", [])) if isinstance(consensus, dict) else 0
+    return panel(ft.Column([section_header("Growth & Expectations", "Realised reported growth, reviewed management guidance and optional licensed point-in-time consensus are separate evidence classes."), ft.Text("Reported growth: available in the separate Growth panel.", color=theme.MUTED, selectable=True), ft.Text(f"Management guidance ({guidance_status})\n" + "\n".join(_guidance_lines(guidance)), color=theme.CYAN if guidance_status == "available" else theme.MUTED, selectable=True), ft.Text(f"Optional consensus ({consensus_status})\n" + "\n".join(_consensus_lines(consensus)), color=theme.CYAN if consensus_status == "available" else theme.MUTED, selectable=True), ft.Text(f"Rejected import records: guidance={guidance_rejected}; consensus={consensus_rejected}. Current or unlicensed analyst fields are rejected.", color=theme.AMBER, selectable=True), ft.Text(f"Local import paths: {GUIDANCE_IMPORT_PATH} | {CONSENSUS_IMPORT_PATH}", color=theme.MUTED, selectable=True), ft.Text("execution_allowed=false", color=theme.GREEN, selectable=True)], spacing=8))
+
+
+def _guidance_lines(guidance: object) -> list[str]:
+    value = guidance if isinstance(guidance, dict) else {}
+    lines = []
+    for item in value.get("items", [])[:8]:
+        if not isinstance(item, dict):
+            continue
+        displayed = _research_number(item.get("value"))
+        if item.get("lower") is not None or item.get("upper") is not None:
+            displayed = f"{_research_number(item.get('lower'))} to {_research_number(item.get('upper'))}"
+        lines.append(f"{item.get('metric', 'guidance')} {item.get('period_key', 'unspecified')}: {displayed}; review={item.get('review_status', 'unknown')}; source={item.get('source_id', 'unknown')}")
+    return lines or [str(value.get("reason") or "No structured, reviewed official guidance import is available.")]
+
+
+def _consensus_lines(consensus: object) -> list[str]:
+    value = consensus if isinstance(consensus, dict) else {}
+    lines = []
+    for metric, periods in value.get("metrics", {}).items():
+        if not isinstance(periods, dict):
+            continue
+        for period_key, item in periods.items():
+            if not isinstance(item, dict):
+                continue
+            revision = item.get("revision", {}) if isinstance(item.get("revision"), dict) else {}
+            dispersion = item.get("dispersion", {}) if isinstance(item.get("dispersion"), dict) else {}
+            surprise = item.get("surprise", {}) if isinstance(item.get("surprise"), dict) else {}
+            staleness = item.get("staleness", {}) if isinstance(item.get("staleness"), dict) else {}
+            lines.append(f"{metric} {period_key}: estimate={_research_number(item.get('latest_value'))}; revision={_research_number(revision.get('value'))}; dispersion={_research_number(dispersion.get('value'))}; surprise={_research_number(surprise.get('value'))}; staleness={staleness.get('days', 'n/a')} days; sources={item.get('source_ids', [])}")
+            if len(lines) >= 8:
+                return lines
+    return lines or [str(value.get("reason") or "No licensed point-in-time consensus import is available; revisions, dispersion, surprises and staleness remain n/a.")]
+
+
+def _research_number(value: object) -> str:
+    if value is None:
+        return "n/a"
+    try:
+        return f"{float(value):.4g}"
+    except (TypeError, ValueError):
+        return str(value)
 
 
 def _research_value(value: object) -> str:

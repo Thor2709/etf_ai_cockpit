@@ -11,23 +11,25 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import date
+import hashlib
 import math
+from pathlib import Path
+
 import pandas as pd
 
+from etf_cockpit.core.paths import RAW_DIR
 from etf_cockpit.data.statement_normalisation import statement_coverage, statement_view
 
 
-STOCK_RESEARCH_SCHEMA_VERSION = "stock_research.v1"
+STOCK_RESEARCH_SCHEMA_VERSION = "stock_research.v2"
+STOCK_RESEARCH_IMPORT_DIR = RAW_DIR / "stock_research"
+CONSENSUS_IMPORT_PATH = STOCK_RESEARCH_IMPORT_DIR / "consensus.csv"
+GUIDANCE_IMPORT_PATH = STOCK_RESEARCH_IMPORT_DIR / "guidance.csv"
 _SPECIAL_SECTORS = frozenset({"bank", "banks", "insurance", "insurer", "financial", "financials"})
-_OPTIONAL_SOURCE_AUTHORITIES = frozenset(
+_CONSENSUS_SOURCE_AUTHORITIES = frozenset(
     {
         "broker licensed",
         "broker_licensed",
-        "company",
-        "company official",
-        "company_official",
-        "official",
-        "issuer",
         "licensed vendor",
         "licensed_vendor",
         "user supplied",
@@ -38,6 +40,7 @@ _OPTIONAL_SOURCE_AUTHORITIES = frozenset(
         "broker-licensed",
     }
 )
+_GUIDANCE_SOURCE_AUTHORITIES = frozenset({"company", "company official", "company_official", "official", "issuer"})
 _REVIEWED_GUIDANCE_STATUSES = frozenset({"approved", "human_reviewed", "reviewed", "structured", "verified"})
 _GROWTH_ALIASES: dict[str, tuple[str, ...]] = {
     "revenue": ("revenue", "sales"),
@@ -294,7 +297,7 @@ def build_stock_research_report(
         "balance_sheet": balance_sheet_analysis(frame, instrument_id=instrument_id, sector=sector, as_known_at=as_known_at),
         "valuation": valuation_analysis(frame, instrument_id=instrument_id, market_inputs=market_inputs, assumptions=assumptions, as_known_at=as_known_at),
         "growth": growth_analysis(frame, instrument_id=instrument_id, as_known_at=as_known_at),
-        "expectations": _expectations_report(frame, expectation_evidence, guidance_evidence, as_known_at=as_known_at),
+        "expectations": _expectations_report(frame, expectation_evidence, guidance_evidence, instrument_id=instrument_id, as_known_at=as_known_at),
         "source_lineage": _lineage(frame),
         "execution_allowed": False,
     }
@@ -306,6 +309,63 @@ def load_stock_research_frame(path: object, *, instrument_id: str | None = None,
     except (OSError, ValueError, ImportError):
         frame = pd.DataFrame()
     return _statement_frame(frame, instrument_id, as_known_at=as_known_at)
+
+
+def load_optional_research_import(path: object, *, instrument_id: str | None = None) -> pd.DataFrame:
+    """Load local optional evidence without granting it data authority."""
+
+    try:
+        candidate = Path(path)
+    except TypeError:
+        return _empty_optional_import(path, "rejected", "invalid_path")
+    if not candidate.is_file():
+        return _empty_optional_import(candidate, "missing", "file_not_found")
+    try:
+        checksum_before = _file_sha256(candidate)
+        suffix = candidate.suffix.casefold()
+        if suffix == ".csv":
+            frame = pd.read_csv(candidate)
+        elif suffix in {".json", ".jsonl"}:
+            frame = pd.read_json(candidate, lines=suffix == ".jsonl")
+        elif suffix == ".parquet":
+            frame = pd.read_parquet(candidate)
+        else:
+            return _empty_optional_import(candidate, "rejected", f"unsupported_file_type:{suffix or 'none'}")
+        checksum_after = _file_sha256(candidate)
+    except (ImportError, OSError, UnicodeError, ValueError) as exc:
+        return _empty_optional_import(candidate, "rejected", f"unreadable_import:{type(exc).__name__}")
+    if checksum_before != checksum_after:
+        return _empty_optional_import(candidate, "rejected", "file_changed_during_read")
+    if not isinstance(frame, pd.DataFrame) or frame.empty:
+        return _empty_optional_import(candidate, "empty", "no_records")
+    if instrument_id:
+        if "instrument_id" not in frame.columns:
+            return _empty_optional_import(candidate, "rejected", "missing_instrument_id")
+        frame = frame[frame["instrument_id"].astype(str).eq(str(instrument_id))].copy()
+        if frame.empty:
+            return _empty_optional_import(candidate, "empty", "instrument_not_present")
+    if "source_checksum" not in frame.columns:
+        frame["source_checksum"] = checksum_after
+    else:
+        supplied = frame["source_checksum"].notna() & frame["source_checksum"].astype(str).str.strip().ne("")
+        frame["source_checksum"] = frame["source_checksum"].where(supplied, checksum_after)
+    frame = frame.reset_index(drop=True)
+    frame.attrs.update({"import_path": str(candidate), "import_status": "loaded", "import_reason": "", "file_sha256": checksum_after})
+    return frame
+
+
+def _empty_optional_import(path: object, status: str, reason: str) -> pd.DataFrame:
+    frame = pd.DataFrame()
+    frame.attrs.update({"import_path": str(path), "import_status": status, "import_reason": reason})
+    return frame
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _statement_frame(frame: pd.DataFrame, instrument_id: str | None, *, as_known_at: str | date | None = None) -> pd.DataFrame:
@@ -536,10 +596,11 @@ def _expectations_report(
     expectation_evidence: Iterable[object] | Mapping[str, object] | pd.DataFrame | None,
     guidance_evidence: Iterable[object] | Mapping[str, object] | pd.DataFrame | None,
     *,
+    instrument_id: str | None,
     as_known_at: str | date | None,
 ) -> dict[str, object]:
-    consensus_rows, consensus_rejected, cutoff = _prepare_optional_rows(expectation_evidence, as_known_at=as_known_at, guidance=False)
-    guidance_rows, guidance_rejected, _ = _prepare_optional_rows(guidance_evidence, as_known_at=as_known_at, guidance=True)
+    consensus_rows, consensus_rejected, cutoff = _prepare_optional_rows(expectation_evidence, instrument_id=instrument_id, as_known_at=as_known_at, guidance=False)
+    guidance_rows, guidance_rejected, _ = _prepare_optional_rows(guidance_evidence, instrument_id=instrument_id, as_known_at=as_known_at, guidance=True)
     return {
         "as_known_at": cutoff,
         "consensus": _consensus_report(statements, consensus_rows, consensus_rejected, cutoff),
@@ -636,6 +697,7 @@ def _guidance_report(rows: list[dict[str, object]], rejected: list[str]) -> dict
 def _prepare_optional_rows(
     evidence: Iterable[object] | Mapping[str, object] | pd.DataFrame | None,
     *,
+    instrument_id: str | None,
     as_known_at: str | date | None,
     guidance: bool,
 ) -> tuple[list[dict[str, object]], list[str], str | None]:
@@ -646,8 +708,13 @@ def _prepare_optional_rows(
         return [], ["invalid_as_known_at"], None
     frame = _evidence_frame(evidence)
     valid: list[dict[str, object]] = []
-    rejected: list[str] = []
+    import_reason = _text(frame.attrs.get("import_reason"))
+    rejected: list[str] = [f"import:{import_reason}"] if import_reason and import_reason != "file_not_found" else []
     for index, raw in enumerate(frame.to_dict("records")):
+        row_instrument = _text(raw.get("instrument_id"))
+        if instrument_id and row_instrument and row_instrument != str(instrument_id):
+            rejected.append(f"row_{index}:instrument_mismatch")
+            continue
         reason, row = _validate_optional_row(raw, index=index, cutoff=cutoff, guidance=guidance)
         if reason:
             rejected.append(reason)
@@ -664,23 +731,28 @@ def _validate_optional_row(raw: Mapping[str, object], *, index: int, cutoff: str
     if not source_authority and source_kind in {"official", "company", "issuer"}:
         source_authority = source_kind
     authority_key = source_authority.casefold().replace("–", "-")
+    allowed_authorities = _GUIDANCE_SOURCE_AUTHORITIES if guidance else _CONSENSUS_SOURCE_AUTHORITIES
     source_checksum = _text(raw.get("source_checksum") or raw.get("checksum"))
     available_at = _normalise_timestamp(raw.get("available_at") or raw.get("as_of") or raw.get("published_at"))
-    if not source_id or not available_at or authority_key not in _OPTIONAL_SOURCE_AUTHORITIES or not _valid_checksum(source_checksum):
-        return f"row_{index}:missing_or_unlicensed_provenance", None
     if source_kind in {"current_analyst", "current_analyst_field", "analyst_current"} or "yahoo" in provider or "yahoo" in source_id.casefold() or ("analyst" in provider and "point" not in source_kind):
         return f"row_{index}:current_or_restricted_provider_rejected", None
+    if not source_id or not available_at or authority_key not in allowed_authorities or not _valid_checksum(source_checksum):
+        return f"row_{index}:missing_or_unlicensed_provenance", None
     if cutoff and available_at > cutoff:
         return f"row_{index}:after_as_known_cutoff", None
     metric = _normalise_optional_metric(raw.get("canonical_metric") or raw.get("metric") or raw.get("measure"))
-    period_key = _text(raw.get("period_key") or raw.get("period_end") or raw.get("fiscal_year") or "unspecified")
+    period_key = _text(raw.get("period_key") or raw.get("period_end") or raw.get("fiscal_year"))
     value = _float(raw.get("value") if raw.get("value") is not None else raw.get("estimate") if raw.get("estimate") is not None else raw.get("forecast"))
-    if not guidance and (not metric or value is None):
-        return f"row_{index}:missing_metric_or_value", None
+    if not guidance and (not metric or not period_key or value is None):
+        return f"row_{index}:missing_metric_period_or_value", None
     review_status = _text(raw.get("review_status") or raw.get("review")).casefold().replace(" ", "_")
     text = _text(raw.get("guidance_text") or raw.get("text") or raw.get("statement"))
     lower = _float(raw.get("lower") if raw.get("lower") is not None else raw.get("low"))
     upper = _float(raw.get("upper") if raw.get("upper") is not None else raw.get("high"))
+    if guidance and lower is not None and upper is not None and lower > upper:
+        return f"row_{index}:invalid_guidance_range", None
+    if guidance and value is not None and ((lower is not None and value < lower) or (upper is not None and value > upper)):
+        return f"row_{index}:guidance_value_outside_range", None
     if guidance and (review_status not in _REVIEWED_GUIDANCE_STATUSES or (value is None and lower is None and upper is None and not text)):
         return f"row_{index}:guidance_not_structured_or_reviewed", None
     if guidance and not metric:
@@ -694,11 +766,21 @@ def _validate_optional_row(raw: Mapping[str, object], *, index: int, cutoff: str
         "text": text,
         "source_id": source_id,
         "source_authority": source_authority,
-        "license_status": _text(raw.get("license_status") or raw.get("licence_status") or ("user_owned" if "user" in authority_key else "official" if authority_key in {"official", "issuer", "company", "company official"} else "unspecified")),
+        "license_status": _text(raw.get("license_status") or raw.get("licence_status") or _default_license_status(authority_key)),
         "source_checksum": source_checksum,
         "available_at": available_at,
         "review_status": review_status,
     }
+
+
+def _default_license_status(authority_key: str) -> str:
+    if "user" in authority_key:
+        return "user_owned"
+    if "broker" in authority_key:
+        return "broker_licensed"
+    if "licensed" in authority_key:
+        return "licensed_vendor"
+    return "official"
 
 
 def _actual_for_period(periods: list[dict[str, object]], metric: str, period_key: str) -> float | None:
@@ -751,6 +833,8 @@ def _normalise_optional_metric(value: object) -> str:
 
 def _normalise_timestamp(value: object) -> str:
     if value is None or not _text(value):
+        return ""
+    if isinstance(value, (bool, int, float)):
         return ""
     try:
         timestamp = pd.Timestamp(value)
@@ -1026,11 +1110,15 @@ def _model_disagreement(intrinsic: Mapping[str, object], residual: Mapping[str, 
 
 
 __all__ = [
+    "CONSENSUS_IMPORT_PATH",
+    "GUIDANCE_IMPORT_PATH",
     "MetricEvidence",
+    "STOCK_RESEARCH_IMPORT_DIR",
     "STOCK_RESEARCH_SCHEMA_VERSION",
     "balance_sheet_analysis",
     "build_stock_research_report",
     "growth_analysis",
+    "load_optional_research_import",
     "load_stock_research_frame",
     "profitability_analysis",
     "valuation_analysis",
