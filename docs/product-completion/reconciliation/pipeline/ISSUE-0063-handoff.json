@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "stage": "root_verification_after_timeout_root_cause",
+  "stage": "frozen_feature_checkpoint",
   "issue_ids": ["ISSUE-0063"],
   "base_sha": "c4890a4d74e1131e2e1d161356d98289d83f0932",
   "checkpoint_sha": "c7393e66df4b37415056f6be44443da7249e97ba",
@@ -42,6 +42,7 @@
     "byte-level checksum regression and BacktestService cache-reuse integration tests pass; the retained cache now reads successfully",
     "merged fundamental evidence now waits for every contributing source and uses the latest valid availability timestamp",
     "the temporary 14400-second command timeout and 270-minute job budget were removed; the normal mandatory 1800-second command and 45-minute job gates remain",
+    "the clean detached full-suite merge gate reached 100% in 12m26s with one expected skip and no failures; complete output is retained at C:\\Users\\thor2\\AppData\\Local\\Temp\\issue0063-merge-gate-e3d3ddd.txt",
     "UPDATEV2-0014 GitHub convergence applied under checksum 6a02066b68549db26b3841edff1f802c239dd67c52f635b6e80d2a1e8d92bf74 and final no-op checksum 3c58a4b0beca202b8602747db8574389af0449be2106272ade851e3b222a41b8"
   ],
   "authorised_baseline_fingerprints": [],
