@@ -30,6 +30,8 @@ def test_forward_evidence_route_and_controls_are_visible_and_non_executable() ->
     assert {"forward-evidence.record", "forward-evidence.update"} <= keys
     assert "execution_allowed=false" in text
     assert "Paper proposals are evidence only" in text
+    assert "Quality-momentum forward paper evidence" in text
+    assert "fills=next adjusted close" in text
 
 
 def test_forward_evidence_page_uses_application_facade_and_is_explicitly_local() -> None:

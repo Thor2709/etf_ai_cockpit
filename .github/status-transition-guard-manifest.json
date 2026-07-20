@@ -3,13 +3,13 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "issue_id": "UPDATEV2-0014",
+      "issue_id": "ISSUE-0063",
       "from": "planned",
       "to": "implemented_initially"
     }
   ],
-  "base_commit": "12b61db32fa80fefffbf6b24594361ec99acceb1",
-  "branch": "codex/updatev2-0014-20260720",
-  "issue_ids": ["UPDATEV2-0014"],
+  "base_commit": "c4890a4d74e1131e2e1d161356d98289d83f0932",
+  "branch": "codex/issue-0063-quality-momentum-20260719",
+  "issue_ids": ["ISSUE-0063"],
   "schema_version": "1.0"
 }

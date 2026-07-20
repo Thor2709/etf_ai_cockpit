@@ -2,17 +2,17 @@
   "checks": [
     {
       "command": "registry scope issue",
-      "duration_ms": 1.839,
+      "duration_ms": 1.895,
       "exit_code": 0,
       "failure": "",
       "name": "scope_selection",
-      "output": "Validated issue scope: ISSUE-0150",
+      "output": "Validated issue scope: ISSUE-0063",
       "required": true,
       "status": "passed"
     },
     {
       "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/validate_issue_registry.py",
-      "duration_ms": 98.873,
+      "duration_ms": 97.979,
       "exit_code": 0,
       "failure": "",
       "name": "issue_registry",
@@ -22,7 +22,7 @@
     },
     {
       "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m compileall -q src scripts",
-      "duration_ms": 135.975,
+      "duration_ms": 120.99,
       "exit_code": 0,
       "failure": "",
       "name": "source_compile",
@@ -31,36 +31,39 @@
       "status": "passed"
     },
     {
-      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_app.py --mode offline --port 64213 --timeout 30",
-      "duration_ms": 6017.967,
+      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_app.py --mode offline --port 50634 --timeout 30",
+      "duration_ms": 5915.082,
       "exit_code": 0,
       "failure": "",
       "name": "source_smoke",
-      "output": "smoke_port requested=64213 selected=64213 reason=port 64213 is free\nsmoke_ok mode=offline url=http://127.0.0.1:64213/",
+      "output": "smoke_port requested=50634 selected=50634 reason=port 50634 is free\nsmoke_ok mode=offline url=http://127.0.0.1:50634/",
       "required": true,
       "status": "passed"
     }
   ],
-  "duration_ms": 6257.544,
+  "duration_ms": 6138.261,
   "environment": {
     "machine": "AMD64",
     "offline_requested": false,
     "platform": "Windows-11-10.0.26200-SP0",
     "python": "3.12.10",
-    "root": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\issue0150-coverage-20260720",
+    "root": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\issue0063-quality-momentum-20260719",
     "system": "Windows"
   },
   "failures": [],
-  "finished_at": "2026-07-20T01:12:25.469+00:00",
-  "generated_at": "2026-07-20T01:12:25.469+00:00",
+  "finished_at": "2026-07-20T07:55:22.198+00:00",
+  "generated_at": "2026-07-20T07:55:22.198+00:00",
   "git": {
-    "branch": "codex/issue-0150-coverage-20260720",
-    "dirty": false,
-    "head": "f1b965671601731f21efa13bd7d2d2aa13bdc2db",
-    "origin_main": "7bf380a93af16f792729dbb84089a7ef08586f53"
+    "branch": "codex/issue-0063-quality-momentum-20260719",
+    "dirty": true,
+    "head": "c7393e66df4b37415056f6be44443da7249e97ba",
+    "origin_main": "c4890a4d74e1131e2e1d161356d98289d83f0932"
   },
   "log_paths": [
+    "logs\\chatgpt_audits.jsonl",
+    "logs\\errors.jsonl",
     "logs\\model_runs.jsonl",
+    "logs\\portfolio_review_adapter.jsonl",
     "logs\\session.jsonl",
     "logs\\signal_log.jsonl",
     "logs\\timings.jsonl"
@@ -69,11 +72,11 @@
   "schema_version": "1.0",
   "scope": {
     "issue_ids": [
-      "ISSUE-0150"
+      "ISSUE-0063"
     ],
     "phase_ids": []
   },
-  "started_at": "2026-07-20T01:12:19.210+00:00",
+  "started_at": "2026-07-20T07:55:16.060+00:00",
   "unavailable_optional_components": [
     "timesfm",
     "toto"
