@@ -76,7 +76,6 @@ REQUIRED_DIRS = [
     ETF_QUOTES_DIR,
     RAW_DIR / "index_methodology",
     RAW_DIR / "rss",
-    RAW_DIR / "stock_research",
     CLEAN_DIR,
     DERIVED_DIR,
     SNAPSHOTS_DIR,
