@@ -111,6 +111,7 @@ PROGRAMME_STATUS_OVERRIDES = {
     "ISSUE-0122": "implemented_initially",
     "ISSUE-0129": "integrated",
     "ISSUE-0130": "integrated",
+    "UPDATEV2-0014": "implemented_initially",
 }
 PACKAGE_JSON = Path("docs/product-completion/sources/2026-07-15/ETF_AI_Cockpit_Master_Issue_Registry.json")
 SOURCE_MANIFEST = Path("docs/product-completion/sources/2026-07-15/SOURCE_MANIFEST.sha256")
