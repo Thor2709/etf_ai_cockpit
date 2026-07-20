@@ -337,3 +337,34 @@ def test_optional_evidence_rejects_missing_periods_and_incoherent_guidance_range
 
     assert report["expectations"]["consensus"]["rejected_records"] == ["row_0:missing_metric_period_or_value"]
     assert report["expectations"]["guidance"]["rejected_records"] == ["row_0:invalid_guidance_range"]
+
+
+def test_optional_evidence_rejects_missing_guidance_period_and_unlicensed_consensus() -> None:
+    common = {"metric": "revenue", "value": 121.0, "available_at": "2026-01-30", "source_id": "evidence", "source_checksum": "a" * 64}
+    report = build_stock_research_report(
+        _statements(),
+        instrument_id="ACME",
+        expectation_evidence=[{**common, "period_key": "FY2026", "source_authority": "user_owned", "license_status": "unlicensed"}],
+        guidance_evidence=[{**common, "source_authority": "official", "review_status": "structured"}],
+    )
+
+    assert report["expectations"]["consensus"]["rejected_records"] == ["row_0:missing_or_unlicensed_provenance"]
+    assert report["expectations"]["guidance"]["rejected_records"] == ["row_0:missing_guidance_period"]
+
+
+def test_optional_evidence_handles_pandas_missing_scalars_without_truthiness_errors() -> None:
+    evidence = pd.DataFrame([
+        {
+            "metric": "revenue",
+            "period_key": "FY2026",
+            "value": 121.0,
+            "available_at": pd.NA,
+            "source_id": pd.NA,
+            "source_authority": "user_owned",
+            "source_checksum": "a" * 64,
+        }
+    ])
+
+    report = build_stock_research_report(_statements(), instrument_id="ACME", expectation_evidence=evidence)
+
+    assert report["expectations"]["consensus"]["rejected_records"] == ["row_0:missing_or_unlicensed_provenance"]

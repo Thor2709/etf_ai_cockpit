@@ -39,7 +39,7 @@ def stock_research_page(_page: ft.Page, state: AppState) -> ft.Control:
             _growth_panel(report["growth"]),
             _expectations_panel(report["expectations"]),
             _valuation_panel(report["valuation"]),
-            panel(ft.Text("All stock research outputs are evidence-only and carry execution_allowed=false. Import an official local statement package to replace the explicit unavailable state.", color=theme.MUTED, selectable=True)),
+            panel(_selectable_text("All stock research outputs are evidence-only and carry execution_allowed=false. Import an official local statement package to replace the explicit unavailable state.", color=theme.MUTED)),
         ],
         expand=True,
         spacing=14,
@@ -59,7 +59,7 @@ def _metrics_panel(title: str, description: str, section: object) -> ft.Control:
         cards.append(metric_card(name.replace("_", " ").title(), display, str(item.get("status", "unavailable"))))
     if not cards:
         cards = [metric_card("Evidence", "Unavailable", "No canonical statement rows")]
-    return panel(ft.Column([section_header(title, description), ft.Row(cards, wrap=True, spacing=10), ft.Text(f"Source lineage: {value.get('source_lineage', {}).get('source_ids', []) if isinstance(value, dict) else []}; execution_allowed=false", color=theme.MUTED, selectable=True)], spacing=8))
+    return panel(ft.Column([section_header(title, description), _metric_cards(cards), _selectable_text(f"Source lineage: {value.get('source_lineage', {}).get('source_ids', []) if isinstance(value, dict) else []}; execution_allowed=false", color=theme.MUTED)], spacing=8))
 
 
 def _valuation_panel(section: object) -> ft.Control:
@@ -68,7 +68,7 @@ def _valuation_panel(section: object) -> ft.Control:
     relative = value.get("relative_metrics", {}) if isinstance(value, dict) else {}
     status = str(intrinsic.get("status", "unavailable")) if isinstance(intrinsic, dict) else "unavailable"
     multiples = ", ".join(f"{name.replace('_', ' ')}={item.get('value', 'n/a')}" for name, item in relative.items() if isinstance(item, dict)) or "No relative valuation inputs available."
-    return panel(ft.Column([section_header("Valuation Lab", "Relative valuation, intrinsic-value scenarios, reverse DCF and residual income require explicit local assumptions."), ft.Text(f"Relative measures: {multiples}", color=theme.MUTED, selectable=True), ft.Text(f"Intrinsic scenarios: {status}; reverse DCF={value.get('reverse_dcf', {}).get('status', 'unavailable')}; residual income={value.get('residual_income', {}).get('status', 'unavailable')}; no single fair-value point is presented.", color=theme.AMBER if status != "available" else theme.CYAN, selectable=True), ft.Text("execution_allowed=false", color=theme.GREEN, selectable=True)], spacing=8))
+    return panel(ft.Column([section_header("Valuation Lab", "Relative valuation, intrinsic-value scenarios, reverse DCF and residual income require explicit local assumptions."), _selectable_text(f"Relative measures: {multiples}", color=theme.MUTED), _selectable_text(f"Intrinsic scenarios: {status}; reverse DCF={value.get('reverse_dcf', {}).get('status', 'unavailable')}; residual income={value.get('residual_income', {}).get('status', 'unavailable')}; no single fair-value point is presented.", color=theme.AMBER if status != "available" else theme.CYAN), _selectable_text("execution_allowed=false", color=theme.GREEN)], spacing=8))
 
 
 def _growth_panel(section: object) -> ft.Control:
@@ -94,7 +94,7 @@ def _growth_panel(section: object) -> ft.Control:
         latest = item.get("latest_growth") if isinstance(item.get("latest_growth"), dict) else {}
         history.append(f"{name}: {len(item.get('history', []))} periods; status={latest.get('status', item.get('status', 'unavailable'))}; base_effect={latest.get('base_effect', 'n/a')}; formula={item.get('formula', 'n/a')}")
     history_text = " | ".join(history) or "No period history available."
-    return panel(ft.Column([section_header("Growth", "Reported aggregate and per-share growth are formula-labelled. Base effects and organic/inorganic evidence stay explicit."), ft.Row(cards, wrap=True, spacing=10), ft.Text(f"Period history: {history_text}", color=theme.MUTED, selectable=True), ft.Text(f"Organic/inorganic evidence: {organic.get('status', 'unavailable')}; acquisition flags={len(organic.get('acquisition_flags', [])) if isinstance(organic, dict) else 0}; source lineage={source_ids}; execution_allowed=false", color=theme.MUTED, selectable=True)], spacing=8))
+    return panel(ft.Column([section_header("Growth", "Reported aggregate and per-share growth are formula-labelled. Base effects and organic/inorganic evidence stay explicit."), _metric_cards(cards), _selectable_text(f"Period history: {history_text}", color=theme.MUTED), _selectable_text(f"Organic/inorganic evidence: {organic.get('status', 'unavailable')}; acquisition flags={len(organic.get('acquisition_flags', [])) if isinstance(organic, dict) else 0}; source lineage={source_ids}; execution_allowed=false", color=theme.MUTED)], spacing=8))
 
 
 def _expectations_panel(section: object) -> ft.Control:
@@ -105,7 +105,21 @@ def _expectations_panel(section: object) -> ft.Control:
     guidance_status = guidance.get("status", "unavailable") if isinstance(guidance, dict) else "unavailable"
     guidance_rejected = len(guidance.get("rejected_records", [])) if isinstance(guidance, dict) else 0
     consensus_rejected = len(consensus.get("rejected_records", [])) if isinstance(consensus, dict) else 0
-    return panel(ft.Column([section_header("Growth & Expectations", "Realised reported growth, reviewed management guidance and optional licensed point-in-time consensus are separate evidence classes."), ft.Text("Reported growth: available in the separate Growth panel.", color=theme.MUTED, selectable=True), ft.Text(f"Management guidance ({guidance_status})\n" + "\n".join(_guidance_lines(guidance)), color=theme.CYAN if guidance_status == "available" else theme.MUTED, selectable=True), ft.Text(f"Optional consensus ({consensus_status})\n" + "\n".join(_consensus_lines(consensus)), color=theme.CYAN if consensus_status == "available" else theme.MUTED, selectable=True), ft.Text(f"Rejected import records: guidance={guidance_rejected}; consensus={consensus_rejected}. Current or unlicensed analyst fields are rejected.", color=theme.AMBER, selectable=True), ft.Text(f"Local import paths: {GUIDANCE_IMPORT_PATH} | {CONSENSUS_IMPORT_PATH}", color=theme.MUTED, selectable=True), ft.Text("execution_allowed=false", color=theme.GREEN, selectable=True)], spacing=8))
+    return panel(ft.Column([section_header("Growth & Expectations", "Realised reported growth, reviewed management guidance and optional licensed point-in-time consensus are separate evidence classes."), _selectable_text("Reported growth: available in the separate Growth panel.", color=theme.MUTED), _selectable_text(f"Management guidance ({guidance_status})\n" + "\n".join(_guidance_lines(guidance)), color=theme.CYAN if guidance_status == "available" else theme.MUTED), _selectable_text(f"Optional consensus ({consensus_status})\n" + "\n".join(_consensus_lines(consensus)), color=theme.CYAN if consensus_status == "available" else theme.MUTED), _selectable_text(f"Rejected import records: guidance={guidance_rejected}; consensus={consensus_rejected}. Current or unlicensed analyst fields are rejected.", color=theme.AMBER), _selectable_text(f"Local import paths: {GUIDANCE_IMPORT_PATH} | {CONSENSUS_IMPORT_PATH}", color=theme.MUTED), _selectable_text("execution_allowed=false", color=theme.GREEN)], spacing=8))
+
+
+def _selectable_text(value: str, *, color: str) -> ft.SelectionArea:
+    """Keep evidence copyable without Flet's oversized selectable Text overlay."""
+    return ft.SelectionArea(ft.Text(value, color=color))
+
+
+def _metric_cards(cards: list[ft.Control]) -> ft.ResponsiveRow:
+    """Give expanding metric cards finite responsive cells inside scrolling pages."""
+    return ft.ResponsiveRow(
+        [ft.Container(content=card, col={"xs": 12, "sm": 6, "md": 4, "lg": 3}) for card in cards],
+        spacing=10,
+        run_spacing=10,
+    )
 
 
 def _guidance_lines(guidance: object) -> list[str]:

@@ -42,6 +42,7 @@ _CONSENSUS_SOURCE_AUTHORITIES = frozenset(
 )
 _GUIDANCE_SOURCE_AUTHORITIES = frozenset({"company", "company official", "company_official", "official", "issuer"})
 _REVIEWED_GUIDANCE_STATUSES = frozenset({"approved", "human_reviewed", "reviewed", "structured", "verified"})
+_REJECTED_LICENCE_MARKERS = frozenset({"denied", "expired", "prohibited", "restricted", "unlicensed", "unknown"})
 _GROWTH_ALIASES: dict[str, tuple[str, ...]] = {
     "revenue": ("revenue", "sales"),
     "operating_profit": ("operating_profit", "operating_income", "ebit"),
@@ -724,35 +725,41 @@ def _prepare_optional_rows(
 
 
 def _validate_optional_row(raw: Mapping[str, object], *, index: int, cutoff: str | None, guidance: bool) -> tuple[str | None, dict[str, object] | None]:
-    source_id = _text(raw.get("source_id") or raw.get("source") or raw.get("citation"))
-    source_authority = _text(raw.get("source_authority") or raw.get("authority") or raw.get("ownership"))
-    source_kind = _text(raw.get("source_kind") or raw.get("source_type")).casefold()
-    provider = _text(raw.get("provider") or raw.get("vendor") or raw.get("source_name")).casefold()
+    source_id = _text(_first_present(raw.get("source_id"), raw.get("source"), raw.get("citation")))
+    source_authority = _text(_first_present(raw.get("source_authority"), raw.get("authority"), raw.get("ownership")))
+    source_kind = _text(_first_present(raw.get("source_kind"), raw.get("source_type"))).casefold()
+    provider = _text(_first_present(raw.get("provider"), raw.get("vendor"), raw.get("source_name"))).casefold()
     if not source_authority and source_kind in {"official", "company", "issuer"}:
         source_authority = source_kind
     authority_key = source_authority.casefold().replace("–", "-")
     allowed_authorities = _GUIDANCE_SOURCE_AUTHORITIES if guidance else _CONSENSUS_SOURCE_AUTHORITIES
-    source_checksum = _text(raw.get("source_checksum") or raw.get("checksum"))
-    available_at = _normalise_timestamp(raw.get("available_at") or raw.get("as_of") or raw.get("published_at"))
+    source_checksum = _text(_first_present(raw.get("source_checksum"), raw.get("checksum")))
+    available_at = _normalise_timestamp(_first_present(raw.get("available_at"), raw.get("as_of"), raw.get("published_at")))
+    supplied_licence = _text(_first_present(raw.get("license_status"), raw.get("licence_status")))
+    licence_key = supplied_licence.casefold().replace("-", "_").replace(" ", "_")
     if source_kind in {"current_analyst", "current_analyst_field", "analyst_current"} or "yahoo" in provider or "yahoo" in source_id.casefold() or ("analyst" in provider and "point" not in source_kind):
         return f"row_{index}:current_or_restricted_provider_rejected", None
     if not source_id or not available_at or authority_key not in allowed_authorities or not _valid_checksum(source_checksum):
         return f"row_{index}:missing_or_unlicensed_provenance", None
+    if any(marker in licence_key for marker in _REJECTED_LICENCE_MARKERS):
+        return f"row_{index}:missing_or_unlicensed_provenance", None
     if cutoff and available_at > cutoff:
         return f"row_{index}:after_as_known_cutoff", None
-    metric = _normalise_optional_metric(raw.get("canonical_metric") or raw.get("metric") or raw.get("measure"))
-    period_key = _text(raw.get("period_key") or raw.get("period_end") or raw.get("fiscal_year"))
-    value = _float(raw.get("value") if raw.get("value") is not None else raw.get("estimate") if raw.get("estimate") is not None else raw.get("forecast"))
+    metric = _normalise_optional_metric(_first_present(raw.get("canonical_metric"), raw.get("metric"), raw.get("measure")))
+    period_key = _text(_first_present(raw.get("period_key"), raw.get("period_end"), raw.get("fiscal_year")))
+    value = _first_float(raw.get("value"), raw.get("estimate"), raw.get("forecast"))
     if not guidance and (not metric or not period_key or value is None):
         return f"row_{index}:missing_metric_period_or_value", None
-    review_status = _text(raw.get("review_status") or raw.get("review")).casefold().replace(" ", "_")
-    text = _text(raw.get("guidance_text") or raw.get("text") or raw.get("statement"))
-    lower = _float(raw.get("lower") if raw.get("lower") is not None else raw.get("low"))
-    upper = _float(raw.get("upper") if raw.get("upper") is not None else raw.get("high"))
+    review_status = _text(_first_present(raw.get("review_status"), raw.get("review"))).casefold().replace(" ", "_")
+    text = _text(_first_present(raw.get("guidance_text"), raw.get("text"), raw.get("statement")))
+    lower = _first_float(raw.get("lower"), raw.get("low"))
+    upper = _first_float(raw.get("upper"), raw.get("high"))
     if guidance and lower is not None and upper is not None and lower > upper:
         return f"row_{index}:invalid_guidance_range", None
     if guidance and value is not None and ((lower is not None and value < lower) or (upper is not None and value > upper)):
         return f"row_{index}:guidance_value_outside_range", None
+    if guidance and not period_key:
+        return f"row_{index}:missing_guidance_period", None
     if guidance and (review_status not in _REVIEWED_GUIDANCE_STATUSES or (value is None and lower is None and upper is None and not text)):
         return f"row_{index}:guidance_not_structured_or_reviewed", None
     if guidance and not metric:
@@ -766,7 +773,7 @@ def _validate_optional_row(raw: Mapping[str, object], *, index: int, cutoff: str
         "text": text,
         "source_id": source_id,
         "source_authority": source_authority,
-        "license_status": _text(raw.get("license_status") or raw.get("licence_status") or _default_license_status(authority_key)),
+        "license_status": supplied_licence or _default_license_status(authority_key),
         "source_checksum": source_checksum,
         "available_at": available_at,
         "review_status": review_status,
@@ -874,9 +881,22 @@ def _restatement_rank(value: object) -> int:
 
 
 def _text(value: object) -> str:
-    if value is None or (isinstance(value, float) and pd.isna(value)):
+    if value is None:
         return ""
+    try:
+        if pd.api.types.is_scalar(value) and bool(pd.isna(value)):
+            return ""
+    except (TypeError, ValueError):
+        pass
     return str(value).strip()
+
+
+def _first_present(*values: object) -> object | None:
+    return next((value for value in values if _text(value)), None)
+
+
+def _first_float(*values: object) -> float | None:
+    return next((number for value in values if (number := _float(value)) is not None), None)
 
 
 def _derived_history(histories: Mapping[str, list[float]], numerator: str, denominator: str) -> list[float]:

@@ -4,7 +4,7 @@ import inspect
 
 import flet as ft
 
-from etf_cockpit.app.pages.stock_research import _expectations_panel, _growth_panel, _valuation_panel, stock_research_page
+from etf_cockpit.app.pages.stock_research import _expectations_panel, _growth_panel, _metrics_panel, _valuation_panel, stock_research_page
 
 
 def test_stock_research_page_exposes_required_evidence_panels() -> None:
@@ -52,3 +52,22 @@ def test_expectations_panel_renders_guidance_and_consensus_evidence() -> None:
     assert "surprise=-1" in visible
     assert "staleness=2 days" in visible
     assert "execution_allowed=false" in visible
+
+
+def test_expectations_panel_uses_bounded_selection_areas() -> None:
+    control = _expectations_panel({"guidance": {}, "consensus": {}})
+    descendants = list(_walk(control))
+
+    assert any(isinstance(item, ft.SelectionArea) for item in descendants)
+    assert not any(isinstance(item, ft.Text) and item.selectable for item in descendants)
+
+
+def test_metric_panels_bound_expanding_cards_in_responsive_cells() -> None:
+    controls = [
+        _metrics_panel("Profitability", "Evidence", {}),
+        _growth_panel({}),
+    ]
+
+    for control in controls:
+        descendants = list(_walk(control))
+        assert any(isinstance(item, ft.ResponsiveRow) for item in descendants)
