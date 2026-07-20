@@ -100,6 +100,15 @@ def test_programme_status_markdown_is_lf_deterministic() -> None:
     assert generated.endswith(b"\n")
 
 
+def test_checked_out_programme_status_markdown_is_byte_fresh() -> None:
+    registry = json.loads((ROOT / "issues/issue_registry.json").read_text(encoding="utf-8"))
+    generated = deterministic_text(progress_markdown(status_payload(registry), registry))
+    attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8").splitlines()
+
+    assert "docs/product-completion/PROGRESS.md text eol=lf" in attributes
+    assert (ROOT / "docs/product-completion/PROGRESS.md").read_bytes() == generated
+
+
 def test_source_manifest_hash_is_stable_across_checkout_line_endings(tmp_path: Path) -> None:
     manifest = tmp_path / "SOURCE_MANIFEST.sha256"
     manifest.write_bytes(b"# manifest\r\nabc  file.txt\r\n")
