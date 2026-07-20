@@ -49,7 +49,7 @@ Deliver the bounded stock statements, fundamentals, valuation and sectors work w
 | `ISSUE-0094` | `P0/P1` | `planned` | `stock-research` | `ISSUE-0084`, `ISSUE-0091` | - | - | - |
 | `ISSUE-0095` | `P1` | `integrated` | `stock-research` | `ISSUE-0091` | - | - | - |
 | `ISSUE-0096` | `P0/P1` | `implemented_initially` | `stock-research` | `ISSUE-0088`, `ISSUE-0091` | - | `ISSUE-0108` | - |
-| `ISSUE-0097` | `P1` | `planned` | `stock-research` | `ISSUE-0091`, `ISSUE-0092` | - | - | - |
+| `ISSUE-0097` | `P1` | `implemented_initially` | `stock-research` | `ISSUE-0091`, `ISSUE-0092` | - | - | - |
 | `ISSUE-0098` | `P0` | `planned` | `stock-research` | `ISSUE-0074`, `ISSUE-0083` | - | `ISSUE-0099`, `ISSUE-0100`, `ISSUE-0101`, `ISSUE-0102` | - |
 | `ISSUE-0099` | `P0/P1` | `planned` | `stock-research` | `ISSUE-0098` | - | - | - |
 | `ISSUE-0100` | `P1` | `planned` | `stock-research` | `ISSUE-0098` | - | - | - |

@@ -1,20 +1,25 @@
 from __future__ import annotations
 
 import inspect
+from types import SimpleNamespace
 
 import flet as ft
 
-from etf_cockpit.app.pages.stock_research import _expectations_panel, _growth_panel, _metrics_panel, _valuation_panel, stock_research_page
+from etf_cockpit.app.pages.stock_research import _capital_efficiency_panel, _expectations_panel, _growth_panel, _metrics_panel, _valuation_panel, stock_research_page
 
 
 def test_stock_research_page_exposes_required_evidence_panels() -> None:
-    source = inspect.getsource(stock_research_page) + inspect.getsource(_growth_panel) + inspect.getsource(_expectations_panel) + inspect.getsource(_valuation_panel)
+    source = inspect.getsource(stock_research_page) + inspect.getsource(_capital_efficiency_panel) + inspect.getsource(_growth_panel) + inspect.getsource(_expectations_panel) + inspect.getsource(_valuation_panel)
 
     assert "Profitability" in source
     assert "Earnings quality" in source
     assert "Balance sheet" in source
     assert "Solvency" in source
     assert "Valuation Lab" in source
+    assert "Capital Efficiency" in source
+    assert "Reported" in source
+    assert "Adjusted" in source
+    assert "cannot override valuation or risk" in source
     assert "Growth" in source
     assert "Management guidance" in source
     assert "Optional consensus" in source
@@ -71,3 +76,39 @@ def test_metric_panels_bound_expanding_cards_in_responsive_cells() -> None:
     for control in controls:
         descendants = list(_walk(control))
         assert any(isinstance(item, ft.ResponsiveRow) for item in descendants)
+
+
+def test_capital_efficiency_toggle_switches_reported_and_adjusted_evidence() -> None:
+    class PageStub:
+        updates = 0
+
+        def update(self) -> None:
+            self.updates += 1
+
+    page = PageStub()
+    control = _capital_efficiency_panel(
+        {
+            "reported": {"status": "available", "metrics": {"roic": {"value": 0.2, "status": "available"}}, "history": [{"period_key": "FY2026", "roic": 0.2}]},
+            "adjusted": {"status": "available", "metrics": {"roic": {"value": 0.18, "status": "available"}}, "history": [{"period_key": "FY2026", "roic": 0.18}], "assumptions": {"method": "straight_line"}},
+            "business_quality_proxies": {},
+            "sector_relative": {},
+            "assumption_sensitivity": [{"scenario": "selected"}],
+            "proxy_authority": "descriptive_only",
+        },
+        page,
+    )
+    descendants = list(_walk(control))
+    selector = next(item for item in descendants if isinstance(item, ft.SegmentedButton))
+    reported = next(item for item in descendants if isinstance(item, ft.Container) and item.data == "capital-efficiency-reported")
+    adjusted = next(item for item in descendants if isinstance(item, ft.Container) and item.data == "capital-efficiency-adjusted")
+
+    assert selector.selected == ["reported"]
+    assert reported.visible is True
+    assert adjusted.visible is False
+
+    selector.selected = ["adjusted"]
+    selector.on_change(SimpleNamespace(control=selector))
+
+    assert reported.visible is False
+    assert adjusted.visible is True
+    assert page.updates == 1

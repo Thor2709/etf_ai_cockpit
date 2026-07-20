@@ -16,7 +16,7 @@ This roadmap is the lightweight programme view. `issues/issue_registry.json` own
 |---|---|---:|---|---|
 | `phase-01-governance-scope` | `ISSUE-0070–ISSUE-0079` - Governance, scope and completion contract | 43 | closed=2, hardening_required=1, implemented_initially=15, in_progress=4, integrated=12, planned=7, research_only=2 | data-platform, platform-and-operations, programme-governance, reproducibility, scoring-and-evidence, security-and-release |
 | `phase-02-data-policy-identity` | `ISSUE-0080–ISSUE-0090` - Local-first data policy, identity and data platform | 28 | closed=2, implemented_initially=10, in_progress=2, integrated=5, planned=9 | data-and-evidence, data-platform |
-| `phase-03-stock-research` | `ISSUE-0091–ISSUE-0102` - Stock statements, fundamentals, valuation and sectors | 12 | implemented_initially=3, integrated=2, planned=7 | stock-research |
+| `phase-03-stock-research` | `ISSUE-0091–ISSUE-0102` - Stock statements, fundamentals, valuation and sectors | 12 | implemented_initially=4, integrated=2, planned=6 | stock-research |
 | `phase-04-etf-research` | `ISSUE-0103–ISSUE-0107` - ETF economics, structure, exposure and context | 5 | implemented_initially=1, planned=4 | etf-research |
 | `phase-05-returns-risk-portfolio` | `ISSUE-0108–ISSUE-0116` - Expected return, risk and portfolio construction | 20 | implemented_initially=10, integrated=4, planned=6 | analysis-and-validation, portfolio-construction, returns-and-risk |
 | `phase-06-model-research` | `ISSUE-0117–ISSUE-0124` - Training, validation and model governance | 8 | implemented_initially=6, planned=2 | model-governance |
