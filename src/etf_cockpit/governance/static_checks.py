@@ -116,6 +116,12 @@ _PROHIBITED_ORDER_SYMBOLS = frozenset(
         "transmit_order",
     }
 )
+_SAFE_LOCAL_ORDER_SYMBOLS = {
+    "src/etf_cockpit/application/api.py": frozenset({"cancel_order"}),
+    "src/etf_cockpit/backtest/event_engine.py": frozenset({"order_request"}),
+    "src/etf_cockpit/plugins/contracts.py": frozenset({"broker_adapter"}),
+    "src/etf_cockpit/portfolio/paper_trading.py": frozenset({"cancel_order"}),
+}
 _PROHIBITED_IMPORTS = frozenset(
     {
         "alpaca_trade_api",
@@ -178,6 +184,7 @@ _POLICY = {
     "excluded_runtime_roots": sorted(_EXCLUDED_ROOT_DIRECTORIES),
     "excluded_archive_prefixes": [path.as_posix() for path in _EXCLUDED_ARCHIVE_PREFIXES],
     "prohibited_order_symbols": sorted(_PROHIBITED_ORDER_SYMBOLS),
+    "safe_local_order_symbols": {key: sorted(value) for key, value in sorted(_SAFE_LOCAL_ORDER_SYMBOLS.items())},
     "prohibited_imports": sorted(_PROHIBITED_IMPORTS),
     "prohibited_dependencies": sorted(_PROHIBITED_DEPENDENCIES),
     "authority_flags": ["execution_allowed", "executable_authority"],
@@ -381,6 +388,7 @@ def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
         ]
 
     violations: list[BoundaryViolation] = []
+    safe_local_symbols = _SAFE_LOCAL_ORDER_SYMBOLS.get(_relative_path(root, path), frozenset())
     string_bindings: dict[str, tuple[str, ...]] = {}
     for binding in ast.walk(tree):
         if isinstance(binding, ast.Assign):
@@ -400,7 +408,7 @@ def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             symbol = _normalise_symbol(node.name)
-            if symbol in _PROHIBITED_ORDER_SYMBOLS:
+            if symbol in _PROHIBITED_ORDER_SYMBOLS and symbol not in safe_local_symbols:
                 violations.append(
                     _violation(
                         root,
@@ -413,7 +421,7 @@ def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
                 )
         elif isinstance(node, (ast.Name, ast.Attribute)):
             raw_name = node.id if isinstance(node, ast.Name) else node.attr
-            if _normalise_symbol(raw_name) in _PROHIBITED_ORDER_SYMBOLS:
+            if _normalise_symbol(raw_name) in _PROHIBITED_ORDER_SYMBOLS and _normalise_symbol(raw_name) not in safe_local_symbols:
                 violations.append(
                     _violation(
                         root,
@@ -440,7 +448,7 @@ def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
                             evidence=alias.name,
                         )
                     )
-                if isinstance(node, ast.ImportFrom) and _normalise_symbol(alias.name) in _PROHIBITED_ORDER_SYMBOLS:
+                if isinstance(node, ast.ImportFrom) and _normalise_symbol(alias.name) in _PROHIBITED_ORDER_SYMBOLS and _normalise_symbol(alias.name) not in safe_local_symbols:
                     violations.append(
                         _violation(
                             root,
@@ -541,8 +549,9 @@ def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
                                 evidence=literal,
                             )
                         )
-            call_literals = list(_literal_strings(node))
+            call_literals: list[str] = []
             for argument in (*node.args, *(keyword.value for keyword in node.keywords)):
+                call_literals.extend(_literal_strings(argument))
                 if isinstance(argument, ast.Name):
                     call_literals.extend(string_bindings.get(argument.id, ()))
             if any(_ORDER_ENDPOINT_RE.search(value) for value in call_literals):

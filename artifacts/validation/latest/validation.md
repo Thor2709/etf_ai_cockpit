@@ -1,18 +1,18 @@
 # ETF AI Cockpit validation report
 
 - Schema: `1.0`
-- Mode: `issue`
-- Generated: `2026-07-19T09:13:25.089+00:00`
-- Duration: `8100.303 ms`
+- Mode: `changed`
+- Generated: `2026-07-20T00:40:28.583+00:00`
+- Duration: `6740.092 ms`
 
 ## Checks
 
 | Check | Status | Exit code | Duration | Required |
 |---|---|---:|---:|---|
-| `scope_selection` | `passed` | 0 | 1.821 ms | True |
-| `issue_registry` | `passed` | 0 | 97.355 ms | True |
-| `source_compile` | `passed` | 0 | 127.294 ms | True |
-| `source_smoke` | `passed` | 0 | 7871.169 ms | True |
+| `issue_registry` | `passed` | 0 | 101.041 ms | True |
+| `source_compile` | `passed` | 0 | 138.372 ms | True |
+| `source_smoke` | `passed` | 0 | 5877.878 ms | True |
+| `changed_tests` | `passed` | 0 | 587.508 ms | True |
 
 ## Failures
 
@@ -27,9 +27,7 @@
 
 ```json
 {
-  "issue_ids": [
-    "ISSUE-0060"
-  ],
+  "issue_ids": [],
   "phase_ids": []
 }
 ```

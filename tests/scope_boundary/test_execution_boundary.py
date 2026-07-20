@@ -29,6 +29,21 @@ def test_sort_order_is_not_a_false_positive(tmp_path: Path) -> None:
     assert report.result == "pass"
 
 
+def test_local_replay_symbols_and_mapping_get_are_not_false_positives(tmp_path: Path) -> None:
+    replay = tmp_path / "src" / "etf_cockpit" / "backtest" / "event_engine.py"
+    replay.parent.mkdir(parents=True)
+    replay.write_text("class OrderRequest: pass\n", encoding="utf-8")
+    paper = tmp_path / "src" / "etf_cockpit" / "portfolio" / "paper_trading.py"
+    paper.parent.mkdir(parents=True)
+    paper.write_text("def cancel_order(): pass\nstate = {'orders': {}}\nstate['orders'].get('x')\n", encoding="utf-8")
+
+    checker = _checker()
+    report = checker(tmp_path) if checker else None
+
+    assert report is not None
+    assert report.result == "pass"
+
+
 def test_context_aware_scans_reject_import_endpoint_ui_and_execution_config(tmp_path: Path) -> None:
     (tmp_path / "broker.py").write_text("import broker_sdk\n", encoding="utf-8")
     (tmp_path / "endpoint.py").write_text(
