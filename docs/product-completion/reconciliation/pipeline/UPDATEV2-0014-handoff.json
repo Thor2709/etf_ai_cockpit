@@ -1,0 +1,54 @@
+{
+  "schema_version": "1.0",
+  "issue_ids": ["UPDATEV2-0014"],
+  "base_sha": "7bf380a93af16f792729dbb84089a7ef08586f53",
+  "checkpoint_sha": "767b175a8f98baa401d7cd2927ad2b30847c0083",
+  "root_role": "Luna High root implementation lane",
+  "scout_role": "Luna Medium scout_reviewer",
+  "release_steward_role": "Luna Medium release_steward",
+  "changed_file_allowlist": [
+    ".github/status-transition-guard-manifest.json",
+    "configs/feature_registry.yaml",
+    "configs/ui_acceptance.yaml",
+    "docs/product-completion/CURRENT_STATUS.json",
+    "docs/product-completion/PROGRESS.md",
+    "docs/product-completion/reconciliation/pipeline/UPDATEV2-0014-handoff.json",
+    "issues/issue_registry.json",
+    "scripts/issue_registry_core.py",
+    "src/etf_cockpit/app/pages/trust_evidence.py",
+    "src/etf_cockpit/app/state.py",
+    "src/etf_cockpit/application/ui_facade.py",
+    "src/etf_cockpit/data/oam_adapters.py",
+    "tests/test_oam_adapters.py",
+    "tests/ui/test_oam_discovery_ui.py"
+  ],
+  "allowed_status_transitions": {
+    "UPDATEV2-0014": {"from": "planned", "to": "implemented_initially"}
+  },
+  "focused_validation": {
+    "oam_adapter_contract": "7 passed",
+    "oam_ui_and_acceptance": "4 passed",
+    "affected_esef_trust_accessibility": "60 passed; final OAM boundary regression passed separately",
+    "ruff": "passed",
+    "compileall": "passed",
+    "issue_registry": "passed",
+    "generated_status_freshness": "passed",
+    "status_transition_guard": "passed",
+    "diff_check": "passed"
+  },
+  "authorised_baseline_fingerprints": [],
+  "merge_conditions": [
+    "status transition guard passes against the exact base and full head",
+    "registry and generated programme evidence are fresh",
+    "only allowlisted files are present",
+    "required release checks pass",
+    "GitHub issue synchronisation is checksum-approved, read back and followed by a zero-action dry run"
+  ],
+  "stop_conditions": [
+    "unexpected file or status transition",
+    "changed PR head or merge conflict",
+    "current-feature test or CI failure",
+    "ambiguous baseline mismatch",
+    "product-code correction required"
+  ]
+}
