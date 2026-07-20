@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 import json
 from pathlib import Path
 
@@ -343,6 +344,37 @@ def test_companies_house_discovery_rejects_non_api_official_hosts(tmp_path: Path
 
     assert result.status == "error"
     assert "official HTTPS API host" in result.message
+
+
+def test_companies_house_applies_requested_date_range_to_returned_records(tmp_path: Path) -> None:
+    payload = json.dumps(
+        {
+            "items": [
+                {
+                    "transaction_id": "old-filing",
+                    "date": "2025-12-31",
+                    "category": "accounts",
+                    "description": "accounts",
+                }
+            ]
+        }
+    ).encode()
+    result = CompaniesHouseFilingAdapter(
+        cache_dir=tmp_path,
+        api_key="test-key",
+        transport=_transport(payload, media_type="application/json"),
+        enabled=True,
+    ).discover(
+        OAMDiscoveryRequest(
+            company_number="03842976",
+            document_type="accounts",
+            date_from=date(2026, 1, 1),
+        )
+    )
+
+    assert result.status == "manual_review"
+    assert result.records == ()
+    assert result.snapshot is not None
 
 
 def test_filing_coverage_persists_unavailable_and_success_states(tmp_path: Path) -> None:

@@ -511,6 +511,10 @@ class CompaniesHouseFilingAdapter(OAMAdapter):
             published = _first(values, "date", "filed_at") or None
             category = _first(values, "category", "type")
             description = _first(values, "description", "description_values", "type")
+            if request.document_type and request.document_type.casefold() not in category.casefold():
+                continue
+            if not _date_in_range(published, request.date_from, request.date_to):
+                continue
             links = raw.get("links")
             metadata_path = str(links.get("document_metadata") or "") if isinstance(links, Mapping) else ""
             document_url = ""
@@ -687,7 +691,9 @@ def archive_manual_official_filing(
     suffix = path.suffix.casefold()
     if suffix not in _MANUAL_SUFFIXES:
         raise ValueError("Manual official filing type is not supported.")
-    size = path.stat().st_size
+    with path.open("rb") as stream:
+        payload = stream.read(MAX_MANUAL_FILING_BYTES + 1)
+    size = len(payload)
     if size <= 0 or size > MAX_MANUAL_FILING_BYTES:
         raise ValueError("Manual official filing size is empty or exceeds the bounded limit.")
     country = str(jurisdiction or "").strip().upper()
@@ -703,7 +709,6 @@ def archive_manual_official_filing(
         raise ValueError("Manual filing import requires a canonical instrument identity.")
     publication, publication_precision = _normalise_optional_timestamp(published_at)
     availability, availability_precision = _normalise_optional_timestamp(available_at or published_at)
-    payload = path.read_bytes()
     digest = hashlib.sha256(payload).hexdigest()
     destination = Path(raw_dir or (RAW_DIR / "filings" / "manual")) / country / f"{digest}{suffix}"
     if destination.exists() and hashlib.sha256(destination.read_bytes()).hexdigest() != digest:
