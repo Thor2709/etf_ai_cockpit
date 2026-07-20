@@ -17,6 +17,7 @@ try:
         REGISTRY_PATH,
         SOURCE_MANIFEST,
         STATUS_PATH,
+        canonical_text_bytes,
         sha256_text_file,
         deterministic_json,
     )
@@ -32,6 +33,7 @@ except ModuleNotFoundError:
         REGISTRY_PATH,
         SOURCE_MANIFEST,
         STATUS_PATH,
+        canonical_text_bytes,
         sha256_text_file,
         deterministic_json,
     )
@@ -304,7 +306,7 @@ def guard_proposal(
             _error(errors, "generated CURRENT_STATUS phase counts mismatch")
         if deterministic_json(current_status) != deterministic_json(expected_status):
             _error(errors, "generated CURRENT_STATUS.json is stale")
-        if current_progress != expected_progress:
+        if canonical_text_bytes(current_progress) != canonical_text_bytes(expected_progress):
             _error(errors, "generated PROGRESS.md is stale")
     if source_manifest_sha256 is not None:
         source_truth = proposed_registry.get("source_of_truth")
