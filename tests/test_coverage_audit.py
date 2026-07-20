@@ -18,11 +18,19 @@ def _universe() -> list[dict[str, object]]:
 def _prices() -> pd.DataFrame:
     return pd.DataFrame(
         [
+            {"etf_id": "A", "date": "2023-12-28", "adjusted_close": 97.0},
+            {"etf_id": "A", "date": "2023-12-29", "adjusted_close": 98.0},
+            {"etf_id": "A", "date": "2023-12-30", "adjusted_close": 99.0},
+            {"etf_id": "A", "date": "2023-12-31", "adjusted_close": 99.5},
             {"etf_id": "A", "date": "2024-01-01", "adjusted_close": 100.0},
             {"etf_id": "A", "date": "2024-01-02", "adjusted_close": 102.0},
             {"etf_id": "A", "date": "2024-01-03", "adjusted_close": 104.0},
             {"etf_id": "A", "date": "2024-01-04", "adjusted_close": 105.0},
             {"etf_id": "A", "date": "2024-01-05", "adjusted_close": 106.0},
+            {"etf_id": "B", "date": "2023-12-28", "adjusted_close": 103.0},
+            {"etf_id": "B", "date": "2023-12-29", "adjusted_close": 102.0},
+            {"etf_id": "B", "date": "2023-12-30", "adjusted_close": 101.0},
+            {"etf_id": "B", "date": "2023-12-31", "adjusted_close": 100.5},
             {"etf_id": "B", "date": "2024-01-01", "adjusted_close": 100.0},
             {"etf_id": "B", "date": "2024-01-02", "adjusted_close": 99.0},
             {"etf_id": "B", "date": "2024-01-03", "adjusted_close": 98.0},
@@ -66,7 +74,12 @@ def test_synthetic_missingness_and_missing_metadata_are_explicit() -> None:
         {"id": "A", "enabled": True, "region": "EU", "sector": "Technology", "currency": "EUR", "exchange": "XETRA"},
         {"id": "B", "enabled": True, "region": "EU", "sector": None, "currency": "EUR", "exchange": "XETRA"},
     ]
-    prices = pd.DataFrame([{"etf_id": "A", "adjusted_close": 100.0}])
+    prices = pd.DataFrame(
+        [
+            {"etf_id": "A", "date": "2024-01-01", "adjusted_close": 100.0},
+            {"etf_id": "A", "date": "2024-01-02", "adjusted_close": 101.0},
+        ]
+    )
 
     report = build_coverage_audit(universe, prices)
 
@@ -76,6 +89,21 @@ def test_synthetic_missingness_and_missing_metadata_are_explicit() -> None:
     assert sector_missing.authority == "unsupported"
     assert "synthetic_missingness_observed" in geography.warnings
     assert geography.observation_coverage == 0.5
+
+
+def test_future_and_short_price_history_cannot_create_supported_coverage() -> None:
+    prices = pd.DataFrame(
+        [
+            {"etf_id": "A", "date": "2024-01-04", "adjusted_close": 100.0},
+            {"etf_id": "A", "date": "2024-01-05", "adjusted_close": 101.0},
+        ]
+    )
+
+    report = build_coverage_audit(_universe()[:1], prices, as_of_date="2024-01-03")
+
+    assert report.observed_instrument_count == 0
+    assert all(group.authority == "unsupported" for group in report.groups)
+    assert all("no_adjusted_price_history" in group.warnings for group in report.groups)
 
 
 def test_coverage_export_is_auditable_and_deterministic(tmp_path) -> None:

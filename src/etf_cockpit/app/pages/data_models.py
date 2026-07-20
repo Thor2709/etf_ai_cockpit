@@ -96,6 +96,16 @@ def data_models_page(_page: ft.Page, state: AppState) -> ft.Control:
         state.snapshot.forecasts,
         state.snapshot.signals,
         as_of_date=state.snapshot.data_report.as_of_date,
+        provenance={
+            "dataset_metadata": [
+                {
+                    "source": meta.source_name,
+                    "as_of": meta.as_of_date.isoformat() if meta.as_of_date else None,
+                    "checksum": meta.checksum,
+                }
+                for meta in state.snapshot.data_report.dataset_metadata
+            ]
+        },
     )
     coverage_status = ft.Text("", color=theme.MUTED, selectable=True)
 

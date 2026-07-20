@@ -10,6 +10,7 @@ import hashlib
 import json
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from etf_cockpit.core.paths import REPORTS_DIR
@@ -33,10 +34,13 @@ class CoverageThresholds:
     """Explicit thresholds; no aggregate metric can override these limits."""
 
     minimum_observation_coverage: float = 0.8
+    minimum_history_observations: int = 2
 
     def __post_init__(self) -> None:
         if not 0.0 < self.minimum_observation_coverage <= 1.0:
             raise ValueError("minimum_observation_coverage must be in (0, 1]")
+        if self.minimum_history_observations < 1:
+            raise ValueError("minimum_history_observations must be positive")
 
 
 @dataclass(frozen=True)
@@ -96,6 +100,7 @@ def build_coverage_audit(
     *,
     as_of_date: date | str | None = None,
     thresholds: CoverageThresholds | None = None,
+    provenance: Mapping[str, object] | None = None,
 ) -> CoverageAudit:
     """Build coverage evidence from the enabled local universe.
 
@@ -108,8 +113,9 @@ def build_coverage_audit(
     policy = thresholds or CoverageThresholds()
     records = _universe_records(universe)
     instrument_ids = tuple(sorted(records))
-    price_ids = _observed_price_ids(prices)
-    calibration = _calibration_by_instrument(forecasts, prices)
+    effective_as_of = _date_text(as_of_date)
+    price_ids = _observed_price_ids(prices, effective_as_of, policy.minimum_history_observations)
+    calibration = _calibration_by_instrument(forecasts, prices, effective_as_of)
     forecast_counts = _forecast_counts(forecasts)
     selected_counts = _selected_counts(signals)
     groups: list[CoverageGroup] = []
@@ -132,11 +138,13 @@ def build_coverage_audit(
                 warnings.append("coverage_below_threshold")
             if coverage < 1.0 and observed_count > 0:
                 warnings.append("synthetic_missingness_observed")
+            metric = _group_metric(member_ids, calibration)
+            if metric[0] == 0:
+                warnings.append("subgroup_metrics_unavailable")
             status = "supported" if not warnings else "unsupported"
             authority = "evidence_only" if status == "supported" else "unsupported"
             for instrument_id in member_ids:
                 supported_by_instrument[instrument_id] &= status == "supported"
-            metric = _group_metric(member_ids, calibration)
             groups.append(
                 CoverageGroup(
                     dimension=dimension,
@@ -161,7 +169,7 @@ def build_coverage_audit(
     authority = "evidence_only" if groups and not unsupported else "manual_review" if groups else "unavailable"
     return CoverageAudit(
         schema_version=COVERAGE_SCHEMA_VERSION,
-        as_of_date=_date_text(as_of_date),
+        as_of_date=effective_as_of,
         universe_count=len(instrument_ids),
         observed_instrument_count=len(set(instrument_ids) & price_ids),
         supported_universe=supported,
@@ -172,6 +180,10 @@ def build_coverage_audit(
         provenance={
             "universe": "enabled local configuration",
             "price_value": "adjusted_close",
+            "minimum_history_observations": policy.minimum_history_observations,
+            "effective_price_as_of": effective_as_of or "unavailable",
+            "price_row_count": int(len(prices)) if prices is not None else 0,
+            "input_provenance": dict(provenance or {}) or "unavailable at frame boundary",
             "aggregate_metrics_inherit_authority": False,
             "protected_attribute_inference": False,
             "optional_forecasts": bool(forecasts is not None and not forecasts.empty),
@@ -232,21 +244,38 @@ def _dimension_value(record: Mapping[str, object], dimension: str) -> str:
     return text or _UNAVAILABLE
 
 
-def _observed_price_ids(prices: pd.DataFrame | None) -> set[str]:
+def _observed_price_ids(prices: pd.DataFrame | None, as_of_date: str | None, minimum_history_observations: int) -> set[str]:
     if prices is None or prices.empty or not {"etf_id", "adjusted_close"}.issubset(prices.columns):
         return set()
+    if "date" not in prices.columns:
+        return set()
     values = pd.to_numeric(prices["adjusted_close"], errors="coerce")
-    return set(prices.loc[values.notna(), "etf_id"].astype(str).str.strip())
+    dates = pd.to_datetime(prices["date"], errors="coerce")
+    valid = values.notna() & np.isfinite(values) & dates.notna()
+    if as_of_date:
+        upper_bound = pd.to_datetime(as_of_date, errors="coerce")
+        if pd.isna(upper_bound):
+            return set()
+        valid &= dates <= upper_bound
+    bounded = prices.loc[valid].assign(_instrument=prices.loc[valid, "etf_id"].astype(str).str.strip())
+    counts = bounded.groupby("_instrument").size()
+    return set(counts[counts >= minimum_history_observations].index)
 
 
-def _calibration_by_instrument(forecasts: pd.DataFrame | None, prices: pd.DataFrame | None) -> dict[str, dict[str, float | int | None]]:
+def _calibration_by_instrument(
+    forecasts: pd.DataFrame | None,
+    prices: pd.DataFrame | None,
+    as_of_date: str | None,
+) -> dict[str, dict[str, float | int | None]]:
     if forecasts is None or forecasts.empty or prices is None or prices.empty:
         return {}
     try:
         frame = forecasts.copy()
         if "etf_id" not in frame and "instrument_id" in frame:
             frame["etf_id"] = frame["instrument_id"]
-        evaluated = evaluate_forecast_calibration(frame, prices)
+        frame = _bound_by_date(frame, "forecast_date", as_of_date)
+        bounded_prices = _bound_by_date(prices, "date", as_of_date)
+        evaluated = evaluate_forecast_calibration(frame, bounded_prices)
     except (KeyError, TypeError, ValueError):
         return {}
     if evaluated.empty:
@@ -260,6 +289,16 @@ def _calibration_by_instrument(forecasts: pd.DataFrame | None, prices: pd.DataFr
             "interval_coverage": _mean(group["q10_q90_coverage"]),
         }
     return values
+
+
+def _bound_by_date(frame: pd.DataFrame, column: str, as_of_date: str | None) -> pd.DataFrame:
+    if not as_of_date or column not in frame.columns:
+        return frame
+    dates = pd.to_datetime(frame[column], errors="coerce")
+    upper_bound = pd.to_datetime(as_of_date, errors="coerce")
+    if pd.isna(upper_bound):
+        return frame.iloc[0:0].copy()
+    return frame.loc[dates.notna() & (dates <= upper_bound)].copy()
 
 
 def _group_metric(member_ids: Sequence[str], calibration: Mapping[str, Mapping[str, float | int | None]]) -> tuple[int, float | None, float | None, float | None]:
