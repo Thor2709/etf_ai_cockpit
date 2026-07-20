@@ -81,6 +81,7 @@ capabilities:
   - {capability_id: "dataset:logs", kind: dataset, authority_stage: research, description: Append-only operational logs}
   - {capability_id: "dataset:models", kind: dataset, authority_stage: research, description: Model availability evidence}
   - {capability_id: "dataset:news", kind: dataset, authority_stage: research, description: Context-only news evidence}
+  - {capability_id: "dataset:oam_discovery", kind: dataset, authority_stage: research, description: Official national OAM discovery evidence}
   - {capability_id: "dataset:policy", kind: dataset, authority_stage: research, description: Governance policy evidence}
   - {capability_id: "dataset:prices", kind: dataset, authority_stage: research, description: Adjusted-price evidence}
   - {capability_id: "dataset:provider_status", kind: dataset, authority_stage: research, description: Provider capability evidence}
