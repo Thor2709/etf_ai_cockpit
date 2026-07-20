@@ -53,6 +53,20 @@ def test_source_policy_report_is_explicitly_no_network(tmp_path: Path) -> None:
     assert report["rows"]
 
 
+def test_growth_expectation_imports_are_optional_local_evidence() -> None:
+    policies = {item.provider_id: item for item in load_source_policies()}
+
+    for provider_id in ("issuer_guidance_import", "licensed_consensus_import"):
+        policy = policies[provider_id]
+        assert policy.source_tier is SourceTier.LOCAL_USER_IMPORT
+        assert policy.optional_provider is True
+        assert policy.mandatory_allowed is False
+        assert policy.network_required is False
+        assert policy.cache_path == "data/raw/stock_research"
+
+    assert "not scraped" in policies["licensed_consensus_import"].fair_use_note
+
+
 def test_official_jurisdiction_adapters_are_optional_and_locally_replayable() -> None:
     policies = {item.provider_id: item for item in load_source_policies()}
     provider_ids = {

@@ -39,6 +39,19 @@ def test_restricted_sources_are_excluded_from_standard_audit_exports() -> None:
     assert registry.can_export("yfinance", "redistribution") is False
 
 
+def test_optional_expectation_import_terms_preserve_metadata_only_exports() -> None:
+    registry = load_legal_terms()
+
+    guidance = registry.entry("issuer_guidance_import")
+    consensus = registry.entry("licensed_consensus_import")
+
+    assert guidance is not None and guidance.audit_export == "metadata_only"
+    assert guidance.redistribution == "prohibited_without_permission"
+    assert consensus is not None and consensus.audit_export == "metadata_only"
+    assert consensus.redistribution == "prohibited"
+    assert consensus.terms_status == "restricted_review_required"
+
+
 def test_terms_changes_require_review() -> None:
     registry = load_legal_terms()
     changed = replace(registry, jurisdictions=({"jurisdiction_id": "AU", "disclaimer": "Changed wording."},))

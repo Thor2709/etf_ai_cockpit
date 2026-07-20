@@ -75,6 +75,9 @@ capabilities:
   - {capability_id: "dataset:filing_coverage", kind: dataset, authority_stage: research, description: Jurisdiction and instrument filing-coverage evidence}
   - {capability_id: "dataset:filings", kind: dataset, authority_stage: research, description: Filing evidence}
   - {capability_id: "dataset:fundamentals", kind: dataset, authority_stage: research, description: Fundamentals evidence}
+  - {capability_id: "dataset:licensed_consensus_import", kind: dataset, authority_stage: research, description: Optional instrument-scoped licensed point-in-time consensus evidence}
+  - {capability_id: "dataset:official_guidance_import", kind: dataset, authority_stage: research, description: Structured or human-reviewed official guidance evidence}
+  - {capability_id: "dataset:reported_growth", kind: dataset, authority_stage: research, description: Formula-labelled reported aggregate and per-share growth evidence}
   - {capability_id: "dataset:fund_holdings", kind: dataset, authority_stage: research, description: Direct ETF holdings and bounded overlap evidence}
   - {capability_id: "dataset:glossary", kind: dataset, authority_stage: research, description: Governance glossary}
   - {capability_id: "dataset:identity", kind: dataset, authority_stage: research, description: Instrument identity evidence}
