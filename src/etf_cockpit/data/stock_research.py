@@ -18,6 +18,7 @@ from pathlib import Path
 import pandas as pd
 
 from etf_cockpit.core.paths import RAW_DIR
+from etf_cockpit.data.capital_efficiency import capital_efficiency_analysis
 from etf_cockpit.data.statement_normalisation import statement_coverage, statement_view
 
 
@@ -291,10 +292,21 @@ def build_stock_research_report(
     as_known_at: str | date | None = None,
 ) -> dict[str, object]:
     frame = _statement_frame(statements, instrument_id, as_known_at=as_known_at)
+    assumption_values = assumptions or {}
     return {
         "schema_version": STOCK_RESEARCH_SCHEMA_VERSION,
         "instrument_id": instrument_id or "",
         "profitability": profitability_analysis(frame, instrument_id=instrument_id, sector=sector, peer_frame=peer_frame, as_known_at=as_known_at),
+        "capital_efficiency": capital_efficiency_analysis(
+            frame,
+            instrument_id=instrument_id,
+            sector=sector,
+            peer_frame=peer_frame,
+            tax_rate=_float(assumption_values.get("tax_rate")),
+            cost_of_capital=_float(assumption_values.get("cost_of_capital")),
+            intangible_assumptions=assumption_values.get("intangible_adjustment") if isinstance(assumption_values.get("intangible_adjustment"), Mapping) else None,
+            as_known_at=as_known_at,
+        ),
         "balance_sheet": balance_sheet_analysis(frame, instrument_id=instrument_id, sector=sector, as_known_at=as_known_at),
         "valuation": valuation_analysis(frame, instrument_id=instrument_id, market_inputs=market_inputs, assumptions=assumptions, as_known_at=as_known_at),
         "growth": growth_analysis(frame, instrument_id=instrument_id, as_known_at=as_known_at),
@@ -1137,6 +1149,7 @@ __all__ = [
     "STOCK_RESEARCH_SCHEMA_VERSION",
     "balance_sheet_analysis",
     "build_stock_research_report",
+    "capital_efficiency_analysis",
     "growth_analysis",
     "load_optional_research_import",
     "load_stock_research_frame",

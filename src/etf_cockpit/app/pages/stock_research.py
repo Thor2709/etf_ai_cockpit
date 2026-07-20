@@ -36,6 +36,7 @@ def stock_research_page(_page: ft.Page, state: AppState) -> ft.Control:
             _metrics_panel("Earnings quality", "Accruals, exceptional-item dependence, margin stability and transparent quality components.", report["profitability"]),
             _metrics_panel("Balance sheet", "Debt, liquidity, working capital and source-linked coverage; missing maturities remain unavailable.", report["balance_sheet"]),
             _metrics_panel("Solvency", "Stress scenarios and contextual distress evidence; this is not a credit rating or execution authority.", report["balance_sheet"]),
+            _capital_efficiency_panel(report["capital_efficiency"], _page),
             _growth_panel(report["growth"]),
             _expectations_panel(report["expectations"]),
             _valuation_panel(report["valuation"]),
@@ -69,6 +70,85 @@ def _valuation_panel(section: object) -> ft.Control:
     status = str(intrinsic.get("status", "unavailable")) if isinstance(intrinsic, dict) else "unavailable"
     multiples = ", ".join(f"{name.replace('_', ' ')}={item.get('value', 'n/a')}" for name, item in relative.items() if isinstance(item, dict)) or "No relative valuation inputs available."
     return panel(ft.Column([section_header("Valuation Lab", "Relative valuation, intrinsic-value scenarios, reverse DCF and residual income require explicit local assumptions."), _selectable_text(f"Relative measures: {multiples}", color=theme.MUTED), _selectable_text(f"Intrinsic scenarios: {status}; reverse DCF={value.get('reverse_dcf', {}).get('status', 'unavailable')}; residual income={value.get('residual_income', {}).get('status', 'unavailable')}; no single fair-value point is presented.", color=theme.AMBER if status != "available" else theme.CYAN), _selectable_text("execution_allowed=false", color=theme.GREEN)], spacing=8))
+
+
+def _capital_efficiency_panel(section: object, page: object | None = None) -> ft.Control:
+    value = section if isinstance(section, dict) else {}
+    reported = value.get("reported", {}) if isinstance(value.get("reported"), dict) else {}
+    adjusted = value.get("adjusted", {}) if isinstance(value.get("adjusted"), dict) else {}
+    reported_view = ft.Container(content=_capital_view("Reported", reported), data="capital-efficiency-reported", visible=True)
+    adjusted_view = ft.Container(content=_capital_view("Adjusted", adjusted), data="capital-efficiency-adjusted", visible=False)
+
+    def select_basis(event: ft.ControlEvent) -> None:
+        show_adjusted = "adjusted" in list(getattr(event.control, "selected", []) or [])
+        reported_view.visible = not show_adjusted
+        adjusted_view.visible = show_adjusted
+        update = getattr(page, "update", None)
+        if callable(update):
+            update()
+
+    selector = ft.SegmentedButton(
+        segments=[ft.Segment(value="reported", label="Reported"), ft.Segment(value="adjusted", label="Adjusted")],
+        selected=["reported"],
+        allow_empty_selection=False,
+        on_change=select_basis,
+        key="stock-research-capital-basis",
+    )
+    proxies = value.get("business_quality_proxies", {}) if isinstance(value.get("business_quality_proxies"), dict) else {}
+    proxy_text = ", ".join(f"{name.replace('_', ' ')}={_research_number(item.get('value'))} ({item.get('status', 'unavailable')})" for name, item in proxies.items() if isinstance(item, dict)) or "No source-backed quality proxies are available."
+    peer = value.get("sector_relative", {}) if isinstance(value.get("sector_relative"), dict) else {}
+    sensitivity = value.get("assumption_sensitivity", []) if isinstance(value.get("assumption_sensitivity"), list) else []
+    return panel(
+        ft.Column(
+            [
+                section_header("Capital Efficiency", "Reported statement evidence never blends with optional intangible adjustments. Incremental measures require stable denominators and at least three periods."),
+                selector,
+                reported_view,
+                adjusted_view,
+                _selectable_text(f"Sector-relative context: {peer.get('status', 'unavailable')}; peers={peer.get('peer_count', 0)}; percentiles={peer.get('percentiles', {})}", color=theme.MUTED),
+                _selectable_text(f"Disclosure-only business-quality proxies: {proxy_text}. These cannot override valuation or risk.", color=theme.MUTED),
+                _selectable_text(f"Exportable adjustment sensitivity scenarios: {len(sensitivity)}; proxy_authority={value.get('proxy_authority', 'descriptive_only')}; execution_allowed=false", color=theme.GREEN),
+            ],
+            spacing=8,
+        )
+    )
+
+
+def _capital_view(label: str, section: dict[str, object]) -> ft.Control:
+    metrics = section.get("metrics", {}) if isinstance(section.get("metrics"), dict) else {}
+    cards = []
+    for name in ("roic", "incremental_roic", "reinvestment_rate", "sales_to_capital", "asset_turns", "economic_profit_spread"):
+        item = metrics.get(name, {}) if isinstance(metrics, dict) else {}
+        if isinstance(item, dict):
+            cards.append(metric_card(name.replace("_", " ").title(), _research_value(item.get("value")), str(item.get("status", "unavailable"))))
+    if not cards:
+        cards = [metric_card(f"{label} metrics", "n/a", str(section.get("status", "unavailable")))]
+    assumptions = section.get("assumptions", {}) if isinstance(section.get("assumptions"), dict) else {}
+    bridge = section.get("latest_bridge", {}) if isinstance(section.get("latest_bridge"), dict) else {}
+    return ft.Column(
+        [
+            _metric_cards(cards),
+            _selectable_text(f"{label} basis: status={section.get('status', 'unavailable')}; assumptions={assumptions}; latest bridge={bridge}", color=theme.CYAN if section.get("status") == "available" else theme.MUTED),
+            _capital_persistence_chart(section.get("history", []), label),
+        ],
+        spacing=8,
+    )
+
+
+def _capital_persistence_chart(history: object, label: str) -> ft.Control:
+    rows = history if isinstance(history, list) else []
+    controls: list[ft.Control] = [_selectable_text(f"{label} ROIC persistence", color=theme.MUTED)]
+    for item in rows[-6:]:
+        if not isinstance(item, dict):
+            continue
+        try:
+            value = float(item.get("roic"))
+        except (TypeError, ValueError):
+            value = 0.0
+        controls.append(ft.Row([ft.Text(str(item.get("period_key") or item.get("period_end") or "period"), width=90, color=theme.MUTED), ft.ProgressBar(value=max(0.0, min(abs(value), 1.0)), color=theme.CYAN if value >= 0 else theme.AMBER, expand=True), ft.Text(_research_value(item.get("roic")), width=72, color=theme.CYAN if value >= 0 else theme.AMBER)]))
+    if len(controls) == 1:
+        controls.append(_selectable_text("No comparable ROIC history is available.", color=theme.MUTED))
+    return ft.Column(controls, spacing=4, data=f"capital-persistence-{label.casefold()}")
 
 
 def _growth_panel(section: object) -> ft.Control:

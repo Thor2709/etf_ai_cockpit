@@ -7,6 +7,7 @@ import pandas as pd
 from etf_cockpit.data.stock_research import (
     balance_sheet_analysis,
     build_stock_research_report,
+    capital_efficiency_analysis,
     growth_analysis,
     load_optional_research_import,
     profitability_analysis,
@@ -71,6 +72,119 @@ def test_profitability_distinguishes_missing_negative_and_inapplicable() -> None
     assert result["metrics"]["roic"]["status"] == "not_applicable"
 
 
+def test_capital_efficiency_formulas_require_history_and_stable_denominators() -> None:
+    result = capital_efficiency_analysis(_statements(), instrument_id="ACME", tax_rate=0.25, cost_of_capital=0.10)
+    reported = result["reported"]
+
+    assert reported["metrics"]["roic"]["value"] == 20.25 / 86.0
+    assert reported["metrics"]["incremental_roic"]["value"] == 3.75 / 4.0
+    assert reported["metrics"]["reinvestment_rate"]["value"] == 4.0 / 20.25
+    assert reported["metrics"]["sales_to_capital"]["value"] == 120.0 / 86.0
+    assert reported["metrics"]["asset_turns"]["value"] == 120.0 / 130.0
+    assert reported["metrics"]["economic_profit_spread"]["value"] == 20.25 / 86.0 - 0.10
+    assert len(reported["history"]) == 3
+    assert reported["metrics"]["incremental_roic"]["minimum_periods"] == 3
+    assert result["execution_allowed"] is False
+
+
+def test_incremental_roic_rejects_an_immaterial_invested_capital_change() -> None:
+    frame = _statements()
+    frame.loc[(frame["canonical_metric"] == "equity") & (frame["fiscal_year"] == 2026), "value"] = 64.0
+
+    result = capital_efficiency_analysis(frame, instrument_id="ACME", tax_rate=0.25)
+    incremental = result["reported"]["metrics"]["incremental_roic"]
+
+    assert incremental["value"] is None
+    assert incremental["status"] == "unstable_denominator"
+    assert "1%" in incremental["limitation"]
+
+
+def test_intangible_adjustment_is_separate_transparent_and_exportable() -> None:
+    frame = _statements()
+    additions = []
+    for year, research, advertising in ((2024, 10.0, 4.0), (2025, 12.0, 5.0), (2026, 14.0, 6.0)):
+        template = frame[frame["fiscal_year"] == year].iloc[0].to_dict()
+        for metric, value in (("research_and_development", research), ("advertising_expense", advertising)):
+            additions.append({**template, "canonical_metric": metric, "value": value})
+    frame = pd.concat([frame, pd.DataFrame(additions)], ignore_index=True)
+
+    result = capital_efficiency_analysis(
+        frame,
+        instrument_id="ACME",
+        tax_rate=0.25,
+        intangible_assumptions={"enabled": True, "research_years": 3, "advertising_years": 2, "research_capitalisation_rate": 1.0, "advertising_capitalisation_rate": 0.5},
+    )
+
+    assert result["reported"]["metrics"]["roic"]["value"] == 20.25 / 86.0
+    assert result["adjusted"]["status"] == "available"
+    assert result["adjusted"]["latest_bridge"]["intangible_asset"] > 0
+    assert result["adjusted"]["latest_bridge"]["adjusted_operating_income"] > 27.0
+    assert result["adjusted"]["assumptions"]["research_years"] == 3
+    assert len(result["assumption_sensitivity"]) >= 3
+    assert all(item["execution_allowed"] is False for item in result["assumption_sensitivity"])
+
+
+def test_intangible_adjustment_rejects_invalid_assumptions_and_false_text_stays_disabled() -> None:
+    disabled = capital_efficiency_analysis(_statements(), instrument_id="ACME", tax_rate=0.25, intangible_assumptions={"enabled": "false"})
+    assert disabled["adjusted"]["status"] == "disabled"
+
+    invalid = capital_efficiency_analysis(
+        _statements(),
+        instrument_id="ACME",
+        tax_rate=0.25,
+        intangible_assumptions={"enabled": True, "research_years": 2.5, "research_capitalisation_rate": 1.2},
+    )
+    assert invalid["adjusted"]["status"] == "invalid_assumptions"
+    assert "whole number" in invalid["adjusted"]["reason"]
+    assert "between 0 and 1" in invalid["adjusted"]["reason"]
+
+
+def test_capital_history_prefers_comparable_annual_periods() -> None:
+    frame = _statements()
+    quarter = frame[frame["fiscal_year"] == 2026].copy()
+    quarter["period_type"] = "quarterly"
+    quarter["period_key"] = "Q3-2026"
+    quarter["period_end"] = "2026-09-30"
+    quarter["end"] = "2026-09-30"
+    quarter["value"] = quarter["value"] * 10
+
+    result = capital_efficiency_analysis(pd.concat([frame, quarter], ignore_index=True), instrument_id="ACME", tax_rate=0.25)
+
+    assert len(result["reported"]["history"]) == 3
+    assert result["reported"]["history"][-1]["period_end"] == "2026-12-31"
+    assert result["calculation_inputs"]["tax_rate_basis"] == "explicit_assumption"
+
+
+def test_business_quality_proxies_require_disclosed_source_evidence() -> None:
+    frame = _statements()
+    template = frame[frame["fiscal_year"] == 2026].iloc[0].to_dict()
+    disclosed = pd.DataFrame([
+        {**template, "canonical_metric": "recurring_revenue", "value": 72.0},
+        {**template, "canonical_metric": "customer_concentration", "value": 0.28},
+    ])
+    result = capital_efficiency_analysis(pd.concat([frame, disclosed], ignore_index=True), instrument_id="ACME", tax_rate=0.25)
+    proxies = result["business_quality_proxies"]
+
+    assert proxies["recurring_revenue_share"]["value"] == 0.6
+    assert proxies["recurring_revenue_share"]["source_ids"] == ("filing-2026",)
+    assert proxies["customer_concentration"]["value"] == 0.28
+    assert proxies["supplier_concentration"]["status"] == "unavailable"
+    assert proxies["capital_return_persistence"]["coverage"]["observed_periods"] == 3
+    assert result["proxy_authority"] == "descriptive_only"
+
+
+def test_capital_efficiency_is_inapplicable_to_financials_and_peer_context_is_descriptive() -> None:
+    financial = capital_efficiency_analysis(_statements(), instrument_id="ACME", sector="bank", tax_rate=0.25)
+    assert financial["reported"]["metrics"]["roic"]["status"] == "not_applicable"
+    assert financial["adjusted"]["status"] == "disabled"
+
+    peers = pd.concat([_statements().assign(instrument_id="PEER-1"), _statements().assign(instrument_id="PEER-2", value=lambda frame: frame["value"] * 1.2)], ignore_index=True)
+    industrial = capital_efficiency_analysis(_statements(), instrument_id="ACME", peer_frame=peers, tax_rate=0.25)
+    assert industrial["sector_relative"]["status"] == "available"
+    assert industrial["sector_relative"]["peer_count"] == 2
+    assert industrial["sector_relative"]["authority"] == "descriptive_only"
+
+
 def test_balance_sheet_formulas_and_stress_fail_closed_without_commitment_data() -> None:
     result = balance_sheet_analysis(_statements(), instrument_id="ACME", sector="industrial")
 
@@ -129,7 +243,7 @@ def test_combined_report_keeps_research_sections_and_provenance_boundary() -> No
     report = build_stock_research_report(_statements(), instrument_id="ACME", market_inputs={"market_cap": 300.0}, assumptions={})
 
     assert report["schema_version"] == "stock_research.v2"
-    assert set(report) >= {"profitability", "balance_sheet", "valuation", "growth", "expectations", "execution_allowed", "source_lineage"}
+    assert set(report) >= {"profitability", "capital_efficiency", "balance_sheet", "valuation", "growth", "expectations", "execution_allowed", "source_lineage"}
     assert report["execution_allowed"] is False
     assert report["source_lineage"]["statement_view"] == "latest_restated"
 
