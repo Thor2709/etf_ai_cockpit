@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import isfinite
+from math import isclose, isfinite
 from typing import Mapping
 
 
@@ -62,7 +62,12 @@ def estimate_friction_adjusted_return(
     q50 = _finite(distribution.get("q50_return"))
     q90 = _finite(distribution.get("q90_return"))
     horizon = _finite(distribution.get("horizon_days"))
-    if any(value is None for value in (q10, q50, q90, horizon)) or horizon <= 0 or not q10 <= q50 <= q90:
+    if (
+        any(value is None for value in (q10, q50, q90, horizon))
+        or horizon <= 0
+        or not horizon.is_integer()
+        or not q10 <= q50 <= q90
+    ):
         return _return_unavailable("Expected-return quantiles are missing, non-finite or not ordered.")
     order_value = _finite(order_value_eur)
     if order_value is None or order_value <= 0.0:
@@ -73,6 +78,12 @@ def estimate_friction_adjusted_return(
     cost_eur = _finite(cost_estimate.get("total_cost_eur"))
     if cost_bps is None or cost_bps < 0.0 or cost_eur is None or cost_eur < 0.0:
         return _return_unavailable("Order-size cost estimate is missing, negative or non-finite.")
+    estimated_order_value = _finite(cost_estimate.get("order_value_eur"))
+    if estimated_order_value is None or not isclose(estimated_order_value, order_value, rel_tol=1e-9, abs_tol=1e-8):
+        return _return_unavailable("Order-size cost estimate does not match the requested order value.")
+    expected_cost_eur = order_value * cost_bps / 10_000.0
+    if not isclose(cost_eur, expected_cost_eur, rel_tol=1e-9, abs_tol=1e-7):
+        return _return_unavailable("Order-size cost estimate has inconsistent basis-point and euro totals.")
     cost_fraction = cost_bps / 10_000.0
     net_q10 = q10 - cost_fraction
     net_q50 = q50 - cost_fraction

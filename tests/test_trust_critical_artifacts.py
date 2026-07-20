@@ -358,7 +358,20 @@ def test_score_artifacts_write_history_components_and_drivers() -> None:
     components = pd.read_parquet(paths["score_components"])
     drivers = pd.read_parquet(paths["feature_drivers"])
 
-    assert {"instrument_id", "final_combined_score_10", "final_action"} <= set(history.columns)
+    assert {
+        "instrument_id",
+        "final_combined_score_10",
+        "final_action",
+        "q10_expected_return",
+        "q50_expected_return",
+        "q90_expected_return",
+        "net_expected_return",
+        "expected_return_order_value_eur",
+        "expected_return_cost_bps",
+        "expected_return_cost_eur",
+        "expected_return_distribution_version",
+        "expected_return_source_dataset",
+    } <= set(history.columns)
     assert {"component_name", "score_available", "na_reason"} <= set(metrics.columns)
     assert "source_id" in components.columns
     assert components["source_id"].astype(str).str.strip().ne("").all()
@@ -366,6 +379,50 @@ def test_score_artifacts_write_history_components_and_drivers() -> None:
     assert ledger["executable_authority"].eq(False).all()
     assert {"direction", "driver_text", "freshness_status"} <= set(drivers.columns)
     assert "VWCE" in set(history["instrument_id"])
+
+
+def test_score_history_preserves_friction_adjusted_return_audit_fields(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(trust, "SCORE_HISTORY_PATH", tmp_path / "score_history.parquet")
+    score = SimpleNamespace(
+        display_id="VWCE",
+        name="Vanguard FTSE All-World",
+        final_score_10=7.0,
+        warnings=[],
+        components=[],
+        q10_expected_return=-0.03,
+        q50_expected_return=0.05,
+        q90_expected_return=0.12,
+        gross_expected_return=0.05,
+        expected_return_horizon_days=60,
+        net_q10_expected_return=-0.032,
+        net_expected_return=0.048,
+        net_q90_expected_return=0.118,
+        expected_return_order_value_eur=1_000.0,
+        expected_return_cost_bps=20.0,
+        expected_return_cost_eur=2.0,
+        expected_return_cost_ratio=24.0,
+        expected_return_distribution_version="expected-return-distribution.v1",
+        expected_return_source_dataset="forecast_return_distribution",
+    )
+
+    path = trust.append_score_history(
+        [score],
+        run_id="run-friction-return",
+        created_at="2026-07-20T00:00:00Z",
+        version_registry_signature="test-registry",
+    )
+
+    row = pd.read_parquet(path).iloc[0]
+    assert row["q10_expected_return"] == -0.03
+    assert row["q50_expected_return"] == 0.05
+    assert row["q90_expected_return"] == 0.12
+    assert row["net_expected_return"] == 0.048
+    assert row["expected_return_order_value_eur"] == 1_000.0
+    assert row["expected_return_cost_bps"] == 20.0
+    assert row["expected_return_cost_eur"] == 2.0
+    assert row["expected_return_cost_ratio"] == 24.0
+    assert row["expected_return_distribution_version"] == "expected-return-distribution.v1"
+    assert row["expected_return_source_dataset"] == "forecast_return_distribution"
 
 
 def test_score_trust_writer_uses_same_top_ten_theme_cohort_as_scores(tmp_path, monkeypatch) -> None:

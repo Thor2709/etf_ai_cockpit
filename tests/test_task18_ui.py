@@ -54,13 +54,49 @@ def test_instrument_detail_renders_cost_edge_fields(tmp_path, monkeypatch) -> No
         "estimated_total_cost_bps": 7.0,
         "net_expected_edge_bps": 35.0,
         "edge_to_cost_ratio": 5.0,
-        "cost_stress_scenario": "high",
+        "cost_stress_scenario": "base_order_size",
+        "gross_expected_return": 0.042,
+        "q10_expected_return": -0.02,
+        "q50_expected_return": 0.042,
+        "q90_expected_return": 0.11,
+        "expected_return_horizon_days": 60,
+        "net_q10_expected_return": -0.0207,
+        "net_expected_return": 0.0413,
+        "net_q90_expected_return": 0.1093,
+        "expected_return_order_value_eur": 1_000.0,
+        "expected_return_cost_bps": 7.0,
+        "expected_return_cost_eur": 0.7,
+        "expected_return_cost_ratio": 59.0,
+        "expected_return_distribution_version": "expected-return-distribution.v1",
+        "expected_return_source_dataset": "forecast_return_distribution",
     }]).to_parquet(scoreboard_path, index=False)
     monkeypatch.setattr(selector, "SCOREBOARD_PATH", scoreboard_path)
 
+    model = selector.build_instrument_detail(snapshot, instrument_id)
+    assert model.sections["scores"]["friction"]["status"] == "available"
+
     control = page_module.instrument_detail_page(None, type("State", (), {"selected_etf": instrument_id, "snapshot": snapshot})())
     rendered = "\n".join(_text_values(control))
-    for expected in ("Gross edge", "42.00 bps", "Estimated cost", "7.00 bps", "Net edge", "35.00 bps", "Edge/cost", "5.00", "Cost scenario: high"):
+    for expected in (
+        "Gross edge",
+        "42.00 bps",
+        "Estimated cost",
+        "7.00 bps",
+        "Net edge",
+        "35.00 bps",
+        "Edge/cost",
+        "5.00",
+        "Cost scenario: base_order_size",
+        "Expected-return distribution (60d)",
+        "q10 -2.0%",
+        "q50 +4.2%",
+        "q90 +11.0%",
+        "net +4.1%",
+        "EUR 1,000.00",
+        "EUR 0.70",
+        "return/cost 59.00",
+        "forecast_return_distribution",
+    ):
         assert expected in rendered
 
 

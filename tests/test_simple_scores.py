@@ -535,7 +535,7 @@ def test_score_friction_fields_use_distribution_and_order_size_when_supplied() -
         [],
         expected_return_distribution={"q10_return": -0.03, "q50_return": 0.05, "q90_return": 0.12, "horizon_days": 60, "status": "available"},
         order_value_eur=1_000.0,
-        cost_estimate={"total_cost_bps": 20.0, "total_cost_eur": 2.0},
+        cost_estimate={"order_value_eur": 1_000.0, "total_cost_bps": 20.0, "total_cost_eur": 2.0},
     )
 
     assert fields["friction_status"] == "available"
@@ -553,7 +553,13 @@ def test_order_size_cost_estimate_uses_absolute_trade_value_and_fails_closed_at_
 
     def fake_estimate(_config, _instrument_id, order_value):
         calls.append(order_value)
-        return SimpleNamespace(as_dict=lambda: {"total_cost_bps": 30.0, "total_cost_eur": 3.0})
+        return SimpleNamespace(
+            as_dict=lambda: {
+                "order_value_eur": order_value,
+                "total_cost_bps": 30.0,
+                "total_cost_eur": 3.0,
+            }
+        )
 
     monkeypatch.setattr(simple_scores_module, "estimate_execution_cost", fake_estimate)
     config = load_config()
@@ -564,6 +570,7 @@ def test_order_size_cost_estimate_uses_absolute_trade_value_and_fails_closed_at_
     assert calls == [250.0]
     assert estimate is not None
     assert estimate["total_cost_bps"] == 30.0
+    assert estimate["order_value_eur"] == 250.0
     assert unavailable is None
 
 
