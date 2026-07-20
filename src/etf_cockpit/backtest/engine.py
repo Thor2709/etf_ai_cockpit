@@ -73,10 +73,11 @@ def backtest_input_checksum(
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
 
-def quality_momentum_evidence_checksum(evidence: pd.DataFrame) -> str:
-    """Checksum the exact CSV representation persisted beside a report."""
+def quality_momentum_evidence_checksum(evidence: pd.DataFrame | bytes) -> str:
+    """Checksum quality-momentum evidence before or after CSV persistence."""
 
-    return hashlib.sha256(evidence.to_csv(index=False).encode("utf-8")).hexdigest()
+    payload = evidence if isinstance(evidence, bytes) else evidence.to_csv(index=False).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def _price_pivot(prices: pd.DataFrame) -> pd.DataFrame:

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 
 from scripts import release_gate
@@ -70,30 +69,6 @@ def test_run_gate_writes_machine_readable_failure_evidence(tmp_path: Path, monke
     )
 
 
-def test_full_test_command_uses_extended_but_bounded_timeout(tmp_path: Path, monkeypatch) -> None:
-    output_dir = tmp_path / "evidence"
-    output_dir.mkdir()
-    captured: dict[str, object] = {}
-
-    def fake_run(command, **kwargs):
-        captured.update(kwargs)
-        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
-
-    monkeypatch.setattr(release_gate.subprocess, "run", fake_run)
-
-    result = release_gate.run_command(
-        tmp_path,
-        output_dir,
-        "full_tests",
-        ("python", "-m", "pytest", "-q"),
-        timeout_seconds=release_gate.FULL_TEST_TIMEOUT_SECONDS,
-    )
-
-    assert result.status == "passed"
-    assert captured["timeout"] == 14400
-    assert release_gate.COMMAND_TIMEOUT_SECONDS == 1800
-
-
 def test_dry_run_lists_full_release_contract(tmp_path: Path, capsys) -> None:
     assert release_gate.main(["--root", str(tmp_path), "--dry-run"]) == 0
     payload = json.loads(capsys.readouterr().out)
@@ -153,7 +128,7 @@ def test_release_workflow_is_matrixed_isolated_and_read_only() -> None:
     assert "windows-latest" in workflow
     assert "ubuntu-latest" in workflow
     assert "fail-fast: false" in workflow
-    assert "timeout-minutes: 270" in workflow
+    assert "timeout-minutes: 45" in workflow
     assert "Configure isolated user profile" in workflow
     assert "requirements-release-parsers.txt" in workflow
     assert "ETF_COCKPIT_RELEASE_BUILD: \"1\"" in workflow

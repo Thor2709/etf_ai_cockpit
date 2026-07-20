@@ -869,7 +869,7 @@ class BacktestService:
                 return None
             quality_momentum_evidence = quality_momentum_evidence.reindex(columns=FRAME_COLUMNS)
             if metadata.get("quality_momentum_evidence_checksum") != quality_momentum_evidence_checksum(
-                quality_momentum_evidence
+                quality_evidence_path.read_bytes()
             ):
                 return None
             ai_added_value = False

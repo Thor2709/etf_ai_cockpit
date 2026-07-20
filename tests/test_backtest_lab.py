@@ -6,10 +6,16 @@ import pandas as pd
 import pytest
 
 from etf_cockpit.app.pages.backtests import backtests_page
-from etf_cockpit.backtest.engine import BacktestDataUnavailableError, _execution_evidence, run_backtest
+from etf_cockpit.backtest.engine import (
+    BacktestDataUnavailableError,
+    _execution_evidence,
+    quality_momentum_evidence_checksum,
+    run_backtest,
+)
 from etf_cockpit.backtest.metrics import tail_event_diagnostics
 from etf_cockpit.core.config import load_config
 from etf_cockpit.data.sample_data import generate_sample_prices
+from etf_cockpit import services
 
 
 def test_tail_event_diagnostics_expose_worst_windows_and_loss_clustering() -> None:
@@ -116,3 +122,42 @@ def test_backtest_registers_quality_momentum_and_quality_only_baselines() -> Non
     assert report.metadata["quality_momentum_evidence"] == "unavailable"
     assert report.metadata["quality_momentum_evidence_available_rows"] == 0
     assert set(report.quality_momentum_evidence.columns) >= {"signal_date", "status", "reason", "execution_allowed"}
+
+
+def test_quality_momentum_checksum_verifies_exact_persisted_csv_bytes(tmp_path) -> None:
+    evidence = pd.DataFrame(
+        [
+            {
+                "instrument_id": "VWCE",
+                "signal_date": "2026-06-26",
+                "quality_score": None,
+                "execution_allowed": False,
+            }
+        ]
+    )
+    persisted = evidence.to_csv(index=False).encode("utf-8")
+    path = tmp_path / "quality-momentum.csv"
+    path.write_bytes(persisted)
+
+    assert quality_momentum_evidence_checksum(evidence) == quality_momentum_evidence_checksum(
+        path.read_bytes()
+    )
+
+
+def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
+    tmp_path, monkeypatch
+) -> None:
+    config = load_config()
+    prices = generate_sample_prices(config, periods=360, end_date=pd.Timestamp("2026-06-26").date())
+    monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path)
+    monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(services, "load_fundamental_evidence", pd.DataFrame)
+    service = services.BacktestService(config, universe_revision="test-revision")
+
+    generated = service.run_backtest()
+    cached = service._load_cached_backtest()
+
+    assert cached is not None
+    assert cached.metadata["quality_momentum_evidence_checksum"] == generated.metadata[
+        "quality_momentum_evidence_checksum"
+    ]

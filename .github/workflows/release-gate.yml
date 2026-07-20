@@ -21,10 +21,7 @@ jobs:
           - platform: linux
             runner: ubuntu-latest
     runs-on: ${{ matrix.runner }}
-    # The mandatory suite has exceeded two hours on both declared profiles.
-    # This remains a full, non-skipped gate; the wider job budget leaves room
-    # for package and smoke evidence after pytest finishes.
-    timeout-minutes: 270
+    timeout-minutes: 45
     steps:
       - name: Check out source
         uses: actions/checkout@v4
