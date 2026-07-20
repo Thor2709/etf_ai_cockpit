@@ -47,6 +47,24 @@ def test_terms_changes_require_review() -> None:
     assert terms_change_requires_review(registry, registry) is False
 
 
+def test_official_jurisdiction_sources_have_fail_closed_terms_records() -> None:
+    registry = load_legal_terms()
+    source_ids = {
+        "dk_finanstilsynet_oam",
+        "fi_fsa_oam",
+        "fr_dila_oam",
+        "gb_companies_house",
+        "nl_afm_oam",
+        "no_finanstilsynet_oam",
+        "se_fi_oam",
+    }
+
+    entries = [registry.entry(source_id) for source_id in source_ids]
+    assert all(entry is not None and not entry.unresolved for entry in entries)
+    assert all(entry.audit_export == "metadata_only" for entry in entries if entry is not None)
+    assert all(not registry.can_export(source_id, "audit_export") for source_id in source_ids)
+
+
 def test_unresolved_mandatory_terms_fail_closed(tmp_path: Path) -> None:
     source = Path("configs/legal_terms_registry.yaml").read_text(encoding="utf-8")
     invalid = source.replace("terms_status: user_owned_terms", "terms_status: unresolved", 1)

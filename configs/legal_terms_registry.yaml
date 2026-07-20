@@ -47,6 +47,69 @@ sources:
     audit_export: allowed_with_attribution
     attribution: "Retain SEC source URL, retrieval metadata and checksum."
     review_note: "Cached responses are replayed locally; service limits remain non-blocking."
+  - source_id: dk_finanstilsynet_oam
+    source_kind: optional_official_registry
+    terms_status: recorded_restricted
+    terms_reference: "Danish Financial Supervisory Authority OAM access conditions and source terms."
+    permitted_cache: local_replay
+    redistribution: prohibited_without_permission
+    audit_export: metadata_only
+    attribution: "Retain regulator URL, retrieval time, query and checksum."
+    review_note: "Only explicit structured exports are accepted; acquisition remains optional and rate-bounded."
+  - source_id: fi_fsa_oam
+    source_kind: optional_official_registry
+    terms_status: recorded_restricted
+    terms_reference: "Finnish Financial Supervisory Authority access conditions and source terms."
+    permitted_cache: local_replay
+    redistribution: prohibited_without_permission
+    audit_export: metadata_only
+    attribution: "Retain regulator URL, retrieval time, query and checksum."
+    review_note: "Only explicit structured exports are accepted; acquisition remains optional and rate-bounded."
+  - source_id: fr_dila_oam
+    source_kind: optional_official_registry
+    terms_status: recorded_restricted
+    terms_reference: "French DILA/data.gouv.fr financial-information service terms and access conditions."
+    permitted_cache: local_replay
+    redistribution: prohibited_without_permission
+    audit_export: metadata_only
+    attribution: "Retain regulator URL, retrieval time, query and checksum."
+    review_note: "Only explicit structured exports are accepted; acquisition remains optional and rate-bounded."
+  - source_id: gb_companies_house
+    source_kind: optional_official_registry
+    terms_status: recorded_restricted
+    terms_reference: "Companies House API or bulk-product access conditions and Crown copyright requirements."
+    permitted_cache: local_replay
+    redistribution: attribution_required
+    audit_export: metadata_only
+    attribution: "Retain Companies House source URL, company number, retrieval time and checksum."
+    review_note: "The API key remains transient; official bulk and manual local import remain available without per-call quota."
+  - source_id: nl_afm_oam
+    source_kind: optional_official_registry
+    terms_status: recorded_restricted
+    terms_reference: "Netherlands Authority for the Financial Markets registry terms and access conditions."
+    permitted_cache: local_replay
+    redistribution: prohibited_without_permission
+    audit_export: metadata_only
+    attribution: "Retain regulator URL, retrieval time, query and checksum."
+    review_note: "Only explicit structured exports are accepted; acquisition remains optional and rate-bounded."
+  - source_id: no_finanstilsynet_oam
+    source_kind: optional_official_registry
+    terms_status: recorded_restricted
+    terms_reference: "Financial Supervisory Authority of Norway access conditions and source terms."
+    permitted_cache: local_replay
+    redistribution: prohibited_without_permission
+    audit_export: metadata_only
+    attribution: "Retain regulator URL, retrieval time, query and checksum."
+    review_note: "Only explicit structured exports are accepted; acquisition remains optional and rate-bounded."
+  - source_id: se_fi_oam
+    source_kind: optional_official_registry
+    terms_status: recorded_restricted
+    terms_reference: "Swedish Financial Supervisory Authority periodic-information registry terms and access conditions."
+    permitted_cache: local_replay
+    redistribution: prohibited_without_permission
+    audit_export: metadata_only
+    attribution: "Retain regulator URL, retrieval time, query and checksum."
+    review_note: "Only explicit structured exports are accepted; acquisition remains optional and rate-bounded."
   - source_id: index_provider
     source_kind: official_bulk
     terms_status: recorded_restricted
