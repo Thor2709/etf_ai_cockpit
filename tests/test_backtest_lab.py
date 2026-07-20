@@ -152,6 +152,7 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
     monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path)
     monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
     monkeypatch.setattr(services, "load_fundamental_evidence", pd.DataFrame)
+    monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: {})
     service = services.BacktestService(config, universe_revision="test-revision")
 
     generated = service.run_backtest()
