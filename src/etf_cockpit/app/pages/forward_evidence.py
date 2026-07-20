@@ -33,6 +33,37 @@ def _timestamp(value: str | None, label: str) -> datetime:
     return parsed
 
 
+def _quality_momentum_summary(state: AppState) -> ft.Control:
+    report = getattr(state.snapshot, "backtest", None)
+    evidence = getattr(report, "quality_momentum_evidence", None)
+    metadata = getattr(report, "metadata", {}) or {}
+    rows = int(metadata.get("quality_momentum_evidence_rows", len(evidence) if evidence is not None else 0))
+    available = 0
+    if evidence is not None and hasattr(evidence, "get") and "status" in evidence:
+        available = int((evidence["status"].astype(str) == "available").sum())
+    evidence_status = str(metadata.get("quality_momentum_evidence", "unavailable"))
+    return panel(
+        ft.Column(
+            [
+                ft.Text("Quality-momentum forward paper evidence", color=theme.TEXT, weight=ft.FontWeight.BOLD),
+                ft.Text(
+                    f"Backtest observations: {rows} rows, {available} available | status={evidence_status} | "
+                    "fills=next adjusted close | execution_allowed=false",
+                    key="forward-evidence.quality-momentum-summary",
+                    color=theme.MUTED,
+                    selectable=True,
+                ),
+                ft.Text(
+                    "Use the decision-time hashes below to record a local paper observation; no broker or external action is created.",
+                    color=theme.MUTED,
+                    selectable=True,
+                ),
+            ],
+            spacing=6,
+        )
+    )
+
+
 def forward_evidence_page(page: ft.Page | None, state: AppState) -> ft.Control:
     diary = ForwardEvidenceDiary()
     observation_id = ft.TextField(label="Observation ID", key="forward-evidence.observation-id")
@@ -151,7 +182,8 @@ def forward_evidence_page(page: ft.Page | None, state: AppState) -> ft.Control:
     refresh()
     return ft.Column(
         [
-            section_header("Forward Evidence Diary", "Record every local observation opportunity with decision-time hashes, then mature its outcome separately. Paper proposals are evidence only; execution_allowed=false."),
+            section_header("Forward Evidence Diary", "Record quality-momentum and other local observation opportunities with decision-time hashes, then mature outcomes separately. Paper proposals are evidence only; execution_allowed=false."),
+            _quality_momentum_summary(state),
             panel(ft.Column([
                 ft.Text("Decision-time manifest", color=theme.TEXT, weight=ft.FontWeight.BOLD),
                 ft.Row([observation_id, instrument_ids], wrap=True),

@@ -197,6 +197,23 @@ def test_rejects_generated_status_count_checksum_or_freshness_mismatch(mismatch:
     assert expected_message in errors
 
 
+def test_allows_crlf_checkout_of_deterministic_progress() -> None:
+    base = _registry({"ISSUE-0070": "planned"})
+    proposed = _registry({"ISSUE-0070": "integrated"})
+    expected_status = status_payload(proposed)
+    expected_progress = deterministic_text(progress_markdown(expected_status, proposed))
+
+    errors = _errors(
+        base,
+        proposed,
+        _manifest(("ISSUE-0070", "planned", "integrated")),
+        current_status=expected_status,
+        current_progress=expected_progress.replace(b"\n", b"\r\n"),
+    )
+
+    assert errors == []
+
+
 def test_rejects_missing_and_duplicate_manifest_issue_ids() -> None:
     base = _registry({"ISSUE-0070": "planned"})
     proposed = _registry({"ISSUE-0070": "integrated"})

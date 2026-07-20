@@ -34,6 +34,7 @@ from etf_cockpit.governance.supply_chain_intake import *  # noqa: F401,F403
 from etf_cockpit.data.local_storage import *  # noqa: F401,F403
 from etf_cockpit.data.manual_notes import *  # noqa: F401,F403
 from etf_cockpit.data.news_context import *  # noqa: F401,F403
+from etf_cockpit.data.oam_adapters import *  # noqa: F401,F403
 from etf_cockpit.data.parsed_disclosures import *  # noqa: F401,F403
 from etf_cockpit.data.provider_registry import *  # noqa: F401,F403
 from etf_cockpit.data.privacy import *  # noqa: F401,F403
@@ -53,6 +54,7 @@ from etf_cockpit.core.versioning import *  # noqa: F401,F403
 from etf_cockpit.core.job_scheduler import *  # noqa: F401,F403
 from etf_cockpit.core.resource_profiles import *  # noqa: F401,F403
 from etf_cockpit.models.forecast_scores import *  # noqa: F401,F403
+from etf_cockpit.models.coverage_audit import *  # noqa: F401,F403
 from etf_cockpit.models.local_weights import *  # noqa: F401,F403
 from etf_cockpit.portfolio.allocation import *  # noqa: F401,F403
 from etf_cockpit.portfolio.costs import *  # noqa: F401,F403

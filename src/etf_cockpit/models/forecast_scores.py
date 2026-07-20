@@ -110,6 +110,79 @@ def forecast_score_details(forecasts: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def forecast_return_distributions(
+    forecasts: pd.DataFrame,
+    *,
+    horizon_days: int = PRIMARY_MODEL_HORIZON_DAYS,
+) -> dict[str, dict[str, float | int | str | None]]:
+    """Return point-in-time return distributions for the score consumers.
+
+    This is deliberately separate from ``forecast_component_maps``.  A
+    normalised model score is ordinal evidence; it must not be treated as a
+    percentage return.  Only allowed, successful forecast rows are used and
+    each model contributes its preferred horizon before the medians are
+    combined.  Missing quantiles remain unavailable rather than being
+    fabricated from an ordinal score.
+    """
+
+    output: dict[str, dict[str, float | int | str | None]] = {}
+    if forecasts.empty or not {"model_name", "etf_id", "horizon_days", "expected_return", "status", "model_allowed_in_score"}.issubset(forecasts.columns):
+        return output
+    frame = forecasts.copy()
+    frame["model_name"] = frame["model_name"].astype(str).str.lower()
+    frame["horizon_days"] = pd.to_numeric(frame["horizon_days"], errors="coerce")
+    for column in ("expected_return", "q10_return", "q50_return", "q90_return", "forecast_vol"):
+        if column not in frame:
+            frame[column] = np.nan
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    allowed = frame["model_allowed_in_score"].astype(str).str.lower().isin({"true", "1", "yes"})
+    frame = frame[(frame["status"].astype(str).str.lower() == "ok") & allowed]
+    frame = frame.dropna(subset=["etf_id", "model_name", "horizon_days", "expected_return"])
+    if frame.empty:
+        return output
+
+    for instrument_id, instrument_frame in frame.groupby(frame["etf_id"].astype(str), sort=True):
+        selected_rows: list[dict[str, float | int]] = []
+        selected_horizons: list[int] = []
+        for _, model_frame in instrument_frame.groupby("model_name", sort=True):
+            selected = _choose_horizon_row_for(model_frame, horizon_days)
+            if selected is None:
+                continue
+            expected = _finite_or_none(selected.get("expected_return"))
+            if expected is None:
+                continue
+            q50 = _finite_or_none(selected.get("q50_return"))
+            q50 = expected if q50 is None else q50
+            q10 = _finite_or_none(selected.get("q10_return"))
+            q90 = _finite_or_none(selected.get("q90_return"))
+            volatility = _finite_or_none(selected.get("forecast_vol"))
+            if q10 is None and volatility is not None and volatility >= 0:
+                q10 = q50 - 1.28 * volatility
+            if q90 is None and volatility is not None and volatility >= 0:
+                q90 = q50 + 1.28 * volatility
+            if q10 is None or q90 is None or not q10 <= q50 <= q90:
+                continue
+            selected_rows.append({"q10": q10, "q50": q50, "q90": q90, "horizon": int(selected["horizon_days"])})
+            selected_horizons.append(int(selected["horizon_days"]))
+        if not selected_rows:
+            output[instrument_id] = _unavailable_distribution("No valid forecast quantiles are available for the selected horizon.")
+            continue
+        if len(set(selected_horizons)) != 1:
+            output[instrument_id] = _unavailable_distribution("Allowed forecast rows do not share a common return horizon.")
+            continue
+        output[instrument_id] = {
+            "q10_return": round(float(np.median([row["q10"] for row in selected_rows])), 12),
+            "q50_return": round(float(np.median([row["q50"] for row in selected_rows])), 12),
+            "q90_return": round(float(np.median([row["q90"] for row in selected_rows])), 12),
+            "horizon_days": selected_horizons[0],
+            "model_count": len(selected_rows),
+            "status": "available",
+            "reason": "Median of allowed successful model return distributions at the selected horizon.",
+            "source_dataset": "forecast_return_distribution",
+        }
+    return output
+
+
 def _selected_forecast_row(forecasts: pd.DataFrame, model_name: str, etf_id: str) -> pd.Series | None:
     frame = forecasts.copy()
     frame["model_name"] = frame["model_name"].astype(str).str.lower()
@@ -126,13 +199,39 @@ def _selected_forecast_row(forecasts: pd.DataFrame, model_name: str, etf_id: str
 
 
 def _choose_horizon_row(group: pd.DataFrame) -> pd.Series | None:
+    return _choose_horizon_row_for(group, PRIMARY_MODEL_HORIZON_DAYS)
+
+
+def _choose_horizon_row_for(group: pd.DataFrame, primary_horizon: int) -> pd.Series | None:
     if group.empty:
         return None
-    for horizon in (PRIMARY_MODEL_HORIZON_DAYS, *FALLBACK_MODEL_HORIZONS_DAYS):
+    fallback_horizons = tuple(horizon for horizon in (PRIMARY_MODEL_HORIZON_DAYS, *FALLBACK_MODEL_HORIZONS_DAYS) if horizon != primary_horizon)
+    for horizon in (primary_horizon, *fallback_horizons):
         matches = group[group["horizon_days"].astype(int) == horizon]
         if not matches.empty:
             return matches.iloc[-1]
     return group.sort_values("horizon_days").iloc[-1]
+
+
+def _finite_or_none(value: object) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if np.isfinite(number) else None
+
+
+def _unavailable_distribution(reason: str) -> dict[str, float | int | str | None]:
+    return {
+        "q10_return": None,
+        "q50_return": None,
+        "q90_return": None,
+        "horizon_days": None,
+        "model_count": 0,
+        "status": "unavailable",
+        "reason": reason,
+        "source_dataset": "forecast_return_distribution",
+    }
 
 
 def _forecast_score(expected_return: float, horizon_days: int) -> float:

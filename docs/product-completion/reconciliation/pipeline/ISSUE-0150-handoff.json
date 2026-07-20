@@ -1,0 +1,54 @@
+{
+  "schema_version": "1.0",
+  "issue_ids": ["ISSUE-0150"],
+  "base_sha": "7bf380a93af16f792729dbb84089a7ef08586f53",
+  "checkpoint_sha": "2a79e9bf38c4268d41775e4de5dfec6e0bac140c",
+  "root_role": "Luna High root implementation lane",
+  "scout_role": "Luna Medium scout_reviewer",
+  "release_steward_role": "Luna Medium release_steward",
+  "changed_file_allowlist": [
+    ".github/status-transition-guard-manifest.json",
+    "artifacts/validation/latest/validation.json",
+    "artifacts/validation/latest/validation.md",
+    "configs/feature_registry.yaml",
+    "configs/ui_acceptance.yaml",
+    "docs/product-completion/CURRENT_STATUS.json",
+    "docs/product-completion/PROGRESS.md",
+    "docs/product-completion/reconciliation/pipeline/ISSUE-0150-handoff.json",
+    "issues/issue_registry.json",
+    "scripts/issue_registry_core.py",
+    "src/etf_cockpit/app/pages/data_models.py",
+    "src/etf_cockpit/application/ui_facade.py",
+    "src/etf_cockpit/models/coverage_audit.py",
+    "tests/test_coverage_audit.py",
+    "tests/ui/test_plugin_status_ui.py"
+  ],
+  "allowed_status_transitions": {
+    "ISSUE-0150": {"from": "planned", "to": "implemented_initially"}
+  },
+  "focused_validation": {
+    "coverage_audit": "4 passed",
+    "plugin_status_ui": "2 passed",
+    "feature_registry_and_ui_contracts": "passed",
+    "ruff": "passed",
+    "compileall": "passed",
+    "issue_registry": "passed",
+    "source_offline_smoke": "passed",
+    "issue_scoped_validator": "passed"
+  },
+  "authorised_baseline_fingerprints": [],
+  "merge_conditions": [
+    "status transition guard passes against the exact base and full head",
+    "registry and generated programme evidence are fresh",
+    "only allowlisted files are present",
+    "required release checks pass",
+    "GitHub issue synchronisation is checksum-approved, read back and followed by a zero-action dry run"
+  ],
+  "stop_conditions": [
+    "unexpected file or status transition",
+    "changed PR head or merge conflict",
+    "current-feature test or CI failure",
+    "ambiguous baseline mismatch",
+    "product-code correction required"
+  ]
+}

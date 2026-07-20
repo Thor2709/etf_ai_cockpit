@@ -88,6 +88,7 @@ PROGRAMME_STATUS_OVERRIDES = {
     "ISSUE-0121": "implemented_initially",
     "ISSUE-0149": "hardening_required",
     "ISSUE-0152": "blocked",
+    "ISSUE-0150": "implemented_initially",
     "ISSUE-0079": "hardening_required",
     "ISSUE-0007": "implemented_initially",
     "ISSUE-0008": "implemented_initially",
@@ -97,6 +98,9 @@ PROGRAMME_STATUS_OVERRIDES = {
     "ISSUE-0031": "integrated",
     "ISSUE-0048": "integrated",
     "ISSUE-0057": "integrated",
+    "ISSUE-0063": "integrated",
+    "ISSUE-0064": "integrated",
+    "ISSUE-0095": "integrated",
     "ISSUE-0060": "implemented_initially",
     "ISSUE-0109": "implemented_initially",
     "ISSUE-0113": "implemented_initially",
@@ -110,6 +114,8 @@ PROGRAMME_STATUS_OVERRIDES = {
     "ISSUE-0122": "implemented_initially",
     "ISSUE-0129": "integrated",
     "ISSUE-0130": "integrated",
+    "UPDATEV2-0014": "implemented_initially",
+    "ISSUE-0087": "integrated",
 }
 PACKAGE_JSON = Path("docs/product-completion/sources/2026-07-15/ETF_AI_Cockpit_Master_Issue_Registry.json")
 SOURCE_MANIFEST = Path("docs/product-completion/sources/2026-07-15/SOURCE_MANIFEST.sha256")

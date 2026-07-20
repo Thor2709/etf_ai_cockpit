@@ -8,16 +8,51 @@ inapplicable sectors are not forced through industrial formulas.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
+from datetime import date
+import hashlib
 import math
+from pathlib import Path
+
 import pandas as pd
 
+from etf_cockpit.core.paths import RAW_DIR
 from etf_cockpit.data.statement_normalisation import statement_coverage, statement_view
 
 
-STOCK_RESEARCH_SCHEMA_VERSION = "stock_research.v1"
+STOCK_RESEARCH_SCHEMA_VERSION = "stock_research.v2"
+STOCK_RESEARCH_IMPORT_DIR = RAW_DIR / "stock_research"
+CONSENSUS_IMPORT_PATH = STOCK_RESEARCH_IMPORT_DIR / "consensus.csv"
+GUIDANCE_IMPORT_PATH = STOCK_RESEARCH_IMPORT_DIR / "guidance.csv"
 _SPECIAL_SECTORS = frozenset({"bank", "banks", "insurance", "insurer", "financial", "financials"})
+_CONSENSUS_SOURCE_AUTHORITIES = frozenset(
+    {
+        "broker licensed",
+        "broker_licensed",
+        "licensed vendor",
+        "licensed_vendor",
+        "user supplied",
+        "user-supplied",
+        "user owned",
+        "user_owned",
+        "user-owned",
+        "broker-licensed",
+    }
+)
+_GUIDANCE_SOURCE_AUTHORITIES = frozenset({"company", "company official", "company_official", "official", "issuer"})
+_REVIEWED_GUIDANCE_STATUSES = frozenset({"approved", "human_reviewed", "reviewed", "structured", "verified"})
+_REJECTED_LICENCE_MARKERS = frozenset({"denied", "expired", "prohibited", "restricted", "unlicensed", "unknown"})
+_GROWTH_ALIASES: dict[str, tuple[str, ...]] = {
+    "revenue": ("revenue", "sales"),
+    "operating_profit": ("operating_profit", "operating_income", "ebit"),
+    "free_cash_flow": ("free_cash_flow",),
+    "net_income": ("net_income", "net_profit"),
+    "shares_outstanding": ("shares_outstanding", "weighted_average_shares", "diluted_shares"),
+    "earnings_per_share": ("earnings_per_share", "eps", "basic_eps", "diluted_eps"),
+    "organic_revenue": ("organic_revenue", "organic_sales"),
+    "acquisition_revenue": ("acquisition_revenue", "inorganic_revenue", "acquired_revenue"),
+}
 
 
 @dataclass(frozen=True)
@@ -40,8 +75,9 @@ def profitability_analysis(
     sector: str = "",
     peer_frame: pd.DataFrame | None = None,
     tax_rate: float | None = None,
+    as_known_at: str | date | None = None,
 ) -> dict[str, object]:
-    frame = _statement_frame(statements, instrument_id)
+    frame = _statement_frame(statements, instrument_id, as_known_at=as_known_at)
     latest = _latest_values(frame)
     histories = _histories(frame)
     metrics: dict[str, dict[str, object]] = {}
@@ -107,8 +143,14 @@ def profitability_analysis(
     }
 
 
-def balance_sheet_analysis(statements: pd.DataFrame, *, instrument_id: str | None = None, sector: str = "") -> dict[str, object]:
-    frame = _statement_frame(statements, instrument_id)
+def balance_sheet_analysis(
+    statements: pd.DataFrame,
+    *,
+    instrument_id: str | None = None,
+    sector: str = "",
+    as_known_at: str | date | None = None,
+) -> dict[str, object]:
+    frame = _statement_frame(statements, instrument_id, as_known_at=as_known_at)
     latest = _latest_values(frame)
     metrics: dict[str, dict[str, object]] = {}
     debt = latest.get("debt")
@@ -150,8 +192,9 @@ def valuation_analysis(
     instrument_id: str | None = None,
     market_inputs: Mapping[str, object] | None = None,
     assumptions: Mapping[str, object] | None = None,
+    as_known_at: str | date | None = None,
 ) -> dict[str, object]:
-    frame = _statement_frame(statements, instrument_id)
+    frame = _statement_frame(statements, instrument_id, as_known_at=as_known_at)
     latest = _latest_values(frame)
     market = {str(key): _float(value) for key, value in (market_inputs or {}).items()}
     assumption_values = {str(key): value for key, value in (assumptions or {}).items()}
@@ -182,6 +225,59 @@ def valuation_analysis(
     }
 
 
+def growth_analysis(
+    statements: pd.DataFrame,
+    *,
+    instrument_id: str | None = None,
+    as_known_at: str | date | None = None,
+) -> dict[str, object]:
+    """Return period-aligned reported growth without analyst assumptions.
+
+    Aggregate values and per-share values are kept in separate series. A
+    zero or negative prior period is reported as a base-effect state rather
+    than being turned into a misleading percentage. Acquisition and organic
+    growth are only calculated when the statement package contains explicit
+    structured evidence for them.
+    """
+
+    frame = _statement_frame(statements, instrument_id, as_known_at=as_known_at)
+    periods = _period_rows(frame)
+    aggregate = {
+        name: _growth_series(periods, name, aliases, basis="aggregate")
+        for name, aliases in {
+            "revenue": ("revenue",),
+            "operating_profit": ("operating_profit",),
+            "free_cash_flow": ("free_cash_flow",),
+        }.items()
+    }
+    per_share = {
+        "earnings_per_share": _growth_series(
+            periods,
+            "earnings_per_share",
+            ("earnings_per_share",),
+            basis="per_share",
+            derived_from=("net_income", "shares_outstanding"),
+        ),
+        "free_cash_flow_per_share": _growth_series(
+            periods,
+            "free_cash_flow_per_share",
+            (),
+            basis="per_share",
+            derived_from=("free_cash_flow", "shares_outstanding"),
+        ),
+    }
+    return {
+        "schema_version": STOCK_RESEARCH_SCHEMA_VERSION,
+        "instrument_id": instrument_id or "",
+        "statement_view": frame.attrs.get("statement_view", "latest_restated"),
+        "periods": [period["period_key"] for period in periods],
+        "series": {"aggregate": aggregate, "per_share": per_share},
+        "organic_inorganic": _organic_inorganic_analysis(frame, periods),
+        "source_lineage": _lineage(frame),
+        "execution_allowed": False,
+    }
+
+
 def build_stock_research_report(
     statements: pd.DataFrame,
     *,
@@ -190,33 +286,101 @@ def build_stock_research_report(
     peer_frame: pd.DataFrame | None = None,
     market_inputs: Mapping[str, object] | None = None,
     assumptions: Mapping[str, object] | None = None,
+    expectation_evidence: Iterable[object] | Mapping[str, object] | pd.DataFrame | None = None,
+    guidance_evidence: Iterable[object] | Mapping[str, object] | pd.DataFrame | None = None,
+    as_known_at: str | date | None = None,
 ) -> dict[str, object]:
+    frame = _statement_frame(statements, instrument_id, as_known_at=as_known_at)
     return {
         "schema_version": STOCK_RESEARCH_SCHEMA_VERSION,
         "instrument_id": instrument_id or "",
-        "profitability": profitability_analysis(statements, instrument_id=instrument_id, sector=sector, peer_frame=peer_frame),
-        "balance_sheet": balance_sheet_analysis(statements, instrument_id=instrument_id, sector=sector),
-        "valuation": valuation_analysis(statements, instrument_id=instrument_id, market_inputs=market_inputs, assumptions=assumptions),
-        "source_lineage": _lineage(_statement_frame(statements, instrument_id)),
+        "profitability": profitability_analysis(frame, instrument_id=instrument_id, sector=sector, peer_frame=peer_frame, as_known_at=as_known_at),
+        "balance_sheet": balance_sheet_analysis(frame, instrument_id=instrument_id, sector=sector, as_known_at=as_known_at),
+        "valuation": valuation_analysis(frame, instrument_id=instrument_id, market_inputs=market_inputs, assumptions=assumptions, as_known_at=as_known_at),
+        "growth": growth_analysis(frame, instrument_id=instrument_id, as_known_at=as_known_at),
+        "expectations": _expectations_report(frame, expectation_evidence, guidance_evidence, instrument_id=instrument_id, as_known_at=as_known_at),
+        "source_lineage": _lineage(frame),
         "execution_allowed": False,
     }
 
 
-def load_stock_research_frame(path: object, *, instrument_id: str | None = None) -> pd.DataFrame:
+def load_stock_research_frame(path: object, *, instrument_id: str | None = None, as_known_at: str | date | None = None) -> pd.DataFrame:
     try:
         frame = pd.read_parquet(path) if path else pd.DataFrame()
     except (OSError, ValueError, ImportError):
         frame = pd.DataFrame()
-    return _statement_frame(frame, instrument_id)
+    return _statement_frame(frame, instrument_id, as_known_at=as_known_at)
 
 
-def _statement_frame(frame: pd.DataFrame, instrument_id: str | None) -> pd.DataFrame:
+def load_optional_research_import(path: object, *, instrument_id: str | None = None) -> pd.DataFrame:
+    """Load local optional evidence without granting it data authority."""
+
+    try:
+        candidate = Path(path)
+    except TypeError:
+        return _empty_optional_import(path, "rejected", "invalid_path")
+    if not candidate.is_file():
+        return _empty_optional_import(candidate, "missing", "file_not_found")
+    try:
+        checksum_before = _file_sha256(candidate)
+        suffix = candidate.suffix.casefold()
+        if suffix == ".csv":
+            frame = pd.read_csv(candidate)
+        elif suffix in {".json", ".jsonl"}:
+            frame = pd.read_json(candidate, lines=suffix == ".jsonl")
+        elif suffix == ".parquet":
+            frame = pd.read_parquet(candidate)
+        else:
+            return _empty_optional_import(candidate, "rejected", f"unsupported_file_type:{suffix or 'none'}")
+        checksum_after = _file_sha256(candidate)
+    except (ImportError, OSError, UnicodeError, ValueError) as exc:
+        return _empty_optional_import(candidate, "rejected", f"unreadable_import:{type(exc).__name__}")
+    if checksum_before != checksum_after:
+        return _empty_optional_import(candidate, "rejected", "file_changed_during_read")
+    if not isinstance(frame, pd.DataFrame) or frame.empty:
+        return _empty_optional_import(candidate, "empty", "no_records")
+    if instrument_id:
+        if "instrument_id" not in frame.columns:
+            return _empty_optional_import(candidate, "rejected", "missing_instrument_id")
+        frame = frame[frame["instrument_id"].astype(str).eq(str(instrument_id))].copy()
+        if frame.empty:
+            return _empty_optional_import(candidate, "empty", "instrument_not_present")
+    if "source_checksum" not in frame.columns:
+        frame["source_checksum"] = checksum_after
+    else:
+        supplied = frame["source_checksum"].notna() & frame["source_checksum"].astype(str).str.strip().ne("")
+        frame["source_checksum"] = frame["source_checksum"].where(supplied, checksum_after)
+    frame = frame.reset_index(drop=True)
+    frame.attrs.update({"import_path": str(candidate), "import_status": "loaded", "import_reason": "", "file_sha256": checksum_after})
+    return frame
+
+
+def _empty_optional_import(path: object, status: str, reason: str) -> pd.DataFrame:
+    frame = pd.DataFrame()
+    frame.attrs.update({"import_path": str(path), "import_status": status, "import_reason": reason})
+    return frame
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _statement_frame(frame: pd.DataFrame, instrument_id: str | None, *, as_known_at: str | date | None = None) -> pd.DataFrame:
     if not isinstance(frame, pd.DataFrame) or frame.empty:
         return pd.DataFrame()
-    result = statement_view(frame, "latest_restated")
+    view = "as_known_at" if as_known_at is not None else "latest_restated"
+    result = statement_view(frame, view, as_known_at=as_known_at)
     if instrument_id and "instrument_id" in result.columns:
         result = result[result["instrument_id"].astype(str).eq(str(instrument_id))]
-    return result.reset_index(drop=True)
+    result = result.reset_index(drop=True)
+    result.attrs["statement_view"] = view
+    if as_known_at is not None:
+        result.attrs["as_known_at"] = pd.Timestamp(as_known_at).date().isoformat()
+    return result
 
 
 def _latest_values(frame: pd.DataFrame) -> dict[str, float]:
@@ -249,6 +413,490 @@ def _histories(frame: pd.DataFrame) -> dict[str, list[float]]:
         if values:
             result[str(metric)] = values
     return result
+
+
+def _period_rows(frame: pd.DataFrame) -> list[dict[str, object]]:
+    """Build one deterministic, period-aligned row per statement period."""
+
+    if frame.empty or "canonical_metric" not in frame.columns:
+        return []
+    work = frame.copy()
+    for column, default in (("period_type", "unknown"), ("period_key", ""), ("period_end", ""), ("fiscal_year", "")):
+        if column not in work.columns:
+            work[column] = default
+    work["__period_end"] = work["period_end"].fillna("").astype(str)
+    work["__sort_end"] = pd.to_datetime(work["__period_end"], errors="coerce")
+    work = work.sort_values(["__sort_end", "__period_end", "period_key", "canonical_metric", "source_id"], kind="stable", na_position="last")
+    periods: list[dict[str, object]] = []
+    grouped = work.groupby(["period_type", "period_key", "__period_end"], sort=False, dropna=False)
+    for (period_type, period_key, period_end), rows in grouped:
+        raw_values: dict[str, float] = {}
+        raw_sources: dict[str, tuple[str, ...]] = {}
+        for metric, metric_rows in rows.groupby("canonical_metric", dropna=True, sort=False):
+            ordered = metric_rows.assign(__restatement_rank=metric_rows["restatement_kind"].map(_restatement_rank)).sort_values(["filed", "__restatement_rank", "accession", "source_id"], kind="stable", na_position="last")
+            numeric = ordered.assign(__numeric=pd.to_numeric(ordered["value"], errors="coerce")).dropna(subset=["__numeric"])
+            if numeric.empty:
+                continue
+            raw_values[str(metric)] = float(numeric.iloc[-1]["__numeric"])
+            raw_sources[str(metric)] = tuple(sorted({str(value) for value in numeric["source_id"].dropna() if str(value)}))
+
+        values: dict[str, float] = {}
+        sources: dict[str, tuple[str, ...]] = {}
+        formulas: dict[str, str] = {}
+        for logical, aliases in _GROWTH_ALIASES.items():
+            for alias in aliases:
+                if alias in raw_values:
+                    values[logical] = raw_values[alias]
+                    sources[logical] = raw_sources.get(alias, ())
+                    formulas[logical] = f"reported {alias}"
+                    break
+        if "earnings_per_share" not in values and {"net_income", "shares_outstanding"} <= values.keys() and values["shares_outstanding"] != 0:
+            values["earnings_per_share"] = values["net_income"] / values["shares_outstanding"]
+            sources["earnings_per_share"] = tuple(sorted(set(sources.get("net_income", ())) | set(sources.get("shares_outstanding", ()))))
+            formulas["earnings_per_share"] = "net_income / shares_outstanding"
+
+        first = rows.iloc[0]
+        fiscal_year = str(first.get("fiscal_year", "") or "")
+        aliases = {str(period_key), str(period_end)}
+        if fiscal_year and fiscal_year not in {"nan", "None"}:
+            aliases.update({fiscal_year, f"FY{fiscal_year}"})
+        flags: list[str] = []
+        for column in ("acquisition_flag", "inorganic_flag", "divestiture_flag", "transaction_flag"):
+            if column in rows and any(_truthy(value) for value in rows[column]):
+                flags.append(column)
+        for metric in ("acquisition_revenue", "inorganic_revenue", "acquired_revenue"):
+            if metric in raw_values and raw_values[metric] != 0:
+                flags.append(metric)
+        periods.append(
+            {
+                "period_type": str(period_type),
+                "period_key": str(period_key),
+                "period_end": str(period_end),
+                "period_aliases": sorted(alias for alias in aliases if alias),
+                "values": values,
+                "source_ids": sources,
+                "formulas": formulas,
+                "flags": sorted(set(flags)),
+            }
+        )
+    return periods
+
+
+def _growth_series(
+    periods: list[dict[str, object]],
+    name: str,
+    aliases: tuple[str, ...],
+    *,
+    basis: str,
+    derived_from: tuple[str, str] | None = None,
+) -> dict[str, object]:
+    history: list[dict[str, object]] = []
+    for period in periods:
+        values = period.get("values", {})
+        if not isinstance(values, Mapping):
+            continue
+        value = next((_float(values.get(alias)) for alias in aliases if _float(values.get(alias)) is not None), None)
+        formula = next((str(period.get("formulas", {}).get(alias, "")) for alias in aliases if alias in period.get("formulas", {})), "")
+        source_ids = next((tuple(period.get("source_ids", {}).get(alias, ())) for alias in aliases if alias in period.get("source_ids", {})), ())
+        if value is None and derived_from and all(_float(values.get(item)) is not None for item in derived_from):
+            numerator = _float(values[derived_from[0]])
+            denominator = _float(values[derived_from[1]])
+            if numerator is not None and denominator not in (None, 0):
+                value = numerator / denominator
+                formula = f"{derived_from[0]} / {derived_from[1]}"
+                source_ids = tuple(sorted(set(period.get("source_ids", {}).get(derived_from[0], ())) | set(period.get("source_ids", {}).get(derived_from[1], ()))))
+        history.append(
+            {
+                "period_type": period["period_type"],
+                "period_key": period["period_key"],
+                "period_end": period["period_end"],
+                "value": value,
+                "basis": basis,
+                "formula": formula or f"reported {name}",
+                "source_ids": list(source_ids),
+                "status": "available" if value is not None else "missing",
+            }
+        )
+    growth: list[dict[str, object]] = []
+    by_type: dict[str, list[dict[str, object]]] = {}
+    for point in history:
+        by_type.setdefault(str(point["period_type"]), []).append(point)
+    for points in by_type.values():
+        for prior, current in zip(points, points[1:]):
+            prior_value = _float(prior["value"])
+            current_value = _float(current["value"])
+            comparison = "year_over_year" if current["period_type"] == "annual" else "period_over_period"
+            base_effect = "normal"
+            status = "available"
+            value: float | None
+            if prior_value is None or current_value is None:
+                value = None
+                status = "missing"
+                base_effect = "missing_period"
+            elif prior_value == 0:
+                value = None
+                status = "base_effect"
+                base_effect = "prior_zero"
+            elif prior_value < 0:
+                value = None
+                status = "base_effect"
+                base_effect = "prior_negative"
+            else:
+                value = current_value / prior_value - 1.0
+                if current_value < 0:
+                    base_effect = "current_negative"
+            growth.append(
+                {
+                    "period_type": current["period_type"],
+                    "period_key": current["period_key"],
+                    "period_end": current["period_end"],
+                    "base_period_key": prior["period_key"],
+                    "value": value,
+                    "basis": basis,
+                    "formula": "(current / prior) - 1",
+                    "comparison": comparison,
+                    "base_effect": base_effect,
+                    "status": status,
+                    "source_ids": sorted(set(prior.get("source_ids", [])) | set(current.get("source_ids", []))),
+                    "execution_allowed": False,
+                }
+            )
+    growth.sort(key=lambda item: (str(item["period_end"]), str(item["period_key"])))
+    return {
+        "basis": basis,
+        "history": history,
+        "growth": growth,
+        "latest_growth": growth[-1] if growth else None,
+        "status": "available" if any(point.get("value") is not None for point in history) else "missing",
+        "formula": "(current / prior) - 1",
+        "execution_allowed": False,
+    }
+
+
+def _organic_inorganic_analysis(frame: pd.DataFrame, periods: list[dict[str, object]]) -> dict[str, object]:
+    organic = _growth_series(periods, "organic_revenue", ("organic_revenue",), basis="aggregate")
+    acquired = _growth_series(periods, "acquisition_revenue", ("acquisition_revenue",), basis="aggregate")
+    flags = [
+        {"period_key": period["period_key"], "flags": period["flags"]}
+        for period in periods
+        if period.get("flags")
+    ]
+    has_organic = any(point.get("value") is not None for point in organic["history"])
+    return {
+        "status": "available" if has_organic else "unavailable",
+        "organic_growth": organic,
+        "inorganic_growth": acquired,
+        "acquisition_flags": flags,
+        "limitation": "Organic growth is unavailable without explicit organic-revenue or acquisition evidence; consolidated growth is not silently labelled organic." if not has_organic else "",
+        "execution_allowed": False,
+    }
+
+
+def _expectations_report(
+    statements: pd.DataFrame,
+    expectation_evidence: Iterable[object] | Mapping[str, object] | pd.DataFrame | None,
+    guidance_evidence: Iterable[object] | Mapping[str, object] | pd.DataFrame | None,
+    *,
+    instrument_id: str | None,
+    as_known_at: str | date | None,
+) -> dict[str, object]:
+    consensus_rows, consensus_rejected, cutoff = _prepare_optional_rows(expectation_evidence, instrument_id=instrument_id, as_known_at=as_known_at, guidance=False)
+    guidance_rows, guidance_rejected, _ = _prepare_optional_rows(guidance_evidence, instrument_id=instrument_id, as_known_at=as_known_at, guidance=True)
+    return {
+        "as_known_at": cutoff,
+        "consensus": _consensus_report(statements, consensus_rows, consensus_rejected, cutoff),
+        "guidance": _guidance_report(guidance_rows, guidance_rejected),
+        "execution_allowed": False,
+    }
+
+
+def _consensus_report(frame: pd.DataFrame, rows: list[dict[str, object]], rejected: list[str], cutoff: str | None) -> dict[str, object]:
+    if not rows:
+        return {"status": "unavailable", "metrics": {}, "accepted_records": 0, "rejected_records": rejected, "reason": "No licensed point-in-time consensus evidence was supplied.", "execution_allowed": False}
+    periods = _period_rows(frame)
+    grouped: dict[tuple[str, str], list[dict[str, object]]] = {}
+    for row in rows:
+        grouped.setdefault((str(row["metric"]), str(row["period_key"])), []).append(row)
+    metrics: dict[str, dict[str, object]] = {}
+    for (metric, period_key), candidates in sorted(grouped.items()):
+        ordered = sorted(candidates, key=lambda item: (str(item["available_at"]), str(item["source_id"])))
+        latest_timestamp = ordered[-1]["available_at"]
+        latest_rows = [item for item in ordered if item["available_at"] == latest_timestamp]
+        latest_values = [float(item["value"]) for item in latest_rows if item.get("value") is not None]
+        if not latest_values:
+            continue
+        latest = latest_rows[-1]
+        actual = _actual_for_period(periods, metric, period_key)
+        estimate = float(latest["value"])
+        surprise = None
+        if actual is not None:
+            surprise = {"value": actual - estimate, "percent": None if estimate == 0 else actual / estimate - 1.0, "formula": "actual - estimate", "status": "available"}
+        revision_value = float(latest["value"]) - float(ordered[0]["value"])
+        revision = {"value": revision_value, "status": "available" if len(ordered) > 1 else "not_available", "formula": "latest estimate - earliest estimate"}
+        dispersion = {"value": max(latest_values) - min(latest_values), "status": "available" if len(latest_values) > 1 else "not_available", "formula": "max(latest-vintage estimates) - min(latest-vintage estimates)"}
+        staleness = _staleness(latest["available_at"], cutoff)
+        item = {
+            "period_key": period_key,
+            "latest_value": estimate,
+            "latest_available_at": latest["available_at"],
+            "source_ids": sorted({str(candidate["source_id"]) for candidate in candidates}),
+            "source_authorities": sorted({str(candidate["source_authority"]) for candidate in candidates}),
+            "license_statuses": sorted({str(candidate["license_status"]) for candidate in candidates if candidate.get("license_status")}),
+            "source_records": [
+                {
+                    "source_id": candidate["source_id"],
+                    "source_authority": candidate["source_authority"],
+                    "license_status": candidate["license_status"],
+                    "source_checksum": candidate["source_checksum"],
+                }
+                for candidate in ordered
+            ],
+            "revision": revision,
+            "dispersion": dispersion,
+            "surprise": surprise or {"value": None, "percent": None, "status": "unavailable", "reason": "Reported actual for this period is unavailable."},
+            "staleness": staleness,
+            "revision_history": [{key: candidate[key] for key in ("value", "available_at", "source_id")} for candidate in ordered],
+            "execution_allowed": False,
+        }
+        metrics.setdefault(metric, {})[period_key] = item
+    return {
+        "status": "available" if metrics else "unavailable",
+        "metrics": metrics,
+        "accepted_records": len(rows),
+        "rejected_records": rejected,
+        "source_ids": sorted({str(row["source_id"]) for row in rows}),
+        "execution_allowed": False,
+    }
+
+
+def _guidance_report(rows: list[dict[str, object]], rejected: list[str]) -> dict[str, object]:
+    if not rows:
+        return {"status": "unavailable", "items": [], "accepted_records": 0, "rejected_records": rejected, "reason": "Guidance requires structured or human-reviewed evidence with provenance.", "execution_allowed": False}
+    items = []
+    for row in sorted(rows, key=lambda item: (str(item["available_at"]), str(item["source_id"]))):
+        items.append(
+            {
+                "status": "available",
+                "metric": row.get("metric"),
+                "period_key": row.get("period_key"),
+                "value": row.get("value"),
+                "lower": row.get("lower"),
+                "upper": row.get("upper"),
+                "text": row.get("text", ""),
+                "source_id": row["source_id"],
+                "source_authority": row["source_authority"],
+                "license_status": row["license_status"],
+                "source_checksum": row.get("source_checksum"),
+                "review_status": row["review_status"],
+                "available_at": row["available_at"],
+                "execution_allowed": False,
+            }
+        )
+    return {"status": "available", "items": items, "accepted_records": len(items), "rejected_records": rejected, "execution_allowed": False}
+
+
+def _prepare_optional_rows(
+    evidence: Iterable[object] | Mapping[str, object] | pd.DataFrame | None,
+    *,
+    instrument_id: str | None,
+    as_known_at: str | date | None,
+    guidance: bool,
+) -> tuple[list[dict[str, object]], list[str], str | None]:
+    if evidence is None:
+        return [], [], _normalise_cutoff(as_known_at)
+    cutoff = _normalise_cutoff(as_known_at)
+    if as_known_at is not None and cutoff is None:
+        return [], ["invalid_as_known_at"], None
+    frame = _evidence_frame(evidence)
+    valid: list[dict[str, object]] = []
+    import_reason = _text(frame.attrs.get("import_reason"))
+    rejected: list[str] = [f"import:{import_reason}"] if import_reason and import_reason != "file_not_found" else []
+    for index, raw in enumerate(frame.to_dict("records")):
+        row_instrument = _text(raw.get("instrument_id"))
+        if instrument_id and row_instrument and row_instrument != str(instrument_id):
+            rejected.append(f"row_{index}:instrument_mismatch")
+            continue
+        reason, row = _validate_optional_row(raw, index=index, cutoff=cutoff, guidance=guidance)
+        if reason:
+            rejected.append(reason)
+        elif row is not None:
+            valid.append(row)
+    return valid, rejected, cutoff
+
+
+def _validate_optional_row(raw: Mapping[str, object], *, index: int, cutoff: str | None, guidance: bool) -> tuple[str | None, dict[str, object] | None]:
+    source_id = _text(_first_present(raw.get("source_id"), raw.get("source"), raw.get("citation")))
+    source_authority = _text(_first_present(raw.get("source_authority"), raw.get("authority"), raw.get("ownership")))
+    source_kind = _text(_first_present(raw.get("source_kind"), raw.get("source_type"))).casefold()
+    provider = _text(_first_present(raw.get("provider"), raw.get("vendor"), raw.get("source_name"))).casefold()
+    if not source_authority and source_kind in {"official", "company", "issuer"}:
+        source_authority = source_kind
+    authority_key = source_authority.casefold().replace("–", "-")
+    allowed_authorities = _GUIDANCE_SOURCE_AUTHORITIES if guidance else _CONSENSUS_SOURCE_AUTHORITIES
+    source_checksum = _text(_first_present(raw.get("source_checksum"), raw.get("checksum")))
+    available_at = _normalise_timestamp(_first_present(raw.get("available_at"), raw.get("as_of"), raw.get("published_at")))
+    supplied_licence = _text(_first_present(raw.get("license_status"), raw.get("licence_status")))
+    licence_key = supplied_licence.casefold().replace("-", "_").replace(" ", "_")
+    if source_kind in {"current_analyst", "current_analyst_field", "analyst_current"} or "yahoo" in provider or "yahoo" in source_id.casefold() or ("analyst" in provider and "point" not in source_kind):
+        return f"row_{index}:current_or_restricted_provider_rejected", None
+    if not source_id or not available_at or authority_key not in allowed_authorities or not _valid_checksum(source_checksum):
+        return f"row_{index}:missing_or_unlicensed_provenance", None
+    if any(marker in licence_key for marker in _REJECTED_LICENCE_MARKERS):
+        return f"row_{index}:missing_or_unlicensed_provenance", None
+    if cutoff and available_at > cutoff:
+        return f"row_{index}:after_as_known_cutoff", None
+    metric = _normalise_optional_metric(_first_present(raw.get("canonical_metric"), raw.get("metric"), raw.get("measure")))
+    period_key = _text(_first_present(raw.get("period_key"), raw.get("period_end"), raw.get("fiscal_year")))
+    value = _first_float(raw.get("value"), raw.get("estimate"), raw.get("forecast"))
+    if not guidance and (not metric or not period_key or value is None):
+        return f"row_{index}:missing_metric_period_or_value", None
+    review_status = _text(_first_present(raw.get("review_status"), raw.get("review"))).casefold().replace(" ", "_")
+    text = _text(_first_present(raw.get("guidance_text"), raw.get("text"), raw.get("statement")))
+    lower = _first_float(raw.get("lower"), raw.get("low"))
+    upper = _first_float(raw.get("upper"), raw.get("high"))
+    if guidance and lower is not None and upper is not None and lower > upper:
+        return f"row_{index}:invalid_guidance_range", None
+    if guidance and value is not None and ((lower is not None and value < lower) or (upper is not None and value > upper)):
+        return f"row_{index}:guidance_value_outside_range", None
+    if guidance and not period_key:
+        return f"row_{index}:missing_guidance_period", None
+    if guidance and (review_status not in _REVIEWED_GUIDANCE_STATUSES or (value is None and lower is None and upper is None and not text)):
+        return f"row_{index}:guidance_not_structured_or_reviewed", None
+    if guidance and not metric:
+        metric = _normalise_optional_metric(raw.get("guidance_type") or "guidance") or "guidance"
+    return None, {
+        "metric": metric,
+        "period_key": period_key,
+        "value": value,
+        "lower": lower,
+        "upper": upper,
+        "text": text,
+        "source_id": source_id,
+        "source_authority": source_authority,
+        "license_status": supplied_licence or _default_license_status(authority_key),
+        "source_checksum": source_checksum,
+        "available_at": available_at,
+        "review_status": review_status,
+    }
+
+
+def _default_license_status(authority_key: str) -> str:
+    if "user" in authority_key:
+        return "user_owned"
+    if "broker" in authority_key:
+        return "broker_licensed"
+    if "licensed" in authority_key:
+        return "licensed_vendor"
+    return "official"
+
+
+def _actual_for_period(periods: list[dict[str, object]], metric: str, period_key: str) -> float | None:
+    aliases = ("operating_profit",) if metric == "operating_profit" else ("earnings_per_share",) if metric == "earnings_per_share" else (metric,)
+    for period in periods:
+        if period_key in period.get("period_aliases", []) or period_key == period.get("period_key"):
+            values = period.get("values", {})
+            if isinstance(values, Mapping):
+                for alias in aliases:
+                    value = _float(values.get(alias))
+                    if value is not None:
+                        return value
+    return None
+
+
+def _staleness(available_at: str, cutoff: str | None) -> dict[str, object]:
+    if not cutoff:
+        return {"status": "not_evaluated", "days": None}
+    days = max(0, (pd.Timestamp(cutoff) - pd.Timestamp(available_at)).days)
+    return {"status": "available", "days": days, "as_known_at": cutoff}
+
+
+def _evidence_frame(evidence: Iterable[object] | Mapping[str, object] | pd.DataFrame) -> pd.DataFrame:
+    if isinstance(evidence, pd.DataFrame):
+        return evidence.copy()
+    if isinstance(evidence, Mapping):
+        records = evidence.get("records")
+        if isinstance(records, Iterable) and not isinstance(records, (str, bytes, Mapping)):
+            evidence = records
+        else:
+            return pd.DataFrame([dict(evidence)])
+    if isinstance(evidence, Iterable) and not isinstance(evidence, (str, bytes)):
+        rows = [asdict(item) if hasattr(item, "__dataclass_fields__") else dict(item) if isinstance(item, Mapping) else {} for item in evidence]
+        return pd.DataFrame(rows)
+    return pd.DataFrame()
+
+
+def _normalise_optional_metric(value: object) -> str:
+    key = _text(value).casefold().replace("-", "_").replace(" ", "_")
+    return {
+        "sales": "revenue",
+        "operating_income": "operating_profit",
+        "ebit": "operating_profit",
+        "eps": "earnings_per_share",
+        "diluted_eps": "earnings_per_share",
+        "basic_eps": "earnings_per_share",
+        "fcf": "free_cash_flow",
+    }.get(key, key)
+
+
+def _normalise_timestamp(value: object) -> str:
+    if value is None or not _text(value):
+        return ""
+    if isinstance(value, (bool, int, float)):
+        return ""
+    try:
+        timestamp = pd.Timestamp(value)
+    except (TypeError, ValueError):
+        return ""
+    if pd.isna(timestamp):
+        return ""
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.tz_localize("UTC")
+    else:
+        timestamp = timestamp.tz_convert("UTC")
+    return timestamp.isoformat()
+
+
+def _valid_checksum(value: str) -> bool:
+    checksum = value.casefold().removeprefix("sha256:")
+    return len(checksum) == 64 and all(character in "0123456789abcdef" for character in checksum)
+
+
+def _normalise_cutoff(value: str | date | None) -> str | None:
+    if value is None:
+        return None
+    timestamp = _normalise_timestamp(value)
+    return timestamp or None
+
+
+def _truthy(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if _float(value) is not None:
+        return bool(_float(value))
+    return _text(value).casefold() in {"1", "true", "yes", "y", "material"}
+
+
+def _restatement_rank(value: object) -> int:
+    return {"reported": 0, "restated": 1, "amended": 2, "corrected": 3}.get(_text(value).casefold(), 1)
+
+
+def _text(value: object) -> str:
+    if value is None:
+        return ""
+    try:
+        if pd.api.types.is_scalar(value) and bool(pd.isna(value)):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return str(value).strip()
+
+
+def _first_present(*values: object) -> object | None:
+    return next((value for value in values if _text(value)), None)
+
+
+def _first_float(*values: object) -> float | None:
+    return next((number for value in values if (number := _float(value)) is not None), None)
 
 
 def _derived_history(histories: Mapping[str, list[float]], numerator: str, denominator: str) -> list[float]:
@@ -292,12 +940,15 @@ def _period_label(frame: pd.DataFrame) -> str:
 
 
 def _lineage(frame: pd.DataFrame) -> dict[str, object]:
-    return {
-        "statement_view": "latest_restated",
+    lineage = {
+        "statement_view": frame.attrs.get("statement_view", "latest_restated"),
         "coverage": statement_coverage(frame),
         "source_ids": sorted({str(value) for value in frame.get("source_id", pd.Series(dtype="object")).dropna() if str(value)}),
         "execution_allowed": False,
     }
+    if frame.attrs.get("as_known_at"):
+        lineage["as_known_at"] = frame.attrs["as_known_at"]
+    return lineage
 
 
 def _tax_rate(values: Mapping[str, float]) -> float | None:
@@ -479,10 +1130,15 @@ def _model_disagreement(intrinsic: Mapping[str, object], residual: Mapping[str, 
 
 
 __all__ = [
+    "CONSENSUS_IMPORT_PATH",
+    "GUIDANCE_IMPORT_PATH",
     "MetricEvidence",
+    "STOCK_RESEARCH_IMPORT_DIR",
     "STOCK_RESEARCH_SCHEMA_VERSION",
     "balance_sheet_analysis",
     "build_stock_research_report",
+    "growth_analysis",
+    "load_optional_research_import",
     "load_stock_research_frame",
     "profitability_analysis",
     "valuation_analysis",

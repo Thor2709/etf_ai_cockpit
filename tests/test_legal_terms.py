@@ -39,12 +39,43 @@ def test_restricted_sources_are_excluded_from_standard_audit_exports() -> None:
     assert registry.can_export("yfinance", "redistribution") is False
 
 
+def test_optional_expectation_import_terms_preserve_metadata_only_exports() -> None:
+    registry = load_legal_terms()
+
+    guidance = registry.entry("issuer_guidance_import")
+    consensus = registry.entry("licensed_consensus_import")
+
+    assert guidance is not None and guidance.audit_export == "metadata_only"
+    assert guidance.redistribution == "prohibited_without_permission"
+    assert consensus is not None and consensus.audit_export == "metadata_only"
+    assert consensus.redistribution == "prohibited"
+    assert consensus.terms_status == "restricted_review_required"
+
+
 def test_terms_changes_require_review() -> None:
     registry = load_legal_terms()
     changed = replace(registry, jurisdictions=({"jurisdiction_id": "AU", "disclaimer": "Changed wording."},))
 
     assert terms_change_requires_review(registry, changed) is True
     assert terms_change_requires_review(registry, registry) is False
+
+
+def test_official_jurisdiction_sources_have_fail_closed_terms_records() -> None:
+    registry = load_legal_terms()
+    source_ids = {
+        "dk_finanstilsynet_oam",
+        "fi_fsa_oam",
+        "fr_dila_oam",
+        "gb_companies_house",
+        "nl_afm_oam",
+        "no_finanstilsynet_oam",
+        "se_fi_oam",
+    }
+
+    entries = [registry.entry(source_id) for source_id in source_ids]
+    assert all(entry is not None and not entry.unresolved for entry in entries)
+    assert all(entry.audit_export == "metadata_only" for entry in entries if entry is not None)
+    assert all(not registry.can_export(source_id, "audit_export") for source_id in source_ids)
 
 
 def test_unresolved_mandatory_terms_fail_closed(tmp_path: Path) -> None:

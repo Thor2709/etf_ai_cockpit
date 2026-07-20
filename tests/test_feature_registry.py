@@ -33,6 +33,17 @@ def test_feature_registry_covers_every_production_route() -> None:
     assert all(entry.execution_allowed is False for entry in entries)
 
 
+def test_stock_research_registry_exposes_growth_expectations_contract() -> None:
+    result = load_feature_registry(DEFAULT_POLICY_PATHS.feature_registry)
+
+    assert result.policy is not None
+    stock_research = next(entry for entry in result.policy.entries if entry.feature_id == "stock_research")
+    assert "ISSUE-0095" in stock_research.issue_ids
+    assert {"reported_growth", "official_guidance_import", "licensed_consensus_import"} <= set(stock_research.data_dependencies)
+    assert stock_research.authority == "evidence_only"
+    assert stock_research.execution_allowed is False
+
+
 def test_feature_registry_rejects_duplicate_routes(tmp_path: Path) -> None:
     path = write_yaml(
         tmp_path,
