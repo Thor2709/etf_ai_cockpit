@@ -4828,7 +4828,7 @@
       "package_status": "Implementation complete; closure pending",
       "phase": "phase-05-returns-risk-portfolio",
       "priority": "P1",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "related_issues": [
         "ISSUE-0108",
         "ISSUE-0128"
