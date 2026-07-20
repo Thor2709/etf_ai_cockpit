@@ -1,20 +1,17 @@
 {
   "schema_version": "1.0",
-  "stage": "frozen_feature_checkpoint",
+  "stage": "root_verification_after_timeout_root_cause",
   "issue_ids": ["ISSUE-0063"],
-  "base_sha": "2fa669f8ec6d49c94214188b06e89f0e24603600",
-  "checkpoint_sha": "78334006b9390a90fd76f2974547d1910ffd369c",
+  "base_sha": "c4890a4d74e1131e2e1d161356d98289d83f0932",
+  "checkpoint_sha": "c7393e66df4b37415056f6be44443da7249e97ba",
   "branch": "codex/issue-0063-quality-momentum-20260719",
   "worktree": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\issue0063-quality-momentum-20260719",
-  "root_role_model": "root implementation · gpt-5.6 Luna High",
-  "scout_role_model": "scout_reviewer · gpt-5.6 Luna Medium",
-  "release_steward_role_model": "release_steward · gpt-5.6 Luna Medium",
+  "workflow": "root-only implementation, review and release; native agents disabled by current user instruction",
   "expected_status_transition": {
     "ISSUE-0063": ["planned", "implemented_initially"]
   },
   "allowed_paths": [
     ".github/status-transition-guard-manifest.json",
-    ".github/workflows/release-gate.yml",
     "artifacts/validation/latest/validation.json",
     "artifacts/validation/latest/validation.md",
     "configs/feature_registry.yaml",
@@ -23,7 +20,6 @@
     "docs/product-completion/reconciliation/pipeline/ISSUE-0063-handoff.json",
     "issues/issue_registry.json",
     "scripts/issue_registry_core.py",
-    "scripts/release_gate.py",
     "src/etf_cockpit/app/pages/backtests.py",
     "src/etf_cockpit/app/pages/forward_evidence.py",
     "src/etf_cockpit/backtest/engine.py",
@@ -33,41 +29,35 @@
     "tests/test_backtest_lab.py",
     "tests/test_fundamentals.py",
     "tests/test_quality_momentum.py",
-    "tests/test_release_gate.py",
     "tests/ui/test_forward_evidence_ui.py"
   ],
   "completed_checks": [
-    "quality-momentum, backtest, fundamentals and forward-evidence focused tests passed",
-    "one complete pytest gate passed for ISSUE-0063; final result contained only the four authorised baselines",
+    "quality-momentum, backtest, fundamentals, forward-evidence and Flet-startup focused tests passed",
     "Ruff passed for changed Python files",
     "compileall passed",
     "offline source smoke passed",
     "scripts/validate_app.py --issue ISSUE-0063 passed with JSON and Markdown evidence",
-    "bounded full-suite timeout diagnostic completed in 6003.13s: 1409 passed, 1 skipped and only the four authorised baselines failed",
-    "representative slow-node reproduction passed in 88.76s under a 180s timeout",
-    "corrected release run 29689628700 completed on Linux and Windows: all non-full-tests checks passed, while full_tests exited 124 after 7200s on both platforms; no ISSUE-0063 failures were reported",
-    "bounded full_tests infrastructure correction keeps the mandatory suite enabled at 14400s with a 270-minute job budget",
-    "status-transition guard passed against latest origin/main",
-    "generated registry and programme status are fresh"
+    "retained diagnostic completed in 6003.13s with 1409 passed, 1 skipped and four then-current governance baselines",
+    "root-cause evidence proved the persisted quality-momentum CSV checksum differed after pandas round-trip, invalidating every snapshot cache read and growing the retained signal log to 4.23 GB",
+    "byte-level checksum regression and BacktestService cache-reuse integration tests pass; the retained cache now reads successfully",
+    "merged fundamental evidence now waits for every contributing source and uses the latest valid availability timestamp",
+    "the temporary 14400-second command timeout and 270-minute job budget were removed; the normal mandatory 1800-second command and 45-minute job gates remain",
+    "UPDATEV2-0014 GitHub convergence applied under checksum 6a02066b68549db26b3841edff1f802c239dd67c52f635b6e80d2a1e8d92bf74 and final no-op checksum 3c58a4b0beca202b8602747db8574389af0449be2106272ade851e3b222a41b8"
   ],
-  "authorised_baseline_fingerprints": [
-    "tests/scope_boundary/test_package_inventory.py::test_current_production_package_inventory_passes",
-    "tests/test_governance_review_regressions.py::test_audit_manifest_includes_governance_checksums_version_and_diagnostic_marker",
-    "tests/test_product_governance.py::test_authority_matrix_covers_runtime_capabilities_and_stays_disabled",
-    "tests/ui/test_system_map_ui.py::test_system_map_shows_future_execution_as_non_interactive"
-  ],
+  "authorised_baseline_fingerprints": [],
   "merge_conditions": [
-    "head and base match the handoff",
+    "head and base match this record",
     "changed paths and exact ISSUE-0063 planned-to-implemented_initially transition match",
-    "required CI checks pass or match only the authorised fingerprints",
+    "the mandatory full suite finishes within the normal release timeout with no failures",
+    "Linux, Windows, status-transition and supply-chain checks pass",
     "post-merge quick validation, registry readback and GitHub issue sync no-op converge"
   ],
   "stop_conditions": [
     "unexpected changed path or status transition",
     "changed checkpoint head, stale base or merge conflict",
     "current-feature test failure",
-    "ambiguous baseline mismatch",
+    "new baseline failure or ambiguous mismatch",
     "product-code correction required during release"
   ],
-  "notes": "Local-first quality and canonical adjusted-price momentum evidence with official availability timestamps, sector-neutral rankings, next-session adjusted-close fills, costs/capacity and forward paper visibility; execution_allowed remains false. The second release-gate timeout correction is infrastructure-only and does not skip or weaken the full suite."
+  "notes": "Local-first quality and canonical adjusted-price momentum evidence with official availability timestamps, sector-neutral quality rankings, next-session adjusted-close fills, costs, capacity and forward paper visibility. Missing or invalid source timing fails closed and execution_allowed remains false."
 }

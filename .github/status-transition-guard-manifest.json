@@ -8,7 +8,7 @@
       "to": "implemented_initially"
     }
   ],
-  "base_commit": "2ed7acff35be6d4f1e2b2b3536fa8225d43e54e6",
+  "base_commit": "c4890a4d74e1131e2e1d161356d98289d83f0932",
   "branch": "codex/issue-0063-quality-momentum-20260719",
   "issue_ids": ["ISSUE-0063"],
   "schema_version": "1.0"
