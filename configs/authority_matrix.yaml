@@ -72,6 +72,7 @@ capabilities:
   - {capability_id: "dataset:etf_documents", kind: dataset, authority_stage: research, description: ETF document evidence}
   - {capability_id: "dataset:evidence", kind: dataset, authority_stage: research, description: Evidence ledger records}
   - {capability_id: "dataset:feature_registry", kind: dataset, authority_stage: research, description: Feature registry policy}
+  - {capability_id: "dataset:filing_coverage", kind: dataset, authority_stage: research, description: Jurisdiction and instrument filing-coverage evidence}
   - {capability_id: "dataset:filings", kind: dataset, authority_stage: research, description: Filing evidence}
   - {capability_id: "dataset:fundamentals", kind: dataset, authority_stage: research, description: Fundamentals evidence}
   - {capability_id: "dataset:fund_holdings", kind: dataset, authority_stage: research, description: Direct ETF holdings and bounded overlap evidence}
@@ -80,6 +81,7 @@ capabilities:
   - {capability_id: "dataset:local_storage", kind: dataset, authority_stage: research, description: Local user storage}
   - {capability_id: "dataset:logs", kind: dataset, authority_stage: research, description: Append-only operational logs}
   - {capability_id: "dataset:models", kind: dataset, authority_stage: research, description: Model availability evidence}
+  - {capability_id: "dataset:manual_filing_queue", kind: dataset, authority_stage: research, description: User-owned official filings awaiting manual review}
   - {capability_id: "dataset:news", kind: dataset, authority_stage: research, description: Context-only news evidence}
   - {capability_id: "dataset:oam_discovery", kind: dataset, authority_stage: research, description: Official national OAM discovery evidence}
   - {capability_id: "dataset:policy", kind: dataset, authority_stage: research, description: Governance policy evidence}

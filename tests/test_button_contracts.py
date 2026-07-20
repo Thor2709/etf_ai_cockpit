@@ -14,6 +14,7 @@ def test_button_inventory_covers_workflow_and_recovery_actions() -> None:
     assert "dashboard.export-audit" in keys
     assert "navigation.diagnostics" in keys
     assert "filings.fetch-sec" in keys
+    assert "filings.import-manual-official" in keys
     assert "import-export.backup-restore" not in keys
     assert {"import-export.bulk-cache", "import-export.commit", "import-export.restore-commit", "import-export.restore-cancel"} <= keys
 
