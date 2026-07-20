@@ -29,6 +29,46 @@ def test_sort_order_is_not_a_false_positive(tmp_path: Path) -> None:
     assert report.result == "pass"
 
 
+def test_local_replay_symbols_and_mapping_get_are_not_false_positives(tmp_path: Path) -> None:
+    replay = tmp_path / "src" / "etf_cockpit" / "backtest" / "event_engine.py"
+    replay.parent.mkdir(parents=True)
+    replay.write_text("class OrderRequest: pass\n", encoding="utf-8")
+    paper = tmp_path / "src" / "etf_cockpit" / "portfolio" / "paper_trading.py"
+    paper.parent.mkdir(parents=True)
+    paper.write_text("def cancel_order(): pass\nstate = {'orders': {}}\nstate['orders'].get('x')\n", encoding="utf-8")
+
+    checker = _checker()
+    report = checker(tmp_path) if checker else None
+
+    assert report is not None
+    assert report.result == "pass"
+
+
+def test_local_symbol_allowlist_does_not_exempt_unrelated_order_code(tmp_path: Path) -> None:
+    api = tmp_path / "src" / "etf_cockpit" / "application" / "api.py"
+    api.parent.mkdir(parents=True)
+    api.write_text("def cancel_order(): pass\n", encoding="utf-8")
+    contracts = tmp_path / "src" / "etf_cockpit" / "plugins" / "contracts.py"
+    contracts.parent.mkdir(parents=True)
+    contracts.write_text("def broker_adapter(): pass\n", encoding="utf-8")
+    replay = tmp_path / "src" / "etf_cockpit" / "backtest" / "event_engine.py"
+    replay.parent.mkdir(parents=True)
+    replay.write_text("def order_request(): pass\norder_request()\n", encoding="utf-8")
+    paper = tmp_path / "src" / "etf_cockpit" / "portfolio" / "paper_trading.py"
+    paper.parent.mkdir(parents=True)
+    paper.write_text("def cancel_order(): pass\ndef place_order(): pass\n", encoding="utf-8")
+
+    checker = _checker()
+    report = checker(tmp_path) if checker else None
+
+    assert report is not None
+    assert report.result == "fail"
+    order_symbols = {
+        item.evidence for item in report.violations if item.code == "PROHIBITED_ORDER_SYMBOL"
+    }
+    assert {"cancel_order", "broker_adapter", "order_request", "place_order"} <= order_symbols
+
+
 def test_context_aware_scans_reject_import_endpoint_ui_and_execution_config(tmp_path: Path) -> None:
     (tmp_path / "broker.py").write_text("import broker_sdk\n", encoding="utf-8")
     (tmp_path / "endpoint.py").write_text(

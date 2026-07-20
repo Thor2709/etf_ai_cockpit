@@ -162,6 +162,31 @@ def test_non_contributing_official_source_cannot_upgrade_vendor_authority() -> N
     assert {section["source_id"] for section in merged["sections"].values()} == {"vendor-record"}
 
 
+def test_merged_availability_waits_for_every_contributing_source() -> None:
+    vendor = {
+        "instrument_id": "MSFT",
+        "as_of_date": "2026-06-30",
+        "source_authority": "vendor",
+        "source_id": "vendor-record",
+        "available_at": "2026-07-01T08:00:00Z",
+        "valuation": 4.0,
+    }
+    official = {
+        "instrument_id": "MSFT",
+        "as_of_date": "2026-06-30",
+        "source_authority": "sec_edgar",
+        "source_id": "official-filing",
+        "available_at": "2026-07-15T21:00:00Z",
+        "profitability": 8.0,
+    }
+
+    merged = merge_fundamental_sources(vendor, official)
+    missing_timestamp = merge_fundamental_sources(vendor, {**official, "available_at": None})
+
+    assert merged["available_at"] == "2026-07-15T21:00:00Z"
+    assert "available_at" not in missing_timestamp
+
+
 def test_merge_manual_review_state_survives_build_and_assessment() -> None:
     merged = merge_fundamental_sources(
         {
@@ -280,6 +305,24 @@ def test_fundamental_persistence_preserves_section_provenance(tmp_path) -> None:
     assert assessment.score_eligible is True
     assert row["schema_version"] == FUNDAMENTAL_SCHEMA_VERSION == "fundamental_evidence.v4"
     assert bool(row["executable_authority"]) is False
+
+
+def test_fundamental_persistence_preserves_official_availability_timestamp(tmp_path) -> None:
+    from etf_cockpit.data.fundamentals import persist_fundamental_evidence
+
+    evidence = build_fundamental_evidence(
+        _complete_claims(),
+        "MSFT",
+        "2026-06-30",
+        source_authority="sec_edgar",
+        available_at="2026-07-15T21:00:00Z",
+    )
+    clean_path = tmp_path / "clean.parquet"
+
+    persist_fundamental_evidence(evidence, raw_dir=tmp_path / "raw", clean_path=clean_path)
+    row = load_fundamental_evidence(clean_path).iloc[0]
+
+    assert row["available_at"] == "2026-07-15T21:00:00Z"
 
 
 def test_fundamental_atomic_failure_preserves_existing_clean_generation(tmp_path, monkeypatch) -> None:

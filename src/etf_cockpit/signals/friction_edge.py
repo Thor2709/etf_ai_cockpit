@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import isfinite
+from math import isclose, isfinite
 from typing import Mapping
 
 
@@ -18,6 +18,92 @@ class FrictionEdgeResult:
     reason: str = "Friction-adjusted edge unavailable."
     source_dataset: str = "score_to_edge_proxy"
     execution_allowed: bool = False
+
+
+@dataclass(frozen=True)
+class FrictionAdjustedReturnResult:
+    """Distribution-based return estimate after the configured order cost."""
+
+    q10_return: float | None
+    q50_return: float | None
+    q90_return: float | None
+    horizon_days: int | None
+    net_q10_return: float | None
+    net_expected_return: float | None
+    net_q90_return: float | None
+    order_value_eur: float | None
+    cost_bps: float | None
+    cost_eur: float | None
+    return_to_cost_ratio: float | None
+    status: str = "unavailable"
+    reason: str = "Friction-adjusted return unavailable."
+    source_dataset: str = "forecast_return_distribution"
+    distribution_version: str = "expected-return-distribution.v1"
+    execution_allowed: bool = False
+
+
+def estimate_friction_adjusted_return(
+    distribution: Mapping[str, object] | None,
+    *,
+    order_value_eur: float | None,
+    cost_estimate: Mapping[str, object] | None,
+) -> FrictionAdjustedReturnResult:
+    """Subtract a size-specific cost estimate from a return distribution.
+
+    ``distribution`` contains horizon returns as decimal fractions, not score
+    values.  The cost estimate is expected to come from the shared local cost
+    model and must describe the same order size.  Every malformed or missing
+    input fails closed to explicit unavailable values.
+    """
+
+    if not isinstance(distribution, Mapping):
+        return _return_unavailable("Expected-return distribution is unavailable.")
+    q10 = _finite(distribution.get("q10_return"))
+    q50 = _finite(distribution.get("q50_return"))
+    q90 = _finite(distribution.get("q90_return"))
+    horizon = _finite(distribution.get("horizon_days"))
+    if (
+        any(value is None for value in (q10, q50, q90, horizon))
+        or horizon <= 0
+        or not horizon.is_integer()
+        or not q10 <= q50 <= q90
+    ):
+        return _return_unavailable("Expected-return quantiles are missing, non-finite or not ordered.")
+    order_value = _finite(order_value_eur)
+    if order_value is None or order_value <= 0.0:
+        return _return_unavailable("A positive order size is required for a friction-adjusted return estimate.")
+    if not isinstance(cost_estimate, Mapping):
+        return _return_unavailable("Order-size cost estimate is unavailable.")
+    cost_bps = _finite(cost_estimate.get("total_cost_bps"))
+    cost_eur = _finite(cost_estimate.get("total_cost_eur"))
+    if cost_bps is None or cost_bps < 0.0 or cost_eur is None or cost_eur < 0.0:
+        return _return_unavailable("Order-size cost estimate is missing, negative or non-finite.")
+    estimated_order_value = _finite(cost_estimate.get("order_value_eur"))
+    if estimated_order_value is None or not isclose(estimated_order_value, order_value, rel_tol=1e-9, abs_tol=1e-8):
+        return _return_unavailable("Order-size cost estimate does not match the requested order value.")
+    expected_cost_eur = order_value * cost_bps / 10_000.0
+    if not isclose(cost_eur, expected_cost_eur, rel_tol=1e-9, abs_tol=1e-7):
+        return _return_unavailable("Order-size cost estimate has inconsistent basis-point and euro totals.")
+    cost_fraction = cost_bps / 10_000.0
+    net_q10 = q10 - cost_fraction
+    net_q50 = q50 - cost_fraction
+    net_q90 = q90 - cost_fraction
+    ratio = None if cost_fraction == 0.0 else net_q50 / cost_fraction
+    return FrictionAdjustedReturnResult(
+        q10_return=round(q10, 12),
+        q50_return=round(q50, 12),
+        q90_return=round(q90, 12),
+        horizon_days=int(horizon),
+        net_q10_return=round(net_q10, 12),
+        net_expected_return=round(net_q50, 12),
+        net_q90_return=round(net_q90, 12),
+        order_value_eur=round(order_value, 8),
+        cost_bps=round(cost_bps, 8),
+        cost_eur=round(cost_eur, 8),
+        return_to_cost_ratio=None if ratio is None else round(ratio, 12),
+        status="available",
+        reason="Expected-return distribution adjusted by the shared order-size cost model.",
+    )
 
 
 def estimate_friction_edge(
@@ -75,3 +161,28 @@ def _finite(value: object) -> float | None:
 
 def _unavailable(scenario: str, reason: str) -> FrictionEdgeResult:
     return FrictionEdgeResult(None, None, None, None, None, None, scenario, reason=reason)
+
+
+def _return_unavailable(reason: str) -> FrictionAdjustedReturnResult:
+    return FrictionAdjustedReturnResult(
+        q10_return=None,
+        q50_return=None,
+        q90_return=None,
+        horizon_days=None,
+        net_q10_return=None,
+        net_expected_return=None,
+        net_q90_return=None,
+        order_value_eur=None,
+        cost_bps=None,
+        cost_eur=None,
+        return_to_cost_ratio=None,
+        reason=reason,
+    )
+
+
+__all__ = [
+    "FrictionAdjustedReturnResult",
+    "FrictionEdgeResult",
+    "estimate_friction_adjusted_return",
+    "estimate_friction_edge",
+]

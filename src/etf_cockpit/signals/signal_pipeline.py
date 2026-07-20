@@ -34,6 +34,7 @@ def generate_signals(
     toto_available: bool = False,
     timesfm_available: bool = False,
     forecast_scores: dict[str, dict[str, float]] | None = None,
+    forecast_distributions: dict[str, dict[str, object]] | None = None,
 ) -> list[SignalResult]:
     run_id = run_id or current_run_id("signals")
     signal_date = as_of_date or data_report.as_of_date
@@ -48,11 +49,17 @@ def generate_signals(
     )
     scored = scored.merge(allocation[["etf_id", "drift", "role", "name"]], on="etf_id", how="left")
     scored["cost_bps"] = scored["etf_id"].map(lambda etf_id: estimated_cost_bps(config, str(etf_id)))
-    scored["expected_edge_60d"] = (
-        0.50 * scored["momentum_60d"].fillna(0)
-        + 0.25 * scored["momentum_120d"].fillna(0)
-        + 0.25 * scored["relative_strength_60d"].fillna(0)
-    ).clip(-0.30, 0.30)
+    # A missing optional forecast distribution must not suppress the
+    # deterministic baseline signal path.  The fallback is an action-policy
+    # input only; the published return-distribution fields remain N/A.
+    fallback_edge = _technical_expected_edge(scored)
+    if forecast_distributions is None:
+        scored["expected_edge_60d"] = fallback_edge
+    else:
+        scored["expected_edge_60d"] = scored["etf_id"].map(
+            lambda etf_id: _primary_horizon_distribution_value(forecast_distributions.get(str(etf_id)), "q50_return")
+        )
+        scored["expected_edge_60d"] = pd.to_numeric(scored["expected_edge_60d"], errors="coerce").fillna(fallback_edge)
 
     total_value = portfolio_value(holdings)
     cash_weight = max(0.0, 1.0 - float(holdings["current_weight"].sum()))
@@ -127,6 +134,9 @@ def generate_signals(
             base_cost_bps=estimated_cost,
             trade_value_eur=trade_value,
         )
+        distribution = forecast_distributions.get(str(row["etf_id"])) if forecast_distributions is not None else None
+        distribution_status = _distribution_value(distribution, "status")
+        distribution_reason = _distribution_value(distribution, "reason")
         signal = SignalResult(
             run_id=run_id,
             signal_date=signal_date,
@@ -170,6 +180,13 @@ def generate_signals(
                 "drift_eur": drift_eur,
                 "drift_percent": drift_percent,
                 "expected_edge_bps": expected_edge_bps,
+                "gross_expected_return": _distribution_value(distribution, "q50_return"),
+                "q10_expected_return": _distribution_value(distribution, "q10_return"),
+                "q50_expected_return": _distribution_value(distribution, "q50_return"),
+                "q90_expected_return": _distribution_value(distribution, "q90_return"),
+                "expected_return_horizon_days": _distribution_value(distribution, "horizon_days"),
+                "expected_return_distribution_status": distribution_status or ("legacy_compatibility" if forecast_distributions is None else "unavailable"),
+                "expected_return_distribution_reason": distribution_reason or ("Legacy diagnostic path without a loaded return distribution." if forecast_distributions is None else "No valid forecast return distribution is available."),
                 "estimated_cost_bps": estimated_cost,
                 "cost_model_id": cost_estimate.model_id,
                 "cost_data_quality": cost_estimate.data_quality,
@@ -343,3 +360,28 @@ def _edge_to_cost(expected_edge_bps: float, cost_bps: float) -> float | None:
     if cost_bps <= 0:
         return None
     return abs(expected_edge_bps) / cost_bps
+
+
+def _technical_expected_edge(scored: pd.DataFrame) -> pd.Series:
+    """Keep the deterministic action baseline separate from return estimates."""
+
+    return (
+        0.50 * scored["momentum_60d"].fillna(0)
+        + 0.25 * scored["momentum_120d"].fillna(0)
+        + 0.25 * scored["relative_strength_60d"].fillna(0)
+    ).clip(-0.30, 0.30)
+
+
+def _distribution_value(distribution: dict[str, object] | None, key: str) -> object | None:
+    if not isinstance(distribution, dict):
+        return None
+    value = distribution.get(key)
+    if isinstance(value, (int, float)):
+        return float(value) if isfinite(float(value)) else None
+    return value if isinstance(value, str) else None
+
+
+def _primary_horizon_distribution_value(distribution: dict[str, object] | None, key: str) -> object | None:
+    if _distribution_value(distribution, "horizon_days") != 60:
+        return None
+    return _distribution_value(distribution, key)

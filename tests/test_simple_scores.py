@@ -487,6 +487,10 @@ def test_scoreboard_frame_contains_quality_and_authority_columns() -> None:
     assert frame.loc[0, "evidence_quality_10"] is not None
     assert frame.loc[0, "risk_friction_10"] is not None
     assert frame.loc[0, "model_authority_label"] == "Model evidence unavailable"
+    assert "q10_expected_return" in frame.columns
+    assert "net_expected_return" in frame.columns
+    assert "expected_return_order_value_eur" in frame.columns
+    assert "expected_return_distribution_version" in frame.columns
     assert "liquidity_cost_score_10" in frame.columns
     assert "model_calibration_label" in frame.columns
     assert "market_regime_label" in frame.columns
@@ -523,6 +527,67 @@ def test_score_friction_fields_equal_selected_friction_edge_calculator_output() 
     assert fields["net_expected_edge_bps"] == expected.net_bps
     assert fields["edge_to_cost_ratio"] == expected.edge_to_cost_ratio
     assert fields["cost_stress_scenario"] == "high"
+
+
+def test_score_friction_fields_use_distribution_and_order_size_when_supplied() -> None:
+    fields = simple_scores_module._friction_edge_fields(
+        8.0,
+        [],
+        expected_return_distribution={"q10_return": -0.03, "q50_return": 0.05, "q90_return": 0.12, "horizon_days": 60, "status": "available"},
+        order_value_eur=1_000.0,
+        cost_estimate={"order_value_eur": 1_000.0, "total_cost_bps": 20.0, "total_cost_eur": 2.0},
+    )
+
+    assert fields["friction_status"] == "available"
+    assert fields["gross_expected_edge_bps"] == 500.0
+    assert fields["net_expected_edge_bps"] == 480.0
+    assert fields["q10_expected_return"] == -0.03
+    assert fields["expected_return_horizon_days"] == 60
+    assert fields["net_expected_return"] == 0.048
+    assert fields["expected_return_order_value_eur"] == 1_000.0
+    assert fields["expected_return_source_dataset"] == "forecast_return_distribution"
+
+
+def test_order_size_cost_estimate_uses_absolute_trade_value_and_fails_closed_at_zero(monkeypatch) -> None:
+    calls: list[float] = []
+
+    def fake_estimate(_config, _instrument_id, order_value):
+        calls.append(order_value)
+        return SimpleNamespace(
+            as_dict=lambda: {
+                "order_value_eur": order_value,
+                "total_cost_bps": 30.0,
+                "total_cost_eur": 3.0,
+            }
+        )
+
+    monkeypatch.setattr(simple_scores_module, "estimate_execution_cost", fake_estimate)
+    config = load_config()
+
+    estimate = simple_scores_module._order_size_cost_estimate(config, "VWCE", -250.0)
+    unavailable = simple_scores_module._order_size_cost_estimate(config, "VWCE", 0.0)
+
+    assert calls == [250.0]
+    assert estimate is not None
+    assert estimate["total_cost_bps"] == 30.0
+    assert estimate["order_value_eur"] == 250.0
+    assert unavailable is None
+
+
+def test_missing_production_distribution_does_not_use_legacy_score_proxy() -> None:
+    fields = simple_scores_module._friction_edge_fields(
+        8.0,
+        [],
+        volatility=0.2,
+        costs={"base": 15.0},
+        expected_return_distribution={},
+        order_value_eur=None,
+        cost_estimate=None,
+    )
+
+    assert fields["friction_status"] == "unavailable"
+    assert fields["gross_expected_edge_bps"] is None
+    assert fields["expected_return_source_dataset"] == "forecast_return_distribution"
 
 
 def test_model_backtest_validity_marks_uncalibrated_optional_models_unverified() -> None:

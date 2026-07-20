@@ -2,17 +2,17 @@
   "checks": [
     {
       "command": "registry scope issue",
-      "duration_ms": 2.353,
+      "duration_ms": 1.84,
       "exit_code": 0,
       "failure": "",
       "name": "scope_selection",
-      "output": "Validated issue scope: ISSUE-0095",
+      "output": "Validated issue scope: ISSUE-0064",
       "required": true,
       "status": "passed"
     },
     {
-      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/validate_issue_registry.py",
-      "duration_ms": 116.947,
+      "command": "\"C:\\\\Users\\\\thor2\\\\Desktop\\\\Trading App\\\\etf_ai_cockpit\\\\.venv\\\\Scripts\\\\python.exe\" scripts/validate_issue_registry.py",
+      "duration_ms": 102.182,
       "exit_code": 0,
       "failure": "",
       "name": "issue_registry",
@@ -21,8 +21,8 @@
       "status": "passed"
     },
     {
-      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m compileall -q src scripts",
-      "duration_ms": 144.732,
+      "command": "\"C:\\\\Users\\\\thor2\\\\Desktop\\\\Trading App\\\\etf_ai_cockpit\\\\.venv\\\\Scripts\\\\python.exe\" -m compileall -q src scripts",
+      "duration_ms": 123.381,
       "exit_code": 0,
       "failure": "",
       "name": "source_compile",
@@ -31,48 +31,50 @@
       "status": "passed"
     },
     {
-      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_app.py --mode offline --port 57799 --timeout 30",
-      "duration_ms": 7795.634,
+      "command": "\"C:\\\\Users\\\\thor2\\\\Desktop\\\\Trading App\\\\etf_ai_cockpit\\\\.venv\\\\Scripts\\\\python.exe\" scripts/smoke_app.py --mode offline --port 51104 --timeout 30",
+      "duration_ms": 5808.198,
       "exit_code": 0,
       "failure": "",
       "name": "source_smoke",
-      "output": "smoke_port requested=57799 selected=57799 reason=port 57799 is free\nsmoke_ok mode=offline url=http://127.0.0.1:57799/",
+      "output": "smoke_port requested=51104 selected=51104 reason=port 51104 is free\nsmoke_ok mode=offline url=http://127.0.0.1:51104/",
       "required": true,
       "status": "passed"
     }
   ],
-  "duration_ms": 8062.436,
+  "duration_ms": 6036.977,
   "environment": {
     "machine": "AMD64",
     "offline_requested": false,
     "platform": "Windows-11-10.0.26200-SP0",
-    "python": "3.12.10",
-    "root": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\issue0095-growth-expectations-20260720",
+    "python": "3.13.14",
+    "root": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\issue0064-friction-adjusted-20260719",
     "system": "Windows"
   },
   "failures": [],
-  "finished_at": "2026-07-20T00:01:21.562+00:00",
-  "generated_at": "2026-07-20T00:01:21.562+00:00",
+  "finished_at": "2026-07-20T09:47:33.419+00:00",
+  "generated_at": "2026-07-20T09:47:33.419+00:00",
   "git": {
-    "branch": "codex/issue-0095-growth-expectations-20260720",
+    "branch": "codex/issue-0064-friction-adjusted-20260719",
     "dirty": true,
-    "head": "f6f462e24a5937d3b66954a9579f794e183b4e5f",
-    "origin_main": "2fa669f8ec6d49c94214188b06e89f0e24603600"
+    "head": "f1bd6ce5e726ef9c1237da9b3aaa26c97928c08f",
+    "origin_main": "2dcf6ef32356260fa31e334f4f2aab7f9448a750"
   },
   "log_paths": [
-    "logs\\session.jsonl"
+    "logs\\model_runs.jsonl",
+    "logs\\session.jsonl",
+    "logs\\signal_log.jsonl",
+    "logs\\timings.jsonl"
   ],
   "mode": "issue",
   "schema_version": "1.0",
   "scope": {
     "issue_ids": [
-      "ISSUE-0095"
+      "ISSUE-0064"
     ],
     "phase_ids": []
   },
-  "started_at": "2026-07-20T00:01:13.500+00:00",
+  "started_at": "2026-07-20T09:47:27.382+00:00",
   "unavailable_optional_components": [
-    "timesfm",
     "toto"
   ]
 }
