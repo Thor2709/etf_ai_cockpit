@@ -334,7 +334,7 @@ def merge_fundamental_sources(*sources: Mapping[str, object]) -> dict[str, objec
     selected: dict[str, object] = {}
     selected_owner: dict[str, tuple[int, str, str]] = {}
     selected_sections: dict[str, dict[str, object]] = {}
-    availability_candidates: list[str] = []
+    availability_by_source: dict[tuple[str, str], str | None] = {}
     rejected = 0
     for source in sources:
         source_instrument = _first_claim_text(source, ("instrument_id", "id", "ticker", "symbol"))
@@ -344,15 +344,13 @@ def merge_fundamental_sources(*sources: Mapping[str, object]) -> dict[str, objec
         if not identity_matches or not period_matches:
             rejected += 1
             continue
-        availability = _first_claim_text(
-            source,
-            ("available_at", "availability_date", "published_at", "publication_date", "filing_date"),
-        )
-        if availability:
-            availability_candidates.append(availability)
         authority = str(source.get("source_authority") or source.get("source") or "vendor").strip().lower()
         rank = ranked.get(authority, 0)
         source_id = _first_claim_text(source, ("source_id",)) or authority
+        availability_by_source[(source_id, authority)] = _first_claim_text(
+            source,
+            ("available_at", "availability_date", "published_at", "publication_date", "filing_date"),
+        )
         raw_sections = source.get("sections")
         for key in _FIELDS:
             value = source.get(key)
@@ -379,8 +377,12 @@ def merge_fundamental_sources(*sources: Mapping[str, object]) -> dict[str, objec
         selected["as_of_date"] = anchor_as_of
     contributing_authorities = sorted({owner[2] for owner in selected_owner.values()})
     contributing_source_ids = sorted({owner[1] for owner in selected_owner.values()})
-    if availability_candidates:
-        selected["available_at"] = availability_candidates[0]
+    contributing_sources = sorted({(owner[1], owner[2]) for owner in selected_owner.values()})
+    contributing_availability = [availability_by_source.get(source) for source in contributing_sources]
+    if contributing_availability and all(contributing_availability):
+        parsed_availability = pd.to_datetime(pd.Series(contributing_availability), errors="coerce", utc=True)
+        if parsed_availability.notna().all():
+            selected["available_at"] = contributing_availability[int(parsed_availability.argmax())]
     selected["source_authority"] = contributing_authorities[0] if len(contributing_authorities) == 1 else ("mixed" if contributing_authorities else "unavailable")
     selected["source_id"] = contributing_source_ids[0] if len(contributing_source_ids) == 1 else ("|".join(contributing_source_ids) if contributing_source_ids else "unavailable")
     selected["source"] = selected["source_authority"]
