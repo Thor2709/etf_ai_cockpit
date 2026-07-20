@@ -188,6 +188,10 @@ def test_workflow_commands_use_the_single_local_scheduler_and_are_cancelable(tmp
 
     assert submitted.status is ApiStatus.ACCEPTED
     assert submitted.resource_id
+    details = dict(submitted.details)
+    assert details["profile"]
+    assert int(details["memory_mb"]) > 0
+    assert int(details["disk_mb"]) > 0
     jobs = api.get_jobs()
     assert jobs.total == 1
     assert jobs.items[0].workflow_id == submitted.resource_id

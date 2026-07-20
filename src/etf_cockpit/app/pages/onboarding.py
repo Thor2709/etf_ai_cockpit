@@ -13,7 +13,7 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.config import load_config
-from etf_cockpit.application.ui_facade import UniverseRecord, legal_terms_report, load_universe, save_universe, source_policy_rows
+from etf_cockpit.application.ui_facade import UniverseRecord, legal_terms_report, load_universe, resource_profile_report, save_universe, source_policy_rows
 
 
 @dataclass(frozen=True)
@@ -209,6 +209,13 @@ def onboarding_page(
     )
     legal_report = legal_terms_report(Path.cwd())
     jurisdiction_disclaimer = str(legal_report["jurisdictions"][0]["disclaimer"])
+    resource_report = resource_profile_report(Path.cwd())
+    selected_profile = resource_report["selected_profile"]
+    resource_lines = [
+        f"Selected profile: {selected_profile['profile_id']} ({resource_report['selected_status']}) | CPU {resource_report['snapshot']['cpu_cores']} core(s) | memory {resource_report['snapshot'].get('memory_available_mb') or resource_report['snapshot'].get('memory_total_mb') or 'n/a'} MB available/total | disk {resource_report['snapshot'].get('disk_free_mb') or 'n/a'} MB free",
+        "Profiles: " + "; ".join(f"{row['profile_id']}={row['status']}" for row in resource_report["profiles"]),
+        "Limitations: " + " ".join(resource_report["limitations"]),
+    ]
 
     def submit(_event: ft.ControlEvent) -> None:
         values = tuple(value.strip() for value in (tickers.value or "").split(",") if value.strip())
@@ -237,6 +244,7 @@ def onboarding_page(
     return ft.Column(
         [
             panel(ft.Column([section_header("First-run setup", "Create a local watchlist without requiring network access."), ft.Text(f"{jurisdiction_disclaimer} Offline or unresolved tickers remain disabled until validated. Online validation is opt-in and requires an injected provider callback.", color=theme.MUTED), ft.Row([base_currency, region, scope, risk, horizon], wrap=True), ft.Row([tickers, ft.Button("Save setup", key="onboarding.save", icon=ft.Icons.SAVE, on_click=submit)], wrap=True), online_validation, status], spacing=10)),
+            panel(ft.Column([section_header("Hardware and resource readiness", "Local profile selection, pre-job limits and graceful degradation. No telemetry or cloud compute is used."), ft.Text("\n".join(resource_lines), color=theme.MUTED, selectable=True), ft.Text("CPU-only baseline remains available; optional foundation models are never required.", color=theme.GREEN, selectable=True)], spacing=6)),
             panel(ft.Column([section_header("Authority boundary", "Universe edits only persist configuration. They never trigger yfinance downloads, scoring, forecasts or broker execution."), ft.Text("execution_allowed=false", color=theme.AMBER)])),
             panel(ft.Column([section_header("Data source policy", "Choose local imports or replayable official evidence for the mandatory path. Online validation is optional and never required for setup."), ft.Text(source_summary, color=theme.MUTED, size=11, selectable=True), ft.Text(f"Terms acknowledgement: {legal_report['review_status']}; restricted sources are not redistributed. Registry checksum: {legal_report['registry_sha256']}", color=theme.AMBER, size=11, selectable=True)])),
         ],

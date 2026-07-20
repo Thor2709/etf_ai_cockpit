@@ -13,11 +13,13 @@ from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import socket
 import uuid
 
+from etf_cockpit.core.resource_profiles import ResourceDecision, ResourcePolicy
 from etf_cockpit.core.session_log import redact_text
 from etf_cockpit.data.local_storage import TransactionalStore
 
@@ -141,6 +143,8 @@ class DurableJobScheduler:
         lease_seconds: int = 60,
         max_concurrency: int = 1,
         event_logger: Callable[[Mapping[str, object]], None] | None = None,
+        resource_policy: ResourcePolicy | None = None,
+        resource_profile: str = "auto",
     ) -> None:
         if lease_seconds <= 0 or max_concurrency <= 0:
             raise ValueError("lease_seconds and max_concurrency must be positive")
@@ -149,6 +153,7 @@ class DurableJobScheduler:
         self.lease_seconds = int(lease_seconds)
         self.max_concurrency = int(max_concurrency)
         self.event_logger = event_logger
+        self.resource_policy = resource_policy or ResourcePolicy(self.root, requested_profile=resource_profile)
 
     def submit(
         self,
@@ -271,6 +276,39 @@ class DurableJobScheduler:
                     """
                 ).fetchone()
                 if row is None:
+                    return None
+                resource_row = connection.execute("SELECT resource_json FROM durable_jobs WHERE job_id = ?", (str(row["job_id"]),)).fetchone()
+                try:
+                    resources = json.loads(str(resource_row[0])) if resource_row else {}
+                    if not isinstance(resources, dict):
+                        raise ValueError("resource declaration must be an object")
+                    resource_decision = self.resource_policy.evaluate(resources)
+                except (TypeError, ValueError):
+                    resources = {}
+                    resource_decision = ResourceDecision(
+                        "blocked",
+                        "unknown",
+                        ("resource declaration is corrupt or not an object",),
+                    )
+                if resource_decision.status == "blocked":
+                    now = _utc_now()
+                    message = "; ".join(resource_decision.reasons) or "Local resource policy blocked this job."
+                    fingerprint = _hash_text(message)[:16]
+                    connection.execute(
+                        "UPDATE durable_jobs SET status = 'blocked', finished_at = ?, error_message = ?, error_fingerprint = ? WHERE job_id = ? AND status = 'queued'",
+                        (now, message, fingerprint, str(row["job_id"])),
+                    )
+                    self._append_event(
+                        connection,
+                        str(row["workflow_id"]),
+                        str(row["job_id"]),
+                        "job_blocked_resource_limit",
+                        JobStatus.BLOCKED,
+                        {"resources": resources, "decision": resource_decision.to_dict()},
+                        now,
+                    )
+                    self._block_unrunnable(connection)
+                    self._refresh_workflow(connection, str(row["workflow_id"]), now)
                     return None
                 now = _utc_now()
                 lease_expires = _utc_after(self.lease_seconds)
@@ -707,6 +745,14 @@ def _normalise_specs(jobs: Iterable[JobSpec]) -> tuple[JobSpec, ...]:
     )
 
 
+def _resource_payload(value: object) -> dict[str, object]:
+    try:
+        payload = json.loads(str(value))
+    except (TypeError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 def _job_record(connection, row) -> JobRecord:
     dependency_rows = connection.execute(
         "SELECT dependency_job_id FROM durable_job_dependencies WHERE job_id = ? ORDER BY dependency_job_id",
@@ -722,7 +768,7 @@ def _job_record(connection, row) -> JobRecord:
         input_hash=str(row["input_hash"]),
         inputs=json.loads(str(row["inputs_json"])),
         outputs=json.loads(str(row["outputs_json"])),
-        resources=json.loads(str(row["resource_json"])),
+        resources=_resource_payload(row["resource_json"]),
         max_retries=int(row["max_retries"]),
         retry_count=int(row["retry_count"]),
         lease_owner=str(row["lease_owner"]),
@@ -784,9 +830,11 @@ def _validate_resources(resources: Mapping[str, object]) -> dict[str, object]:
     if not isinstance(resources, Mapping):
         raise ValueError("resources must be a mapping")
     result = {str(key): value for key, value in resources.items()}
-    for key in ("cpu", "memory_mb"):
-        if key in result and (not isinstance(result[key], (int, float)) or float(result[key]) <= 0):
+    for key in ("cpu", "memory_mb", "disk_mb"):
+        if key in result and (isinstance(result[key], bool) or not isinstance(result[key], (int, float)) or not math.isfinite(float(result[key])) or float(result[key]) <= 0):
             raise ValueError(f"resource {key} must be positive")
+    if "profile" in result and (not isinstance(result["profile"], str) or str(result["profile"]).strip().casefold() not in {"auto", "minimum", "recommended", "high"}):
+        raise ValueError("resource profile must be auto, minimum, recommended or high")
     if "gpu" in result and not isinstance(result["gpu"], (bool, str, int)):
         raise ValueError("resource gpu must be a boolean or device label")
     return result

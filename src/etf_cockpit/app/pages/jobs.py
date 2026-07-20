@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 import threading
 
 import flet as ft
@@ -12,6 +13,8 @@ from etf_cockpit.application.ui_facade import (
     ApiStatus,
     CancelWorkflowCommand,
     PageRequest,
+    estimate_workflow_resources,
+    resource_profile_report,
     SubmitWorkflowCommand,
 )
 
@@ -20,6 +23,31 @@ def jobs_page(page: ft.Page, state: AppState) -> ft.Control:
     api = state.application_api
     body = ft.Column(spacing=10, expand=True, scroll=ft.ScrollMode.AUTO)
     message = ft.Text("Durable jobs are local, resumable and audit-linked.", color=theme.MUTED, selectable=True)
+    resource_report = resource_profile_report(Path.cwd())
+    estimate = estimate_workflow_resources("durable_self_check", snapshot=None)
+    resource_panel = panel(
+        ft.Column(
+            [
+                section_header("Resource readiness", "Every durable job is checked against the local snapshot before work starts."),
+                ft.Text(
+                    f"Profile: {resource_report['selected_profile']['profile_id']} ({resource_report['selected_status']}) | "
+                    f"CPU {resource_report['snapshot']['cpu_cores']} core(s) | "
+                    f"free disk {resource_report['snapshot'].get('disk_free_mb') or 'n/a'} MB | "
+                    f"memory {resource_report['snapshot'].get('memory_available_mb') or resource_report['snapshot'].get('memory_total_mb') or 'n/a'} MB",
+                    color=theme.MUTED,
+                    selectable=True,
+                ),
+                ft.Text(
+                    f"Self-check estimate: {estimate['memory_mb']} MB memory, {estimate['disk_mb']} MB disk, "
+                    f"batch={estimate['batch_size']}, chunk={estimate['chunk_size']}, status={estimate['status']}; "
+                    "limits are local and execution_allowed=false.",
+                    color=theme.MUTED,
+                    selectable=True,
+                ),
+            ],
+            spacing=6,
+        )
+    )
 
     def refresh(_event: ft.ControlEvent | None = None) -> None:
         try:
@@ -110,6 +138,7 @@ def jobs_page(page: ft.Page, state: AppState) -> ft.Control:
     refresh()
     return ft.Column(
         [
+            resource_panel,
             panel(
                 ft.Column(
                     [
