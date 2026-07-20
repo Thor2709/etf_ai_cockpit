@@ -6,9 +6,9 @@
     "blocked": 1,
     "closed": 4,
     "hardening_required": 3,
-    "implemented_initially": 61,
+    "implemented_initially": 59,
     "in_progress": 9,
-    "integrated": 28,
+    "integrated": 30,
     "planned": 51,
     "research_only": 2
   },
@@ -56,5 +56,5 @@
     "UPDATEV2-0030"
   ],
   "schema_version": "1.0",
-  "source_registry_sha256": "cf3ed85b20d977d67b2f6c328590174372edf969166f08bbb772aceee8af9797"
+  "source_registry_sha256": "7a191617cb0ddd0d28c4a9497090e57062d0282f2c525323a0096c9a1ea5069e"
 }

@@ -3,13 +3,18 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
+      "issue_id": "ISSUE-0063",
+      "from": "implemented_initially",
+      "to": "integrated"
+    },
+    {
       "issue_id": "ISSUE-0087",
-      "from": "planned",
-      "to": "implemented_initially"
+      "from": "implemented_initially",
+      "to": "integrated"
     }
   ],
-  "base_commit": "d0bbd530efc614fed0266e1500e48c6590d1e747",
-  "branch": "codex/issue-0087-filings-20260720",
-  "issue_ids": ["ISSUE-0087"],
+  "base_commit": "d6663cbafbc904f26ffee6ca74fbe18239be2ec3",
+  "branch": "codex/converge-0063-0087-20260720",
+  "issue_ids": ["ISSUE-0063", "ISSUE-0087"],
   "schema_version": "1.0"
 }
