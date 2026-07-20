@@ -20,9 +20,11 @@ from etf_cockpit.data.trust_artifacts import IDENTITY_PATH, refresh_static_trust
 from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
 from etf_cockpit.data.esef_provider import EsefProviderUnavailable, FilingsXbrlOrgProvider
 from etf_cockpit.data.oam_adapters import (
-    FranceDilaOamAdapter,
-    NetherlandsAfmOamAdapter,
+    CompaniesHouseFilingAdapter,
     OAMDiscoveryRequest,
+    archive_manual_official_filing,
+    oam_adapter_for_country,
+    write_filing_coverage,
     write_oam_discovery_registry,
 )
 from etf_cockpit.data.instrument_identity import CanonicalIdentity
@@ -599,6 +601,8 @@ class AppState:
         date_from: str = "",
         date_to: str = "",
         endpoint: str = "",
+        company_number: str = "",
+        api_key: str = "",
         cache_dir: Path | None = None,
     ) -> str:
         """Discover one official OAM export without changing clean evidence on failure."""
@@ -609,15 +613,25 @@ class AppState:
             if start and end and start > end:
                 raise ValueError("OAM date_from must not be after date_to")
             country_code = str(country or "").strip().upper()
-            adapter_type = FranceDilaOamAdapter if country_code == "FR" else NetherlandsAfmOamAdapter if country_code == "NL" else None
-            if adapter_type is None:
-                raise ValueError("OAM country must be FR or NL")
-            adapter = adapter_type(
-                cache_dir=cache_dir,
-                endpoint=endpoint or None,
-                enabled=bool(endpoint.strip()),
+            adapter_type = oam_adapter_for_country(country_code)
+            adapter_kwargs: dict[str, object] = {
+                "cache_dir": cache_dir,
+                "endpoint": endpoint or None,
+                "enabled": bool(endpoint.strip()) or adapter_type is CompaniesHouseFilingAdapter,
+            }
+            if adapter_type is CompaniesHouseFilingAdapter:
+                adapter_kwargs["api_key"] = api_key
+            adapter = adapter_type(**adapter_kwargs)
+            request = OAMDiscoveryRequest(
+                issuer=issuer,
+                isin=isin,
+                document_type=document_type,
+                date_from=start,
+                date_to=end,
+                company_number=company_number,
             )
-            result = adapter.discover(OAMDiscoveryRequest(issuer=issuer, isin=isin, document_type=document_type, date_from=start, date_to=end))
+            result = adapter.discover(request)
+            write_filing_coverage(result, country=country_code, request=request)
             if result.status == "ok":
                 write_oam_discovery_registry(result)
                 self.last_message = f"{result.message} Snapshot checksum={result.snapshot.sha256[:12] if result.snapshot else 'unavailable'}..."
@@ -625,7 +639,45 @@ class AppState:
                 self.last_message = f"{result.message} Manual fallback remains available; no clean evidence was changed."
             return self.last_message
         except Exception as exc:
-            self.last_message = f"OAM discovery unavailable: {type(exc).__name__}. Manual fallback remains available; no clean evidence was changed."
+            self.last_message = (
+                f"OAM discovery unavailable: {type(exc).__name__}. Manual fallback remains available; "
+                "the coverage attempt was retained when possible, but no filing evidence or score changed."
+            )
+            return self.last_message
+
+    def import_manual_official_filing(
+        self,
+        path: Path,
+        *,
+        jurisdiction: str,
+        instrument_id: str,
+        source_url: str,
+        document_type: str = "annual_report",
+        published_at: str = "",
+        available_at: str = "",
+    ) -> str:
+        """Archive one user-owned official filing for explicit manual review."""
+
+        try:
+            record = archive_manual_official_filing(
+                path,
+                jurisdiction=jurisdiction,
+                instrument_id=instrument_id,
+                source_url=source_url,
+                document_type=document_type,
+                published_at=published_at or None,
+                available_at=available_at or None,
+            )
+            self.last_message = (
+                f"Official filing archived for {record.instrument_id}: {record.sha256[:12]}...; "
+                f"availability={record.availability_precision}; manual review required; execution_allowed=false."
+            )
+            return self.last_message
+        except Exception as exc:
+            self.last_message = (
+                f"Official filing import unavailable: {type(exc).__name__}. "
+                "No existing evidence changed; scoring and execution were not started."
+            )
             return self.last_message
 
     def download_esef_package(self, filing_id: str, *, package_url: str | None = None, cache_dir: Path | None = None) -> str:

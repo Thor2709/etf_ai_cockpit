@@ -1,13 +1,24 @@
 from __future__ import annotations
 
+from datetime import date
 import json
 from pathlib import Path
 
+import pandas as pd
+import pytest
+
 from etf_cockpit.data.oam_adapters import (
+    CompaniesHouseFilingAdapter,
+    DenmarkFinanstilsynetOamAdapter,
+    FinlandFsaOamAdapter,
     FranceDilaOamAdapter,
     NetherlandsAfmOamAdapter,
+    NorwayFinanstilsynetOamAdapter,
     OAMDiscoveryRequest,
+    SwedenFiOamAdapter,
+    archive_manual_official_filing,
     download_oam_document,
+    write_filing_coverage,
     write_oam_discovery_registry,
 )
 
@@ -178,3 +189,287 @@ def test_payload_links_cannot_expand_the_official_host_boundary(tmp_path: Path) 
     assert result.status == "ok"
     assert result.records[0].document_url == ""
     assert "untrusted_document_url" in result.records[0].warnings
+
+
+@pytest.mark.parametrize(
+    ("adapter_type", "endpoint", "country"),
+    [
+        (DenmarkFinanstilsynetOamAdapter, "https://oam.finanstilsynet.dk/export.json", "DK"),
+        (SwedenFiOamAdapter, "https://www.fi.se/export.json", "SE"),
+        (FinlandFsaOamAdapter, "https://www.finanssivalvonta.fi/export.json", "FI"),
+        (NorwayFinanstilsynetOamAdapter, "https://www.finanstilsynet.no/export.json", "NO"),
+    ],
+)
+def test_nordic_adapters_share_the_official_structured_export_contract(
+    tmp_path: Path,
+    adapter_type,
+    endpoint: str,
+    country: str,
+) -> None:
+    payload = json.dumps(
+        {
+            "records": [
+                {
+                    "issuer": "Nordic Issuer",
+                    "isin": f"{country}0000000001",
+                    "title": "Annual report",
+                    "document_type": "annual_report",
+                    "published_at": "2026-07-01T06:00:00Z",
+                    "available_at": "2026-07-01T06:05:00Z",
+                    "document_url": endpoint.rsplit("/", 1)[0] + "/annual-report.pdf",
+                }
+            ]
+        }
+    ).encode()
+
+    result = adapter_type(
+        cache_dir=tmp_path / country,
+        endpoint=endpoint,
+        transport=_transport(payload, media_type="application/json"),
+        enabled=True,
+    ).discover(OAMDiscoveryRequest(isin=f"{country}0000000001"))
+
+    assert result.status == "ok"
+    assert result.records[0].country == country
+    assert result.records[0].available_at == "2026-07-01T06:05:00Z"
+    assert result.records[0].availability_precision == "timestamp"
+    assert result.records[0].identity_status == "matched_isin"
+
+
+@pytest.mark.parametrize(
+    "adapter_type",
+    [
+        DenmarkFinanstilsynetOamAdapter,
+        FinlandFsaOamAdapter,
+        FranceDilaOamAdapter,
+        NetherlandsAfmOamAdapter,
+        NorwayFinanstilsynetOamAdapter,
+        SwedenFiOamAdapter,
+    ],
+)
+def test_jurisdiction_adapters_fail_closed_when_no_structured_endpoint_is_enabled(
+    tmp_path: Path,
+    adapter_type,
+) -> None:
+    result = adapter_type(cache_dir=tmp_path).discover(OAMDiscoveryRequest())
+
+    assert result.status == "unavailable"
+    assert result.manual_fallback is True
+    assert result.snapshot is None
+    assert "manual_fallback_available" in result.warnings
+
+
+def test_oam_discovery_retains_amendment_and_date_precision(tmp_path: Path) -> None:
+    endpoint = "https://www.fi.se/export.json"
+    payload = json.dumps(
+        {
+            "records": [
+                {
+                    "issuer": "Issuer",
+                    "isin": "SE0000000001",
+                    "title": "Corrected annual report",
+                    "document_type": "annual_report",
+                    "published_at": "2026-07-01",
+                    "amendment_of": "original-filing-1",
+                    "document_url": "https://www.fi.se/report.pdf",
+                }
+            ]
+        }
+    ).encode()
+
+    result = SwedenFiOamAdapter(
+        cache_dir=tmp_path,
+        endpoint=endpoint,
+        transport=_transport(payload, media_type="application/json"),
+        enabled=True,
+    ).discover(OAMDiscoveryRequest(isin="SE0000000001"))
+
+    assert result.status == "ok"
+    assert result.records[0].amendment_of == "original-filing-1"
+    assert result.records[0].availability_precision == "date"
+    assert "availability_precision_date" in result.records[0].warnings
+
+
+def test_companies_house_discovery_requires_company_identity_and_keeps_credentials_out_of_records(
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+    payload = json.dumps(
+        {
+            "items": [
+                {
+                    "transaction_id": "MzAwOTQxNTg5N2FkaXF6a2N4",
+                    "date": "2026-07-01",
+                    "category": "accounts",
+                    "description": "accounts-with-accounts-type-full",
+                    "links": {"document_metadata": "/document/abc123"},
+                }
+            ]
+        }
+    ).encode()
+
+    def fetch(url: str, headers: object):
+        captured.update({"url": url, "headers": headers})
+        return payload, 200, {"content-type": "application/json"}
+
+    result = CompaniesHouseFilingAdapter(
+        cache_dir=tmp_path,
+        api_key="secret-key",
+        transport=fetch,
+        enabled=True,
+    ).discover(OAMDiscoveryRequest(company_number="03842976", document_type="accounts"))
+
+    assert result.status == "ok"
+    assert "/company/03842976/filing-history" in str(captured["url"])
+    assert str(captured["headers"]).find("secret-key") == -1
+    assert result.records[0].identity_status == "matched_company_number"
+    assert result.records[0].document_url.endswith("/document/abc123/content")
+    assert "secret-key" not in json.dumps(result.records[0].__dict__)
+
+    downloaded = download_oam_document(
+        result.records[0],
+        cache_dir=tmp_path / "documents",
+        transport=_transport(b"official filing", media_type="application/pdf"),
+    )
+    assert Path(downloaded.path).read_bytes() == b"official filing"
+
+
+def test_companies_house_discovery_rejects_non_api_official_hosts(tmp_path: Path) -> None:
+    result = CompaniesHouseFilingAdapter(
+        cache_dir=tmp_path,
+        endpoint="https://download.companieshouse.gov.uk",
+        api_key="test-key",
+        enabled=True,
+    ).discover(OAMDiscoveryRequest(company_number="03842976"))
+
+    assert result.status == "error"
+    assert "official HTTPS API host" in result.message
+
+
+def test_companies_house_applies_requested_date_range_to_returned_records(tmp_path: Path) -> None:
+    payload = json.dumps(
+        {
+            "items": [
+                {
+                    "transaction_id": "old-filing",
+                    "date": "2025-12-31",
+                    "category": "accounts",
+                    "description": "accounts",
+                }
+            ]
+        }
+    ).encode()
+    result = CompaniesHouseFilingAdapter(
+        cache_dir=tmp_path,
+        api_key="test-key",
+        transport=_transport(payload, media_type="application/json"),
+        enabled=True,
+    ).discover(
+        OAMDiscoveryRequest(
+            company_number="03842976",
+            document_type="accounts",
+            date_from=date(2026, 1, 1),
+        )
+    )
+
+    assert result.status == "manual_review"
+    assert result.records == ()
+    assert result.snapshot is not None
+
+
+def test_filing_coverage_persists_unavailable_and_success_states(tmp_path: Path) -> None:
+    request = OAMDiscoveryRequest(isin="FR0000000001")
+    disabled = FranceDilaOamAdapter(cache_dir=tmp_path).discover(request)
+    destination = write_filing_coverage(
+        disabled,
+        country="FR",
+        request=request,
+        destination=tmp_path / "coverage.parquet",
+    )
+
+    stored = pd.read_parquet(destination)
+    assert stored.loc[0, "status"] == "unavailable"
+    assert bool(stored.loc[0, "manual_fallback"]) is True
+    assert bool(stored.loc[0, "execution_allowed"]) is False
+
+
+def test_manual_official_filing_archive_is_immutable_and_timing_explicit(tmp_path: Path) -> None:
+    source = tmp_path / "accounts.xbrl"
+    source.write_bytes(b"<xbrl>official accounts</xbrl>")
+    queue = tmp_path / "manual-queue.parquet"
+
+    first = archive_manual_official_filing(
+        source,
+        jurisdiction="GB",
+        instrument_id="GB:03842976",
+        source_url="https://find-and-update.company-information.service.gov.uk/company/03842976/filing-history",
+        published_at="2026-07-01",
+        raw_dir=tmp_path / "raw",
+        queue_path=queue,
+    )
+    second = archive_manual_official_filing(
+        source,
+        jurisdiction="GB",
+        instrument_id="GB:03842976",
+        source_url="https://find-and-update.company-information.service.gov.uk/company/03842976/filing-history",
+        published_at="2026-07-01",
+        raw_dir=tmp_path / "raw",
+        queue_path=queue,
+    )
+
+    assert first == second
+    assert Path(first.raw_path).read_bytes() == source.read_bytes()
+    assert first.availability_precision == "date"
+    assert first.manual_review is True
+    assert first.execution_allowed is False
+    assert len(pd.read_parquet(queue)) == 1
+
+
+def test_manual_companies_house_bulk_file_is_an_allowed_no_quota_source(tmp_path: Path) -> None:
+    source = tmp_path / "Accounts_Bulk_Data.zip"
+    source.write_bytes(b"PK-official-bulk")
+
+    record = archive_manual_official_filing(
+        source,
+        jurisdiction="GB",
+        instrument_id="GB:BULK-ACCOUNTS",
+        source_url="https://download.companieshouse.gov.uk/en_accountsdata.html",
+        document_type="accounts_bulk_archive",
+        raw_dir=tmp_path / "raw",
+        queue_path=tmp_path / "queue.parquet",
+    )
+
+    assert record.source_authority == "official_manual_import"
+    assert record.coverage_status == "archived_timing_unavailable"
+    assert record.execution_allowed is False
+
+
+def test_manual_official_filing_rejects_untrusted_source_url(tmp_path: Path) -> None:
+    source = tmp_path / "report.pdf"
+    source.write_bytes(b"%PDF-test")
+
+    with pytest.raises(ValueError, match="official HTTPS host"):
+        archive_manual_official_filing(
+            source,
+            jurisdiction="SE",
+            instrument_id="SE:TEST",
+            source_url="https://example.com/report.pdf",
+            raw_dir=tmp_path / "raw",
+            queue_path=tmp_path / "queue.parquet",
+        )
+
+
+def test_manual_official_filing_rejects_invalid_timing(tmp_path: Path) -> None:
+    source = tmp_path / "report.pdf"
+    source.write_bytes(b"%PDF-test")
+
+    with pytest.raises(ValueError, match="timestamps must be valid"):
+        archive_manual_official_filing(
+            source,
+            jurisdiction="GB",
+            instrument_id="GB:TEST",
+            source_url="https://find-and-update.company-information.service.gov.uk/company/TEST/filing-history",
+            published_at="not-a-date",
+            raw_dir=tmp_path / "raw",
+            queue_path=tmp_path / "queue.parquet",
+        )

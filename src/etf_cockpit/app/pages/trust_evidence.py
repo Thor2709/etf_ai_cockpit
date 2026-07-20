@@ -22,11 +22,13 @@ from etf_cockpit.application.ui_facade import (
     EVIDENCE_LEDGER_PATH,
     EVENT_CLEAN_PATH,
     FEATURE_DRIVERS_PATH,
+    FILING_COVERAGE_PATH,
     FILINGS_STATEMENTS_PATH,
     FUNDAMENTAL_CLEAN_PATH,
     FUND_HOLDINGS_PATH,
     IDENTITY_PATH,
     INDEX_METHODOLOGY_RECORDS_PATH,
+    MANUAL_FILING_QUEUE_PATH,
     NEWS_CONTEXT_PATH,
     NEWS_TIMESTAMP_VALIDATION_PATH,
     OAM_DISCOVERY_PATH,
@@ -217,7 +219,9 @@ def filings_page(page: ft.Page, state: AppState) -> ft.Control:
         "Official SEC/ESEF/local filing evidence. Missing filings remain missing; vendor fundamentals cannot outrank official matched filings.",
         [
             ("Filings inventory", FILINGS_STATEMENTS_PATH, ["instrument_id", "document_type", "source_authority", "coverage_status", "fact_count", "mapping_warnings", "checksum", "executable_authority", "path"]),
-            ("National OAM discovery", OAM_DISCOVERY_PATH, ["provider_id", "country", "issuer", "isin", "title", "document_type", "published_at", "source_url", "document_url", "source_authority", "terms_url", "coverage_status", "snapshot_sha256", "adapter_status", "manual_fallback"]),
+            ("Official filing discovery", OAM_DISCOVERY_PATH, ["provider_id", "country", "issuer", "isin", "title", "document_type", "published_at", "available_at", "availability_precision", "identity_status", "amendment_of", "source_url", "document_url", "source_authority", "terms_url", "coverage_status", "snapshot_sha256", "adapter_status", "manual_fallback"]),
+            ("Jurisdiction coverage", FILING_COVERAGE_PATH, ["provider_id", "country", "instrument_identity", "issuer", "status", "matched_records", "official_records", "identity_matched_records", "available_at_records", "manual_fallback", "snapshot_sha256", "retrieved_at", "message", "execution_allowed"]),
+            ("Manual official filing queue", MANUAL_FILING_QUEUE_PATH, ["jurisdiction", "instrument_id", "document_type", "published_at", "available_at", "availability_precision", "source_url", "source_authority", "raw_path", "sha256", "identity_status", "coverage_status", "manual_review", "execution_allowed"]),
             ("SEC statement facts", STATEMENT_FACTS_PATH, ["instrument_id", "taxonomy", "concept", "canonical_metric", "mapping_status", "is_custom", "unit", "end", "filed", "form", "accession", "source_id"]),
             ("Provider probes", PROVIDER_PROBE_PATH, ["dataset_type", "provider_name", "status", "source_authority", "message"]),
             ("Identity mappings", IDENTITY_PATH, ["instrument_id", "isin", "yahoo_symbol", "exchange", "mic", "currency", "share_class", "listing", "identity_confidence", "warnings"]),
@@ -324,13 +328,38 @@ def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
     cik_field = ft.TextField(label="SEC CIK", value="789019", width=180)
     country_field = ft.TextField(label="ESEF country", value="NL", width=120)
     filing_id_field = ft.TextField(label="ESEF filing ID", width=250)
-    oam_country_field = ft.Dropdown(label="OAM country", value="FR", width=150, options=[ft.dropdown.Option("FR"), ft.dropdown.Option("NL")])
+    filing_countries = ("DK", "FI", "FR", "GB", "NL", "NO", "SE")
+    oam_country_field = ft.Dropdown(
+        label="Official filing country",
+        value="FR",
+        width=170,
+        options=[ft.dropdown.Option(value) for value in filing_countries],
+    )
     oam_issuer_field = ft.TextField(label="OAM issuer (optional)", width=190)
     oam_isin_field = ft.TextField(label="OAM ISIN (optional)", width=170)
     oam_document_type_field = ft.TextField(label="OAM document type (optional)", width=220)
     oam_date_from_field = ft.TextField(label="OAM date from (optional)", width=190)
     oam_date_to_field = ft.TextField(label="OAM date to (optional)", width=190)
     oam_endpoint_field = ft.TextField(label="Official structured OAM endpoint (optional)", width=330, hint_text="Disabled when blank; HTML pages are rejected")
+    company_number_field = ft.TextField(label="UK company number", width=180)
+    companies_house_key_field = ft.TextField(
+        label="Companies House API key",
+        password=True,
+        can_reveal_password=False,
+        width=230,
+        hint_text="Used in memory for this request only",
+    )
+    manual_country_field = ft.Dropdown(
+        label="Manual filing jurisdiction",
+        value="GB",
+        width=200,
+        options=[ft.dropdown.Option(value) for value in (*filing_countries, "EU")],
+    )
+    manual_instrument_field = ft.TextField(label="Canonical instrument ID", value=state.selected_etf, width=210)
+    manual_source_url_field = ft.TextField(label="Official source URL", width=360)
+    manual_document_type_field = ft.TextField(label="Document type", value="annual_report", width=190)
+    manual_published_field = ft.TextField(label="Published at (optional)", width=210)
+    manual_available_field = ft.TextField(label="Available at (optional)", width=210)
     picker = _attach_picker(page, "filings.import.file-picker")
 
     async def import_sec(_event: ft.ControlEvent) -> None:
@@ -382,6 +411,8 @@ def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
     async def discover_oam(_event: ft.ControlEvent) -> None:
         result.value = "OAM discovery status: preparing a bounded official structured-export request..."
         page.update()
+        api_key = str(companies_house_key_field.value or "")
+        companies_house_key_field.value = ""
         result.value = state.discover_oam(
             str(oam_country_field.value or "FR"),
             issuer=str(oam_issuer_field.value or ""),
@@ -390,10 +421,39 @@ def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             date_from=str(oam_date_from_field.value or ""),
             date_to=str(oam_date_to_field.value or ""),
             endpoint=str(oam_endpoint_field.value or ""),
+            company_number=str(company_number_field.value or ""),
+            api_key=api_key,
         )
         page.update()
 
-    return panel(ft.Column([section_header("Official filing import", "SEC EDGAR and filings.xbrl.org ESEF evidence. Local fixtures remain functional offline; network failures and mapping warnings are explicit and never start scoring or broker workflows."), ft.Row([cik_field, ft.OutlinedButton("Fetch SEC companyfacts", key="filings.fetch-sec", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=fetch_sec), ft.OutlinedButton("Import SEC companyfacts", key="filings.import-sec", icon=ft.Icons.UPLOAD_FILE, on_click=import_sec)], wrap=True), ft.Row([country_field, filing_id_field, ft.OutlinedButton("Discover ESEF filings", key="filings.discover-esef", icon=ft.Icons.SEARCH, on_click=discover_esef), ft.OutlinedButton("Download ESEF package", key="filings.download-esef", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=download_esef), ft.OutlinedButton("Import ESEF package", key="filings.import-esef", icon=ft.Icons.UPLOAD_FILE, on_click=import_esef)], wrap=True), ft.Row([oam_country_field, oam_issuer_field, oam_isin_field, oam_document_type_field], wrap=True), ft.Row([oam_date_from_field, oam_date_to_field, oam_endpoint_field, ft.OutlinedButton("Discover national OAM", key="filings.discover-oam", icon=ft.Icons.SEARCH, on_click=discover_oam)], wrap=True), result], spacing=8))
+    async def import_manual_filing(_event: ft.ControlEvent) -> None:
+        files = await picker.pick_files(
+            file_type=ft.FilePickerFileType.CUSTOM,
+            allowed_extensions=["csv", "html", "json", "pdf", "xbrl", "xbri", "xhtml", "xml", "zip"],
+            with_data=True,
+        )
+        if not files:
+            result.value = "Official filing import cancelled; no data changed."
+            page.update()
+            return
+        selected = files[0]
+        suffix = Path(str(getattr(selected, "name", "filing.bin"))).suffix or ".bin"
+        with _materialise_picker_file(selected, suffix) as path:
+            if path is None:
+                result.value = "Official filing import requires a readable local file."
+            else:
+                result.value = state.import_manual_official_filing(
+                    path,
+                    jurisdiction=str(manual_country_field.value or ""),
+                    instrument_id=str(manual_instrument_field.value or ""),
+                    source_url=str(manual_source_url_field.value or ""),
+                    document_type=str(manual_document_type_field.value or "annual_report"),
+                    published_at=str(manual_published_field.value or ""),
+                    available_at=str(manual_available_field.value or ""),
+                )
+        page.update()
+
+    return panel(ft.Column([section_header("Official filing import", "SEC EDGAR, filings.xbrl.org, Companies House and national OAM evidence. Network, entitlement and timing gaps remain explicit; no filing action starts scoring or execution."), ft.Row([cik_field, ft.OutlinedButton("Fetch SEC companyfacts", key="filings.fetch-sec", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=fetch_sec), ft.OutlinedButton("Import SEC companyfacts", key="filings.import-sec", icon=ft.Icons.UPLOAD_FILE, on_click=import_sec)], wrap=True), ft.Row([country_field, filing_id_field, ft.OutlinedButton("Discover ESEF filings", key="filings.discover-esef", icon=ft.Icons.SEARCH, on_click=discover_esef), ft.OutlinedButton("Download ESEF package", key="filings.download-esef", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=download_esef), ft.OutlinedButton("Import ESEF package", key="filings.import-esef", icon=ft.Icons.UPLOAD_FILE, on_click=import_esef)], wrap=True), ft.Row([oam_country_field, oam_issuer_field, oam_isin_field, oam_document_type_field, company_number_field], wrap=True), ft.Row([oam_date_from_field, oam_date_to_field, oam_endpoint_field, companies_house_key_field, ft.OutlinedButton("Discover official filings", key="filings.discover-oam", icon=ft.Icons.SEARCH, on_click=discover_oam)], wrap=True), ft.Row([manual_country_field, manual_instrument_field, manual_document_type_field, manual_published_field, manual_available_field], wrap=True), ft.Row([manual_source_url_field, ft.OutlinedButton("Archive manual official filing", key="filings.import-manual-official", icon=ft.Icons.UPLOAD_FILE, on_click=import_manual_filing)], wrap=True), result], spacing=8))
 
 
 def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
