@@ -2,7 +2,7 @@
   "checks": [
     {
       "command": "registry scope issue",
-      "duration_ms": 1.908,
+      "duration_ms": 2.201,
       "exit_code": 0,
       "failure": "",
       "name": "scope_selection",
@@ -12,7 +12,7 @@
     },
     {
       "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/validate_issue_registry.py",
-      "duration_ms": 94.781,
+      "duration_ms": 98.882,
       "exit_code": 0,
       "failure": "",
       "name": "issue_registry",
@@ -22,7 +22,7 @@
     },
     {
       "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m compileall -q src scripts",
-      "duration_ms": 116.169,
+      "duration_ms": 128.806,
       "exit_code": 0,
       "failure": "",
       "name": "source_compile",
@@ -31,17 +31,17 @@
       "status": "passed"
     },
     {
-      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_app.py --mode offline --port 58676 --timeout 30",
-      "duration_ms": 5780.71,
+      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_app.py --mode offline --port 65090 --timeout 30",
+      "duration_ms": 5872.239,
       "exit_code": 0,
       "failure": "",
       "name": "source_smoke",
-      "output": "smoke_port requested=58676 selected=58676 reason=port 58676 is free\nsmoke_ok mode=offline url=http://127.0.0.1:58676/",
+      "output": "smoke_port requested=65090 selected=65090 reason=port 65090 is free\nsmoke_ok mode=offline url=http://127.0.0.1:65090/",
       "required": true,
       "status": "passed"
     }
   ],
-  "duration_ms": 5995.789,
+  "duration_ms": 6104.326,
   "environment": {
     "machine": "AMD64",
     "offline_requested": false,
@@ -51,12 +51,12 @@
     "system": "Windows"
   },
   "failures": [],
-  "finished_at": "2026-07-20T11:56:34.499+00:00",
-  "generated_at": "2026-07-20T11:56:34.499+00:00",
+  "finished_at": "2026-07-20T12:27:43.109+00:00",
+  "generated_at": "2026-07-20T12:27:43.109+00:00",
   "git": {
     "branch": "codex/issue-0151-hardware-profiles-20260720",
     "dirty": true,
-    "head": "f34b707cf265ba5593e8ac2966389024b3e9fb44",
+    "head": "25aeeed2ea7c6ac3e32c952175e6155a40f4d6e8",
     "origin_main": "5607b1680bf354ece617ff36c502ba239b16403c"
   },
   "log_paths": [
@@ -76,7 +76,7 @@
     ],
     "phase_ids": []
   },
-  "started_at": "2026-07-20T11:56:28.502+00:00",
+  "started_at": "2026-07-20T12:27:37.004+00:00",
   "unavailable_optional_components": [
     "timesfm",
     "toto"
