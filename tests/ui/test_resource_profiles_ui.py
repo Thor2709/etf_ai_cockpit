@@ -21,4 +21,6 @@ def test_jobs_exposes_pre_job_resource_estimate_and_limit_status() -> None:
     assert "Resource readiness" in source
     assert "estimate_workflow_resources" in source
     assert "limits are local" in source
+    assert "jobs.resource-cache-cleanup" in source
+    assert "reproducible file(s)" in source
     assert "execution_allowed=false" in source

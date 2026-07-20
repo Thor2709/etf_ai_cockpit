@@ -13,9 +13,11 @@ from etf_cockpit.application.ui_facade import (
     ApiStatus,
     CancelWorkflowCommand,
     PageRequest,
-    estimate_workflow_resources,
-    resource_profile_report,
+    ResourcePolicy,
     SubmitWorkflowCommand,
+    estimate_workflow_resources,
+    generated_cache_cleanup,
+    resource_profile_report,
 )
 
 
@@ -23,27 +25,71 @@ def jobs_page(page: ft.Page, state: AppState) -> ft.Control:
     api = state.application_api
     body = ft.Column(spacing=10, expand=True, scroll=ft.ScrollMode.AUTO)
     message = ft.Text("Durable jobs are local, resumable and audit-linked.", color=theme.MUTED, selectable=True)
-    resource_report = resource_profile_report(Path.cwd())
-    estimate = estimate_workflow_resources("durable_self_check", snapshot=None)
+    resource_policy = ResourcePolicy(Path.cwd())
+    resource_report = resource_profile_report(
+        Path.cwd(),
+        requested_profile=resource_policy.requested_profile,
+        snapshot=resource_policy.snapshot,
+    )
+    estimate = estimate_workflow_resources(
+        "durable_self_check",
+        requested_profile=resource_policy.requested_profile,
+        snapshot=resource_policy.snapshot,
+    )
+    selected_profile = resource_report["selected_profile"]
+    benchmark_status = resource_report["benchmarks"]["status"]
+    cleanup_status = resource_report["generated_cache"]["status"]
+    cleanup_message = ft.Text(
+        f"Generated-cache cleanup: {cleanup_status}.", color=theme.MUTED
+    )
+
+    def clean_generated_cache(_event: ft.ControlEvent) -> None:
+        result = generated_cache_cleanup(
+            Path.cwd(),
+            maximum_bytes=int(selected_profile["job_disk_limit_mb"]) * 1024 * 1024,
+            apply=True,
+        )
+        removed = len(result.get("removed", []))
+        cleanup_message.value = (
+            f"Generated-cache cleanup: {result['status']}; removed {removed} reproducible file(s)."
+        )
+        cleanup_message.color = theme.RED if result["status"] in {"failed", "unavailable"} else theme.GREEN
+        page.update()
+
     resource_panel = panel(
         ft.Column(
             [
                 section_header("Resource readiness", "Every durable job is checked against the local snapshot before work starts."),
-                ft.Text(
+                ft.SelectionArea(ft.Text(
                     f"Profile: {resource_report['selected_profile']['profile_id']} ({resource_report['selected_status']}) | "
                     f"CPU {resource_report['snapshot']['cpu_cores']} core(s) | "
                     f"free disk {resource_report['snapshot'].get('disk_free_mb') or 'n/a'} MB | "
                     f"memory {resource_report['snapshot'].get('memory_available_mb') or resource_report['snapshot'].get('memory_total_mb') or 'n/a'} MB",
                     color=theme.MUTED,
-                    selectable=True,
+                )),
+                ft.Row(
+                    [
+                        ft.TextButton(
+                            "Clean generated cache",
+                            key="jobs.resource-cache-cleanup",
+                            on_click=clean_generated_cache,
+                        ),
+                        cleanup_message,
+                    ],
+                    wrap=True,
                 ),
-                ft.Text(
+                ft.SelectionArea(ft.Text(
                     f"Self-check estimate: {estimate['memory_mb']} MB memory, {estimate['disk_mb']} MB disk, "
                     f"batch={estimate['batch_size']}, chunk={estimate['chunk_size']}, status={estimate['status']}; "
                     "limits are local and execution_allowed=false.",
                     color=theme.MUTED,
-                    selectable=True,
-                ),
+                )),
+                ft.SelectionArea(ft.Text(
+                    f"Per-job quota: {selected_profile['job_memory_limit_mb']} MB memory, "
+                    f"{selected_profile['job_disk_limit_mb']} MB disk, {selected_profile['job_cpu_limit']} CPU; "
+                    f"benchmark evidence={benchmark_status}; generated-cache cleanup={cleanup_status}.",
+                    color=theme.MUTED,
+                )),
             ],
             spacing=6,
         )

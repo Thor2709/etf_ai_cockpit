@@ -100,6 +100,22 @@ def test_onboarding_save_reloads_active_state(monkeypatch) -> None:
     state = _State()
     page = _Page()
     control = onboarding_page(page, state, validator=lambda _ticker: True)
-    save = next(item for item in control.controls[0].content.controls for item in getattr(item, "controls", ()) if isinstance(item, ft.Button) and item.key == "onboarding.save")
+
+    def walk(item):
+        if not isinstance(item, ft.Control):
+            return
+        yield item
+        for attr in ("controls", "actions"):
+            for child in getattr(item, attr, ()) or ():
+                yield from walk(child)
+        content = getattr(item, "content", None)
+        if content is not None:
+            yield from walk(content)
+
+    save = next(
+        item
+        for item in walk(control)
+        if isinstance(item, ft.Button) and item.key == "onboarding.save"
+    )
     save.on_click(None)
     assert state.applied == (refreshed_config, "onboarding-revision")

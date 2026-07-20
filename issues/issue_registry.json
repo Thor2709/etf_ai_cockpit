@@ -8124,7 +8124,7 @@
       "package_status": "",
       "phase": "phase-10-audit-documentation-governance",
       "priority": "P1",
-      "programme_status": "planned",
+      "programme_status": "hardening_required",
       "related_issues": [],
       "required_inputs": [],
       "security_and_audit": "No undisclosed remote compute or telemetry; resource logs remain local.",

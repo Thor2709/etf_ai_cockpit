@@ -194,7 +194,11 @@ def onboarding_page(
     scope = ft.Dropdown(label="Asset scope", value="both", options=[ft.dropdown.Option(item) for item in ("etf", "stock", "both")], width=180, dense=True)
     risk = ft.Dropdown(label="Risk profile", value="balanced", options=[ft.dropdown.Option(item) for item in ("conservative", "balanced", "growth")], width=180, dense=True)
     horizon = ft.Dropdown(label="Target horizon", value="medium", options=[ft.dropdown.Option(item) for item in ("short", "medium", "long")], width=180, dense=True)
-    tickers = ft.TextField(label="Initial tickers (comma separated)", hint_text="VWCE.DE, MSFT", expand=True, dense=True)
+    tickers = ft.TextField(
+        label="Initial tickers (comma separated)",
+        hint_text="VWCE.DE, MSFT",
+        dense=True,
+    )
     online_validation = ft.Checkbox(
         label="Validate tickers online (optional)" if validator is not None else "Online validation unavailable (no validator configured)",
         value=False,
@@ -213,7 +217,9 @@ def onboarding_page(
     selected_profile = resource_report["selected_profile"]
     resource_lines = [
         f"Selected profile: {selected_profile['profile_id']} ({resource_report['selected_status']}) | CPU {resource_report['snapshot']['cpu_cores']} core(s) | memory {resource_report['snapshot'].get('memory_available_mb') or resource_report['snapshot'].get('memory_total_mb') or 'n/a'} MB available/total | disk {resource_report['snapshot'].get('disk_free_mb') or 'n/a'} MB free",
+        f"Per-job quota: {selected_profile['job_memory_limit_mb']} MB memory | {selected_profile['job_disk_limit_mb']} MB disk | {selected_profile['job_cpu_limit']} CPU core(s)",
         "Profiles: " + "; ".join(f"{row['profile_id']}={row['status']}" for row in resource_report["profiles"]),
+        f"Performance evidence: {resource_report['benchmarks']['status']} from {resource_report['benchmarks']['timing_record_count']} local timing record(s); generated-cache cleanup: {resource_report['generated_cache']['status']}",
         "Limitations: " + " ".join(resource_report["limitations"]),
     ]
 
@@ -243,8 +249,8 @@ def onboarding_page(
 
     return ft.Column(
         [
-            panel(ft.Column([section_header("First-run setup", "Create a local watchlist without requiring network access."), ft.Text(f"{jurisdiction_disclaimer} Offline or unresolved tickers remain disabled until validated. Online validation is opt-in and requires an injected provider callback.", color=theme.MUTED), ft.Row([base_currency, region, scope, risk, horizon], wrap=True), ft.Row([tickers, ft.Button("Save setup", key="onboarding.save", icon=ft.Icons.SAVE, on_click=submit)], wrap=True), online_validation, status], spacing=10)),
-            panel(ft.Column([section_header("Hardware and resource readiness", "Local profile selection, pre-job limits and graceful degradation. No telemetry or cloud compute is used."), ft.Text("\n".join(resource_lines), color=theme.MUTED, selectable=True), ft.Text("CPU-only baseline remains available; optional foundation models are never required.", color=theme.GREEN, selectable=True)], spacing=6)),
+            panel(ft.Column([section_header("First-run setup", "Create a local watchlist without requiring network access."), ft.Text(f"{jurisdiction_disclaimer} Offline or unresolved tickers remain disabled until validated. Online validation is opt-in and requires an injected provider callback.", color=theme.MUTED), ft.Row([base_currency, region, scope, risk, horizon], wrap=True), ft.ResponsiveRow([ft.Container(content=tickers, col={"xs": 12, "md": 9}), ft.Container(content=ft.Button("Save setup", key="onboarding.save", icon=ft.Icons.SAVE, on_click=submit), col={"xs": 12, "md": 3})], spacing=8, run_spacing=8), online_validation, status], spacing=10)),
+            panel(ft.Column([section_header("Hardware and resource readiness", "Local profile selection, pre-job limits and graceful degradation. No telemetry or cloud compute is used."), ft.SelectionArea(ft.Text("\n".join(resource_lines), color=theme.MUTED)), ft.SelectionArea(ft.Text("CPU-only baseline remains available; optional foundation models are never required.", color=theme.GREEN))], spacing=6)),
             panel(ft.Column([section_header("Authority boundary", "Universe edits only persist configuration. They never trigger yfinance downloads, scoring, forecasts or broker execution."), ft.Text("execution_allowed=false", color=theme.AMBER)])),
             panel(ft.Column([section_header("Data source policy", "Choose local imports or replayable official evidence for the mandatory path. Online validation is optional and never required for setup."), ft.Text(source_summary, color=theme.MUTED, size=11, selectable=True), ft.Text(f"Terms acknowledgement: {legal_report['review_status']}; restricted sources are not redistributed. Registry checksum: {legal_report['registry_sha256']}", color=theme.AMBER, size=11, selectable=True)])),
         ],

@@ -17,8 +17,13 @@ import platform
 import shutil
 from typing import Callable
 
+from etf_cockpit.core.performance import PerformanceBudgetError, build_performance_report
+
 
 RESOURCE_PROFILE_SCHEMA_VERSION = "resource-profiles.v1"
+RESOURCE_CACHE_RELATIVE = Path("artifacts") / "resource-cache"
+_MEMORY_RESERVE_MB = 256
+_DISK_RESERVE_MB = 512
 
 
 @dataclass(frozen=True)
@@ -42,6 +47,9 @@ class ResourceProfile:
     minimum_memory_mb: int
     minimum_disk_mb: int
     minimum_cpu_cores: int
+    job_memory_limit_mb: int
+    job_disk_limit_mb: int
+    job_cpu_limit: int
     batch_size: int
     chunk_size: int
     model_size: str
@@ -63,9 +71,9 @@ class ResourceDecision:
 
 
 PROFILES: tuple[ResourceProfile, ...] = (
-    ResourceProfile("minimum", 1_024, 2_048, 1, 8, 256, "baseline", "CPU-only baseline; optional foundation models remain disabled-safe."),
-    ResourceProfile("recommended", 4_096, 10_240, 2, 32, 1_024, "small", "Balanced local profile for ordinary research and bounded jobs."),
-    ResourceProfile("high", 8_192, 51_200, 4, 64, 2_048, "large", "Higher-throughput profile; GPU remains optional and never required."),
+    ResourceProfile("minimum", 1_024, 2_048, 1, 768, 1_536, 1, 8, 256, "baseline", "CPU-only baseline; optional foundation models remain disabled-safe."),
+    ResourceProfile("recommended", 4_096, 10_240, 2, 3_072, 8_192, 2, 32, 1_024, "small", "Balanced local profile for ordinary research and bounded jobs."),
+    ResourceProfile("high", 8_192, 51_200, 4, 6_144, 32_768, 4, 64, 2_048, "large", "Higher-throughput profile; GPU remains optional and never required."),
 )
 _PROFILE_BY_ID = {profile.profile_id: profile for profile in PROFILES}
 
@@ -91,31 +99,59 @@ class ResourcePolicy:
 
     def evaluate(self, resources: dict[str, object] | None = None) -> ResourceDecision:
         requested = resources or {}
-        profile_id = _profile_id(requested.get("profile", self.profile_id), allow_auto=True)
+        try:
+            profile_id = _profile_id(
+                requested.get("profile", self.profile_id), allow_auto=True
+            )
+        except ValueError:
+            return ResourceDecision(
+                "blocked",
+                "unknown",
+                ("resource profile must be auto, minimum, recommended or high",),
+            )
         selected = _PROFILE_BY_ID[self.profile_id if profile_id == "auto" else profile_id]
         reasons: list[str] = []
         warnings = list(self.profile_warnings)
         profile_decision = _profile_decision(self.snapshot, selected)
         reasons.extend(profile_decision.reasons)
         warnings.extend(profile_decision.warnings)
-        memory_limit = self.snapshot.memory_available_mb if self.snapshot.memory_available_mb is not None else self.snapshot.memory_total_mb
-        memory_requested = _positive_number(requested.get("memory_mb"))
-        disk_requested = _positive_number(requested.get("disk_mb"))
-        cpu_requested = _positive_number(requested.get("cpu"))
+        memory_requested, memory_invalid = _declared_positive(requested, "memory_mb")
+        disk_requested, disk_invalid = _declared_positive(requested, "disk_mb")
+        cpu_requested, cpu_invalid = _declared_positive(requested, "cpu")
+        if memory_invalid:
+            reasons.append("memory request must be a finite positive number")
+        if disk_invalid:
+            reasons.append("disk request must be a finite positive number")
+        if cpu_invalid:
+            reasons.append("CPU request must be a finite positive number")
         if memory_requested is not None:
-            if memory_limit is None:
+            if self.snapshot.memory_available_mb is None:
                 reasons.append("memory request cannot be checked because local capacity is unavailable")
-            elif memory_requested > memory_limit:
-                reasons.append(f"memory request {memory_requested:.0f} MB exceeds local limit {memory_limit:.0f} MB")
+            else:
+                memory_limit = min(float(selected.job_memory_limit_mb), max(0.0, self.snapshot.memory_available_mb - _MEMORY_RESERVE_MB))
+                if memory_requested > memory_limit:
+                    reasons.append(f"memory request {memory_requested:.0f} MB exceeds safe limit {memory_limit:.0f} MB")
+                elif memory_limit > 0 and memory_requested >= 0.8 * memory_limit:
+                    warnings.append(f"memory request uses at least 80% of the {memory_limit:.0f} MB safe limit")
         if disk_requested is not None:
             if self.snapshot.disk_free_mb is None:
                 reasons.append("disk request cannot be checked because local free space is unavailable")
-            elif disk_requested > self.snapshot.disk_free_mb:
-                reasons.append(f"disk request {disk_requested:.0f} MB exceeds free space {self.snapshot.disk_free_mb:.0f} MB")
-        if cpu_requested is not None and cpu_requested > self.snapshot.cpu_cores:
-            reasons.append(f"CPU request {cpu_requested:.0f} exceeds {self.snapshot.cpu_cores} local core(s)")
+            else:
+                disk_limit = min(float(selected.job_disk_limit_mb), max(0.0, self.snapshot.disk_free_mb - _DISK_RESERVE_MB))
+                if disk_requested > disk_limit:
+                    reasons.append(f"disk request {disk_requested:.0f} MB exceeds safe limit {disk_limit:.0f} MB")
+                elif disk_limit > 0 and disk_requested >= 0.8 * disk_limit:
+                    warnings.append(f"disk request uses at least 80% of the {disk_limit:.0f} MB safe limit")
+        if cpu_requested is not None:
+            cpu_limit = min(float(selected.job_cpu_limit), float(self.snapshot.cpu_cores))
+            if cpu_requested > cpu_limit:
+                reasons.append(f"CPU request {cpu_requested:.0f} exceeds safe limit {cpu_limit:.0f}")
         gpu_requested = requested.get("gpu", False)
-        if gpu_requested not in {False, None, "", 0} and not self.snapshot.gpu_available:
+        if not isinstance(gpu_requested, (bool, str, int)) or isinstance(
+            gpu_requested, float
+        ):
+            reasons.append("GPU request must be a boolean or device label")
+        elif bool(gpu_requested) and not self.snapshot.gpu_available:
             reasons.append("GPU was requested but no local GPU is available")
         if selected.profile_id != self.profile_id:
             warnings.append(f"job requested profile {selected.profile_id}; host-selected profile is {self.profile_id}")
@@ -137,6 +173,11 @@ class ResourcePolicy:
             "warnings": list(self.profile_warnings),
             "profiles": profiles,
             "limitations": _limitations(self.snapshot),
+            "calculation_contract": {
+                "profile_affects": ["batch_size", "chunk_size", "model_size", "resource_limits"],
+                "profile_does_not_affect": ["deterministic_formulas", "risk_gates", "execution_authority"],
+                "numerical_tolerance": 1e-12,
+            },
             "execution_allowed": False,
             "network_calls": False,
         }
@@ -170,7 +211,11 @@ def detect_hardware(
 def resource_profile_report(root: Path | None = None, *, requested_profile: str = "auto", snapshot: HardwareSnapshot | None = None) -> dict[str, object]:
     """Return the user-facing local hardware/profile report."""
 
-    return ResourcePolicy(root, requested_profile=requested_profile, snapshot=snapshot).report()
+    policy = ResourcePolicy(root, requested_profile=requested_profile, snapshot=snapshot)
+    report = policy.report()
+    report["benchmarks"] = _benchmark_summary(policy.root)
+    report["generated_cache"] = generated_cache_cleanup(policy.root, maximum_bytes=policy.profile.job_disk_limit_mb * 1024 * 1024)
+    return report
 
 
 def estimate_workflow_resources(workflow_type: str, *, requested_profile: str = "auto", snapshot: HardwareSnapshot | None = None) -> dict[str, object]:
@@ -180,8 +225,8 @@ def estimate_workflow_resources(workflow_type: str, *, requested_profile: str = 
     kind = str(workflow_type).strip().casefold()
     multiplier = 2.0 if any(token in kind for token in ("train", "backtest", "optim")) else 1.0
     profile = policy.profile
-    workload_memory = {"minimum": 512, "recommended": 1_024, "high": 2_048}[profile.profile_id]
-    workload_disk = {"minimum": 512, "recommended": 2_048, "high": 8_192}[profile.profile_id]
+    workload_memory = {"minimum": 256, "recommended": 768, "high": 1_536}[profile.profile_id]
+    workload_disk = {"minimum": 256, "recommended": 1_024, "high": 4_096}[profile.profile_id]
     estimate = {
         "workflow_type": kind,
         "profile": profile.profile_id,
@@ -204,6 +249,65 @@ def estimate_workflow_resources(workflow_type: str, *, requested_profile: str = 
     estimate["warnings"] = list(dict.fromkeys((*estimate["warnings"], *decision.warnings)))
     estimate["reasons"] = list(decision.reasons)
     return estimate
+
+
+def generated_cache_cleanup(root: Path | None, *, maximum_bytes: int, apply: bool = False) -> dict[str, object]:
+    """Plan or apply oldest-first cleanup in the dedicated generated cache only."""
+
+    if maximum_bytes < 0:
+        raise ValueError("maximum_bytes must be non-negative")
+    if root is None:
+        return {"status": "unavailable", "reason": "project root unavailable", "apply": apply, "removed": [], "execution_allowed": False}
+    unresolved_cache_root = Path(root).resolve() / RESOURCE_CACHE_RELATIVE
+    if unresolved_cache_root.is_symlink():
+        return {
+            "status": "unavailable",
+            "reason": "generated cache path is a symbolic link",
+            "cache_path": str(unresolved_cache_root),
+            "apply": apply,
+            "removed": [],
+            "execution_allowed": False,
+        }
+    cache_root = unresolved_cache_root.resolve()
+    candidates: list[tuple[float, str, Path, int]] = []
+    if cache_root.is_dir():
+        for path in cache_root.rglob("*"):
+            try:
+                if path.is_file() and not path.is_symlink():
+                    stat = path.stat()
+                    candidates.append((stat.st_mtime, path.relative_to(cache_root).as_posix(), path, stat.st_size))
+            except OSError:
+                continue
+    candidates.sort(key=lambda item: (item[0], item[1]))
+    total_bytes = sum(item[3] for item in candidates)
+    remaining = total_bytes
+    selected: list[tuple[str, Path, int]] = []
+    for _modified, relative, path, size in candidates:
+        if remaining <= maximum_bytes:
+            break
+        selected.append((relative, path, size))
+        remaining -= size
+    removed: list[str] = []
+    failures: list[str] = []
+    if apply:
+        for relative, path, _size in selected:
+            try:
+                path.unlink()
+                removed.append(relative)
+            except OSError as exc:
+                failures.append(f"{relative}:{type(exc).__name__}")
+    return {
+        "status": "failed" if failures else "cleanup_required" if selected and not apply else "clean",
+        "cache_path": str(cache_root),
+        "maximum_bytes": int(maximum_bytes),
+        "observed_bytes": int(total_bytes),
+        "planned_removals": [relative for relative, _path, _size in selected],
+        "removed": removed,
+        "failures": failures,
+        "apply": apply,
+        "scope": "reproducible_generated_cache_only",
+        "execution_allowed": False,
+    }
 
 
 def _select_profile(snapshot: HardwareSnapshot, requested: str) -> tuple[str, str, tuple[str, ...]]:
@@ -259,6 +363,64 @@ def _positive_number(value: object) -> float | None:
     return number if math.isfinite(number) and number > 0 else None
 
 
+def _declared_positive(resources: dict[str, object], key: str) -> tuple[float | None, bool]:
+    """Return a positive declaration and whether a supplied value was invalid."""
+
+    if key not in resources:
+        return None, False
+    value = resources[key]
+    if value is None or isinstance(value, bool):
+        return None, True
+    number = _positive_number(value)
+    return number, number is None
+
+
+def _benchmark_summary(root: Path | None) -> dict[str, object]:
+    """Summarise the existing versioned local performance evidence."""
+
+    if root is None:
+        return {
+            "status": "unavailable",
+            "reason": "project root unavailable",
+            "timing_record_count": 0,
+            "measurements": [],
+            "network_calls": False,
+        }
+    try:
+        report = build_performance_report(root)
+    except (PerformanceBudgetError, OSError, TypeError, ValueError) as exc:
+        return {
+            "status": "unavailable",
+            "reason": f"{type(exc).__name__}: {exc}",
+            "timing_record_count": 0,
+            "measurements": [],
+            "network_calls": False,
+        }
+    relevant_ids = {
+        "startup_cold",
+        "algorithm_scores",
+        "screen_100",
+        "screen_1000",
+        "screen_10000",
+        "backtest",
+        "training",
+        "app_peak_memory",
+        "local_storage",
+    }
+    measurements = [
+        item
+        for item in report.get("measurements", [])
+        if isinstance(item, dict) and item.get("metric_id") in relevant_ids
+    ]
+    return {
+        "status": report.get("status", "unavailable"),
+        "timing_record_count": int(report.get("timing_record_count", 0)),
+        "measurements": measurements,
+        "failures": list(report.get("failures", [])),
+        "network_calls": False,
+    }
+
+
 def _finite_optional(value: object) -> float | None:
     try:
         number = float(value)
@@ -286,12 +448,39 @@ def _system_memory() -> tuple[float | None, float | None]:
                 return status.total / (1024 * 1024), status.available / (1024 * 1024)
         except (AttributeError, OSError, TypeError):
             pass
+    linux_memory = _linux_memory()
+    if linux_memory != (None, None):
+        return linux_memory
     try:
         pages = os.sysconf("SC_PHYS_PAGES")
         page_size = os.sysconf("SC_PAGE_SIZE")
         return pages * page_size / (1024 * 1024), None
     except (AttributeError, OSError, ValueError):
         return None, None
+
+
+def _linux_memory(path: Path = Path("/proc/meminfo")) -> tuple[float | None, float | None]:
+    """Read Linux total and available memory without an optional dependency."""
+
+    try:
+        rows = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None, None
+    values: dict[str, float] = {}
+    for row in rows:
+        name, separator, raw_value = row.partition(":")
+        if not separator or name not in {"MemTotal", "MemAvailable"}:
+            continue
+        parts = raw_value.split()
+        if not parts:
+            continue
+        try:
+            amount = float(parts[0])
+        except ValueError:
+            continue
+        multiplier = 1024 if len(parts) > 1 and parts[1].casefold() == "kb" else 1
+        values[name] = amount * multiplier / (1024 * 1024)
+    return values.get("MemTotal"), values.get("MemAvailable")
 
 
 def _no_gpu_probe() -> tuple[bool, str]:
@@ -310,11 +499,13 @@ def _limitations(snapshot: HardwareSnapshot) -> list[str]:
 __all__ = [
     "HardwareSnapshot",
     "PROFILES",
+    "RESOURCE_CACHE_RELATIVE",
     "RESOURCE_PROFILE_SCHEMA_VERSION",
     "ResourceDecision",
     "ResourcePolicy",
     "ResourceProfile",
     "detect_hardware",
     "estimate_workflow_resources",
+    "generated_cache_cleanup",
     "resource_profile_report",
 ]

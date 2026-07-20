@@ -3,13 +3,13 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "issue_id": "ISSUE-0095",
+      "issue_id": "ISSUE-0151",
       "from": "planned",
-      "to": "integrated"
+      "to": "hardening_required"
     }
   ],
-  "base_commit": "9641814ffeadb8ce7ddc4c91c9e6c77550a8d579",
-  "branch": "codex/issue-0095-growth-expectations-20260720",
-  "issue_ids": ["ISSUE-0095"],
+  "base_commit": "5607b1680bf354ece617ff36c502ba239b16403c",
+  "branch": "codex/issue-0151-hardware-profiles-20260720",
+  "issue_ids": ["ISSUE-0151"],
   "schema_version": "1.0"
 }

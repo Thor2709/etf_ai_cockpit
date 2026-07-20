@@ -44,18 +44,18 @@ Deliver the bounded typed local api and task-oriented frontend work with local-f
 | ID | Priority | Programme state | Owner | Blocking dependencies | Required inputs | Downstream issues | Related issues |
 |---|---|---|---|---|---|---|---|
 | `ISSUE-0011` | `P0` | `in_progress` | `frontend-and-api` | - | - | - | `ISSUE-0014`, `ISSUE-0045`, `ISSUE-0136`, `ISSUE-0143` |
-| `ISSUE-0016` | `P1` | `planned` | `frontend-and-api` | - | - | - | `ISSUE-0137`, `ISSUE-0138`, `ISSUE-0139`, `ISSUE-0140` |
+| `ISSUE-0016` | `P1` | `implemented_initially` | `frontend-and-api` | - | - | - | `ISSUE-0137`, `ISSUE-0138`, `ISSUE-0139`, `ISSUE-0140` |
 | `ISSUE-0017` | `P1` | `implemented_initially` | `frontend-and-api` | - | - | - | `ISSUE-0080`, `ISSUE-0146`, `ISSUE-0151` |
-| `ISSUE-0020` | `P1` | `planned` | `frontend-and-api` | - | - | - | `ISSUE-0073`, `ISSUE-0074`, `ISSUE-0098`, `ISSUE-0138` |
-| `ISSUE-0030` | `P0/P1` | `planned` | `frontend-and-api` | - | - | - | `ISSUE-0010`, `ISSUE-0057`, `ISSUE-0129`, `ISSUE-0147` |
+| `ISSUE-0020` | `P1` | `implemented_initially` | `frontend-and-api` | - | - | - | `ISSUE-0073`, `ISSUE-0074`, `ISSUE-0098`, `ISSUE-0138` |
+| `ISSUE-0030` | `P0/P1` | `implemented_initially` | `frontend-and-api` | - | - | - | `ISSUE-0010`, `ISSUE-0057`, `ISSUE-0129`, `ISSUE-0147` |
 | `ISSUE-0037` | `P1/P2` | `planned` | `frontend-and-api` | - | - | - | `ISSUE-0075`, `ISSUE-0076`, `ISSUE-0144` |
 | `ISSUE-0041` | `P1/P2` | `implemented_initially` | `frontend-and-api` | - | - | - | `ISSUE-0137`, `ISSUE-0140`, `ISSUE-0143` |
 | `ISSUE-0042` | `P1/P2` | `implemented_initially` | `frontend-and-api` | - | - | - | `ISSUE-0090`, `ISSUE-0138`, `ISSUE-0147` |
 | `ISSUE-0043` | `P2` | `planned` | `frontend-and-api` | - | - | `ISSUE-0148` | `ISSUE-0148`, `ISSUE-0149` |
 | `ISSUE-0045` | `P1` | `in_progress` | `frontend-and-api` | - | - | - | `ISSUE-0136`, `ISSUE-0143` |
 | `ISSUE-0136` | `P0` | `integrated` | `frontend-and-api` | `ISSUE-0071` | - | `ISSUE-0137`, `ISSUE-0139` | - |
-| `ISSUE-0137` | `P0/P1` | `planned` | `frontend-and-api` | `ISSUE-0136` | - | `ISSUE-0138`, `ISSUE-0139`, `ISSUE-0140` | - |
-| `ISSUE-0138` | `P0/P1` | `planned` | `frontend-and-api` | `ISSUE-0137` | - | - | - |
-| `ISSUE-0139` | `P0/P1` | `planned` | `frontend-and-api` | `ISSUE-0136`, `ISSUE-0137` | - | - | - |
-| `ISSUE-0140` | `P1` | `planned` | `frontend-and-api` | `ISSUE-0137` | - | - | - |
+| `ISSUE-0137` | `P0/P1` | `implemented_initially` | `frontend-and-api` | `ISSUE-0136` | - | `ISSUE-0138`, `ISSUE-0139`, `ISSUE-0140` | - |
+| `ISSUE-0138` | `P0/P1` | `implemented_initially` | `frontend-and-api` | `ISSUE-0137` | - | - | - |
+| `ISSUE-0139` | `P0/P1` | `implemented_initially` | `frontend-and-api` | `ISSUE-0136`, `ISSUE-0137` | - | - | - |
+| `ISSUE-0140` | `P1` | `implemented_initially` | `frontend-and-api` | `ISSUE-0137` | - | - | - |
 | `UPDATEV2-0027` | `P0` | `in_progress` | `frontend-and-api` | - | - | - | `ISSUE-0011`, `ISSUE-0012`, `ISSUE-0077`, `ISSUE-0136` |
