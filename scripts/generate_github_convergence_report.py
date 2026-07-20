@@ -53,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
         "application": {
             "status": "APPLIED_AND_VERIFIED",
             "readback_noop": final["summary"] == {"create": 0, "update": 0, "close": 0, "reopen": 0, "blocked": 0},
-            "reviewed_reopen_ids": ["ISSUE-0067"],
+            "reviewed_reopen_ids": ["ISSUE-0048", "ISSUE-0067", "ISSUE-0122"],
             "initial_action_summary": first,
             "applied_action_totals": applied,
         },
