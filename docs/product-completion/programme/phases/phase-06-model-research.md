@@ -43,11 +43,11 @@ Deliver the bounded training, validation and model governance work with local-fi
 
 | ID | Priority | Programme state | Owner | Blocking dependencies | Required inputs | Downstream issues | Related issues |
 |---|---|---|---|---|---|---|---|
-| `ISSUE-0117` | `P0` | `planned` | `model-governance` | `ISSUE-0027`, `ISSUE-0075` | - | `ISSUE-0118`, `ISSUE-0119`, `ISSUE-0121`, `ISSUE-0124` | - |
-| `ISSUE-0118` | `P1` | `planned` | `model-governance` | `ISSUE-0117` | - | - | - |
-| `ISSUE-0119` | `P0` | `planned` | `model-governance` | `ISSUE-0073`, `ISSUE-0117` | - | `ISSUE-0120` | - |
-| `ISSUE-0120` | `P0` | `planned` | `model-governance` | `ISSUE-0119` | - | `ISSUE-0121`, `ISSUE-0122`, `ISSUE-0123`, `ISSUE-0150` | - |
-| `ISSUE-0121` | `P0/P1` | `planned` | `model-governance` | `ISSUE-0117`, `ISSUE-0120` | - | - | - |
-| `ISSUE-0122` | `P1` | `planned` | `model-governance` | `ISSUE-0120` | - | - | - |
+| `ISSUE-0117` | `P0` | `implemented_initially` | `model-governance` | `ISSUE-0027`, `ISSUE-0075` | - | `ISSUE-0118`, `ISSUE-0119`, `ISSUE-0121`, `ISSUE-0124` | - |
+| `ISSUE-0118` | `P1` | `implemented_initially` | `model-governance` | `ISSUE-0117` | - | - | - |
+| `ISSUE-0119` | `P0` | `implemented_initially` | `model-governance` | `ISSUE-0073`, `ISSUE-0117` | - | `ISSUE-0120` | - |
+| `ISSUE-0120` | `P0` | `implemented_initially` | `model-governance` | `ISSUE-0119` | - | `ISSUE-0121`, `ISSUE-0122`, `ISSUE-0123`, `ISSUE-0150` | - |
+| `ISSUE-0121` | `P0/P1` | `implemented_initially` | `model-governance` | `ISSUE-0117`, `ISSUE-0120` | - | - | - |
+| `ISSUE-0122` | `P1` | `implemented_initially` | `model-governance` | `ISSUE-0120` | - | - | - |
 | `ISSUE-0123` | `P0/P1` | `planned` | `model-governance` | `ISSUE-0108`, `ISSUE-0120` | - | `ISSUE-0124` | - |
 | `ISSUE-0124` | `P0/P1` | `planned` | `model-governance` | `ISSUE-0117`, `ISSUE-0123` | - | - | - |

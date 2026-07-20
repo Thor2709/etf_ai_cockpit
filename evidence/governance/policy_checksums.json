@@ -1,12 +1,12 @@
 {
   "schema_version": "1.0",
   "generated_at_utc": "2026-07-17T02:30:00Z",
-  "source_commit": "3965de2d946cf5c637a3181f960141ab6fde6ec2",
+  "source_commit": "4bd97f9196b4dfecf6618242da0002974e46d587",
   "execution_allowed": false,
   "policies": {
     "authority_matrix": {
       "path": "configs/authority_matrix.yaml",
-      "sha256": "5e41784b925b296997fdd8e1fb51e0a85118000afe26bd355462db53e46b7b2c"
+      "sha256": "7a0beb6a39d6cb3e67df9b47ae23a8f807a07de94de968913d97c7b984641bbd"
     },
     "product_governance": {
       "path": "configs/product_governance.yaml",
@@ -14,7 +14,7 @@
     },
     "feature_registry": {
       "path": "configs/feature_registry.yaml",
-      "sha256": "3d885bd7a0f67884539822768a6eb680980b4afb96ea439e18ac5198a5e4ccc7"
+      "sha256": "8a93a92ba993b695d99ec757250a6dd42bb32d1bb75da38eaca84c067ee8480b"
     },
     "strategy_scope": {
       "path": "configs/strategy_scope.yaml",

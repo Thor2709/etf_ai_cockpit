@@ -46,5 +46,5 @@ Deliver the bounded audit, reproducibility, documentation and governance work wi
 | `ISSUE-0147` | `P0` | `planned` | `audit-and-reproducibility` | `ISSUE-0075`, `UPDATEV2-0028` | - | - | - |
 | `ISSUE-0148` | `P0/P1` | `planned` | `documentation` | `ISSUE-0043` | - | - | - |
 | `ISSUE-0149` | `P0` | `hardening_required` | `programme-governance` | `ISSUE-0080` | - | `ISSUE-0079` | `ISSUE-0079` |
-| `ISSUE-0150` | `P0/P1` | `planned` | `model-governance` | `ISSUE-0090`, `ISSUE-0120` | - | - | - |
-| `ISSUE-0151` | `P1` | `planned` | `quality-and-release` | `ISSUE-0078` | - | - | - |
+| `ISSUE-0150` | `P0/P1` | `implemented_initially` | `model-governance` | `ISSUE-0090`, `ISSUE-0120` | - | - | - |
+| `ISSUE-0151` | `P1` | `hardening_required` | `quality-and-release` | `ISSUE-0078` | - | - | - |

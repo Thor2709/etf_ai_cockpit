@@ -52,6 +52,7 @@ from etf_cockpit.application.contracts import (
 )
 from etf_cockpit.core.job_scheduler import DurableJobScheduler, JobSpec
 from etf_cockpit.core.paths import ROOT
+from etf_cockpit.core.resource_profiles import estimate_workflow_resources
 
 
 SnapshotProvider = Callable[[], object]
@@ -484,14 +485,25 @@ class LocalApplicationApi:
                 return _result(command, ApiStatus.FAILED, revision=self.revision, error_code="command_failed", error_message=f"{type(exc).__name__}: {exc}")
         if isinstance(command, SubmitWorkflowCommand):
             try:
+                estimate = estimate_workflow_resources(
+                    command.workflow_type,
+                    requested_profile=self._scheduler.resource_policy.requested_profile,
+                    snapshot=self._scheduler.resource_policy.snapshot,
+                )
+                resources = {
+                    "profile": estimate["profile"],
+                    "cpu": estimate["cpu"],
+                    "memory_mb": estimate["memory_mb"],
+                    "disk_mb": estimate["disk_mb"],
+                }
                 workflow = self._scheduler.submit(
                     command.workflow_type,
                     command.label,
-                    tuple(JobSpec(key, f"{command.label}: {key}") for key in command.job_keys),
+                    tuple(JobSpec(key, f"{command.label}: {key}", resources=resources) for key in command.job_keys),
                     input_payload=command.input_payload,
                     dedupe_key=command.dedupe_key or command.idempotency_key,
                 )
-                return _result(command, ApiStatus.ACCEPTED, revision=self.revision, resource_id=workflow.workflow_id, details=(("status", workflow.status.value),))
+                return _result(command, ApiStatus.ACCEPTED, revision=self.revision, resource_id=workflow.workflow_id, details=(("status", workflow.status.value), ("profile", str(estimate["profile"])), ("memory_mb", str(estimate["memory_mb"])), ("disk_mb", str(estimate["disk_mb"]))))
             except Exception as exc:
                 return _result(command, ApiStatus.FAILED, revision=self.revision, error_code="workflow_submit_failed", error_message=f"{type(exc).__name__}: {exc}")
         if isinstance(command, CancelWorkflowCommand):

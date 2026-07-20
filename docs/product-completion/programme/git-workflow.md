@@ -1,8 +1,8 @@
 # Git workflow
 
-- Working branch: `implementation/step2-issue-0152-certification-20260717`.
-- Base: `716c18e578903d000de9a8dbc441f43f014a95d4` (`origin/main`).
-- Worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\step2-integration-20260717`.
+- Working branch: `codex/issue-0151-hardware-profiles-20260720`.
+- Base: `5607b1680bf354ece617ff36c502ba239b16403c` (`origin/main`).
+- Worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\issue0151-hardware-profiles-20260720`.
 - Keep the primary checkout and its unrelated untracked files untouched.
 - Review `git diff`, run targeted checks, commit the focused change, then use capability-based GitHub checks before any push or issue apply.
 - Do not commit the supplied ZIP; commit the archived extracted members, manifest, registry, documents, scripts and tests.

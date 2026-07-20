@@ -21,6 +21,9 @@ def test_versioned_budget_policy_is_complete_and_sorted() -> None:
     assert budgets
     assert [item.metric_id for item in budgets] == sorted(item.metric_id for item in budgets)
     assert {item.unit for item in budgets} >= {"ms", "MiB", "bytes"}
+    assert {"startup_cold", "algorithm_scores", "backtest", "training"} <= {
+        item.metric_id for item in budgets
+    }
     assert all(item.tolerance_pct >= 0 for item in budgets)
 
 

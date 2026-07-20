@@ -43,16 +43,16 @@ Deliver the bounded backtest, paper trading and staged execution work with local
 
 | ID | Priority | Programme state | Owner | Blocking dependencies | Required inputs | Downstream issues | Related issues |
 |---|---|---|---|---|---|---|---|
-| `ISSUE-0031` | `P1` | `planned` | `trading-safety` | - | - | `ISSUE-0129` | `ISSUE-0125`, `ISSUE-0127`, `ISSUE-0130` |
+| `ISSUE-0031` | `P1` | `integrated` | `trading-safety` | - | - | `ISSUE-0129` | `ISSUE-0125`, `ISSUE-0127`, `ISSUE-0130` |
 | `ISSUE-0032` | `P2` | `planned` | `trading-safety` | - | - | `ISSUE-0070` | `ISSUE-0070`, `ISSUE-0131`, `ISSUE-0135` |
-| `ISSUE-0057` | `P1` | `planned` | `trading-safety` | - | - | `ISSUE-0129` | `ISSUE-0075`, `ISSUE-0129`, `ISSUE-0147` |
+| `ISSUE-0057` | `P1` | `integrated` | `trading-safety` | - | - | `ISSUE-0129` | `ISSUE-0075`, `ISSUE-0129`, `ISSUE-0147` |
 | `ISSUE-0066` | `P2` | `planned` | `trading-safety` | - | - | `ISSUE-0070`, `ISSUE-0131` | `ISSUE-0070`, `ISSUE-0127`, `ISSUE-0131`, `ISSUE-0135` |
-| `ISSUE-0125` | `P0` | `planned` | `backtest-and-paper` | `ISSUE-0028`, `ISSUE-0050` | - | - | - |
+| `ISSUE-0125` | `P0` | `implemented_initially` | `backtest-and-paper` | `ISSUE-0028`, `ISSUE-0050` | - | - | - |
 | `ISSUE-0126` | `P0` | `planned` | `backtest-and-paper` | `ISSUE-0073`, `ISSUE-0082` | - | - | - |
 | `ISSUE-0127` | `P0` | `planned` | `trading-safety` | `ISSUE-0072`, `ISSUE-0084` | - | `ISSUE-0131`, `ISSUE-0142` | - |
-| `ISSUE-0128` | `P0/P1` | `planned` | `trading-safety` | `ISSUE-0064` | - | `ISSUE-0106` | `ISSUE-0106` |
-| `ISSUE-0129` | `P0` | `planned` | `backtest-and-paper` | `ISSUE-0031`, `ISSUE-0057` | - | - | - |
-| `ISSUE-0130` | `P0` | `planned` | `trading-safety` | `ISSUE-0070`, `ISSUE-0114` | - | - | - |
+| `ISSUE-0128` | `P0/P1` | `implemented_initially` | `trading-safety` | `ISSUE-0064` | - | `ISSUE-0106` | `ISSUE-0106` |
+| `ISSUE-0129` | `P0` | `integrated` | `backtest-and-paper` | `ISSUE-0031`, `ISSUE-0057` | - | - | - |
+| `ISSUE-0130` | `P0` | `integrated` | `trading-safety` | `ISSUE-0070`, `ISSUE-0114` | - | - | - |
 | `ISSUE-0131` | `P0/P1` | `planned` | `trading-safety` | `ISSUE-0066`, `ISSUE-0127` | - | `ISSUE-0132`, `ISSUE-0134`, `ISSUE-0135` | - |
 | `ISSUE-0132` | `P0` | `planned` | `trading-safety` | `ISSUE-0131` | - | `ISSUE-0133`, `ISSUE-0135`, `ISSUE-0142` | - |
 | `ISSUE-0133` | `P0` | `planned` | `trading-safety` | `ISSUE-0132`, `ISSUE-0152` | - | - | - |

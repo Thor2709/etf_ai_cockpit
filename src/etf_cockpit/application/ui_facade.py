@@ -52,6 +52,7 @@ from etf_cockpit.application.screening_data import *  # noqa: F401,F403
 from etf_cockpit.data.screen_store import *  # noqa: F401,F403
 from etf_cockpit.core.versioning import *  # noqa: F401,F403
 from etf_cockpit.core.job_scheduler import *  # noqa: F401,F403
+from etf_cockpit.core.resource_profiles import *  # noqa: F401,F403
 from etf_cockpit.models.forecast_scores import *  # noqa: F401,F403
 from etf_cockpit.models.coverage_audit import *  # noqa: F401,F403
 from etf_cockpit.models.local_weights import *  # noqa: F401,F403

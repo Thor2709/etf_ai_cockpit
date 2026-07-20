@@ -44,6 +44,18 @@ def test_stock_research_registry_exposes_growth_expectations_contract() -> None:
     assert stock_research.execution_allowed is False
 
 
+def test_hardware_profiles_are_exposed_by_onboarding_and_jobs() -> None:
+    result = load_feature_registry(DEFAULT_POLICY_PATHS.feature_registry)
+
+    assert result.policy is not None
+    entries = {entry.feature_id: entry for entry in result.policy.entries}
+    assert "ISSUE-0151" in entries["onboarding"].issue_ids
+    assert "ISSUE-0151" in entries["jobs"].issue_ids
+    assert "resource_profiles" in entries["jobs"].data_dependencies
+    assert entries["jobs"].lifecycle == "supported_with_limitations"
+    assert entries["jobs"].execution_allowed is False
+
+
 def test_feature_registry_rejects_duplicate_routes(tmp_path: Path) -> None:
     path = write_yaml(
         tmp_path,

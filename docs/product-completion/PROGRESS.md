@@ -8,16 +8,16 @@ This file is generated from `issues/issue_registry.json`; it contains no wall-cl
 |---|---:|
 | `blocked` | 1 |
 | `closed` | 4 |
-| `hardening_required` | 3 |
+| `hardening_required` | 4 |
 | `implemented_initially` | 58 |
 | `in_progress` | 9 |
 | `integrated` | 32 |
-| `planned` | 50 |
+| `planned` | 49 |
 | `research_only` | 2 |
 
 ## Ready issues
 
-`ISSUE-0097`, `ISSUE-0151`, `UPDATEV2-0018`, `UPDATEV2-0020`, `UPDATEV2-0023`, `UPDATEV2-0026`, `ISSUE-0029`, `ISSUE-0037`, `ISSUE-0046`, `ISSUE-0051`, `ISSUE-0053`, `ISSUE-0010`, `ISSUE-0032`, `ISSUE-0033`, `ISSUE-0043`, `ISSUE-0058`, `ISSUE-0066`, `UPDATEV2-0024`, `UPDATEV2-0025`, `UPDATEV2-0030`
+`ISSUE-0097`, `UPDATEV2-0018`, `UPDATEV2-0020`, `UPDATEV2-0023`, `UPDATEV2-0026`, `ISSUE-0029`, `ISSUE-0037`, `ISSUE-0046`, `ISSUE-0051`, `ISSUE-0053`, `ISSUE-0010`, `ISSUE-0032`, `ISSUE-0033`, `ISSUE-0043`, `ISSUE-0058`, `ISSUE-0066`, `UPDATEV2-0024`, `UPDATEV2-0025`, `UPDATEV2-0030`
 
 ## Phase coverage
 

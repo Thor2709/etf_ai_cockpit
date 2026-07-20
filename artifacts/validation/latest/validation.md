@@ -2,17 +2,17 @@
 
 - Schema: `1.0`
 - Mode: `issue`
-- Generated: `2026-07-20T10:39:37.911+00:00`
-- Duration: `11438.377 ms`
+- Generated: `2026-07-20T12:27:43.109+00:00`
+- Duration: `6104.326 ms`
 
 ## Checks
 
 | Check | Status | Exit code | Duration | Required |
 |---|---|---:|---:|---|
-| `scope_selection` | `passed` | 0 | 3.219 ms | True |
-| `issue_registry` | `passed` | 0 | 252.015 ms | True |
-| `source_compile` | `passed` | 0 | 354.064 ms | True |
-| `source_smoke` | `passed` | 0 | 10823.143 ms | True |
+| `scope_selection` | `passed` | 0 | 2.201 ms | True |
+| `issue_registry` | `passed` | 0 | 98.882 ms | True |
+| `source_compile` | `passed` | 0 | 128.806 ms | True |
+| `source_smoke` | `passed` | 0 | 5872.239 ms | True |
 
 ## Failures
 
@@ -28,7 +28,7 @@
 ```json
 {
   "issue_ids": [
-    "ISSUE-0095"
+    "ISSUE-0151"
   ],
   "phase_ids": []
 }
