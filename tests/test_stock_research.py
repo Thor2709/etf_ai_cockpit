@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pandas as pd
 
 from etf_cockpit.data.stock_research import (
     balance_sheet_analysis,
     build_stock_research_report,
+    growth_analysis,
+    load_optional_research_import,
     profitability_analysis,
     valuation_analysis,
 )
@@ -121,9 +125,246 @@ def test_valuation_fails_closed_when_cash_flow_inputs_are_unavailable() -> None:
     assert result["relative_metrics"]["price_to_earnings"]["status"] == "missing"
 
 
-def test_combined_report_keeps_three_sections_and_provenance_boundary() -> None:
+def test_combined_report_keeps_research_sections_and_provenance_boundary() -> None:
     report = build_stock_research_report(_statements(), instrument_id="ACME", market_inputs={"market_cap": 300.0}, assumptions={})
 
-    assert set(report) >= {"profitability", "balance_sheet", "valuation", "execution_allowed", "source_lineage"}
+    assert report["schema_version"] == "stock_research.v2"
+    assert set(report) >= {"profitability", "balance_sheet", "valuation", "growth", "expectations", "execution_allowed", "source_lineage"}
     assert report["execution_allowed"] is False
     assert report["source_lineage"]["statement_view"] == "latest_restated"
+
+
+def test_growth_keeps_aggregate_and_per_share_series_period_aligned() -> None:
+    result = growth_analysis(_statements(), instrument_id="ACME")
+
+    revenue = result["series"]["aggregate"]["revenue"]
+    eps = result["series"]["per_share"]["earnings_per_share"]
+    fcf_per_share = result["series"]["per_share"]["free_cash_flow_per_share"]
+
+    assert revenue["basis"] == "aggregate"
+    assert revenue["latest_growth"]["value"] == 120.0 / 110.0 - 1.0
+    assert eps["basis"] == "per_share"
+    assert eps["history"][-1]["value"] == 2.0
+    assert eps["latest_growth"]["value"] == 2.0 / 1.5 - 1.0
+    assert fcf_per_share["history"][-1]["value"] == 2.3
+    assert fcf_per_share["latest_growth"]["value"] == 2.3 / 1.8 - 1.0
+    assert result["execution_allowed"] is False
+
+
+def test_growth_marks_zero_and_negative_bases_without_inventing_percentages() -> None:
+    frame = _statements()
+    frame.loc[(frame["canonical_metric"] == "revenue") & (frame["fiscal_year"] == 2025), "value"] = 0.0
+    result = growth_analysis(frame, instrument_id="ACME")
+    latest = result["series"]["aggregate"]["revenue"]["latest_growth"]
+
+    assert latest["status"] == "base_effect"
+    assert latest["base_effect"] == "prior_zero"
+    assert latest["value"] is None
+
+
+def test_growth_uses_latest_restatement_for_the_same_period() -> None:
+    frame = _statements()
+    amended = frame[(frame["canonical_metric"] == "revenue") & (frame["fiscal_year"] == 2025)].copy()
+    amended.loc[:, "value"] = 130.0
+    amended.loc[:, "filed"] = "2026-02-15"
+    amended.loc[:, "source_id"] = "filing-2025-amended"
+    amended.loc[:, "restatement_kind"] = "amended"
+
+    result = growth_analysis(pd.concat([frame, amended], ignore_index=True), instrument_id="ACME")
+
+    latest = result["series"]["aggregate"]["revenue"]["latest_growth"]
+    assert latest["base_period_key"].endswith(":FY")
+    assert latest["value"] == 120.0 / 130.0 - 1.0
+    assert "filing-2025-amended" in latest["source_ids"]
+
+
+def test_growth_does_not_bridge_an_unavailable_intermediate_period() -> None:
+    frame = _statements()
+    frame = frame[~((frame["canonical_metric"] == "revenue") & (frame["fiscal_year"] == 2025))]
+
+    result = growth_analysis(frame, instrument_id="ACME")
+    revenue = result["series"]["aggregate"]["revenue"]
+
+    latest = revenue["latest_growth"]
+    assert latest["period_key"].endswith("2026-12-31:FY")
+    assert latest["status"] == "missing"
+    assert latest["base_effect"] == "missing_period"
+    assert latest["value"] is None
+
+
+def test_growth_marks_a_negative_current_value_as_a_base_effect() -> None:
+    frame = _statements()
+    frame.loc[(frame["canonical_metric"] == "revenue") & (frame["fiscal_year"] == 2026), "value"] = -10.0
+
+    latest = growth_analysis(frame, instrument_id="ACME")["series"]["aggregate"]["revenue"]["latest_growth"]
+
+    assert latest["status"] == "available"
+    assert latest["base_effect"] == "current_negative"
+    assert latest["value"] == -10.0 / 110.0 - 1.0
+
+
+def test_growth_keeps_organic_and_acquisition_evidence_separate() -> None:
+    frame = _statements()
+    organic_rows = frame[frame["canonical_metric"] == "revenue"].copy()
+    organic_rows.loc[:, "canonical_metric"] = "organic_revenue"
+    organic_rows.loc[:, "value"] = organic_rows["value"] - 5.0
+    organic_rows.loc[:, "acquisition_flag"] = [False, True, True]
+    acquisition_rows = organic_rows.copy()
+    acquisition_rows.loc[:, "canonical_metric"] = "acquisition_revenue"
+    acquisition_rows.loc[:, "value"] = 5.0
+
+    result = growth_analysis(pd.concat([frame, organic_rows, acquisition_rows], ignore_index=True), instrument_id="ACME")
+    organic = result["organic_inorganic"]
+
+    assert organic["status"] == "available"
+    assert organic["organic_growth"]["latest_growth"]["value"] == 115.0 / 105.0 - 1.0
+    assert organic["inorganic_growth"]["latest_growth"]["value"] == 0.0
+    assert organic["acquisition_flags"]
+
+
+def test_expectations_require_point_in_time_authorised_evidence_and_reject_current_fields() -> None:
+    report = build_stock_research_report(
+        _statements(),
+        instrument_id="ACME",
+        expectation_evidence=[{"metric": "revenue", "period_key": "FY2026", "value": 125.0}],
+        guidance_evidence=[{"metric": "revenue", "period_key": "FY2026", "value": 125.0, "review_status": "draft"}],
+    )
+
+    assert report["expectations"]["consensus"]["status"] == "unavailable"
+    assert report["expectations"]["guidance"]["status"] == "unavailable"
+    assert report["expectations"]["consensus"]["rejected_records"]
+    assert report["expectations"]["guidance"]["rejected_records"]
+
+
+def test_expectations_are_cutoff_safe_and_record_revision_surprise_and_staleness() -> None:
+    statements = _statements().assign(available_at="2026-01-15T00:00:00Z")
+    evidence = [
+        {"metric": "revenue", "period_key": "FY2026", "value": 118.0, "available_at": "2026-01-20", "source_id": "user-estimate-1", "source_authority": "user_owned", "source_checksum": "a" * 64},
+        {"metric": "revenue", "period_key": "FY2026", "value": 121.0, "available_at": "2026-01-30", "source_id": "user-estimate-1", "source_authority": "user_owned", "source_checksum": "a" * 64},
+        {"metric": "revenue", "period_key": "FY2026", "value": 999.0, "available_at": "2026-03-01", "source_id": "user-estimate-future", "source_authority": "user_owned", "source_checksum": "a" * 64},
+        {"metric": "revenue", "period_key": "FY2026", "value": 999.0, "available_at": "2026-01-25", "source_id": "yahoo-current", "source_authority": "user_owned", "source_checksum": "a" * 64},
+    ]
+
+    report = build_stock_research_report(statements, instrument_id="ACME", expectation_evidence=evidence, as_known_at="2026-02-01")
+    item = report["expectations"]["consensus"]["metrics"]["revenue"]["FY2026"]
+
+    assert item["latest_value"] == 121.0
+    assert item["revision"]["value"] == 3.0
+    assert item["dispersion"]["status"] == "not_available"
+    assert item["surprise"]["value"] == -1.0
+    assert item["staleness"]["days"] == 2
+    assert any("after_as_known_cutoff" in reason for reason in report["expectations"]["consensus"]["rejected_records"])
+    assert any("current_or_restricted_provider_rejected" in reason for reason in report["expectations"]["consensus"]["rejected_records"])
+
+
+def test_guidance_requires_source_and_review_metadata() -> None:
+    report = build_stock_research_report(
+        _statements(),
+        instrument_id="ACME",
+        guidance_evidence=[
+            {"metric": "revenue", "period_key": "FY2026", "lower": 118.0, "upper": 123.0, "guidance_text": "Official range", "available_at": "2026-02-01", "source_id": "issuer-release-1", "source_authority": "official", "source_checksum": "b" * 64, "review_status": "structured"},
+        ],
+    )
+
+    item = report["expectations"]["guidance"]["items"][0]
+    assert report["expectations"]["guidance"]["status"] == "available"
+    assert item["lower"] == 118.0
+    assert item["upper"] == 123.0
+    assert item["review_status"] == "structured"
+    assert item["source_id"] == "issuer-release-1"
+
+
+def test_expectations_reject_malformed_dates_and_forged_current_analyst_authority() -> None:
+    report = build_stock_research_report(
+        _statements(),
+        instrument_id="ACME",
+        expectation_evidence=[
+            {"metric": "revenue", "period_key": "FY2026", "value": 121.0, "available_at": pd.NaT, "source_id": "import-1", "source_authority": "user_owned", "source_checksum": "a" * 64},
+            {"metric": "revenue", "period_key": "FY2026", "value": 121.0, "available_at": "2026-01-30", "source_id": "forged-analyst", "source_authority": "official", "source_kind": "current_analyst", "source_checksum": "b" * 64},
+        ],
+    )
+
+    assert report["expectations"]["consensus"]["status"] == "unavailable"
+    rejected = report["expectations"]["consensus"]["rejected_records"]
+    assert any("missing_or_unlicensed_provenance" in reason for reason in rejected)
+    assert any("current_or_restricted_provider_rejected" in reason for reason in rejected)
+
+
+def test_optional_consensus_import_is_instrument_scoped_and_file_checksummed(tmp_path: Path) -> None:
+    path = tmp_path / "consensus.csv"
+    pd.DataFrame([
+        {"instrument_id": "ACME", "metric": "revenue", "period_key": "FY2026", "value": 121.0, "available_at": "2026-01-30", "source_id": "licensed-import", "source_authority": "broker_licensed"},
+        {"instrument_id": "OTHER", "metric": "revenue", "period_key": "FY2026", "value": 999.0, "available_at": "2026-01-30", "source_id": "other-import", "source_authority": "broker_licensed"},
+    ]).to_csv(path, index=False)
+
+    evidence = load_optional_research_import(path, instrument_id="ACME")
+    report = build_stock_research_report(_statements(), instrument_id="ACME", expectation_evidence=evidence, as_known_at="2026-02-01")
+
+    assert evidence["instrument_id"].tolist() == ["ACME"]
+    assert len(evidence.loc[0, "source_checksum"]) == 64
+    item = report["expectations"]["consensus"]["metrics"]["revenue"]["FY2026"]
+    assert item["latest_value"] == 121.0
+    assert item["license_statuses"] == ["broker_licensed"]
+
+
+def test_shared_optional_import_without_instrument_identity_fails_closed(tmp_path: Path) -> None:
+    path = tmp_path / "guidance.csv"
+    pd.DataFrame([{"metric": "revenue", "period_key": "FY2026", "lower": 118.0, "upper": 123.0, "available_at": "2026-02-01", "source_id": "issuer-release", "source_authority": "official", "review_status": "structured"}]).to_csv(path, index=False)
+
+    evidence = load_optional_research_import(path, instrument_id="ACME")
+    report = build_stock_research_report(_statements(), instrument_id="ACME", guidance_evidence=evidence)
+
+    assert evidence.empty
+    assert evidence.attrs["import_status"] == "rejected"
+    assert report["expectations"]["guidance"]["rejected_records"] == ["import:missing_instrument_id"]
+
+
+def test_consensus_and_guidance_authority_classes_do_not_cross() -> None:
+    common = {"metric": "revenue", "period_key": "FY2026", "value": 121.0, "available_at": "2026-01-30", "source_id": "evidence", "source_checksum": "a" * 64}
+    report = build_stock_research_report(_statements(), instrument_id="ACME", expectation_evidence=[{**common, "source_authority": "official"}], guidance_evidence=[{**common, "source_authority": "user_owned", "review_status": "human_reviewed"}])
+
+    assert report["expectations"]["consensus"]["status"] == "unavailable"
+    assert report["expectations"]["guidance"]["status"] == "unavailable"
+    assert all("missing_or_unlicensed_provenance" in reason for reason in report["expectations"]["consensus"]["rejected_records"])
+    assert all("missing_or_unlicensed_provenance" in reason for reason in report["expectations"]["guidance"]["rejected_records"])
+
+
+def test_optional_evidence_rejects_missing_periods_and_incoherent_guidance_ranges() -> None:
+    consensus = {"metric": "revenue", "value": 121.0, "available_at": "2026-01-30", "source_id": "licensed-import", "source_authority": "user_owned", "source_checksum": "a" * 64}
+    guidance = {"metric": "revenue", "period_key": "FY2026", "lower": 125.0, "upper": 120.0, "available_at": "2026-01-30", "source_id": "issuer-release", "source_authority": "official", "source_checksum": "b" * 64, "review_status": "structured"}
+
+    report = build_stock_research_report(_statements(), instrument_id="ACME", expectation_evidence=[consensus], guidance_evidence=[guidance])
+
+    assert report["expectations"]["consensus"]["rejected_records"] == ["row_0:missing_metric_period_or_value"]
+    assert report["expectations"]["guidance"]["rejected_records"] == ["row_0:invalid_guidance_range"]
+
+
+def test_optional_evidence_rejects_missing_guidance_period_and_unlicensed_consensus() -> None:
+    common = {"metric": "revenue", "value": 121.0, "available_at": "2026-01-30", "source_id": "evidence", "source_checksum": "a" * 64}
+    report = build_stock_research_report(
+        _statements(),
+        instrument_id="ACME",
+        expectation_evidence=[{**common, "period_key": "FY2026", "source_authority": "user_owned", "license_status": "unlicensed"}],
+        guidance_evidence=[{**common, "source_authority": "official", "review_status": "structured"}],
+    )
+
+    assert report["expectations"]["consensus"]["rejected_records"] == ["row_0:missing_or_unlicensed_provenance"]
+    assert report["expectations"]["guidance"]["rejected_records"] == ["row_0:missing_guidance_period"]
+
+
+def test_optional_evidence_handles_pandas_missing_scalars_without_truthiness_errors() -> None:
+    evidence = pd.DataFrame([
+        {
+            "metric": "revenue",
+            "period_key": "FY2026",
+            "value": 121.0,
+            "available_at": pd.NA,
+            "source_id": pd.NA,
+            "source_authority": "user_owned",
+            "source_checksum": "a" * 64,
+        }
+    ])
+
+    report = build_stock_research_report(_statements(), instrument_id="ACME", expectation_evidence=evidence)
+
+    assert report["expectations"]["consensus"]["rejected_records"] == ["row_0:missing_or_unlicensed_provenance"]

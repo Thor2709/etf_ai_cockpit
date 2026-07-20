@@ -3,13 +3,13 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "issue_id": "ISSUE-0064",
-      "from": "implemented_initially",
+      "issue_id": "ISSUE-0095",
+      "from": "planned",
       "to": "integrated"
     }
   ],
-  "base_commit": "2dcf6ef32356260fa31e334f4f2aab7f9448a750",
-  "branch": "codex/issue-0064-friction-adjusted-20260719",
-  "issue_ids": ["ISSUE-0064"],
+  "base_commit": "9641814ffeadb8ce7ddc4c91c9e6c77550a8d579",
+  "branch": "codex/issue-0095-growth-expectations-20260720",
+  "issue_ids": ["ISSUE-0095"],
   "schema_version": "1.0"
 }

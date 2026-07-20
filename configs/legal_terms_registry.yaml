@@ -29,6 +29,24 @@ sources:
     audit_export: metadata_only
     attribution: "Retain issuer, document date, source URL and checksum metadata."
     review_note: "Document contents stay local unless the user has permission to share them."
+  - source_id: issuer_guidance_import
+    source_kind: user_supplied_official
+    terms_status: recorded_restricted
+    terms_reference: "Issuer guidance document terms and any applicable distribution restrictions."
+    permitted_cache: local_only
+    redistribution: prohibited_without_permission
+    audit_export: metadata_only
+    attribution: "Retain issuer, guidance period, review status, source reference and checksum metadata."
+    review_note: "Only structured or human-reviewed official guidance is accepted; imported contents stay local."
+  - source_id: licensed_consensus_import
+    source_kind: optional_user_or_broker_licensed
+    terms_status: restricted_review_required
+    terms_reference: "The user must own the point-in-time data or hold an applicable broker/vendor licence."
+    permitted_cache: local_user_only
+    redistribution: prohibited
+    audit_export: metadata_only
+    attribution: "Retain declared ownership/licence status, source identity, as-known timestamp and checksum."
+    review_note: "Current analyst fields and restricted services are not scraped; disable imports when permission or point-in-time provenance is unclear."
   - source_id: filings_xbrl_org
     source_kind: official_bulk
     terms_status: recorded

@@ -5983,7 +5983,7 @@
       "package_status": "",
       "phase": "phase-03-stock-research",
       "priority": "P1",
-      "programme_status": "planned",
+      "programme_status": "integrated",
       "related_issues": [],
       "required_inputs": [],
       "security_and_audit": "Analyst-data licences and user ownership are recorded; restricted services are not scraped.",
