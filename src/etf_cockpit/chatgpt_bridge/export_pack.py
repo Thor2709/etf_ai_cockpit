@@ -58,6 +58,7 @@ from etf_cockpit.governance.product_scope import (
     load_product_governance,
     load_strategy_scope,
 )
+from etf_cockpit.governance.capability_scope import strategy_capability_export
 from etf_cockpit.governance.supply_chain_intake import supply_chain_intake_report
 from etf_cockpit.portfolio.allocation import allocation_frame
 
@@ -107,6 +108,7 @@ _COMPLETE_AUDIT_REQUIRED: tuple[tuple[str, str, bool], ...] = (
     ("evidence_export/configs/supply_chain_intake.yaml", "governance", False),
     ("evidence_export/governance/legal_terms_registry.json", "governance", False),
     ("evidence_export/governance/supply_chain_intake.json", "governance", False),
+    ("evidence_export/governance/strategy_capability_matrix.json", "governance", False),
     ("evidence_export/project_docs/issue_dossiers.json", "issue_dossier", True),
     ("evidence_export/checksum_manifest.json", "audit", False),
     ("checksum_manifest.json", "audit", False),
@@ -430,6 +432,7 @@ def export_review_pack(
     _export_decision_journal_summary(export_dir / "evidence_export" / "decision_journal_summary.json")
     _export_macro_warehouse_summary(export_dir / "evidence_export" / "macro_warehouse_summary.json")
     _export_data_catalogue_summary(export_dir / "evidence_export" / "data_catalogue_summary.json")
+    _export_strategy_capability_matrix(export_dir / "evidence_export" / "governance" / "strategy_capability_matrix.json")
     combined = [
         "# Combined External Audit Packet",
         "",
@@ -523,6 +526,25 @@ def _export_data_catalogue_summary(path: Path) -> None:
     summary.setdefault("schema_version", "1.0")
     summary.setdefault("execution_allowed", False)
     path.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _export_strategy_capability_matrix(path: Path) -> None:
+    """Write the exact governed strategy/instrument matrix into the audit packet."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    loaded = load_strategy_scope()
+    if loaded.policy is None or loaded.diagnostic_mode:
+        payload: dict[str, object] = {
+            "schema_version": loaded.schema_version,
+            "matrix_version": "unavailable",
+            "status": "unavailable",
+            "diagnostics": list(loaded.diagnostics),
+            "execution_allowed": False,
+        }
+    else:
+        payload = strategy_capability_export(loaded.policy)
+        payload["status"] = "available"
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
 
 def _write_audit_manifest(export_dir: Path, derived_manifest: dict[str, object], evidence_manifest: dict[str, object]) -> None:

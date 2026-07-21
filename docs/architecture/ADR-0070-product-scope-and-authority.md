@@ -30,6 +30,21 @@ load, checksum-bearing in audit exports and fails closed if the required
 stage set or capability coverage is incomplete. Risk and evidence gates remain
 authoritative over scores, forecasts, audit commentary and UI actions.
 
+`configs/strategy_scope.yaml` is the instrument-and-strategy refinement of
+that authority ladder. Every strategy resolves through an explicit profile
+for analyse, portfolio, backtest, paper, draft-order, canary and bounded-
+automatic stages. Every supported instrument family declares classification
+aliases, horizons, long-only actions and data, model, liquidity, broker and
+legal prerequisites. Unknown or conflicting classifications and excluded
+OTC, microcap, illiquid, leveraged, inverse, derivative, crypto, short and
+complex-structured products fail closed with deterministic reason codes.
+Risk profiles cannot override those exclusions.
+
+The matrix can describe a later stage without activating it. Draft-order,
+canary and bounded-automatic cells are unavailable or rejected in the current
+policy, and every resolved row and audit export states
+`execution_allowed=false`.
+
 Historical rejection records are preserved. This ADR supersedes ambiguous
 scope wording for the current completion programme; it does not grant live
 execution authority or promise returns, alpha or equivalence with a

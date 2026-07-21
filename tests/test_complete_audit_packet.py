@@ -35,6 +35,7 @@ COMPLETE_AUDIT_ARTEFACTS = {
     "evidence_export/decision_journal_summary.json",
     "evidence_export/macro_warehouse_summary.json",
     "evidence_export/data_catalogue_summary.json",
+    "evidence_export/governance/strategy_capability_matrix.json",
     "evidence_export/bitemporal_vintage_manifest.json",
     "evidence_export/session.jsonl",
     "evidence_export/workflow.jsonl",
@@ -44,6 +45,20 @@ COMPLETE_AUDIT_ARTEFACTS = {
     "evidence_export/checksum_manifest.json",
     "checksum_manifest.json",
 }
+
+
+def test_strategy_capability_matrix_is_exported_as_governance_evidence(tmp_path: Path) -> None:
+    destination = tmp_path / "strategy_capability_matrix.json"
+
+    export_pack._export_strategy_capability_matrix(destination)
+    payload = json.loads(destination.read_text(encoding="utf-8"))
+
+    assert payload["matrix_version"] == "2026-07-21"
+    assert payload["execution_allowed"] is False
+    assert payload["strategy_matrix"]
+    assert payload["instrument_matrix"]
+    assert payload["instrument_stage_matrix"]
+    assert all(row["execution_allowed"] is False for row in payload["strategy_matrix"])
 
 
 def test_generated_audit_manifest_declares_complete_canonical_artefact_set(tmp_path: Path) -> None:

@@ -1,8 +1,136 @@
 schema_version: "1.0"
 policy_id: strategy-scope
-policy_version: "2026-07-12"
+policy_version: "2026-07-21"
 execution_allowed: false
 executable_authority: false
+matrix_version: "2026-07-21"
+ui_surface: system_map
+capability_profiles:
+  - profile_id: score_research
+    cells:
+      analyse: {state: supported, reason_code: STRATEGY_SUPPORTED_ANALYSE, prerequisites: &research_prerequisites {data: [validated_adjusted_data], models: [], liquidity: [instrument_capability_pass], broker: [], legal: [long_only_research_policy]}}
+      portfolio: {state: unavailable, reason_code: STRATEGY_PORTFOLIO_REVIEW_NOT_GRANTED, prerequisites: *research_prerequisites}
+      backtest: {state: supported, reason_code: STRATEGY_SUPPORTED_BACKTEST, prerequisites: {data: [point_in_time_adjusted_data], models: [], liquidity: [cost_model], broker: [], legal: [research_only_use]}}
+      paper: {state: unavailable, reason_code: STRATEGY_PAPER_AUTHORITY_NOT_GRANTED, prerequisites: {data: [sealed_analysis_snapshot], models: [], liquidity: [paper_cost_model], broker: [paper_broker_contract], legal: [paper_only_policy]}}
+      draft_order: {state: unavailable, reason_code: STRATEGY_EXECUTION_DISABLED_DRAFT_ORDER, prerequisites: &execution_prerequisites {data: [], models: [], liquidity: [], broker: [broker_contract_unavailable], legal: [separate_activation_approval_required]}}
+      canary: {state: unavailable, reason_code: STRATEGY_EXECUTION_DISABLED_CANARY, prerequisites: *execution_prerequisites}
+      bounded_automatic: {state: unavailable, reason_code: STRATEGY_EXECUTION_DISABLED_BOUNDED_AUTOMATIC, prerequisites: *execution_prerequisites}
+  - profile_id: portfolio_research
+    cells:
+      analyse: {state: supported, reason_code: STRATEGY_SUPPORTED_ANALYSE, prerequisites: *research_prerequisites}
+      portfolio: {state: supported, reason_code: STRATEGY_SUPPORTED_PORTFOLIO_REVIEW, prerequisites: {data: [sealed_analysis_snapshot, portfolio_snapshot], models: [], liquidity: [instrument_capability_pass], broker: [], legal: [advisory_long_only_policy]}}
+      backtest: {state: supported, reason_code: STRATEGY_SUPPORTED_BACKTEST, prerequisites: {data: [point_in_time_adjusted_data], models: [], liquidity: [cost_model], broker: [], legal: [research_only_use]}}
+      paper: {state: unavailable, reason_code: STRATEGY_PAPER_AUTHORITY_NOT_GRANTED, prerequisites: {data: [sealed_analysis_snapshot], models: [], liquidity: [paper_cost_model], broker: [paper_broker_contract], legal: [paper_only_policy]}}
+      draft_order: {state: unavailable, reason_code: STRATEGY_EXECUTION_DISABLED_DRAFT_ORDER, prerequisites: *execution_prerequisites}
+      canary: {state: unavailable, reason_code: STRATEGY_EXECUTION_DISABLED_CANARY, prerequisites: *execution_prerequisites}
+      bounded_automatic: {state: unavailable, reason_code: STRATEGY_EXECUTION_DISABLED_BOUNDED_AUTOMATIC, prerequisites: *execution_prerequisites}
+  - profile_id: experimental_research
+    cells:
+      analyse: {state: research_only, reason_code: STRATEGY_EXPERIMENTAL_ANALYSE_ONLY, prerequisites: {data: [validated_research_data], models: [governed_challenger_model], liquidity: [], broker: [], legal: [research_only_use]}}
+      portfolio: {state: unavailable, reason_code: STRATEGY_EXPERIMENTAL_NO_PORTFOLIO_AUTHORITY, prerequisites: *research_prerequisites}
+      backtest: {state: research_only, reason_code: STRATEGY_EXPERIMENTAL_BACKTEST_ONLY, prerequisites: {data: [point_in_time_adjusted_data], models: [governed_challenger_model], liquidity: [cost_model], broker: [], legal: [research_only_use]}}
+      paper: {state: unavailable, reason_code: STRATEGY_EXPERIMENTAL_NO_PAPER_AUTHORITY, prerequisites: *research_prerequisites}
+      draft_order: {state: unavailable, reason_code: STRATEGY_EXECUTION_DISABLED_DRAFT_ORDER, prerequisites: *execution_prerequisites}
+      canary: {state: unavailable, reason_code: STRATEGY_EXECUTION_DISABLED_CANARY, prerequisites: *execution_prerequisites}
+      bounded_automatic: {state: unavailable, reason_code: STRATEGY_EXECUTION_DISABLED_BOUNDED_AUTOMATIC, prerequisites: *execution_prerequisites}
+  - profile_id: context_only
+    cells:
+      analyse: {state: supported_with_limitations, reason_code: STRATEGY_CONTEXT_ONLY, prerequisites: {data: [source_linked_context], models: [], liquidity: [], broker: [], legal: [non_authoritative_context_policy]}}
+      portfolio: {state: unavailable, reason_code: STRATEGY_CONTEXT_NO_PORTFOLIO_AUTHORITY, prerequisites: *research_prerequisites}
+      backtest: {state: unavailable, reason_code: STRATEGY_CONTEXT_NO_BACKTEST_AUTHORITY, prerequisites: *research_prerequisites}
+      paper: {state: unavailable, reason_code: STRATEGY_CONTEXT_NO_PAPER_AUTHORITY, prerequisites: *research_prerequisites}
+      draft_order: {state: unavailable, reason_code: STRATEGY_EXECUTION_DISABLED_DRAFT_ORDER, prerequisites: *execution_prerequisites}
+      canary: {state: unavailable, reason_code: STRATEGY_EXECUTION_DISABLED_CANARY, prerequisites: *execution_prerequisites}
+      bounded_automatic: {state: unavailable, reason_code: STRATEGY_EXECUTION_DISABLED_BOUNDED_AUTOMATIC, prerequisites: *execution_prerequisites}
+  - profile_id: paper_simulation
+    cells:
+      analyse: {state: research_only, reason_code: STRATEGY_PAPER_RESEARCH_ONLY, prerequisites: *research_prerequisites}
+      portfolio: {state: research_only, reason_code: STRATEGY_PAPER_PORTFOLIO_SIMULATION, prerequisites: {data: [sealed_analysis_snapshot, portfolio_snapshot], models: [], liquidity: [paper_cost_model], broker: [], legal: [paper_only_policy]}}
+      backtest: {state: research_only, reason_code: STRATEGY_PAPER_BACKTEST_ONLY, prerequisites: {data: [point_in_time_adjusted_data], models: [], liquidity: [cost_model], broker: [], legal: [paper_only_policy]}}
+      paper: {state: supported_with_limitations, reason_code: STRATEGY_PAPER_SIMULATION_SUPPORTED, prerequisites: {data: [sealed_analysis_snapshot, paper_ledger], models: [], liquidity: [paper_cost_model], broker: [paper_broker_contract], legal: [paper_only_policy]}}
+      draft_order: {state: unavailable, reason_code: STRATEGY_EXECUTION_DISABLED_DRAFT_ORDER, prerequisites: *execution_prerequisites}
+      canary: {state: unavailable, reason_code: STRATEGY_EXECUTION_DISABLED_CANARY, prerequisites: *execution_prerequisites}
+      bounded_automatic: {state: unavailable, reason_code: STRATEGY_EXECUTION_DISABLED_BOUNDED_AUTOMATIC, prerequisites: *execution_prerequisites}
+  - profile_id: research_only
+    cells:
+      analyse: {state: research_only, reason_code: STRATEGY_RESEARCH_ONLY_ANALYSE, prerequisites: *research_prerequisites}
+      portfolio: {state: unavailable, reason_code: STRATEGY_RESEARCH_ONLY_NO_PORTFOLIO_AUTHORITY, prerequisites: *research_prerequisites}
+      backtest: {state: research_only, reason_code: STRATEGY_RESEARCH_ONLY_BACKTEST, prerequisites: {data: [point_in_time_adjusted_data], models: [], liquidity: [cost_model], broker: [], legal: [research_only_use]}}
+      paper: {state: unavailable, reason_code: STRATEGY_RESEARCH_ONLY_NO_PAPER_AUTHORITY, prerequisites: *research_prerequisites}
+      draft_order: {state: unavailable, reason_code: STRATEGY_EXECUTION_DISABLED_DRAFT_ORDER, prerequisites: *execution_prerequisites}
+      canary: {state: unavailable, reason_code: STRATEGY_EXECUTION_DISABLED_CANARY, prerequisites: *execution_prerequisites}
+      bounded_automatic: {state: unavailable, reason_code: STRATEGY_EXECUTION_DISABLED_BOUNDED_AUTOMATIC, prerequisites: *execution_prerequisites}
+  - profile_id: future_only
+    cells:
+      analyse: {state: unavailable, reason_code: STRATEGY_FUTURE_CONTRACT_UNAVAILABLE, prerequisites: *research_prerequisites}
+      portfolio: {state: unavailable, reason_code: STRATEGY_FUTURE_CONTRACT_UNAVAILABLE, prerequisites: *research_prerequisites}
+      backtest: {state: unavailable, reason_code: STRATEGY_FUTURE_CONTRACT_UNAVAILABLE, prerequisites: *research_prerequisites}
+      paper: {state: unavailable, reason_code: STRATEGY_FUTURE_CONTRACT_UNAVAILABLE, prerequisites: *research_prerequisites}
+      draft_order: {state: unavailable, reason_code: STRATEGY_EXECUTION_DISABLED_DRAFT_ORDER, prerequisites: *execution_prerequisites}
+      canary: {state: unavailable, reason_code: STRATEGY_EXECUTION_DISABLED_CANARY, prerequisites: *execution_prerequisites}
+      bounded_automatic: {state: unavailable, reason_code: STRATEGY_EXECUTION_DISABLED_BOUNDED_AUTOMATIC, prerequisites: *execution_prerequisites}
+  - profile_id: rejected
+    cells:
+      analyse: {state: rejected, reason_code: STRATEGY_REJECTED_ANALYSE, prerequisites: *research_prerequisites}
+      portfolio: {state: rejected, reason_code: STRATEGY_REJECTED_PORTFOLIO, prerequisites: *research_prerequisites}
+      backtest: {state: rejected, reason_code: STRATEGY_REJECTED_BACKTEST, prerequisites: *research_prerequisites}
+      paper: {state: rejected, reason_code: STRATEGY_REJECTED_PAPER, prerequisites: *research_prerequisites}
+      draft_order: {state: rejected, reason_code: STRATEGY_REJECTED_DRAFT_ORDER, prerequisites: *execution_prerequisites}
+      canary: {state: rejected, reason_code: STRATEGY_REJECTED_CANARY, prerequisites: *execution_prerequisites}
+      bounded_automatic: {state: rejected, reason_code: STRATEGY_REJECTED_BOUNDED_AUTOMATIC, prerequisites: *execution_prerequisites}
+profile_assignments:
+  baseline_simple_scores: score_research
+  etf_trend_momentum: portfolio_research
+  defensive_rotation: portfolio_research
+  stock_quality_momentum: portfolio_research
+  stock_value_momentum: portfolio_research
+  long_only_ranking: score_research
+  timesfm_challenger: experimental_research
+  toto_challenger: experimental_research
+  future_ml_challenger: future_only
+  llm_assistance: context_only
+  provider_news_context: context_only
+  paper_portfolio: paper_simulation
+  pair_trading: research_only
+  triple_barrier_research: research_only
+  futures: rejected
+  intraday: research_only
+  options: rejected
+  shorting: rejected
+  event_driven_filings: context_only
+  alternative_data: research_only
+  manual_review: context_only
+  news_sentiment: context_only
+  llm_summaries: context_only
+  macro_notes: context_only
+  manual_notes: context_only
+  future_broker_architecture: future_only
+  martingale: rejected
+  grid: rejected
+  rl_agents: rejected
+  llm_only_management: rejected
+  model_only_trading: rejected
+  return_screenshots: rejected
+  unvalidated_sentiment: rejected
+instrument_rules:
+  - {rule_id: ordinary_stock, asset_family: stock, match_asset_types: [stock, equity], match_security_types: [ordinary_share, equity], match_cfi_prefixes: [E], state: supported, reason_code: INSTRUMENT_STOCK_SUPPORTED, stages: [analyse, portfolio, backtest, paper], horizons: [1W, 1M, 3M, 6M, 9M, 2Y, 5Y], prerequisites: {data: [canonical_identity, adjusted_total_return_prices], models: [], liquidity: [minimum_market_cap, minimum_average_daily_value], broker: [], legal: [ordinary_long_only_equity]}, allowed_actions: [buy_add, hold, avoid_no_trade, trim_sell, manual_review]}
+  - {rule_id: ordinary_etf, asset_family: etf, match_asset_types: [etf], match_security_types: [ordinary_etf], match_cfi_prefixes: [CEQ], state: supported, reason_code: INSTRUMENT_ETF_SUPPORTED, stages: [analyse, portfolio, backtest, paper], horizons: [1W, 1M, 3M, 6M, 9M, 2Y, 5Y], prerequisites: {data: [canonical_identity, adjusted_total_return_prices, fund_disclosures], models: [], liquidity: [minimum_average_daily_value], broker: [], legal: [ordinary_unleveraged_fund]}, allowed_actions: [buy_add, hold, avoid_no_trade, trim_sell, manual_review]}
+  - {rule_id: ordinary_bond_etf, asset_family: bond_etf, match_asset_types: [bond_etf], match_security_types: [bond_etf], match_cfi_prefixes: [CDB], state: supported_with_limitations, reason_code: INSTRUMENT_BOND_ETF_SUPPORTED_WITH_LIMITATIONS, stages: [analyse, portfolio, backtest, paper], horizons: [1W, 1M, 3M, 6M, 9M, 2Y, 5Y], prerequisites: {data: [canonical_identity, adjusted_total_return_prices, holdings_or_duration], models: [], liquidity: [minimum_average_daily_value], broker: [], legal: [ordinary_unleveraged_fund]}, allowed_actions: [buy_add, hold, avoid_no_trade, trim_sell, manual_review]}
+  - {rule_id: ordinary_non_exchange_fund, asset_family: ordinary_fund, match_asset_types: [ordinary_fund, mutual_fund, index_fund], match_security_types: [ordinary_fund, mutual_fund], match_cfi_prefixes: [CI], state: supported_with_limitations, reason_code: INSTRUMENT_ORDINARY_FUND_SUPPORTED_WITH_LIMITATIONS, stages: [analyse, portfolio, backtest, paper], horizons: [1M, 3M, 6M, 9M, 2Y, 5Y], prerequisites: {data: [canonical_fund_share_class, official_nav, dealing_calendar], models: [], liquidity: [dealing_frequency], broker: [], legal: [ordinary_unleveraged_fund]}, allowed_actions: [buy_add, hold, avoid_no_trade, trim_sell, manual_review]}
+  - {rule_id: fixed_rate_bond, asset_family: fixed_rate_bond, match_asset_types: [fixed_rate_bond], match_security_types: [fixed_rate_bond], match_cfi_prefixes: [DBF], state: unavailable, reason_code: INSTRUMENT_BOND_ANALYTICS_DEPENDENCY_PENDING, stages: [analyse, portfolio, backtest, paper], horizons: [1M, 3M, 6M, 9M, 2Y, 5Y], prerequisites: {data: [verified_bond_terms, cash_flow_schedule, curves], models: [], liquidity: [bond_liquidity_evidence], broker: [], legal: [supported_bond_structure]}, allowed_actions: []}
+  - {rule_id: zero_coupon_bond, asset_family: zero_coupon_bond, match_asset_types: [zero_coupon_bond], match_security_types: [zero_coupon_bond], match_cfi_prefixes: [DBZ], state: unavailable, reason_code: INSTRUMENT_BOND_ANALYTICS_DEPENDENCY_PENDING, stages: [analyse, portfolio, backtest, paper], horizons: [1M, 3M, 6M, 9M, 2Y, 5Y], prerequisites: {data: [verified_bond_terms, cash_flow_schedule, curves], models: [], liquidity: [bond_liquidity_evidence], broker: [], legal: [supported_bond_structure]}, allowed_actions: []}
+  - {rule_id: floating_rate_bond, asset_family: floating_rate_bond, match_asset_types: [floating_rate_bond], match_security_types: [floating_rate_bond], match_cfi_prefixes: [DBV], state: unavailable, reason_code: INSTRUMENT_BOND_ANALYTICS_DEPENDENCY_PENDING, stages: [analyse, portfolio, backtest, paper], horizons: [1M, 3M, 6M, 9M, 2Y, 5Y], prerequisites: {data: [verified_bond_terms, reset_schedule, curves], models: [], liquidity: [bond_liquidity_evidence], broker: [], legal: [supported_bond_structure]}, allowed_actions: []}
+  - {rule_id: inflation_linked_bond, asset_family: inflation_linked_bond, match_asset_types: [inflation_linked_bond], match_security_types: [inflation_linked_bond], match_cfi_prefixes: [DBI], state: unavailable, reason_code: INSTRUMENT_BOND_ANALYTICS_DEPENDENCY_PENDING, stages: [analyse, portfolio, backtest, paper], horizons: [1M, 3M, 6M, 9M, 2Y, 5Y], prerequisites: {data: [verified_bond_terms, inflation_indexation, curves], models: [], liquidity: [bond_liquidity_evidence], broker: [], legal: [supported_bond_structure]}, allowed_actions: []}
+  - {rule_id: callable_bond, asset_family: callable_bond, match_asset_types: [callable_bond], match_security_types: [callable_bond], match_cfi_prefixes: [DBC], state: unavailable, reason_code: INSTRUMENT_CALLABLE_BOND_UNSUPPORTED_PENDING_MODEL, stages: [analyse, portfolio, backtest, paper], horizons: [1M, 3M, 6M, 9M, 2Y, 5Y], prerequisites: {data: [verified_bond_terms, call_schedule, curves], models: [validated_callable_bond_model], liquidity: [bond_liquidity_evidence], broker: [], legal: [supported_bond_structure]}, allowed_actions: []}
+  - {rule_id: cash, asset_family: cash, match_asset_types: [cash], match_security_types: [cash_balance], match_cfi_prefixes: [M], state: supported_with_limitations, reason_code: INSTRUMENT_CASH_CONTEXT_SUPPORTED, stages: [analyse, portfolio, backtest, paper], horizons: [1W, 1M, 3M, 6M, 9M, 2Y, 5Y], prerequisites: {data: [currency_identity, dated_cash_balance], models: [], liquidity: [], broker: [], legal: [cash_context_only]}, allowed_actions: [hold, avoid_no_trade, manual_review]}
+  - {rule_id: fx, asset_family: fx, match_asset_types: [fx, currency_pair], match_security_types: [fx_pair], match_cfi_prefixes: [J], state: supported_with_limitations, reason_code: INSTRUMENT_FX_ANALYSIS_CONTEXT_SUPPORTED, stages: [analyse, portfolio, backtest, paper], horizons: [1W, 1M, 3M, 6M, 9M, 2Y, 5Y], prerequisites: {data: [dated_fx_rates, currency_identity], models: [], liquidity: [reference_rate_not_executable], broker: [], legal: [valuation_context_only]}, allowed_actions: [hold, avoid_no_trade, manual_review]}
+exclusion_policy:
+  policy_version: "2026-07-21"
+  minimum_market_cap_usd: 300000000
+  minimum_average_daily_value_usd: 1000000
+  excluded_exchanges: [OTC, OTCQX, OTCQB, PINK]
+  excluded_product_flags: [leveraged, inverse, derivative, crypto, otc, complex_structured]
+  execution_allowed: false
 strategies:
   - {strategy_id: baseline_simple_scores, name: Baseline simple scores, lifecycle: supported, asset_scope: mixed, authority: research_state, permitted_authority: research_state, execution_authority: none, intended_use: Deterministic evidence-backed ranking for research state, score_authority: true, research_promotion_allowed: true, portfolio_review_allowed: false, paper_authority: false, required_data: [daily_prices, evidence], limitations: [Not an executable signal, requires current evidence], linked_issues: [ISSUE-0008, ISSUE-0015], promotion_conditions: [identity and data-quality gates pass], tests: [test_simple_scores]}
   - {strategy_id: etf_trend_momentum, name: ETF trend and momentum, lifecycle: supported, asset_scope: etf, authority: portfolio_review, permitted_authority: portfolio_review, execution_authority: none, intended_use: Research ranking for long-horizon ETF review, score_authority: true, research_promotion_allowed: true, portfolio_review_allowed: true, paper_authority: false, required_data: [daily_prices, adjusted_returns], limitations: [Long-only research context, no order transmission], linked_issues: [ISSUE-0008, ISSUE-0015], promotion_conditions: [evidence and risk gates pass, user reviews output], tests: [test_simple_scores, test_rebalancing]}
@@ -18,6 +146,12 @@ strategies:
   - {strategy_id: paper_portfolio, name: Paper portfolio research, lifecycle: research_only, asset_scope: mixed, authority: none, permitted_authority: none, execution_authority: none, intended_use: Simulate portfolio decisions without broker or order authority, score_authority: false, research_promotion_allowed: false, portfolio_review_allowed: false, paper_authority: true, required_data: [prices, costs, portfolio_snapshot], limitations: [Simulation only; no external execution or upload], linked_issues: [ISSUE-0047], promotion_conditions: [reproducible snapshot, costs and audit manifest], tests: [test_rebalancing]}
   - {strategy_id: pair_trading, name: Pair trading research, lifecycle: research_only, asset_scope: stock, authority: none, permitted_authority: none, execution_authority: none, intended_use: Explore pair relationships as non-authoritative research, score_authority: false, research_promotion_allowed: false, portfolio_review_allowed: false, paper_authority: false, required_data: [daily_prices, cointegration], limitations: [Research-only and outside baseline score authority], linked_issues: [ISSUE-0030], promotion_conditions: [independent validation and user review], tests: [test_asset_guardrails]}
   - {strategy_id: triple_barrier_research, name: Triple-barrier research, lifecycle: research_only, asset_scope: mixed, authority: none, permitted_authority: none, execution_authority: none, intended_use: Evaluate labelled research outcomes without promotion authority, score_authority: false, research_promotion_allowed: false, portfolio_review_allowed: false, paper_authority: false, required_data: [daily_prices, labelled_outcomes], limitations: [Research-only and requires purging and embargo], linked_issues: [ISSUE-0030], promotion_conditions: [walk-forward, purging and embargo evidence], tests: [test_backtest_costs]}
+  - {strategy_id: futures, name: Futures strategies, lifecycle: rejected, asset_scope: general, authority: none, permitted_authority: none, execution_authority: none, intended_use: Preserve an explicit unsupported-derivatives boundary, score_authority: false, research_promotion_allowed: false, portfolio_review_allowed: false, paper_authority: false, required_data: [none], limitations: [Derivatives and leverage are outside the normal long-only product], linked_issues: [ISSUE-0008, ISSUE-0056], promotion_conditions: [Not eligible for promotion], tests: [test_strategy_capability_matrix], rejection_reason: Futures and leveraged derivatives are outside the supported long-only scope}
+  - {strategy_id: intraday, name: Intraday strategies, lifecycle: research_only, asset_scope: mixed, authority: none, permitted_authority: none, execution_authority: none, intended_use: Record research about unsupported intraday methods without product authority, score_authority: false, research_promotion_allowed: false, portfolio_review_allowed: false, paper_authority: false, required_data: [intraday_point_in_time_data], limitations: [No intraday data or execution path is supported], linked_issues: [ISSUE-0008, ISSUE-0056], promotion_conditions: [Separate validated research programme], tests: [test_strategy_capability_matrix]}
+  - {strategy_id: options, name: Options strategies, lifecycle: rejected, asset_scope: general, authority: none, permitted_authority: none, execution_authority: none, intended_use: Preserve an explicit unsupported-derivatives boundary, score_authority: false, research_promotion_allowed: false, portfolio_review_allowed: false, paper_authority: false, required_data: [none], limitations: [Options and complex derivatives are outside supported scope], linked_issues: [ISSUE-0008, ISSUE-0056], promotion_conditions: [Not eligible for promotion], tests: [test_strategy_capability_matrix], rejection_reason: Options are outside the supported ordinary long-only product scope}
+  - {strategy_id: shorting, name: Short selling, lifecycle: rejected, asset_scope: general, authority: none, permitted_authority: none, execution_authority: none, intended_use: Preserve the long-only product boundary, score_authority: false, research_promotion_allowed: false, portfolio_review_allowed: false, paper_authority: false, required_data: [none], limitations: [Borrow and short exposure are outside supported scope], linked_issues: [ISSUE-0008, ISSUE-0056], promotion_conditions: [Not eligible for promotion], tests: [test_strategy_capability_matrix], rejection_reason: Normal recommendations and portfolios are long-only}
+  - {strategy_id: event_driven_filings, name: Event-driven filings context, lifecycle: supported_with_limitations, asset_scope: mixed, authority: context_only, permitted_authority: context_only, execution_authority: none, intended_use: Surface point-in-time official filing events for human research review, score_authority: false, research_promotion_allowed: false, portfolio_review_allowed: false, paper_authority: false, required_data: [official_filings, availability_timestamps], limitations: [Context only; cannot generate an order or authoritative score], linked_issues: [ISSUE-0008, ISSUE-0025], promotion_conditions: [Point-in-time source and revision evidence], tests: [test_strategy_capability_matrix]}
+  - {strategy_id: alternative_data, name: Alternative-data research, lifecycle: research_only, asset_scope: mixed, authority: none, permitted_authority: none, execution_authority: none, intended_use: Evaluate lawful provenance-complete alternative data in isolated research, score_authority: false, research_promotion_allowed: false, portfolio_review_allowed: false, paper_authority: false, required_data: [licensed_point_in_time_alternative_data], limitations: [Grey-source or terms-unclear data is rejected; no production authority], linked_issues: [ISSUE-0008, ISSUE-0149], promotion_conditions: [Independent terms and provenance review], tests: [test_strategy_capability_matrix]}
   - {strategy_id: manual_review, name: Manual review, lifecycle: supported_with_limitations, asset_scope: general, authority: context_only, permitted_authority: context_only, execution_authority: none, intended_use: Record a human review state and decision, score_authority: false, research_promotion_allowed: false, portfolio_review_allowed: false, paper_authority: false, required_data: [evidence], limitations: [Requires an identified user decision], linked_issues: [ISSUE-0047], promotion_conditions: [evidence packet is available], tests: [test_trade_proposals]}
   - {strategy_id: news_sentiment, name: News and sentiment context, lifecycle: supported_with_limitations, asset_scope: mixed, authority: context_only, permitted_authority: context_only, execution_authority: none, intended_use: Display sentiment as context only, score_authority: false, research_promotion_allowed: false, portfolio_review_allowed: false, paper_authority: false, required_data: [news], limitations: [Sentiment cannot directly alter score authority], linked_issues: [ISSUE-0043], promotion_conditions: [source and freshness evidence], tests: [test_news_context]}
   - {strategy_id: llm_summaries, name: LLM summaries, lifecycle: supported_with_limitations, asset_scope: mixed, authority: context_only, permitted_authority: context_only, execution_authority: none, intended_use: Summarise source-linked research notes, score_authority: false, research_promotion_allowed: false, portfolio_review_allowed: false, paper_authority: false, required_data: [evidence], limitations: [Context only and fully auditable], linked_issues: [ISSUE-0010], promotion_conditions: [prompt and source trace retained], tests: [test_local_llm_audit]}

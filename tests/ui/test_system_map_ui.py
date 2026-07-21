@@ -30,6 +30,12 @@ def test_system_map_shows_future_execution_as_non_interactive() -> None:
     assert "ADR ADR-0070-v1" in text
     assert "External components" in text
     assert "release_dependency_lock" in text
+    assert "Strategy and instrument capabilities" in text
+    assert "analyse · portfolio · backtest · paper · draft_order · canary · bounded_automatic" in text
+    assert "INSTRUMENT_STOCK_SUPPORTED" in text
+    assert "execution_allowed=false" in text
+    assert "etf_trend_momentum · supported · authority=portfolio_review · ui=system_map" in text
+    assert "score_authority=true · paper_authority=false · live_authority=false" in text
 
 
 def test_system_map_reports_loaded_dependencies_and_data_health_validation() -> None:

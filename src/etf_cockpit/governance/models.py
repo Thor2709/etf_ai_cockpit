@@ -8,9 +8,10 @@ value cannot opt the application into an executable mode.
 
 from __future__ import annotations
 
+from types import MappingProxyType
 from typing import Generic, Literal, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_serializer, field_validator, model_validator
 
 from etf_cockpit.signals.research_states import (
     AuthorityDecision,
@@ -52,6 +53,60 @@ AuthorityStage = Literal[
     "disabled",
 ]
 CapabilityKind = Literal["route", "dataset", "model", "strategy", "broker"]
+StrategyCapabilityStage = Literal[
+    "analyse",
+    "portfolio",
+    "backtest",
+    "paper",
+    "draft_order",
+    "canary",
+    "bounded_automatic",
+]
+CapabilitySupportState = Literal[
+    "supported",
+    "supported_with_limitations",
+    "research_only",
+    "unavailable",
+    "rejected",
+]
+AssetFamily = Literal[
+    "stock",
+    "etf",
+    "bond_etf",
+    "ordinary_fund",
+    "fixed_rate_bond",
+    "zero_coupon_bond",
+    "floating_rate_bond",
+    "inflation_linked_bond",
+    "callable_bond",
+    "cash",
+    "fx",
+]
+LongOnlyAction = Literal["buy_add", "hold", "avoid_no_trade", "trim_sell", "manual_review"]
+STRATEGY_CAPABILITY_STAGES: tuple[StrategyCapabilityStage, ...] = (
+    "analyse",
+    "portfolio",
+    "backtest",
+    "paper",
+    "draft_order",
+    "canary",
+    "bounded_automatic",
+)
+REQUIRED_ASSET_FAMILIES: frozenset[AssetFamily] = frozenset(
+    {
+        "stock",
+        "etf",
+        "bond_etf",
+        "ordinary_fund",
+        "fixed_rate_bond",
+        "zero_coupon_bond",
+        "floating_rate_bond",
+        "inflation_linked_bond",
+        "callable_bond",
+        "cash",
+        "fx",
+    }
+)
 # Compatibility aliases for Task 1 policy callers.  The public values now
 # come from the dedicated v2 state module and remain string-compatible.
 ResearchState = PublicResearchState
@@ -331,6 +386,107 @@ class FeatureRegistryPolicy(PolicyModel):
         return self
 
 
+class CapabilityPrerequisites(ImmutableModel):
+    """Evidence and authority prerequisites for one capability cell."""
+
+    data: tuple[str, ...]
+    models: tuple[str, ...]
+    liquidity: tuple[str, ...]
+    broker: tuple[str, ...]
+    legal: tuple[str, ...]
+
+    @model_validator(mode="after")
+    def validate_unique_prerequisites(self) -> CapabilityPrerequisites:
+        for field_name in ("data", "models", "liquidity", "broker", "legal"):
+            values = getattr(self, field_name)
+            if any(not value for value in values) or len(values) != len(set(values)):
+                raise ValueError(f"{field_name} prerequisites must contain unique non-empty values")
+        return self
+
+
+class StrategyCapabilityCell(ImmutableModel):
+    """One explicit strategy/stage decision in the scope matrix."""
+
+    state: CapabilitySupportState
+    reason_code: str = Field(min_length=1, pattern=r"^[A-Z][A-Z0-9_]+$")
+    prerequisites: CapabilityPrerequisites
+    execution_allowed: Literal[False] = False
+
+
+class StrategyCapabilityProfile(ImmutableModel):
+    """Reusable seven-stage profile referenced by one or more strategies."""
+
+    profile_id: str = Field(min_length=1, pattern=r"^[a-z][a-z0-9_]+$")
+    cells: dict[StrategyCapabilityStage, StrategyCapabilityCell]
+
+    @model_validator(mode="after")
+    def validate_complete_stage_set(self) -> StrategyCapabilityProfile:
+        if tuple(self.cells) != STRATEGY_CAPABILITY_STAGES:
+            raise ValueError("strategy capability profiles must declare the complete ordered stage set")
+        for stage in ("draft_order", "canary", "bounded_automatic"):
+            if self.cells[stage].state not in {"unavailable", "rejected"}:
+                raise ValueError("execution-stage capability cells must remain unavailable or rejected")
+        object.__setattr__(self, "cells", MappingProxyType(dict(self.cells)))
+        return self
+
+    @field_serializer("cells")
+    def serialize_cells(self, value: dict[StrategyCapabilityStage, StrategyCapabilityCell]) -> dict[str, object]:
+        return {stage: cell.model_dump(mode="json") for stage, cell in value.items()}
+
+
+class InstrumentCapabilityRule(ImmutableModel):
+    """Fail-closed instrument classification and stage/horizon scope rule."""
+
+    rule_id: str = Field(min_length=1, pattern=r"^[a-z][a-z0-9_]+$")
+    asset_family: AssetFamily
+    match_asset_types: tuple[str, ...] = ()
+    match_security_types: tuple[str, ...] = ()
+    match_cfi_prefixes: tuple[str, ...] = ()
+    state: CapabilitySupportState
+    reason_code: str = Field(min_length=1, pattern=r"^[A-Z][A-Z0-9_]+$")
+    stages: tuple[StrategyCapabilityStage, ...]
+    horizons: tuple[Literal["1W", "1M", "3M", "6M", "9M", "2Y", "5Y"], ...]
+    prerequisites: CapabilityPrerequisites
+    allowed_actions: tuple[LongOnlyAction, ...] = ()
+    execution_allowed: Literal[False] = False
+
+    @model_validator(mode="after")
+    def validate_instrument_rule(self) -> InstrumentCapabilityRule:
+        match_fields = (self.match_asset_types, self.match_security_types, self.match_cfi_prefixes)
+        if not any(match_fields):
+            raise ValueError("instrument capability rule requires at least one classifier")
+        for values in (*match_fields, self.stages, self.horizons, self.allowed_actions):
+            if len(values) != len(set(values)):
+                raise ValueError("instrument capability rule values must be unique")
+        if any(stage in {"draft_order", "canary", "bounded_automatic"} for stage in self.stages):
+            raise ValueError("instrument capability rules cannot enable execution stages")
+        if self.state in {"unavailable", "rejected"} and self.allowed_actions:
+            raise ValueError("unavailable or rejected instruments cannot expose actions")
+        return self
+
+
+class InstrumentExclusionPolicy(ImmutableModel):
+    """Versioned safe bounds that no risk profile may override."""
+
+    policy_version: str = Field(min_length=1)
+    minimum_market_cap_usd: float = Field(ge=50_000_000, le=2_000_000_000)
+    minimum_average_daily_value_usd: float = Field(ge=100_000, le=10_000_000)
+    excluded_exchanges: tuple[str, ...] = ()
+    excluded_product_flags: tuple[
+        Literal["leveraged", "inverse", "derivative", "crypto", "otc", "complex_structured"], ...
+    ]
+    execution_allowed: Literal[False] = False
+
+    @model_validator(mode="after")
+    def validate_exclusion_policy(self) -> InstrumentExclusionPolicy:
+        if len(self.excluded_exchanges) != len(set(self.excluded_exchanges)):
+            raise ValueError("excluded exchanges must be unique")
+        required = {"leveraged", "inverse", "derivative", "crypto", "otc", "complex_structured"}
+        if set(self.excluded_product_flags) != required:
+            raise ValueError("exclusion policy must declare every protected product flag")
+        return self
+
+
 class StrategyScopeEntry(ImmutableModel):
     """Strategy lifecycle and the authority that strategy may contribute."""
 
@@ -352,6 +508,8 @@ class StrategyScopeEntry(ImmutableModel):
     promotion_conditions: tuple[str, ...] = ()
     rejection_reason: str = ""
     tests: tuple[str, ...] = ()
+    capability_profile: str = ""
+    ui_visibility: Literal["system_map"] = "system_map"
     execution_allowed: Literal[False] = False
 
     @model_validator(mode="after")
@@ -397,6 +555,12 @@ class StrategyScopeEntry(ImmutableModel):
 class StrategyScopePolicy(PolicyModel):
     """Supported, context-only, research-only and rejected strategy families."""
 
+    matrix_version: str = Field(min_length=1)
+    ui_surface: Literal["system_map"]
+    capability_profiles: tuple[StrategyCapabilityProfile, ...]
+    profile_assignments: dict[str, str]
+    instrument_rules: tuple[InstrumentCapabilityRule, ...]
+    exclusion_policy: InstrumentExclusionPolicy
     entries: tuple[StrategyScopeEntry, ...] = ()
 
     @model_validator(mode="after")
@@ -404,7 +568,34 @@ class StrategyScopePolicy(PolicyModel):
         identifiers = [entry.strategy_id for entry in self.entries]
         if len(identifiers) != len(set(identifiers)):
             raise ValueError("strategy_id values must be unique")
+        profile_ids = [profile.profile_id for profile in self.capability_profiles]
+        if len(profile_ids) != len(set(profile_ids)):
+            raise ValueError("strategy capability profile identifiers must be unique")
+        if set(self.profile_assignments) != set(identifiers):
+            raise ValueError("profile assignments must exactly cover strategy identifiers")
+        if any(entry.capability_profile != self.profile_assignments[entry.strategy_id] for entry in self.entries):
+            raise ValueError("strategy capability profile must agree with profile assignments")
+        profiles = {profile.profile_id: profile for profile in self.capability_profiles}
+        if any(entry.capability_profile not in profiles for entry in self.entries):
+            raise ValueError("strategy capability profile reference is unknown")
+        for entry in self.entries:
+            cells = profiles[entry.capability_profile].cells.values()
+            if entry.lifecycle == "rejected" and any(cell.state != "rejected" for cell in cells):
+                raise ValueError("rejected strategies require a fully rejected capability profile")
+        rule_ids = [rule.rule_id for rule in self.instrument_rules]
+        asset_families = [rule.asset_family for rule in self.instrument_rules]
+        if len(rule_ids) != len(set(rule_ids)):
+            raise ValueError("instrument capability rule identifiers must be unique")
+        if len(asset_families) != len(set(asset_families)):
+            raise ValueError("instrument asset families must be unique")
+        if set(asset_families) != REQUIRED_ASSET_FAMILIES:
+            raise ValueError("instrument rules must exactly cover the required asset families")
+        object.__setattr__(self, "profile_assignments", MappingProxyType(dict(self.profile_assignments)))
         return self
+
+    @field_serializer("profile_assignments")
+    def serialize_profile_assignments(self, value: dict[str, str]) -> dict[str, str]:
+        return dict(value)
 
 
 class GatePolicyEntry(ImmutableModel):
@@ -521,6 +712,12 @@ __all__ = [
     "Authority",
     "AuthorityStage",
     "CapabilityKind",
+    "StrategyCapabilityStage",
+    "CapabilitySupportState",
+    "AssetFamily",
+    "LongOnlyAction",
+    "STRATEGY_CAPABILITY_STAGES",
+    "REQUIRED_ASSET_FAMILIES",
     "AuthorityDecision",
     "GateResult",
     "GateSeverity",
@@ -533,4 +730,9 @@ __all__ = [
     "ProductGovernancePolicy",
     "StrategyScopeEntry",
     "StrategyScopePolicy",
+    "CapabilityPrerequisites",
+    "StrategyCapabilityCell",
+    "StrategyCapabilityProfile",
+    "InstrumentCapabilityRule",
+    "InstrumentExclusionPolicy",
 ]

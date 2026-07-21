@@ -141,6 +141,10 @@ def _normalise_payload(model_class: type[PolicyClassT], raw: Mapping[str, Any]) 
         payload["entries"] = normalised_entries
     elif model_class is StrategyScopePolicy:
         entries = payload.pop("strategies", payload.get("entries", ()))
+        assignments = payload.get("profile_assignments")
+        if not isinstance(assignments, Mapping):
+            assignments = {}
+        ui_surface = str(payload.get("ui_surface", ""))
         normalised_entries = []
         for raw_entry in entries or ():
             if not isinstance(raw_entry, Mapping):
@@ -151,6 +155,11 @@ def _normalise_payload(model_class: type[PolicyClassT], raw: Mapping[str, Any]) 
                 entry["permitted_authority"] = entry["authority"]
             if "authority" not in entry and "permitted_authority" in entry:
                 entry["authority"] = entry["permitted_authority"]
+            strategy_id = str(entry.get("strategy_id", ""))
+            if "capability_profile" not in entry and strategy_id in assignments:
+                entry["capability_profile"] = assignments[strategy_id]
+            if "ui_visibility" not in entry and ui_surface:
+                entry["ui_visibility"] = ui_surface
             normalised_entries.append(entry)
         payload["entries"] = normalised_entries
     elif model_class is GatePolicy and "gates" not in payload:
@@ -298,6 +307,9 @@ def _contract_error(model_class: type[PolicyClassT], payload: Mapping[str, Any],
         return None
 
     if model_class is StrategyScopePolicy:
+        for key in ("matrix_version", "ui_surface", "capability_profiles", "profile_assignments", "instrument_rules", "exclusion_policy"):
+            if not payload.get(key):
+                return f"strategy scope policy requires {key}"
         required = {
             "strategy_id",
             "name",
@@ -310,6 +322,8 @@ def _contract_error(model_class: type[PolicyClassT], payload: Mapping[str, Any],
             "linked_issues",
             "promotion_conditions",
             "tests",
+            "capability_profile",
+            "ui_visibility",
         }
         for index, entry in enumerate(payload.get("entries", ())):
             if not isinstance(entry, Mapping) or not required <= set(entry):
@@ -327,6 +341,12 @@ def _contract_error(model_class: type[PolicyClassT], payload: Mapping[str, Any],
             "paper_portfolio",
             "pair_trading",
             "triple_barrier_research",
+            "futures",
+            "intraday",
+            "options",
+            "shorting",
+            "event_driven_filings",
+            "alternative_data",
             "future_broker_architecture",
             "martingale",
             "grid",
