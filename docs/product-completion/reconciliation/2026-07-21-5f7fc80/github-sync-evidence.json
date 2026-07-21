@@ -1,0 +1,29 @@
+{
+  "actions": [
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Programme status"
+      ],
+      "remote_number": 222,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0082",
+      "title": "Create a global entity, instrument, fund, share-class and listing identity master",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/222"
+    }
+  ],
+  "apply_authority": false,
+  "fresh_exact_plan_required_for_apply": true,
+  "plan_semantic_sha256": "9569934d90bb0d44ddb0d75a8f6d38d5c3fc33f5e012d1bf305b5e594e8f037e",
+  "remote_inventory_sha256": "38d8407c56a8fe51663dc35ffb1b3d6271e9bb4a3aa0c8097b148a4bffb05b98",
+  "repository": "Thor2709/etf_ai_cockpit",
+  "schema_version": "etf-ai-cockpit.safe-sync-evidence/1.0",
+  "summary": {
+    "blocked": 0,
+    "close": 0,
+    "create": 0,
+    "reopen": 0,
+    "update": 1
+  },
+  "transient_full_plan_file_sha256": "00c2906d83c1cb06162eb5823023a41b2e296fe7bf419603fda25983308137ed"
+}

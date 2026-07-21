@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "2eda82168314d582b94d0fbfc066e75327243fd2",
+    "generation_base_commit": "5f7fc80e36cf685689cbea64cce16d9f1f8690a1",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -1399,16 +1399,37 @@
           "reviewed_date": "2026-07-21",
           "reviewer": "Codex scout reviewer and root",
           "status": "ready"
+        },
+        {
+          "evidence_references": [
+            "src/etf_cockpit/data/bitemporal.py BitemporalStore append-only/as-of/vintage contract",
+            "tests/test_bitemporal.py revision, retraction, ambiguity, timezone/DST and vintage-manifest fixtures",
+            "Final release specification records ISSUE-0073 as an integrated foundation with remaining repository-wide hardening",
+            "PR #468 merged as 5f7fc80e36cf685689cbea64cce16d9f1f8690a1 after Linux/Windows release run 29875987270, status guard 29875987254 and supply-chain 29875987283",
+            "GitHub ISSUE-0082 ready sync plan 0f8e216b0c3f27a6887f6d908bb3c30451dda82c41f689850d13c2dbef158c6a applied and readback f839838e0701f7ab85eb1f5baca8d5aa06e29c608bede1d4e176820fe3e4d215 contained zero actions",
+            "plans/BATCH-B02-DATA-SPINE-CONTINUATION.md dependency mapping"
+          ],
+          "review_reference": "B02 ISSUE-0082 dependency-interface review: bitemporal point-in-time contract and protected readiness convergence",
+          "reviewed_date": "2026-07-21",
+          "reviewer": "Codex scout reviewer, deep reviewer and root",
+          "status": "in_progress"
         }
       ],
       "dependency_edge_evidence": {
         "ISSUE-0073": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "src/etf_cockpit/data/bitemporal.py#BitemporalStore",
+          "evidence_references": [
+            "src/etf_cockpit/data/bitemporal.py BitemporalStore append-only/as-of/vintage contract",
+            "tests/test_bitemporal.py revision, retraction, ambiguity, timezone/DST and vintage-manifest fixtures",
+            "Final release specification records ISSUE-0073 as an integrated foundation with remaining repository-wide hardening",
+            "PR #468 merged as 5f7fc80e36cf685689cbea64cce16d9f1f8690a1 after Linux/Windows release run 29875987270, status guard 29875987254 and supply-chain 29875987283",
+            "GitHub ISSUE-0082 ready sync plan 0f8e216b0c3f27a6887f6d908bb3c30451dda82c41f689850d13c2dbef158c6a applied and readback f839838e0701f7ab85eb1f5baca8d5aa06e29c608bede1d4e176820fe3e4d215 contained zero actions",
+            "plans/BATCH-B02-DATA-SPINE-CONTINUATION.md dependency mapping"
+          ],
+          "reviewed_date": "2026-07-21",
+          "reviewer": "Codex scout reviewer, deep reviewer and root",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "partial_interface"
         },
         "UPDATEV2-0011": {
           "contract_reference": "src/etf_cockpit/data/instrument_identity.py#IdentityClaim,IdentityObject,IdentityConflict,resolve_identity_claims",
@@ -1425,11 +1446,11 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "ready",
+      "programme_status": "in_progress",
       "status_transition": {
-        "from": "planned",
-        "review_reference": "B02 ISSUE-0082 dependency-interface review: point-in-time identity resolver contract",
-        "to": "ready"
+        "from": "ready",
+        "review_reference": "B02 ISSUE-0082 dependency-interface review: bitemporal point-in-time contract and protected readiness convergence",
+        "to": "in_progress"
       },
       "transition_history": [
         {
@@ -1462,9 +1483,44 @@
           "reviewer": "Codex scout reviewer and root",
           "to": "ready",
           "verified_commit": "2eda82168314d582b94d0fbfc066e75327243fd2"
+        },
+        {
+          "allow_downgrade": false,
+          "dependency_edge": {
+            "dependency": "ISSUE-0073",
+            "evidence": {
+              "contract_reference": "src/etf_cockpit/data/bitemporal.py#BitemporalStore",
+              "evidence_references": [
+                "src/etf_cockpit/data/bitemporal.py BitemporalStore append-only/as-of/vintage contract",
+                "tests/test_bitemporal.py revision, retraction, ambiguity, timezone/DST and vintage-manifest fixtures",
+                "Final release specification records ISSUE-0073 as an integrated foundation with remaining repository-wide hardening",
+                "PR #468 merged as 5f7fc80e36cf685689cbea64cce16d9f1f8690a1 after Linux/Windows release run 29875987270, status guard 29875987254 and supply-chain 29875987283",
+                "GitHub ISSUE-0082 ready sync plan 0f8e216b0c3f27a6887f6d908bb3c30451dda82c41f689850d13c2dbef158c6a applied and readback f839838e0701f7ab85eb1f5baca8d5aa06e29c608bede1d4e176820fe3e4d215 contained zero actions",
+                "plans/BATCH-B02-DATA-SPINE-CONTINUATION.md dependency mapping"
+              ],
+              "reviewed_date": "2026-07-21",
+              "reviewer": "Codex scout reviewer, deep reviewer and root",
+              "schema_version": "1.0",
+              "state": "partial_interface"
+            }
+          },
+          "evidence_references": [
+            "src/etf_cockpit/data/bitemporal.py BitemporalStore append-only/as-of/vintage contract",
+            "tests/test_bitemporal.py revision, retraction, ambiguity, timezone/DST and vintage-manifest fixtures",
+            "Final release specification records ISSUE-0073 as an integrated foundation with remaining repository-wide hardening",
+            "PR #468 merged as 5f7fc80e36cf685689cbea64cce16d9f1f8690a1 after Linux/Windows release run 29875987270, status guard 29875987254 and supply-chain 29875987283",
+            "GitHub ISSUE-0082 ready sync plan 0f8e216b0c3f27a6887f6d908bb3c30451dda82c41f689850d13c2dbef158c6a applied and readback f839838e0701f7ab85eb1f5baca8d5aa06e29c608bede1d4e176820fe3e4d215 contained zero actions",
+            "plans/BATCH-B02-DATA-SPINE-CONTINUATION.md dependency mapping"
+          ],
+          "from": "ready",
+          "review_reference": "B02 ISSUE-0082 dependency-interface review: bitemporal point-in-time contract and protected readiness convergence",
+          "reviewed_date": "2026-07-21",
+          "reviewer": "Codex scout reviewer, deep reviewer and root",
+          "to": "in_progress",
+          "verified_commit": "5f7fc80e36cf685689cbea64cce16d9f1f8690a1"
         }
       ],
-      "verified_commit": "2eda82168314d582b94d0fbfc066e75327243fd2",
+      "verified_commit": "5f7fc80e36cf685689cbea64cce16d9f1f8690a1",
       "verified_date": "2026-07-21"
     },
     "ISSUE-0083": {
