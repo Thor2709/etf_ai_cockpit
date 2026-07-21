@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "3f3aa361bb09d44edcd65d3184f835d06e996682",
+    "generation_base_commit": "2eda82168314d582b94d0fbfc066e75327243fd2",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -1387,7 +1387,20 @@
       "verified_date": "2026-07-21"
     },
     "ISSUE-0082": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #465 merged as 1e9efbcd3ea67fec638d95905a66af063952dd8c with independent product review and protected Linux/Windows release evidence",
+            "src/etf_cockpit/data/instrument_identity.py IdentityClaim, IdentityObject, IdentityConflict and resolve_identity_claims point-in-time contract",
+            "tests/test_instrument_identity.py ticker replay, multiple-listing, conflict, review and ambiguous-availability fixtures",
+            "plans/BATCH-B02-DATA-SPINE-CONTINUATION.md dependency mapping"
+          ],
+          "review_reference": "B02 ISSUE-0082 dependency-interface review: point-in-time identity resolver contract",
+          "reviewed_date": "2026-07-21",
+          "reviewer": "Codex scout reviewer and root",
+          "status": "ready"
+        }
+      ],
       "dependency_edge_evidence": {
         "ISSUE-0073": {
           "contract_reference": "",
@@ -1398,22 +1411,60 @@
           "state": "unresolved"
         },
         "UPDATEV2-0011": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "src/etf_cockpit/data/instrument_identity.py#IdentityClaim,IdentityObject,IdentityConflict,resolve_identity_claims",
+          "evidence_references": [
+            "PR #465 merged as 1e9efbcd3ea67fec638d95905a66af063952dd8c with independent product review and protected Linux/Windows release evidence",
+            "src/etf_cockpit/data/instrument_identity.py IdentityClaim, IdentityObject, IdentityConflict and resolve_identity_claims point-in-time contract",
+            "tests/test_instrument_identity.py ticker replay, multiple-listing, conflict, review and ambiguous-availability fixtures",
+            "plans/BATCH-B02-DATA-SPINE-CONTINUATION.md dependency mapping"
+          ],
+          "reviewed_date": "2026-07-21",
+          "reviewer": "Codex scout reviewer and root",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "partial_interface"
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "planned",
+      "programme_status": "ready",
       "status_transition": {
         "from": "planned",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "planned"
+        "review_reference": "B02 ISSUE-0082 dependency-interface review: point-in-time identity resolver contract",
+        "to": "ready"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "dependency_edge": {
+            "dependency": "UPDATEV2-0011",
+            "evidence": {
+              "contract_reference": "src/etf_cockpit/data/instrument_identity.py#IdentityClaim,IdentityObject,IdentityConflict,resolve_identity_claims",
+              "evidence_references": [
+                "PR #465 merged as 1e9efbcd3ea67fec638d95905a66af063952dd8c with independent product review and protected Linux/Windows release evidence",
+                "src/etf_cockpit/data/instrument_identity.py IdentityClaim, IdentityObject, IdentityConflict and resolve_identity_claims point-in-time contract",
+                "tests/test_instrument_identity.py ticker replay, multiple-listing, conflict, review and ambiguous-availability fixtures",
+                "plans/BATCH-B02-DATA-SPINE-CONTINUATION.md dependency mapping"
+              ],
+              "reviewed_date": "2026-07-21",
+              "reviewer": "Codex scout reviewer and root",
+              "schema_version": "1.0",
+              "state": "partial_interface"
+            }
+          },
+          "evidence_references": [
+            "PR #465 merged as 1e9efbcd3ea67fec638d95905a66af063952dd8c with independent product review and protected Linux/Windows release evidence",
+            "src/etf_cockpit/data/instrument_identity.py IdentityClaim, IdentityObject, IdentityConflict and resolve_identity_claims point-in-time contract",
+            "tests/test_instrument_identity.py ticker replay, multiple-listing, conflict, review and ambiguous-availability fixtures",
+            "plans/BATCH-B02-DATA-SPINE-CONTINUATION.md dependency mapping"
+          ],
+          "from": "planned",
+          "review_reference": "B02 ISSUE-0082 dependency-interface review: point-in-time identity resolver contract",
+          "reviewed_date": "2026-07-21",
+          "reviewer": "Codex scout reviewer and root",
+          "to": "ready",
+          "verified_commit": "2eda82168314d582b94d0fbfc066e75327243fd2"
+        }
+      ],
+      "verified_commit": "2eda82168314d582b94d0fbfc066e75327243fd2",
       "verified_date": "2026-07-21"
     },
     "ISSUE-0083": {
