@@ -106,6 +106,11 @@ Stop the affected lane for a stale or changed base, material source-precedence c
 - `VERIFIED` B00 feature and convergence PRs merged; canonical control base and GitHub issue state converge.
 - `VERIFIED` B01 base reconciliation, deterministic control refresh and no-op GitHub readback complete at `ec7578a47125c061d018f51a93a9efb9eb5a2ad7`.
 - `VERIFIED` read-only scope/settings call-path and gap map complete.
-- `IN_PROGRESS` ISSUE-0008 failing contract and frozen capability matrix.
+- `VERIFIED` ISSUE-0008 test-first implementation is frozen at `96b963b7bcdf8f0adee039eeb8a25f67be23fbfd`: schema-2 staged strategy/instrument capabilities, fail-closed classification, application projection, System Map parity, and audit export are implemented without changing live authority.
+- `VERIFIED` the root focused boundary passed 135 tests. The independent Sol-medium re-review passed 116 focused tests plus Ruff and `git diff --check`, verified exact historical schema-1 migration, and returned no findings for `B01-0008-AC1` through `B01-0008-AC5`.
+- `VERIFIED` Ruff, compileall, registry validation and deterministic registry/status freshness passed. The enforcing full gate ran for 1,053.6 seconds at `96b963b7bcdf8f0adee039eeb8a25f67be23fbfd`; full tests, Windows package build/artefacts, source/package parity, packaged smoke, performance, source policy, bulk cache, security, privacy/backup, legal terms and SBOM all passed.
+- `BLOCKED` only the full gate's mandatory signature check failed: `ETF_COCKPIT_RELEASE_SIGNING_KEY is not set`. This exactly matches the B00 protected-CI external configuration fingerprint. It is retained for B13 and does not justify weakening the gate or stopping independent B01 work.
+- `VERIFIED` the 31 generated gate/runtime files were archived outside the repository at `C:\Users\thor2\AppData\Local\Temp\etf-ai-cockpit-b01-validation-96b963b-20260722-0141`, leaving the feature worktree clean. Release-manifest SHA-256: `593BED5766795533FFC407618544D54346424222835E87AF0D8494CE0B2B0426`; report SHA-256: `FE4BF60B8CBBA8C3CB10DC4486C67F5EDF5C4F5AC73E58691EC1BB177E52B23E`; full-test-log SHA-256: `EFFF09503868522D69262F388D9E91B979A8EFC750CE14914B0C9DE9120C90B2`.
+- `IN_PROGRESS` root release of the reviewed ISSUE-0008 checkpoint through PR validation and merge; ISSUE-0037 remains serially next.
 - `PENDING` ISSUE-0037 typed settings contract and implementation.
 - `BLOCKED` ISSUE-0080, ISSUE-0149 and ISSUE-0176 as recorded above.
