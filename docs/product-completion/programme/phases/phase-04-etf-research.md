@@ -1,6 +1,6 @@
 # ETF economics, structure, exposure and context
 
-Phase `phase-04-etf-research` covers `ISSUE-0103–ISSUE-0107`. The issue registry remains the canonical source for titles, priorities, state and acceptance criteria; this document records phase-specific implementation guidance.
+Phase `phase-04-etf-research` covers `ISSUE-0103–ISSUE-0107, ISSUE-0172`. The issue registry remains the canonical source for titles, priorities, state and acceptance criteria; this document records phase-specific implementation guidance.
 
 ## Objective
 
@@ -37,7 +37,7 @@ Deliver the bounded etf economics, structure, exposure and context work with loc
 ## Blockers, dependencies and related links
 
 - Resolve only `blocking_dependencies` as prerequisites; `required_inputs` are policy/evidence inputs and do not block readiness. `downstream_issues` are generated reverse links and `related_issues` are context only.
-- The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-17-3321ebd/dependency-reconciliation.csv`.
+- The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-21-452d440/dependency-reconciliation.csv`.
 
 ## Issue coverage
 
@@ -45,6 +45,7 @@ Deliver the bounded etf economics, structure, exposure and context work with loc
 |---|---|---|---|---|---|---|---|
 | `ISSUE-0103` | `P0/P1` | `planned` | `etf-research` | `ISSUE-0084`, `UPDATEV2-0015` | - | - | - |
 | `ISSUE-0104` | `P0/P1` | `planned` | `etf-research` | `UPDATEV2-0015`, `UPDATEV2-0018` | - | `ISSUE-0107` | - |
-| `ISSUE-0105` | `P0` | `planned` | `etf-research` | `ISSUE-0082`, `UPDATEV2-0016` | - | `ISSUE-0108` | - |
+| `ISSUE-0105` | `P0` | `planned` | `etf-research` | `ISSUE-0082`, `UPDATEV2-0016` | - | `ISSUE-0108`, `ISSUE-0162`, `ISSUE-0172` | - |
 | `ISSUE-0106` | `P0/P1` | `implemented_initially` | `etf-research` | `ISSUE-0128` | - | - | - |
 | `ISSUE-0107` | `P1/P2` | `planned` | `etf-research` | `ISSUE-0088`, `ISSUE-0104` | - | - | - |
+| `ISSUE-0172` | `P0` | `planned` | `etf-and-fund-research` | `ISSUE-0074`, `ISSUE-0098`, `ISSUE-0105`, `ISSUE-0108`, `ISSUE-0109`, `ISSUE-0112`, `ISSUE-0120`, `ISSUE-0123`, `ISSUE-0128`, `ISSUE-0170`, `ISSUE-0171`, `ISSUE-0173`, `ISSUE-0174`, `ISSUE-0175` | - | - | - |

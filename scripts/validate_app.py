@@ -19,7 +19,7 @@ from typing import Iterable
 SCHEMA_VERSION = "1.0"
 REPORT_DIRECTORY = Path("artifacts/validation")
 OPTIONAL_COMPONENTS = ("torch", "timesfm", "toto")
-MODES = ("quick", "changed", "issue", "phase")
+MODES = ("quick", "changed", "issue", "phase", "full", "offline", "packaged")
 
 
 @dataclass
@@ -49,6 +49,7 @@ class ValidationReport:
     git: dict[str, object] = field(default_factory=dict)
     log_paths: list[str] = field(default_factory=list)
     scope: dict[str, object] = field(default_factory=dict)
+    report_only: bool = False
 
     def as_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -67,6 +68,8 @@ class _Check:
     name: str
     command: tuple[str, ...]
     required: bool = True
+    environment: tuple[tuple[str, str], ...] = ()
+    timeout_seconds: int = 120
 
 
 def run_validation(
@@ -76,6 +79,7 @@ def run_validation(
     issue_ids: Iterable[str] = (),
     phase_ids: Iterable[str] = (),
     report_root: Path | None = None,
+    report_only: bool = False,
 ) -> ValidationRun:
     """Run a local validation scope and write ``latest/validation.{json,md}`."""
 
@@ -124,10 +128,11 @@ def run_validation(
         checks=[asdict(check) for check in checks],
         failures=failures,
         unavailable_optional_components=unavailable,
-        environment=_environment(root),
+        environment=_environment(root, offline_requested=mode == "offline"),
         git=_git_state(root),
         log_paths=_existing_log_paths(root),
         scope=scope,
+        report_only=report_only,
     )
     report_json = latest / "validation.json"
     report_markdown = latest / "validation.md"
@@ -138,6 +143,36 @@ def run_validation(
 
 def _checks_for_mode(root: Path, mode: str, scope: dict[str, object]) -> list[_Check]:
     python = sys.executable
+    if mode == "full":
+        return [
+            _Check(
+                "protected_release_gate",
+                (
+                    python,
+                    "scripts/release_gate.py",
+                    "--root",
+                    ".",
+                    "--output",
+                    "artifacts/release/latest",
+                ),
+                timeout_seconds=3600,
+            )
+        ]
+    if mode == "packaged":
+        return [
+            _Check(
+                "packaged_release_gate",
+                (
+                    python,
+                    "scripts/release_gate.py",
+                    "--root",
+                    ".",
+                    "--output",
+                    "artifacts/release/latest",
+                ),
+                timeout_seconds=3600,
+            )
+        ]
     registry = (python, "scripts/validate_issue_registry.py")
     compile_source = (python, "-m", "compileall", "-q", "src", "scripts")
     offline_smoke = (
@@ -153,7 +188,11 @@ def _checks_for_mode(root: Path, mode: str, scope: dict[str, object]) -> list[_C
     checks = [
         _Check("issue_registry", registry),
         _Check("source_compile", compile_source),
-        _Check("source_smoke", offline_smoke),
+        _Check(
+            "source_smoke",
+            offline_smoke,
+            environment=(("ETF_COCKPIT_OFFLINE", "1"),) if mode == "offline" else (),
+        ),
     ]
     if mode == "changed":
         changed_tests = _changed_test_paths(root)
@@ -220,8 +259,9 @@ def _run_check(root: Path, check: _Check) -> CheckResult:
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=120,
+            timeout=check.timeout_seconds,
             check=False,
+            env={**os.environ, **dict(check.environment)},
         )
         output = (completed.stdout + completed.stderr).strip()
         status = "passed" if completed.returncode == 0 else "failed"
@@ -244,7 +284,7 @@ def _run_check(root: Path, check: _Check) -> CheckResult:
             status="failed",
             required=check.required,
             output=str(exc),
-            failure="timed out after 120 seconds",
+            failure=f"timed out after {check.timeout_seconds} seconds",
         )
     except OSError as exc:
         return CheckResult(
@@ -259,14 +299,14 @@ def _run_check(root: Path, check: _Check) -> CheckResult:
         )
 
 
-def _environment(root: Path) -> dict[str, object]:
+def _environment(root: Path, *, offline_requested: bool = False) -> dict[str, object]:
     return {
         "python": sys.version.split()[0],
         "platform": platform.platform(),
         "system": platform.system(),
         "machine": platform.machine(),
         "root": str(root),
-        "offline_requested": os.getenv("ETF_COCKPIT_OFFLINE", "") == "1",
+        "offline_requested": offline_requested or os.getenv("ETF_COCKPIT_OFFLINE", "") == "1",
     }
 
 
@@ -354,8 +394,13 @@ def _utc_now() -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    for mode in ("quick", "changed"):
+    for mode in ("quick", "changed", "full", "offline", "packaged"):
         parser.add_argument(f"--{mode}", action="store_true", help=f"run the {mode} validation scope")
+    parser.add_argument(
+        "--report-only",
+        action="store_true",
+        help="record evidence without promotion actions; mandatory failures remain non-zero",
+    )
     parser.add_argument("--issue", action="append", default=[], help="scope validation to a canonical issue ID")
     parser.add_argument("--phase", action="append", default=[], help="scope validation to a roadmap phase")
     parser.add_argument("--root", type=Path, default=Path.cwd())
@@ -384,6 +429,7 @@ def main(argv: list[str] | None = None) -> int:
             mode=mode,
             issue_ids=args.issue,
             phase_ids=args.phase,
+            report_only=args.report_only,
         )
     except (FileNotFoundError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

@@ -4,10 +4,13 @@ import json
 from pathlib import Path
 
 from scripts.issue_registry_core import (
-    PHASES,
     baseline_sha,
     build_registry,
     deterministic_json,
+    FINAL_RELEASE_SOURCE,
+    load_control_state,
+    load_package_registry,
+    parse_final_release_new_issues,
     parse_closed_index,
     parse_open_ledger,
     ready_records,
@@ -21,10 +24,15 @@ from scripts.update_programme_status import deterministic_text, progress_markdow
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_baseline_sha_uses_recorded_reconciliation_intake(tmp_path: Path) -> None:
-    intake = tmp_path / "docs" / "product-completion" / "reconciliation" / "2026-07-17-3321ebd" / "intake-report.json"
-    intake.parent.mkdir(parents=True)
-    intake.write_text(json.dumps({"baseline_commit": "a" * 40}), encoding="utf-8")
+def test_baseline_sha_uses_canonical_control_metadata(tmp_path: Path) -> None:
+    control = tmp_path / "issues" / "programme_control_state.json"
+    control.parent.mkdir(parents=True)
+    control.write_text(json.dumps({
+        "schema_version": "1.0",
+        "metadata": {"generation_base_commit": "a" * 40},
+        "phase_definitions": [{"phase": "phase-test", "title": "Test", "order": 1}],
+        "records": {},
+    }), encoding="utf-8")
     assert baseline_sha(tmp_path) == "a" * 40
 
 
@@ -39,25 +47,34 @@ def test_ledgers_have_disjoint_canonical_sections() -> None:
 
 
 def test_registry_has_stable_mapping_and_acyclic_blocking_graph() -> None:
-    registry = build_registry(ROOT, baseline="3321ebd0733f188f25668f67e3b41fd90808591d")
+    registry = build_registry(ROOT)
     errors = validate_registry(registry, open_ids=set(parse_open_ledger(ROOT / "issues/open.md")), closed_ids=set(parse_closed_index(ROOT / "issues/closed.md")))
     assert errors == []
-    assert len(registry["records"]) == 159
-    assert len(registry["local_only_records"]) == 14
+    assert len(registry["records"]) == registry["counts"]["package_records"]
+    assert registry["counts"]["final_release_new_records"] == 24
+    assert registry["counts"]["local_only_records"] == 14
+    assert registry["local_only_records"] == []
     assert registry["policy"]["execution_allowed"] is False
     assert registry["policy"]["adjusted_prices_required_for_returns"] is True
 
 
-def test_proposed_ids_and_phase_coverage_are_contiguous() -> None:
+def test_proposed_ids_and_phase_coverage_are_source_derived() -> None:
     registry = json.loads((ROOT / "issues/issue_registry.json").read_text(encoding="utf-8"))
-    proposed = sorted(
-        int(record["canonical_id"].rsplit("-", 1)[1])
+    package = load_package_registry(ROOT)
+    final_release = parse_final_release_new_issues((ROOT / FINAL_RELEASE_SOURCE).read_text(encoding="utf-8"))
+    declared = {str(row["issue_id"]) for row in package["proposed_new_issues"]} | {
+        str(row["issue_id"]) for row in final_release
+    }
+    proposed = {
+        str(record["canonical_id"])
         for record in registry["records"]
-        if record["source_kind"] == "proposed"
-    )
-    assert proposed == list(range(70, 153))
-    phase_ids = {phase["phase"] for phase in PHASES}
-    assert {record["phase"] for record in registry["records"]} <= phase_ids
+        if record["classification"] == "proposed_new"
+    }
+    assert proposed == declared
+    control_phase_ids = {phase["phase"] for phase in load_control_state(ROOT)["phase_definitions"]}
+    generated_phase_ids = {phase["phase"] for phase in registry["roadmap_phases"]}
+    assert generated_phase_ids == control_phase_ids
+    assert {record["phase"] for record in registry["records"]} <= control_phase_ids
 
 
 def test_registry_json_and_ready_order_are_deterministic() -> None:
@@ -72,7 +89,7 @@ def test_registry_json_and_ready_order_are_deterministic() -> None:
 
 
 def test_registry_generation_preserves_accepted_statuses_when_adding_one_transition() -> None:
-    registry = build_registry(ROOT, baseline="4627118588a0764459ef1552f7d201331db127a3")
+    registry = build_registry(ROOT)
     statuses = {record["canonical_id"]: record["programme_status"] for record in registry["records"]}
 
     assert statuses["ISSUE-0121"] == "implemented_initially"

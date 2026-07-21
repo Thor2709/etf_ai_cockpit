@@ -1,0 +1,6 @@
+graft configs
+graft scripts
+include README.md
+include requirements.txt
+include requirements-parsers.txt
+global-exclude __pycache__ *.py[cod]

@@ -37,7 +37,7 @@ Deliver the bounded training, validation and model governance work with local-fi
 ## Blockers, dependencies and related links
 
 - Resolve only `blocking_dependencies` as prerequisites; `required_inputs` are policy/evidence inputs and do not block readiness. `downstream_issues` are generated reverse links and `related_issues` are context only.
-- The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-17-3321ebd/dependency-reconciliation.csv`.
+- The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-21-452d440/dependency-reconciliation.csv`.
 
 ## Issue coverage
 
@@ -46,8 +46,8 @@ Deliver the bounded training, validation and model governance work with local-fi
 | `ISSUE-0117` | `P0` | `implemented_initially` | `model-governance` | `ISSUE-0027`, `ISSUE-0075` | - | `ISSUE-0118`, `ISSUE-0119`, `ISSUE-0121`, `ISSUE-0124` | - |
 | `ISSUE-0118` | `P1` | `implemented_initially` | `model-governance` | `ISSUE-0117` | - | - | - |
 | `ISSUE-0119` | `P0` | `implemented_initially` | `model-governance` | `ISSUE-0073`, `ISSUE-0117` | - | `ISSUE-0120` | - |
-| `ISSUE-0120` | `P0` | `implemented_initially` | `model-governance` | `ISSUE-0119` | - | `ISSUE-0121`, `ISSUE-0122`, `ISSUE-0123`, `ISSUE-0150` | - |
-| `ISSUE-0121` | `P0/P1` | `implemented_initially` | `model-governance` | `ISSUE-0117`, `ISSUE-0120` | - | - | - |
+| `ISSUE-0120` | `P0` | `implemented_initially` | `model-governance` | `ISSUE-0119` | - | `ISSUE-0121`, `ISSUE-0122`, `ISSUE-0123`, `ISSUE-0150`, `ISSUE-0157`, `ISSUE-0172` | - |
+| `ISSUE-0121` | `P0/P1` | `implemented_initially` | `model-governance` | `ISSUE-0117`, `ISSUE-0120` | - | `ISSUE-0175` | - |
 | `ISSUE-0122` | `P1` | `implemented_initially` | `model-governance` | `ISSUE-0120` | - | - | - |
-| `ISSUE-0123` | `P0/P1` | `planned` | `model-governance` | `ISSUE-0108`, `ISSUE-0120` | - | `ISSUE-0124` | - |
+| `ISSUE-0123` | `P0/P1` | `planned` | `model-governance` | `ISSUE-0108`, `ISSUE-0120` | - | `ISSUE-0124`, `ISSUE-0157`, `ISSUE-0172`, `ISSUE-0174` | - |
 | `ISSUE-0124` | `P0/P1` | `planned` | `model-governance` | `ISSUE-0117`, `ISSUE-0123` | - | - | - |

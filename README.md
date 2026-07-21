@@ -9,7 +9,7 @@ Open `ETF_AI_Cockpit.bat` from the project root. It starts the Python launcher i
 ## Quick Start
 
 ```powershell
-cd "C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit"
+cd "path\to\etf_ai_cockpit"
 python -m venv .venv
 .\.venv\Scripts\python -m pip install --upgrade pip
 .\.venv\Scripts\pip install -r requirements-dev.txt
@@ -89,3 +89,15 @@ By default the app uses Flet browser mode on `127.0.0.1:8550`, which avoids the 
 ## Broker Automation TODO
 
 Broker execution is intentionally not implemented in v0.1. Future phases, after extensive validation, may add read-only broker holdings import, paper-trading order simulation, draft order proposals and manually approved live order placement with strict limits.
+
+<!-- BEGIN GENERATED FINAL RELEASE PROGRAMME -->
+## Final-release programme
+
+ETF AI Cockpit is a private, local-first decision-support application. The adopted programme covers core stock, ETF, ordinary-fund and supported fixed-income research; reproducible bulk/top-N analysis; selected-currency outputs; five editable risk-profile projections; and Quick/Medium/High/Full analysis depths. These are programme contracts, not a claim that every capability is certified today.
+
+The canonical registry and current evidence live in `issues/issue_registry.json` and `docs/product-completion/CURRENT_STATUS.json`. Missing providers, keys, optional models, weights or network access must remain explicit unavailable states and must not prevent safe local startup. Returns require adjusted, corporate-action-aware total-return data and point-in-time evidence.
+
+Live execution is not authorised: `execution_allowed=false`. Portfolio, paper, broker-read-only and disabled canary scaffolding have separate certification/activation lanes and cannot gain authority from a model, LLM, UI action or programme status.
+
+Canonical checks: `python scripts/generate_issue_registry.py --check`, `python scripts/validate_issue_registry.py`, `python scripts/update_programme_status.py --check`, `python scripts/validate_app.py --changed`, and `python scripts/validate_app.py --offline`. Full/package certification is delegated to the existing protected release gate through `validate_app.py --full` and `--packaged`.
+<!-- END GENERATED FINAL RELEASE PROGRAMME -->

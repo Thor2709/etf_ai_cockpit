@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import flet as ft
 
 from etf_cockpit.app import theme
@@ -14,6 +16,31 @@ from etf_cockpit.core.paths import ROOT
 
 
 def release_readiness_page(_page: ft.Page | None, _state: AppState) -> ft.Control:
+    try:
+        programme_status = json.loads(
+            (ROOT / "docs" / "product-completion" / "CURRENT_STATUS.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        if not isinstance(programme_status, dict):
+            raise TypeError("CURRENT_STATUS.json root must be an object")
+        readiness = programme_status.get("readiness", [])
+        if not isinstance(readiness, list):
+            raise TypeError("CURRENT_STATUS.json readiness must be a list")
+        implementation_ready = sum(
+            decision.get("ready") is True for decision in readiness if isinstance(decision, dict)
+        )
+        activation_ready = sum(
+            decision.get("activation_ready") is True
+            for decision in readiness
+            if isinstance(decision, dict)
+        )
+        readiness_summary = (
+            f"Implementation ready: {implementation_ready}/{len(readiness)} · "
+            f"Activation ready: {activation_ready}/{len(readiness)}"
+        )
+    except (OSError, json.JSONDecodeError, TypeError):
+        readiness_summary = "Readiness projection unavailable; activation remains blocked."
     try:
         certification = release_certification_report(ROOT)
     except Exception as exc:  # presentation remains fail-closed if local evidence is malformed
@@ -80,6 +107,8 @@ def release_readiness_page(_page: ft.Page | None, _state: AppState) -> ft.Contro
                         ft.Text(f"Release commit: {certification.get('release_commit', 'unavailable')}", color=theme.MUTED, size=11, selectable=True),
                         ft.Text(f"Issue registry SHA-256: {certification.get('registry_sha256', 'unavailable')}", color=theme.MUTED, size=11, selectable=True),
                         ft.Text("Network calls: false · execution_allowed=false", color=theme.MUTED, size=11, selectable=True),
+                        ft.Text(readiness_summary, color=theme.MUTED, size=11, selectable=True),
+                        ft.Text("Programme status cannot resolve blocking edges. Activation dependencies are reported separately and never enable execution.", color=theme.AMBER, size=11, selectable=True),
                     ],
                     spacing=8,
                 )

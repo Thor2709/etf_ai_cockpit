@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 
 import pytest
 
+from scripts.issue_registry_core import deterministic_json
 from scripts.status_transition_guard import guard_proposal
 from scripts.update_programme_status import deterministic_text, progress_markdown, status_payload
 
@@ -49,6 +51,32 @@ def _manifest(*transitions: tuple[str, str, str], **overrides: object) -> dict:
         "allow_downgrades": False,
     }
     manifest.update(overrides)
+    return manifest
+
+
+def _registry_sha256(registry: dict) -> str:
+    return hashlib.sha256(deterministic_json(registry)).hexdigest()
+
+
+def _migration_manifest(
+    base: dict,
+    proposed: dict,
+    *,
+    added_issue_ids: list[str],
+    removed_issue_ids: list[str] | None = None,
+) -> dict:
+    manifest = _manifest()
+    manifest["schema_version"] = "1.1"
+    manifest["registry_migration"] = {
+        "mode": "canonical_schema_and_intake",
+        "reason": "Reviewed canonical schema and source-intake migration.",
+        "generator": "scripts/generate_issue_registry.py",
+        "base_registry_sha256": _registry_sha256(base),
+        "proposed_registry_sha256": _registry_sha256(proposed),
+        "source_manifest_sha256": SOURCE_MANIFEST_SHA256,
+        "added_issue_ids": added_issue_ids,
+        "removed_issue_ids": removed_issue_ids or [],
+    }
     return manifest
 
 
@@ -264,3 +292,150 @@ def test_rejects_non_allowlisted_record_edit_and_from_to_mismatch() -> None:
 
     assert "non-allowlisted registry change: ISSUE-0070" in errors
     assert "manifest transition from/to mismatch: ISSUE-0070" in errors
+
+
+def test_allows_exact_canonical_schema_and_intake_migration_without_status_changes() -> None:
+    base = _registry({"ISSUE-0070": "planned"})
+    proposed = _registry({"ISSUE-0070": "planned", "ISSUE-0153": "planned"})
+    proposed["records"][0]["title"] = "Canonical migrated title"
+    proposed["schema_version"] = "2.0"
+
+    assert _errors(
+        base,
+        proposed,
+        _migration_manifest(base, proposed, added_issue_ids=["ISSUE-0153"]),
+    ) == []
+
+
+@pytest.mark.parametrize(
+    ("manifest_added", "expected_error"),
+    [
+        ([], "registry migration has unexpected added issue ID: ISSUE-0153"),
+        (
+            ["ISSUE-0153", "ISSUE-0154"],
+            "registry migration expected added issue ID is absent: ISSUE-0154",
+        ),
+    ],
+)
+def test_rejects_registry_migration_added_id_mismatch(
+    manifest_added: list[str], expected_error: str
+) -> None:
+    base = _registry({"ISSUE-0070": "planned"})
+    proposed = _registry({"ISSUE-0070": "planned", "ISSUE-0153": "planned"})
+
+    errors = _errors(
+        base,
+        proposed,
+        _migration_manifest(base, proposed, added_issue_ids=manifest_added),
+    )
+
+    assert expected_error in errors
+
+
+def test_rejects_registry_migration_removal_or_status_change() -> None:
+    base = _registry({"ISSUE-0070": "planned", "ISSUE-0071": "integrated"})
+    proposed = _registry({"ISSUE-0070": "integrated"})
+    manifest = _migration_manifest(
+        base,
+        proposed,
+        added_issue_ids=[],
+        removed_issue_ids=[],
+    )
+
+    errors = _errors(base, proposed, manifest)
+
+    assert "registry migration has unexpected removed issue ID: ISSUE-0071" in errors
+    assert "status change is not allow-listed: ISSUE-0070" in errors
+
+
+def test_rejects_registry_migration_after_undeclared_record_or_top_level_mutation() -> None:
+    base = _registry({"ISSUE-0070": "planned"})
+    proposed = _registry({"ISSUE-0070": "planned", "ISSUE-0153": "planned"})
+    manifest = _migration_manifest(base, proposed, added_issue_ids=["ISSUE-0153"])
+    proposed["records"][0]["title"] = "Mutation after review"
+    proposed["policy"]["execution_allowed"] = True
+
+    errors = _errors(base, proposed, manifest)
+
+    assert "registry migration proposed checksum mismatch" in errors
+
+
+def test_rejects_registry_migration_base_or_source_binding_mismatch() -> None:
+    base = _registry({"ISSUE-0070": "planned"})
+    proposed = _registry({"ISSUE-0070": "planned", "ISSUE-0153": "planned"})
+    manifest = _migration_manifest(base, proposed, added_issue_ids=["ISSUE-0153"])
+    manifest["registry_migration"]["base_registry_sha256"] = "0" * 64
+    manifest["registry_migration"]["source_manifest_sha256"] = "1" * 64
+
+    errors = _errors(base, proposed, manifest)
+
+    assert "registry migration base checksum mismatch" in errors
+    assert "registry migration source manifest checksum mismatch" in errors
+
+
+def test_rejects_registry_migration_with_wrong_checked_out_head() -> None:
+    base = _registry({"ISSUE-0070": "planned"})
+    proposed = _registry({"ISSUE-0070": "planned", "ISSUE-0153": "planned"})
+    expected_status = status_payload(proposed)
+    expected_progress = deterministic_text(progress_markdown(expected_status, proposed))
+
+    errors = guard_proposal(
+        base_registry=base,
+        latest_registry=copy.deepcopy(base),
+        proposed_registry=proposed,
+        manifest=_migration_manifest(base, proposed, added_issue_ids=["ISSUE-0153"]),
+        current_status=expected_status,
+        current_progress=expected_progress,
+        source_manifest_sha256=SOURCE_MANIFEST_SHA256,
+        expected_base_commit=BASE_COMMIT,
+        latest_commit=BASE_COMMIT,
+        branch="feature/status-guard",
+        actual_head_commit="c" * 40,
+        expected_head_commit="d" * 40,
+        base_is_ancestor=True,
+    )
+
+    assert "checked-out head does not match the proposed head commit" in errors
+
+
+def test_rejects_registry_migration_combined_with_forward_status_authority() -> None:
+    base = _registry({"ISSUE-0070": "planned"})
+    proposed = _registry({"ISSUE-0070": "ready", "ISSUE-0153": "planned"})
+    manifest = _migration_manifest(base, proposed, added_issue_ids=["ISSUE-0153"])
+    manifest["issue_ids"] = ["ISSUE-0070"]
+    manifest["allowed_status_transitions"] = [
+        {"issue_id": "ISSUE-0070", "from": "planned", "to": "ready"}
+    ]
+
+    errors = _errors(base, proposed, manifest)
+
+    assert "manifest registry_migration cannot authorize status transitions" in errors
+    assert "registry migration cannot change programme_status: ISSUE-0070" in errors
+
+
+def test_rejects_registry_migration_combined_with_reasoned_downgrade() -> None:
+    base = _registry({"ISSUE-0070": "integrated"})
+    proposed = _registry({"ISSUE-0070": "planned", "ISSUE-0153": "planned"})
+    manifest = _migration_manifest(base, proposed, added_issue_ids=["ISSUE-0153"])
+    manifest["issue_ids"] = ["ISSUE-0070"]
+    manifest["allowed_status_transitions"] = [
+        {"issue_id": "ISSUE-0070", "from": "integrated", "to": "planned"}
+    ]
+    manifest["allow_downgrade"] = True
+    manifest["reason"] = "Reviewed downgrade request that migration mode must reject."
+
+    errors = _errors(base, proposed, manifest)
+
+    assert "manifest registry_migration cannot authorize status transitions" in errors
+    assert "manifest registry_migration cannot allow a downgrade" in errors
+    assert "registry migration cannot change programme_status: ISSUE-0070" in errors
+
+
+def test_schema_1_0_rejects_explicit_null_registry_migration() -> None:
+    base = _registry({"ISSUE-0070": "planned"})
+    manifest = _manifest()
+    manifest["registry_migration"] = None
+
+    errors = _errors(base, copy.deepcopy(base), manifest)
+
+    assert "manifest registry_migration requires schema_version 1.1" in errors

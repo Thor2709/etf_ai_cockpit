@@ -1,0 +1,2561 @@
+{
+  "actions": [
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Priority",
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 5,
+      "remote_state": "closed",
+      "stable_id": "ISSUE-0001",
+      "title": "Create durable issue tracker and plan synchronisation",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/5"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Priority",
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 6,
+      "remote_state": "closed",
+      "stable_id": "ISSUE-0002",
+      "title": "Add young/noisy evidence and too-good-to-be-true warnings",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/6"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Priority",
+        "Owner",
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 7,
+      "remote_state": "closed",
+      "stable_id": "ISSUE-0003",
+      "title": "Add benchmark alpha/beta/regime attribution",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/7"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Priority",
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 8,
+      "remote_state": "closed",
+      "stable_id": "ISSUE-0004",
+      "title": "Add hit-rate, payoff-ratio and expected-value diagnostics",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/8"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Priority",
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 9,
+      "remote_state": "closed",
+      "stable_id": "ISSUE-0005",
+      "title": "Add friction/cost/slippage stress engine",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/9"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Priority",
+        "Owner",
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 10,
+      "remote_state": "closed",
+      "stable_id": "ISSUE-0006",
+      "title": "Add explicit model/backtest contamination validity status",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/10"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 11,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0007",
+      "title": "Add non-executable news/macro contradiction panel",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/11"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 12,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0008",
+      "title": "Add strategy taxonomy and scope/rejection matrix",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/12"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Priority",
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 13,
+      "remote_state": "closed",
+      "stable_id": "ISSUE-0009",
+      "title": "Add source-credibility scoring for imported research notes",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/13"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 14,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0010",
+      "title": "Add non-executable LLM thesis diary",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/14"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 15,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0011",
+      "title": "Full main-UI button reliability audit",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/15"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 16,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0012",
+      "title": "Add visible progress/status indicators for long-running actions",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/16"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 17,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0013",
+      "title": "Rebuild package after every completed feature",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/17"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 18,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0014",
+      "title": "Add end-to-end workflow test",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/18"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 19,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0015",
+      "title": "Add app-level feature map / roadmap page",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/19"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 20,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0016",
+      "title": "Full product navigation redesign",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/20"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 21,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0017",
+      "title": "First-run onboarding and setup wizard",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/21"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 22,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0018",
+      "title": "Watchlist and universe manager",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/22"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 23,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0019",
+      "title": "Proper instrument detail page",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/23"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 24,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0020",
+      "title": "Screener and filter system",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/24"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 25,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0021",
+      "title": "Portfolio construction and allocation sandbox",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/25"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 26,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0022",
+      "title": "ETF overlap and look-through exposure engine",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/26"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 27,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0023",
+      "title": "Stock fundamentals quality module hardening",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/27"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 28,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0024",
+      "title": "Earnings, dividends and event calendar",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/28"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 29,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0025",
+      "title": "Free news and filings dashboard",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/29"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 30,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0026",
+      "title": "Macro regime dashboard",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/30"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 31,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0027",
+      "title": "Forecast lab page",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/31"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 32,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0028",
+      "title": "Backtest lab upgrade",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/32"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 33,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0029",
+      "title": "Strategy template builder",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/33"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 34,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0030",
+      "title": "Decision journal",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/34"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 76,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0031",
+      "title": "Paper trading module",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/76"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 77,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0032",
+      "title": "Future broker-execution architecture document only",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/77"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 79,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0033",
+      "title": "Alerts and review reminders",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/79"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 80,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0034",
+      "title": "What changed since last run page",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/80"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Priority",
+        "Owner",
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 81,
+      "remote_state": "closed",
+      "stable_id": "ISSUE-0035",
+      "title": "Data health centre",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/81"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 83,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0036",
+      "title": "Import/export centre",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/83"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 85,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0037",
+      "title": "Config editor UI",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/85"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 86,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0038",
+      "title": "Local database / storage migration plan",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/86"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 88,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0039",
+      "title": "Performance and caching audit",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/88"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 89,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0040",
+      "title": "Error handling and recovery centre",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/89"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 91,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0041",
+      "title": "Accessibility, responsive layout and table usability",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/91"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 92,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0042",
+      "title": "Charts, tables and CSV export improvements",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/92"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 94,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0043",
+      "title": "User manual, glossary and in-app explanations",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/94"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 95,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0044",
+      "title": "Backup, restore, version and changelog",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/95"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 97,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0045",
+      "title": "UI semantic locators and visual smoke tests",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/97"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 98,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0046",
+      "title": "Monthly decision template: basket vs benchmark vs cash",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/98"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 99,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0047",
+      "title": "Feature-driver explanations for every evidence component",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/99"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 101,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0048",
+      "title": "Strategy complexity and overfitting penalty metadata",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/101"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 103,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0049",
+      "title": "Worst-day, loss-cluster and tail-event diagnostics",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/103"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 105,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0050",
+      "title": "Operational evidence panel for next-open/decision-price realism",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/105"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 107,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0051",
+      "title": "Cash proxy and risk-free/defensive comparison everywhere relevant",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/107"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 109,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0052",
+      "title": "Correlation clustering and factor-crowding warnings",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/109"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 111,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0053",
+      "title": "What matters today digest",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/111"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 113,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0054",
+      "title": "Point-in-time news/sentiment validation rules",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/113"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 115,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0055",
+      "title": "Optional free provider research/stubs: SEC EDGAR, FRED, Stooq, RSS",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/115"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 117,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0056",
+      "title": "Data-frequency suitability and unsupported-asset guardrails",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/117"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 119,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0057",
+      "title": "Paper/forward evidence diary",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/119"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 121,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0058",
+      "title": "Closed-source/promotional-claim detector for imported notes",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/121"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 123,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0059",
+      "title": "Benchmark-relative sector/theme attribution beyond single benchmark beta",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/123"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 124,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0060",
+      "title": "Strategy rejection tests",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/124"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 126,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0061",
+      "title": "Pair-trading/cointegration research-only module",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/126"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 128,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0062",
+      "title": "Triple-barrier and purged-CV research-only module",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/128"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 130,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0063",
+      "title": "Close-based quality-momentum next-open template hardening",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/130"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 132,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0064",
+      "title": "Friction-adjusted return estimate per evidence score",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/132"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 134,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0065",
+      "title": "Payoff-profile classification and risk/reward asymmetry display",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/134"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 136,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0066",
+      "title": "Source-of-truth and reconciliation architecture for future execution",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/136"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Owner",
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Related issues"
+      ],
+      "remote_number": 137,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0067",
+      "title": "Local score history and per-instrument score evolution mini charts",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/137"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 140,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0068",
+      "title": "Two-tier universe manager and provider policy editor",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/140"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Priority",
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 141,
+      "remote_state": "closed",
+      "stable_id": "ISSUE-0069",
+      "title": "Single-file session action logging and diagnostics trace",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/141"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 210,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0070",
+      "title": "Freeze the final product scope, completion contract and staged execution authority",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/210"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 211,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0071",
+      "title": "Refactor into bounded domain, application, infrastructure and presentation modules",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/211"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 212,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0072",
+      "title": "Implement the hybrid local analytical and transactional data platform",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/212"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 213,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0073",
+      "title": "Implement a bitemporal point-in-time and data-vintage model",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/213"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 214,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0074",
+      "title": "Unify all scoring into a canonical score engine v3",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/214"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 215,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0075",
+      "title": "Create formula, feature, dataset, model and policy version registries",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/215"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 216,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0076",
+      "title": "Define stable plugin contracts for providers, models, strategies and brokers",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/216"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 217,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0077",
+      "title": "Implement a durable resumable job DAG and workflow scheduler",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/217"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 218,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0078",
+      "title": "Set performance, memory, storage and latency budgets with regression profiling",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/218"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 219,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0079",
+      "title": "Establish open-source intake, licence, provenance and upstream-update governance",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/219"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 220,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0080",
+      "title": "Enforce a mandatory no-subscription, no-vendor-quota local-first data policy",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/220"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 221,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0081",
+      "title": "Build a resumable bulk downloader, content-addressed cache and delta updater",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/221"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 222,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0082",
+      "title": "Create a global entity, instrument, fund, share-class and listing identity master",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/222"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 223,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0083",
+      "title": "Implement automatic asset, sector, industry and strategy classification with confidence",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/223"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 224,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0084",
+      "title": "Build corporate-action, total-return and currency-normalisation services",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/224"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 225,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0085",
+      "title": "Implement exchange calendars, sessions, holidays, auctions and market-state service",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/225"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 226,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0086",
+      "title": "Create user, broker and exchange historical price, position and transaction import pipelines",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/226"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 227,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0087",
+      "title": "Expand official filing discovery and ingestion across supported jurisdictions",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/227"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 228,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0088",
+      "title": "Build a versioned macro, factor, risk-free and benchmark data warehouse",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/228"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 229,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0089",
+      "title": "Implement data anomaly detection, quarantine and cross-source reconciliation",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/229"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 230,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0090",
+      "title": "Create a data catalogue, lineage graph and reproducible dataset snapshots",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/230"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 231,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0091",
+      "title": "Normalise multi-period financial statements, amendments and restatements",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/231"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 232,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0092",
+      "title": "Add profitability, margin durability, earnings quality and accrual analysis",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/232"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 233,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0093",
+      "title": "Add balance-sheet strength, liquidity, leverage and distress analysis",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/233"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 234,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0094",
+      "title": "Add cash-flow quality, capital allocation, shareholder yield and dilution analysis",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/234"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 235,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0095",
+      "title": "Add growth, revisions, guidance and earnings-surprise evidence with optional imports",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/235"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 236,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0096",
+      "title": "Implement relative valuation, intrinsic-value scenarios, reverse DCF and residual-income models",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/236"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 237,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0097",
+      "title": "Add capital efficiency, reinvestment, intangible investment and business-quality proxies",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/237"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 238,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0098",
+      "title": "Create the stock sector-adapter and peer-cohort framework",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/238"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 239,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0099",
+      "title": "Implement bank, insurer and diversified-financial sector adapters",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/239"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 240,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0100",
+      "title": "Implement REIT, utility and infrastructure sector adapters",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/240"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 241,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0101",
+      "title": "Implement energy, materials and industrial cyclical-sector adapters",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/241"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 242,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0102",
+      "title": "Implement software, semiconductor, healthcare and biotechnology adapters",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/242"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 243,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0103",
+      "title": "Implement ETF economics, fee, tracking and closure-quality analysis",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/243"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 244,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0104",
+      "title": "Implement ETF structural, legal, counterparty, lending and collateral risk analysis",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/244"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 245,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0105",
+      "title": "Build complete ETF look-through exposure, factor, valuation and quality analytics",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/245"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 246,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0106",
+      "title": "Implement ETF liquidity, capacity, spread and premium-discount analysis",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/246"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 247,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0107",
+      "title": "Add ETF domicile, tax, distribution, currency and hedging context",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/247"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 248,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0108",
+      "title": "Implement horizon-aware probabilistic total-return distributions",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/248"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 249,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0109",
+      "title": "Implement scenario, uncertainty, confidence and model-disagreement framework",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/249"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 250,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0110",
+      "title": "Build a transparent multi-factor risk model for stocks, ETFs and portfolios",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/250"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 251,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0111",
+      "title": "Implement robust covariance, volatility, correlation and tail-risk estimation",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/251"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 252,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0112",
+      "title": "Create canonical benchmarks, peer sets, cash proxies and reference portfolios",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/252"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 253,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0113",
+      "title": "Implement a constrained portfolio-optimiser suite with robust baselines",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/253"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 254,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0114",
+      "title": "Implement turnover-, cost-, tax-lot- and cash-aware rebalancing",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/254"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 255,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0115",
+      "title": "Build historical, hypothetical and reverse stress-testing engine",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/255"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 256,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0116",
+      "title": "Implement performance, risk, factor and decision attribution",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/256"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 257,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0117",
+      "title": "Implement the local training centre, experiment tracker and model registry",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/257"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 258,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0118",
+      "title": "Create synthetic and adversarial market, data-quality and execution generators",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/258"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 259,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0119",
+      "title": "Build a leakage-safe feature store and target/label registry",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/259"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 260,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0120",
+      "title": "Implement walk-forward, nested, purged and embargoed validation with multiple-testing control",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/260"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 261,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0121",
+      "title": "Create a baseline and challenger model zoo for return, risk and fundamentals",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/261"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 262,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0122",
+      "title": "Implement bounded hyperparameter optimisation, pruning and compute governance",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/262"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 263,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0123",
+      "title": "Implement probabilistic and conformal forecast calibration",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/263"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 264,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0124",
+      "title": "Implement model monitoring, drift, champion/challenger and retirement governance",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/264"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 265,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0125",
+      "title": "Implement a deterministic event-driven, order-level backtest engine",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/265"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 266,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0126",
+      "title": "Implement point-in-time universes, delistings and survivorship-bias controls",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/266"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 267,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0127",
+      "title": "Create the double-entry portfolio, cash, FX, fee, tax and corporate-action ledger",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/267"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 268,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0128",
+      "title": "Implement spread, slippage, market-impact, capacity and execution-cost models",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/268"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 269,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0129",
+      "title": "Implement the full paper broker, frozen proposal ledger and forward evidence service",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/269"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 270,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0130",
+      "title": "Implement the target-to-proposal policy and authority engine",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/270"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 271,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0131",
+      "title": "Implement broker adapter contracts, read-only synchronisation and reconciliation",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/271"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 272,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0132",
+      "title": "Implement independent pre-trade controls, kill switches and operational limits",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/272"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Blocking dependencies",
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 273,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0133",
+      "title": "Implement staged canary live execution with explicit promotion gates",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/273"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 274,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0134",
+      "title": "Implement post-trade transaction-cost, execution-quality and decision attribution",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/274"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 275,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0135",
+      "title": "Implement incident management, recovery, reconciliation and operational drills",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/275"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 276,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0136",
+      "title": "Create a typed local application API and page-view-model layer",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/276"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 277,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0137",
+      "title": "Deliver frontend v2 design system and task-oriented information architecture",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/277"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 278,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0138",
+      "title": "Build professional research, comparison, charting and screening workspaces",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/278"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 279,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0139",
+      "title": "Build portfolio, training, paper and live operations workspaces",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/279"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 280,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0140",
+      "title": "Complete accessibility, global search, command palette, localisation and unit formatting",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/280"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 281,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0141",
+      "title": "Implement hermetic CI, multi-platform build and release automation",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/281"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 282,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0142",
+      "title": "Add property, metamorphic, golden, differential and mutation testing",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/282"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 283,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0143",
+      "title": "Add visual E2E, load, soak, fault-injection and chaos test programmes",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/283"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 284,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0144",
+      "title": "Harden secrets, parsers, local APIs, files and network access",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/284"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 285,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0145",
+      "title": "Implement software supply-chain, SBOM, vulnerability, signing and secure-update controls",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/285"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 286,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0146",
+      "title": "Implement encryption, privacy controls, backup and disaster recovery",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/286"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 287,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0147",
+      "title": "Deliver audit packet v3 and one-command deterministic reproduction",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/287"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 288,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0148",
+      "title": "Complete developer, plugin, methodology, operations and user documentation",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/288"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 289,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0149",
+      "title": "Complete legal, data/model licence, terms, disclaimer and jurisdiction review",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/289"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 290,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0150",
+      "title": "Audit geographic, sector, size, listing and data-coverage bias",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/290"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 291,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0151",
+      "title": "Define hardware profiles, compute budgets and graceful degradation",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/291"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 292,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0152",
+      "title": "Run final release certification and close the completion programme",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/292"
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0153",
+      "title": "Create the fixed-income instrument, terms and cash-flow identity master",
+      "url": ""
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0154",
+      "title": "Implement fixed-income cash-flow, clean/dirty pricing and yield/risk analytics",
+      "url": ""
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0155",
+      "title": "Add fixed-income reference, curve, trade and liquidity data adapters",
+      "url": ""
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0156",
+      "title": "Implement fixed-income rate, curve, spread, credit, liquidity and optionality risk",
+      "url": ""
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0157",
+      "title": "Build fixed-income expected total-return distributions, peers and screener",
+      "url": ""
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0158",
+      "title": "Create bond detail, portfolio maturity ladder and fixed-income income views",
+      "url": ""
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0159",
+      "title": "Implement daily portfolio valuation history and standards-aligned performance measurement",
+      "url": ""
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0160",
+      "title": "Build selectable portfolio value, selected-currency P&L and percentage-performance charts",
+      "url": ""
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0161",
+      "title": "Build the portfolio holdings analysis table and cross-surface drill-down",
+      "url": ""
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0162",
+      "title": "Implement coverage-aware portfolio exposure, look-through and concentration charts",
+      "url": ""
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0163",
+      "title": "Implement portfolio income, event, maturity and liquidity calendar",
+      "url": ""
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0164",
+      "title": "Add portfolio goals, constraints, alerts and pre-trade what-if analysis",
+      "url": ""
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0165",
+      "title": "Implement a canonical resumable bulk analysis-run orchestrator",
+      "url": ""
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0166",
+      "title": "Implement cross-asset top-*N* selection and portfolio-fit ranking",
+      "url": ""
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0167",
+      "title": "Implement settlement, buying-power, cash reservation and deterministic order-state accounting",
+      "url": ""
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0168",
+      "title": "Add portfolio forecast aggregation and expected gain/loss scenario views",
+      "url": ""
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0169",
+      "title": "Implement canonical analysis parity and deterministic replay tests across workflows",
+      "url": ""
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0170",
+      "title": "Create the ordinary-fund vehicle, sub-fund, share-class, dealing and lifecycle identity master",
+      "url": ""
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0171",
+      "title": "Implement lawful free global ordinary-fund NAV, disclosure, holdings and fee adapters",
+      "url": ""
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0172",
+      "title": "Build ordinary-fund analysis, peer cohorts, forecasts, recommendations and top-*N* screening",
+      "url": ""
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0173",
+      "title": "Implement user-selected output currency and point-in-time FX across every workflow",
+      "url": ""
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0174",
+      "title": "Implement five preset-but-editable risk profiles anchored to a dynamic VWCE envelope",
+      "url": ""
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0175",
+      "title": "Implement Quick, Medium, High and Full analysis-depth workload profiles with measured SLOs",
+      "url": ""
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0176",
+      "title": "Build a secure Data Providers & API Keys settings centre",
+      "url": ""
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Priority",
+        "Owner",
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 150,
+      "remote_state": "closed",
+      "stable_id": "UPDATEV2-0010",
+      "title": "Provider registry, capability probes and source authority model (original update ISSUE-0010)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/150"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 151,
+      "remote_state": "open",
+      "stable_id": "UPDATEV2-0011",
+      "title": "Symbol/ISIN/exchange identity resolver (original update ISSUE-0011)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/151"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 152,
+      "remote_state": "open",
+      "stable_id": "UPDATEV2-0012",
+      "title": "SEC EDGAR official statement importer (original update ISSUE-0012)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/152"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Priority",
+        "Owner",
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 153,
+      "remote_state": "closed",
+      "stable_id": "UPDATEV2-0013",
+      "title": "European ESEF/iXBRL filing importer",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/153"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 154,
+      "remote_state": "open",
+      "stable_id": "UPDATEV2-0014",
+      "title": "France DILA and Netherlands AFM OAM discovery adapters (original update ISSUE-0014)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/154"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 155,
+      "remote_state": "closed",
+      "stable_id": "UPDATEV2-0015",
+      "title": "ETF disclosure registry (original update ISSUE-0015)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/155"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 156,
+      "remote_state": "closed",
+      "stable_id": "UPDATEV2-0016",
+      "title": "ETF holdings normaliser (original update ISSUE-0016)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/156"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 157,
+      "remote_state": "closed",
+      "stable_id": "UPDATEV2-0017",
+      "title": "PRIIPs KID parser (original update ISSUE-0017)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/157"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 158,
+      "remote_state": "open",
+      "stable_id": "UPDATEV2-0018",
+      "title": "ETF prospectus, annual and half-year report parser (original update ISSUE-0018)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/158"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 159,
+      "remote_state": "closed",
+      "stable_id": "UPDATEV2-0019",
+      "title": "Index methodology importer (original update ISSUE-0019)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/159"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 160,
+      "remote_state": "open",
+      "stable_id": "UPDATEV2-0020",
+      "title": "SFDR disclosure parser (original update ISSUE-0020)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/160"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 161,
+      "remote_state": "open",
+      "stable_id": "UPDATEV2-0021",
+      "title": "Source conflict resolver and canonical metric selector (original update ISSUE-0021)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/161"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Priority",
+        "Owner",
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 162,
+      "remote_state": "closed",
+      "stable_id": "UPDATEV2-0022",
+      "title": "Evidence ledger and score component audit trail",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/162"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 163,
+      "remote_state": "open",
+      "stable_id": "UPDATEV2-0023",
+      "title": "FMP optional provider adapter (original update ISSUE-0023)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/163"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 164,
+      "remote_state": "open",
+      "stable_id": "UPDATEV2-0024",
+      "title": "Alpha Vantage verification/fallback adapter (original update ISSUE-0024)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/164"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 165,
+      "remote_state": "open",
+      "stable_id": "UPDATEV2-0025",
+      "title": "Finnhub experimental adapter with entitlement probes (original update ISSUE-0025)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/165"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 166,
+      "remote_state": "open",
+      "stable_id": "UPDATEV2-0026",
+      "title": "Candle feature/context/backtest module (original update ISSUE-0026)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/166"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 167,
+      "remote_state": "open",
+      "stable_id": "UPDATEV2-0027",
+      "title": "UI workflow/button reliability and progress indicators (original update ISSUE-0027)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/167"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Priority",
+        "Owner",
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane",
+        "Downstream issues"
+      ],
+      "remote_number": 168,
+      "remote_state": "closed",
+      "stable_id": "UPDATEV2-0028",
+      "title": "Report/audit packet expansion for providers, filings, ETF docs and candles",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/168"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 169,
+      "remote_state": "open",
+      "stable_id": "UPDATEV2-0029",
+      "title": "Rebuild/test/update discipline automation (original update ISSUE-0029)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/169"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Activation dependencies",
+        "Capability lane",
+        "Release blocking in lane"
+      ],
+      "remote_number": 170,
+      "remote_state": "open",
+      "stable_id": "UPDATEV2-0030",
+      "title": "Optional OHLCV fallback providers: Stooq, Twelve Data and Tiingo (original update ISSUE-0030)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/170"
+    }
+  ],
+  "apply_authority": false,
+  "fresh_exact_plan_required_for_apply": true,
+  "plan_semantic_sha256": "99f19fa2748c29242665fd88ad68e4898d161687da5abb607dca1efb3fbe49d2",
+  "remote_inventory_sha256": "d7b6c4e6e2514a260ac976e1f63fc6c639bdcc88ce2103995d085b069b6a9d05",
+  "repository": "Thor2709/etf_ai_cockpit",
+  "schema_version": "etf-ai-cockpit.safe-sync-evidence/1.0",
+  "summary": {
+    "blocked": 0,
+    "close": 0,
+    "create": 24,
+    "reopen": 0,
+    "update": 173
+  },
+  "transient_full_plan_file_sha256": "30389bf2bf85011588fe4c13b7675aa40f80fa211333ca372f9d5d61649380c7"
+}

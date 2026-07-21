@@ -1,9 +1,23 @@
 from __future__ import annotations
 
+import io
 import json
+import tarfile
+import zipfile
 from pathlib import Path
 
+import pytest
+
 from scripts import release_gate
+
+
+def _source_fixture(root: Path) -> None:
+    (root / "src" / "etf_cockpit").mkdir(parents=True)
+    (root / "configs").mkdir()
+    (root / "scripts").mkdir()
+    (root / "src" / "etf_cockpit" / "sample.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (root / "configs" / "sample.yaml").write_text("enabled: true\n", encoding="utf-8")
+    (root / "scripts" / "smoke_app.py").write_text("raise SystemExit(0)\n", encoding="utf-8")
 
 
 def test_source_manifest_normalises_text_line_endings_but_not_binary(tmp_path: Path) -> None:
@@ -84,6 +98,100 @@ def test_package_commands_cover_windows_and_linux_outputs() -> None:
 
     assert windows == ("cmd", "/c", "scripts\\build_windows.bat")
     assert linux[-3:] == ("build", "--outdir", "build/python-dist")
+
+
+def test_windows_portable_parity_matches_real_build_layout(tmp_path: Path) -> None:
+    _source_fixture(tmp_path)
+    package = tmp_path / "build" / "portable"
+    (package / "app").mkdir(parents=True)
+    import shutil
+    shutil.copytree(tmp_path / "src", package / "app" / "src")
+    shutil.copytree(tmp_path / "configs", package / "configs")
+    shutil.copytree(tmp_path / "scripts", package / "scripts")
+    (tmp_path / "build" / "portable_outdir.txt").write_text("build/portable\n", encoding="utf-8")
+    prepared = release_gate.prepare_package_artifact(
+        tmp_path, {"artifact_roots": ["build"]}, tmp_path / "extract", platform_name="nt"
+    )
+    assert prepared is not None and prepared.layout == "windows-portable"
+    assert release_gate.source_package_parity(tmp_path, prepared).status == "passed"
+    (package / "app" / "src" / "etf_cockpit" / "sample.py").write_text("VALUE = 2\n", encoding="utf-8")
+    failure = release_gate.source_package_parity(tmp_path, prepared)
+    assert failure.status == "failed"
+    assert "src/etf_cockpit/sample.py" in failure.failure
+
+
+def test_sdist_is_safely_extracted_runnable_and_parity_checked(tmp_path: Path) -> None:
+    _source_fixture(tmp_path)
+    staging = tmp_path / "staging" / "etf_ai_cockpit-1.0"
+    import shutil
+    shutil.copytree(tmp_path / "src", staging / "src")
+    shutil.copytree(tmp_path / "configs", staging / "configs")
+    shutil.copytree(tmp_path / "scripts", staging / "scripts")
+    build = tmp_path / "build"
+    build.mkdir()
+    archive = build / "etf_ai_cockpit-1.0.tar.gz"
+    with tarfile.open(archive, "w:gz") as handle:
+        handle.add(staging, arcname=staging.name)
+    prepared = release_gate.prepare_package_artifact(
+        tmp_path, {"artifact_roots": ["build"]}, tmp_path / "extract", platform_name="posix"
+    )
+    assert prepared is not None and prepared.layout == "sdist"
+    assert prepared.smoke_script is not None and prepared.smoke_script.is_file()
+    assert release_gate.source_package_parity(tmp_path, prepared).status == "passed"
+    (prepared.root / "configs" / "sample.yaml").unlink()
+    assert release_gate.source_package_parity(tmp_path, prepared).status == "failed"
+
+
+def test_wheel_without_runtime_configs_fails_truthfully(tmp_path: Path) -> None:
+    _source_fixture(tmp_path)
+    build = tmp_path / "build"
+    build.mkdir()
+    wheel = build / "etf_ai_cockpit-1.0-py3-none-any.whl"
+    with zipfile.ZipFile(wheel, "w") as handle:
+        handle.write(
+            tmp_path / "src" / "etf_cockpit" / "sample.py",
+            "etf_cockpit/sample.py",
+        )
+    prepared = release_gate.prepare_package_artifact(
+        tmp_path, {"artifact_roots": ["build"]}, tmp_path / "extract", platform_name="posix"
+    )
+    assert prepared is not None and prepared.layout == "wheel"
+    assert prepared.smoke_script is None
+    result = release_gate.source_package_parity(tmp_path, prepared)
+    assert result.status == "failed"
+    assert "configs->configs missing" in result.failure
+
+
+def test_archive_extraction_rejects_path_escape(tmp_path: Path) -> None:
+    wheel = tmp_path / "unsafe.whl"
+    with zipfile.ZipFile(wheel, "w") as handle:
+        handle.writestr("../escape.py", "bad")
+    with pytest.raises(ValueError, match="escapes extraction root"):
+        release_gate._safe_extract_archive(wheel, tmp_path / "extract")
+
+
+@pytest.mark.parametrize(
+    ("member_name", "member_type", "link_name"),
+    [
+        ("../escape.py", tarfile.REGTYPE, ""),
+        ("symbolic-link.py", tarfile.SYMTYPE, "target.py"),
+        ("hard-link.py", tarfile.LNKTYPE, "target.py"),
+    ],
+)
+def test_tar_archive_extraction_rejects_escape_and_links(
+    tmp_path: Path, member_name: str, member_type: bytes, link_name: str
+) -> None:
+    archive_path = tmp_path / "unsafe.tar.gz"
+    payload = b"unsafe"
+    member = tarfile.TarInfo(member_name)
+    member.type = member_type
+    member.linkname = link_name
+    member.size = len(payload) if member_type == tarfile.REGTYPE else 0
+    with tarfile.open(archive_path, "w:gz") as archive:
+        archive.addfile(member, io.BytesIO(payload) if member.size else None)
+
+    with pytest.raises(ValueError, match="unsafe archive member"):
+        release_gate._safe_extract_archive(archive_path, tmp_path / "extract")
 
 
 def test_dependency_snapshot_accepts_exact_parser_lock(tmp_path: Path, monkeypatch) -> None:

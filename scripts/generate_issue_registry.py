@@ -6,9 +6,21 @@ import argparse
 from pathlib import Path
 
 try:
-    from scripts.issue_registry_core import REGISTRY_PATH, build_registry, deterministic_json
+    from scripts.issue_registry_core import (
+        OPEN_LEDGER,
+        REGISTRY_PATH,
+        build_registry,
+        deterministic_json,
+        render_open_ledger_with_final_release,
+    )
 except ModuleNotFoundError:  # direct ``python scripts/...`` execution
-    from issue_registry_core import REGISTRY_PATH, build_registry, deterministic_json
+    from issue_registry_core import (
+        OPEN_LEDGER,
+        REGISTRY_PATH,
+        build_registry,
+        deterministic_json,
+        render_open_ledger_with_final_release,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -18,13 +30,23 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     root = args.root.resolve()
     target = root / REGISTRY_PATH
-    payload = deterministic_json(build_registry(root))
+    ledger_target = root / OPEN_LEDGER
+    try:
+        payload = deterministic_json(build_registry(root))
+        ledger_payload = render_open_ledger_with_final_release(root)
+    except ValueError as exc:
+        print(f"{'STALE' if args.check else 'ERROR'}: {exc}")
+        return 1
     if args.check:
+        if not ledger_target.exists() or ledger_target.read_bytes() != ledger_payload:
+            print(f"STALE: {ledger_target}")
+            return 1
         if not target.exists() or target.read_bytes() != payload:
             print(f"STALE: {target}")
             return 1
         print(f"FRESH: {target}")
         return 0
+    ledger_target.write_bytes(ledger_payload)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(payload)
     print(f"WROTE: {target}")

@@ -26,8 +26,14 @@ class ProgrammeMapEntry:
     model: str
     paper: str
     live: str
+    ready: bool
+    readiness_reason_codes: tuple[str, ...]
+    edge_reason_codes: tuple[str, ...]
+    activation_ready: bool
+    activation_reason_codes: tuple[str, ...]
     blocking_dependencies: tuple[str, ...]
     required_inputs: tuple[str, ...]
+    activation_dependencies: tuple[str, ...]
     downstream_issues: tuple[str, ...]
     related_issues: tuple[str, ...]
 
@@ -75,8 +81,10 @@ def _model_state(record: Mapping[str, Any]) -> str:
     return _string(value, "not_separately_recorded")
 
 
-def _entry(record: Mapping[str, Any]) -> ProgrammeMapEntry:
+def _entry(record: Mapping[str, Any], decision: Mapping[str, Any] | None) -> ProgrammeMapEntry:
     canonical_id = _string(record.get("canonical_id"), "unknown")
+    decision = decision or {}
+    edges = decision.get("edges") if isinstance(decision.get("edges"), list) else []
     return ProgrammeMapEntry(
         canonical_id=canonical_id,
         title=_string(record.get("title"), "Untitled issue"),
@@ -88,8 +96,24 @@ def _entry(record: Mapping[str, Any]) -> ProgrammeMapEntry:
         model=_model_state(record),
         paper="disabled_by_policy",
         live="disabled_by_policy",
+        ready=decision.get("ready") is True,
+        readiness_reason_codes=(
+            _string_tuple(decision.get("reason_codes"))
+            or ("READINESS_EVIDENCE_UNAVAILABLE",)
+        ),
+        edge_reason_codes=tuple(
+            f"{_string(edge.get('dependency_id'), 'unknown')}:{_string(edge.get('reason_code'), 'EDGE_EVIDENCE_UNAVAILABLE')}"
+            for edge in edges
+            if isinstance(edge, Mapping)
+        ),
+        activation_ready=decision.get("activation_ready") is True,
+        activation_reason_codes=(
+            _string_tuple(decision.get("activation_reason_codes"))
+            or ("ACTIVATION_EVIDENCE_UNAVAILABLE",)
+        ),
         blocking_dependencies=_string_tuple(record.get("blocking_dependencies")),
         required_inputs=_string_tuple(record.get("required_inputs")),
+        activation_dependencies=_string_tuple(record.get("activation_dependencies")),
         downstream_issues=_string_tuple(record.get("downstream_issues")),
         related_issues=_string_tuple(record.get("related_issues")),
     )
@@ -102,7 +126,16 @@ def build_programme_map(registry: Mapping[str, Any], *, registry_sha256: str = "
     if not isinstance(records, list) or not all(isinstance(record, Mapping) for record in records):
         raise ValueError("canonical issue registry must contain a records list of objects")
 
-    entries = tuple(_entry(record) for record in records)
+    readiness = registry.get("readiness")
+    decisions = {
+        _string(decision.get("issue_id")): decision
+        for decision in readiness
+        if isinstance(decision, Mapping)
+    } if isinstance(readiness, list) else {}
+    entries = tuple(
+        _entry(record, decisions.get(_string(record.get("canonical_id"))))
+        for record in records
+    )
     if any(entry.canonical_id == "unknown" for entry in entries):
         raise ValueError("canonical issue registry contains a record without canonical_id")
     if len({entry.canonical_id for entry in entries}) != len(entries):

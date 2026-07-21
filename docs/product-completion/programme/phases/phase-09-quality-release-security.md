@@ -1,6 +1,6 @@
 # Quality, release, security and resilience
 
-Phase `phase-09-quality-release-security` covers `ISSUE-0141–ISSUE-0146`. The issue registry remains the canonical source for titles, priorities, state and acceptance criteria; this document records phase-specific implementation guidance.
+Phase `phase-09-quality-release-security` covers `ISSUE-0141–ISSUE-0146, ISSUE-0169, ISSUE-0176`. The issue registry remains the canonical source for titles, priorities, state and acceptance criteria; this document records phase-specific implementation guidance.
 
 ## Objective
 
@@ -37,15 +37,17 @@ Deliver the bounded quality, release, security and resilience work with local-fi
 ## Blockers, dependencies and related links
 
 - Resolve only `blocking_dependencies` as prerequisites; `required_inputs` are policy/evidence inputs and do not block readiness. `downstream_issues` are generated reverse links and `related_issues` are context only.
-- The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-17-3321ebd/dependency-reconciliation.csv`.
+- The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-21-452d440/dependency-reconciliation.csv`.
 
 ## Issue coverage
 
 | ID | Priority | Programme state | Owner | Blocking dependencies | Required inputs | Downstream issues | Related issues |
 |---|---|---|---|---|---|---|---|
 | `ISSUE-0141` | `P0` | `integrated` | `quality-and-release` | `ISSUE-0075`, `ISSUE-0145` | - | `ISSUE-0143` | - |
-| `ISSUE-0142` | `P0/P1` | `planned` | `quality-and-release` | `ISSUE-0074`, `ISSUE-0127`, `ISSUE-0132` | - | - | - |
+| `ISSUE-0142` | `P0/P1` | `planned` | `quality-and-release` | `ISSUE-0074`, `ISSUE-0127`, `ISSUE-0132` | - | `ISSUE-0169` | - |
 | `ISSUE-0143` | `P0/P1` | `hardening_required` | `quality-and-release` | `ISSUE-0141` | - | - | - |
-| `ISSUE-0144` | `P0` | `integrated` | `security-and-release` | `ISSUE-0076`, `ISSUE-0145` | - | `ISSUE-0146` | - |
-| `ISSUE-0145` | `P0` | `integrated` | `programme-governance` | - | - | `ISSUE-0079`, `ISSUE-0141`, `ISSUE-0144` | `ISSUE-0079`, `ISSUE-0141` |
-| `ISSUE-0146` | `P0/P1` | `integrated` | `security-and-release` | `ISSUE-0044`, `ISSUE-0144` | - | - | - |
+| `ISSUE-0144` | `P0` | `integrated` | `security-and-release` | `ISSUE-0076`, `ISSUE-0145` | - | `ISSUE-0146`, `ISSUE-0176` | - |
+| `ISSUE-0145` | `P0` | `integrated` | `programme-governance` | - | - | `ISSUE-0079`, `ISSUE-0141`, `ISSUE-0144`, `ISSUE-0176` | `ISSUE-0079`, `ISSUE-0141` |
+| `ISSUE-0146` | `P0/P1` | `integrated` | `security-and-release` | `ISSUE-0044`, `ISSUE-0144` | - | `ISSUE-0176` | - |
+| `ISSUE-0169` | `P0` | `planned` | `quality-and-release` | `ISSUE-0074`, `ISSUE-0136`, `ISSUE-0142`, `ISSUE-0152`, `ISSUE-0161`, `ISSUE-0165`, `ISSUE-0167` | - | - | - |
+| `ISSUE-0176` | `P0` | `planned` | `security-and-release` | `ISSUE-0037`, `ISSUE-0076`, `ISSUE-0080`, `ISSUE-0144`, `ISSUE-0145`, `ISSUE-0146`, `ISSUE-0149` | - | `ISSUE-0171`, `ISSUE-0173` | - |

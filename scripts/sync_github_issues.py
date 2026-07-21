@@ -11,6 +11,7 @@ import hashlib
 import json
 import re
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Iterable
@@ -34,12 +35,16 @@ REVIEWED_REOPEN_IDS = frozenset({"ISSUE-0048", "ISSUE-0067", "ISSUE-0122"})
 DEFAULT_MAP_PATH = Path(
     "docs/product-completion/reconciliation/2026-07-17-3321ebd/github-issue-map.json"
 )
+DEFAULT_RECONCILIATION_ROOT = Path(
+    "docs/product-completion/reconciliation/2026-07-21-452d440"
+)
 
 
 def managed_block(record: dict[str, Any]) -> str:
     stable_id = record.get("canonical_id", record.get("stable_id", ""))
     dependencies = ", ".join(f"`{value}`" for value in record.get("blocking_dependencies", [])) or "None"
     required_inputs = ", ".join(f"`{value}`" for value in record.get("required_inputs", [])) or "None"
+    activation = ", ".join(f"`{value}`" for value in record.get("activation_dependencies", [])) or "None"
     downstream = ", ".join(f"`{value}`" for value in record.get("downstream_issues", [])) or "None"
     related = ", ".join(f"`{value}`" for value in record.get("related_issues", [])) or "None"
     return "\n".join(
@@ -56,6 +61,9 @@ def managed_block(record: dict[str, Any]) -> str:
             f"- Phase: `{record.get('phase', '')}`",
             f"- Blocking dependencies: {dependencies}",
             f"- Required inputs: {required_inputs}",
+            f"- Activation dependencies: {activation}",
+            f"- Capability lane: `{record.get('capability_lane', 'unassigned')}`",
+            f"- Release blocking in lane: `{str(record.get('release_blocking', False)).lower()}`",
             f"- Downstream issues: {downstream}",
             f"- Related issues: {related}",
             "- Execution allowed: `false`",
@@ -112,6 +120,7 @@ def registry_sync_records(registry: dict[str, Any]) -> list[dict[str, Any]]:
         local.setdefault("phase", "phase-01-governance-scope")
         local.setdefault("blocking_dependencies", [])
         local.setdefault("required_inputs", [])
+        local.setdefault("activation_dependencies", [])
         local.setdefault("downstream_issues", [])
         local.setdefault("related_issues", [])
         records.append(local)
@@ -146,6 +155,9 @@ def _action(kind: str, record: dict[str, Any] | None = None, **values: Any) -> d
             "phase",
             "blocking_dependencies",
             "required_inputs",
+            "activation_dependencies",
+            "capability_lane",
+            "release_blocking",
             "downstream_issues",
             "related_issues",
         ):
@@ -292,10 +304,122 @@ def inventory_sha256(remote_issues: Iterable[dict[str, Any]]) -> str:
     return hashlib.sha256(deterministic_json(normalised)).hexdigest()
 
 
+def safe_remote_inventory(remote_issues: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    normalised = sorted(
+        (normalise_remote_issue(issue) for issue in remote_issues),
+        key=lambda issue: issue["number"],
+    )
+    rows = []
+    for issue in normalised:
+        ids = sorted(set(MARKER_RE.findall(issue["body"])) | set(LEGACY_MARKER_RE.findall(issue["body"])))
+        rows.append({
+            "number": issue["number"],
+            "stable_id": ids[0] if len(ids) == 1 else "",
+            "state": issue["state"],
+            "title": issue["title"],
+            "url": issue["url"],
+        })
+    return {
+        "schema_version": "etf-ai-cockpit.safe-remote-inventory/1.0",
+        "repository": REPO,
+        "inventory_sha256": inventory_sha256(normalised),
+        "issues": rows,
+        "privacy": "stable identifiers and issue metadata only; bodies excluded",
+    }
+
+
+def _managed_delta_fields(action: dict[str, Any], remote: dict[str, Any] | None) -> list[str]:
+    if action.get("kind") != "update" or remote is None:
+        return []
+    body = str(remote.get("body", ""))
+    desired = managed_block(action)
+    labels = (
+        "Title", "Classification", "Ledger state", "Programme status", "Priority",
+        "Owner", "Phase", "Blocking dependencies", "Required inputs",
+        "Activation dependencies", "Capability lane", "Release blocking in lane",
+        "Downstream issues", "Related issues", "Execution allowed",
+    )
+    changed = []
+    for label in labels:
+        prefix = f"- {label}:"
+        old = next((line for line in body.splitlines() if line.startswith(prefix)), "")
+        new = next((line for line in desired.splitlines() if line.startswith(prefix)), "")
+        if old != new:
+            changed.append(label)
+    return changed
+
+
+def safe_plan_evidence(plan: dict[str, Any], remote_issues: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    remote = {issue["number"]: issue for issue in (normalise_remote_issue(row) for row in remote_issues)}
+    actions = []
+    for action in plan.get("actions", []):
+        issue = remote.get(action.get("remote_number"))
+        actions.append({
+            "kind": action.get("kind"),
+            "stable_id": action.get("stable_id", ""),
+            "title": action.get("title", issue.get("title", "") if issue else ""),
+            "remote_number": action.get("remote_number"),
+            "remote_state": issue.get("state", "") if issue else "",
+            "url": issue.get("url", "") if issue else "",
+            "managed_field_deltas": _managed_delta_fields(action, issue),
+        })
+    return {
+        "schema_version": "etf-ai-cockpit.safe-sync-evidence/1.0",
+        "repository": plan.get("repository"),
+        "remote_inventory_sha256": plan.get("remote_inventory_sha256"),
+        "plan_semantic_sha256": plan.get("plan_sha256"),
+        "summary": plan.get("summary"),
+        "actions": actions,
+        "apply_authority": False,
+        "fresh_exact_plan_required_for_apply": True,
+    }
+
+
 def plan_sha256(plan: dict[str, Any]) -> str:
     value = dict(plan)
     value.pop("plan_sha256", None)
     return hashlib.sha256(deterministic_json(value)).hexdigest()
+
+
+def sync_review_markdown(plan: dict[str, Any], *, safe_evidence_sha256: str) -> str:
+    lines = [
+        "# GitHub issue sync dry-run review",
+        "",
+        "This is privacy-safe read-only B00 evidence, not an apply plan. No GitHub issue was mutated.",
+        "",
+        f"- Repository: `{plan.get('repository')}`",
+        f"- Remote inventory SHA-256: `{plan.get('remote_inventory_sha256')}`",
+        f"- Plan semantic SHA-256: `{plan.get('plan_semantic_sha256', plan.get('plan_sha256'))}`",
+        f"- Transient full-plan file SHA-256: `{plan.get('transient_full_plan_file_sha256')}`",
+        f"- Committed safe-evidence file SHA-256: `{safe_evidence_sha256}`",
+        f"- Desired actions: {len(plan.get('actions', []))}",
+        "- `execution_allowed=false`",
+        "",
+        "## Exact action scope",
+        "",
+    ]
+    for kind in ("create", "update", "close", "reopen", "blocked"):
+        actions = [action for action in plan.get("actions", []) if action.get("kind") == kind]
+        lines.append(f"### `{kind}` ({len(actions)})")
+        lines.append("")
+        if not actions:
+            lines.append("- none")
+        else:
+            lines.append("| Stable ID | Remote | Managed-field delta |")
+            lines.append("|---|---:|---|")
+            for action in actions:
+                fields = ", ".join(action.get("managed_field_deltas", [])) or "state/action only"
+                lines.append(f"| `{action.get('stable_id', 'unknown')}` | {action.get('remote_number') or '-'} | {fields} |")
+        lines.append("")
+    lines.extend(
+        [
+            "",
+            "A later apply requires explicit root authority and the exact reviewed semantic plan checksum. "
+            "Any remote inventory or local registry change requires a new plan and review.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def gh_list_issues() -> list[dict[str, Any]]:
@@ -377,6 +501,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--remote-snapshot", type=Path, help="read a saved gh issue JSON list instead of calling gh")
     parser.add_argument("--plan-out", type=Path)
+    parser.add_argument("--review-out", type=Path, help="write a deterministic read-only scope review")
+    parser.add_argument(
+        "--inventory-out",
+        type=Path,
+        help="write a redacted deterministic inventory (never remote bodies)",
+    )
+    parser.add_argument("--safe-evidence-out", type=Path, help="write a redacted deterministic action summary")
     parser.add_argument("--historical-map", type=Path, help="reviewed map for duplicate legacy remote issues")
     parser.add_argument("--apply", action="store_true", help="apply only after the approved plan SHA-256 is supplied")
     parser.add_argument("--approved-plan-sha256")
@@ -389,14 +520,44 @@ def main(argv: list[str] | None = None) -> int:
         remote = gh_list_issues()
     if not isinstance(remote, list):
         raise SystemExit("remote snapshot must be a JSON list")
+    normalised_remote = sorted(
+        (normalise_remote_issue(issue) for issue in remote),
+        key=lambda issue: issue["number"],
+    )
+    if args.inventory_out:
+        args.inventory_out.parent.mkdir(parents=True, exist_ok=True)
+        args.inventory_out.write_bytes(deterministic_json(safe_remote_inventory(normalised_remote)))
     map_path = args.historical_map or root / DEFAULT_MAP_PATH
     historical_map = None
     if map_path.exists():
         historical_map = json.loads(map_path.read_text(encoding="utf-8"))
-    plan = plan_actions(registry, remote, historical_map=historical_map)
-    output = args.plan_out or root / "docs/product-completion/reconciliation/2026-07-17-3321ebd/github-sync-plan.json"
+    plan = plan_actions(registry, normalised_remote, historical_map=historical_map)
+    output = args.plan_out or Path(tempfile.gettempdir()) / "etf-ai-cockpit-github-sync-plan.json"
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_bytes(deterministic_json(plan))
+    plan_bytes = deterministic_json(plan)
+    output.write_bytes(plan_bytes)
+    safe_evidence = safe_plan_evidence(plan, normalised_remote)
+    safe_evidence["transient_full_plan_file_sha256"] = hashlib.sha256(plan_bytes).hexdigest()
+    safe_bytes = deterministic_json(safe_evidence)
+    if args.safe_evidence_out:
+        args.safe_evidence_out.parent.mkdir(parents=True, exist_ok=True)
+        args.safe_evidence_out.write_bytes(safe_bytes)
+        hash_path = args.safe_evidence_out.with_suffix(args.safe_evidence_out.suffix + ".sha256")
+        hash_path.write_text(
+            f"{hashlib.sha256(safe_bytes).hexdigest()}  {args.safe_evidence_out.name}\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+    if args.review_out:
+        args.review_out.parent.mkdir(parents=True, exist_ok=True)
+        args.review_out.write_text(
+            sync_review_markdown(
+                safe_evidence,
+                safe_evidence_sha256=hashlib.sha256(safe_bytes).hexdigest(),
+            ),
+            encoding="utf-8",
+            newline="\n",
+        )
     print(f"PLAN: {output}")
     print(f"PLAN_SHA256: {plan['plan_sha256']}")
     print(json.dumps(plan["summary"], indent=2, sort_keys=True))
