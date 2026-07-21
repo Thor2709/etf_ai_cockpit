@@ -201,7 +201,8 @@ def test_cli_dry_run_writes_plan_only(tmp_path, monkeypatch) -> None:
     ) == 0
     assert output.exists()
     assert inventory.exists()
-    assert "The plan was not applied" in review.read_text(encoding="utf-8")
+    assert "not an apply plan" in review.read_text(encoding="utf-8")
+    assert "No GitHub issue was mutated" in review.read_text(encoding="utf-8")
     safe_inventory = json.loads(inventory.read_text(encoding="utf-8"))
     assert safe_inventory["inventory_sha256"] == json.loads(output.read_text(encoding="utf-8"))["remote_inventory_sha256"]
     assert all("body" not in row for row in safe_inventory["issues"])

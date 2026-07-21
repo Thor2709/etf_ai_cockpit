@@ -20,8 +20,11 @@ import re
 import shlex
 import subprocess
 import sys
+import tarfile
+import tempfile
 import time
 import tomllib
+import zipfile
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -93,6 +96,13 @@ class GateState:
         self.checks.append(result)
         if result.required and result.status != "passed":
             self.failures.append(f"{result.name}: {result.failure or result.output or result.status}")
+
+
+@dataclass(frozen=True)
+class PreparedPackage:
+    root: Path
+    layout: str
+    smoke_script: Path | None
 
 
 def canonical_json(value: object) -> bytes:
@@ -375,6 +385,15 @@ def build_artifact_manifest(root: Path, policy: dict[str, object]) -> dict[str, 
 
 
 def _package_root(root: Path, policy: dict[str, object]) -> Path | None:
+    pointer = root / "build" / "portable_outdir.txt"
+    if pointer.is_file():
+        raw = pointer.read_text(encoding="utf-8").strip()
+        candidate = Path(raw)
+        candidate = candidate if candidate.is_absolute() else root / candidate
+        candidate = candidate.resolve()
+        build_root = (root / "build").resolve()
+        if candidate.is_relative_to(build_root) and (candidate / "app" / "src").is_dir() and (candidate / "scripts" / "smoke_app.py").is_file():
+            return candidate
     for path in reversed(_artifact_paths(root, policy)):
         if path.name != "smoke_app.py" or path.parent.name != "scripts":
             continue
@@ -384,34 +403,103 @@ def _package_root(root: Path, policy: dict[str, object]) -> Path | None:
     return None
 
 
-def source_package_parity(root: Path, package_root: Path | None) -> CheckResult:
-    """Compare deterministic application/config inputs copied into the package."""
-    if package_root is None:
+def _safe_extract_archive(artifact: Path, destination: Path) -> None:
+    destination = destination.resolve()
+    if artifact.suffix == ".whl":
+        with zipfile.ZipFile(artifact) as archive:
+            members = archive.infolist()
+            for member in members:
+                target = (destination / member.filename).resolve()
+                if not target.is_relative_to(destination):
+                    raise ValueError(f"archive member escapes extraction root: {member.filename}")
+            archive.extractall(destination)
+        return
+    with tarfile.open(artifact, "r:*") as archive:
+        members = archive.getmembers()
+        for member in members:
+            target = (destination / member.name).resolve()
+            if not target.is_relative_to(destination) or member.issym() or member.islnk():
+                raise ValueError(f"unsafe archive member: {member.name}")
+        archive.extractall(destination, members=members, filter="data")
+
+
+def prepare_package_artifact(
+    root: Path,
+    policy: dict[str, object],
+    extraction_root: Path,
+    *,
+    platform_name: str | None = None,
+) -> PreparedPackage | None:
+    platform_value = platform_name or os.name
+    if platform_value == "nt":
+        portable = _package_root(root, policy)
+        return (
+            PreparedPackage(portable, "windows-portable", portable / "scripts" / "smoke_app.py")
+            if portable is not None
+            else None
+        )
+    archives = [
+        path for path in _artifact_paths(root, policy)
+        if path.name.endswith(".tar.gz") or path.suffix == ".whl"
+    ]
+    sdists = [path for path in archives if path.name.endswith(".tar.gz")]
+    selected = sdists[-1] if sdists else archives[-1] if archives else None
+    if selected is None:
+        return None
+    destination = extraction_root / "package"
+    destination.mkdir(parents=True, exist_ok=True)
+    _safe_extract_archive(selected, destination)
+    if selected.name.endswith(".tar.gz"):
+        roots = [path for path in destination.iterdir() if path.is_dir()]
+        package_root = roots[0] if len(roots) == 1 else destination
+        script = package_root / "scripts" / "smoke_app.py"
+        return PreparedPackage(package_root, "sdist", script if script.is_file() else None)
+    return PreparedPackage(destination, "wheel", None)
+
+
+def _parity_mappings(package: PreparedPackage) -> tuple[tuple[Path, Path], ...]:
+    if package.layout == "windows-portable":
+        return ((Path("src"), Path("app/src")), (Path("configs"), Path("configs")))
+    if package.layout == "sdist":
+        return ((Path("src"), Path("src")), (Path("configs"), Path("configs")))
+    if package.layout == "wheel":
+        return ((Path("src/etf_cockpit"), Path("etf_cockpit")), (Path("configs"), Path("configs")))
+    return ()
+
+
+def source_package_parity(root: Path, package: PreparedPackage | None) -> CheckResult:
+    """Compare source with the actual supported artifact layout."""
+    if package is None:
         return CheckResult(
             "source_package_parity",
             "failed",
             True,
-            failure="packaged source root was not found",
+            failure="no supported packaged artifact was found",
         )
-    packaged_base = package_root / "app" if (package_root / "app" / "src").is_dir() else package_root
     mismatches: list[str] = []
     compared = 0
-    for relative in (Path("src"), Path("configs"), Path("pyproject.toml")):
-        source = root / relative
-        packaged = packaged_base / relative
-        source_paths = [source] if source.is_file() else sorted(path for path in source.rglob("*") if path.is_file())
+    for source_relative, packaged_relative in _parity_mappings(package):
+        source = root / source_relative
+        packaged = package.root / packaged_relative
+        if not source.exists() or not packaged.exists():
+            mismatches.append(f"{source_relative.as_posix()}->{packaged_relative.as_posix()} missing")
+            continue
+        source_paths = [source] if source.is_file() else sorted(
+            path for path in source.rglob("*")
+            if path.is_file() and not _excluded(path.relative_to(root))
+        )
         for source_path in source_paths:
             child = source_path.relative_to(source) if source.is_dir() else Path()
             packaged_path = packaged / child if source.is_dir() else packaged
             compared += 1
             if not packaged_path.is_file() or normalised_file_bytes(source_path) != normalised_file_bytes(packaged_path):
-                mismatches.append((relative / child).as_posix())
+                mismatches.append((source_relative / child).as_posix())
     return CheckResult(
         "source_package_parity",
         "passed" if not mismatches else "failed",
         True,
-        command="compare packaged src/configs/pyproject.toml with source",
-        output=f"compared {compared} deterministic files",
+        command=f"compare source with {package.layout} artifact",
+        output=f"compared {compared} deterministic files in {package.layout}",
         failure="mismatched or missing: " + ", ".join(mismatches[:20]) if mismatches else "",
     )
 
@@ -585,12 +673,32 @@ def run_gate(
     if skip_smoke:
         state.add(CheckResult("package_smoke", "skipped", False, "scripts/smoke_app.py --mode offline"))
     else:
-        package_root = _package_root(root, policy)
-        smoke_root = package_root or root
-        smoke_script = smoke_root / "scripts" / "smoke_app.py"
-        command = (sys.executable, str(smoke_script), "--mode", "offline", "--port", str(_free_port()), "--timeout", "30")
-        state.add(run_command(smoke_root, output, "package_smoke", command))
-        state.add(source_package_parity(root, package_root))
+        with tempfile.TemporaryDirectory(prefix="etf-cockpit-package-") as temporary:
+            try:
+                package = prepare_package_artifact(root, policy, Path(temporary))
+            except (OSError, ValueError, tarfile.TarError, zipfile.BadZipFile) as exc:
+                package = None
+                state.add(CheckResult("package_prepare", "failed", True, failure=str(exc)))
+            state.add(source_package_parity(root, package))
+            if package is None or package.smoke_script is None or not package.smoke_script.is_file():
+                state.add(CheckResult(
+                    "package_smoke",
+                    "failed",
+                    True,
+                    failure="supported artifact has no packaged smoke route; repository source fallback is forbidden",
+                ))
+            else:
+                command = (
+                    sys.executable,
+                    str(package.smoke_script),
+                    "--mode",
+                    "offline",
+                    "--port",
+                    str(_free_port()),
+                    "--timeout",
+                    "30",
+                )
+                state.add(run_command(package.root, output, "package_smoke", command))
 
     if (root / "configs" / "performance_budgets.yaml").is_file():
         performance_report_dir = output / "performance"

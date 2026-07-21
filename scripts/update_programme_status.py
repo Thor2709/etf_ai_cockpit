@@ -15,6 +15,7 @@ try:
         deterministic_json,
         readiness_projection,
         ready_records,
+        verify_generation_base,
     )
 except ModuleNotFoundError:
     from issue_registry_core import (
@@ -24,6 +25,7 @@ except ModuleNotFoundError:
         deterministic_json,
         readiness_projection,
         ready_records,
+        verify_generation_base,
     )
 
 
@@ -114,6 +116,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--check", action="store_true", help="verify both files are fresh without writing")
     args = parser.parse_args(argv)
     root = args.root.resolve()
+    try:
+        verify_generation_base(root)
+    except ValueError as exc:
+        print(f"STALE: {exc}")
+        return 1
     registry = json.loads((root / REGISTRY_PATH).read_text(encoding="utf-8"))
     payload = status_payload(registry)
     status_bytes = deterministic_json(payload)

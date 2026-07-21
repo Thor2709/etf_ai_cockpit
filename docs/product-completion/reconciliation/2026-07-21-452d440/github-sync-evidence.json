@@ -3,6 +3,7 @@
     {
       "kind": "update",
       "managed_field_deltas": [
+        "Priority",
         "Activation dependencies",
         "Capability lane",
         "Release blocking in lane"
@@ -16,6 +17,7 @@
     {
       "kind": "update",
       "managed_field_deltas": [
+        "Priority",
         "Activation dependencies",
         "Capability lane",
         "Release blocking in lane"
@@ -29,6 +31,7 @@
     {
       "kind": "update",
       "managed_field_deltas": [
+        "Priority",
         "Owner",
         "Activation dependencies",
         "Capability lane",
@@ -43,6 +46,7 @@
     {
       "kind": "update",
       "managed_field_deltas": [
+        "Priority",
         "Activation dependencies",
         "Capability lane",
         "Release blocking in lane"
@@ -56,6 +60,7 @@
     {
       "kind": "update",
       "managed_field_deltas": [
+        "Priority",
         "Activation dependencies",
         "Capability lane",
         "Release blocking in lane"
@@ -69,6 +74,7 @@
     {
       "kind": "update",
       "managed_field_deltas": [
+        "Priority",
         "Owner",
         "Activation dependencies",
         "Capability lane",
@@ -109,6 +115,7 @@
     {
       "kind": "update",
       "managed_field_deltas": [
+        "Priority",
         "Activation dependencies",
         "Capability lane",
         "Release blocking in lane"
@@ -451,6 +458,7 @@
     {
       "kind": "update",
       "managed_field_deltas": [
+        "Priority",
         "Owner",
         "Activation dependencies",
         "Capability lane",
@@ -898,6 +906,7 @@
     {
       "kind": "update",
       "managed_field_deltas": [
+        "Priority",
         "Activation dependencies",
         "Capability lane",
         "Release blocking in lane"
@@ -2255,6 +2264,7 @@
     {
       "kind": "update",
       "managed_field_deltas": [
+        "Priority",
         "Owner",
         "Activation dependencies",
         "Capability lane",
@@ -2295,6 +2305,7 @@
     {
       "kind": "update",
       "managed_field_deltas": [
+        "Priority",
         "Owner",
         "Activation dependencies",
         "Capability lane",
@@ -2413,6 +2424,7 @@
     {
       "kind": "update",
       "managed_field_deltas": [
+        "Priority",
         "Owner",
         "Activation dependencies",
         "Capability lane",
@@ -2492,6 +2504,7 @@
     {
       "kind": "update",
       "managed_field_deltas": [
+        "Priority",
         "Owner",
         "Activation dependencies",
         "Capability lane",
@@ -2533,15 +2546,16 @@
   ],
   "apply_authority": false,
   "fresh_exact_plan_required_for_apply": true,
-  "plan_semantic_sha256": "304eefdbb5e9b38fa4d3ff5a09d0df1df87d4318741e5ac5dc9d7d75475ecc79",
+  "plan_semantic_sha256": "99f19fa2748c29242665fd88ad68e4898d161687da5abb607dca1efb3fbe49d2",
   "remote_inventory_sha256": "d7b6c4e6e2514a260ac976e1f63fc6c639bdcc88ce2103995d085b069b6a9d05",
   "repository": "Thor2709/etf_ai_cockpit",
-  "schema_version": "1.0",
+  "schema_version": "etf-ai-cockpit.safe-sync-evidence/1.0",
   "summary": {
     "blocked": 0,
     "close": 0,
     "create": 24,
     "reopen": 0,
     "update": 173
-  }
+  },
+  "transient_full_plan_file_sha256": "30389bf2bf85011588fe4c13b7675aa40f80fa211333ca372f9d5d61649380c7"
 }

@@ -4,6 +4,7 @@ import copy
 import json
 import subprocess
 import sys
+import shutil
 from pathlib import Path
 
 import pytest
@@ -14,7 +15,16 @@ from scripts.issue_registry_core import (
     readiness_projection,
     validate_registry,
 )
-from scripts import issue_registry_core, release_gate, validate_app
+from scripts import (
+    generate_completion_documents,
+    generate_issue_registry,
+    issue_registry_core,
+    release_gate,
+    update_programme_control,
+    update_programme_status,
+    validate_app,
+    validate_issue_registry,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -89,6 +99,97 @@ def test_reviewed_control_state_round_trips_and_invalid_transition_fails(
     path.write_text(json.dumps(control), encoding="utf-8")
     with pytest.raises(ValueError, match="transition is not allowlisted"):
         build_registry(ROOT, baseline=BASE_SHA)
+
+
+def test_guarded_transition_rejects_skip_downgrade_and_wrong_expected_then_persists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    control = json.loads((ROOT / issue_registry_core.CONTROL_STATE_PATH).read_text(encoding="utf-8"))
+    common = {
+        "review_reference": "B00-R/transition-review",
+        "evidence_references": ["tests/contracts/fixed-income-interface.json"],
+        "reviewer": "independent-reviewer",
+        "reviewed_date": "2026-07-21",
+        "verified_commit": BASE_SHA,
+    }
+    with pytest.raises(ValueError, match="transition is not allowed"):
+        update_programme_control.apply_transition(
+            copy.deepcopy(control), issue_id="ISSUE-0154", expected_from="planned",
+            to_status="integrated", **common,
+        )
+    with pytest.raises(ValueError, match="expected-from"):
+        update_programme_control.apply_transition(
+            copy.deepcopy(control), issue_id="ISSUE-0154", expected_from="ready",
+            to_status="in_progress", **common,
+        )
+    integrated = copy.deepcopy(control)
+    integrated["records"]["ISSUE-0154"]["programme_status"] = "integrated"
+    with pytest.raises(ValueError, match="transition is not allowed"):
+        update_programme_control.apply_transition(
+            integrated, issue_id="ISSUE-0154", expected_from="integrated",
+            to_status="planned", **common,
+        )
+    reviewed_downgrade = update_programme_control.apply_transition(
+        copy.deepcopy(integrated), issue_id="ISSUE-0154", expected_from="integrated",
+        to_status="planned", allow_downgrade=True, **common,
+    )
+    assert reviewed_downgrade["records"]["ISSUE-0154"]["transition_history"][-1]["allow_downgrade"] is True
+    transitioned = update_programme_control.apply_transition(
+        copy.deepcopy(control), issue_id="ISSUE-0154", expected_from="planned",
+        to_status="ready", edge_dependency="ISSUE-0153", edge_state="partial_interface",
+        contract_reference="B03/fixed-income-interface-v1", **common,
+    )
+    path = tmp_path / "control.json"
+    path.write_text(json.dumps(transitioned), encoding="utf-8")
+    monkeypatch.setattr(issue_registry_core, "CONTROL_STATE_PATH", path)
+    generated = build_registry(ROOT, baseline=BASE_SHA, verify_base=False)
+    record = _record(generated, "ISSUE-0154")
+    assert record["programme_status"] == "ready"
+    assert record["dependency_edge_evidence"]["ISSUE-0153"]["state"] == "partial_interface"
+
+
+def test_control_authority_accepts_exact_transition_and_rejects_extra_manual_edit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prior = json.loads((ROOT / issue_registry_core.CONTROL_STATE_PATH).read_text(encoding="utf-8"))
+    transitioned = update_programme_control.apply_transition(
+        copy.deepcopy(prior),
+        issue_id="ISSUE-0154",
+        expected_from="planned",
+        to_status="ready",
+        review_reference="B00-R/transition-review",
+        evidence_references=["tests/contracts/fixed-income-interface.json"],
+        reviewer="independent-reviewer",
+        reviewed_date="2026-07-21",
+        verified_commit=BASE_SHA,
+        edge_dependency="ISSUE-0153",
+        edge_state="partial_interface",
+        contract_reference="B03/fixed-income-interface-v1",
+    )
+    monkeypatch.setattr(
+        issue_registry_core.subprocess,
+        "check_output",
+        lambda *args, **kwargs: json.dumps(prior).encode("utf-8"),
+    )
+    issue_registry_core.validate_control_authority(ROOT, transitioned)
+    transitioned["records"]["ISSUE-0154"]["title"] = "manual unreviewed edit"
+    with pytest.raises(ValueError, match="outside the reviewed transition"):
+        issue_registry_core.validate_control_authority(ROOT, transitioned)
+
+
+def test_stale_generation_base_fails_every_canonical_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    real = issue_registry_core.subprocess.check_output
+
+    def stale(command, *args, **kwargs):
+        if list(command[:2]) == ["git", "rev-parse"]:
+            return "f" * 40 + ("\n" if kwargs.get("text") else "")
+        return real(command, *args, **kwargs)
+
+    monkeypatch.setattr(issue_registry_core.subprocess, "check_output", stale)
+    assert generate_issue_registry.main(["--root", str(ROOT), "--check"]) == 1
+    assert validate_issue_registry.main(["--root", str(ROOT)]) == 1
+    assert generate_completion_documents.main(["--root", str(ROOT), "--check"]) == 1
+    assert update_programme_status.main(["--root", str(ROOT), "--check"]) == 1
 
 
 def test_every_record_has_typed_final_release_contract_fields() -> None:
@@ -242,7 +343,25 @@ def test_checked_in_registry_remains_deterministic_json() -> None:
     ).read_text(encoding="utf-8")
 
 
+def test_committed_sync_files_are_safe_evidence_not_apply_plans() -> None:
+    recon = ROOT / "docs" / "product-completion" / "reconciliation" / "2026-07-21-452d440"
+    first_path = recon / "github-sync-evidence.json"
+    second_path = recon / "github-sync-evidence-repeat.json"
+    first = json.loads(first_path.read_text(encoding="utf-8"))
+    second = json.loads(second_path.read_text(encoding="utf-8"))
+    assert first == second
+    assert first["schema_version"] == "etf-ai-cockpit.safe-sync-evidence/1.0"
+    assert first["summary"] == {"blocked": 0, "close": 0, "create": 24, "reopen": 0, "update": 173}
+    updates = [action for action in first["actions"] if action["kind"] == "update"]
+    assert len(updates) == 173 and all(action["managed_field_deltas"] for action in updates)
+    assert all("body" not in action for action in first["actions"])
+    for path in (first_path, second_path):
+        digest = __import__("hashlib").sha256(path.read_bytes()).hexdigest()
+        assert (path.with_suffix(path.suffix + ".sha256")).read_text(encoding="utf-8").split()[0] == digest
+
+
 def test_validator_modes_compose_existing_release_gate_without_reimplementation() -> None:
+    assert validate_app.REPORT_DIRECTORY == Path("artifacts/validation")
     full = validate_app._checks_for_mode(ROOT, "full", {})
     packaged = validate_app._checks_for_mode(ROOT, "packaged", {})
     offline = validate_app._checks_for_mode(ROOT, "offline", {})
@@ -267,7 +386,10 @@ def test_package_parity_detects_mismatch(tmp_path: Path) -> None:
     (package / "src" / "sample.py").write_text("different\n", encoding="utf-8")
     (package / "configs" / "sample.json").write_text("{}\n", encoding="utf-8")
     (package / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
-    result = release_gate.source_package_parity(tmp_path, package)
+    result = release_gate.source_package_parity(
+        tmp_path,
+        release_gate.PreparedPackage(package, "sdist", package / "scripts" / "smoke_app.py"),
+    )
     assert result.status == "failed"
     assert "src/sample.py" in result.failure
 
@@ -282,6 +404,28 @@ def test_completion_document_check_is_offline_and_fresh() -> None:
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert "FRESH" in completed.stdout
+
+
+def test_registry_generation_is_identical_for_lf_and_crlf_text_inputs(tmp_path: Path) -> None:
+    lf = tmp_path / "lf"
+    crlf = tmp_path / "crlf"
+    for target in (lf, crlf):
+        shutil.copytree(ROOT / "issues", target / "issues")
+        shutil.copytree(
+            ROOT / "docs" / "product-completion" / "sources",
+            target / "docs" / "product-completion" / "sources",
+        )
+    exact = issue_registry_core.FINAL_RELEASE_SOURCE.as_posix()
+    for path in crlf.rglob("*"):
+        relative = path.relative_to(crlf).as_posix()
+        if not path.is_file() or relative == exact:
+            continue
+        if path.suffix.lower() in {".json", ".csv", ".md", ".sha256", ".txt"}:
+            payload = path.read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+            path.write_bytes(payload.replace(b"\n", b"\r\n"))
+    lf_registry = build_registry(lf, baseline=BASE_SHA, verify_base=False)
+    crlf_registry = build_registry(crlf, baseline=BASE_SHA, verify_base=False)
+    assert issue_registry_core.deterministic_json(lf_registry) == issue_registry_core.deterministic_json(crlf_registry)
 
 
 def test_report_only_never_converts_a_mandatory_failure_to_success(

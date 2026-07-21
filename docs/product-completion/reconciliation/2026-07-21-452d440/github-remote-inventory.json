@@ -1747,5 +1747,5 @@
   ],
   "privacy": "stable identifiers and issue metadata only; bodies excluded",
   "repository": "Thor2709/etf_ai_cockpit",
-  "schema_version": "1.0"
+  "schema_version": "etf-ai-cockpit.safe-remote-inventory/1.0"
 }

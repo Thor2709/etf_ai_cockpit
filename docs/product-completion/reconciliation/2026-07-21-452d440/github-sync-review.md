@@ -1,11 +1,12 @@
 # GitHub issue sync dry-run review
 
-This is read-only B00 evidence. The plan was not applied and no GitHub issue was mutated.
+This is privacy-safe read-only B00 evidence, not an apply plan. No GitHub issue was mutated.
 
 - Repository: `Thor2709/etf_ai_cockpit`
 - Remote inventory SHA-256: `d7b6c4e6e2514a260ac976e1f63fc6c639bdcc88ce2103995d085b069b6a9d05`
-- Plan semantic SHA-256: `304eefdbb5e9b38fa4d3ff5a09d0df1df87d4318741e5ac5dc9d7d75475ecc79`
-- Plan file SHA-256: `52d41a9bfdbddffc1e70f3a5fa854c4c92dbc12c8720916896773cd2f7fda801`
+- Plan semantic SHA-256: `99f19fa2748c29242665fd88ad68e4898d161687da5abb607dca1efb3fbe49d2`
+- Transient full-plan file SHA-256: `30389bf2bf85011588fe4c13b7675aa40f80fa211333ca372f9d5d61649380c7`
+- Committed safe-evidence file SHA-256: `0f18a36ef687d3aff1f6257bcb0f2a562529bfda06cf25023476cf06a467adb8`
 - Desired actions: 197
 - `execution_allowed=false`
 
@@ -44,15 +45,15 @@ This is read-only B00 evidence. The plan was not applied and no GitHub issue was
 
 | Stable ID | Remote | Managed-field delta |
 |---|---:|---|
-| `ISSUE-0001` | 5 | Activation dependencies, Capability lane, Release blocking in lane |
-| `ISSUE-0002` | 6 | Activation dependencies, Capability lane, Release blocking in lane |
-| `ISSUE-0003` | 7 | Owner, Activation dependencies, Capability lane, Release blocking in lane |
-| `ISSUE-0004` | 8 | Activation dependencies, Capability lane, Release blocking in lane |
-| `ISSUE-0005` | 9 | Activation dependencies, Capability lane, Release blocking in lane |
-| `ISSUE-0006` | 10 | Owner, Activation dependencies, Capability lane, Release blocking in lane |
+| `ISSUE-0001` | 5 | Priority, Activation dependencies, Capability lane, Release blocking in lane |
+| `ISSUE-0002` | 6 | Priority, Activation dependencies, Capability lane, Release blocking in lane |
+| `ISSUE-0003` | 7 | Priority, Owner, Activation dependencies, Capability lane, Release blocking in lane |
+| `ISSUE-0004` | 8 | Priority, Activation dependencies, Capability lane, Release blocking in lane |
+| `ISSUE-0005` | 9 | Priority, Activation dependencies, Capability lane, Release blocking in lane |
+| `ISSUE-0006` | 10 | Priority, Owner, Activation dependencies, Capability lane, Release blocking in lane |
 | `ISSUE-0007` | 11 | Activation dependencies, Capability lane, Release blocking in lane |
 | `ISSUE-0008` | 12 | Activation dependencies, Capability lane, Release blocking in lane |
-| `ISSUE-0009` | 13 | Activation dependencies, Capability lane, Release blocking in lane |
+| `ISSUE-0009` | 13 | Priority, Activation dependencies, Capability lane, Release blocking in lane |
 | `ISSUE-0010` | 14 | Activation dependencies, Capability lane, Release blocking in lane |
 | `ISSUE-0011` | 15 | Activation dependencies, Capability lane, Release blocking in lane |
 | `ISSUE-0012` | 16 | Activation dependencies, Capability lane, Release blocking in lane |
@@ -78,7 +79,7 @@ This is read-only B00 evidence. The plan was not applied and no GitHub issue was
 | `ISSUE-0032` | 77 | Activation dependencies, Capability lane, Release blocking in lane |
 | `ISSUE-0033` | 79 | Activation dependencies, Capability lane, Release blocking in lane |
 | `ISSUE-0034` | 80 | Activation dependencies, Capability lane, Release blocking in lane |
-| `ISSUE-0035` | 81 | Owner, Activation dependencies, Capability lane, Release blocking in lane |
+| `ISSUE-0035` | 81 | Priority, Owner, Activation dependencies, Capability lane, Release blocking in lane |
 | `ISSUE-0036` | 83 | Activation dependencies, Capability lane, Release blocking in lane |
 | `ISSUE-0037` | 85 | Activation dependencies, Capability lane, Release blocking in lane, Downstream issues |
 | `ISSUE-0038` | 86 | Activation dependencies, Capability lane, Release blocking in lane |
@@ -112,7 +113,7 @@ This is read-only B00 evidence. The plan was not applied and no GitHub issue was
 | `ISSUE-0066` | 136 | Activation dependencies, Capability lane, Release blocking in lane |
 | `ISSUE-0067` | 137 | Owner, Activation dependencies, Capability lane, Release blocking in lane, Related issues |
 | `ISSUE-0068` | 140 | Activation dependencies, Capability lane, Release blocking in lane |
-| `ISSUE-0069` | 141 | Activation dependencies, Capability lane, Release blocking in lane |
+| `ISSUE-0069` | 141 | Priority, Activation dependencies, Capability lane, Release blocking in lane |
 | `ISSUE-0070` | 210 | Activation dependencies, Capability lane, Release blocking in lane |
 | `ISSUE-0071` | 211 | Activation dependencies, Capability lane, Release blocking in lane |
 | `ISSUE-0072` | 212 | Activation dependencies, Capability lane, Release blocking in lane |
@@ -196,10 +197,10 @@ This is read-only B00 evidence. The plan was not applied and no GitHub issue was
 | `ISSUE-0150` | 290 | Activation dependencies, Capability lane, Release blocking in lane |
 | `ISSUE-0151` | 291 | Activation dependencies, Capability lane, Release blocking in lane, Downstream issues |
 | `ISSUE-0152` | 292 | Activation dependencies, Capability lane, Release blocking in lane, Downstream issues |
-| `UPDATEV2-0010` | 150 | Owner, Activation dependencies, Capability lane, Release blocking in lane |
+| `UPDATEV2-0010` | 150 | Priority, Owner, Activation dependencies, Capability lane, Release blocking in lane |
 | `UPDATEV2-0011` | 151 | Activation dependencies, Capability lane, Release blocking in lane |
 | `UPDATEV2-0012` | 152 | Activation dependencies, Capability lane, Release blocking in lane |
-| `UPDATEV2-0013` | 153 | Owner, Activation dependencies, Capability lane, Release blocking in lane |
+| `UPDATEV2-0013` | 153 | Priority, Owner, Activation dependencies, Capability lane, Release blocking in lane |
 | `UPDATEV2-0014` | 154 | Activation dependencies, Capability lane, Release blocking in lane |
 | `UPDATEV2-0015` | 155 | Activation dependencies, Capability lane, Release blocking in lane |
 | `UPDATEV2-0016` | 156 | Activation dependencies, Capability lane, Release blocking in lane |
@@ -208,13 +209,13 @@ This is read-only B00 evidence. The plan was not applied and no GitHub issue was
 | `UPDATEV2-0019` | 159 | Activation dependencies, Capability lane, Release blocking in lane |
 | `UPDATEV2-0020` | 160 | Activation dependencies, Capability lane, Release blocking in lane |
 | `UPDATEV2-0021` | 161 | Activation dependencies, Capability lane, Release blocking in lane |
-| `UPDATEV2-0022` | 162 | Owner, Activation dependencies, Capability lane, Release blocking in lane |
+| `UPDATEV2-0022` | 162 | Priority, Owner, Activation dependencies, Capability lane, Release blocking in lane |
 | `UPDATEV2-0023` | 163 | Activation dependencies, Capability lane, Release blocking in lane |
 | `UPDATEV2-0024` | 164 | Activation dependencies, Capability lane, Release blocking in lane |
 | `UPDATEV2-0025` | 165 | Activation dependencies, Capability lane, Release blocking in lane |
 | `UPDATEV2-0026` | 166 | Activation dependencies, Capability lane, Release blocking in lane |
 | `UPDATEV2-0027` | 167 | Activation dependencies, Capability lane, Release blocking in lane |
-| `UPDATEV2-0028` | 168 | Owner, Activation dependencies, Capability lane, Release blocking in lane, Downstream issues |
+| `UPDATEV2-0028` | 168 | Priority, Owner, Activation dependencies, Capability lane, Release blocking in lane, Downstream issues |
 | `UPDATEV2-0029` | 169 | Activation dependencies, Capability lane, Release blocking in lane |
 | `UPDATEV2-0030` | 170 | Activation dependencies, Capability lane, Release blocking in lane |
 

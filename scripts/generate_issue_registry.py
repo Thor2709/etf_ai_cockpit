@@ -31,19 +31,22 @@ def main(argv: list[str] | None = None) -> int:
     root = args.root.resolve()
     target = root / REGISTRY_PATH
     ledger_target = root / OPEN_LEDGER
-    ledger_payload = render_open_ledger_with_final_release(root)
+    try:
+        payload = deterministic_json(build_registry(root))
+        ledger_payload = render_open_ledger_with_final_release(root)
+    except ValueError as exc:
+        print(f"{'STALE' if args.check else 'ERROR'}: {exc}")
+        return 1
     if args.check:
         if not ledger_target.exists() or ledger_target.read_bytes() != ledger_payload:
             print(f"STALE: {ledger_target}")
             return 1
-        payload = deterministic_json(build_registry(root))
         if not target.exists() or target.read_bytes() != payload:
             print(f"STALE: {target}")
             return 1
         print(f"FRESH: {target}")
         return 0
     ledger_target.write_bytes(ledger_payload)
-    payload = deterministic_json(build_registry(root))
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(payload)
     print(f"WROTE: {target}")

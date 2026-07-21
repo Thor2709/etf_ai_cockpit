@@ -17,7 +17,7 @@ from typing import Iterable
 
 
 SCHEMA_VERSION = "1.0"
-REPORT_DIRECTORY = Path("logs/runtime_tmp/validation")
+REPORT_DIRECTORY = Path("artifacts/validation")
 OPTIONAL_COMPONENTS = ("torch", "timesfm", "toto")
 MODES = ("quick", "changed", "issue", "phase", "full", "offline", "packaged")
 

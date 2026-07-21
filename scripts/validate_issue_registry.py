@@ -44,7 +44,11 @@ def validate_programme(root: Path) -> list[str]:
         closed_ids=set(parse_closed_index(root / CLOSED_LEDGER)),
     )
     records = registry.get("records", [])
-    expected = build_registry(root)
+    try:
+        expected = build_registry(root)
+    except ValueError as exc:
+        errors.append(str(exc))
+        return errors
     expected_ids = {str(record.get("canonical_id")) for record in expected.get("records", [])}
     actual_ids = {str(record.get("canonical_id")) for record in records}
     if actual_ids != expected_ids:

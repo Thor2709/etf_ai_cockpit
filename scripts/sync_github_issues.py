@@ -11,6 +11,7 @@ import hashlib
 import json
 import re
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Iterable
@@ -319,7 +320,7 @@ def safe_remote_inventory(remote_issues: Iterable[dict[str, Any]]) -> dict[str, 
             "url": issue["url"],
         })
     return {
-        "schema_version": "1.0",
+        "schema_version": "etf-ai-cockpit.safe-remote-inventory/1.0",
         "repository": REPO,
         "inventory_sha256": inventory_sha256(normalised),
         "issues": rows,
@@ -363,7 +364,7 @@ def safe_plan_evidence(plan: dict[str, Any], remote_issues: Iterable[dict[str, A
             "managed_field_deltas": _managed_delta_fields(action, issue),
         })
     return {
-        "schema_version": "1.0",
+        "schema_version": "etf-ai-cockpit.safe-sync-evidence/1.0",
         "repository": plan.get("repository"),
         "remote_inventory_sha256": plan.get("remote_inventory_sha256"),
         "plan_semantic_sha256": plan.get("plan_sha256"),
@@ -380,16 +381,17 @@ def plan_sha256(plan: dict[str, Any]) -> str:
     return hashlib.sha256(deterministic_json(value)).hexdigest()
 
 
-def sync_review_markdown(plan: dict[str, Any], *, plan_file_sha256: str) -> str:
+def sync_review_markdown(plan: dict[str, Any], *, safe_evidence_sha256: str) -> str:
     lines = [
         "# GitHub issue sync dry-run review",
         "",
-        "This is read-only B00 evidence. The plan was not applied and no GitHub issue was mutated.",
+        "This is privacy-safe read-only B00 evidence, not an apply plan. No GitHub issue was mutated.",
         "",
         f"- Repository: `{plan.get('repository')}`",
         f"- Remote inventory SHA-256: `{plan.get('remote_inventory_sha256')}`",
         f"- Plan semantic SHA-256: `{plan.get('plan_semantic_sha256', plan.get('plan_sha256'))}`",
-        f"- Plan file SHA-256: `{plan_file_sha256}`",
+        f"- Transient full-plan file SHA-256: `{plan.get('transient_full_plan_file_sha256')}`",
+        f"- Committed safe-evidence file SHA-256: `{safe_evidence_sha256}`",
         f"- Desired actions: {len(plan.get('actions', []))}",
         "- `execution_allowed=false`",
         "",
@@ -530,20 +532,28 @@ def main(argv: list[str] | None = None) -> int:
     if map_path.exists():
         historical_map = json.loads(map_path.read_text(encoding="utf-8"))
     plan = plan_actions(registry, normalised_remote, historical_map=historical_map)
-    safe_evidence = safe_plan_evidence(plan, normalised_remote)
-    if args.safe_evidence_out:
-        args.safe_evidence_out.parent.mkdir(parents=True, exist_ok=True)
-        args.safe_evidence_out.write_bytes(deterministic_json(safe_evidence))
-    output = args.plan_out or root / DEFAULT_RECONCILIATION_ROOT / "github-sync-plan.json"
+    output = args.plan_out or Path(tempfile.gettempdir()) / "etf-ai-cockpit-github-sync-plan.json"
     output.parent.mkdir(parents=True, exist_ok=True)
     plan_bytes = deterministic_json(plan)
     output.write_bytes(plan_bytes)
+    safe_evidence = safe_plan_evidence(plan, normalised_remote)
+    safe_evidence["transient_full_plan_file_sha256"] = hashlib.sha256(plan_bytes).hexdigest()
+    safe_bytes = deterministic_json(safe_evidence)
+    if args.safe_evidence_out:
+        args.safe_evidence_out.parent.mkdir(parents=True, exist_ok=True)
+        args.safe_evidence_out.write_bytes(safe_bytes)
+        hash_path = args.safe_evidence_out.with_suffix(args.safe_evidence_out.suffix + ".sha256")
+        hash_path.write_text(
+            f"{hashlib.sha256(safe_bytes).hexdigest()}  {args.safe_evidence_out.name}\n",
+            encoding="utf-8",
+            newline="\n",
+        )
     if args.review_out:
         args.review_out.parent.mkdir(parents=True, exist_ok=True)
         args.review_out.write_text(
             sync_review_markdown(
                 safe_evidence,
-                plan_file_sha256=hashlib.sha256(plan_bytes).hexdigest(),
+                safe_evidence_sha256=hashlib.sha256(safe_bytes).hexdigest(),
             ),
             encoding="utf-8",
             newline="\n",

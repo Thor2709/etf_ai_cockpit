@@ -85,6 +85,10 @@ workflow-test.jsonl
 browser-*.png
 screenshot-*.png
 
+# Stable validation-report contract; runtime payloads are intentionally local.
+artifacts/validation/latest/*
+!artifacts/validation/latest/.gitkeep
+
 # Generated market data and local catalogues
 data/raw/
 data/clean/

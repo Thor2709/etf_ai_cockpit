@@ -494,7 +494,7 @@ This directory is the deterministic reconciliation record for baseline `{baselin
 - `canonical-dag.json` - acyclic blocking graph plus documented raw candidate cycles.
 - `package-discrepancies.md` - package/ledger differences and scope boundaries.
 - `current-state-diff.md` - current application inventory and limitations.
-- `github-sync-plan.json` and `github-sync-review.md` - safe dry-run action manifest and review record.
+- `github-sync-evidence.json`, its `.sha256` sidecar and `github-sync-review.md` - privacy-safe evidence summaries; they are not apply plans.
 
 The supplied ZIP is immutable external evidence. It is archived as nine extracted members under `docs/product-completion/sources/2026-07-15/`; the binary ZIP is not committed. No product feature, broker automation, external upload or cloud service was implemented by this task.
 """,
@@ -597,6 +597,7 @@ Run deterministic tests and safety gates before user-visible claims. Optional To
 - Review `git diff`, run targeted checks, commit the focused change, then use capability-based GitHub checks before any push or issue apply.
 - Do not commit the supplied ZIP; commit the archived extracted members, manifest, registry, documents, scripts and tests.
 - GitHub Issue apply is permitted only with an approved plan SHA-256 and must read back the resulting state.
+- After merge, fetch the new `origin/main`, run `python scripts/update_programme_control.py --refresh-base --baseline <full-origin-main-sha>`, regenerate all canonical evidence, and commit that convergence separately; stale-base checks fail closed until this is done.
 """,
     )
     write_text(
@@ -661,7 +662,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     root = args.root.resolve()
     if args.check:
-        baseline = build_registry(root)["source_of_truth"]["baseline_commit"]
+        try:
+            baseline = build_registry(root)["source_of_truth"]["baseline_commit"]
+        except ValueError as exc:
+            print(f"STALE: {exc}")
+            return 1
         recon = root / PROGRAMME_ROOT / "reconciliation" / f"{RECONCILIATION_DATE}-{str(baseline)[:7]}"
         candidates = [root / "README.md", root / "CHANGELOG.md"]
         candidates.extend((root / PROGRAMME_ROOT / "programme").rglob("*"))
@@ -685,7 +690,11 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print("FRESH: completion documents are deterministic and current")
         return 0
-    result = generate(root, args.package)
+    try:
+        result = generate(root, args.package)
+    except ValueError as exc:
+        print(f"ERROR: {exc}")
+        return 1
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 

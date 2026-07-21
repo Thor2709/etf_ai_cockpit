@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import subprocess
+from copy import deepcopy
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Iterable
@@ -364,6 +366,92 @@ def load_control_state(root: Path) -> dict[str, Any]:
     return value
 
 
+def verify_generation_base(root: Path, control: dict[str, Any] | None = None) -> None:
+    value = control or load_control_state(root)
+    metadata = value["metadata"]
+    expected = str(metadata["generation_base_commit"])
+    ref = str(metadata.get("generation_base_ref", "origin/main"))
+    try:
+        actual = subprocess.check_output(
+            ["git", "rev-parse", ref], cwd=root, text=True, stderr=subprocess.DEVNULL
+        ).strip()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ValueError(f"cannot verify canonical generation base ref {ref}") from exc
+    if actual != expected:
+        raise ValueError(f"stale generation base: control records {expected}, {ref} is {actual}")
+
+
+def validate_control_authority(root: Path, control: dict[str, Any]) -> None:
+    """Reject unreviewed manual control edits relative to authoritative origin."""
+    try:
+        payload = subprocess.check_output(
+            ["git", "show", f"origin/main:{CONTROL_STATE_PATH.as_posix()}"],
+            cwd=root,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        metadata = control.get("metadata", {})
+        if metadata.get("bootstrap") is not True or not str(metadata.get("bootstrap_reason", "")).strip():
+            raise ValueError("control state has no authoritative origin predecessor and is not an explicit bootstrap")
+        return
+    prior = json.loads(payload.decode("utf-8"))
+    if prior.get("schema_version") != control.get("schema_version"):
+        raise ValueError("control schema changed without an authorised migration")
+    if prior.get("phase_definitions") != control.get("phase_definitions"):
+        raise ValueError("control phase definitions changed without an authorised handoff")
+    prior_records = prior.get("records", {})
+    current_records = control.get("records", {})
+    if set(prior_records) != set(current_records):
+        raise ValueError("control state changes unhanded issue IDs")
+    for issue_id in sorted(current_records):
+        previous = prior_records[issue_id]
+        current = current_records[issue_id]
+        if previous == current:
+            continue
+        history = current.get("transition_history")
+        if not isinstance(history, list) or not history:
+            raise ValueError(f"{issue_id}: control change lacks transition history")
+        event = history[-1]
+        if not isinstance(event, dict) or event.get("from") != previous.get("programme_status") or event.get("to") != current.get("programme_status"):
+            raise ValueError(f"{issue_id}: transition history does not match authoritative prior state")
+        if not str(event.get("review_reference", "")).strip() or not event.get("evidence_references"):
+            raise ValueError(f"{issue_id}: transition history lacks reviewed evidence")
+        expected = deepcopy(previous)
+        expected_history = expected.setdefault("transition_history", [])
+        if not isinstance(expected_history, list):
+            raise ValueError(f"{issue_id}: authoritative transition history is invalid")
+        expected_history.append(event)
+        expected["programme_status"] = event["to"]
+        expected["status_transition"] = {
+            "from": event["from"],
+            "to": event["to"],
+            "review_reference": event["review_reference"],
+        }
+        expected["verified_commit"] = event.get("verified_commit")
+        expected["verified_date"] = event.get("reviewed_date")
+        acceptance = expected.setdefault("acceptance_evidence", [])
+        if not isinstance(acceptance, list):
+            raise ValueError(f"{issue_id}: authoritative acceptance evidence is invalid")
+        acceptance.append({
+            "status": event["to"],
+            "evidence_references": event["evidence_references"],
+            "review_reference": event["review_reference"],
+            "reviewer": event.get("reviewer"),
+            "reviewed_date": event.get("reviewed_date"),
+        })
+        edge_change = event.get("dependency_edge")
+        if edge_change is not None:
+            if not isinstance(edge_change, dict) or not str(edge_change.get("dependency", "")):
+                raise ValueError(f"{issue_id}: transition dependency edge is invalid")
+            edges = expected.get("dependency_edge_evidence")
+            dependency = str(edge_change["dependency"])
+            if not isinstance(edges, dict) or dependency not in edges:
+                raise ValueError(f"{issue_id}: transition changes a non-declared dependency edge")
+            edges[dependency] = edge_change.get("evidence")
+        if expected != current:
+            raise ValueError(f"{issue_id}: control change contains fields outside the reviewed transition")
+
+
 def baseline_sha(root: Path) -> str:
     """Return the reviewed, explicitly refreshed generation base."""
     return str(load_control_state(root)["metadata"]["generation_base_commit"])
@@ -692,9 +780,14 @@ def _roadmap_phases(
     return result
 
 
-def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]:
+def build_registry(
+    root: Path, *, baseline: str | None = None, verify_base: bool = True
+) -> dict[str, Any]:
     package = load_package_registry(root)
     control = load_control_state(root)
+    if verify_base:
+        verify_generation_base(root, control)
+        validate_control_authority(root, control)
     final_release_text, final_release_digest = _final_release_source(root)
     final_release_rows = parse_final_release_new_issues(final_release_text)
     amendments = parse_final_release_amendments(final_release_text)
@@ -853,9 +946,10 @@ def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]
 
     manifest = read_manifest(root)
     package_sha = manifest.get("ETF_AI_Cockpit_Full_Research_and_Issue_Package.zip", "")
-    open_digest = sha256_file(root / OPEN_LEDGER)
-    closed_digest = sha256_file(root / CLOSED_LEDGER)
-    package_digest = sha256_file(root / PACKAGE_JSON)
+    open_digest = sha256_text_file(root / OPEN_LEDGER)
+    closed_digest = sha256_text_file(root / CLOSED_LEDGER)
+    package_digest = sha256_text_file(root / PACKAGE_JSON)
+    control_digest = sha256_text_file(root / CONTROL_STATE_PATH)
     local_only_records: list[dict[str, Any]] = []
     registry = {
         "schema_version": "2.0",
@@ -865,11 +959,16 @@ def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]
             "package_reviewed_commit": package.get("reviewed_commit", ""),
             "package_sha256": package_sha,
             "package_registry_sha256": package_digest,
+            "programme_control_state_sha256": control_digest,
             "source_manifest_sha256": sha256_text_file(root / SOURCE_MANIFEST),
             "open_ledger_sha256": open_digest,
             "closed_ledger_sha256": closed_digest,
             "final_release_spec_sha256": final_release_digest,
-            "final_release_manifest_sha256": sha256_file(root / FINAL_RELEASE_MANIFEST),
+            "final_release_manifest_sha256": sha256_text_file(root / FINAL_RELEASE_MANIFEST),
+            "hash_semantics": {
+                "final_release_spec_sha256": "exact bytes; immutable binary fixture",
+                "other_text_inputs": "UTF-8 text with CRLF/CR canonicalised to LF",
+            },
         },
         "policy": {
             "local_first": True,
