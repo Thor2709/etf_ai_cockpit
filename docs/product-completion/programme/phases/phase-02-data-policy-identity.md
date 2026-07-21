@@ -37,7 +37,7 @@ Deliver the bounded local-first data policy, identity and data platform work wit
 ## Blockers, dependencies and related links
 
 - Resolve only `blocking_dependencies` as prerequisites; `required_inputs` are policy/evidence inputs and do not block readiness. `downstream_issues` are generated reverse links and `related_issues` are context only.
-- The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-21-6c36980/dependency-reconciliation.csv`.
+- The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-21-1e9efbc/dependency-reconciliation.csv`.
 
 ## Issue coverage
 
@@ -68,10 +68,10 @@ Deliver the bounded local-first data policy, identity and data platform work wit
 | `ISSUE-0155` | `P0/P1` | `planned` | `data-platform` | `ISSUE-0076`, `ISSUE-0081`, `ISSUE-0088`, `ISSUE-0149`, `ISSUE-0153` | - | `ISSUE-0156`, `ISSUE-0157`, `ISSUE-0158` | - |
 | `ISSUE-0170` | `P0` | `planned` | `data-platform` | `ISSUE-0076`, `ISSUE-0082`, `ISSUE-0083`, `ISSUE-0085`, `ISSUE-0149` | - | `ISSUE-0171`, `ISSUE-0172` | - |
 | `ISSUE-0171` | `P0` | `planned` | `data-platform` | `ISSUE-0076`, `ISSUE-0080`, `ISSUE-0081`, `ISSUE-0149`, `ISSUE-0170`, `ISSUE-0176` | - | `ISSUE-0172` | - |
-| `UPDATEV2-0011` | `P0` | `in_progress` | `data-and-evidence` | - | - | `ISSUE-0082` | `ISSUE-0082`, `ISSUE-0083` |
+| `UPDATEV2-0011` | `P0` | `implemented_initially` | `data-and-evidence` | - | - | `ISSUE-0082` | `ISSUE-0082`, `ISSUE-0083` |
 | `UPDATEV2-0015` | `P0` | `closed` | `data-and-evidence` | - | - | `ISSUE-0103`, `ISSUE-0104` | `ISSUE-0090`, `ISSUE-0103`, `ISSUE-0104` |
 | `UPDATEV2-0016` | `P0` | `closed` | `data-and-evidence` | - | - | `ISSUE-0105` | `ISSUE-0082`, `ISSUE-0105` |
 | `UPDATEV2-0018` | `P1` | `planned` | `data-and-evidence` | - | - | `ISSUE-0104` | `ISSUE-0104`, `UPDATEV2-0015` |
-| `UPDATEV2-0021` | `P0` | `in_progress` | `data-and-evidence` | - | - | `ISSUE-0089` | `ISSUE-0073`, `ISSUE-0089`, `ISSUE-0090` |
+| `UPDATEV2-0021` | `P0` | `implemented_initially` | `data-and-evidence` | - | - | `ISSUE-0089` | `ISSUE-0073`, `ISSUE-0089`, `ISSUE-0090` |
 | `UPDATEV2-0023` | `P1` | `planned` | `data-and-evidence` | - | - | - | `ISSUE-0076`, `ISSUE-0080` |
 | `UPDATEV2-0030` | `P2` | `planned` | `data-and-evidence` | - | - | - | `ISSUE-0080`, `ISSUE-0086`, `ISSUE-0089` |

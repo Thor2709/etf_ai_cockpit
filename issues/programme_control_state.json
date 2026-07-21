@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "6c369800e04b3e7d8ce3adda792cc4a82c91b7e9",
+    "generation_base_commit": "1e9efbcd3ea67fec638d95905a66af063952dd8c",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4928,16 +4928,46 @@
       "verified_date": "2026-07-21"
     },
     "UPDATEV2-0011": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #465 merged as 1e9efbcd3ea67fec638d95905a66af063952dd8c",
+            "GitHub Actions release run 29872726719 passed Linux and Windows",
+            "GitHub Actions status guard 29872726691 and supply-chain 29872726692 passed",
+            "plans/BATCH-B02-DATA-IDENTITY.md acceptance evidence and independent review"
+          ],
+          "review_reference": "Independent B02 product review PASS and PR #465 protected cross-platform release evidence",
+          "reviewed_date": "2026-07-21",
+          "reviewer": "Codex independent reviewer",
+          "status": "implemented_initially"
+        }
+      ],
       "dependency_edge_evidence": {},
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "in_progress",
+      "programme_status": "implemented_initially",
       "status_transition": {
         "from": "in_progress",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "in_progress"
+        "review_reference": "Independent B02 product review PASS and PR #465 protected cross-platform release evidence",
+        "to": "implemented_initially"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #465 merged as 1e9efbcd3ea67fec638d95905a66af063952dd8c",
+            "GitHub Actions release run 29872726719 passed Linux and Windows",
+            "GitHub Actions status guard 29872726691 and supply-chain 29872726692 passed",
+            "plans/BATCH-B02-DATA-IDENTITY.md acceptance evidence and independent review"
+          ],
+          "from": "in_progress",
+          "review_reference": "Independent B02 product review PASS and PR #465 protected cross-platform release evidence",
+          "reviewed_date": "2026-07-21",
+          "reviewer": "Codex independent reviewer",
+          "to": "implemented_initially",
+          "verified_commit": "1e9efbcd3ea67fec638d95905a66af063952dd8c"
+        }
+      ],
+      "verified_commit": "1e9efbcd3ea67fec638d95905a66af063952dd8c",
       "verified_date": "2026-07-21"
     },
     "UPDATEV2-0012": {
@@ -5058,16 +5088,46 @@
       "verified_date": "2026-07-21"
     },
     "UPDATEV2-0021": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #465 merged as 1e9efbcd3ea67fec638d95905a66af063952dd8c",
+            "GitHub Actions release run 29872726719 passed Linux and Windows",
+            "GitHub Actions status guard 29872726691 and supply-chain 29872726692 passed",
+            "plans/BATCH-B02-DATA-IDENTITY.md acceptance evidence and independent review"
+          ],
+          "review_reference": "Independent B02 product review PASS and PR #465 protected cross-platform release evidence",
+          "reviewed_date": "2026-07-21",
+          "reviewer": "Codex independent reviewer",
+          "status": "implemented_initially"
+        }
+      ],
       "dependency_edge_evidence": {},
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "in_progress",
+      "programme_status": "implemented_initially",
       "status_transition": {
         "from": "in_progress",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "in_progress"
+        "review_reference": "Independent B02 product review PASS and PR #465 protected cross-platform release evidence",
+        "to": "implemented_initially"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #465 merged as 1e9efbcd3ea67fec638d95905a66af063952dd8c",
+            "GitHub Actions release run 29872726719 passed Linux and Windows",
+            "GitHub Actions status guard 29872726691 and supply-chain 29872726692 passed",
+            "plans/BATCH-B02-DATA-IDENTITY.md acceptance evidence and independent review"
+          ],
+          "from": "in_progress",
+          "review_reference": "Independent B02 product review PASS and PR #465 protected cross-platform release evidence",
+          "reviewed_date": "2026-07-21",
+          "reviewer": "Codex independent reviewer",
+          "to": "implemented_initially",
+          "verified_commit": "1e9efbcd3ea67fec638d95905a66af063952dd8c"
+        }
+      ],
+      "verified_commit": "1e9efbcd3ea67fec638d95905a66af063952dd8c",
       "verified_date": "2026-07-21"
     },
     "UPDATEV2-0022": {

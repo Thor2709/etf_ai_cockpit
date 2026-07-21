@@ -1,0 +1,40 @@
+{
+  "actions": [
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Programme status"
+      ],
+      "remote_number": 151,
+      "remote_state": "open",
+      "stable_id": "UPDATEV2-0011",
+      "title": "Symbol/ISIN/exchange identity resolver (original update ISSUE-0011)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/151"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Programme status"
+      ],
+      "remote_number": 161,
+      "remote_state": "open",
+      "stable_id": "UPDATEV2-0021",
+      "title": "Source conflict resolver and canonical metric selector (original update ISSUE-0021)",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/161"
+    }
+  ],
+  "apply_authority": false,
+  "fresh_exact_plan_required_for_apply": true,
+  "plan_semantic_sha256": "9133bbd109c1b2da871e19b5079b41f1b61d9acd057ac9f859dc99fa48bef221",
+  "remote_inventory_sha256": "9023b948b5b85c609ea8056a14d10b3772e1670e44fe88e2a8d40e0eb58444ee",
+  "repository": "Thor2709/etf_ai_cockpit",
+  "schema_version": "etf-ai-cockpit.safe-sync-evidence/1.0",
+  "summary": {
+    "blocked": 0,
+    "close": 0,
+    "create": 0,
+    "reopen": 0,
+    "update": 2
+  },
+  "transient_full_plan_file_sha256": "85db471e2659785fe30f845f378829ded52860f02ab89749f056ef861dbf4e4f"
+}
