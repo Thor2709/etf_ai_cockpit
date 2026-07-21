@@ -15,7 +15,6 @@ from typing import Any
 try:
     from scripts.issue_registry_core import (
         CLOSED_LEDGER,
-        PHASES,
         PROGRAMME_ROOT,
         build_registry,
         deterministic_json,
@@ -25,7 +24,6 @@ try:
 except ModuleNotFoundError:
     from issue_registry_core import (
         CLOSED_LEDGER,
-        PHASES,
         PROGRAMME_ROOT,
         build_registry,
         deterministic_json,
@@ -34,7 +32,7 @@ except ModuleNotFoundError:
     from validate_completion_package import validate_package
 
 
-RECONCILIATION_DATE = "2026-07-17"
+RECONCILIATION_DATE = "2026-07-21"
 DEFAULT_PACKAGE_NAME = "ETF_AI_Cockpit_Full_Research_and_Issue_Package.zip"
 REPO = "Thor2709/etf_ai_cockpit"
 
@@ -43,6 +41,17 @@ def write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     normalised = text.replace("\r\n", "\n").replace("\r", "\n")
     path.write_bytes((normalised.rstrip() + "\n").encode("utf-8"))
+
+
+def write_managed_section(path: Path, name: str, body: str) -> None:
+    begin = f"<!-- BEGIN GENERATED {name} -->"
+    end = f"<!-- END GENERATED {name} -->"
+    block = f"{begin}\n{body.strip()}\n{end}"
+    current = path.read_text(encoding="utf-8") if path.exists() else ""
+    current = current.replace("\r\n", "\n").replace("\r", "\n")
+    pattern = re.compile(re.escape(begin) + r".*?" + re.escape(end), re.DOTALL)
+    rendered = pattern.sub(block, current) if pattern.search(current) else current.rstrip() + "\n\n" + block
+    write_text(path, rendered)
 
 
 def write_json(path: Path, value: object) -> None:
@@ -168,6 +177,7 @@ def package_source_rows(registry: dict[str, Any]) -> list[dict[str, object]]:
                 "dependency_candidates": ";".join(record.get("dependency_candidates", [])),
                 "blocking_dependencies": ";".join(record.get("blocking_dependencies", [])),
                 "required_inputs": ";".join(record.get("required_inputs", [])),
+                "activation_dependencies": ";".join(record.get("activation_dependencies", [])),
                 "downstream_issues": ";".join(record.get("downstream_issues", [])),
                 "related_issues": ";".join(record.get("related_issues", [])),
                 "discrepancy": (
@@ -197,7 +207,7 @@ def current_only_rows(registry: dict[str, Any]) -> list[dict[str, object]]:
 def phase_table(registry: dict[str, Any]) -> list[dict[str, object]]:
     grouped = records_by_phase(registry)
     rows = []
-    for phase in PHASES:
+    for phase in registry.get("roadmap_phases", []):
         phase_id = str(phase["phase"])
         records = grouped.get(phase_id, [])
         statuses = Counter(str(row.get("programme_status")) for row in records)
@@ -310,7 +320,8 @@ def phase_document(registry: dict[str, Any], phase: dict[str, Any]) -> str:
 def generate(root: Path, package_path: Path | None = None) -> dict[str, object]:
     baseline = subprocess.check_output(["git", "rev-parse", "origin/main"], cwd=root, text=True).strip()
     registry = build_registry(root, baseline=baseline)
-    report = validate_package(package_path_for(root, package_path))
+    package_candidate = package_path_for(root, package_path)
+    report = validate_package(package_candidate) if package_candidate.is_file() else None
     recon = root / PROGRAMME_ROOT / "reconciliation" / f"{RECONCILIATION_DATE}-{baseline[:7]}"
     rows = package_source_rows(registry)
     current_rows = current_only_rows(registry)
@@ -342,7 +353,7 @@ def generate(root: Path, package_path: Path | None = None) -> dict[str, object]:
             "source_record_id", "source_kind", "source_file", "source_title", "canonical_id",
             "canonical_title", "classification", "ledger_state", "package_status",
             "programme_status", "priority", "owner", "phase", "dependency_candidates",
-            "blocking_dependencies", "required_inputs", "downstream_issues", "related_issues", "discrepancy",
+            "blocking_dependencies", "required_inputs", "activation_dependencies", "downstream_issues", "related_issues", "discrepancy",
         ],
         rows,
     )
@@ -373,7 +384,9 @@ def generate(root: Path, package_path: Path | None = None) -> dict[str, object]:
         row["record_count"] = int(row["record_count"]) + 1
         row["open_count"] = int(row["open_count"]) + (record.get("ledger_state") == "open")
         row["closed_count"] = int(row["closed_count"]) + (record.get("ledger_state") == "closed")
-        row["proposed_count"] = int(row["proposed_count"]) + (record.get("source_kind") == "proposed")
+        row["proposed_count"] = int(row["proposed_count"]) + (
+            record.get("classification") == "proposed_new"
+        )
         row["phases"].add(str(record.get("phase")))
     ownership_rows = []
     for row in sorted(ownership.values(), key=lambda value: str(value["owner"])):
@@ -390,7 +403,11 @@ def generate(root: Path, package_path: Path | None = None) -> dict[str, object]:
     )
     write_json(recon / "canonical-dag.json", dag)
 
-    package_sha = report.package_sha256
+    package_sha = (
+        report.package_sha256
+        if report is not None
+        else str(registry["source_of_truth"].get("package_sha256", ""))
+    )
     current_package_ids = sorted(
         row["canonical_id"] for row in registry["records"] if row.get("source_kind") == "current"
     )
@@ -479,11 +496,22 @@ Backtests and portfolio analysis remain advisory. Risk gates override forecasts,
         "branch": subprocess.check_output(["git", "branch", "--show-current"], cwd=root, text=True).strip(),
         "worktree_inventory": worktrees,
         "package": {
-            "path": str(package_path_for(root, package_path)),
+            "path": str(package_candidate) if package_candidate.is_file() else "unavailable",
             "sha256": package_sha,
             "reviewed_commit": registry["source_of_truth"]["package_reviewed_commit"],
-            "member_hashes": report.member_hashes,
-            "validation": report.as_dict(),
+            "member_hashes": report.member_hashes if report is not None else {},
+            "validation": (
+                report.as_dict()
+                if report is not None
+                else {
+                    "status": "archived_sources_only",
+                    "valid": None,
+                    "errors": [],
+                    "warnings": [
+                        "External ZIP was unavailable; checked-in extracted sources and manifest remain canonical evidence."
+                    ],
+                }
+            ),
             "archived_directory": "docs/product-completion/sources/2026-07-15",
         },
         "latest_ledgers": {
@@ -562,7 +590,7 @@ The supplied ZIP is immutable external evidence. It is archived as nine extracte
     roadmap_lines.extend(
         [
             "",
-            "## Thirteen-stage mapping",
+            "## Phase mapping",
             "",
             "1. Scope and governance - `phase-01-governance-scope`.",
             "2. Architecture and storage - `phase-01-governance-scope` / `phase-02-data-policy-identity`.",
@@ -646,13 +674,46 @@ First implementation candidates are the records marked `ready` by the registry h
 """,
     )
     phases = programme / "phases"
-    for phase in PHASES:
+    for phase in registry.get("roadmap_phases", []):
         write_text(phases / f"{phase['phase']}.md", phase_document(registry, phase))
+    write_json(
+        programme / "readiness.json",
+        {
+            "schema_version": "1.0",
+            "source_registry_sha256": __import__("hashlib").sha256(
+                deterministic_json(registry)
+            ).hexdigest(),
+            "execution_allowed": False,
+            "decisions": registry.get("readiness", []),
+        },
+    )
+    write_managed_section(
+        root / "README.md",
+        "FINAL RELEASE PROGRAMME",
+        """## Final-release programme
+
+ETF AI Cockpit is a private, local-first decision-support application. The adopted programme covers core stock, ETF, ordinary-fund and supported fixed-income research; reproducible bulk/top-N analysis; selected-currency outputs; five editable risk-profile projections; and Quick/Medium/High/Full analysis depths. These are programme contracts, not a claim that every capability is certified today.
+
+The canonical registry and current evidence live in `issues/issue_registry.json` and `docs/product-completion/CURRENT_STATUS.json`. Missing providers, keys, optional models, weights or network access must remain explicit unavailable states and must not prevent safe local startup. Returns require adjusted, corporate-action-aware total-return data and point-in-time evidence.
+
+Live execution is not authorised: `execution_allowed=false`. Portfolio, paper, broker-read-only and disabled canary scaffolding have separate certification/activation lanes and cannot gain authority from a model, LLM, UI action or programme status.
+
+Canonical checks: `python scripts/generate_issue_registry.py --check`, `python scripts/validate_issue_registry.py`, `python scripts/update_programme_status.py --check`, `python scripts/validate_app.py --changed`, and `python scripts/validate_app.py --offline`. Full/package certification is delegated to the existing protected release gate through `validate_app.py --full` and `--packaged`.""",
+    )
+    write_managed_section(
+        root / "CHANGELOG.md",
+        "FINAL RELEASE CONTROL PLANE",
+        """## 2026-07-21 — Final-release control-plane intake
+
+- Adopted the versioned final-release specification and provisional collision-free `ISSUE-0153`–`ISSUE-0176` contracts without implementing their downstream product features.
+- Added typed, status-independent dependency-edge readiness, separate activation readiness, dynamic registry/phase/count validation, and deterministic source-derived programme projections.
+- Preserved `execution_allowed=false`; no GitHub apply, live order, deployment, publication or release action is part of this change.""",
+    )
     return {
         "reconciliation": str(recon),
         "package_sha256": package_sha,
         "github_issue_count": inventory["issue_count"],
-        "phase_count": len(PHASES),
+        "phase_count": len(registry.get("roadmap_phases", [])),
         "raw_candidate_cycle_count": len(cycles),
     }
 

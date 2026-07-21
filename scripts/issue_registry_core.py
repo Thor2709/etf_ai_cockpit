@@ -121,6 +121,17 @@ PROGRAMME_STATUS_OVERRIDES = {
 }
 PACKAGE_JSON = Path("docs/product-completion/sources/2026-07-15/ETF_AI_Cockpit_Master_Issue_Registry.json")
 SOURCE_MANIFEST = Path("docs/product-completion/sources/2026-07-15/SOURCE_MANIFEST.sha256")
+FINAL_RELEASE_SOURCE = Path(
+    "docs/product-completion/sources/2026-07-21/"
+    "ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md"
+)
+FINAL_RELEASE_MANIFEST = FINAL_RELEASE_SOURCE.parent / "SOURCE_MANIFEST.sha256"
+FINAL_RELEASE_SPEC_SHA256 = "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810"
+FINAL_RELEASE_VERIFIED_DATE = "2026-07-21"
+FINAL_RELEASE_AUDITED_COMMIT = "452d44034197cd5d837c1854603eea030e02acf6"
+EDGE_EVIDENCE_STATES = frozenset({"unresolved", "complete", "partial_interface", "waived"})
+FINAL_RELEASE_OPEN_BEGIN = "<!-- BEGIN GENERATED FINAL RELEASE ISSUES -->"
+FINAL_RELEASE_OPEN_END = "<!-- END GENERATED FINAL RELEASE ISSUES -->"
 OPEN_LEDGER = Path("issues/open.md")
 CLOSED_LEDGER = Path("issues/closed.md")
 REGISTRY_PATH = Path("issues/issue_registry.json")
@@ -288,6 +299,197 @@ def read_manifest(root: Path) -> dict[str, str]:
     return result
 
 
+def parse_issue_refs_expanded(value: object) -> list[str]:
+    """Parse issue references and expand inclusive ISSUE ranges."""
+
+    text = str(value)
+    result = set(parse_issue_refs(text))
+    range_re = re.compile(
+        r"ISSUE-(\d{4})`?\s*[–-]\s*`?ISSUE-(\d{4})"
+    )
+    for match in range_re.finditer(text):
+        start, end = (int(value) for value in match.groups())
+        if start <= end:
+            result.update(f"ISSUE-{number:04d}" for number in range(start, end + 1))
+    return sorted(result)
+
+
+def _final_release_source(root: Path) -> tuple[str, str]:
+    path = root / FINAL_RELEASE_SOURCE
+    digest = sha256_file(path)
+    if digest != FINAL_RELEASE_SPEC_SHA256:
+        raise ValueError(
+            f"final-release source checksum mismatch: expected {FINAL_RELEASE_SPEC_SHA256}, found {digest}"
+        )
+    manifest = read_manifest_file(root / FINAL_RELEASE_MANIFEST)
+    if manifest.get(FINAL_RELEASE_SOURCE.name) != digest:
+        raise ValueError("final-release source manifest does not match the canonical specification")
+    return path.read_text(encoding="utf-8"), digest
+
+
+def read_manifest_file(path: Path) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line or line.startswith("#"):
+            continue
+        digest, member, *_ = line.split()
+        result[member] = digest.lower()
+    return result
+
+
+def _field_from_block(block: str, name: str) -> str:
+    match = re.search(rf"(?m)^- {re.escape(name)}:\s*(.+?)\s*$", block)
+    return match.group(1).strip().strip("`") if match else ""
+
+
+def _compact_metadata(block: str) -> dict[str, str]:
+    match = re.search(r"(?m)^\*\*Canonical metadata:\*\*\s*(.+?)\s*$", block)
+    if not match:
+        return {}
+    value = match.group(1)
+    result: dict[str, str] = {}
+    priority = re.match(r"\s*(P0(?:/P1)?|P1(?:/P2)?|P2|P3)\s*;", value)
+    if priority:
+        result["Priority"] = priority.group(1)
+    patterns = {
+        "Owner": r"\bowner\s+`([^`]+)`",
+        "Phase": r"\bphase\s+`([^`]+)`",
+        "Blocking dependencies": r"\bdepends on\s+(.+?)(?:;\s*execution\b|\.$)",
+    }
+    for key, pattern in patterns.items():
+        found = re.search(pattern, value)
+        if found:
+            result[key] = found.group(1).strip()
+    return result
+
+
+def _acceptance_criteria(block: str) -> list[str]:
+    match = re.search(
+        r"(?ms)^\*\*Acceptance criteria\*\*\s*(.+?)(?=^\*\*[^\n]+\*\*|\Z)",
+        block,
+    )
+    if not match:
+        return []
+    return [
+        item.strip()
+        for item in re.findall(r"(?m)^- \[[ xX]\]\s+(.+?)\s*$", match.group(1))
+        if item.strip()
+    ]
+
+
+def parse_final_release_new_issues(text: str) -> list[dict[str, Any]]:
+    part = text.split("## Part VIII — Proposed new canonical issues", 1)[1].split(
+        "## Part IX — Dependency and implementation sequence", 1
+    )[0]
+    headings = list(
+        re.finditer(r"(?m)^#### `(ISSUE-(?:015[3-9]|016\d|017[0-6]))` — (.+?)\s*$", part)
+    )
+    records: list[dict[str, Any]] = []
+    for index, heading in enumerate(headings):
+        end = headings[index + 1].start() if index + 1 < len(headings) else len(part)
+        block = part[heading.start():end].strip() + "\n"
+        compact = _compact_metadata(block)
+        metadata = {
+            name: _field_from_block(block, name) or compact.get(name, "")
+            for name in ("Classification", "Ledger state", "Programme status", "Priority", "Owner", "Phase")
+        }
+        dependencies = parse_issue_refs_expanded(
+            _field_from_block(block, "Blocking dependencies")
+            or compact.get("Blocking dependencies", "")
+        )
+        records.append(
+            {
+                "issue_id": heading.group(1),
+                "title": heading.group(2).strip(),
+                "classification": metadata["Classification"] or "proposed_new",
+                "ledger_state": metadata["Ledger state"] or "open",
+                "status": metadata["Programme status"] or "planned",
+                "priority": metadata["Priority"] or "P0",
+                "owner": metadata["Owner"] or "programme-governance",
+                "phase": metadata["Phase"] or "phase-01-governance-scope",
+                "dependencies": dependencies,
+                "acceptance_criteria": _acceptance_criteria(block),
+                "contract_markdown": block,
+                "source_heading": heading.group(0),
+            }
+        )
+    expected = {f"ISSUE-{number:04d}" for number in range(153, 177)}
+    actual = {record["issue_id"] for record in records}
+    if actual != expected:
+        raise ValueError(f"final-release issue intake mismatch: expected {sorted(expected)}, found {sorted(actual)}")
+    return records
+
+
+def render_open_ledger_with_final_release(root: Path) -> bytes:
+    """Return the open ledger with the source-derived final-release issue block."""
+
+    source, _digest = _final_release_source(root)
+    records = parse_final_release_new_issues(source)
+    lines = [FINAL_RELEASE_OPEN_BEGIN, "", "# Final-release adopted issues", ""]
+    for record in records:
+        dependencies = ", ".join(f"`{value}`" for value in record["dependencies"]) or "None"
+        lines.extend(
+            [
+                f"## {record['issue_id']} - {record['title']}",
+                "",
+                "**Status:** Open — planned",
+                f"**Priority:** {record['priority']}",
+                f"**Owner:** {record['owner']}",
+                f"**Phase:** {record['phase']}",
+                f"**Blocking dependencies:** {dependencies}",
+                "**Execution allowed:** false",
+                "",
+                f"Canonical contract: `{FINAL_RELEASE_SOURCE.as_posix()}` ({record['source_heading']}).",
+                "",
+            ]
+        )
+    lines.append(FINAL_RELEASE_OPEN_END)
+    block = "\n".join(lines)
+    path = root / OPEN_LEDGER
+    current = path.read_bytes().decode("utf-8")
+    pattern = re.compile(
+        re.escape(FINAL_RELEASE_OPEN_BEGIN) + r".*?" + re.escape(FINAL_RELEASE_OPEN_END),
+        re.DOTALL,
+    )
+    if pattern.search(current):
+        rendered = pattern.sub(block, current)
+    else:
+        rendered = current.rstrip("\r\n") + "\n\n" + block + "\n"
+    return rendered.rstrip("\r\n").encode("utf-8") + b"\n"
+
+
+def parse_final_release_amendments(text: str) -> dict[str, list[dict[str, str]]]:
+    part = text.split("## Part VII — Amend existing canonical issues", 1)[1].split(
+        "## Part VIII — Proposed new canonical issues", 1
+    )[0]
+    headings = list(re.finditer(r"(?m)^#### (?:AMEND|USER-REQUIREMENTS DELTA) .+$", part))
+    result: dict[str, list[dict[str, str]]] = defaultdict(list)
+    for index, heading in enumerate(headings):
+        end = headings[index + 1].start() if index + 1 < len(headings) else len(part)
+        block = part[heading.start():end].strip() + "\n"
+        for issue_id in parse_issue_refs_expanded(heading.group(0)):
+            result[issue_id].append(
+                {
+                    "heading": heading.group(0).removeprefix("#### "),
+                    "source_reference": f"{FINAL_RELEASE_SOURCE.as_posix()}#{heading.start()}",
+                    "contract_markdown": block,
+                }
+            )
+    return dict(result)
+
+
+def parse_release_acceptance_matrix(text: str) -> list[dict[str, str]]:
+    part = text.split("## Part X — Shared release-blocking acceptance matrix", 1)[1].split(
+        "### Common definition of done", 1
+    )[0]
+    rows: list[dict[str, str]] = []
+    for match in re.finditer(r"(?m)^\| (T-\d{2}) \| (.+?) \| (.+?) \|$", part):
+        rows.append({"id": match.group(1), "test": match.group(2), "pass_condition": match.group(3)})
+    if [row["id"] for row in rows] != [f"T-{number:02d}" for number in range(1, 56)]:
+        raise ValueError("final-release acceptance matrix must contain continuous T-01–T-55")
+    return rows
+
+
 def baseline_sha(root: Path) -> str:
     intake_reports = sorted((root / RECONCILIATION_ROOT).glob("*/intake-report.json"), reverse=True)
     for path in intake_reports:
@@ -430,7 +632,7 @@ def _dependency_resolution(
             candidate = {
                 "source_id": source_id,
                 "dependency": dependency,
-                "candidate_type": "blocking" if source_kind == "proposed" else "related",
+                "candidate_type": "blocking" if source_kind in {"proposed", "final_release"} else "related",
             }
             if dependency not in known:
                 related[source_id].append(dependency)
@@ -438,7 +640,7 @@ def _dependency_resolution(
                 candidate["reason"] = "reference is outside the package and closed index"
                 report.append(candidate)
                 continue
-            if source_kind != "proposed":
+            if source_kind not in {"proposed", "final_release"}:
                 related[source_id].append(dependency)
                 candidate["resolved_as"] = "related_issues"
                 candidate["reason"] = "current-ledger dependency retained as a candidate pending explicit prerequisite review"
@@ -479,6 +681,12 @@ DEPENDENCY_SEMANTIC_OVERRIDES: dict[str, dict[str, list[str]]] = {
         "blocking_dependencies": [],
         "required_inputs": ["ISSUE-0008", "ISSUE-0032", "ISSUE-0060", "ISSUE-0066"],
     },
+    # Certification is an activation gate for the disabled canary, not a gate
+    # for implementing and testing the disabled scaffold itself.
+    "ISSUE-0133": {
+        "blocking_dependencies": ["ISSUE-0132"],
+        "activation_dependencies": ["ISSUE-0152"],
+    },
 }
 
 
@@ -490,16 +698,108 @@ def _semantic_dependency_fields(
     override = DEPENDENCY_SEMANTIC_OVERRIDES.get(issue_id, {})
     blocking = sorted(set(override.get("blocking_dependencies", resolved_blocking)))
     required_inputs = sorted(set(override.get("required_inputs", [])))
+    activation_dependencies = sorted(set(override.get("activation_dependencies", [])))
     related = sorted(set(resolved_related) - set(blocking) - set(required_inputs))
     return {
         "blocking_dependencies": blocking,
         "required_inputs": required_inputs,
+        "activation_dependencies": activation_dependencies,
         "related_issues": related,
     }
 
 
+def _capability_lane(issue_id: str, phase: str) -> str:
+    number = issue_number(issue_id)
+    if issue_id == "ISSUE-0133":
+        return "LIVE_CANARY_SCAFFOLD_DISABLED"
+    if number is not None and 125 <= number <= 135:
+        return "PAPER_BROKER_OPERATIONS"
+    if number is not None and 153 <= number <= 158:
+        return "FIXED_INCOME_ANALYSIS"
+    if number is not None and 159 <= number <= 164:
+        return "PORTFOLIO_READ_ONLY"
+    if number is not None and 170 <= number <= 172:
+        return "FUND_ANALYSIS"
+    if number is not None and 165 <= number <= 169:
+        return "BULK_SCREENING"
+    if "portfolio" in phase:
+        return "PORTFOLIO_READ_ONLY"
+    return "CORE_ANALYSIS"
+
+
+def _risk(owner: str, issue_id: str, priority: str) -> dict[str, object]:
+    categories: list[str] = []
+    if owner in {"trading-safety", "security-and-release"} or issue_id in {"ISSUE-0127", "ISSUE-0167"}:
+        categories.append("authority_or_security")
+    if issue_id in {"ISSUE-0084", "ISSUE-0127", "ISSUE-0159", "ISSUE-0167"}:
+        categories.append("financial_correctness")
+    level = "high" if categories else "medium" if priority in {"P0", "P0/P1"} else "normal"
+    return {"level": level, "categories": categories}
+
+
+def _unresolved_edge_evidence(blocking_dependencies: Iterable[str]) -> dict[str, dict[str, object]]:
+    return {
+        dependency: {
+            "schema_version": "1.0",
+            "state": "unresolved",
+            "evidence_references": [],
+            "contract_reference": "",
+            "reviewer": "",
+            "reviewed_date": "",
+        }
+        for dependency in sorted(blocking_dependencies)
+    }
+
+
+def _compress_issue_coverage(issue_ids: Iterable[str]) -> str:
+    grouped: dict[str, list[int]] = defaultdict(list)
+    for issue_id in sorted(set(issue_ids)):
+        prefix, number = issue_id.rsplit("-", 1)
+        grouped[prefix].append(int(number))
+    values: list[str] = []
+    for prefix, numbers in sorted(grouped.items()):
+        start = previous = numbers[0]
+        for number in numbers[1:] + [numbers[-1] + 2]:
+            if number == previous + 1:
+                previous = number
+                continue
+            values.append(
+                f"{prefix}-{start:04d}"
+                if start == previous
+                else f"{prefix}-{start:04d}–{prefix}-{previous:04d}"
+            )
+            start = previous = number
+    return ", ".join(values)
+
+
+def _roadmap_phases(records: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    records_by_id: dict[str, list[str]] = defaultdict(list)
+    for record in records:
+        records_by_id[str(record["phase"])].append(str(record["canonical_id"]))
+    result: list[dict[str, Any]] = []
+    for phase in PHASES:
+        phase_id = str(phase["phase"])
+        issue_ids = sorted(records_by_id.get(phase_id, []))
+        if not issue_ids:
+            continue
+        result.append(
+            {
+                "phase": phase_id,
+                "title": phase["title"],
+                "issue_range": _compress_issue_coverage(issue_ids),
+                "issue_ids": issue_ids,
+                "record_count": len(issue_ids),
+            }
+        )
+    return result
+
+
 def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]:
     package = load_package_registry(root)
+    final_release_text, final_release_digest = _final_release_source(root)
+    final_release_rows = parse_final_release_new_issues(final_release_text)
+    amendments = parse_final_release_amendments(final_release_text)
+    effective_baseline = baseline or FINAL_RELEASE_AUDITED_COMMIT
     open_records = parse_open_ledger(root / OPEN_LEDGER)
     closed_records = parse_closed_index(root / CLOSED_LEDGER)
     package_rows: list[tuple[str, str, dict[str, Any]]] = []
@@ -507,6 +807,8 @@ def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]
         package_rows.append((str(row["issue_id"]), "current", row))
     for row in package.get("proposed_new_issues", []):
         package_rows.append((str(row["issue_id"]), "proposed", row))
+    for row in final_release_rows:
+        package_rows.append((str(row["issue_id"]), "final_release", row))
     package_ids = {issue_id for issue_id, _, _ in package_rows}
     closed_ids = set(closed_records)
     open_ids = set(open_records)
@@ -517,6 +819,7 @@ def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]
     source_file = {
         "current": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
         "proposed": "ETF_AI_Cockpit_New_Issues.csv",
+        "final_release": FINAL_RELEASE_SOURCE.as_posix(),
     }
     for issue_id, source_kind, row in sorted(package_rows, key=lambda item: item[0]):
         is_closed_reconciled = source_kind == "current" and issue_id in closed_ids
@@ -528,7 +831,7 @@ def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]
             else "proposed_new"
         )
         ledger_state = "closed" if source_kind == "current" and is_closed_reconciled else "open"
-        owner = owner_for(row, source_kind)
+        owner = str(row.get("owner", "")).strip() or owner_for(row, source_kind)
         source_title = str(row.get("title", "")).strip()
         canonical_title = source_title
         if source_kind == "current":
@@ -555,12 +858,13 @@ def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]
             "programme_status": programme_status(source_kind, row, ledger_state),
             "priority": str(row.get("priority", "")).strip(),
             "owner": owner,
-            "phase": phase_for(issue_id, owner),
+            "phase": str(row.get("phase", "")).strip() or phase_for(issue_id, owner),
             "epic": str(row.get("epic", "")).strip(),
             "evidence_grade": str(row.get("evidence_grade", "")).strip(),
             "dependency_candidates": parse_issue_refs(row.get("dependencies", "")),
             **dependency_fields,
             "dependency_conversions": conversions.get(issue_id, []),
+            "normative_amendments": amendments.get(issue_id, []),
         }
         for field in (
             "current_gap",
@@ -573,9 +877,32 @@ def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]
             "ui_requirement",
             "security_and_audit",
             "free_no_quota_policy",
+            "contract_markdown",
         ):
             if field in row:
-                record[field] = str(row.get(field, "")).strip()
+                value = row.get(field)
+                record[field] = value if isinstance(value, list) else str(value or "").strip()
+        record["dependency_edge_evidence"] = _unresolved_edge_evidence(
+            record["blocking_dependencies"]
+        )
+        record["provenance"] = {
+            "schema_version": "1.0",
+            "primary_source": record["source_file"],
+            "source_record_id": issue_id,
+            "final_release_spec_sha256": final_release_digest,
+            "amendment_references": [
+                amendment["source_reference"] for amendment in record["normative_amendments"]
+            ],
+        }
+        record["verified_commit"] = effective_baseline
+        record["verified_date"] = FINAL_RELEASE_VERIFIED_DATE
+        record["acceptance_evidence"] = []
+        record["capability_lane"] = _capability_lane(issue_id, record["phase"])
+        record["release_blocking"] = record["programme_status"] not in {
+            "research_only", "rejected", "deferred"
+        }
+        record["write_conflict_group"] = owner
+        record["risk"] = _risk(owner, issue_id, record["priority"])
         records.append(record)
 
     # Downstream links are derived from all prerequisite kinds. They are
@@ -583,7 +910,7 @@ def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]
     downstream: dict[str, set[str]] = defaultdict(set)
     for record in records:
         source_id = str(record["canonical_id"])
-        for dependency_field in ("blocking_dependencies", "required_inputs"):
+        for dependency_field in ("blocking_dependencies", "required_inputs", "activation_dependencies"):
             for dependency in record.get(dependency_field, []):
                 downstream[str(dependency)].add(source_id)
     for record in records:
@@ -625,13 +952,15 @@ def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]
         "schema_version": "2.0",
         "source_of_truth": {
             "repository": package.get("repository", "Thor2709/etf_ai_cockpit"),
-            "baseline_commit": baseline or baseline_sha(root),
+            "baseline_commit": effective_baseline,
             "package_reviewed_commit": package.get("reviewed_commit", ""),
             "package_sha256": package_sha,
             "package_registry_sha256": package_digest,
             "source_manifest_sha256": sha256_text_file(root / SOURCE_MANIFEST),
             "open_ledger_sha256": open_digest,
             "closed_ledger_sha256": closed_digest,
+            "final_release_spec_sha256": final_release_digest,
+            "final_release_manifest_sha256": sha256_file(root / FINAL_RELEASE_MANIFEST),
         },
         "policy": {
             "local_first": True,
@@ -643,6 +972,7 @@ def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]
         "counts": {
             "package_current_records": len(package.get("current_open_issues", [])),
             "package_proposed_records": len(package.get("proposed_new_issues", [])),
+            "final_release_new_records": len(final_release_rows),
             "package_records": len(records),
             "current_open_ledger_records": len(open_records),
             "closed_index_records": len(closed_records),
@@ -661,11 +991,22 @@ def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]
         "records": records,
         "local_only_records": local_only_records,
         "dependency_reconciliation": dependency_report,
-        "roadmap_phases": [
-            {key: value for key, value in phase.items() if key != "ids"}
-            for phase in PHASES
-        ],
+        "release_acceptance_matrix": parse_release_acceptance_matrix(final_release_text),
+        "core_contracts": sorted(
+            set(
+                name
+                for heading in re.findall(
+                    r"(?m)^### (.+?)\s*$",
+                    final_release_text.split("## Part XI — Core data contracts", 1)[1].split(
+                        "## Part XII", 1
+                    )[0],
+                )
+                for name in re.findall(r"`([^`]+)`", heading)
+            )
+        ),
+        "roadmap_phases": _roadmap_phases(records),
     }
+    registry["readiness"] = readiness_projection(registry)
     return registry
 
 
@@ -678,6 +1019,36 @@ def write_json(path: Path, value: object) -> None:
     path.write_bytes(deterministic_json(value))
 
 
+def _validate_edge_evidence(
+    issue_id: str, dependency: str, evidence: object
+) -> list[str]:
+    prefix = f"{issue_id}->{dependency}"
+    if not isinstance(evidence, dict):
+        return [f"{prefix}: edge evidence must be an object"]
+    errors: list[str] = []
+    if evidence.get("schema_version") != "1.0":
+        errors.append(f"{prefix}: unsupported edge evidence schema version")
+    state = evidence.get("state")
+    if state not in EDGE_EVIDENCE_STATES:
+        errors.append(f"{prefix}: invalid edge evidence state {state!r}")
+        return errors
+    references = evidence.get("evidence_references")
+    if not isinstance(references, list):
+        errors.append(f"{prefix}: evidence_references must be a list")
+        references = []
+    if state != "unresolved":
+        if not references or not all(isinstance(value, str) and value.strip() for value in references):
+            errors.append(f"{prefix}: resolved edge requires evidence references")
+        for field in ("contract_reference", "reviewer", "reviewed_date"):
+            if not isinstance(evidence.get(field), str) or not str(evidence.get(field)).strip():
+                errors.append(f"{prefix}: resolved edge requires {field}")
+        if evidence.get("reviewed_date") and not re.fullmatch(
+            r"\d{4}-\d{2}-\d{2}", str(evidence.get("reviewed_date"))
+        ):
+            errors.append(f"{prefix}: reviewed_date must be YYYY-MM-DD")
+    return errors
+
+
 def validate_registry(registry: dict[str, Any], *, open_ids: set[str], closed_ids: set[str]) -> list[str]:
     errors: list[str] = []
     records = registry.get("records")
@@ -686,8 +1057,19 @@ def validate_registry(registry: dict[str, Any], *, open_ids: set[str], closed_id
     ids = [str(record.get("canonical_id", "")) for record in records if isinstance(record, dict)]
     if len(ids) != len(set(ids)):
         errors.append("canonical IDs are not unique")
-    if len(ids) != 159:
-        errors.append(f"expected 159 package records, found {len(ids)}")
+    declared_count = registry.get("counts", {}).get("package_records")
+    if declared_count != len(ids):
+        errors.append(
+            f"source-derived package record count mismatch: declared {declared_count}, found {len(ids)}"
+        )
+    supported_ids = set(ids)
+    if len(supported_ids) != len(ids):
+        errors.append("supported canonical IDs are not unique")
+    phase_ids = {
+        str(phase.get("phase"))
+        for phase in registry.get("roadmap_phases", [])
+        if isinstance(phase, dict)
+    }
     package_current_ids = {
         str(record.get("canonical_id"))
         for record in records
@@ -700,7 +1082,7 @@ def validate_registry(registry: dict[str, Any], *, open_ids: set[str], closed_id
     }
     if package_current_open_ids != (open_ids & package_current_ids):
         errors.append("current package/open ledger IDs disagree")
-    expected_local_only = (open_ids | closed_ids) - package_current_ids
+    expected_local_only = (open_ids | closed_ids) - set(ids)
     actual_local_only = {
         str(record.get("canonical_id")) for record in registry.get("local_only_records", [])
     }
@@ -723,22 +1105,63 @@ def validate_registry(registry: dict[str, Any], *, open_ids: set[str], closed_id
             errors.append(f"{issue_id}: invalid priority {record.get('priority')!r}")
         if not str(record.get("owner", "")).strip():
             errors.append(f"{issue_id}: missing owner")
+        if record.get("phase") not in phase_ids:
+            errors.append(f"{issue_id}: missing roadmap phase")
         blocking = record.get("blocking_dependencies", [])
         required_inputs = record.get("required_inputs", [])
+        activation = record.get("activation_dependencies", [])
         related = record.get("related_issues", [])
         downstream = record.get("downstream_issues", [])
-        if not all(isinstance(value, list) for value in (blocking, required_inputs, related, downstream)):
+        if not all(
+            isinstance(value, list)
+            for value in (blocking, required_inputs, activation, related, downstream)
+        ):
             errors.append(f"{issue_id}: dependency fields must be lists")
-        if issue_id in blocking or issue_id in required_inputs or issue_id in related or issue_id in downstream:
+            continue
+        if (
+            issue_id in blocking
+            or issue_id in required_inputs
+            or issue_id in activation
+            or issue_id in related
+            or issue_id in downstream
+        ):
             errors.append(f"{issue_id}: self-reference")
-        for dependency in [*blocking, *required_inputs, *related, *downstream]:
+        for dependency in [*blocking, *required_inputs, *activation, *related, *downstream]:
             if dependency not in set(ids) | closed_ids:
                 errors.append(f"{issue_id}: unresolved dependency {dependency}")
+        evidence = record.get("dependency_edge_evidence")
+        if not isinstance(evidence, dict):
+            errors.append(f"{issue_id}: dependency_edge_evidence must be an object")
+        else:
+            for dependency in sorted(set(evidence) - set(blocking)):
+                errors.append(
+                    f"{issue_id}: evidence for non-declared blocking edge {dependency}"
+                )
+            for dependency in sorted(set(blocking) - set(evidence)):
+                errors.append(f"{issue_id}: missing evidence state for blocking edge {dependency}")
+            for dependency in sorted(set(blocking) & set(evidence)):
+                errors.extend(_validate_edge_evidence(issue_id, dependency, evidence[dependency]))
+        required_types = {
+            "provenance": dict,
+            "verified_commit": str,
+            "verified_date": str,
+            "acceptance_evidence": list,
+            "capability_lane": str,
+            "release_blocking": bool,
+            "write_conflict_group": str,
+            "risk": dict,
+        }
+        for field, expected_type in required_types.items():
+            value = record.get(field)
+            if not isinstance(value, expected_type) or (
+                expected_type is str and not value.strip()
+            ):
+                errors.append(f"{issue_id}: invalid or missing typed field {field}")
 
     expected_downstream: dict[str, set[str]] = defaultdict(set)
     for record in records:
         source_id = str(record.get("canonical_id"))
-        for field in ("blocking_dependencies", "required_inputs"):
+        for field in ("blocking_dependencies", "required_inputs", "activation_dependencies"):
             for dependency in record.get(field, []):
                 expected_downstream[str(dependency)].add(source_id)
     for record in records:
@@ -788,38 +1211,125 @@ def records_by_phase(registry: dict[str, Any]) -> dict[str, list[dict[str, Any]]
     return dict(result)
 
 
-def ready_records(registry: dict[str, Any]) -> list[dict[str, Any]]:
+def readiness_projection(registry: dict[str, Any]) -> list[dict[str, Any]]:
+    """Project implementation and activation readiness without consulting status labels."""
+
     records = {str(record["canonical_id"]): record for record in registry.get("records", [])}
     closed_ids = {
         issue_id
         for issue_id, record in records.items()
         if record.get("ledger_state") == "closed"
     }
-    ready: list[dict[str, Any]] = []
-    for record in records.values():
+    closed_ids.update(
+        str(record.get("canonical_id"))
+        for record in registry.get("local_only_records", [])
+        if isinstance(record, dict) and record.get("ledger_state") == "closed"
+    )
+    decisions: list[dict[str, Any]] = []
+    for issue_id, record in sorted(records.items()):
+        edges: list[dict[str, object]] = []
+        invalid_edge = False
+        unresolved_edge = False
+        evidence_by_edge = record.get("dependency_edge_evidence", {})
+        if not isinstance(evidence_by_edge, dict):
+            evidence_by_edge = {}
+        for dependency in sorted(record.get("blocking_dependencies", [])):
+            evidence = evidence_by_edge.get(dependency, {})
+            state = evidence.get("state", "unresolved") if isinstance(evidence, dict) else "unresolved"
+            if dependency in closed_ids:
+                resolved = True
+                reason_code = "DEPENDENCY_LEDGER_CLOSED"
+            elif state != "unresolved" and not _validate_edge_evidence(issue_id, dependency, evidence):
+                resolved = True
+                reason_code = f"EDGE_EVIDENCE_{str(state).upper()}"
+            elif state != "unresolved":
+                resolved = False
+                invalid_edge = True
+                reason_code = "EDGE_EVIDENCE_INVALID"
+            else:
+                resolved = False
+                unresolved_edge = True
+                reason_code = "EDGE_UNRESOLVED"
+            edges.append(
+                {
+                    "dependency_id": dependency,
+                    "resolved": resolved,
+                    "reason_code": reason_code,
+                    "evidence_state": state,
+                }
+            )
+
         if record.get("ledger_state") == "closed":
-            continue
-        if record.get("programme_status") not in {"planned", "ready"}:
-            continue
-        dependencies = record.get("blocking_dependencies", [])
-        if all(
-            dependency in closed_ids
-            or records.get(dependency, {}).get("programme_status") in {
-                "implemented",
-                "implemented_initially",
-                "integrated",
-                "hardening_required",
-                "closed",
+            ready = False
+            reason_codes = ["CLOSED_LEDGER_NOT_IMPLEMENTATION_CANDIDATE"]
+        elif invalid_edge:
+            ready = False
+            reason_codes = ["BLOCKED_INVALID_EDGE_EVIDENCE"]
+            if unresolved_edge:
+                reason_codes.append("BLOCKED_UNRESOLVED_DEPENDENCY")
+        elif unresolved_edge:
+            ready = False
+            reason_codes = ["BLOCKED_UNRESOLVED_DEPENDENCY"]
+        else:
+            ready = True
+            reason_codes = [
+                "READY_BLOCKING_EDGES_RESOLVED" if edges else "READY_NO_BLOCKING_DEPENDENCIES"
+            ]
+
+        activation_edges: list[dict[str, object]] = []
+        for dependency in sorted(record.get("activation_dependencies", [])):
+            resolved = dependency in closed_ids
+            activation_edges.append(
+                {
+                    "dependency_id": dependency,
+                    "resolved": resolved,
+                    "reason_code": (
+                        "ACTIVATION_DEPENDENCY_LEDGER_CLOSED"
+                        if resolved
+                        else "ACTIVATION_EDGE_UNRESOLVED"
+                    ),
+                }
+            )
+        activation_ready = all(edge["resolved"] for edge in activation_edges)
+        activation_reason_codes = [
+            (
+                "ACTIVATION_READY_DEPENDENCIES_RESOLVED"
+                if activation_edges
+                else "ACTIVATION_READY_NO_DEPENDENCIES"
+            )
+            if activation_ready
+            else "ACTIVATION_BLOCKED_UNRESOLVED_DEPENDENCY"
+        ]
+        decisions.append(
+            {
+                "issue_id": issue_id,
+                "ready": ready,
+                "reason_codes": reason_codes,
+                "edges": edges,
+                "required_inputs": sorted(record.get("required_inputs", [])),
+                "activation_ready": activation_ready,
+                "activation_reason_codes": activation_reason_codes,
+                "activation_edges": activation_edges,
+                "execution_allowed": False,
             }
-            for dependency in dependencies
-        ):
-            ready.append(record)
-    return sorted(ready, key=lambda record: (str(record.get("priority")), str(record["canonical_id"])))
+        )
+    return decisions
+
+
+def ready_records(registry: dict[str, Any]) -> list[dict[str, Any]]:
+    records = {str(record["canonical_id"]): record for record in registry.get("records", [])}
+    ready_ids = {decision["issue_id"] for decision in readiness_projection(registry) if decision["ready"]}
+    return sorted(
+        (records[issue_id] for issue_id in ready_ids),
+        key=lambda record: (str(record.get("priority")), str(record["canonical_id"])),
+    )
 
 
 __all__ = [
     "CLOSED_LEDGER",
     "CLASSIFICATIONS",
+    "EDGE_EVIDENCE_STATES",
+    "FINAL_RELEASE_SOURCE",
     "OPEN_LEDGER",
     "PACKAGE_JSON",
     "PHASES",
@@ -834,8 +1344,11 @@ __all__ = [
     "deterministic_json",
     "load_package_registry",
     "parse_closed_index",
+    "parse_final_release_new_issues",
     "parse_open_ledger",
+    "render_open_ledger_with_final_release",
     "ready_records",
+    "readiness_projection",
     "records_by_phase",
     "sha256_file",
     "sha256_text_file",

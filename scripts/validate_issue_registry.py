@@ -11,7 +11,8 @@ try:
         CLOSED_LEDGER,
         OPEN_LEDGER,
         REGISTRY_PATH,
-        PHASES,
+        build_registry,
+        deterministic_json,
         parse_closed_index,
         parse_open_ledger,
         validate_registry,
@@ -21,7 +22,8 @@ except ModuleNotFoundError:
         CLOSED_LEDGER,
         OPEN_LEDGER,
         REGISTRY_PATH,
-        PHASES,
+        build_registry,
+        deterministic_json,
         parse_closed_index,
         parse_open_ledger,
         validate_registry,
@@ -42,21 +44,24 @@ def validate_programme(root: Path) -> list[str]:
         closed_ids=set(parse_closed_index(root / CLOSED_LEDGER)),
     )
     records = registry.get("records", [])
-    proposed_ids = {
-        str(record.get("canonical_id"))
-        for record in records
-        if record.get("source_kind") == "proposed"
+    expected = build_registry(root)
+    expected_ids = {str(record.get("canonical_id")) for record in expected.get("records", [])}
+    actual_ids = {str(record.get("canonical_id")) for record in records}
+    if actual_ids != expected_ids:
+        errors.append("canonical IDs do not reconcile to versioned source inputs")
+    phase_ids = {
+        str(phase.get("phase"))
+        for phase in registry.get("roadmap_phases", [])
+        if isinstance(phase, dict)
     }
-    expected_ids = {f"ISSUE-{number:04d}" for number in range(70, 153)}
-    if proposed_ids != expected_ids:
-        errors.append("proposed issue IDs do not continuously cover ISSUE-0070–ISSUE-0152")
-    phase_ids = {str(phase["phase"]) for phase in PHASES}
     for record in records:
         if record.get("phase") not in phase_ids:
             errors.append(f"{record.get('canonical_id')}: missing roadmap phase")
     mapping_ids = [str(record.get("source_record_id")) for record in records]
-    if len(mapping_ids) != 159 or len(mapping_ids) != len(set(mapping_ids)):
-        errors.append("source-to-canonical mapping must contain exactly one row per package record")
+    if len(mapping_ids) != len(records) or len(mapping_ids) != len(set(mapping_ids)):
+        errors.append("source-to-canonical mapping must contain exactly one row per source record")
+    if deterministic_json(registry) != deterministic_json(expected):
+        errors.append("canonical registry content has drifted from versioned source inputs")
     return errors
 
 

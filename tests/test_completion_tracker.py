@@ -19,6 +19,9 @@ def record(issue_id: str = "ISSUE-0070", *, state: str = "open") -> dict:
         "phase": "phase-01-governance-scope",
         "blocking_dependencies": [],
         "required_inputs": ["ISSUE-0008"],
+        "activation_dependencies": [],
+        "capability_lane": "CORE_ANALYSIS",
+        "release_blocking": True,
         "downstream_issues": ["ISSUE-0071"],
         "related_issues": [],
     }
@@ -133,6 +136,8 @@ def test_create_action_contains_canonical_managed_fields() -> None:
     assert "Programme status: `ready`" in body
     assert "Owner: `programme-governance`" in body
     assert "Required inputs: `ISSUE-0008`" in body
+    assert "Activation dependencies: None" in body
+    assert "Capability lane: `CORE_ANALYSIS`" in body
     assert "Downstream issues: `ISSUE-0071`" in body
 
 
@@ -177,7 +182,27 @@ def test_cli_dry_run_writes_plan_only(tmp_path, monkeypatch) -> None:
     snapshot = tmp_path / "remote.json"
     snapshot.write_text(json.dumps([remote(issue)]), encoding="utf-8")
     output = tmp_path / "plan.json"
+    inventory = tmp_path / "inventory.json"
+    review = tmp_path / "review.md"
     monkeypatch.setattr(sync, "REPO", "Thor2709/etf_ai_cockpit")
-    assert sync.main(["--root", str(tmp_path), "--remote-snapshot", str(snapshot), "--plan-out", str(output)]) == 0
+    assert sync.main(
+        [
+            "--root",
+            str(tmp_path),
+            "--remote-snapshot",
+            str(snapshot),
+            "--plan-out",
+            str(output),
+            "--inventory-out",
+            str(inventory),
+            "--review-out",
+            str(review),
+        ]
+    ) == 0
     assert output.exists()
+    assert inventory.exists()
+    assert "The plan was not applied" in review.read_text(encoding="utf-8")
+    assert sync.inventory_sha256(json.loads(inventory.read_text(encoding="utf-8"))) == json.loads(
+        output.read_text(encoding="utf-8")
+    )["remote_inventory_sha256"]
     assert json.loads(output.read_text(encoding="utf-8"))["summary"]["blocked"] == 0

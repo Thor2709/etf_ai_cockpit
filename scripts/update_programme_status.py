@@ -13,6 +13,7 @@ try:
         REGISTRY_PATH,
         STATUS_PATH,
         deterministic_json,
+        readiness_projection,
         ready_records,
     )
 except ModuleNotFoundError:
@@ -21,6 +22,7 @@ except ModuleNotFoundError:
         REGISTRY_PATH,
         STATUS_PATH,
         deterministic_json,
+        readiness_projection,
         ready_records,
     )
 
@@ -29,6 +31,7 @@ def status_payload(registry: dict) -> dict:
     records = list(registry.get("records", []))
     statuses = Counter(str(record.get("programme_status", "")) for record in records)
     phases = Counter(str(record.get("phase", "")) for record in records)
+    readiness = readiness_projection(registry)
     return {
         "schema_version": "1.0",
         "source_registry_sha256": __import__("hashlib").sha256(
@@ -37,6 +40,11 @@ def status_payload(registry: dict) -> dict:
         "counts": dict(sorted(statuses.items())),
         "phase_counts": dict(sorted(phases.items())),
         "ready_issue_ids": [record["canonical_id"] for record in ready_records(registry)],
+        "readiness": readiness,
+        "activation_ready_issue_ids": [
+            decision["issue_id"] for decision in readiness if decision["activation_ready"]
+        ],
+        "execution_allowed": False,
         "blocked_issue_ids": [
             record["canonical_id"]
             for record in records
@@ -62,6 +70,21 @@ def progress_markdown(payload: dict, registry: dict) -> str:
     lines.extend(["", "## Ready issues", ""])
     ready_ids = payload["ready_issue_ids"]
     lines.append(", ".join(f"`{issue_id}`" for issue_id in ready_ids) if ready_ids else "None.")
+    lines.extend(["", "## Readiness reason summary", ""])
+    reason_counts = Counter(
+        reason
+        for decision in payload["readiness"]
+        for reason in decision["reason_codes"]
+    )
+    for reason, count in sorted(reason_counts.items()):
+        lines.append(f"- `{reason}`: {count}")
+    lines.extend(
+        [
+            "",
+            "Activation readiness is projected separately from implementation readiness. "
+            "It never grants execution authority; `execution_allowed=false` remains mandatory.",
+        ]
+    )
     lines.extend(["", "## Phase coverage", "", "| Phase | Records |", "|---|---:|"])
     for phase, count in payload["phase_counts"].items():
         lines.append(f"| `{phase}` | {count} |")

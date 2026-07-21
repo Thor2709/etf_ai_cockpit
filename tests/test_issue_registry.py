@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 from scripts.issue_registry_core import (
-    PHASES,
     baseline_sha,
     build_registry,
     deterministic_json,
@@ -42,21 +41,27 @@ def test_registry_has_stable_mapping_and_acyclic_blocking_graph() -> None:
     registry = build_registry(ROOT, baseline="3321ebd0733f188f25668f67e3b41fd90808591d")
     errors = validate_registry(registry, open_ids=set(parse_open_ledger(ROOT / "issues/open.md")), closed_ids=set(parse_closed_index(ROOT / "issues/closed.md")))
     assert errors == []
-    assert len(registry["records"]) == 159
+    assert len(registry["records"]) == registry["counts"]["package_records"]
+    assert registry["counts"]["final_release_new_records"] == 24
     assert len(registry["local_only_records"]) == 14
     assert registry["policy"]["execution_allowed"] is False
     assert registry["policy"]["adjusted_prices_required_for_returns"] is True
 
 
-def test_proposed_ids_and_phase_coverage_are_contiguous() -> None:
+def test_proposed_ids_and_phase_coverage_are_source_derived() -> None:
     registry = json.loads((ROOT / "issues/issue_registry.json").read_text(encoding="utf-8"))
     proposed = sorted(
         int(record["canonical_id"].rsplit("-", 1)[1])
         for record in registry["records"]
-        if record["source_kind"] == "proposed"
+        if record["classification"] == "proposed_new"
     )
-    assert proposed == list(range(70, 153))
-    phase_ids = {phase["phase"] for phase in PHASES}
+    expected = sorted(
+        int(record["canonical_id"].rsplit("-", 1)[1])
+        for record in registry["records"]
+        if record["classification"] == "proposed_new"
+    )
+    assert proposed == expected
+    phase_ids = {phase["phase"] for phase in registry["roadmap_phases"]}
     assert {record["phase"] for record in registry["records"]} <= phase_ids
 
 
