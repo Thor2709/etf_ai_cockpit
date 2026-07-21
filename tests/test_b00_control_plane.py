@@ -2,16 +2,19 @@ from __future__ import annotations
 
 import copy
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 from scripts.issue_registry_core import (
     build_registry,
+    parse_final_release_new_issues,
     readiness_projection,
     validate_registry,
 )
-from scripts import validate_app
+from scripts import issue_registry_core, release_gate, validate_app
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,9 +37,14 @@ def test_final_release_source_expands_registry_without_hard_coded_count() -> Non
     registry = _registry()
     records = registry["records"]
     assert len(records) == registry["counts"]["package_records"]  # type: ignore[index]
-    assert {_record(registry, f"ISSUE-{number:04d}")["canonical_id"] for number in range(153, 177)} == {
-        f"ISSUE-{number:04d}" for number in range(153, 177)
+    source_text = (ROOT / issue_registry_core.FINAL_RELEASE_SOURCE).read_text(encoding="utf-8")
+    declared_ids = {row["issue_id"] for row in parse_final_release_new_issues(source_text)}
+    actual_ids = {
+        record["canonical_id"]
+        for record in records
+        if record["source_kind"] == "final_release"
     }
+    assert actual_ids == declared_ids
     assert registry["source_of_truth"]["final_release_spec_sha256"] == (  # type: ignore[index]
         "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810"
     )
@@ -46,10 +54,41 @@ def test_final_release_source_expands_registry_without_hard_coded_count() -> Non
     assert {"AnalysisSnapshot", "FundVehicle", "FundSubFund", "FundShareClass"} <= set(
         registry["core_contracts"]  # type: ignore[arg-type,index]
     )
-    assert all(
-        _record(registry, f"ISSUE-{number:04d}")["contract_markdown"]
-        for number in range(153, 177)
-    )
+    assert all(_record(registry, issue_id)["contract_markdown"] for issue_id in declared_ids)
+
+
+def test_all_ledger_only_records_are_canonical_typed_records() -> None:
+    registry = _registry()
+    local = [record for record in registry["records"] if record["source_kind"] == "local"]  # type: ignore[index]
+    assert len(local) == 14
+    assert any(record["canonical_id"] == "ISSUE-0067" for record in local)
+    assert registry["local_only_records"] == []  # type: ignore[index]
+    assert registry["counts"]["canonical_records"] == len(registry["records"])  # type: ignore[index]
+
+
+def test_reviewed_control_state_round_trips_and_invalid_transition_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    control = json.loads((ROOT / issue_registry_core.CONTROL_STATE_PATH).read_text(encoding="utf-8"))
+    record = control["records"]["ISSUE-0154"]
+    record["dependency_edge_evidence"]["ISSUE-0153"] = {
+        "schema_version": "1.0",
+        "state": "partial_interface",
+        "evidence_references": ["tests/contracts/fixed-income-interface.json"],
+        "contract_reference": "B03/fixed-income-interface-v1",
+        "reviewer": "independent-reviewer",
+        "reviewed_date": "2026-07-21",
+    }
+    path = tmp_path / "programme_control_state.json"
+    path.write_text(json.dumps(control), encoding="utf-8")
+    monkeypatch.setattr(issue_registry_core, "CONTROL_STATE_PATH", path)
+    generated = build_registry(ROOT, baseline=BASE_SHA)
+    assert _record(generated, "ISSUE-0154")["dependency_edge_evidence"] == record["dependency_edge_evidence"]
+
+    record["programme_status"] = "integrated"
+    path.write_text(json.dumps(control), encoding="utf-8")
+    with pytest.raises(ValueError, match="transition is not allowlisted"):
+        build_registry(ROOT, baseline=BASE_SHA)
 
 
 def test_every_record_has_typed_final_release_contract_fields() -> None:
@@ -211,9 +250,38 @@ def test_validator_modes_compose_existing_release_gate_without_reimplementation(
     assert full[0].name == "protected_release_gate"
     assert "scripts/release_gate.py" in full[0].command
     assert packaged[0].name == "packaged_release_gate"
-    assert "--skip-tests" in packaged[0].command
+    assert "--skip-tests" not in packaged[0].command
     smoke = next(check for check in offline if check.name == "source_smoke")
     assert dict(smoke.environment) == {"ETF_COCKPIT_OFFLINE": "1"}
+
+
+def test_package_parity_detects_mismatch(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "src" / "sample.py").write_text("source\n", encoding="utf-8")
+    (tmp_path / "configs" / "sample.json").write_text("{}\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
+    package = tmp_path / "package"
+    (package / "src").mkdir(parents=True)
+    (package / "configs").mkdir()
+    (package / "src" / "sample.py").write_text("different\n", encoding="utf-8")
+    (package / "configs" / "sample.json").write_text("{}\n", encoding="utf-8")
+    (package / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
+    result = release_gate.source_package_parity(tmp_path, package)
+    assert result.status == "failed"
+    assert "src/sample.py" in result.failure
+
+
+def test_completion_document_check_is_offline_and_fresh() -> None:
+    completed = subprocess.run(
+        [sys.executable, "scripts/generate_completion_documents.py", "--check"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "FRESH" in completed.stdout
 
 
 def test_report_only_never_converts_a_mandatory_failure_to_success(

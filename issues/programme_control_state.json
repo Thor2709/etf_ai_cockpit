@@ -1,0 +1,5092 @@
+{
+  "metadata": {
+    "generation_base_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+    "generation_base_ref": "origin/main",
+    "verified_date": "2026-07-21"
+  },
+  "phase_definitions": [
+    {
+      "order": 1,
+      "phase": "phase-01-governance-scope",
+      "title": "Governance, scope and completion contract"
+    },
+    {
+      "order": 2,
+      "phase": "phase-02-data-policy-identity",
+      "title": "Local-first data policy, identity and data platform"
+    },
+    {
+      "order": 3,
+      "phase": "phase-03-stock-research",
+      "title": "Stock statements, fundamentals, valuation and sectors"
+    },
+    {
+      "order": 4,
+      "phase": "phase-04-etf-research",
+      "title": "ETF economics, structure, exposure and context"
+    },
+    {
+      "order": 5,
+      "phase": "phase-05-returns-risk-portfolio",
+      "title": "Expected return, risk and portfolio construction"
+    },
+    {
+      "order": 6,
+      "phase": "phase-06-model-research",
+      "title": "Training, validation and model governance"
+    },
+    {
+      "order": 7,
+      "phase": "phase-07-backtest-paper-execution",
+      "title": "Backtest, paper trading and staged execution"
+    },
+    {
+      "order": 8,
+      "phase": "phase-08-frontend-api",
+      "title": "Typed local API and task-oriented frontend"
+    },
+    {
+      "order": 9,
+      "phase": "phase-09-quality-release-security",
+      "title": "Quality, release, security and resilience"
+    },
+    {
+      "order": 10,
+      "phase": "phase-10-audit-documentation-governance",
+      "title": "Audit, reproducibility, documentation and governance"
+    },
+    {
+      "order": 11,
+      "phase": "phase-11-certification",
+      "title": "Final certification and programme closure"
+    }
+  ],
+  "records": {
+    "ISSUE-0001": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "closed",
+      "status_transition": {
+        "from": "closed",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "closed"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0002": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "closed",
+      "status_transition": {
+        "from": "closed",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "closed"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0003": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "closed",
+      "status_transition": {
+        "from": "closed",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "closed"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0004": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "closed",
+      "status_transition": {
+        "from": "closed",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "closed"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0005": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "closed",
+      "status_transition": {
+        "from": "closed",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "closed"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0006": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "closed",
+      "status_transition": {
+        "from": "closed",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "closed"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0007": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0008": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0009": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "closed",
+      "status_transition": {
+        "from": "closed",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "closed"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0010": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0011": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-08-frontend-api",
+      "programme_status": "in_progress",
+      "status_transition": {
+        "from": "in_progress",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "in_progress"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0012": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "in_progress",
+      "status_transition": {
+        "from": "in_progress",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "in_progress"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0013": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0014": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "in_progress",
+      "status_transition": {
+        "from": "in_progress",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "in_progress"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0015": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0016": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-08-frontend-api",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0017": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-08-frontend-api",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0018": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0019": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0020": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-08-frontend-api",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0021": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0022": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0023": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0024": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0025": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0026": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0027": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0028": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0029": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0030": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-08-frontend-api",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0031": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-07-backtest-paper-execution",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0032": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-07-backtest-paper-execution",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0033": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0034": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0035": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "closed",
+      "status_transition": {
+        "from": "closed",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "closed"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0036": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0037": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-08-frontend-api",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0038": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0039": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "in_progress",
+      "status_transition": {
+        "from": "in_progress",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "in_progress"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0040": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "in_progress",
+      "status_transition": {
+        "from": "in_progress",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "in_progress"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0041": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-08-frontend-api",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0042": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-08-frontend-api",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0043": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-08-frontend-api",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0044": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0045": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-08-frontend-api",
+      "programme_status": "in_progress",
+      "status_transition": {
+        "from": "in_progress",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "in_progress"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0046": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0047": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0048": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0049": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0050": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0051": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0052": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0053": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0054": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0055": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0056": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0057": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-07-backtest-paper-execution",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0058": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0059": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0060": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0061": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "research_only",
+      "status_transition": {
+        "from": "research_only",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "research_only"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0062": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "research_only",
+      "status_transition": {
+        "from": "research_only",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "research_only"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0063": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0064": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0065": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0066": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-07-backtest-paper-execution",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0067": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0068": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0069": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "closed",
+      "status_transition": {
+        "from": "closed",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "closed"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0070": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0071": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0070": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-01-governance-scope",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0072": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0038": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0071": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-01-governance-scope",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0073": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0072": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-01-governance-scope",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0074": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0071": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0073": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-01-governance-scope",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0075": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0072": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0074": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-01-governance-scope",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0076": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0070": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0071": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-01-governance-scope",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0077": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0072": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0075": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-01-governance-scope",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0078": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0077": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-01-governance-scope",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0079": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0145": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0149": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-01-governance-scope",
+      "programme_status": "hardening_required",
+      "status_transition": {
+        "from": "hardening_required",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "hardening_required"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0080": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0070": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0076": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0081": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0072": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0077": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0080": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0082": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0073": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "UPDATEV2-0011": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0083": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0082": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0084": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0073": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0082": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0085": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0079": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0082": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0086": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0036": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0082": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0087": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0081": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "UPDATEV2-0012": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "UPDATEV2-0014": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0088": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0073": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0080": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0081": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0089": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0073": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "UPDATEV2-0021": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0090": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0072": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0075": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0091": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0073": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "UPDATEV2-0012": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-03-stock-research",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0092": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0074": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0091": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-03-stock-research",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0093": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0091": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-03-stock-research",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0094": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0084": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0091": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-03-stock-research",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0095": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0091": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-03-stock-research",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0096": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0088": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0091": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-03-stock-research",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0097": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0091": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0092": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-03-stock-research",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0098": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0074": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0083": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-03-stock-research",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0099": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0098": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-03-stock-research",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0100": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0098": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-03-stock-research",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0101": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0098": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-03-stock-research",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0102": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0098": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-03-stock-research",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0103": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0084": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "UPDATEV2-0015": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-04-etf-research",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0104": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "UPDATEV2-0015": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "UPDATEV2-0018": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-04-etf-research",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0105": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0082": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "UPDATEV2-0016": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-04-etf-research",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0106": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0128": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-04-etf-research",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0107": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0088": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0104": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-04-etf-research",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0108": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0074": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0096": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0105": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0109": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0108": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0110": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0052": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0059": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0111": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0110": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0112": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0051": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0059": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0113": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0021": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0110": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0111": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0114": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0113": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0115": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0109": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0110": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0116": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0021": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0059": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0117": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0027": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0075": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-06-model-research",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0118": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0117": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-06-model-research",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0119": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0073": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0117": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-06-model-research",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0120": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0119": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-06-model-research",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0121": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0117": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0120": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-06-model-research",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0122": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0120": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-06-model-research",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0123": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0108": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0120": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-06-model-research",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0124": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0117": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0123": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-06-model-research",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0125": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0028": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0050": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-07-backtest-paper-execution",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0126": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0073": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0082": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-07-backtest-paper-execution",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0127": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0072": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0084": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-07-backtest-paper-execution",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0128": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0064": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-07-backtest-paper-execution",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0129": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0031": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0057": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-07-backtest-paper-execution",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0130": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0070": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0114": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-07-backtest-paper-execution",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0131": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0066": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0127": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-07-backtest-paper-execution",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0132": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0131": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-07-backtest-paper-execution",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0133": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0132": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-07-backtest-paper-execution",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0134": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0116": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0131": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-07-backtest-paper-execution",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0135": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0131": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0132": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-07-backtest-paper-execution",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0136": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0071": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-08-frontend-api",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0137": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0136": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-08-frontend-api",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0138": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0137": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-08-frontend-api",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0139": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0136": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0137": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-08-frontend-api",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0140": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0137": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-08-frontend-api",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0141": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0075": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0145": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-09-quality-release-security",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0142": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0074": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0127": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0132": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-09-quality-release-security",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0143": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0141": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-09-quality-release-security",
+      "programme_status": "hardening_required",
+      "status_transition": {
+        "from": "hardening_required",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "hardening_required"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0144": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0076": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0145": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-09-quality-release-security",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0145": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-09-quality-release-security",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0146": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0044": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0144": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-09-quality-release-security",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0147": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0075": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "UPDATEV2-0028": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-10-audit-documentation-governance",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0148": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0043": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-10-audit-documentation-governance",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0149": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0080": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-10-audit-documentation-governance",
+      "programme_status": "hardening_required",
+      "status_transition": {
+        "from": "hardening_required",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "hardening_required"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0150": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0090": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0120": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-10-audit-documentation-governance",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0151": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0078": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-10-audit-documentation-governance",
+      "programme_status": "hardening_required",
+      "status_transition": {
+        "from": "hardening_required",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "hardening_required"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0152": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-11-certification",
+      "programme_status": "blocked",
+      "status_transition": {
+        "from": "blocked",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "blocked"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0153": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0082": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0083": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0085": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0154": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0085": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0088": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0153": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0155": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0076": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0081": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0088": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0149": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0153": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0156": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0091": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0111": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0154": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0155": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0157": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0098": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0108": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0109": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0112": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0120": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0123": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0154": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0155": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0156": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0158": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0136": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0137": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0138": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0139": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0140": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0153": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0154": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0155": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0156": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0157": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0161": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0162": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-08-frontend-api",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0159": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0084": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0085": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0127": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0160": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0139": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0159": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-08-frontend-api",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0161": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0074": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0127": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0138": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0139": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0159": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-08-frontend-api",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0162": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0022": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0083": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0105": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0127": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0153": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0163": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0024": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0084": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0127": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0153": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0158": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0161": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-08-frontend-api",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0164": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0113": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0114": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0115": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0116": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0127": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0161": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0162": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0163": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0165": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0018": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0020": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0074": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0077": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0081": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0126": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-08-frontend-api",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0166": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0020": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0108": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0109": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0110": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0111": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0112": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0113": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0128": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0157": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0165": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0167": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0085": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0114": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0127": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0130": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0131": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0132": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0133": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0134": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0135": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-07-backtest-paper-execution",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0168": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0108": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0109": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0110": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0111": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0115": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0127": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0161": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0169": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0074": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0136": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0142": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0152": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0161": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0165": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0167": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-09-quality-release-security",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0170": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0076": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0082": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0083": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0085": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0149": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0171": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0076": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0080": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0081": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0149": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0170": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0176": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0172": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0074": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0098": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0105": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0108": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0109": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0112": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0120": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0123": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0128": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0170": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0171": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0173": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0174": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0175": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-04-etf-research",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0173": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0076": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0084": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0088": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0089": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0149": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0176": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0174": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0074": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0108": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0109": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0110": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0111": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0112": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0123": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0128": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0173": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0175": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0039": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0077": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0078": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0121": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0151": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0165": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-08-frontend-api",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "ISSUE-0176": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0037": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0076": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0080": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0144": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0145": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0146": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0149": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-09-quality-release-security",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "UPDATEV2-0010": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "closed",
+      "status_transition": {
+        "from": "closed",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "closed"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "UPDATEV2-0011": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "in_progress",
+      "status_transition": {
+        "from": "in_progress",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "in_progress"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "UPDATEV2-0012": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "UPDATEV2-0013": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "closed",
+      "status_transition": {
+        "from": "closed",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "closed"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "UPDATEV2-0014": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "implemented_initially",
+      "status_transition": {
+        "from": "implemented_initially",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "implemented_initially"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "UPDATEV2-0015": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "closed",
+      "status_transition": {
+        "from": "closed",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "closed"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "UPDATEV2-0016": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "closed",
+      "status_transition": {
+        "from": "closed",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "closed"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "UPDATEV2-0017": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "closed",
+      "status_transition": {
+        "from": "closed",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "closed"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "UPDATEV2-0018": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "UPDATEV2-0019": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "closed",
+      "status_transition": {
+        "from": "closed",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "closed"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "UPDATEV2-0020": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "UPDATEV2-0021": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "in_progress",
+      "status_transition": {
+        "from": "in_progress",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "in_progress"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "UPDATEV2-0022": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "closed",
+      "status_transition": {
+        "from": "closed",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "closed"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "UPDATEV2-0023": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "UPDATEV2-0024": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "UPDATEV2-0025": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "UPDATEV2-0026": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "UPDATEV2-0027": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-08-frontend-api",
+      "programme_status": "in_progress",
+      "status_transition": {
+        "from": "in_progress",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "in_progress"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "UPDATEV2-0028": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "closed",
+      "status_transition": {
+        "from": "closed",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "closed"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "UPDATEV2-0029": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "integrated",
+      "status_transition": {
+        "from": "integrated",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "integrated"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    },
+    "UPDATEV2-0030": {
+      "acceptance_evidence": [],
+      "dependency_edge_evidence": {},
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned"
+      },
+      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_date": "2026-07-21"
+    }
+  },
+  "schema_version": "1.0"
+}

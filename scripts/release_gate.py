@@ -384,6 +384,38 @@ def _package_root(root: Path, policy: dict[str, object]) -> Path | None:
     return None
 
 
+def source_package_parity(root: Path, package_root: Path | None) -> CheckResult:
+    """Compare deterministic application/config inputs copied into the package."""
+    if package_root is None:
+        return CheckResult(
+            "source_package_parity",
+            "failed",
+            True,
+            failure="packaged source root was not found",
+        )
+    packaged_base = package_root / "app" if (package_root / "app" / "src").is_dir() else package_root
+    mismatches: list[str] = []
+    compared = 0
+    for relative in (Path("src"), Path("configs"), Path("pyproject.toml")):
+        source = root / relative
+        packaged = packaged_base / relative
+        source_paths = [source] if source.is_file() else sorted(path for path in source.rglob("*") if path.is_file())
+        for source_path in source_paths:
+            child = source_path.relative_to(source) if source.is_dir() else Path()
+            packaged_path = packaged / child if source.is_dir() else packaged
+            compared += 1
+            if not packaged_path.is_file() or normalised_file_bytes(source_path) != normalised_file_bytes(packaged_path):
+                mismatches.append((relative / child).as_posix())
+    return CheckResult(
+        "source_package_parity",
+        "passed" if not mismatches else "failed",
+        True,
+        command="compare packaged src/configs/pyproject.toml with source",
+        output=f"compared {compared} deterministic files",
+        failure="mismatched or missing: " + ", ".join(mismatches[:20]) if mismatches else "",
+    )
+
+
 def build_sbom(
     root: Path,
     source_manifest: dict[str, object],
@@ -558,6 +590,7 @@ def run_gate(
         smoke_script = smoke_root / "scripts" / "smoke_app.py"
         command = (sys.executable, str(smoke_script), "--mode", "offline", "--port", str(_free_port()), "--timeout", "30")
         state.add(run_command(smoke_root, output, "package_smoke", command))
+        state.add(source_package_parity(root, package_root))
 
     if (root / "configs" / "performance_budgets.yaml").is_file():
         performance_report_dir = output / "performance"

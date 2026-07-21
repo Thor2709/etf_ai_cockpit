@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import subprocess
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Iterable
@@ -20,7 +19,13 @@ CLOSED_INDEX_RE = re.compile(
 )
 PRIORITIES = frozenset({"P0", "P0/P1", "P1", "P1/P2", "P2", "P3"})
 CLASSIFICATIONS = frozenset(
-    {"current_open_retained", "current_closed_reconciled", "proposed_new"}
+    {
+        "current_open_retained",
+        "current_closed_reconciled",
+        "local_only_current",
+        "local_only_closed",
+        "proposed_new",
+    }
 )
 LEDGER_STATES = frozenset({"open", "closed"})
 PROGRAMME_STATUSES = frozenset(
@@ -39,86 +44,7 @@ PROGRAMME_STATUSES = frozenset(
         "closed",
     }
 )
-PROGRAMME_STATUS_OVERRIDES = {
-    "ISSUE-0070": "integrated",
-    "ISSUE-0071": "integrated",
-    "ISSUE-0038": "integrated",
-    "ISSUE-0072": "integrated",
-    "ISSUE-0073": "integrated",
-    "ISSUE-0074": "integrated",
-    "ISSUE-0075": "integrated",
-    "ISSUE-0077": "integrated",
-    "ISSUE-0091": "integrated",
-    "ISSUE-0110": "integrated",
-    "ISSUE-0111": "integrated",
-    "ISSUE-0136": "integrated",
-    "ISSUE-0141": "integrated",
-    "ISSUE-0076": "integrated",
-    "ISSUE-0078": "integrated",
-    "ISSUE-0080": "integrated",
-    "ISSUE-0081": "integrated",
-    "ISSUE-0013": "integrated",
-    "UPDATEV2-0029": "integrated",
-    "ISSUE-0145": "integrated",
-    "ISSUE-0144": "integrated",
-    "ISSUE-0146": "integrated",
-    "ISSUE-0028": "implemented_initially",
-    "ISSUE-0030": "implemented_initially",
-    "ISSUE-0088": "implemented_initially",
-    "ISSUE-0090": "implemented_initially",
-    "ISSUE-0125": "implemented_initially",
-    "ISSUE-0092": "implemented_initially",
-    "ISSUE-0093": "implemented_initially",
-    "ISSUE-0096": "implemented_initially",
-    "ISSUE-0097": "implemented_initially",
-    "ISSUE-0128": "implemented_initially",
-    "ISSUE-0106": "implemented_initially",
-    "ISSUE-0137": "implemented_initially",
-    "ISSUE-0138": "implemented_initially",
-    "ISSUE-0140": "implemented_initially",
-    "ISSUE-0139": "implemented_initially",
-    "ISSUE-0015": "implemented_initially",
-    "ISSUE-0016": "implemented_initially",
-    "ISSUE-0020": "implemented_initially",
-    "ISSUE-0021": "implemented_initially",
-    "ISSUE-0022": "implemented_initially",
-    "ISSUE-0143": "hardening_required",
-    "ISSUE-0049": "implemented_initially",
-    "ISSUE-0050": "implemented_initially",
-    "ISSUE-0065": "implemented_initially",
-    "ISSUE-0121": "implemented_initially",
-    "ISSUE-0149": "hardening_required",
-    "ISSUE-0152": "blocked",
-    "ISSUE-0150": "implemented_initially",
-    "ISSUE-0079": "hardening_required",
-    "ISSUE-0007": "implemented_initially",
-    "ISSUE-0008": "implemented_initially",
-    "ISSUE-0024": "implemented_initially",
-    "ISSUE-0026": "implemented_initially",
-    "ISSUE-0027": "implemented_initially",
-    "ISSUE-0031": "integrated",
-    "ISSUE-0048": "integrated",
-    "ISSUE-0057": "integrated",
-    "ISSUE-0063": "integrated",
-    "ISSUE-0064": "integrated",
-    "ISSUE-0095": "integrated",
-    "ISSUE-0151": "hardening_required",
-    "ISSUE-0060": "implemented_initially",
-    "ISSUE-0109": "implemented_initially",
-    "ISSUE-0113": "implemented_initially",
-    "ISSUE-0114": "implemented_initially",
-    "ISSUE-0116": "implemented_initially",
-    "ISSUE-0115": "integrated",
-    "ISSUE-0117": "implemented_initially",
-    "ISSUE-0118": "implemented_initially",
-    "ISSUE-0119": "implemented_initially",
-    "ISSUE-0120": "implemented_initially",
-    "ISSUE-0122": "implemented_initially",
-    "ISSUE-0129": "integrated",
-    "ISSUE-0130": "integrated",
-    "UPDATEV2-0014": "implemented_initially",
-    "ISSUE-0087": "integrated",
-}
+CONTROL_STATE_PATH = Path("issues/programme_control_state.json")
 PACKAGE_JSON = Path("docs/product-completion/sources/2026-07-15/ETF_AI_Cockpit_Master_Issue_Registry.json")
 SOURCE_MANIFEST = Path("docs/product-completion/sources/2026-07-15/SOURCE_MANIFEST.sha256")
 FINAL_RELEASE_SOURCE = Path(
@@ -139,76 +65,6 @@ PROGRAMME_ROOT = Path("docs/product-completion")
 STATUS_PATH = PROGRAMME_ROOT / "CURRENT_STATUS.json"
 PROGRESS_PATH = PROGRAMME_ROOT / "PROGRESS.md"
 RECONCILIATION_ROOT = PROGRAMME_ROOT / "reconciliation"
-
-PHASES: tuple[dict[str, Any], ...] = (
-    {
-        "phase": "phase-01-governance-scope",
-        "title": "Governance, scope and completion contract",
-        "issue_range": "ISSUE-0070–ISSUE-0079",
-        "ids": set(range(70, 80)),
-    },
-    {
-        "phase": "phase-02-data-policy-identity",
-        "title": "Local-first data policy, identity and data platform",
-        "issue_range": "ISSUE-0080–ISSUE-0090",
-        "ids": set(range(80, 91)),
-    },
-    {
-        "phase": "phase-03-stock-research",
-        "title": "Stock statements, fundamentals, valuation and sectors",
-        "issue_range": "ISSUE-0091–ISSUE-0102",
-        "ids": set(range(91, 103)),
-    },
-    {
-        "phase": "phase-04-etf-research",
-        "title": "ETF economics, structure, exposure and context",
-        "issue_range": "ISSUE-0103–ISSUE-0107",
-        "ids": set(range(103, 108)),
-    },
-    {
-        "phase": "phase-05-returns-risk-portfolio",
-        "title": "Expected return, risk and portfolio construction",
-        "issue_range": "ISSUE-0108–ISSUE-0116",
-        "ids": set(range(108, 117)),
-    },
-    {
-        "phase": "phase-06-model-research",
-        "title": "Training, validation and model governance",
-        "issue_range": "ISSUE-0117–ISSUE-0124",
-        "ids": set(range(117, 125)),
-    },
-    {
-        "phase": "phase-07-backtest-paper-execution",
-        "title": "Backtest, paper trading and staged execution",
-        "issue_range": "ISSUE-0125–ISSUE-0135",
-        "ids": set(range(125, 136)),
-    },
-    {
-        "phase": "phase-08-frontend-api",
-        "title": "Typed local API and task-oriented frontend",
-        "issue_range": "ISSUE-0136–ISSUE-0140",
-        "ids": set(range(136, 141)),
-    },
-    {
-        "phase": "phase-09-quality-release-security",
-        "title": "Quality, release, security and resilience",
-        "issue_range": "ISSUE-0141–ISSUE-0146",
-        "ids": set(range(141, 147)),
-    },
-    {
-        "phase": "phase-10-audit-documentation-governance",
-        "title": "Audit, reproducibility, documentation and governance",
-        "issue_range": "ISSUE-0147–ISSUE-0151",
-        "ids": set(range(147, 152)),
-    },
-    {
-        "phase": "phase-11-certification",
-        "title": "Final certification and programme closure",
-        "issue_range": "ISSUE-0152",
-        "ids": {152},
-    },
-)
-
 
 def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
@@ -381,9 +237,7 @@ def parse_final_release_new_issues(text: str) -> list[dict[str, Any]]:
     part = text.split("## Part VIII — Proposed new canonical issues", 1)[1].split(
         "## Part IX — Dependency and implementation sequence", 1
     )[0]
-    headings = list(
-        re.finditer(r"(?m)^#### `(ISSUE-(?:015[3-9]|016\d|017[0-6]))` — (.+?)\s*$", part)
-    )
+    headings = list(re.finditer(r"(?m)^#### `(ISSUE-\d{4})` — (.+?)\s*$", part))
     records: list[dict[str, Any]] = []
     for index, heading in enumerate(headings):
         end = headings[index + 1].start() if index + 1 < len(headings) else len(part)
@@ -413,10 +267,9 @@ def parse_final_release_new_issues(text: str) -> list[dict[str, Any]]:
                 "source_heading": heading.group(0),
             }
         )
-    expected = {f"ISSUE-{number:04d}" for number in range(153, 177)}
-    actual = {record["issue_id"] for record in records}
-    if actual != expected:
-        raise ValueError(f"final-release issue intake mismatch: expected {sorted(expected)}, found {sorted(actual)}")
+    actual = [record["issue_id"] for record in records]
+    if not actual or len(actual) != len(set(actual)):
+        raise ValueError("final-release issue intake must contain unique canonical issue headings")
     return records
 
 
@@ -467,11 +320,13 @@ def parse_final_release_amendments(text: str) -> dict[str, list[dict[str, str]]]
     for index, heading in enumerate(headings):
         end = headings[index + 1].start() if index + 1 < len(headings) else len(part)
         block = part[heading.start():end].strip() + "\n"
+        title = heading.group(0).removeprefix("#### ")
+        slug = re.sub(r"[^a-z0-9]+", "-", title.casefold()).strip("-")
         for issue_id in parse_issue_refs_expanded(heading.group(0)):
             result[issue_id].append(
                 {
-                    "heading": heading.group(0).removeprefix("#### "),
-                    "source_reference": f"{FINAL_RELEASE_SOURCE.as_posix()}#{heading.start()}",
+                    "heading": title,
+                    "source_reference": f"{FINAL_RELEASE_SOURCE.as_posix()}#{slug}",
                     "contract_markdown": block,
                 }
             )
@@ -490,24 +345,28 @@ def parse_release_acceptance_matrix(text: str) -> list[dict[str, str]]:
     return rows
 
 
+def load_control_state(root: Path) -> dict[str, Any]:
+    path = root / CONTROL_STATE_PATH
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict) or value.get("schema_version") != "1.0":
+        raise ValueError(f"unsupported canonical control-state schema: {path}")
+    if not isinstance(value.get("metadata"), dict) or not isinstance(value.get("records"), dict):
+        raise ValueError("canonical control state requires object metadata and records")
+    baseline = value["metadata"].get("generation_base_commit")
+    if not isinstance(baseline, str) or not re.fullmatch(r"[0-9a-f]{40}", baseline):
+        raise ValueError("canonical control generation base must be a full lowercase Git SHA")
+    phases = value.get("phase_definitions")
+    if not isinstance(phases, list) or not phases:
+        raise ValueError("canonical control state requires phase definitions")
+    phase_ids = [phase.get("phase") for phase in phases if isinstance(phase, dict)]
+    if len(phase_ids) != len(phases) or len(phase_ids) != len(set(phase_ids)):
+        raise ValueError("canonical control phase definitions must be unique objects")
+    return value
+
+
 def baseline_sha(root: Path) -> str:
-    intake_reports = sorted((root / RECONCILIATION_ROOT).glob("*/intake-report.json"), reverse=True)
-    for path in intake_reports:
-        try:
-            value = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        baseline = value.get("baseline_commit") if isinstance(value, dict) else None
-        if isinstance(baseline, str) and re.fullmatch(r"[0-9a-f]{40}", baseline):
-            return baseline
-    for ref in ("origin/main", "HEAD"):
-        try:
-            return subprocess.check_output(
-                ["git", "rev-parse", ref], cwd=root, text=True, stderr=subprocess.DEVNULL
-            ).strip()
-        except (OSError, subprocess.CalledProcessError):
-            continue
-    return "unknown"
+    """Return the reviewed, explicitly refreshed generation base."""
+    return str(load_control_state(root)["metadata"]["generation_base_commit"])
 
 
 def owner_for(row: dict[str, Any], source_kind: str) -> str:
@@ -566,12 +425,10 @@ def owner_for(row: dict[str, Any], source_kind: str) -> str:
     return "programme-governance"
 
 
-def phase_for(issue_id: str, owner: str) -> str:
-    number = issue_number(issue_id)
-    if number is not None:
-        for phase in PHASES:
-            if number in phase["ids"]:
-                return str(phase["phase"])
+def phase_for(issue_id: str, owner: str, control_record: dict[str, Any]) -> str:
+    controlled = str(control_record.get("phase", "")).strip()
+    if controlled:
+        return controlled
     owner_to_phase = {
         "frontend-and-api": "phase-08-frontend-api",
         "data-and-evidence": "phase-02-data-policy-identity",
@@ -582,13 +439,11 @@ def phase_for(issue_id: str, owner: str) -> str:
     return owner_to_phase.get(owner, "phase-01-governance-scope")
 
 
-def programme_status(source_kind: str, row: dict[str, Any], ledger_state: str) -> str:
+def source_programme_status(source_kind: str, row: dict[str, Any], ledger_state: str) -> str:
     if ledger_state == "closed":
         return "closed"
-    if row.get("issue_id") in PROGRAMME_STATUS_OVERRIDES:
-        return PROGRAMME_STATUS_OVERRIDES[str(row["issue_id"])]
     if source_kind == "proposed":
-        return "ready" if row.get("issue_id") == "ISSUE-0070" else "planned"
+        return "planned"
     status = str(row.get("status", "")).lower()
     if "research-only" in status:
         return "research_only"
@@ -597,6 +452,47 @@ def programme_status(source_kind: str, row: dict[str, Any], ledger_state: str) -
     if "implementation complete" in status:
         return "implemented_initially"
     return "planned"
+
+
+def _validated_control_record(
+    issue_id: str,
+    control: dict[str, Any],
+    *,
+    declared_dependencies: Iterable[str],
+    source_status: str,
+) -> dict[str, Any]:
+    value = control.get("records", {}).get(issue_id)
+    if not isinstance(value, dict):
+        raise ValueError(f"canonical control state is missing {issue_id}")
+    status = value.get("programme_status")
+    if status not in PROGRAMME_STATUSES:
+        raise ValueError(f"{issue_id}: invalid controlled programme status {status!r}")
+    transition = value.get("status_transition")
+    if not isinstance(transition, dict):
+        raise ValueError(f"{issue_id}: controlled status requires a reviewed transition declaration")
+    if transition.get("to") != status or transition.get("from") not in PROGRAMME_STATUSES:
+        raise ValueError(f"{issue_id}: controlled status transition is not allowlisted")
+    if not isinstance(transition.get("review_reference"), str) or not transition["review_reference"].strip():
+        raise ValueError(f"{issue_id}: controlled status transition requires review_reference")
+    evidence = value.get("dependency_edge_evidence")
+    if not isinstance(evidence, dict) or set(evidence) != set(declared_dependencies):
+        raise ValueError(f"{issue_id}: control edge evidence must exactly match declared blockers")
+    evidence_errors = [
+        error
+        for dependency, edge in evidence.items()
+        for error in _validate_edge_evidence(issue_id, dependency, edge)
+    ]
+    if evidence_errors:
+        raise ValueError("; ".join(evidence_errors))
+    acceptance = value.get("acceptance_evidence")
+    if not isinstance(acceptance, list) or not all(isinstance(item, dict) for item in acceptance):
+        raise ValueError(f"{issue_id}: acceptance_evidence must be a list of objects")
+    if transition.get("from") == transition.get("to") and status != source_status:
+        # An imported reviewed state is allowed only when it is tied to the
+        # immutable initial-import review reference.
+        if "canonical import" not in transition["review_reference"]:
+            raise ValueError(f"{issue_id}: non-source status lacks an allowlisted transition")
+    return value
 
 
 def _would_create_cycle(graph: dict[str, set[str]], source: str, dependency: str) -> bool:
@@ -772,12 +668,14 @@ def _compress_issue_coverage(issue_ids: Iterable[str]) -> str:
     return ", ".join(values)
 
 
-def _roadmap_phases(records: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+def _roadmap_phases(
+    records: Iterable[dict[str, Any]], phase_definitions: Iterable[dict[str, Any]]
+) -> list[dict[str, Any]]:
     records_by_id: dict[str, list[str]] = defaultdict(list)
     for record in records:
         records_by_id[str(record["phase"])].append(str(record["canonical_id"]))
     result: list[dict[str, Any]] = []
-    for phase in PHASES:
+    for phase in sorted(phase_definitions, key=lambda value: int(value.get("order", 0))):
         phase_id = str(phase["phase"])
         issue_ids = sorted(records_by_id.get(phase_id, []))
         if not issue_ids:
@@ -785,7 +683,7 @@ def _roadmap_phases(records: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
         result.append(
             {
                 "phase": phase_id,
-                "title": phase["title"],
+                "title": str(phase["title"]),
                 "issue_range": _compress_issue_coverage(issue_ids),
                 "issue_ids": issue_ids,
                 "record_count": len(issue_ids),
@@ -796,10 +694,13 @@ def _roadmap_phases(records: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]:
     package = load_package_registry(root)
+    control = load_control_state(root)
     final_release_text, final_release_digest = _final_release_source(root)
     final_release_rows = parse_final_release_new_issues(final_release_text)
     amendments = parse_final_release_amendments(final_release_text)
-    effective_baseline = baseline or FINAL_RELEASE_AUDITED_COMMIT
+    effective_baseline = baseline or str(control["metadata"]["generation_base_commit"])
+    if effective_baseline != control["metadata"]["generation_base_commit"]:
+        raise ValueError("generation baseline differs from canonical control metadata; refresh control first")
     open_records = parse_open_ledger(root / OPEN_LEDGER)
     closed_records = parse_closed_index(root / CLOSED_LEDGER)
     package_rows: list[tuple[str, str, dict[str, Any]]] = []
@@ -809,6 +710,30 @@ def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]
         package_rows.append((str(row["issue_id"]), "proposed", row))
     for row in final_release_rows:
         package_rows.append((str(row["issue_id"]), "final_release", row))
+    source_package_ids = {issue_id for issue_id, _, _ in package_rows}
+    for issue_id in sorted((set(open_records) | set(closed_records)) - source_package_ids):
+        if issue_id in open_records:
+            source = open_records[issue_id]
+            row = {
+                "issue_id": issue_id,
+                "title": source["title"],
+                "status": source.get("status", "Open"),
+                "priority": source.get("priority", "") or "P3",
+                "dependencies": [
+                    value for value in parse_issue_refs(source.get("section", ""))
+                    if value != issue_id
+                ],
+            }
+        else:
+            source = closed_records[issue_id]
+            row = {
+                "issue_id": issue_id,
+                "title": source["title"],
+                "status": source.get("final_state", "Closed"),
+                "priority": "P3",
+                "dependencies": [],
+            }
+        package_rows.append((issue_id, "local", row))
     package_ids = {issue_id for issue_id, _, _ in package_rows}
     closed_ids = set(closed_records)
     open_ids = set(open_records)
@@ -820,21 +745,26 @@ def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]
         "current": "ETF_AI_Cockpit_Current_Open_Issues_Audit.csv",
         "proposed": "ETF_AI_Cockpit_New_Issues.csv",
         "final_release": FINAL_RELEASE_SOURCE.as_posix(),
+        "local": "issues/open.md and issues/closed.md",
     }
     for issue_id, source_kind, row in sorted(package_rows, key=lambda item: item[0]):
-        is_closed_reconciled = source_kind == "current" and issue_id in closed_ids
+        is_closed_reconciled = source_kind in {"current", "local"} and issue_id in closed_ids
         classification = (
             "current_closed_reconciled"
             if source_kind == "current" and is_closed_reconciled
             else "current_open_retained"
             if source_kind == "current"
+            else "local_only_closed"
+            if source_kind == "local" and is_closed_reconciled
+            else "local_only_current"
+            if source_kind == "local"
             else "proposed_new"
         )
-        ledger_state = "closed" if source_kind == "current" and is_closed_reconciled else "open"
+        ledger_state = "closed" if is_closed_reconciled else "open"
         owner = str(row.get("owner", "")).strip() or owner_for(row, source_kind)
         source_title = str(row.get("title", "")).strip()
         canonical_title = source_title
-        if source_kind == "current":
+        if source_kind in {"current", "local"}:
             canonical_title = (
                 open_records.get(issue_id, {}).get("title")
                 or closed_records.get(issue_id, {}).get("title")
@@ -844,6 +774,13 @@ def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]
             issue_id,
             blocking.get(issue_id, []),
             related.get(issue_id, []),
+        )
+        source_status = source_programme_status(source_kind, row, ledger_state)
+        controlled = _validated_control_record(
+            issue_id,
+            control,
+            declared_dependencies=dependency_fields["blocking_dependencies"],
+            source_status=source_status,
         )
         record = {
             "canonical_id": issue_id,
@@ -855,10 +792,10 @@ def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]
             "source_title": source_title,
             "ledger_state": ledger_state,
             "package_status": str(row.get("status", "")).strip(),
-            "programme_status": programme_status(source_kind, row, ledger_state),
+            "programme_status": controlled["programme_status"],
             "priority": str(row.get("priority", "")).strip(),
             "owner": owner,
-            "phase": str(row.get("phase", "")).strip() or phase_for(issue_id, owner),
+            "phase": str(row.get("phase", "")).strip() or phase_for(issue_id, owner, controlled),
             "epic": str(row.get("epic", "")).strip(),
             "evidence_grade": str(row.get("evidence_grade", "")).strip(),
             "dependency_candidates": parse_issue_refs(row.get("dependencies", "")),
@@ -882,9 +819,7 @@ def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]
             if field in row:
                 value = row.get(field)
                 record[field] = value if isinstance(value, list) else str(value or "").strip()
-        record["dependency_edge_evidence"] = _unresolved_edge_evidence(
-            record["blocking_dependencies"]
-        )
+        record["dependency_edge_evidence"] = controlled["dependency_edge_evidence"]
         record["provenance"] = {
             "schema_version": "1.0",
             "primary_source": record["source_file"],
@@ -894,9 +829,9 @@ def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]
                 amendment["source_reference"] for amendment in record["normative_amendments"]
             ],
         }
-        record["verified_commit"] = effective_baseline
-        record["verified_date"] = FINAL_RELEASE_VERIFIED_DATE
-        record["acceptance_evidence"] = []
+        record["verified_commit"] = controlled["verified_commit"]
+        record["verified_date"] = controlled["verified_date"]
+        record["acceptance_evidence"] = controlled["acceptance_evidence"]
         record["capability_lane"] = _capability_lane(issue_id, record["phase"])
         record["release_blocking"] = record["programme_status"] not in {
             "research_only", "rejected", "deferred"
@@ -921,33 +856,7 @@ def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]
     open_digest = sha256_file(root / OPEN_LEDGER)
     closed_digest = sha256_file(root / CLOSED_LEDGER)
     package_digest = sha256_file(root / PACKAGE_JSON)
-    local_only_ids = sorted((open_ids | closed_ids) - package_ids)
     local_only_records: list[dict[str, Any]] = []
-    for issue_id in local_only_ids:
-        if issue_id in open_records:
-            source = open_records[issue_id]
-            local_only_records.append(
-                {
-                    "canonical_id": issue_id,
-                    "title": source["title"],
-                    "ledger_state": "open",
-                    "classification": "local_only_current",
-                    "reason": "present in latest open ledger but absent from the older package snapshot",
-                    "priority": source.get("priority", ""),
-                }
-            )
-        else:
-            source = closed_records[issue_id]
-            local_only_records.append(
-                {
-                    "canonical_id": issue_id,
-                    "title": source["title"],
-                    "ledger_state": "closed",
-                    "classification": "local_only_closed",
-                    "reason": "closed in the latest ledger after the package snapshot or reconciled from a stale open record",
-                    "priority": "",
-                }
-            )
     registry = {
         "schema_version": "2.0",
         "source_of_truth": {
@@ -974,6 +883,7 @@ def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]
             "package_proposed_records": len(package.get("proposed_new_issues", [])),
             "final_release_new_records": len(final_release_rows),
             "package_records": len(records),
+            "canonical_records": len(records),
             "current_open_ledger_records": len(open_records),
             "closed_index_records": len(closed_records),
             "package_current_open_records": sum(
@@ -984,7 +894,7 @@ def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]
             ),
             "canonical_open_package_records": sum(record["ledger_state"] == "open" for record in records),
             "canonical_closed_package_records": sum(record["ledger_state"] == "closed" for record in records),
-            "local_only_records": len(local_only_records),
+            "local_only_records": sum(record["source_kind"] == "local" for record in records),
         },
         "classification_enum": sorted(CLASSIFICATIONS),
         "programme_status_enum": sorted(PROGRAMME_STATUSES),
@@ -1004,7 +914,7 @@ def build_registry(root: Path, *, baseline: str | None = None) -> dict[str, Any]
                 for name in re.findall(r"`([^`]+)`", heading)
             )
         ),
-        "roadmap_phases": _roadmap_phases(records),
+        "roadmap_phases": _roadmap_phases(records, control["phase_definitions"]),
     }
     registry["readiness"] = readiness_projection(registry)
     return registry
@@ -1082,12 +992,10 @@ def validate_registry(registry: dict[str, Any], *, open_ids: set[str], closed_id
     }
     if package_current_open_ids != (open_ids & package_current_ids):
         errors.append("current package/open ledger IDs disagree")
-    expected_local_only = (open_ids | closed_ids) - set(ids)
-    actual_local_only = {
-        str(record.get("canonical_id")) for record in registry.get("local_only_records", [])
-    }
-    if actual_local_only != expected_local_only:
-        errors.append("latest ledger records absent from package are not reconciled")
+    if not (open_ids | closed_ids).issubset(set(ids)):
+        errors.append("latest ledger records are absent from canonical records")
+    if registry.get("local_only_records"):
+        errors.append("local ledger records must be folded into canonical records")
     for record in records:
         if not isinstance(record, dict):
             errors.append("record is not an object")
@@ -1332,7 +1240,6 @@ __all__ = [
     "FINAL_RELEASE_SOURCE",
     "OPEN_LEDGER",
     "PACKAGE_JSON",
-    "PHASES",
     "PROGRAMME_ROOT",
     "PROGRAMME_STATUSES",
     "REGISTRY_PATH",

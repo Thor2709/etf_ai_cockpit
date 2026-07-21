@@ -1,6 +1,6 @@
 # Completion-programme reconciliation
 
-This directory is the deterministic reconciliation record for baseline `452d44034197cd5d837c1854603eea030e02acf6` on `implementation/b00-control-20260721`.
+This directory is the deterministic reconciliation record for baseline `452d44034197cd5d837c1854603eea030e02acf6`.
 
 ## Contents
 

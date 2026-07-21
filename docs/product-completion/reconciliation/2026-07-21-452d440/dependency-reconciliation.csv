@@ -537,3 +537,6 @@ ISSUE-0176,ISSUE-0144,blocking,blocking_dependencies,proposed programme prerequi
 ISSUE-0176,ISSUE-0145,blocking,blocking_dependencies,proposed programme prerequisite
 ISSUE-0176,ISSUE-0146,blocking,blocking_dependencies,proposed programme prerequisite
 ISSUE-0176,ISSUE-0149,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0067,ISSUE-0034,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0067,ISSUE-0047,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0067,UPDATEV2-0022,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review

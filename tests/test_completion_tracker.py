@@ -202,7 +202,7 @@ def test_cli_dry_run_writes_plan_only(tmp_path, monkeypatch) -> None:
     assert output.exists()
     assert inventory.exists()
     assert "The plan was not applied" in review.read_text(encoding="utf-8")
-    assert sync.inventory_sha256(json.loads(inventory.read_text(encoding="utf-8"))) == json.loads(
-        output.read_text(encoding="utf-8")
-    )["remote_inventory_sha256"]
+    safe_inventory = json.loads(inventory.read_text(encoding="utf-8"))
+    assert safe_inventory["inventory_sha256"] == json.loads(output.read_text(encoding="utf-8"))["remote_inventory_sha256"]
+    assert all("body" not in row for row in safe_inventory["issues"])
     assert json.loads(output.read_text(encoding="utf-8"))["summary"]["blocked"] == 0

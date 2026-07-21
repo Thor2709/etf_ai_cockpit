@@ -9,7 +9,7 @@ Open `ETF_AI_Cockpit.bat` from the project root. It starts the Python launcher i
 ## Quick Start
 
 ```powershell
-cd "C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit"
+cd "path\to\etf_ai_cockpit"
 python -m venv .venv
 .\.venv\Scripts\python -m pip install --upgrade pip
 .\.venv\Scripts\pip install -r requirements-dev.txt

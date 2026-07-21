@@ -1,8 +1,18 @@
 {
   "checks": [
     {
+      "command": "registry scope issue",
+      "duration_ms": 2.12,
+      "exit_code": 0,
+      "failure": "",
+      "name": "scope_selection",
+      "output": "Validated issue scope: ISSUE-0097",
+      "required": true,
+      "status": "passed"
+    },
+    {
       "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/validate_issue_registry.py",
-      "duration_ms": 225.141,
+      "duration_ms": 104.34,
       "exit_code": 0,
       "failure": "",
       "name": "issue_registry",
@@ -12,7 +22,7 @@
     },
     {
       "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m compileall -q src scripts",
-      "duration_ms": 121.151,
+      "duration_ms": 121.858,
       "exit_code": 0,
       "failure": "",
       "name": "source_compile",
@@ -21,48 +31,52 @@
       "status": "passed"
     },
     {
-      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_app.py --mode offline --port 58036 --timeout 30",
-      "duration_ms": 5753.123,
+      "command": "C:\\Users\\thor2\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_app.py --mode offline --port 51706 --timeout 30",
+      "duration_ms": 5901.55,
       "exit_code": 0,
       "failure": "",
       "name": "source_smoke",
-      "output": "smoke_port requested=58036 selected=58036 reason=port 58036 is free\nsmoke_ok mode=offline url=http://127.0.0.1:58036/",
+      "output": "smoke_port requested=51706 selected=51706 reason=port 51706 is free\nsmoke_ok mode=offline url=http://127.0.0.1:51706/",
       "required": true,
       "status": "passed"
     }
   ],
-  "duration_ms": 6101.386,
+  "duration_ms": 6132.35,
   "environment": {
     "machine": "AMD64",
-    "offline_requested": true,
+    "offline_requested": false,
     "platform": "Windows-11-10.0.26200-SP0",
     "python": "3.12.10",
-    "root": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\b00-control-owner-20260721",
+    "root": "C:\\Users\\thor2\\Desktop\\Trading App\\etf_ai_cockpit\\.worktrees\\issue0097-capital-efficiency-20260720",
     "system": "Windows"
   },
   "failures": [],
-  "finished_at": "2026-07-21T09:53:44.320+00:00",
-  "generated_at": "2026-07-21T09:53:44.320+00:00",
+  "finished_at": "2026-07-20T13:26:56.413+00:00",
+  "generated_at": "2026-07-20T13:26:56.413+00:00",
   "git": {
-    "branch": "implementation/b00-control-20260721",
+    "branch": "codex/issue-0097-capital-efficiency-20260720",
     "dirty": true,
-    "head": "452d44034197cd5d837c1854603eea030e02acf6",
-    "origin_main": "452d44034197cd5d837c1854603eea030e02acf6"
+    "head": "5e65529644d814744efe4bba439d45bb131f433c",
+    "origin_main": "e31dcfda69383cc9066a4fe747caa1e8ca81f2a0"
   },
   "log_paths": [
+    "logs\\chatgpt_audits.jsonl",
+    "logs\\errors.jsonl",
     "logs\\model_runs.jsonl",
+    "logs\\portfolio_review_adapter.jsonl",
     "logs\\session.jsonl",
     "logs\\signal_log.jsonl",
     "logs\\timings.jsonl"
   ],
-  "mode": "offline",
-  "report_only": false,
+  "mode": "issue",
   "schema_version": "1.0",
   "scope": {
-    "issue_ids": [],
+    "issue_ids": [
+      "ISSUE-0097"
+    ],
     "phase_ids": []
   },
-  "started_at": "2026-07-21T09:53:38.217+00:00",
+  "started_at": "2026-07-20T13:26:50.281+00:00",
   "unavailable_optional_components": [
     "timesfm",
     "toto"

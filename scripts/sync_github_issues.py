@@ -303,6 +303,77 @@ def inventory_sha256(remote_issues: Iterable[dict[str, Any]]) -> str:
     return hashlib.sha256(deterministic_json(normalised)).hexdigest()
 
 
+def safe_remote_inventory(remote_issues: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    normalised = sorted(
+        (normalise_remote_issue(issue) for issue in remote_issues),
+        key=lambda issue: issue["number"],
+    )
+    rows = []
+    for issue in normalised:
+        ids = sorted(set(MARKER_RE.findall(issue["body"])) | set(LEGACY_MARKER_RE.findall(issue["body"])))
+        rows.append({
+            "number": issue["number"],
+            "stable_id": ids[0] if len(ids) == 1 else "",
+            "state": issue["state"],
+            "title": issue["title"],
+            "url": issue["url"],
+        })
+    return {
+        "schema_version": "1.0",
+        "repository": REPO,
+        "inventory_sha256": inventory_sha256(normalised),
+        "issues": rows,
+        "privacy": "stable identifiers and issue metadata only; bodies excluded",
+    }
+
+
+def _managed_delta_fields(action: dict[str, Any], remote: dict[str, Any] | None) -> list[str]:
+    if action.get("kind") != "update" or remote is None:
+        return []
+    body = str(remote.get("body", ""))
+    desired = managed_block(action)
+    labels = (
+        "Title", "Classification", "Ledger state", "Programme status", "Priority",
+        "Owner", "Phase", "Blocking dependencies", "Required inputs",
+        "Activation dependencies", "Capability lane", "Release blocking in lane",
+        "Downstream issues", "Related issues", "Execution allowed",
+    )
+    changed = []
+    for label in labels:
+        prefix = f"- {label}:"
+        old = next((line for line in body.splitlines() if line.startswith(prefix)), "")
+        new = next((line for line in desired.splitlines() if line.startswith(prefix)), "")
+        if old != new:
+            changed.append(label)
+    return changed
+
+
+def safe_plan_evidence(plan: dict[str, Any], remote_issues: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    remote = {issue["number"]: issue for issue in (normalise_remote_issue(row) for row in remote_issues)}
+    actions = []
+    for action in plan.get("actions", []):
+        issue = remote.get(action.get("remote_number"))
+        actions.append({
+            "kind": action.get("kind"),
+            "stable_id": action.get("stable_id", ""),
+            "title": action.get("title", issue.get("title", "") if issue else ""),
+            "remote_number": action.get("remote_number"),
+            "remote_state": issue.get("state", "") if issue else "",
+            "url": issue.get("url", "") if issue else "",
+            "managed_field_deltas": _managed_delta_fields(action, issue),
+        })
+    return {
+        "schema_version": "1.0",
+        "repository": plan.get("repository"),
+        "remote_inventory_sha256": plan.get("remote_inventory_sha256"),
+        "plan_semantic_sha256": plan.get("plan_sha256"),
+        "summary": plan.get("summary"),
+        "actions": actions,
+        "apply_authority": False,
+        "fresh_exact_plan_required_for_apply": True,
+    }
+
+
 def plan_sha256(plan: dict[str, Any]) -> str:
     value = dict(plan)
     value.pop("plan_sha256", None)
@@ -317,10 +388,9 @@ def sync_review_markdown(plan: dict[str, Any], *, plan_file_sha256: str) -> str:
         "",
         f"- Repository: `{plan.get('repository')}`",
         f"- Remote inventory SHA-256: `{plan.get('remote_inventory_sha256')}`",
-        f"- Plan semantic SHA-256: `{plan.get('plan_sha256')}`",
+        f"- Plan semantic SHA-256: `{plan.get('plan_semantic_sha256', plan.get('plan_sha256'))}`",
         f"- Plan file SHA-256: `{plan_file_sha256}`",
-        f"- Desired records: {plan.get('desired_record_count')}",
-        f"- Remote issues: {plan.get('remote_issue_count')}",
+        f"- Desired actions: {len(plan.get('actions', []))}",
         "- `execution_allowed=false`",
         "",
         "## Exact action scope",
@@ -328,8 +398,17 @@ def sync_review_markdown(plan: dict[str, Any], *, plan_file_sha256: str) -> str:
     ]
     for kind in ("create", "update", "close", "reopen", "blocked"):
         actions = [action for action in plan.get("actions", []) if action.get("kind") == kind]
-        ids = [str(action.get("stable_id", "unknown")) for action in actions]
-        lines.append(f"- `{kind}` ({len(actions)}): {', '.join(f'`{value}`' for value in ids) or 'none'}")
+        lines.append(f"### `{kind}` ({len(actions)})")
+        lines.append("")
+        if not actions:
+            lines.append("- none")
+        else:
+            lines.append("| Stable ID | Remote | Managed-field delta |")
+            lines.append("|---|---:|---|")
+            for action in actions:
+                fields = ", ".join(action.get("managed_field_deltas", [])) or "state/action only"
+                lines.append(f"| `{action.get('stable_id', 'unknown')}` | {action.get('remote_number') or '-'} | {fields} |")
+        lines.append("")
     lines.extend(
         [
             "",
@@ -424,8 +503,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--inventory-out",
         type=Path,
-        help="write the exact normalised read-only remote inventory used for planning",
+        help="write a redacted deterministic inventory (never remote bodies)",
     )
+    parser.add_argument("--safe-evidence-out", type=Path, help="write a redacted deterministic action summary")
     parser.add_argument("--historical-map", type=Path, help="reviewed map for duplicate legacy remote issues")
     parser.add_argument("--apply", action="store_true", help="apply only after the approved plan SHA-256 is supplied")
     parser.add_argument("--approved-plan-sha256")
@@ -444,12 +524,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     if args.inventory_out:
         args.inventory_out.parent.mkdir(parents=True, exist_ok=True)
-        args.inventory_out.write_bytes(deterministic_json(normalised_remote))
+        args.inventory_out.write_bytes(deterministic_json(safe_remote_inventory(normalised_remote)))
     map_path = args.historical_map or root / DEFAULT_MAP_PATH
     historical_map = None
     if map_path.exists():
         historical_map = json.loads(map_path.read_text(encoding="utf-8"))
     plan = plan_actions(registry, normalised_remote, historical_map=historical_map)
+    safe_evidence = safe_plan_evidence(plan, normalised_remote)
+    if args.safe_evidence_out:
+        args.safe_evidence_out.parent.mkdir(parents=True, exist_ok=True)
+        args.safe_evidence_out.write_bytes(deterministic_json(safe_evidence))
     output = args.plan_out or root / DEFAULT_RECONCILIATION_ROOT / "github-sync-plan.json"
     output.parent.mkdir(parents=True, exist_ok=True)
     plan_bytes = deterministic_json(plan)
@@ -458,7 +542,7 @@ def main(argv: list[str] | None = None) -> int:
         args.review_out.parent.mkdir(parents=True, exist_ok=True)
         args.review_out.write_text(
             sync_review_markdown(
-                plan,
+                safe_evidence,
                 plan_file_sha256=hashlib.sha256(plan_bytes).hexdigest(),
             ),
             encoding="utf-8",

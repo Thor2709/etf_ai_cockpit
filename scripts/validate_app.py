@@ -17,7 +17,7 @@ from typing import Iterable
 
 
 SCHEMA_VERSION = "1.0"
-REPORT_DIRECTORY = Path("artifacts/validation")
+REPORT_DIRECTORY = Path("logs/runtime_tmp/validation")
 OPTIONAL_COMPONENTS = ("torch", "timesfm", "toto")
 MODES = ("quick", "changed", "issue", "phase", "full", "offline", "packaged")
 
@@ -169,9 +169,8 @@ def _checks_for_mode(root: Path, mode: str, scope: dict[str, object]) -> list[_C
                     ".",
                     "--output",
                     "artifacts/release/latest",
-                    "--skip-tests",
                 ),
-                timeout_seconds=1800,
+                timeout_seconds=3600,
             )
         ]
     registry = (python, "scripts/validate_issue_registry.py")

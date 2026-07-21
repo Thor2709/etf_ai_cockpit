@@ -22,7 +22,11 @@ def release_readiness_page(_page: ft.Page | None, _state: AppState) -> ft.Contro
                 encoding="utf-8"
             )
         )
+        if not isinstance(programme_status, dict):
+            raise TypeError("CURRENT_STATUS.json root must be an object")
         readiness = programme_status.get("readiness", [])
+        if not isinstance(readiness, list):
+            raise TypeError("CURRENT_STATUS.json readiness must be a list")
         implementation_ready = sum(
             decision.get("ready") is True for decision in readiness if isinstance(decision, dict)
         )

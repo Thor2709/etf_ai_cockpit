@@ -6,8 +6,6 @@ import argparse
 import csv
 import json
 import re
-import subprocess
-import time
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -20,7 +18,6 @@ try:
         deterministic_json,
         records_by_phase,
     )
-    from scripts.validate_completion_package import validate_package
 except ModuleNotFoundError:
     from issue_registry_core import (
         CLOSED_LEDGER,
@@ -29,11 +26,9 @@ except ModuleNotFoundError:
         deterministic_json,
         records_by_phase,
     )
-    from validate_completion_package import validate_package
 
 
 RECONCILIATION_DATE = "2026-07-21"
-DEFAULT_PACKAGE_NAME = "ETF_AI_Cockpit_Full_Research_and_Issue_Package.zip"
 REPO = "Thor2709/etf_ai_cockpit"
 
 
@@ -66,57 +61,6 @@ def write_csv(path: Path, fieldnames: list[str], rows: list[dict[str, object]]) 
         writer.writeheader()
         for row in rows:
             writer.writerow({field: row.get(field, "") for field in fieldnames})
-
-
-def command_json(command: list[str], *, retries: int = 2) -> Any:
-    for attempt in range(retries + 1):
-        try:
-            completed = subprocess.run(
-                command,
-                check=True,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-            )
-            return json.loads(completed.stdout)
-        except (OSError, subprocess.CalledProcessError, json.JSONDecodeError):
-            if attempt >= retries:
-                return None
-            time.sleep(0.5 * (attempt + 1))
-    return None
-
-
-def worktree_inventory(root: Path) -> list[dict[str, str]]:
-    try:
-        output = subprocess.check_output(
-            ["git", "worktree", "list", "--porcelain"],
-            cwd=root,
-            text=True,
-            encoding="utf-8",
-        )
-    except (OSError, subprocess.CalledProcessError):
-        return []
-    result: list[dict[str, str]] = []
-    current: dict[str, str] = {}
-    for line in output.splitlines() + [""]:
-        if line.startswith("worktree "):
-            if current:
-                result.append(current)
-            current = {"path": line.removeprefix("worktree ")}
-        elif line.startswith("HEAD "):
-            current["head"] = line.removeprefix("HEAD ")
-        elif line.startswith("branch "):
-            current["branch"] = line.removeprefix("branch refs/heads/")
-        elif not line and current:
-            result.append(current)
-            current = {}
-    return result
-
-
-def package_path_for(root: Path, supplied: Path | None) -> Path:
-    if supplied is not None:
-        return supplied.resolve()
-    return (root.parent.parent / "etf_ai_cockpit" / DEFAULT_PACKAGE_NAME).resolve()
 
 
 def raw_candidate_cycles(registry: dict[str, Any]) -> list[list[str]]:
@@ -227,31 +171,27 @@ def phase_table(registry: dict[str, Any]) -> list[dict[str, object]]:
     return rows
 
 
-def build_github_inventory() -> dict[str, object]:
-    issues = command_json(
-        ["gh", "issue", "list", "--repo", REPO, "--state", "all", "--limit", "1000", "--json", "number,title,state,url"]
-    )
-    prs = command_json(
-        ["gh", "pr", "list", "--repo", REPO, "--state", "all", "--limit", "1000", "--json", "number,title,state,url,headRefName"]
-    )
-    if not isinstance(issues, list):
-        issues = []
-    if not isinstance(prs, list):
-        prs = []
+def load_github_inventory(recon: Path) -> dict[str, object]:
+    """Load the checked-in redacted acquisition result; never call GitHub here."""
+    path = recon / "github-remote-summary.json"
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict) or not isinstance(value.get("issues"), list):
+        raise ValueError(f"invalid deterministic GitHub summary input: {path}")
+    issues = value["issues"]
     return {
         "repository": REPO,
         "issue_count": len(issues),
         "open_issue_count": sum(str(row.get("state", "")).upper() == "OPEN" for row in issues),
         "closed_issue_count": sum(str(row.get("state", "")).upper() == "CLOSED" for row in issues),
-        "pull_request_count": len(prs),
-        "open_pull_request_count": sum(str(row.get("state", "")).upper() == "OPEN" for row in prs),
-        "issues": sorted(issues, key=lambda row: int(row.get("number", 0))),
-        "pull_requests": sorted(prs, key=lambda row: int(row.get("number", 0))),
+        "pull_request_count": int(value.get("pull_request_count", 0)),
+        "open_pull_request_count": int(value.get("open_pull_request_count", 0)),
+        "issues": issues,
         "read_only_collection": True,
+        "inventory_sha256": value.get("inventory_sha256", ""),
     }
 
 
-def phase_document(registry: dict[str, Any], phase: dict[str, Any]) -> str:
+def phase_document(registry: dict[str, Any], phase: dict[str, Any], recon_relative: str) -> str:
     grouped = records_by_phase(registry)
     records = grouped.get(str(phase["phase"]), [])
     lines = [
@@ -294,7 +234,7 @@ def phase_document(registry: dict[str, Any], phase: dict[str, Any]) -> str:
         "## Blockers, dependencies and related links",
         "",
         "- Resolve only `blocking_dependencies` as prerequisites; `required_inputs` are policy/evidence inputs and do not block readiness. `downstream_issues` are generated reverse links and `related_issues` are context only.",
-        "- The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-17-3321ebd/dependency-reconciliation.csv`.",
+        f"- The registry's blocking graph is acyclic; dependency conversions are recorded in `{recon_relative}/dependency-reconciliation.csv`.",
         "",
         "## Issue coverage",
         "",
@@ -318,11 +258,11 @@ def phase_document(registry: dict[str, Any], phase: dict[str, Any]) -> str:
 
 
 def generate(root: Path, package_path: Path | None = None) -> dict[str, object]:
-    baseline = subprocess.check_output(["git", "rev-parse", "origin/main"], cwd=root, text=True).strip()
+    baseline = build_registry(root)["source_of_truth"]["baseline_commit"]
     registry = build_registry(root, baseline=baseline)
-    package_candidate = package_path_for(root, package_path)
-    report = validate_package(package_candidate) if package_candidate.is_file() else None
+    report = None
     recon = root / PROGRAMME_ROOT / "reconciliation" / f"{RECONCILIATION_DATE}-{baseline[:7]}"
+    recon_relative = recon.relative_to(root).as_posix()
     rows = package_source_rows(registry)
     current_rows = current_only_rows(registry)
     cycles = raw_candidate_cycles(registry)
@@ -486,17 +426,14 @@ Backtests and portfolio analysis remain advisory. Risk gates override forecasts,
 """
     write_text(recon / "current-state-diff.md", current_state)
 
-    inventory = build_github_inventory()
-    worktrees = worktree_inventory(root)
+    inventory = load_github_inventory(recon)
     intake = {
         "schema_version": "1.0",
         "repository": REPO,
         "baseline_commit": baseline,
-        "worktree": str(root),
-        "branch": subprocess.check_output(["git", "branch", "--show-current"], cwd=root, text=True).strip(),
-        "worktree_inventory": worktrees,
+        "generation_base_ref": "origin/main",
         "package": {
-            "path": str(package_candidate) if package_candidate.is_file() else "unavailable",
+            "path": "external archive unavailable; checked-in extracted sources only",
             "sha256": package_sha,
             "reviewed_commit": registry["source_of_truth"]["package_reviewed_commit"],
             "member_hashes": report.member_hashes if report is not None else {},
@@ -527,7 +464,7 @@ Backtests and portfolio analysis remain advisory. Risk gates override forecasts,
             "closed_issue_count": inventory["closed_issue_count"],
             "pull_request_count": inventory["pull_request_count"],
             "open_pull_request_count": inventory["open_pull_request_count"],
-            "collection_method": "read-only gh issue/pr list",
+            "collection_method": "checked-in redacted read-only acquisition summary",
         },
         "safety": {
             "product_features_implemented": False,
@@ -544,7 +481,7 @@ Backtests and portfolio analysis remain advisory. Risk gates override forecasts,
         recon / "README.md",
         f"""# Completion-programme reconciliation
 
-This directory is the deterministic reconciliation record for baseline `{baseline}` on `{intake['branch']}`.
+This directory is the deterministic reconciliation record for baseline `{baseline}`.
 
 ## Contents
 
@@ -625,7 +562,7 @@ The supplied ZIP is immutable external evidence. It is archived as nine extracte
     order_lines.extend(
         [
             "",
-            "The canonical blocking graph is available as `docs/product-completion/reconciliation/2026-07-17-3321ebd/canonical-dag.json`. Cyclic raw candidates were converted to related references with reasons rather than silently dropped.",
+            f"The canonical blocking graph is available as `{recon_relative}/canonical-dag.json`. Cyclic raw candidates were converted to related references with reasons rather than silently dropped.",
             "",
         ]
     )
@@ -655,9 +592,7 @@ Run deterministic tests and safety gates before user-visible claims. Optional To
         programme / "git-workflow.md",
         f"""# Git workflow
 
-- Working branch: `{intake['branch']}`.
 - Base: `{baseline}` (`origin/main`).
-- Worktree: `{root}`.
 - Keep the primary checkout and its unrelated untracked files untouched.
 - Review `git diff`, run targeted checks, commit the focused change, then use capability-based GitHub checks before any push or issue apply.
 - Do not commit the supplied ZIP; commit the archived extracted members, manifest, registry, documents, scripts and tests.
@@ -675,7 +610,7 @@ First implementation candidates are the records marked `ready` by the registry h
     )
     phases = programme / "phases"
     for phase in registry.get("roadmap_phases", []):
-        write_text(phases / f"{phase['phase']}.md", phase_document(registry, phase))
+        write_text(phases / f"{phase['phase']}.md", phase_document(registry, phase, recon_relative))
     write_json(
         programme / "readiness.json",
         {
@@ -710,7 +645,7 @@ Canonical checks: `python scripts/generate_issue_registry.py --check`, `python s
 - Preserved `execution_allowed=false`; no GitHub apply, live order, deployment, publication or release action is part of this change.""",
     )
     return {
-        "reconciliation": str(recon),
+        "reconciliation": recon_relative,
         "package_sha256": package_sha,
         "github_issue_count": inventory["issue_count"],
         "phase_count": len(registry.get("roadmap_phases", [])),
@@ -722,8 +657,35 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--package", type=Path)
+    parser.add_argument("--check", action="store_true", help="verify deterministic outputs without retaining writes")
     args = parser.parse_args(argv)
-    result = generate(args.root.resolve(), args.package)
+    root = args.root.resolve()
+    if args.check:
+        baseline = build_registry(root)["source_of_truth"]["baseline_commit"]
+        recon = root / PROGRAMME_ROOT / "reconciliation" / f"{RECONCILIATION_DATE}-{str(baseline)[:7]}"
+        candidates = [root / "README.md", root / "CHANGELOG.md"]
+        candidates.extend((root / PROGRAMME_ROOT / "programme").rglob("*"))
+        generated_recon_names = {
+            "canonical-dag.json", "current-only-records.csv", "current-state-diff.md",
+            "dependency-reconciliation.csv", "github-inventory.json", "intake-report.json",
+            "ownership.csv", "package-discrepancies.md", "README.md", "source-to-canonical.csv",
+        }
+        candidates.extend(recon / name for name in generated_recon_names)
+        before = {path: path.read_bytes() for path in candidates if path.is_file()}
+        result = generate(root, args.package)
+        after_paths = set(before) | {path for path in candidates if path.is_file()}
+        stale = [path for path in after_paths if before.get(path) != (path.read_bytes() if path.is_file() else None)]
+        for path in stale:
+            if path in before:
+                path.write_bytes(before[path])
+            elif path.exists():
+                path.unlink()
+        if stale:
+            print("STALE: " + ", ".join(sorted(path.relative_to(root).as_posix() for path in stale)))
+            return 1
+        print("FRESH: completion documents are deterministic and current")
+        return 0
+    result = generate(root, args.package)
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 

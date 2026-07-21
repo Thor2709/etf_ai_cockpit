@@ -1,7 +1,14 @@
 {
   "activation_ready_issue_ids": [
+    "ISSUE-0001",
+    "ISSUE-0002",
+    "ISSUE-0003",
+    "ISSUE-0004",
+    "ISSUE-0005",
+    "ISSUE-0006",
     "ISSUE-0007",
     "ISSUE-0008",
+    "ISSUE-0009",
     "ISSUE-0010",
     "ISSUE-0011",
     "ISSUE-0012",
@@ -27,6 +34,7 @@
     "ISSUE-0032",
     "ISSUE-0033",
     "ISSUE-0034",
+    "ISSUE-0035",
     "ISSUE-0036",
     "ISSUE-0037",
     "ISSUE-0038",
@@ -58,7 +66,9 @@
     "ISSUE-0064",
     "ISSUE-0065",
     "ISSUE-0066",
+    "ISSUE-0067",
     "ISSUE-0068",
+    "ISSUE-0069",
     "ISSUE-0070",
     "ISSUE-0071",
     "ISSUE-0072",
@@ -165,8 +175,10 @@
     "ISSUE-0174",
     "ISSUE-0175",
     "ISSUE-0176",
+    "UPDATEV2-0010",
     "UPDATEV2-0011",
     "UPDATEV2-0012",
+    "UPDATEV2-0013",
     "UPDATEV2-0014",
     "UPDATEV2-0015",
     "UPDATEV2-0016",
@@ -175,11 +187,13 @@
     "UPDATEV2-0019",
     "UPDATEV2-0020",
     "UPDATEV2-0021",
+    "UPDATEV2-0022",
     "UPDATEV2-0023",
     "UPDATEV2-0024",
     "UPDATEV2-0025",
     "UPDATEV2-0026",
     "UPDATEV2-0027",
+    "UPDATEV2-0028",
     "UPDATEV2-0029",
     "UPDATEV2-0030"
   ],
@@ -188,17 +202,17 @@
   ],
   "counts": {
     "blocked": 1,
-    "closed": 4,
+    "closed": 17,
     "hardening_required": 4,
     "implemented_initially": 59,
     "in_progress": 9,
     "integrated": 32,
-    "planned": 72,
+    "planned": 73,
     "research_only": 2
   },
   "execution_allowed": false,
   "phase_counts": {
-    "phase-01-governance-scope": 43,
+    "phase-01-governance-scope": 57,
     "phase-02-data-policy-identity": 32,
     "phase-03-stock-research": 12,
     "phase-04-etf-research": 6,
@@ -226,6 +240,96 @@
       ],
       "edges": [],
       "execution_allowed": false,
+      "issue_id": "ISSUE-0001",
+      "ready": false,
+      "reason_codes": [
+        "CLOSED_LEDGER_NOT_IMPLEMENTATION_CANDIDATE"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0002",
+      "ready": false,
+      "reason_codes": [
+        "CLOSED_LEDGER_NOT_IMPLEMENTATION_CANDIDATE"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0003",
+      "ready": false,
+      "reason_codes": [
+        "CLOSED_LEDGER_NOT_IMPLEMENTATION_CANDIDATE"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0004",
+      "ready": false,
+      "reason_codes": [
+        "CLOSED_LEDGER_NOT_IMPLEMENTATION_CANDIDATE"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0005",
+      "ready": false,
+      "reason_codes": [
+        "CLOSED_LEDGER_NOT_IMPLEMENTATION_CANDIDATE"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0006",
+      "ready": false,
+      "reason_codes": [
+        "CLOSED_LEDGER_NOT_IMPLEMENTATION_CANDIDATE"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [],
+      "execution_allowed": false,
       "issue_id": "ISSUE-0007",
       "ready": true,
       "reason_codes": [
@@ -245,6 +349,21 @@
       "ready": true,
       "reason_codes": [
         "READY_NO_BLOCKING_DEPENDENCIES"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0009",
+      "ready": false,
+      "reason_codes": [
+        "CLOSED_LEDGER_NOT_IMPLEMENTATION_CANDIDATE"
       ],
       "required_inputs": []
     },
@@ -620,6 +739,21 @@
       "ready": true,
       "reason_codes": [
         "READY_NO_BLOCKING_DEPENDENCIES"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0035",
+      "ready": false,
+      "reason_codes": [
+        "CLOSED_LEDGER_NOT_IMPLEMENTATION_CANDIDATE"
       ],
       "required_inputs": []
     },
@@ -1096,10 +1230,40 @@
       ],
       "edges": [],
       "execution_allowed": false,
+      "issue_id": "ISSUE-0067",
+      "ready": true,
+      "reason_codes": [
+        "READY_NO_BLOCKING_DEPENDENCIES"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [],
+      "execution_allowed": false,
       "issue_id": "ISSUE-0068",
       "ready": true,
       "reason_codes": [
         "READY_NO_BLOCKING_DEPENDENCIES"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0069",
+      "ready": false,
+      "reason_codes": [
+        "CLOSED_LEDGER_NOT_IMPLEMENTATION_CANDIDATE"
       ],
       "required_inputs": []
     },
@@ -4601,6 +4765,21 @@
       ],
       "edges": [],
       "execution_allowed": false,
+      "issue_id": "UPDATEV2-0010",
+      "ready": false,
+      "reason_codes": [
+        "CLOSED_LEDGER_NOT_IMPLEMENTATION_CANDIDATE"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [],
+      "execution_allowed": false,
       "issue_id": "UPDATEV2-0011",
       "ready": true,
       "reason_codes": [
@@ -4620,6 +4799,21 @@
       "ready": true,
       "reason_codes": [
         "READY_NO_BLOCKING_DEPENDENCIES"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [],
+      "execution_allowed": false,
+      "issue_id": "UPDATEV2-0013",
+      "ready": false,
+      "reason_codes": [
+        "CLOSED_LEDGER_NOT_IMPLEMENTATION_CANDIDATE"
       ],
       "required_inputs": []
     },
@@ -4751,6 +4945,21 @@
       ],
       "edges": [],
       "execution_allowed": false,
+      "issue_id": "UPDATEV2-0022",
+      "ready": false,
+      "reason_codes": [
+        "CLOSED_LEDGER_NOT_IMPLEMENTATION_CANDIDATE"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [],
+      "execution_allowed": false,
       "issue_id": "UPDATEV2-0023",
       "ready": true,
       "reason_codes": [
@@ -4826,6 +5035,21 @@
       ],
       "edges": [],
       "execution_allowed": false,
+      "issue_id": "UPDATEV2-0028",
+      "ready": false,
+      "reason_codes": [
+        "CLOSED_LEDGER_NOT_IMPLEMENTATION_CANDIDATE"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [],
+      "execution_allowed": false,
       "issue_id": "UPDATEV2-0029",
       "ready": true,
       "reason_codes": [
@@ -4866,6 +5090,7 @@
     "ISSUE-0019",
     "ISSUE-0028",
     "ISSUE-0030",
+    "ISSUE-0067",
     "ISSUE-0068",
     "ISSUE-0015",
     "ISSUE-0016",
@@ -4927,5 +5152,5 @@
     "ISSUE-0062"
   ],
   "schema_version": "1.0",
-  "source_registry_sha256": "98fa1e34cf6a75ba334faabe2b8f2643f2409a77615dbd2f473bd53535e07c1e"
+  "source_registry_sha256": "1bc9b709661494372cff295feb3c068f0c94307d147d1eef52550949285069dc"
 }
