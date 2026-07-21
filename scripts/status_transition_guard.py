@@ -7,8 +7,9 @@ import hashlib
 import json
 import re
 import subprocess
+from copy import deepcopy
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 try:
     from scripts.issue_registry_core import (
@@ -20,6 +21,7 @@ try:
         canonical_text_bytes,
         sha256_text_file,
         deterministic_json,
+        validate_control_transition_event,
     )
     from scripts.update_programme_status import (
         deterministic_text,
@@ -36,6 +38,7 @@ except ModuleNotFoundError:
         canonical_text_bytes,
         sha256_text_file,
         deterministic_json,
+        validate_control_transition_event,
     )
     from update_programme_status import (  # type: ignore[no-redef]
         deterministic_text,
@@ -91,6 +94,8 @@ HIGH_STATUS = {
     "integrated",
     "closed",
 }
+BASE_REFRESH_TRANSITION_MODE = "generation_base_and_status_transitions"
+BASE_REFRESH_SOURCE_FIELDS = frozenset({"baseline_commit", "programme_control_state_sha256"})
 
 
 def _error(errors: list[str], message: str) -> None:
@@ -137,8 +142,8 @@ def _manifest_errors(
     if set(manifest) - MANIFEST_KEYS:
         _error(errors, "manifest contains unsupported keys")
     schema_version = manifest.get("schema_version")
-    if schema_version not in {"1.0", "1.1"}:
-        _error(errors, "manifest schema_version must be '1.0' or '1.1'")
+    if schema_version not in {"1.0", "1.1", "1.2"}:
+        _error(errors, "manifest schema_version must be '1.0', '1.1' or '1.2'")
     base_commit = manifest.get("base_commit")
     if not isinstance(base_commit, str) or not COMMIT_RE.fullmatch(base_commit):
         _error(errors, "manifest base_commit must be a 40-character commit SHA")
@@ -207,18 +212,23 @@ def _manifest_errors(
     registry_migration_value = manifest.get("registry_migration")
     registry_migration: dict[str, Any] | None = None
     if not registry_migration_present:
-        if schema_version == "1.1":
-            _error(errors, "manifest schema_version 1.1 requires registry_migration")
-    elif schema_version != "1.1":
-        _error(errors, "manifest registry_migration requires schema_version 1.1")
+        if schema_version in {"1.1", "1.2"}:
+            _error(errors, "manifest schema_version 1.1 or 1.2 requires registry_migration")
+    elif schema_version not in {"1.1", "1.2"}:
+        _error(errors, "manifest registry_migration requires schema_version 1.1 or 1.2")
     elif not isinstance(registry_migration_value, dict):
         _error(errors, "manifest registry_migration must be an object")
     elif set(registry_migration_value) != REGISTRY_MIGRATION_KEYS:
         _error(errors, "manifest registry_migration has unsupported or missing keys")
     else:
         candidate = dict(registry_migration_value)
-        if candidate.get("mode") != "canonical_schema_and_intake":
+        mode = candidate.get("mode")
+        if mode not in {"canonical_schema_and_intake", BASE_REFRESH_TRANSITION_MODE}:
             _error(errors, "manifest registry_migration mode is unsupported")
+        elif mode == "canonical_schema_and_intake" and schema_version != "1.1":
+            _error(errors, "canonical schema migration requires manifest schema_version 1.1")
+        elif mode == BASE_REFRESH_TRANSITION_MODE and schema_version != "1.2":
+            _error(errors, "generation-base transition mode requires manifest schema_version 1.2")
         reason = candidate.get("reason")
         if not isinstance(reason, str) or not reason.strip():
             _error(errors, "manifest registry_migration reason must be non-blank")
@@ -251,13 +261,151 @@ def _manifest_errors(
             _error(errors, "manifest registry_migration removed_issue_ids must be empty")
         if migration_ids["added_issue_ids"] & migration_ids["removed_issue_ids"]:
             _error(errors, "manifest registry_migration cannot add and remove the same issue ID")
-        if issue_ids or transitions:
+        if mode == "canonical_schema_and_intake" and (issue_ids or transitions):
             _error(errors, "manifest registry_migration cannot authorize status transitions")
+        if mode == BASE_REFRESH_TRANSITION_MODE:
+            if migration_ids["added_issue_ids"] or migration_ids["removed_issue_ids"]:
+                _error(errors, "generation-base transition mode requires empty added and removed issue IDs")
+            if not issue_ids or not transitions:
+                _error(errors, "generation-base transition mode requires status transitions")
         if manifest.get("allow_downgrade", False) is not False:
             _error(errors, "manifest registry_migration cannot allow a downgrade")
         if not any(error.startswith("manifest registry_migration") for error in errors):
             registry_migration = candidate
     return errors, issue_ids, transitions, registry_migration
+
+
+def _validate_transition_record(
+    issue_id: str,
+    base_record: Mapping[str, Any],
+    proposed_record: Mapping[str, Any],
+    errors: list[str],
+    verified_commit_is_ancestor: Callable[[str], bool] | None,
+) -> None:
+    base_evidence = base_record.get("acceptance_evidence")
+    proposed_evidence = proposed_record.get("acceptance_evidence")
+    if (
+        not isinstance(base_evidence, list)
+        or not isinstance(proposed_evidence, list)
+        or len(proposed_evidence) != len(base_evidence) + 1
+        or proposed_evidence[: len(base_evidence)] != base_evidence
+    ):
+        _error(errors, f"transition acceptance evidence must append exactly one entry: {issue_id}")
+        return
+    evidence = proposed_evidence[-1]
+    evidence_keys = {
+        "status",
+        "evidence_references",
+        "review_reference",
+        "reviewer",
+        "reviewed_date",
+    }
+    if not isinstance(evidence, dict) or set(evidence) != evidence_keys:
+        _error(errors, f"transition acceptance evidence is malformed: {issue_id}")
+        return
+
+    verified_commit = proposed_record.get("verified_commit")
+    if not isinstance(verified_commit, str) or not COMMIT_RE.fullmatch(verified_commit):
+        _error(errors, f"transition verified_commit must be a full lowercase Git SHA: {issue_id}")
+        return
+    if verified_commit == base_record.get("verified_commit"):
+        _error(errors, f"transition verified_commit must advance reviewed evidence: {issue_id}")
+
+    base_history = base_record.get("transition_history", [])
+    proposed_history = proposed_record.get("transition_history")
+    if (
+        not isinstance(base_history, list)
+        or not isinstance(proposed_history, list)
+        or len(proposed_history) != len(base_history) + 1
+        or proposed_history[: len(base_history)] != base_history
+        or not isinstance(proposed_history[-1], dict)
+    ):
+        _error(errors, f"transition history must append exactly one canonical event: {issue_id}")
+        return
+    event = proposed_history[-1]
+    if "dependency_edge" in event:
+        _error(errors, f"generation-base status transition cannot change dependency evidence: {issue_id}")
+        return
+
+    if evidence.get("status") != proposed_record.get("programme_status"):
+        _error(errors, f"transition acceptance evidence status mismatch: {issue_id}")
+    try:
+        validate_control_transition_event(issue_id, dict(base_record), dict(event))
+    except ValueError as exc:
+        _error(errors, f"invalid reviewed transition evidence: {issue_id}: {exc}")
+        return
+
+    event_commit = event.get("verified_commit")
+    if event_commit != verified_commit:
+        _error(errors, f"transition verified_commit does not match canonical event: {issue_id}")
+    elif verified_commit_is_ancestor is None:
+        _error(errors, f"transition verified_commit ancestry validator is required: {issue_id}")
+    elif not verified_commit_is_ancestor(verified_commit):
+        _error(
+            errors,
+            f"transition verified_commit is not an ancestor of the reviewed generation base: {issue_id}",
+        )
+
+    expected = deepcopy(dict(base_record))
+    expected_history = expected.setdefault("transition_history", [])
+    if not isinstance(expected_history, list):
+        _error(errors, f"authoritative transition history is invalid: {issue_id}")
+        return
+    expected_history.append(deepcopy(event))
+    expected["programme_status"] = event["to"]
+    expected["status_transition"] = {
+        "from": event["from"],
+        "to": event["to"],
+        "review_reference": event["review_reference"],
+    }
+    expected["verified_commit"] = event_commit
+    expected["verified_date"] = event["reviewed_date"]
+    expected_acceptance = expected.setdefault("acceptance_evidence", [])
+    if not isinstance(expected_acceptance, list):
+        _error(errors, f"authoritative acceptance evidence is invalid: {issue_id}")
+        return
+    expected_acceptance.append(
+        {
+            "status": event["to"],
+            "evidence_references": event["evidence_references"],
+            "review_reference": event["review_reference"],
+            "reviewer": event["reviewer"],
+            "reviewed_date": event["reviewed_date"],
+        }
+    )
+    if expected != proposed_record:
+        _error(errors, f"transition record does not match the canonical writer delta: {issue_id}")
+
+
+def _validate_base_refresh_top_level(
+    base_registry: Mapping[str, Any],
+    proposed_registry: Mapping[str, Any],
+    *,
+    manifest_base: object,
+    errors: list[str],
+) -> None:
+    base_top = {key: value for key, value in base_registry.items() if key not in {"records", "source_of_truth"}}
+    proposed_top = {
+        key: value for key, value in proposed_registry.items() if key not in {"records", "source_of_truth"}
+    }
+    if base_top != proposed_top:
+        _error(errors, "non-allowlisted registry change: top-level registry data")
+
+    base_source = base_registry.get("source_of_truth")
+    proposed_source = proposed_registry.get("source_of_truth")
+    if not isinstance(base_source, dict) or not isinstance(proposed_source, dict):
+        _error(errors, "source_of_truth must remain an object during generation-base transition")
+        return
+    for key in sorted(set(base_source) | set(proposed_source)):
+        if key not in BASE_REFRESH_SOURCE_FIELDS and base_source.get(key) != proposed_source.get(key):
+            _error(errors, f"non-allowlisted source_of_truth change: {key}")
+    if proposed_source.get("baseline_commit") != manifest_base:
+        _error(errors, "proposed registry generation base does not match manifest base")
+    proposed_control_sha = proposed_source.get("programme_control_state_sha256")
+    if not isinstance(proposed_control_sha, str) or not SHA256_RE.fullmatch(proposed_control_sha):
+        _error(errors, "proposed programme control-state checksum is invalid")
+    elif proposed_control_sha == base_source.get("programme_control_state_sha256"):
+        _error(errors, "proposed programme control-state checksum did not change")
 
 
 def guard_proposal(
@@ -275,14 +423,14 @@ def guard_proposal(
     actual_head_commit: str | None = None,
     expected_head_commit: str | None = None,
     base_is_ancestor: bool | None = None,
+    verified_commit_is_ancestor: Callable[[str], bool] | None = None,
 ) -> list[str]:
     """Return deterministic validation errors for one proposed registry."""
 
     errors, manifest_issue_ids, transitions, registry_migration = _manifest_errors(manifest)
-    migration_requested = (
-        manifest.get("schema_version") == "1.1"
-        and isinstance(manifest.get("registry_migration"), dict)
-    )
+    requested_migration = manifest.get("registry_migration")
+    migration_requested = isinstance(requested_migration, dict)
+    migration_mode = requested_migration.get("mode") if isinstance(requested_migration, dict) else None
     manifest_base = manifest.get("base_commit")
     if expected_base_commit is not None and expected_base_commit != manifest_base:
         _error(errors, "manifest base commit does not match the requested base commit")
@@ -314,6 +462,8 @@ def guard_proposal(
         _error(errors, "base and latest origin issue IDs differ")
     added_issue_ids = proposed_ids - base_ids
     removed_issue_ids = base_ids - proposed_ids
+    if migration_mode == BASE_REFRESH_TRANSITION_MODE and (added_issue_ids or removed_issue_ids):
+        _error(errors, "generation-base transition mode cannot add or remove issue IDs")
     if registry_migration is None:
         for issue_id in sorted(base_ids - proposed_ids):
             _error(errors, f"proposed registry is missing issue ID: {issue_id}")
@@ -357,7 +507,18 @@ def guard_proposal(
             proposed_comparable["programme_status"] = base_status
             if base_comparable != proposed_comparable:
                 _error(errors, f"non-allowlisted registry change: {issue_id}")
-    if migration_requested:
+        elif migration_mode == BASE_REFRESH_TRANSITION_MODE:
+            if issue_id in manifest_issue_ids:
+                _validate_transition_record(
+                    issue_id,
+                    base_record,
+                    proposed_record,
+                    errors,
+                    verified_commit_is_ancestor,
+                )
+            elif base_record != proposed_record:
+                _error(errors, f"non-allowlisted registry change: {issue_id}")
+    if migration_requested and migration_mode == "canonical_schema_and_intake":
         for issue_id in sorted(changed_statuses):
             _error(errors, f"registry migration cannot change programme_status: {issue_id}")
     base_top_level = {key: value for key, value in base_registry.items() if key != "records"}
@@ -370,6 +531,13 @@ def guard_proposal(
             top_level["source_of_truth"] = source_of_truth
     if registry_migration is None and base_top_level != proposed_top_level:
         _error(errors, "non-allowlisted registry change: top-level registry data")
+    elif migration_mode == BASE_REFRESH_TRANSITION_MODE:
+        _validate_base_refresh_top_level(
+            base_registry,
+            proposed_registry,
+            manifest_base=manifest_base,
+            errors=errors,
+        )
 
     changed_issue_ids = set(changed_statuses)
     if changed_issue_ids != manifest_issue_ids:
@@ -430,6 +598,25 @@ def _path(root: Path, value: Path) -> Path:
 
 def _git(root: Path, *arguments: str) -> str:
     return subprocess.check_output(["git", *arguments], cwd=root, text=True).strip()
+
+
+def _git_commit_is_ancestor(root: Path, commit: str, descendant: str) -> bool:
+    exists = subprocess.run(
+        ["git", "cat-file", "-e", f"{commit}^{{commit}}"],
+        cwd=root,
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    ).returncode == 0
+    if not exists:
+        return False
+    return subprocess.run(
+        ["git", "merge-base", "--is-ancestor", commit, descendant],
+        cwd=root,
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    ).returncode == 0
 
 
 def _git_json(root: Path, revision: str, path: Path) -> dict[str, Any]:
@@ -500,6 +687,11 @@ def main(argv: list[str] | None = None) -> int:
             actual_head_commit=actual_head_commit,
             expected_head_commit=args.head_commit,
             base_is_ancestor=ancestor,
+            verified_commit_is_ancestor=lambda commit: _git_commit_is_ancestor(
+                root,
+                commit,
+                requested_base,
+            ),
         )
         result: dict[str, Any] = {
             "base_commit": requested_base,

@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import subprocess
+from pathlib import Path
 
 import pytest
 
 from scripts.issue_registry_core import deterministic_json
-from scripts.status_transition_guard import guard_proposal
+from scripts.status_transition_guard import _git_commit_is_ancestor, guard_proposal
+from scripts.update_programme_control import apply_transition
 from scripts.update_programme_status import deterministic_text, progress_markdown, status_payload
 
 
@@ -80,6 +83,55 @@ def _migration_manifest(
     return manifest
 
 
+def _base_refresh_transition_manifest(
+    base: dict,
+    proposed: dict,
+    *transitions: tuple[str, str, str],
+) -> dict:
+    manifest = _manifest(*transitions)
+    manifest["schema_version"] = "1.2"
+    manifest["registry_migration"] = {
+        "mode": "generation_base_and_status_transitions",
+        "reason": "Refresh the reviewed generation base with exact status evidence.",
+        "generator": "scripts/generate_issue_registry.py",
+        "base_registry_sha256": _registry_sha256(base),
+        "proposed_registry_sha256": _registry_sha256(proposed),
+        "source_manifest_sha256": SOURCE_MANIFEST_SHA256,
+        "added_issue_ids": [],
+        "removed_issue_ids": [],
+    }
+    return manifest
+
+
+def _apply_reviewed_transition(
+    registry: dict,
+    issue_id: str,
+    *,
+    previous: str,
+    proposed: str,
+    allow_downgrade: bool = False,
+) -> None:
+    record_index = next(
+        index for index, row in enumerate(registry["records"]) if row["canonical_id"] == issue_id
+    )
+    record = registry["records"][record_index]
+    assert record["programme_status"] == previous
+    control = {"records": {issue_id: copy.deepcopy(record)}}
+    apply_transition(
+        control,
+        issue_id=issue_id,
+        expected_from=previous,
+        to_status=proposed,
+        review_reference="Independent reviewed merge evidence",
+        evidence_references=["PR #458 release gates and post-merge smoke"],
+        reviewer="Codex independent reviewer",
+        reviewed_date="2026-07-21",
+        verified_commit=BASE_COMMIT,
+        allow_downgrade=allow_downgrade,
+    )
+    registry["records"][record_index] = control["records"][issue_id]
+
+
 def _errors(
     base: dict,
     proposed: dict,
@@ -104,6 +156,7 @@ def _errors(
         latest_commit=latest_commit,
         branch=branch,
         base_is_ancestor=True,
+        verified_commit_is_ancestor=lambda commit: commit == BASE_COMMIT,
     )
 
 
@@ -438,4 +491,256 @@ def test_schema_1_0_rejects_explicit_null_registry_migration() -> None:
 
     errors = _errors(base, copy.deepcopy(base), manifest)
 
-    assert "manifest registry_migration requires schema_version 1.1" in errors
+    assert "manifest registry_migration requires schema_version 1.1 or 1.2" in errors
+
+
+def test_allows_generation_base_refresh_with_exact_canonical_writer_evidence() -> None:
+    base = _registry({"ISSUE-0008": "implemented_initially", "ISSUE-0037": "planned"})
+    for record in base["records"]:
+        record["verified_commit"] = "d" * 40
+        record["acceptance_evidence"] = []
+    base["source_of_truth"].update(
+        {
+            "baseline_commit": "e" * 40,
+            "programme_control_state_sha256": "1" * 64,
+        }
+    )
+    proposed = copy.deepcopy(base)
+    _apply_reviewed_transition(
+        proposed,
+        "ISSUE-0008",
+        previous="implemented_initially",
+        proposed="integrated",
+    )
+    _apply_reviewed_transition(
+        proposed,
+        "ISSUE-0037",
+        previous="planned",
+        proposed="in_progress",
+    )
+    proposed["source_of_truth"]["baseline_commit"] = BASE_COMMIT
+    proposed["source_of_truth"]["programme_control_state_sha256"] = "2" * 64
+
+    errors = _errors(
+        base,
+        proposed,
+        _base_refresh_transition_manifest(
+            base,
+            proposed,
+            ("ISSUE-0008", "implemented_initially", "integrated"),
+            ("ISSUE-0037", "planned", "in_progress"),
+        ),
+    )
+
+    assert errors == []
+
+
+def test_git_commit_ancestry_verifier_requires_existing_ancestor(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "guard-test@example.invalid"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Guard Test"], cwd=tmp_path, check=True)
+    tracked = tmp_path / "tracked.txt"
+    tracked.write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.txt"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=tmp_path, check=True)
+    base_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=tmp_path, text=True).strip()
+    tracked.write_text("descendant\n", encoding="utf-8")
+    subprocess.run(["git", "commit", "-qam", "descendant"], cwd=tmp_path, check=True)
+    descendant = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=tmp_path, text=True).strip()
+    subprocess.run(["git", "switch", "-q", "--detach", base_commit], cwd=tmp_path, check=True)
+    (tmp_path / "divergent.txt").write_text("divergent\n", encoding="utf-8")
+    subprocess.run(["git", "add", "divergent.txt"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "divergent"], cwd=tmp_path, check=True)
+    divergent = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=tmp_path, text=True).strip()
+
+    assert _git_commit_is_ancestor(tmp_path, base_commit, descendant) is True
+    assert _git_commit_is_ancestor(tmp_path, divergent, descendant) is False
+    assert _git_commit_is_ancestor(tmp_path, "c" * 40, descendant) is False
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_error"),
+    [
+        ("unrelated_record", "transition record does not match the canonical writer delta: ISSUE-0008"),
+        ("non_transitioned_record", "non-allowlisted registry change: ISSUE-0037"),
+        ("replacement_evidence", "transition acceptance evidence must append exactly one entry: ISSUE-0008"),
+        ("invalid_verified_commit", "transition verified_commit must be a full lowercase Git SHA: ISSUE-0008"),
+        ("unexpected_top_level", "non-allowlisted registry change: top-level registry data"),
+        ("unexpected_source_truth", "non-allowlisted source_of_truth change: package_sha256"),
+        ("wrong_generation_base", "proposed registry generation base does not match manifest base"),
+    ],
+)
+def test_generation_base_transition_mode_rejects_unreviewed_mutation(
+    mutation: str,
+    expected_error: str,
+) -> None:
+    base = _registry({"ISSUE-0008": "implemented_initially", "ISSUE-0037": "planned"})
+    for record in base["records"]:
+        record["verified_commit"] = "d" * 40
+        record["acceptance_evidence"] = [
+            {
+                "status": record["programme_status"],
+                "evidence_references": ["prior evidence"],
+                "review_reference": "Prior review",
+                "reviewer": "Prior reviewer",
+                "reviewed_date": "2026-07-20",
+            }
+        ]
+    base["source_of_truth"].update(
+        {
+            "baseline_commit": "e" * 40,
+            "programme_control_state_sha256": "1" * 64,
+            "package_sha256": "3" * 64,
+        }
+    )
+    proposed = copy.deepcopy(base)
+    _apply_reviewed_transition(
+        proposed,
+        "ISSUE-0008",
+        previous="implemented_initially",
+        proposed="integrated",
+    )
+    proposed["source_of_truth"]["baseline_commit"] = BASE_COMMIT
+    proposed["source_of_truth"]["programme_control_state_sha256"] = "2" * 64
+    transition_record = next(row for row in proposed["records"] if row["canonical_id"] == "ISSUE-0008")
+    if mutation == "unrelated_record":
+        transition_record["title"] = "Unreviewed mutation"
+    elif mutation == "non_transitioned_record":
+        next(row for row in proposed["records"] if row["canonical_id"] == "ISSUE-0037")["title"] = "Mutation"
+    elif mutation == "replacement_evidence":
+        transition_record["acceptance_evidence"] = transition_record["acceptance_evidence"][-1:]
+    elif mutation == "invalid_verified_commit":
+        transition_record["verified_commit"] = "not-a-commit"
+    elif mutation == "unexpected_top_level":
+        proposed["policy"]["execution_allowed"] = True
+    elif mutation == "unexpected_source_truth":
+        proposed["source_of_truth"]["package_sha256"] = "4" * 64
+    elif mutation == "wrong_generation_base":
+        proposed["source_of_truth"]["baseline_commit"] = "f" * 40
+    manifest = _base_refresh_transition_manifest(
+        base,
+        proposed,
+        ("ISSUE-0008", "implemented_initially", "integrated"),
+    )
+
+    errors = _errors(base, proposed, manifest)
+
+    assert expected_error in errors
+
+
+def _base_refresh_registry(status: str) -> dict:
+    base = _registry({"ISSUE-0008": status})
+    base["records"][0].update({"verified_commit": "d" * 40, "acceptance_evidence": []})
+    base["source_of_truth"].update(
+        {
+            "baseline_commit": "e" * 40,
+            "programme_control_state_sha256": "1" * 64,
+        }
+    )
+    return base
+
+
+def test_generation_base_transition_mode_rejects_added_or_removed_issue() -> None:
+    base = _base_refresh_registry("planned")
+    proposed = copy.deepcopy(base)
+    _apply_reviewed_transition(
+        proposed,
+        "ISSUE-0008",
+        previous="planned",
+        proposed="in_progress",
+    )
+    proposed["source_of_truth"]["baseline_commit"] = BASE_COMMIT
+    proposed["source_of_truth"]["programme_control_state_sha256"] = "2" * 64
+    proposed["records"].append(
+        {
+            **copy.deepcopy(proposed["records"][0]),
+            "canonical_id": "ISSUE-0099",
+            "programme_status": "planned",
+        }
+    )
+    manifest = _base_refresh_transition_manifest(
+        base,
+        proposed,
+        ("ISSUE-0008", "planned", "in_progress"),
+    )
+
+    errors = _errors(base, proposed, manifest)
+
+    assert "generation-base transition mode cannot add or remove issue IDs" in errors
+
+
+def test_generation_base_transition_mode_rejects_dependency_evidence_mutation() -> None:
+    base = _base_refresh_registry("planned")
+    base["records"][0]["dependency_edge_evidence"] = {"ISSUE-0001": {"state": "unresolved"}}
+    proposed = copy.deepcopy(base)
+    _apply_reviewed_transition(
+        proposed,
+        "ISSUE-0008",
+        previous="planned",
+        proposed="in_progress",
+    )
+    proposed["records"][0]["dependency_edge_evidence"]["ISSUE-0001"] = {"state": "complete"}
+    proposed["source_of_truth"]["baseline_commit"] = BASE_COMMIT
+    proposed["source_of_truth"]["programme_control_state_sha256"] = "2" * 64
+    manifest = _base_refresh_transition_manifest(
+        base,
+        proposed,
+        ("ISSUE-0008", "planned", "in_progress"),
+    )
+
+    errors = _errors(base, proposed, manifest)
+
+    assert "transition record does not match the canonical writer delta: ISSUE-0008" in errors
+
+
+def test_generation_base_transition_mode_rejects_reasoned_downgrade() -> None:
+    base = _base_refresh_registry("integrated")
+    proposed = copy.deepcopy(base)
+    _apply_reviewed_transition(
+        proposed,
+        "ISSUE-0008",
+        previous="integrated",
+        proposed="planned",
+        allow_downgrade=True,
+    )
+    proposed["source_of_truth"]["baseline_commit"] = BASE_COMMIT
+    proposed["source_of_truth"]["programme_control_state_sha256"] = "2" * 64
+    manifest = _base_refresh_transition_manifest(
+        base,
+        proposed,
+        ("ISSUE-0008", "integrated", "planned"),
+    )
+    manifest["allow_downgrade"] = True
+    manifest["reason"] = "Attempted downgrade that this mode must reject."
+
+    errors = _errors(base, proposed, manifest)
+
+    assert "manifest registry_migration cannot allow a downgrade" in errors
+
+
+def test_generation_base_transition_mode_rejects_fabricated_verified_commit() -> None:
+    base = _base_refresh_registry("planned")
+    proposed = copy.deepcopy(base)
+    _apply_reviewed_transition(
+        proposed,
+        "ISSUE-0008",
+        previous="planned",
+        proposed="in_progress",
+    )
+    proposed["source_of_truth"]["baseline_commit"] = BASE_COMMIT
+    proposed["source_of_truth"]["programme_control_state_sha256"] = "2" * 64
+    record = proposed["records"][0]
+    record["verified_commit"] = "c" * 40
+    record["transition_history"][-1]["verified_commit"] = "c" * 40
+    manifest = _base_refresh_transition_manifest(
+        base,
+        proposed,
+        ("ISSUE-0008", "planned", "in_progress"),
+    )
+
+    errors = _errors(base, proposed, manifest)
+
+    assert (
+        "transition verified_commit is not an ancestor of the reviewed generation base: ISSUE-0008"
+        in errors
+    )
