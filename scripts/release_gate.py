@@ -407,20 +407,20 @@ def _safe_extract_archive(artifact: Path, destination: Path) -> None:
     destination = destination.resolve()
     if artifact.suffix == ".whl":
         with zipfile.ZipFile(artifact) as archive:
-            members = archive.infolist()
-            for member in members:
-                target = (destination / member.filename).resolve()
+            zip_members = archive.infolist()
+            for zip_member in zip_members:
+                target = (destination / zip_member.filename).resolve()
                 if not target.is_relative_to(destination):
-                    raise ValueError(f"archive member escapes extraction root: {member.filename}")
+                    raise ValueError(f"archive member escapes extraction root: {zip_member.filename}")
             archive.extractall(destination)
         return
     with tarfile.open(artifact, "r:*") as archive:
-        members = archive.getmembers()
-        for member in members:
-            target = (destination / member.name).resolve()
-            if not target.is_relative_to(destination) or member.issym() or member.islnk():
-                raise ValueError(f"unsafe archive member: {member.name}")
-        archive.extractall(destination, members=members, filter="data")
+        tar_members = archive.getmembers()
+        for tar_member in tar_members:
+            target = (destination / tar_member.name).resolve()
+            if not target.is_relative_to(destination) or tar_member.issym() or tar_member.islnk():
+                raise ValueError(f"unsafe archive member: {tar_member.name}")
+        archive.extractall(destination, members=tar_members, filter="data")
 
 
 def prepare_package_artifact(

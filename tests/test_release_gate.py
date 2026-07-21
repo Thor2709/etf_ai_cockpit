@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import tarfile
 import zipfile
@@ -167,6 +168,30 @@ def test_archive_extraction_rejects_path_escape(tmp_path: Path) -> None:
         handle.writestr("../escape.py", "bad")
     with pytest.raises(ValueError, match="escapes extraction root"):
         release_gate._safe_extract_archive(wheel, tmp_path / "extract")
+
+
+@pytest.mark.parametrize(
+    ("member_name", "member_type", "link_name"),
+    [
+        ("../escape.py", tarfile.REGTYPE, ""),
+        ("symbolic-link.py", tarfile.SYMTYPE, "target.py"),
+        ("hard-link.py", tarfile.LNKTYPE, "target.py"),
+    ],
+)
+def test_tar_archive_extraction_rejects_escape_and_links(
+    tmp_path: Path, member_name: str, member_type: bytes, link_name: str
+) -> None:
+    archive_path = tmp_path / "unsafe.tar.gz"
+    payload = b"unsafe"
+    member = tarfile.TarInfo(member_name)
+    member.type = member_type
+    member.linkname = link_name
+    member.size = len(payload) if member_type == tarfile.REGTYPE else 0
+    with tarfile.open(archive_path, "w:gz") as archive:
+        archive.addfile(member, io.BytesIO(payload) if member.size else None)
+
+    with pytest.raises(ValueError, match="unsafe archive member"):
+        release_gate._safe_extract_archive(archive_path, tmp_path / "extract")
 
 
 def test_dependency_snapshot_accepts_exact_parser_lock(tmp_path: Path, monkeypatch) -> None:
