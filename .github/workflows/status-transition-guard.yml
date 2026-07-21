@@ -24,6 +24,9 @@ jobs:
       - name: Validate canonical registry
         run: python scripts/validate_issue_registry.py --root .
 
+      - name: Check canonical registry freshness
+        run: python scripts/generate_issue_registry.py --root . --check
+
       - name: Check generated programme status freshness
         run: python scripts/update_programme_status.py --root . --check
 

@@ -46,6 +46,7 @@ except ModuleNotFoundError:
 
 ISSUE_ID_RE = re.compile(r"^(?:ISSUE|UPDATEV2)-\d{4}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 MANIFEST_KEYS = {
     "schema_version",
     "base_commit",
@@ -56,8 +57,19 @@ MANIFEST_KEYS = {
     "allow_downgrades",
     "allow_downgrade",
     "reason",
+    "registry_migration",
 }
 TRANSITION_KEYS = {"issue_id", "from", "to"}
+REGISTRY_MIGRATION_KEYS = {
+    "mode",
+    "reason",
+    "generator",
+    "base_registry_sha256",
+    "proposed_registry_sha256",
+    "source_manifest_sha256",
+    "added_issue_ids",
+    "removed_issue_ids",
+}
 
 # This is deliberately conservative: only a forward movement through the
 # normal programme lifecycle is non-downgrading. Other statuses are treated as
@@ -113,12 +125,20 @@ def _is_downgrade(previous: str, proposed: str) -> bool:
     return previous in HIGH_STATUS and proposed not in HIGH_STATUS
 
 
-def _manifest_errors(manifest: Mapping[str, Any]) -> tuple[list[str], set[str], dict[str, dict[str, str]]]:
+def _manifest_errors(
+    manifest: Mapping[str, Any],
+) -> tuple[
+    list[str],
+    set[str],
+    dict[str, dict[str, str]],
+    dict[str, Any] | None,
+]:
     errors: list[str] = []
     if set(manifest) - MANIFEST_KEYS:
         _error(errors, "manifest contains unsupported keys")
-    if manifest.get("schema_version") != "1.0":
-        _error(errors, "manifest schema_version must be '1.0'")
+    schema_version = manifest.get("schema_version")
+    if schema_version not in {"1.0", "1.1"}:
+        _error(errors, "manifest schema_version must be '1.0' or '1.1'")
     base_commit = manifest.get("base_commit")
     if not isinstance(base_commit, str) or not COMMIT_RE.fullmatch(base_commit):
         _error(errors, "manifest base_commit must be a 40-character commit SHA")
@@ -182,7 +202,62 @@ def _manifest_errors(manifest: Mapping[str, Any]) -> tuple[list[str], set[str], 
     for issue_id, transition in transitions.items():
         if transition["from"] not in PROGRAMME_STATUSES or transition["to"] not in PROGRAMME_STATUSES:
             _error(errors, f"manifest transition has an unknown status: {issue_id}")
-    return errors, issue_ids, transitions
+
+    registry_migration_present = "registry_migration" in manifest
+    registry_migration_value = manifest.get("registry_migration")
+    registry_migration: dict[str, Any] | None = None
+    if not registry_migration_present:
+        if schema_version == "1.1":
+            _error(errors, "manifest schema_version 1.1 requires registry_migration")
+    elif schema_version != "1.1":
+        _error(errors, "manifest registry_migration requires schema_version 1.1")
+    elif not isinstance(registry_migration_value, dict):
+        _error(errors, "manifest registry_migration must be an object")
+    elif set(registry_migration_value) != REGISTRY_MIGRATION_KEYS:
+        _error(errors, "manifest registry_migration has unsupported or missing keys")
+    else:
+        candidate = dict(registry_migration_value)
+        if candidate.get("mode") != "canonical_schema_and_intake":
+            _error(errors, "manifest registry_migration mode is unsupported")
+        reason = candidate.get("reason")
+        if not isinstance(reason, str) or not reason.strip():
+            _error(errors, "manifest registry_migration reason must be non-blank")
+        if candidate.get("generator") != "scripts/generate_issue_registry.py":
+            _error(errors, "manifest registry_migration generator is unsupported")
+        for key in (
+            "base_registry_sha256",
+            "proposed_registry_sha256",
+            "source_manifest_sha256",
+        ):
+            value = candidate.get(key)
+            if not isinstance(value, str) or not SHA256_RE.fullmatch(value):
+                _error(errors, f"manifest registry_migration {key} must be a SHA-256 digest")
+        migration_ids: dict[str, set[str]] = {}
+        for key in ("added_issue_ids", "removed_issue_ids"):
+            values = candidate.get(key)
+            parsed: set[str] = set()
+            if not isinstance(values, list):
+                _error(errors, f"manifest registry_migration {key} must be a list")
+            else:
+                for issue_id in values:
+                    if not isinstance(issue_id, str) or not ISSUE_ID_RE.fullmatch(issue_id):
+                        _error(errors, f"manifest registry_migration {key} contains an invalid issue ID")
+                    elif issue_id in parsed:
+                        _error(errors, f"manifest registry_migration {key} contains duplicate issue ID: {issue_id}")
+                    else:
+                        parsed.add(issue_id)
+            migration_ids[key] = parsed
+        if migration_ids["removed_issue_ids"]:
+            _error(errors, "manifest registry_migration removed_issue_ids must be empty")
+        if migration_ids["added_issue_ids"] & migration_ids["removed_issue_ids"]:
+            _error(errors, "manifest registry_migration cannot add and remove the same issue ID")
+        if issue_ids or transitions:
+            _error(errors, "manifest registry_migration cannot authorize status transitions")
+        if manifest.get("allow_downgrade", False) is not False:
+            _error(errors, "manifest registry_migration cannot allow a downgrade")
+        if not any(error.startswith("manifest registry_migration") for error in errors):
+            registry_migration = candidate
+    return errors, issue_ids, transitions, registry_migration
 
 
 def guard_proposal(
@@ -203,7 +278,11 @@ def guard_proposal(
 ) -> list[str]:
     """Return deterministic validation errors for one proposed registry."""
 
-    errors, manifest_issue_ids, transitions = _manifest_errors(manifest)
+    errors, manifest_issue_ids, transitions, registry_migration = _manifest_errors(manifest)
+    migration_requested = (
+        manifest.get("schema_version") == "1.1"
+        and isinstance(manifest.get("registry_migration"), dict)
+    )
     manifest_base = manifest.get("base_commit")
     if expected_base_commit is not None and expected_base_commit != manifest_base:
         _error(errors, "manifest base commit does not match the requested base commit")
@@ -233,11 +312,32 @@ def guard_proposal(
     proposed_ids = set(proposed_by_id)
     if base_ids != latest_ids:
         _error(errors, "base and latest origin issue IDs differ")
-    if base_ids != proposed_ids:
+    added_issue_ids = proposed_ids - base_ids
+    removed_issue_ids = base_ids - proposed_ids
+    if registry_migration is None:
         for issue_id in sorted(base_ids - proposed_ids):
             _error(errors, f"proposed registry is missing issue ID: {issue_id}")
         for issue_id in sorted(proposed_ids - base_ids):
             _error(errors, f"proposed registry has unexpected issue ID: {issue_id}")
+    else:
+        expected_added = set(registry_migration["added_issue_ids"])
+        expected_removed = set(registry_migration["removed_issue_ids"])
+        for issue_id in sorted(added_issue_ids - expected_added):
+            _error(errors, f"registry migration has unexpected added issue ID: {issue_id}")
+        for issue_id in sorted(expected_added - added_issue_ids):
+            _error(errors, f"registry migration expected added issue ID is absent: {issue_id}")
+        for issue_id in sorted(removed_issue_ids - expected_removed):
+            _error(errors, f"registry migration has unexpected removed issue ID: {issue_id}")
+        for issue_id in sorted(expected_removed - removed_issue_ids):
+            _error(errors, f"registry migration expected removed issue ID is absent: {issue_id}")
+        base_registry_sha256 = hashlib.sha256(deterministic_json(dict(base_registry))).hexdigest()
+        proposed_registry_sha256 = hashlib.sha256(deterministic_json(dict(proposed_registry))).hexdigest()
+        if base_registry_sha256 != registry_migration["base_registry_sha256"]:
+            _error(errors, "registry migration base checksum mismatch")
+        if proposed_registry_sha256 != registry_migration["proposed_registry_sha256"]:
+            _error(errors, "registry migration proposed checksum mismatch")
+        if source_manifest_sha256 != registry_migration["source_manifest_sha256"]:
+            _error(errors, "registry migration source manifest checksum mismatch")
     if manifest_issue_ids - base_ids:
         for issue_id in sorted(manifest_issue_ids - base_ids):
             _error(errors, f"manifest references missing issue ID: {issue_id}")
@@ -251,11 +351,15 @@ def guard_proposal(
         proposed_status = proposed_record.get("programme_status")
         if base_status != proposed_status:
             changed_statuses[issue_id] = (str(base_status), str(proposed_status))
-        base_comparable = dict(base_record)
-        proposed_comparable = dict(proposed_record)
-        proposed_comparable["programme_status"] = base_status
-        if base_comparable != proposed_comparable:
-            _error(errors, f"non-allowlisted registry change: {issue_id}")
+        if registry_migration is None:
+            base_comparable = dict(base_record)
+            proposed_comparable = dict(proposed_record)
+            proposed_comparable["programme_status"] = base_status
+            if base_comparable != proposed_comparable:
+                _error(errors, f"non-allowlisted registry change: {issue_id}")
+    if migration_requested:
+        for issue_id in sorted(changed_statuses):
+            _error(errors, f"registry migration cannot change programme_status: {issue_id}")
     base_top_level = {key: value for key, value in base_registry.items() if key != "records"}
     proposed_top_level = {key: value for key, value in proposed_registry.items() if key != "records"}
     for top_level in (base_top_level, proposed_top_level):
@@ -264,7 +368,7 @@ def guard_proposal(
             source_of_truth = dict(source_of_truth)
             source_of_truth.pop("source_manifest_sha256", None)
             top_level["source_of_truth"] = source_of_truth
-    if base_top_level != proposed_top_level:
+    if registry_migration is None and base_top_level != proposed_top_level:
         _error(errors, "non-allowlisted registry change: top-level registry data")
 
     changed_issue_ids = set(changed_statuses)
