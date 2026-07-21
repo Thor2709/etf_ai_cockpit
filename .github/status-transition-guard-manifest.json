@@ -1,27 +1,19 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [
-    {
-      "from": "implemented_initially",
-      "issue_id": "ISSUE-0037",
-      "to": "integrated"
-    }
-  ],
-  "base_commit": "be837a16d3687a5d46e66da7d2f220218c3ded54",
-  "branch": "codex/b01-status-convergence3-20260722",
-  "issue_ids": [
-    "ISSUE-0037"
-  ],
+  "allowed_status_transitions": [],
+  "base_commit": "b1bddeecd0d8d4897f717932b10155f761d561cc",
+  "branch": "codex/b02-control-base-20260722",
+  "issue_ids": [],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "07b00931f1040fbc5dca21bb89baad88426283d115cddcec4ea28cb5421da2ca",
+    "base_registry_sha256": "cee6b7d514f6552f45c24dc004ad139f7c3ecbc5ec5e9f107e27f62f973c9c3f",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "cee6b7d514f6552f45c24dc004ad139f7c3ecbc5ec5e9f107e27f62f973c9c3f",
-    "reason": "B01-POLICY final reviewed convergence: refresh the generation base and advance only ISSUE-0037 implemented_initially to integrated using merged implementation, independent review, protected-release and sequential-convergence evidence.",
+    "mode": "canonical_schema_and_intake",
+    "proposed_registry_sha256": "19664beebe79295cf80029d3d9be8a3ea45489212316e3939063a52e37c4b615",
+    "reason": "B02-DATA-IDENTITY prerequisite: refresh only the canonical generation base to merged main b1bddeecd0d8d4897f717932b10155f761d561cc; all 197 records, statuses, dependencies, policies and authority remain unchanged.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.2"
+  "schema_version": "1.1"
 }
