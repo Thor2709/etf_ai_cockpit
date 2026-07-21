@@ -37,7 +37,7 @@ Deliver the bounded typed local api and task-oriented frontend work with local-f
 ## Blockers, dependencies and related links
 
 - Resolve only `blocking_dependencies` as prerequisites; `required_inputs` are policy/evidence inputs and do not block readiness. `downstream_issues` are generated reverse links and `related_issues` are context only.
-- The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-21-b25bf6b/dependency-reconciliation.csv`.
+- The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-21-a5dee75/dependency-reconciliation.csv`.
 
 ## Issue coverage
 
@@ -48,7 +48,7 @@ Deliver the bounded typed local api and task-oriented frontend work with local-f
 | `ISSUE-0017` | `P1` | `implemented_initially` | `frontend-and-api` | - | - | - | `ISSUE-0080`, `ISSUE-0146`, `ISSUE-0151` |
 | `ISSUE-0020` | `P1` | `implemented_initially` | `frontend-and-api` | - | - | `ISSUE-0165`, `ISSUE-0166` | `ISSUE-0073`, `ISSUE-0074`, `ISSUE-0098`, `ISSUE-0138` |
 | `ISSUE-0030` | `P0/P1` | `implemented_initially` | `frontend-and-api` | - | - | - | `ISSUE-0010`, `ISSUE-0057`, `ISSUE-0129`, `ISSUE-0147` |
-| `ISSUE-0037` | `P1/P2` | `planned` | `frontend-and-api` | - | - | `ISSUE-0176` | `ISSUE-0075`, `ISSUE-0076`, `ISSUE-0144` |
+| `ISSUE-0037` | `P1/P2` | `in_progress` | `frontend-and-api` | - | - | `ISSUE-0176` | `ISSUE-0075`, `ISSUE-0076`, `ISSUE-0144` |
 | `ISSUE-0041` | `P1/P2` | `implemented_initially` | `frontend-and-api` | - | - | - | `ISSUE-0137`, `ISSUE-0140`, `ISSUE-0143` |
 | `ISSUE-0042` | `P1/P2` | `implemented_initially` | `frontend-and-api` | - | - | - | `ISSUE-0090`, `ISSUE-0138`, `ISSUE-0147` |
 | `ISSUE-0043` | `P2` | `planned` | `frontend-and-api` | - | - | `ISSUE-0148` | `ISSUE-0148`, `ISSUE-0149` |

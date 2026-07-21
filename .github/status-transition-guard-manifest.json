@@ -1,19 +1,33 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [],
-  "base_commit": "b25bf6b53f5024df6ae4e298f64ade08d4c65d46",
-  "branch": "codex/b01-guard-projection-repair-20260722",
-  "issue_ids": [],
+  "allowed_status_transitions": [
+    {
+      "from": "implemented_initially",
+      "issue_id": "ISSUE-0008",
+      "to": "integrated"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0037",
+      "to": "in_progress"
+    }
+  ],
+  "base_commit": "a5dee7579e2ca5ae1e40a7152c798749d428d36b",
+  "branch": "codex/b01-status-convergence1b-20260722",
+  "issue_ids": [
+    "ISSUE-0008",
+    "ISSUE-0037"
+  ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "75b64634bffb971d50f1be1c29402c2292f8648a37035ab9e0e7ed7c7074588c",
+    "base_registry_sha256": "6db585034248fbc69786dbcb0fb1d893b39923ed85ecb21cb39f547051c0a066",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "canonical_schema_and_intake",
-    "proposed_registry_sha256": "6db585034248fbc69786dbcb0fb1d893b39923ed85ecb21cb39f547051c0a066",
-    "reason": "B01-POLICY guard projection repair and deterministic control-base refresh; no issue addition, removal, or programme-status transition is authorised in this PR.",
+    "mode": "generation_base_and_status_transitions",
+    "proposed_registry_sha256": "b225a1d23474393f75004fec566b21f83d6be488614ff477e27fc888002df4c7",
+    "reason": "B01-POLICY first reviewed convergence: refresh the generation base and advance only ISSUE-0008 implemented_initially to integrated and ISSUE-0037 planned to in_progress using merged protected evidence.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.1"
+  "schema_version": "1.2"
 }

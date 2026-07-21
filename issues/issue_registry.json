@@ -9031,7 +9031,18 @@
       "write_conflict_group": "data-and-evidence"
     },
     {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #456 merged as 47bdc95b6f8360b454f3bfa707226af8c500ad53 with all protected checks passing",
+            "Post-merge capability and System Map smoke passed 24 tests"
+          ],
+          "review_reference": "PR #456 reviewed merge and protected release evidence",
+          "reviewed_date": "2026-07-21",
+          "reviewer": "Codex independent reviewer",
+          "status": "integrated"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [],
       "canonical_id": "ISSUE-0008",
@@ -9069,7 +9080,7 @@
       "package_status": "Open",
       "phase": "phase-05-returns-risk-portfolio",
       "priority": "P2",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0008-strategy-taxonomy-and-scope-rejection-matrix",
@@ -9098,7 +9109,7 @@
       "source_record_id": "ISSUE-0008",
       "source_title": "Add strategy taxonomy and scope/rejection matrix",
       "title": "Add strategy taxonomy and scope/rejection matrix",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_commit": "47bdc95b6f8360b454f3bfa707226af8c500ad53",
       "verified_date": "2026-07-21",
       "why": "Without explicit stage-specific authority, future code can either violate the present policy or accidentally grant unsafe execution rights.",
       "write_conflict_group": "analysis-and-validation"
@@ -10724,7 +10735,18 @@
       "write_conflict_group": "programme-governance"
     },
     {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #458 merged as 3b159c25457c7376b7108999bd8a6c7bb13188fe after Linux newline repair with all protected checks passing",
+            "Post-merge settings publication UI audit suite passed 43 tests plus offline smoke"
+          ],
+          "review_reference": "PR #458 reviewed merge and protected release evidence",
+          "reviewed_date": "2026-07-21",
+          "reviewer": "Codex independent reviewer",
+          "status": "in_progress"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [],
       "canonical_id": "ISSUE-0037",
@@ -10756,7 +10778,7 @@
       "package_status": "Open",
       "phase": "phase-08-frontend-api",
       "priority": "P1/P2",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#user-requirements-delta-issue-0037-settings-centre-for-currencies-horizons-profiles-depth-and-providers"
@@ -10783,7 +10805,7 @@
       "source_record_id": "ISSUE-0037",
       "source_title": "Config editor UI",
       "title": "Config editor UI",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+      "verified_commit": "3b159c25457c7376b7108999bd8a6c7bb13188fe",
       "verified_date": "2026-07-21",
       "why": "Configuration is executable policy in a finance system and must be controlled like code.",
       "write_conflict_group": "frontend-and-api"
@@ -25762,7 +25784,7 @@
   ],
   "schema_version": "2.0",
   "source_of_truth": {
-    "baseline_commit": "b25bf6b53f5024df6ae4e298f64ade08d4c65d46",
+    "baseline_commit": "a5dee7579e2ca5ae1e40a7152c798749d428d36b",
     "closed_ledger_sha256": "2dca7fd65f7a218747bcfb91b4e5c1f734af26f29114cc7dc83b071bb86838d8",
     "final_release_manifest_sha256": "dbb71ecaa2b81206ff922eec3dcc72cb08cc001121688b107e8f1c3a2372f685",
     "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -25774,7 +25796,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "fce590de484224f09e59a121835c8faff953743132a8066aecd2352785d10781",
+    "programme_control_state_sha256": "767893b6efb039da23c25c9bdeabe2c7a5c6abc62193718b34753ca4d34121ab",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
