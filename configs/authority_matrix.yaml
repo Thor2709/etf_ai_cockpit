@@ -1,6 +1,6 @@
 schema_version: "1.0"
 policy_id: authority-matrix
-policy_version: "2026-07-17"
+policy_version: "2026-07-21"
 execution_allowed: false
 executable_authority: false
 adr_id: ADR-0070-v1
@@ -153,6 +153,12 @@ capabilities:
   - {capability_id: "strategy:paper_portfolio", kind: strategy, authority_stage: paper, description: Local paper portfolio simulation, required_approvals: [paper_simulation_review], max_quantity_delta: 10000}
   - {capability_id: "strategy:pair_trading", kind: strategy, authority_stage: research, description: Research-only pair trading}
   - {capability_id: "strategy:triple_barrier_research", kind: strategy, authority_stage: research, description: Research-only triple-barrier analysis}
+  - {capability_id: "strategy:futures", kind: strategy, authority_stage: disabled, description: Rejected futures strategies, availability: disabled}
+  - {capability_id: "strategy:intraday", kind: strategy, authority_stage: research, description: Research-only intraday methods, availability: future}
+  - {capability_id: "strategy:options", kind: strategy, authority_stage: disabled, description: Rejected options strategies, availability: disabled}
+  - {capability_id: "strategy:shorting", kind: strategy, authority_stage: disabled, description: Rejected short-selling strategies, availability: disabled}
+  - {capability_id: "strategy:event_driven_filings", kind: strategy, authority_stage: research, description: Context-only point-in-time filing events}
+  - {capability_id: "strategy:alternative_data", kind: strategy, authority_stage: research, description: Isolated lawful alternative-data research, availability: future}
   - {capability_id: "strategy:manual_review", kind: strategy, authority_stage: research, description: Human manual review}
   - {capability_id: "strategy:news_sentiment", kind: strategy, authority_stage: research, description: Context-only news sentiment}
   - {capability_id: "strategy:llm_summaries", kind: strategy, authority_stage: research, description: Context-only LLM summaries}

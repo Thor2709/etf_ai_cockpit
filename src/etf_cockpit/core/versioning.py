@@ -313,7 +313,7 @@ def _build_records(root: Path) -> tuple[VersionRecord, ...]:
         ("policy:risk-limits", "policy", "1.0.0", "configs/risk_limits.yaml", ("policy:portfolio-targets",), "schema_version"),
         ("policy:costs", "policy", "1.0.0", "configs/costs.yaml", ("policy:portfolio-targets",), "schema_version"),
         ("policy:model-settings", "policy", "1.0.0", "configs/model_settings.yaml", ("formula:score-engine-v3",), "schema_version"),
-        ("policy:strategy-scope", "policy", "1.0.0", "configs/strategy_scope.yaml", ("policy:gate-policy",), "schema_version"),
+        ("policy:strategy-scope", "policy", "2.0.0", "configs/strategy_scope.yaml", ("policy:gate-policy",), "schema_version"),
         ("dataset:universe", "dataset", "1.0.0", "configs/universe.yaml", ("schema:local-storage",), "schema_version"),
         ("dataset:prices", "dataset", "1.0.0", "data/validated/prices/prices_daily.parquet", ("schema:local-storage",), None),
         ("dataset:features", "dataset", "1.0.0", "data/features/features_daily.parquet", ("dataset:prices",), None),

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, TypeVar
@@ -22,6 +24,7 @@ from etf_cockpit.governance.models import (
     ProductGovernancePolicy,
     REQUIRED_GATE_IDS,
     REQUIRED_GLOSSARY_TERMS,
+    STRATEGY_SCOPE_SCHEMA_VERSION,
     StrategyScopePolicy,
     SUPPORTED_SCHEMA_VERSIONS,
 )
@@ -141,6 +144,10 @@ def _normalise_payload(model_class: type[PolicyClassT], raw: Mapping[str, Any]) 
         payload["entries"] = normalised_entries
     elif model_class is StrategyScopePolicy:
         entries = payload.pop("strategies", payload.get("entries", ()))
+        assignments = payload.get("profile_assignments")
+        if not isinstance(assignments, Mapping):
+            assignments = {}
+        ui_surface = str(payload.get("ui_surface", ""))
         normalised_entries = []
         for raw_entry in entries or ():
             if not isinstance(raw_entry, Mapping):
@@ -151,6 +158,11 @@ def _normalise_payload(model_class: type[PolicyClassT], raw: Mapping[str, Any]) 
                 entry["permitted_authority"] = entry["authority"]
             if "authority" not in entry and "permitted_authority" in entry:
                 entry["authority"] = entry["permitted_authority"]
+            strategy_id = str(entry.get("strategy_id", ""))
+            if "capability_profile" not in entry and strategy_id in assignments:
+                entry["capability_profile"] = assignments[strategy_id]
+            if "ui_visibility" not in entry and ui_surface:
+                entry["ui_visibility"] = ui_surface
             normalised_entries.append(entry)
         payload["entries"] = normalised_entries
     elif model_class is GatePolicy and "gates" not in payload:
@@ -158,6 +170,87 @@ def _normalise_payload(model_class: type[PolicyClassT], raw: Mapping[str, Any]) 
     elif model_class is GlossaryPolicy and "entries" not in payload:
         payload["entries"] = payload.pop("glossary", payload.pop("terms", ()))
     return payload
+
+
+def _legacy_strategy_profile(entry: Mapping[str, Any]) -> str:
+    lifecycle = str(entry.get("lifecycle") or "supported").strip().casefold()
+    authority = str(entry.get("permitted_authority") or entry.get("authority") or "none").strip().casefold()
+    if lifecycle == "rejected":
+        return "rejected"
+    if lifecycle == "future_only":
+        return "future_only"
+    if lifecycle == "experimental":
+        return "experimental_research"
+    if bool(entry.get("paper_authority")):
+        return "paper_simulation"
+    if lifecycle == "research_only":
+        return "research_only"
+    if authority in {"context_only", "user_record"}:
+        return "context_only"
+    if authority == "portfolio_review" or bool(entry.get("portfolio_review_allowed")):
+        return "portfolio_research"
+    return "score_research"
+
+
+def _migrate_strategy_scope_v1(raw: Mapping[str, Any], source: Path) -> dict[str, Any]:
+    """Migrate the legacy strategy inventory onto the one canonical v2 matrix."""
+
+    canonical = STRATEGY_SCOPE_PATH
+    try:
+        if source.resolve() == canonical.resolve():
+            raise ValueError("the canonical strategy scope must already use schema 2.0")
+        template = yaml.safe_load(canonical.read_text(encoding="utf-8"))
+    except (OSError, RuntimeError, ValueError, yaml.YAMLError) as exc:
+        raise ValueError(f"strategy scope v1 migration template unavailable: {exc}") from exc
+    if not isinstance(template, Mapping) or str(template.get("schema_version")) != STRATEGY_SCOPE_SCHEMA_VERSION:
+        raise ValueError("strategy scope v1 migration requires the canonical schema 2.0 policy")
+
+    migrated = deepcopy(dict(template))
+    template_entries = migrated.get("strategies")
+    legacy_entries = raw.get("strategies", raw.get("entries", ()))
+    if not isinstance(template_entries, list) or not isinstance(legacy_entries, (list, tuple)) or not legacy_entries:
+        raise ValueError("strategy scope v1 migration requires a non-empty strategy collection")
+    legacy_ids = [
+        str(entry.get("strategy_id"))
+        for entry in legacy_entries
+        if isinstance(entry, Mapping) and entry.get("strategy_id")
+    ]
+    if len(legacy_ids) != len(set(legacy_ids)):
+        raise ValueError("legacy strategy identifiers must be unique")
+    legacy_by_id = {
+        str(entry.get("strategy_id")): entry
+        for entry in legacy_entries
+        if isinstance(entry, Mapping) and entry.get("strategy_id")
+    }
+    merged_entries: list[object] = []
+    template_ids: set[str] = set()
+    for template_entry in template_entries:
+        if not isinstance(template_entry, Mapping):
+            merged_entries.append(template_entry)
+            continue
+        strategy_id = str(template_entry.get("strategy_id") or "")
+        template_ids.add(strategy_id)
+        legacy_entry = legacy_by_id.get(strategy_id)
+        merged_entries.append({**template_entry, **dict(legacy_entry)} if legacy_entry is not None else template_entry)
+
+    assignments = dict(migrated.get("profile_assignments") or {})
+    for legacy_entry in legacy_entries:
+        if not isinstance(legacy_entry, Mapping):
+            merged_entries.append(legacy_entry)
+            continue
+        strategy_id = str(legacy_entry.get("strategy_id") or "")
+        if strategy_id and strategy_id not in template_ids:
+            merged_entries.append(dict(legacy_entry))
+            assignments[strategy_id] = _legacy_strategy_profile(legacy_entry)
+
+    migrated["strategies"] = merged_entries
+    migrated["profile_assignments"] = assignments
+    migrated["schema_version"] = STRATEGY_SCOPE_SCHEMA_VERSION
+    migrated["migrated_from_schema"] = "1.0"
+    for key in ("policy_id", "execution_allowed", "executable_authority"):
+        if key in raw:
+            migrated[key] = raw[key]
+    return migrated
 
 
 def _validation_is_explicitly_contradictory(error: ValidationError) -> bool:
@@ -298,6 +391,9 @@ def _contract_error(model_class: type[PolicyClassT], payload: Mapping[str, Any],
         return None
 
     if model_class is StrategyScopePolicy:
+        for key in ("matrix_version", "ui_surface", "capability_profiles", "profile_assignments", "instrument_rules", "exclusion_policy"):
+            if not payload.get(key):
+                return f"strategy scope policy requires {key}"
         required = {
             "strategy_id",
             "name",
@@ -310,6 +406,8 @@ def _contract_error(model_class: type[PolicyClassT], payload: Mapping[str, Any],
             "linked_issues",
             "promotion_conditions",
             "tests",
+            "capability_profile",
+            "ui_visibility",
         }
         for index, entry in enumerate(payload.get("entries", ())):
             if not isinstance(entry, Mapping) or not required <= set(entry):
@@ -327,6 +425,12 @@ def _contract_error(model_class: type[PolicyClassT], payload: Mapping[str, Any],
             "paper_portfolio",
             "pair_trading",
             "triple_barrier_research",
+            "futures",
+            "intraday",
+            "options",
+            "shorting",
+            "event_driven_filings",
+            "alternative_data",
             "future_broker_architecture",
             "martingale",
             "grid",
@@ -377,10 +481,20 @@ def _load_policy(
     if not isinstance(loaded, Mapping):
         return _diagnostic(schema_version="unknown", checksum=checksum, message=f"{policy_name} policy must be a mapping")  # type: ignore[return-value]
 
-    schema_version = str(loaded.get("schema_version") or "unknown")
+    source_schema_version = str(loaded.get("schema_version") or "unknown")
     required_headers = {"schema_version", "policy_id", "policy_version"}
     has_headers = required_headers.issubset(loaded)
     positive_authority = _has_positive_authority(loaded)
+    if model_class is StrategyScopePolicy and source_schema_version == "1.0" and has_headers:
+        try:
+            loaded = _migrate_strategy_scope_v1(loaded, source)
+        except ValueError as exc:
+            return _diagnostic(
+                schema_version=source_schema_version,
+                checksum=checksum,
+                message=f"strategy scope policy migration failed: {exc}",
+            )  # type: ignore[return-value]
+    schema_version = str(loaded.get("schema_version") or "unknown")
     payload = _normalise_payload(model_class, loaded)
     if model_class is ProductGovernancePolicy and positive_authority:
         authority_payload = payload.get("authority")
@@ -394,7 +508,10 @@ def _load_policy(
             checksum=checksum,
             message=f"{policy_name} policy is missing required metadata",
         )  # type: ignore[return-value]
-    if schema_version not in SUPPORTED_SCHEMA_VERSIONS:
+    supported_schema_versions = (
+        frozenset({STRATEGY_SCOPE_SCHEMA_VERSION}) if model_class is StrategyScopePolicy else SUPPORTED_SCHEMA_VERSIONS
+    )
+    if schema_version not in supported_schema_versions:
         return _diagnostic(
             schema_version=schema_version,
             checksum=checksum,
@@ -412,7 +529,18 @@ def _load_policy(
 
     try:
         policy = model_class.model_validate(payload)
-        policy = policy.model_copy(update={"checksum": checksum})
+        updates: dict[str, object] = {"checksum": checksum}
+        if isinstance(policy, StrategyScopePolicy):
+            effective_payload = policy.model_dump(
+                mode="json",
+                exclude={"checksum", "migration_source_checksum", "effective_checksum"},
+            )
+            updates["effective_checksum"] = hashlib.sha256(
+                json.dumps(effective_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            if policy.migrated_from_schema is not None:
+                updates["migration_source_checksum"] = checksum
+        policy = policy.model_copy(update=updates)
     except ValidationError as exc:
         if _validation_is_explicitly_contradictory(exc):
             raise

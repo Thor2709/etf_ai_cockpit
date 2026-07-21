@@ -8,6 +8,7 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.components.governance_badges import status_badge
 from etf_cockpit.app.state import AppState
+from etf_cockpit.application.scope_facade import capability_scope_view
 from etf_cockpit.application.ui_facade import supply_chain_intake_report
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.governance.product_scope import load_authority_matrix, load_feature_registry, load_product_governance
@@ -64,8 +65,63 @@ def system_map_page(page: ft.Page | None, state: AppState) -> ft.Control:
     loaded = load_feature_registry()
     product = load_product_governance()
     matrix = load_authority_matrix()
+    capability_scope = capability_scope_view()
     supply_chain = supply_chain_intake_report(ROOT)
     cards: list[ft.Control] = []
+    if capability_scope.status == "available":
+        strategy_lines = [
+            ft.Text(
+                f"{row.strategy_id} · {row.lifecycle} · authority={row.authority} · ui={row.ui_visibility} · data={','.join(row.required_data)} · tests={','.join(row.tests)} · score_authority={str(row.score_authority).lower()} · paper_authority={str(row.paper_authority).lower()} · live_authority=false · {'; '.join(row.stage_summary)}",
+                color=theme.MUTED,
+                size=11,
+                selectable=True,
+            )
+            for row in capability_scope.strategies
+        ]
+        instrument_lines = [
+            ft.Text(
+                f"{row.asset_family} · {row.state} · {row.reason_code} · horizons={','.join(row.horizons)} · {row.prerequisite_summary} · {'; '.join(row.stage_summary)}",
+                color=theme.MUTED,
+                size=11,
+                selectable=True,
+            )
+            for row in capability_scope.instruments
+        ]
+        cards.append(
+            panel(
+                ft.Column(
+                    [
+                        ft.Text("Strategy and instrument capabilities", color=theme.TEXT, size=15, weight=ft.FontWeight.BOLD),
+                        status_badge("Matrix", capability_scope.matrix_version, colour=theme.CYAN),
+                        ft.Text(" · ".join(capability_scope.stages), color=theme.TEXT, selectable=True),
+                        ft.Text(
+                            f"Strategies: {capability_scope.strategy_count}; rejected: {', '.join(capability_scope.rejected_strategy_ids)}",
+                            color=theme.AMBER,
+                            selectable=True,
+                        ),
+                        ft.Text(f"checksum={capability_scope.checksum}; execution_allowed=false", color=theme.AMBER, selectable=True),
+                        *strategy_lines,
+                        *instrument_lines,
+                    ],
+                    spacing=7,
+                ),
+                expand=True,
+            )
+        )
+    else:
+        cards.append(
+            panel(
+                ft.Column(
+                    [
+                        ft.Text("Strategy and instrument capabilities", color=theme.TEXT, size=15, weight=ft.FontWeight.BOLD),
+                        ft.Text("Matrix unavailable; manual review required; execution_allowed=false.", color=theme.AMBER, selectable=True),
+                        ft.Text("; ".join(capability_scope.diagnostics), color=theme.MUTED, selectable=True),
+                    ],
+                    spacing=7,
+                ),
+                expand=True,
+            )
+        )
     if loaded.policy is not None and not loaded.diagnostic_mode:
         cards.extend(_feature_card(page, state, entry) for entry in loaded.policy.entries)
     else:
