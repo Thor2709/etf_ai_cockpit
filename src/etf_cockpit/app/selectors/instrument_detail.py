@@ -23,6 +23,7 @@ from etf_cockpit.application.ui_facade import (
     load_fundamental_evidence,
     load_news_items,
     load_calendar_events,
+    load_identity_projection,
     load_statement_evidence,
     load_paper_trade_rows,
     read_document_registry,
@@ -1249,6 +1250,29 @@ def build_instrument_detail(
             "source_id": f"config:universe:{instrument_id}",
             "execution_allowed": False,
         }
+        identity_evidence = load_identity_projection(instrument_id)
+        if identity_evidence.get("status") == "available":
+            identity_panel.update(
+                {
+                    "identity_confidence": identity_evidence.get("identity_confidence", "unavailable"),
+                    "identity_status": identity_evidence.get("identity_status", "unavailable"),
+                    "identity_decision_id": identity_evidence.get("identity_decision_id", "unavailable"),
+                    "identity_conflict_ids": identity_evidence.get("identity_conflict_ids", "unavailable"),
+                    "identity_resolution_state": identity_evidence.get("identity_resolution_state", "unavailable"),
+                    "identity_effective_at": identity_evidence.get("identity_effective_at", "unavailable"),
+                    "identity_decision_time": identity_evidence.get("identity_decision_time", "unavailable"),
+                    "identity_objects": identity_evidence.get("identity_objects", "unavailable"),
+                    "identity_history": identity_evidence.get("identity_history", "unavailable"),
+                    "identity_warnings": identity_evidence.get("warnings", "unavailable"),
+                }
+            )
+        else:
+            identity_panel.update(
+                {
+                    "identity_resolution_state": identity_evidence.get("status", "unavailable"),
+                    "identity_reason_code": identity_evidence.get("reason_code", "identity_evidence_unavailable"),
+                }
+            )
         display_name = identity.name
     disclosure = _etf_disclosure_panel(instrument_id, document_registry=document_registry, holdings=holdings, kid_records=kid_records, methodology_records=methodology_records)
     overlap = build_direct_overlap_view(

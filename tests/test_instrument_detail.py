@@ -8,6 +8,7 @@ from etf_cockpit.app.pages.etf_detail import etf_detail_page
 from etf_cockpit.app.pages.instrument_detail import render_news_context_panel
 from etf_cockpit.app.selectors.instrument_detail import build_instrument_detail
 from etf_cockpit.app.state import AppState
+from etf_cockpit.application.ui_facade import load_identity_projection
 from etf_cockpit.services import build_snapshot
 
 
@@ -21,6 +22,70 @@ def _walk_controls(control):
     for row in getattr(control, "rows", []) or []:
         for cell in getattr(row, "cells", []) or []:
             yield from _walk_controls(getattr(cell, "content", None))
+
+
+def test_instrument_detail_exposes_identity_lineage_from_application_facade(monkeypatch) -> None:
+    from etf_cockpit.app.selectors import instrument_detail as selector
+
+    snapshot = build_snapshot()
+    instrument_id = snapshot.config.universe.enabled_ids[0]
+    monkeypatch.setattr(
+        selector,
+        "load_identity_projection",
+        lambda _instrument_id: {
+            "status": "available",
+            "identity_confidence": "high",
+            "identity_status": "resolved",
+            "identity_decision_id": "a" * 64,
+            "identity_conflict_ids": '["conflict-1"]',
+            "identity_resolution_state": "resolved",
+            "identity_effective_at": "2026-07-21T00:00:00Z",
+            "identity_decision_time": "2026-07-21T00:00:00Z",
+            "identity_objects": '[{"object_id":"LISTING-XETR"}]',
+            "identity_history": '[{"event_type":"ticker_changed"}]',
+            "warnings": "",
+            "execution_allowed": False,
+        },
+    )
+
+    model = selector.build_instrument_detail(snapshot, instrument_id)
+
+    assert model.identity["identity_decision_id"] == "a" * 64
+    assert model.identity["identity_conflict_ids"] == '["conflict-1"]'
+    assert model.identity["identity_resolution_state"] == "resolved"
+    assert "LISTING-XETR" in model.identity["identity_objects"]
+    assert "ticker_changed" in model.identity["identity_history"]
+    assert model.identity["execution_allowed"] is False
+
+
+def test_identity_projection_loader_fails_closed_on_duplicate_rows(tmp_path) -> None:
+    path = tmp_path / "instrument_identity.parquet"
+    pd.DataFrame(
+        [
+            {
+                "instrument_id": "X",
+                "identity_decision_id": "a" * 64,
+                "identity_conflict_ids": '["conflict-1"]',
+                "identity_resolution_state": "resolved",
+                "identity_confidence": "high",
+            }
+        ]
+    ).to_parquet(path, index=False)
+    available = load_identity_projection("X", path)
+    assert available["status"] == "available"
+    assert available["identity_decision_id"] == "a" * 64
+    assert available["identity_conflict_ids"] == '["conflict-1"]'
+    assert available["execution_allowed"] is False
+
+    pd.DataFrame([{"instrument_id": "X"}, {"instrument_id": "X"}]).to_parquet(path, index=False)
+    duplicate = load_identity_projection("X", path)
+    assert duplicate == {
+        "status": "quarantined",
+        "instrument_id": "X",
+        "reason_code": "duplicate_identity_projection",
+        "candidate_count": 2,
+        "execution_allowed": False,
+    }
 
 
 def test_instrument_detail_driver_groups_are_ordered_structured_rows(tmp_path, monkeypatch) -> None:

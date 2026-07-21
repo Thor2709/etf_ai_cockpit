@@ -19,7 +19,9 @@ import pandas as pd
 
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
 from etf_cockpit.core.paths import CLEAN_DIR, RAW_DIR
+from etf_cockpit.data.contracts import SourceAuthority
 from etf_cockpit.data.provenance import sha256_dataframe
+from etf_cockpit.data.source_conflicts import MetricClaim, MetricPolicy, resolve_conflicts
 
 
 FUNDAMENTAL_SCHEMA_VERSION = "fundamental_evidence.v4"
@@ -297,7 +299,11 @@ def persist_fundamental_evidence(
     return FundamentalPersistenceResult(raw_path, clean_path, audit_path, len(combined), checksum, len(existing) == len(combined))
 
 
-def merge_fundamental_sources(*sources: Mapping[str, object]) -> dict[str, object]:
+def merge_fundamental_sources(
+    *sources: Mapping[str, object],
+    decision_time: str | None = None,
+    policy: MetricPolicy | None = None,
+) -> dict[str, object]:
     """Merge claims with deterministic authority precedence.
 
     Official SEC facts outrank vendor values when both provide a metric.  The
@@ -305,7 +311,6 @@ def merge_fundamental_sources(*sources: Mapping[str, object]) -> dict[str, objec
     coercing a conflict into a score.
     """
 
-    ranked = {"official": 100, "sec": 100, "sec_edgar": 100, "issuer": 85, "vendor": 55, "vendor_unofficial": 55, "community": 25, "manual": 20}
     if not sources:
         return {
             "source_authority": "unavailable",
@@ -317,37 +322,19 @@ def merge_fundamental_sources(*sources: Mapping[str, object]) -> dict[str, objec
             "executable_authority": False,
         }
 
-    anchor = sources[0]
-    anchor_instrument = _first_claim_text(anchor, ("instrument_id", "id", "ticker", "symbol"))
-    anchor_as_of = _first_claim_text(anchor, ("as_of_date", "as_of"))
-    if not anchor_instrument or not anchor_as_of:
-        return {
-            "source_authority": "unavailable",
-            "source": "unavailable",
-            "limitations": "The anchor source requires a canonical instrument and reporting period.",
-            "rejected_source_count": len(sources),
-            "merge_status": "unavailable",
-            "manual_review": True,
-            "executable_authority": False,
-            "execution_allowed": False,
-        }
-    selected: dict[str, object] = {}
-    selected_owner: dict[str, tuple[int, str, str]] = {}
-    selected_sections: dict[str, dict[str, object]] = {}
-    availability_by_source: dict[tuple[str, str], str | None] = {}
+    claims: list[MetricClaim] = []
+    claim_sections: dict[tuple[str, str, str, str, str], dict[str, object]] = {}
     rejected = 0
     for source in sources:
         source_instrument = _first_claim_text(source, ("instrument_id", "id", "ticker", "symbol"))
         source_as_of = _first_claim_text(source, ("as_of_date", "as_of"))
-        identity_matches = source_instrument == anchor_instrument
-        period_matches = source_as_of == anchor_as_of
-        if not identity_matches or not period_matches:
+        if not source_instrument or not source_as_of:
             rejected += 1
             continue
-        authority = str(source.get("source_authority") or source.get("source") or "vendor").strip().lower()
-        rank = ranked.get(authority, 0)
-        source_id = _first_claim_text(source, ("source_id",)) or authority
-        availability_by_source[(source_id, authority)] = _first_claim_text(
+        authority_label = str(source.get("source_authority") or source.get("source") or "vendor").strip().lower()
+        authority = _canonical_source_authority(authority_label)
+        source_id = _first_claim_text(source, ("source_id",))
+        available_at = _first_claim_text(
             source,
             ("available_at", "availability_date", "published_at", "publication_date", "filing_date"),
         )
@@ -360,25 +347,93 @@ def merge_fundamental_sources(*sources: Mapping[str, object]) -> dict[str, objec
                 value = section.get("value", section.get("score", value))
             if value is None:
                 continue
-            owner = (rank, source_id, authority)
-            if key not in selected or owner > selected_owner[key]:
-                selected[key] = value
-                selected_owner[key] = owner
-                selected_sections[key] = {
-                    **dict(section),
-                    "value": value,
-                    "period_end": str(section.get("period_end") or source_as_of),
-                    "source_id": str(section.get("source_id") or source_id),
-                    "source_authority": authority,
-                }
-    if anchor_instrument:
-        selected["instrument_id"] = anchor_instrument
-    if anchor_as_of:
-        selected["as_of_date"] = anchor_as_of
-    contributing_authorities = sorted({owner[2] for owner in selected_owner.values()})
-    contributing_source_ids = sorted({owner[1] for owner in selected_owner.values()})
-    contributing_sources = sorted({(owner[1], owner[2]) for owner in selected_owner.values()})
-    contributing_availability = [availability_by_source.get(source) for source in contributing_sources]
+            claim_source_id = str(section.get("source_id") or source_id)
+            claim = MetricClaim(
+                instrument_id=source_instrument,
+                field=key,
+                value=value,
+                source=authority_label,
+                authority=authority,
+                source_id=claim_source_id,
+                unit=str(section.get("unit") or source.get("unit") or "score_0_10"),
+                period=str(section.get("period_end") or source_as_of),
+                as_of=source_as_of,
+                freshness_status=str(section.get("freshness_status") or source.get("freshness_status") or "unknown"),
+                confidence=section.get("confidence", source.get("confidence")),
+                currency=str(section.get("currency") or source.get("currency") or "N/A"),
+                restatement_id=str(section.get("restatement_id") or source.get("restatement_id") or "") or None,
+                available_at=str(section.get("available_at") or available_at or "") or None,
+                revision=int(section.get("revision") or source.get("revision") or 1),
+            )
+            claims.append(claim)
+            claim_sections[_fundamental_claim_key(key, source_instrument, source_as_of, claim_source_id, value)] = {
+                **dict(section),
+                "value": value,
+                "period_end": str(section.get("period_end") or source_as_of),
+                "source_id": claim_source_id,
+                "source_authority": authority_label,
+            }
+
+    if not claims:
+        return {
+            "source_authority": "unavailable",
+            "source": "unavailable",
+            "limitations": "No source supplied a metric with a canonical instrument and reporting period.",
+            "rejected_source_count": rejected,
+            "candidate_count": 0,
+            "merge_status": "unavailable",
+            "manual_review": True,
+            "executable_authority": False,
+            "execution_allowed": False,
+        }
+
+    resolution = resolve_conflicts(claims, decision_time=decision_time, policy=policy)
+    instruments = tuple(sorted({item.instrument_id for item in claims}))
+    periods = tuple(sorted({str(item.period or "") for item in claims}))
+    flat_context_available = rejected == 0 and len(instruments) == 1 and len(periods) == 1
+    canonical_instrument = instruments[0] if flat_context_available else None
+    canonical_as_of = periods[0] if flat_context_available else None
+    selected: dict[str, object] = {}
+    selected_sections: dict[str, dict[str, object]] = {}
+    selected_claims: list[MetricClaim] = []
+    for key in _FIELDS:
+        claim = resolution.selected.get(key) if flat_context_available else None
+        if claim is None:
+            continue
+        selected[key] = claim.value
+        selected_claims.append(claim)
+        selected_sections[key] = dict(
+            claim_sections.get(
+                _fundamental_claim_key(key, claim.instrument_id, str(claim.period or ""), claim.source_id, claim.value),
+                {
+                    "value": claim.value,
+                    "period_end": claim.period or canonical_as_of,
+                    "source_id": claim.source_id,
+                    "source_authority": claim.source,
+                },
+            )
+        )
+        selected_sections[key].update(
+            {
+                "canonical_decision_id": resolution.decision_id,
+                "canonical_policy_id": resolution.policy_id,
+                "canonical_policy_sha256": resolution.policy_sha256,
+            }
+        )
+        field_conflicts = [item for item in resolution.conflicts if item.field == key]
+        if field_conflicts:
+            selected_sections[key]["conflict_ids"] = [item.conflict_id for item in field_conflicts]
+            selected_sections[key]["conflict_state"] = max(
+                (item.state for item in field_conflicts),
+                key=lambda state: {"pass": 0, "warn": 1, "quarantine": 2, "block": 3}.get(state, 3),
+            )
+    if canonical_instrument:
+        selected["instrument_id"] = canonical_instrument
+    if canonical_as_of:
+        selected["as_of_date"] = canonical_as_of
+    contributing_authorities = sorted({selected_sections[item.field].get("source_authority", item.source) for item in selected_claims})
+    contributing_source_ids = sorted({item.source_id for item in selected_claims})
+    contributing_availability = [item.available_at for item in selected_claims]
     if contributing_availability and all(contributing_availability):
         parsed_availability = pd.to_datetime(pd.Series(contributing_availability), errors="coerce", utc=True)
         if parsed_availability.notna().all():
@@ -387,14 +442,80 @@ def merge_fundamental_sources(*sources: Mapping[str, object]) -> dict[str, objec
     selected["source_id"] = contributing_source_ids[0] if len(contributing_source_ids) == 1 else ("|".join(contributing_source_ids) if contributing_source_ids else "unavailable")
     selected["source"] = selected["source_authority"]
     selected["sections"] = selected_sections
-    base_limitation = "Official SEC facts outrank vendor fundamentals where identity and period match." if selected["source_authority"] in {"official", "sec", "sec_edgar"} else "Metric-level provenance is retained; mixed or vendor fundamentals may be partial or revised."
-    selected["limitations"] = base_limitation + (f" {rejected} mismatched source record(s) were excluded." if rejected else "")
+    base_limitation = "The canonical context-aware resolver retains every candidate and applies versioned source authority." if selected_claims else "No single instrument/reporting-period context is available for the legacy flat projection; every valid candidate remains retained."
+    selected["limitations"] = base_limitation + (f" {rejected} source record(s) lacked required identity or period context." if rejected else "")
     selected["rejected_source_count"] = rejected
-    selected["merge_status"] = "manual_review" if rejected or not selected_owner else "merged"
-    selected["manual_review"] = bool(rejected or not selected_owner)
+    selected["candidate_count"] = len(resolution.claims) + len(resolution.excluded_claims)
+    selected["excluded_candidate_count"] = len(resolution.excluded_claims)
+    context_conflict = rejected == 0 and not flat_context_available
+    context_conflict_id = hashlib.sha256(
+        json.dumps(
+            {"instruments": instruments, "periods": periods, "candidate_count": len(claims)},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()[:20]
+    selected["conflict_ids"] = [item.conflict_id for item in resolution.conflicts] + ([context_conflict_id] if context_conflict else [])
+    selected["conflict_reason_codes"] = sorted(
+        {item.reason_code for item in resolution.conflicts}
+        | ({"incompatible_metric_context"} if context_conflict else set())
+    )
+    selected["canonical_decision_id"] = resolution.decision_id
+    selected["canonical_policy_id"] = resolution.policy_id
+    selected["canonical_policy_sha256"] = resolution.policy_sha256
+    selected["canonical_invalidation_token"] = resolution.invalidation_token
+    if rejected:
+        merge_status = "unavailable"
+    elif context_conflict or resolution.state in {"block", "quarantine"}:
+        merge_status = "conflict"
+    elif rejected or not selected_claims or resolution.requires_manual_review:
+        merge_status = "manual_review"
+    elif resolution.state == "warn":
+        merge_status = "merged_with_warnings"
+    else:
+        merge_status = "merged"
+    selected["merge_status"] = merge_status
+    selected["manual_review"] = bool(rejected or resolution.requires_manual_review or merge_status in {"conflict", "manual_review"})
     selected["executable_authority"] = False
     selected["execution_allowed"] = False
     return selected
+
+
+def _canonical_source_authority(value: str) -> SourceAuthority:
+    aliases = {
+        "official": SourceAuthority.OFFICIAL,
+        "official_filing": SourceAuthority.OFFICIAL,
+        "official_regulator": SourceAuthority.OFFICIAL,
+        "sec": SourceAuthority.OFFICIAL,
+        "sec_edgar": SourceAuthority.OFFICIAL,
+        "issuer": SourceAuthority.ISSUER,
+        "issuer_document": SourceAuthority.ISSUER,
+        "vendor": SourceAuthority.VENDOR,
+        "vendor_unofficial": SourceAuthority.VENDOR,
+        "vendor_verified": SourceAuthority.VENDOR,
+        "community": SourceAuthority.COMMUNITY,
+        "manual": SourceAuthority.MANUAL,
+        "manual_context": SourceAuthority.MANUAL,
+        "model": SourceAuthority.MODEL,
+        "model_advisory": SourceAuthority.MODEL,
+    }
+    return aliases.get(value.strip().lower(), SourceAuthority.MODEL)
+
+
+def _fundamental_claim_key(
+    field_name: str,
+    instrument_id: str,
+    period: str,
+    source_id: str,
+    value: object,
+) -> tuple[str, str, str, str, str]:
+    return (
+        field_name,
+        instrument_id,
+        period,
+        source_id,
+        json.dumps(value, sort_keys=True, separators=(",", ":"), default=str),
+    )
 
 
 def load_fundamental_evidence(path: Path = FUNDAMENTAL_CLEAN_PATH) -> pd.DataFrame:
