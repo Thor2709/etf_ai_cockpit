@@ -28,6 +28,7 @@ required:
   - {path: evidence_export/session.jsonl, schema_version: 1, source_authority: workflow, allow_unavailable: true}
   - {path: evidence_export/workflow.jsonl, schema_version: 1, source_authority: workflow, allow_unavailable: true}
   - {path: evidence_export/configs/data_providers_redacted.json, schema_version: 1, source_authority: configuration, allow_unavailable: false}
+  - {path: evidence_export/configs/settings_bundle.json, schema_version: 1, source_authority: configuration, allow_unavailable: false}
   - {path: evidence_export/configs/audit_manifest.yaml, schema_version: 1, source_authority: configuration, allow_unavailable: true}
   - {path: evidence_export/configs/legal_terms_registry.yaml, schema_version: 1, source_authority: governance, allow_unavailable: false}
   - {path: evidence_export/governance/legal_terms_registry.json, schema_version: 1, source_authority: governance, allow_unavailable: false}

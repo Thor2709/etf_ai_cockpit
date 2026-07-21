@@ -7,12 +7,13 @@ import numpy as np
 import pandas as pd
 
 from etf_cockpit.core.paths import FORECASTS_DIR
+from etf_cockpit.core.versioning import current_settings_revision
 
 PRIMARY_MODEL_HORIZON_DAYS = 60
 FALLBACK_MODEL_HORIZONS_DAYS = (120, 20, 5, 180)
 
 
-def _forecast_cache_matches(path: Path, universe_revision: str) -> bool:
+def _forecast_cache_matches(path: Path, universe_revision: str, settings_revision: str | None = None) -> bool:
     metadata_path = Path(f"{path}.meta.json")
     if not metadata_path.exists():
         return False
@@ -20,7 +21,12 @@ def _forecast_cache_matches(path: Path, universe_revision: str) -> bool:
         payload = json.loads(metadata_path.read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError):
         return False
-    return isinstance(payload, dict) and str(payload.get("universe_revision") or "") == universe_revision
+    expected_settings = settings_revision or current_settings_revision()
+    return (
+        isinstance(payload, dict)
+        and str(payload.get("universe_revision") or "") == universe_revision
+        and str(payload.get("settings_revision") or "") == expected_settings
+    )
 
 
 def latest_forecast_file(
@@ -28,10 +34,12 @@ def latest_forecast_file(
     directory: Path = FORECASTS_DIR,
     *,
     universe_revision: str | None = None,
+    settings_revision: str | None = None,
 ) -> Path | None:
     files = sorted(directory.glob(pattern), key=lambda path: path.stat().st_mtime, reverse=True)
     if universe_revision is not None:
-        files = [path for path in files if _forecast_cache_matches(path, universe_revision)]
+        expected_settings = settings_revision or current_settings_revision()
+        files = [path for path in files if _forecast_cache_matches(path, universe_revision, expected_settings)]
     return files[0] if files else None
 
 
@@ -40,8 +48,14 @@ def load_latest_forecasts(
     directory: Path = FORECASTS_DIR,
     *,
     universe_revision: str | None = None,
+    settings_revision: str | None = None,
 ) -> pd.DataFrame:
-    path = latest_forecast_file(pattern, directory, universe_revision=universe_revision)
+    path = latest_forecast_file(
+        pattern,
+        directory,
+        universe_revision=universe_revision,
+        settings_revision=settings_revision,
+    )
     if path is None:
         return pd.DataFrame()
     frame = pd.read_csv(path)
@@ -49,13 +63,18 @@ def load_latest_forecasts(
     return frame
 
 
-def filter_forecasts_for_universe(forecasts: pd.DataFrame, universe_revision: str | None) -> pd.DataFrame:
+def filter_forecasts_for_universe(
+    forecasts: pd.DataFrame,
+    universe_revision: str | None,
+    settings_revision: str | None = None,
+) -> pd.DataFrame:
     """Drop configured forecast rows whose source cache is not for this universe revision."""
 
     if forecasts.empty or not universe_revision or "source_file" not in forecasts.columns:
         return forecasts
+    expected_settings = settings_revision or current_settings_revision()
     valid = forecasts["source_file"].map(
-        lambda value: _forecast_cache_matches(Path(str(value)), universe_revision)
+        lambda value: _forecast_cache_matches(Path(str(value)), universe_revision, expected_settings)
     )
     return forecasts.loc[valid].copy()
 

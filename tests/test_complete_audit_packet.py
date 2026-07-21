@@ -40,6 +40,7 @@ COMPLETE_AUDIT_ARTEFACTS = {
     "evidence_export/session.jsonl",
     "evidence_export/workflow.jsonl",
     "evidence_export/configs/data_providers_redacted.json",
+    "evidence_export/configs/settings_bundle.json",
     "evidence_export/configs/audit_manifest.yaml",
     "evidence_export/project_docs/issue_dossiers.json",
     "evidence_export/checksum_manifest.json",
@@ -59,6 +60,20 @@ def test_strategy_capability_matrix_is_exported_as_governance_evidence(tmp_path:
     assert payload["instrument_matrix"]
     assert payload["instrument_stage_matrix"]
     assert all(row["execution_allowed"] is False for row in payload["strategy_matrix"])
+
+
+def test_settings_bundle_export_is_versioned_and_secret_free(tmp_path: Path) -> None:
+    destination = tmp_path / "settings_bundle.json"
+
+    export_pack._export_settings_bundle(destination, root=tmp_path)
+    payload = json.loads(destination.read_text(encoding="utf-8"))
+    text = destination.read_text(encoding="utf-8").lower()
+
+    assert payload["schema_version"] == "settings_bundle.v1"
+    assert payload["execution_allowed"] is False
+    assert payload["run_identity"]["settings_revision"] == payload["revision"]
+    assert "api_key" not in text
+    assert "raw-secret" not in text
 
 
 def test_generated_audit_manifest_declares_complete_canonical_artefact_set(tmp_path: Path) -> None:

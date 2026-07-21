@@ -1,0 +1,20 @@
+controls:
+  analysis_depth: medium
+  asset_scopes:
+  - stock
+  - etf
+  horizon: 3M
+  macro_provider: none
+  news_sources: []
+  output_currency: EUR
+  paper:
+    enabled: false
+    execution_allowed: false
+    initial_cash_eur: 100000.0
+  risk_profile: medium
+  rss_sources: []
+execution_allowed: false
+revision: 01ed71462c9d369417481c85ef40487907a18466754921db014be7c038c4a8f9
+schema_version: settings_bundle.v1
+semantic_version: 1.0.0
+settings_version: 0

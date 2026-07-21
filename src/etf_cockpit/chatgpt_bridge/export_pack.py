@@ -50,6 +50,7 @@ from etf_cockpit.data.macro_warehouse import MacroWarehouse, MacroWarehouseError
 from etf_cockpit.data.legal_terms import legal_terms_report
 from etf_cockpit.data.bitemporal import BitemporalStore
 from etf_cockpit.application.architecture import build_report as build_architecture_report
+from etf_cockpit.application.settings import load_settings_bundle, settings_export
 from etf_cockpit.governance.product_scope import (
     load_authority_matrix,
     load_feature_registry,
@@ -104,6 +105,7 @@ _COMPLETE_AUDIT_REQUIRED: tuple[tuple[str, str, bool], ...] = (
     ("evidence_export/session.jsonl", "workflow", True),
     ("evidence_export/workflow.jsonl", "workflow", True),
     ("evidence_export/configs/data_providers_redacted.json", "configuration", False),
+    ("evidence_export/configs/settings_bundle.json", "configuration", False),
     ("evidence_export/configs/audit_manifest.yaml", "configuration", True),
     ("evidence_export/configs/supply_chain_intake.yaml", "governance", False),
     ("evidence_export/governance/legal_terms_registry.json", "governance", False),
@@ -433,6 +435,7 @@ def export_review_pack(
     _export_macro_warehouse_summary(export_dir / "evidence_export" / "macro_warehouse_summary.json")
     _export_data_catalogue_summary(export_dir / "evidence_export" / "data_catalogue_summary.json")
     _export_strategy_capability_matrix(export_dir / "evidence_export" / "governance" / "strategy_capability_matrix.json")
+    _export_settings_bundle(export_dir / "evidence_export" / "configs" / "settings_bundle.json")
     combined = [
         "# Combined External Audit Packet",
         "",
@@ -545,6 +548,16 @@ def _export_strategy_capability_matrix(path: Path) -> None:
         payload = strategy_capability_export(loaded.policy)
         payload["status"] = "available"
     path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _export_settings_bundle(path: Path, *, root: Path = ROOT) -> None:
+    """Write the exact secret-free settings identity and staged controls."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(settings_export(load_settings_bundle(root)), indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
 
 
 def _write_audit_manifest(export_dir: Path, derived_manifest: dict[str, object], evidence_manifest: dict[str, object]) -> None:
