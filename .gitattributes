@@ -1,6 +1,16 @@
-# Canonical generated JSON is compared byte-for-byte by validation tests.
+# Canonical generated evidence is compared byte-for-byte by validation tests.
+README.md text eol=lf
+CHANGELOG.md text eol=lf
 issues/issue_registry.json text eol=lf
+issues/programme_control_state.json text eol=lf
+# The historical open ledger intentionally contains legacy line endings; keep
+# its generated source blob exact so platform checkout filters cannot drift it.
+issues/open.md -text
 data/.schema_versions/*.json text eol=lf
 docs/product-completion/*.json text eol=lf
 docs/product-completion/PROGRESS.md text eol=lf
+docs/product-completion/**/*.json text eol=lf
+docs/product-completion/**/*.csv text eol=lf
+docs/product-completion/**/*.md text eol=lf
+docs/product-completion/**/*.sha256 text eol=lf
 docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md -text -diff
