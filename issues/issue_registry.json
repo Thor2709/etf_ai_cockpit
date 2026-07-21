@@ -5223,9 +5223,9 @@
       "edges": [
         {
           "dependency_id": "ISSUE-0073",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
+          "evidence_state": "partial_interface",
+          "reason_code": "EDGE_EVIDENCE_PARTIAL_INTERFACE",
+          "resolved": true
         },
         {
           "dependency_id": "UPDATEV2-0011",
@@ -5236,9 +5236,9 @@
       ],
       "execution_allowed": false,
       "issue_id": "ISSUE-0082",
-      "ready": false,
+      "ready": true,
       "reason_codes": [
-        "BLOCKED_UNRESOLVED_DEPENDENCY"
+        "READY_BLOCKING_EDGES_RESOLVED"
       ],
       "required_inputs": []
     },
@@ -13918,6 +13918,20 @@
           "reviewed_date": "2026-07-21",
           "reviewer": "Codex scout reviewer and root",
           "status": "ready"
+        },
+        {
+          "evidence_references": [
+            "src/etf_cockpit/data/bitemporal.py BitemporalStore append-only/as-of/vintage contract",
+            "tests/test_bitemporal.py revision, retraction, ambiguity, timezone/DST and vintage-manifest fixtures",
+            "Final release specification records ISSUE-0073 as an integrated foundation with remaining repository-wide hardening",
+            "PR #468 merged as 5f7fc80e36cf685689cbea64cce16d9f1f8690a1 after Linux/Windows release run 29875987270, status guard 29875987254 and supply-chain 29875987283",
+            "GitHub ISSUE-0082 ready sync plan 0f8e216b0c3f27a6887f6d908bb3c30451dda82c41f689850d13c2dbef158c6a applied and readback f839838e0701f7ab85eb1f5baca8d5aa06e29c608bede1d4e176820fe3e4d215 contained zero actions",
+            "plans/BATCH-B02-DATA-SPINE-CONTINUATION.md dependency mapping"
+          ],
+          "review_reference": "B02 ISSUE-0082 dependency-interface review: bitemporal point-in-time contract and protected readiness convergence",
+          "reviewed_date": "2026-07-21",
+          "reviewer": "Codex scout reviewer, deep reviewer and root",
+          "status": "in_progress"
         }
       ],
       "activation_dependencies": [],
@@ -13941,12 +13955,19 @@
       "dependency_conversions": [],
       "dependency_edge_evidence": {
         "ISSUE-0073": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "src/etf_cockpit/data/bitemporal.py#BitemporalStore",
+          "evidence_references": [
+            "src/etf_cockpit/data/bitemporal.py BitemporalStore append-only/as-of/vintage contract",
+            "tests/test_bitemporal.py revision, retraction, ambiguity, timezone/DST and vintage-manifest fixtures",
+            "Final release specification records ISSUE-0073 as an integrated foundation with remaining repository-wide hardening",
+            "PR #468 merged as 5f7fc80e36cf685689cbea64cce16d9f1f8690a1 after Linux/Windows release run 29875987270, status guard 29875987254 and supply-chain 29875987283",
+            "GitHub ISSUE-0082 ready sync plan 0f8e216b0c3f27a6887f6d908bb3c30451dda82c41f689850d13c2dbef158c6a applied and readback f839838e0701f7ab85eb1f5baca8d5aa06e29c608bede1d4e176820fe3e4d215 contained zero actions",
+            "plans/BATCH-B02-DATA-SPINE-CONTINUATION.md dependency mapping"
+          ],
+          "reviewed_date": "2026-07-21",
+          "reviewer": "Codex scout reviewer, deep reviewer and root",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "partial_interface"
         },
         "UPDATEV2-0011": {
           "contract_reference": "src/etf_cockpit/data/instrument_identity.py#IdentityClaim,IdentityObject,IdentityConflict,resolve_identity_claims",
@@ -13999,7 +14020,7 @@
       "package_status": "",
       "phase": "phase-02-data-policy-identity",
       "priority": "P0",
-      "programme_status": "ready",
+      "programme_status": "in_progress",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0082-global-entity-instrument-fund-share-class-and-listing-identity-master",
@@ -14030,7 +14051,7 @@
       ],
       "title": "Create a global entity, instrument, fund, share-class and listing identity master",
       "ui_requirement": "Universe and Instrument pages show the identity graph, confidence and overrides.",
-      "verified_commit": "2eda82168314d582b94d0fbfc066e75327243fd2",
+      "verified_commit": "5f7fc80e36cf685689cbea64cce16d9f1f8690a1",
       "verified_date": "2026-07-21",
       "why": "Every analytical and trading record must refer to a stable object even when tickers or listings change.",
       "write_conflict_group": "data-platform"
@@ -25874,7 +25895,7 @@
   ],
   "schema_version": "2.0",
   "source_of_truth": {
-    "baseline_commit": "2eda82168314d582b94d0fbfc066e75327243fd2",
+    "baseline_commit": "5f7fc80e36cf685689cbea64cce16d9f1f8690a1",
     "closed_ledger_sha256": "2dca7fd65f7a218747bcfb91b4e5c1f734af26f29114cc7dc83b071bb86838d8",
     "final_release_manifest_sha256": "dbb71ecaa2b81206ff922eec3dcc72cb08cc001121688b107e8f1c3a2372f685",
     "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -25886,7 +25907,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "a4d9f1412ddf19ba1a292e9437f9f25b30ae7354f032ed70bfef81984ce38bde",
+    "programme_control_state_sha256": "97f961d02e5c42247dabf61596525f522f7d1783f7a122aa927f220549b73d3b",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
