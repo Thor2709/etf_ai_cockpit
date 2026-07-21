@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "4413de82baec0dcb00e9cc81e887200bf33a962a",
+    "generation_base_commit": "be837a16d3687a5d46e66da7d2f220218c3ded54",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -579,15 +579,25 @@
           "reviewed_date": "2026-07-21",
           "reviewer": "Codex independent reviewer",
           "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "PR #458 settings implementation merged as 3b159c25457c7376b7108999bd8a6c7bb13188fe with all protected checks passing",
+            "PR #462 merged ISSUE-0037 implemented_initially convergence as be837a16d3687a5d46e66da7d2f220218c3ded54 after exact guard, independent review and zero-action sync readback"
+          ],
+          "review_reference": "PR #458 implementation, independent review, protected release and sequential convergence evidence",
+          "reviewed_date": "2026-07-21",
+          "reviewer": "Codex independent reviewer",
+          "status": "integrated"
         }
       ],
       "dependency_edge_evidence": {},
       "phase": "phase-08-frontend-api",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
-        "from": "in_progress",
-        "review_reference": "PR #458 implementation, independent review, protected release and PR #461 convergence evidence",
-        "to": "implemented_initially"
+        "from": "implemented_initially",
+        "review_reference": "PR #458 implementation, independent review, protected release and sequential convergence evidence",
+        "to": "integrated"
       },
       "transition_history": [
         {
@@ -615,9 +625,22 @@
           "reviewer": "Codex independent reviewer",
           "to": "implemented_initially",
           "verified_commit": "4413de82baec0dcb00e9cc81e887200bf33a962a"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #458 settings implementation merged as 3b159c25457c7376b7108999bd8a6c7bb13188fe with all protected checks passing",
+            "PR #462 merged ISSUE-0037 implemented_initially convergence as be837a16d3687a5d46e66da7d2f220218c3ded54 after exact guard, independent review and zero-action sync readback"
+          ],
+          "from": "implemented_initially",
+          "review_reference": "PR #458 implementation, independent review, protected release and sequential convergence evidence",
+          "reviewed_date": "2026-07-21",
+          "reviewer": "Codex independent reviewer",
+          "to": "integrated",
+          "verified_commit": "be837a16d3687a5d46e66da7d2f220218c3ded54"
         }
       ],
-      "verified_commit": "4413de82baec0dcb00e9cc81e887200bf33a962a",
+      "verified_commit": "be837a16d3687a5d46e66da7d2f220218c3ded54",
       "verified_date": "2026-07-21"
     },
     "ISSUE-0038": {

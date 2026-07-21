@@ -10755,6 +10755,16 @@
           "reviewed_date": "2026-07-21",
           "reviewer": "Codex independent reviewer",
           "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "PR #458 settings implementation merged as 3b159c25457c7376b7108999bd8a6c7bb13188fe with all protected checks passing",
+            "PR #462 merged ISSUE-0037 implemented_initially convergence as be837a16d3687a5d46e66da7d2f220218c3ded54 after exact guard, independent review and zero-action sync readback"
+          ],
+          "review_reference": "PR #458 implementation, independent review, protected release and sequential convergence evidence",
+          "reviewed_date": "2026-07-21",
+          "reviewer": "Codex independent reviewer",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -10788,7 +10798,7 @@
       "package_status": "Open",
       "phase": "phase-08-frontend-api",
       "priority": "P1/P2",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#user-requirements-delta-issue-0037-settings-centre-for-currencies-horizons-profiles-depth-and-providers"
@@ -10815,7 +10825,7 @@
       "source_record_id": "ISSUE-0037",
       "source_title": "Config editor UI",
       "title": "Config editor UI",
-      "verified_commit": "4413de82baec0dcb00e9cc81e887200bf33a962a",
+      "verified_commit": "be837a16d3687a5d46e66da7d2f220218c3ded54",
       "verified_date": "2026-07-21",
       "why": "Configuration is executable policy in a finance system and must be controlled like code.",
       "write_conflict_group": "frontend-and-api"
@@ -25794,7 +25804,7 @@
   ],
   "schema_version": "2.0",
   "source_of_truth": {
-    "baseline_commit": "4413de82baec0dcb00e9cc81e887200bf33a962a",
+    "baseline_commit": "be837a16d3687a5d46e66da7d2f220218c3ded54",
     "closed_ledger_sha256": "2dca7fd65f7a218747bcfb91b4e5c1f734af26f29114cc7dc83b071bb86838d8",
     "final_release_manifest_sha256": "dbb71ecaa2b81206ff922eec3dcc72cb08cc001121688b107e8f1c3a2372f685",
     "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -25806,7 +25816,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "08c1ec0b7f51f531f6ee33eb12a08832c5b6f5cb39557dd20cc4c476ebf85d7a",
+    "programme_control_state_sha256": "0ba97919e466bd5ef077cd68d86dd216513d004be0e81a27c11c971bf72d4b07",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

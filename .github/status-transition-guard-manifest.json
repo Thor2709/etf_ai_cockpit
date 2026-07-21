@@ -3,23 +3,23 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "in_progress",
+      "from": "implemented_initially",
       "issue_id": "ISSUE-0037",
-      "to": "implemented_initially"
+      "to": "integrated"
     }
   ],
-  "base_commit": "4413de82baec0dcb00e9cc81e887200bf33a962a",
-  "branch": "codex/b01-status-convergence2-20260722",
+  "base_commit": "be837a16d3687a5d46e66da7d2f220218c3ded54",
+  "branch": "codex/b01-status-convergence3-20260722",
   "issue_ids": [
     "ISSUE-0037"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "b225a1d23474393f75004fec566b21f83d6be488614ff477e27fc888002df4c7",
+    "base_registry_sha256": "07b00931f1040fbc5dca21bb89baad88426283d115cddcec4ea28cb5421da2ca",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "07b00931f1040fbc5dca21bb89baad88426283d115cddcec4ea28cb5421da2ca",
-    "reason": "B01-POLICY second reviewed convergence: refresh the generation base and advance only ISSUE-0037 in_progress to implemented_initially using merged implementation, review and convergence evidence.",
+    "proposed_registry_sha256": "cee6b7d514f6552f45c24dc004ad139f7c3ecbc5ec5e9f107e27f62f973c9c3f",
+    "reason": "B01-POLICY final reviewed convergence: refresh the generation base and advance only ISSUE-0037 implemented_initially to integrated using merged implementation, independent review, protected-release and sequential-convergence evidence.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
