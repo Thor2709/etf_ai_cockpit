@@ -1,8 +1,8 @@
 {
   "metadata": {
-    "bootstrap": true,
-    "bootstrap_reason": "B00 initial import from the audited 2026-07-21 programme state before origin/main contained this control source",
-    "generation_base_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+    "bootstrap": false,
+    "bootstrap_reason": "",
+    "generation_base_commit": "2e5661b8c265ab438dd20e7b13e4ce4ebb13b8eb",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },

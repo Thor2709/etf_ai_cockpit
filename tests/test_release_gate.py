@@ -238,6 +238,11 @@ def test_release_workflow_is_matrixed_isolated_and_read_only() -> None:
     assert "fail-fast: false" in workflow
     assert "timeout-minutes: 45" in workflow
     assert "Configure isolated user profile" in workflow
+    assert "Pin reviewed canonical generation base" in workflow
+    assert "github.event.pull_request.base.sha || github.event.before" in workflow
+    assert "github.event.pull_request.base.ref || 'main'" in workflow
+    assert "git update-ref refs/remotes/origin/main \"$REVIEWED_BASE_SHA\"" in workflow
+    assert 'test "$(git rev-parse origin/main)" = "$REVIEWED_BASE_SHA"' in workflow
     assert "requirements-release-parsers.txt" in workflow
     assert "ETF_COCKPIT_RELEASE_BUILD: \"1\"" in workflow
     assert "name: release-gate-${{ github.sha }}-${{ matrix.platform }}" in workflow
