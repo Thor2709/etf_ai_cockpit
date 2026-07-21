@@ -1,6 +1,6 @@
 # Governance, scope and completion contract
 
-Phase `phase-01-governance-scope` covers `ISSUE-0070–ISSUE-0079`. The issue registry remains the canonical source for titles, priorities, state and acceptance criteria; this document records phase-specific implementation guidance.
+Phase `phase-01-governance-scope` covers `ISSUE-0010, ISSUE-0012–ISSUE-0015, ISSUE-0018–ISSUE-0019, ISSUE-0021, ISSUE-0024, ISSUE-0026–ISSUE-0027, ISSUE-0033–ISSUE-0034, ISSUE-0036, ISSUE-0039–ISSUE-0040, ISSUE-0044, ISSUE-0047, ISSUE-0049–ISSUE-0050, ISSUE-0053, ISSUE-0058, ISSUE-0061–ISSUE-0063, ISSUE-0070–ISSUE-0079, UPDATEV2-0012, UPDATEV2-0014, UPDATEV2-0017, UPDATEV2-0019–UPDATEV2-0020, UPDATEV2-0024–UPDATEV2-0025, UPDATEV2-0029`. The issue registry remains the canonical source for titles, priorities, state and acceptance criteria; this document records phase-specific implementation guidance.
 
 ## Objective
 
@@ -48,16 +48,16 @@ Deliver the bounded governance, scope and completion contract work with local-fi
 | `ISSUE-0013` | `P0` | `integrated` | `platform-and-operations` | - | - | - | `ISSUE-0141`, `ISSUE-0145`, `ISSUE-0152`, `UPDATEV2-0029` |
 | `ISSUE-0014` | `P0/P1` | `in_progress` | `programme-governance` | - | - | - | `ISSUE-0045`, `ISSUE-0143`, `ISSUE-0152` |
 | `ISSUE-0015` | `P1` | `implemented_initially` | `programme-governance` | - | - | - | `ISSUE-0070`, `ISSUE-0075`, `ISSUE-0152` |
-| `ISSUE-0018` | `P0/P1` | `implemented_initially` | `programme-governance` | - | - | - | `ISSUE-0082`, `ISSUE-0083`, `ISSUE-0126`, `UPDATEV2-0011` |
+| `ISSUE-0018` | `P0/P1` | `implemented_initially` | `programme-governance` | - | - | `ISSUE-0165` | `ISSUE-0082`, `ISSUE-0083`, `ISSUE-0126`, `UPDATEV2-0011` |
 | `ISSUE-0019` | `P0/P1` | `implemented_initially` | `programme-governance` | - | - | - | `ISSUE-0091`, `ISSUE-0116`, `ISSUE-0138` |
 | `ISSUE-0021` | `P1` | `implemented_initially` | `programme-governance` | - | - | `ISSUE-0113`, `ISSUE-0116` | `ISSUE-0110`, `ISSUE-0116`, `ISSUE-0130` |
-| `ISSUE-0024` | `P1/P2` | `implemented_initially` | `programme-governance` | - | - | - | `ISSUE-0073`, `ISSUE-0084`, `ISSUE-0085`, `ISSUE-0130` |
+| `ISSUE-0024` | `P1/P2` | `implemented_initially` | `programme-governance` | - | - | `ISSUE-0163` | `ISSUE-0073`, `ISSUE-0084`, `ISSUE-0085`, `ISSUE-0130` |
 | `ISSUE-0026` | `P1/P2` | `implemented_initially` | `programme-governance` | - | - | - | `ISSUE-0073`, `ISSUE-0088`, `ISSUE-0115` |
 | `ISSUE-0027` | `P1` | `implemented_initially` | `programme-governance` | - | - | `ISSUE-0117` | `ISSUE-0117`, `ISSUE-0124`, `ISSUE-0139` |
 | `ISSUE-0033` | `P2` | `planned` | `programme-governance` | - | - | - | `ISSUE-0024`, `ISSUE-0077`, `ISSUE-0132`, `ISSUE-0135` |
 | `ISSUE-0034` | `P1` | `implemented_initially` | `programme-governance` | - | - | - | `ISSUE-0075`, `ISSUE-0090`, `ISSUE-0116`, `ISSUE-0134` |
 | `ISSUE-0036` | `P1/P2` | `implemented_initially` | `programme-governance` | - | - | `ISSUE-0086` | `ISSUE-0081`, `ISSUE-0086`, `ISSUE-0127`, `ISSUE-0146` |
-| `ISSUE-0039` | `P1/P2` | `in_progress` | `platform-and-operations` | - | - | - | `ISSUE-0077`, `ISSUE-0078`, `ISSUE-0151` |
+| `ISSUE-0039` | `P1/P2` | `in_progress` | `platform-and-operations` | - | - | `ISSUE-0175` | `ISSUE-0077`, `ISSUE-0078`, `ISSUE-0151` |
 | `ISSUE-0040` | `P1` | `in_progress` | `platform-and-operations` | - | - | - | `ISSUE-0077`, `ISSUE-0089`, `ISSUE-0135`, `ISSUE-0146` |
 | `ISSUE-0044` | `P1/P2` | `implemented_initially` | `platform-and-operations` | - | - | `ISSUE-0146` | `ISSUE-0145`, `ISSUE-0146` |
 | `ISSUE-0047` | `P1` | `implemented_initially` | `programme-governance` | - | - | - | `ISSUE-0074`, `ISSUE-0098`, `ISSUE-0138` |
@@ -72,11 +72,11 @@ Deliver the bounded governance, scope and completion contract work with local-fi
 | `ISSUE-0071` | `P0` | `integrated` | `programme-governance` | `ISSUE-0070` | - | `ISSUE-0072`, `ISSUE-0074`, `ISSUE-0076`, `ISSUE-0136` | - |
 | `ISSUE-0072` | `P0` | `integrated` | `data-platform` | `ISSUE-0038`, `ISSUE-0071` | - | `ISSUE-0073`, `ISSUE-0075`, `ISSUE-0077`, `ISSUE-0081`, `ISSUE-0090`, `ISSUE-0127` | - |
 | `ISSUE-0073` | `P0` | `integrated` | `data-platform` | `ISSUE-0072` | - | `ISSUE-0074`, `ISSUE-0082`, `ISSUE-0084`, `ISSUE-0088`, `ISSUE-0089`, `ISSUE-0091`, `ISSUE-0119`, `ISSUE-0126` | - |
-| `ISSUE-0074` | `P0` | `integrated` | `scoring-and-evidence` | `ISSUE-0071`, `ISSUE-0073` | - | `ISSUE-0075`, `ISSUE-0092`, `ISSUE-0098`, `ISSUE-0108`, `ISSUE-0142` | - |
+| `ISSUE-0074` | `P0` | `integrated` | `scoring-and-evidence` | `ISSUE-0071`, `ISSUE-0073` | - | `ISSUE-0075`, `ISSUE-0092`, `ISSUE-0098`, `ISSUE-0108`, `ISSUE-0142`, `ISSUE-0161`, `ISSUE-0165`, `ISSUE-0169`, `ISSUE-0172`, `ISSUE-0174` | - |
 | `ISSUE-0075` | `P0` | `integrated` | `reproducibility` | `ISSUE-0072`, `ISSUE-0074` | - | `ISSUE-0077`, `ISSUE-0090`, `ISSUE-0117`, `ISSUE-0141`, `ISSUE-0147` | - |
-| `ISSUE-0076` | `P0/P1` | `integrated` | `platform-and-operations` | `ISSUE-0070`, `ISSUE-0071` | - | `ISSUE-0080`, `ISSUE-0144` | - |
-| `ISSUE-0077` | `P0` | `integrated` | `platform-and-operations` | `ISSUE-0072`, `ISSUE-0075` | - | `ISSUE-0078`, `ISSUE-0081` | - |
-| `ISSUE-0078` | `P0/P1` | `integrated` | `platform-and-operations` | `ISSUE-0077` | - | `ISSUE-0151` | - |
+| `ISSUE-0076` | `P0/P1` | `integrated` | `platform-and-operations` | `ISSUE-0070`, `ISSUE-0071` | - | `ISSUE-0080`, `ISSUE-0144`, `ISSUE-0155`, `ISSUE-0170`, `ISSUE-0171`, `ISSUE-0173`, `ISSUE-0176` | - |
+| `ISSUE-0077` | `P0` | `integrated` | `platform-and-operations` | `ISSUE-0072`, `ISSUE-0075` | - | `ISSUE-0078`, `ISSUE-0081`, `ISSUE-0165`, `ISSUE-0175` | - |
+| `ISSUE-0078` | `P0/P1` | `integrated` | `platform-and-operations` | `ISSUE-0077` | - | `ISSUE-0151`, `ISSUE-0175` | - |
 | `ISSUE-0079` | `P0` | `hardening_required` | `security-and-release` | `ISSUE-0145`, `ISSUE-0149` | - | `ISSUE-0085` | - |
 | `UPDATEV2-0012` | `P0` | `implemented_initially` | `programme-governance` | - | - | `ISSUE-0087`, `ISSUE-0091` | `ISSUE-0073`, `ISSUE-0081`, `ISSUE-0091` |
 | `UPDATEV2-0014` | `P1` | `implemented_initially` | `programme-governance` | - | - | `ISSUE-0087` | `ISSUE-0076`, `ISSUE-0087` |

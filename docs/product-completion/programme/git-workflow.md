@@ -1,8 +1,8 @@
 # Git workflow
 
-- Working branch: `codex/issue-0097-capital-efficiency-20260720`.
-- Base: `e31dcfda69383cc9066a4fe747caa1e8ca81f2a0` (`origin/main`).
-- Worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\issue0097-capital-efficiency-20260720`.
+- Working branch: `implementation/b00-control-20260721`.
+- Base: `452d44034197cd5d837c1854603eea030e02acf6` (`origin/main`).
+- Worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\b00-control-owner-20260721`.
 - Keep the primary checkout and its unrelated untracked files untouched.
 - Review `git diff`, run targeted checks, commit the focused change, then use capability-based GitHub checks before any push or issue apply.
 - Do not commit the supplied ZIP; commit the archived extracted members, manifest, registry, documents, scripts and tests.

@@ -1647,3 +1647,297 @@ chronologically ordered audit export. Six bounded fix/review cycles ended with
 fresh independent SPEC/CODE approval and no Critical or Important findings.
 The strict release/package, audit/export, clean-first-run and browser/
 computer-use gates remain outstanding, so these issues stay in `issues/open.md`.
+
+<!-- BEGIN GENERATED FINAL RELEASE ISSUES -->
+
+# Final-release adopted issues
+
+## ISSUE-0153 - Create the fixed-income instrument, terms and cash-flow identity master
+
+**Status:** Open — planned
+**Priority:** P0
+**Owner:** data-platform
+**Phase:** phase-02-data-policy-identity
+**Blocking dependencies:** `ISSUE-0082`, `ISSUE-0083`, `ISSUE-0085`
+**Execution allowed:** false
+
+Canonical contract: `docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md` (#### `ISSUE-0153` — Create the fixed-income instrument, terms and cash-flow identity master
+).
+
+## ISSUE-0154 - Implement fixed-income cash-flow, clean/dirty pricing and yield/risk analytics
+
+**Status:** Open — planned
+**Priority:** P0
+**Owner:** returns-and-risk
+**Phase:** phase-05-returns-risk-portfolio
+**Blocking dependencies:** `ISSUE-0085`, `ISSUE-0088`, `ISSUE-0153`
+**Execution allowed:** false
+
+Canonical contract: `docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md` (#### `ISSUE-0154` — Implement fixed-income cash-flow, clean/dirty pricing and yield/risk analytics
+).
+
+## ISSUE-0155 - Add fixed-income reference, curve, trade and liquidity data adapters
+
+**Status:** Open — planned
+**Priority:** P0/P1
+**Owner:** data-platform
+**Phase:** phase-02-data-policy-identity
+**Blocking dependencies:** `ISSUE-0076`, `ISSUE-0081`, `ISSUE-0088`, `ISSUE-0149`, `ISSUE-0153`
+**Execution allowed:** false
+
+Canonical contract: `docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md` (#### `ISSUE-0155` — Add fixed-income reference, curve, trade and liquidity data adapters
+).
+
+## ISSUE-0156 - Implement fixed-income rate, curve, spread, credit, liquidity and optionality risk
+
+**Status:** Open — planned
+**Priority:** P0/P1
+**Owner:** returns-and-risk
+**Phase:** phase-05-returns-risk-portfolio
+**Blocking dependencies:** `ISSUE-0091`, `ISSUE-0111`, `ISSUE-0154`, `ISSUE-0155`
+**Execution allowed:** false
+
+Canonical contract: `docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md` (#### `ISSUE-0156` — Implement fixed-income rate, curve, spread, credit, liquidity and optionality risk
+).
+
+## ISSUE-0157 - Build fixed-income expected total-return distributions, peers and screener
+
+**Status:** Open — planned
+**Priority:** P0/P1
+**Owner:** returns-and-risk
+**Phase:** phase-05-returns-risk-portfolio
+**Blocking dependencies:** `ISSUE-0098`, `ISSUE-0108`, `ISSUE-0109`, `ISSUE-0112`, `ISSUE-0120`, `ISSUE-0123`, `ISSUE-0154`, `ISSUE-0155`, `ISSUE-0156`
+**Execution allowed:** false
+
+Canonical contract: `docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md` (#### `ISSUE-0157` — Build fixed-income expected total-return distributions, peers and screener
+).
+
+## ISSUE-0158 - Create bond detail, portfolio maturity ladder and fixed-income income views
+
+**Status:** Open — planned
+**Priority:** P1
+**Owner:** frontend-and-api
+**Phase:** phase-08-frontend-api
+**Blocking dependencies:** `ISSUE-0136`, `ISSUE-0137`, `ISSUE-0138`, `ISSUE-0139`, `ISSUE-0140`, `ISSUE-0153`, `ISSUE-0154`, `ISSUE-0155`, `ISSUE-0156`, `ISSUE-0157`, `ISSUE-0161`, `ISSUE-0162`
+**Execution allowed:** false
+
+Canonical contract: `docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md` (#### `ISSUE-0158` — Create bond detail, portfolio maturity ladder and fixed-income income views
+).
+
+## ISSUE-0159 - Implement daily portfolio valuation history and standards-aligned performance measurement
+
+**Status:** Open — planned
+**Priority:** P0
+**Owner:** returns-and-risk
+**Phase:** phase-05-returns-risk-portfolio
+**Blocking dependencies:** `ISSUE-0084`, `ISSUE-0085`, `ISSUE-0127`
+**Execution allowed:** false
+
+Canonical contract: `docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md` (#### `ISSUE-0159` — Implement daily portfolio valuation history and standards-aligned performance measurement
+).
+
+## ISSUE-0160 - Build selectable portfolio value, selected-currency P&L and percentage-performance charts
+
+**Status:** Open — planned
+**Priority:** P0/P1
+**Owner:** frontend-and-api
+**Phase:** phase-08-frontend-api
+**Blocking dependencies:** `ISSUE-0139`, `ISSUE-0159`
+**Execution allowed:** false
+
+Canonical contract: `docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md` (#### `ISSUE-0160` — Build selectable portfolio value, selected-currency P&L and percentage-performance charts
+).
+
+## ISSUE-0161 - Build the portfolio holdings analysis table and cross-surface drill-down
+
+**Status:** Open — planned
+**Priority:** P0/P1
+**Owner:** frontend-and-api
+**Phase:** phase-08-frontend-api
+**Blocking dependencies:** `ISSUE-0074`, `ISSUE-0127`, `ISSUE-0138`, `ISSUE-0139`, `ISSUE-0159`
+**Execution allowed:** false
+
+Canonical contract: `docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md` (#### `ISSUE-0161` — Build the portfolio holdings analysis table and cross-surface drill-down
+).
+
+## ISSUE-0162 - Implement coverage-aware portfolio exposure, look-through and concentration charts
+
+**Status:** Open — planned
+**Priority:** P1
+**Owner:** returns-and-risk
+**Phase:** phase-05-returns-risk-portfolio
+**Blocking dependencies:** `ISSUE-0022`, `ISSUE-0083`, `ISSUE-0105`, `ISSUE-0127`, `ISSUE-0153`
+**Execution allowed:** false
+
+Canonical contract: `docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md` (#### `ISSUE-0162` — Implement coverage-aware portfolio exposure, look-through and concentration charts
+).
+
+## ISSUE-0163 - Implement portfolio income, event, maturity and liquidity calendar
+
+**Status:** Open — planned
+**Priority:** P1
+**Owner:** frontend-and-api
+**Phase:** phase-08-frontend-api
+**Blocking dependencies:** `ISSUE-0024`, `ISSUE-0084`, `ISSUE-0127`, `ISSUE-0153`, `ISSUE-0158`, `ISSUE-0161`
+**Execution allowed:** false
+
+Canonical contract: `docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md` (#### `ISSUE-0163` — Implement portfolio income, event, maturity and liquidity calendar
+).
+
+## ISSUE-0164 - Add portfolio goals, constraints, alerts and pre-trade what-if analysis
+
+**Status:** Open — planned
+**Priority:** P1
+**Owner:** programme-governance
+**Phase:** phase-05-returns-risk-portfolio
+**Blocking dependencies:** `ISSUE-0113`, `ISSUE-0114`, `ISSUE-0115`, `ISSUE-0116`, `ISSUE-0127`, `ISSUE-0161`, `ISSUE-0162`, `ISSUE-0163`
+**Execution allowed:** false
+
+Canonical contract: `docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md` (#### `ISSUE-0164` — Add portfolio goals, constraints, alerts and pre-trade what-if analysis
+).
+
+## ISSUE-0165 - Implement a canonical resumable bulk analysis-run orchestrator
+
+**Status:** Open — planned
+**Priority:** P0
+**Owner:** application-platform
+**Phase:** phase-08-frontend-api
+**Blocking dependencies:** `ISSUE-0018`, `ISSUE-0020`, `ISSUE-0074`, `ISSUE-0077`, `ISSUE-0081`, `ISSUE-0126`
+**Execution allowed:** false
+
+Canonical contract: `docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md` (#### `ISSUE-0165` — Implement a canonical resumable bulk analysis-run orchestrator
+).
+
+## ISSUE-0166 - Implement cross-asset top-*N* selection and portfolio-fit ranking
+
+**Status:** Open — planned
+**Priority:** P0/P1
+**Owner:** returns-and-risk
+**Phase:** phase-05-returns-risk-portfolio
+**Blocking dependencies:** `ISSUE-0020`, `ISSUE-0108`, `ISSUE-0109`, `ISSUE-0110`, `ISSUE-0111`, `ISSUE-0112`, `ISSUE-0113`, `ISSUE-0128`, `ISSUE-0157`, `ISSUE-0165`
+**Execution allowed:** false
+
+Canonical contract: `docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md` (#### `ISSUE-0166` — Implement cross-asset top-*N* selection and portfolio-fit ranking
+).
+
+## ISSUE-0167 - Implement settlement, buying-power, cash reservation and deterministic order-state accounting
+
+**Status:** Open — planned
+**Priority:** P0
+**Owner:** trading-safety
+**Phase:** phase-07-backtest-paper-execution
+**Blocking dependencies:** `ISSUE-0085`, `ISSUE-0114`, `ISSUE-0127`, `ISSUE-0130`, `ISSUE-0131`, `ISSUE-0132`, `ISSUE-0133`, `ISSUE-0134`, `ISSUE-0135`
+**Execution allowed:** false
+
+Canonical contract: `docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md` (#### `ISSUE-0167` — Implement settlement, buying-power, cash reservation and deterministic order-state accounting
+).
+
+## ISSUE-0168 - Add portfolio forecast aggregation and expected gain/loss scenario views
+
+**Status:** Open — planned
+**Priority:** P1
+**Owner:** returns-and-risk
+**Phase:** phase-05-returns-risk-portfolio
+**Blocking dependencies:** `ISSUE-0108`, `ISSUE-0109`, `ISSUE-0110`, `ISSUE-0111`, `ISSUE-0115`, `ISSUE-0127`, `ISSUE-0161`
+**Execution allowed:** false
+
+Canonical contract: `docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md` (#### `ISSUE-0168` — Add portfolio forecast aggregation and expected gain/loss scenario views
+).
+
+## ISSUE-0169 - Implement canonical analysis parity and deterministic replay tests across workflows
+
+**Status:** Open — planned
+**Priority:** P0
+**Owner:** quality-and-release
+**Phase:** phase-09-quality-release-security
+**Blocking dependencies:** `ISSUE-0074`, `ISSUE-0136`, `ISSUE-0142`, `ISSUE-0152`, `ISSUE-0161`, `ISSUE-0165`, `ISSUE-0167`
+**Execution allowed:** false
+
+Canonical contract: `docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md` (#### `ISSUE-0169` — Implement canonical analysis parity and deterministic replay tests across workflows
+).
+
+## ISSUE-0170 - Create the ordinary-fund vehicle, sub-fund, share-class, dealing and lifecycle identity master
+
+**Status:** Open — planned
+**Priority:** P0
+**Owner:** data-platform
+**Phase:** phase-02-data-policy-identity
+**Blocking dependencies:** `ISSUE-0076`, `ISSUE-0082`, `ISSUE-0083`, `ISSUE-0085`, `ISSUE-0149`
+**Execution allowed:** false
+
+Canonical contract: `docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md` (#### `ISSUE-0170` — Create the ordinary-fund vehicle, sub-fund, share-class, dealing and lifecycle identity master
+).
+
+## ISSUE-0171 - Implement lawful free global ordinary-fund NAV, disclosure, holdings and fee adapters
+
+**Status:** Open — planned
+**Priority:** P0
+**Owner:** data-platform
+**Phase:** phase-02-data-policy-identity
+**Blocking dependencies:** `ISSUE-0076`, `ISSUE-0080`, `ISSUE-0081`, `ISSUE-0149`, `ISSUE-0170`, `ISSUE-0176`
+**Execution allowed:** false
+
+Canonical contract: `docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md` (#### `ISSUE-0171` — Implement lawful free global ordinary-fund NAV, disclosure, holdings and fee adapters
+).
+
+## ISSUE-0172 - Build ordinary-fund analysis, peer cohorts, forecasts, recommendations and top-*N* screening
+
+**Status:** Open — planned
+**Priority:** P0
+**Owner:** etf-and-fund-research
+**Phase:** phase-04-etf-research
+**Blocking dependencies:** `ISSUE-0074`, `ISSUE-0098`, `ISSUE-0105`, `ISSUE-0108`, `ISSUE-0109`, `ISSUE-0112`, `ISSUE-0120`, `ISSUE-0123`, `ISSUE-0128`, `ISSUE-0170`, `ISSUE-0171`, `ISSUE-0173`, `ISSUE-0174`, `ISSUE-0175`
+**Execution allowed:** false
+
+Canonical contract: `docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md` (#### `ISSUE-0172` — Build ordinary-fund analysis, peer cohorts, forecasts, recommendations and top-*N* screening
+).
+
+## ISSUE-0173 - Implement user-selected output currency and point-in-time FX across every workflow
+
+**Status:** Open — planned
+**Priority:** P0
+**Owner:** returns-and-risk
+**Phase:** phase-05-returns-risk-portfolio
+**Blocking dependencies:** `ISSUE-0076`, `ISSUE-0084`, `ISSUE-0088`, `ISSUE-0089`, `ISSUE-0149`, `ISSUE-0176`
+**Execution allowed:** false
+
+Canonical contract: `docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md` (#### `ISSUE-0173` — Implement user-selected output currency and point-in-time FX across every workflow
+).
+
+## ISSUE-0174 - Implement five preset-but-editable risk profiles anchored to a dynamic VWCE envelope
+
+**Status:** Open — planned
+**Priority:** P0
+**Owner:** programme-governance
+**Phase:** phase-05-returns-risk-portfolio
+**Blocking dependencies:** `ISSUE-0074`, `ISSUE-0108`, `ISSUE-0109`, `ISSUE-0110`, `ISSUE-0111`, `ISSUE-0112`, `ISSUE-0123`, `ISSUE-0128`, `ISSUE-0173`
+**Execution allowed:** false
+
+Canonical contract: `docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md` (#### `ISSUE-0174` — Implement five preset-but-editable risk profiles anchored to a dynamic VWCE envelope
+).
+
+## ISSUE-0175 - Implement Quick, Medium, High and Full analysis-depth workload profiles with measured SLOs
+
+**Status:** Open — planned
+**Priority:** P0
+**Owner:** application-platform
+**Phase:** phase-08-frontend-api
+**Blocking dependencies:** `ISSUE-0039`, `ISSUE-0077`, `ISSUE-0078`, `ISSUE-0121`, `ISSUE-0151`, `ISSUE-0165`
+**Execution allowed:** false
+
+Canonical contract: `docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md` (#### `ISSUE-0175` — Implement Quick, Medium, High and Full analysis-depth workload profiles with measured SLOs
+).
+
+## ISSUE-0176 - Build a secure Data Providers & API Keys settings centre
+
+**Status:** Open — planned
+**Priority:** P0
+**Owner:** security-and-release
+**Phase:** phase-09-quality-release-security
+**Blocking dependencies:** `ISSUE-0037`, `ISSUE-0076`, `ISSUE-0080`, `ISSUE-0144`, `ISSUE-0145`, `ISSUE-0146`, `ISSUE-0149`
+**Execution allowed:** false
+
+Canonical contract: `docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md` (#### `ISSUE-0176` — Build a secure Data Providers & API Keys settings centre
+).
+
+<!-- END GENERATED FINAL RELEASE ISSUES -->
