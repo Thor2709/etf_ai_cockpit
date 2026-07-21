@@ -153,7 +153,7 @@ def test_known_asset_with_unknown_cfi_or_missing_liquidity_fails_closed() -> Non
     )
     missing_liquidity = resolve_instrument_capability(
         policy,
-        InstrumentDescriptor(asset_type="etf", security_type="ordinary_etf"),
+        InstrumentDescriptor(asset_type="etf", security_type="ordinary_etf", cfi_code="CEQXXX"),
         stage="analyse",
         horizon="1M",
     )
@@ -162,9 +162,25 @@ def test_known_asset_with_unknown_cfi_or_missing_liquidity_fails_closed() -> Non
     assert (missing_liquidity.state, missing_liquidity.reason_code) == ("unavailable", "LIQUIDITY_EVIDENCE_MISSING")
 
 
+@pytest.mark.parametrize(
+    "descriptor",
+    [
+        InstrumentDescriptor(asset_type="stock", market_cap_usd=10_000_000_000, average_daily_value_usd=25_000_000),
+        InstrumentDescriptor(asset_type="stock", security_type="ordinary_share", market_cap_usd=10_000_000_000, average_daily_value_usd=25_000_000),
+        InstrumentDescriptor(security_type="ordinary_share", cfi_code="ESVUFR", market_cap_usd=10_000_000_000, average_daily_value_usd=25_000_000),
+    ],
+)
+def test_partial_classification_evidence_is_unavailable(descriptor: InstrumentDescriptor) -> None:
+    decision = resolve_instrument_capability(_policy(), descriptor, stage="analyse", horizon="1M")
+
+    assert (decision.state, decision.reason_code) == ("unavailable", "CLASSIFICATION_EVIDENCE_INCOMPLETE")
+    assert decision.allowed_actions == ()
+    assert decision.execution_allowed is False
+
+
 def test_fund_dealing_frequency_can_make_one_week_horizon_unavailable() -> None:
     policy = _policy()
-    fund = InstrumentDescriptor(asset_type="ordinary_fund", security_type="mutual_fund", dealing_frequency="weekly")
+    fund = InstrumentDescriptor(asset_type="ordinary_fund", security_type="mutual_fund", cfi_code="CIXXXX", dealing_frequency="weekly")
 
     decision = resolve_instrument_capability(policy, fund, stage="analyse", horizon="1W")
 
@@ -182,6 +198,67 @@ def test_exclusion_thresholds_are_bounded_by_the_schema() -> None:
 
     with pytest.raises(ValidationError, match="minimum_average_daily_value_usd"):
         StrategyScopePolicy.model_validate({**payload, "entries": entries})
+
+
+def test_legacy_v1_scope_migrates_deterministically_to_v2(tmp_path: Path) -> None:
+    current = yaml.safe_load(DEFAULT_POLICY_PATHS.strategy_scope.read_text(encoding="utf-8"))
+    legacy = {
+        key: value
+        for key, value in current.items()
+        if key
+        not in {
+            "matrix_version",
+            "ui_surface",
+            "capability_profiles",
+            "profile_assignments",
+            "instrument_rules",
+            "exclusion_policy",
+        }
+    }
+    legacy["schema_version"] = "1.0"
+    legacy["policy_version"] = "2026-07-12"
+    legacy["strategies"] = [
+        entry
+        for entry in legacy["strategies"]
+        if entry["strategy_id"] not in {"futures", "intraday", "options", "shorting", "event_driven_filings", "alternative_data"}
+    ]
+    path = tmp_path / "strategy_scope_v1.yaml"
+    path.write_text(yaml.safe_dump(legacy, sort_keys=False), encoding="utf-8")
+
+    first = load_strategy_scope(path)
+    second = load_strategy_scope(path)
+
+    assert first.policy is not None
+    assert first.diagnostic_mode is False
+    assert first.policy.schema_version == "2.0"
+    assert first.policy.migrated_from_schema == "1.0"
+    assert first.policy.migration_source_checksum == first.checksum
+    assert len(first.policy.effective_checksum) == 64
+    assert first.policy.model_dump(mode="json") == second.policy.model_dump(mode="json")
+    assert {"futures", "intraday", "options", "shorting", "event_driven_filings", "alternative_data"} <= {
+        entry.strategy_id for entry in first.policy.entries
+    }
+    assert resolve_strategy_capability(first.policy, strategy_id="martingale", stage="analyse").state == "rejected"
+
+
+def test_legacy_v1_migration_rejects_duplicate_strategy_ids(tmp_path: Path) -> None:
+    current = yaml.safe_load(DEFAULT_POLICY_PATHS.strategy_scope.read_text(encoding="utf-8"))
+    legacy = {
+        "schema_version": "1.0",
+        "policy_id": "legacy-strategy-scope",
+        "policy_version": "1",
+        "execution_allowed": False,
+        "executable_authority": False,
+        "strategies": [current["strategies"][0], current["strategies"][0]],
+    }
+    path = tmp_path / "duplicate-v1.yaml"
+    path.write_text(yaml.safe_dump(legacy, sort_keys=False), encoding="utf-8")
+
+    result = load_strategy_scope(path)
+
+    assert result.diagnostic_mode is True
+    assert "legacy strategy identifiers must be unique" in result.diagnostics[0]
+    assert result.execution_allowed is False
 
 
 def test_capability_export_contains_resolved_rows_and_no_live_authority(tmp_path: Path) -> None:

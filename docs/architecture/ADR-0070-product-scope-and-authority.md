@@ -45,6 +45,12 @@ canary and bounded-automatic cells are unavailable or rejected in the current
 policy, and every resolved row and audit export states
 `execution_allowed=false`.
 
+Strategy scope schema `2.0` replaces the initial lifecycle-only `1.0` shape.
+The loader migrates a legacy local policy in memory against the single
+canonical v2 matrix, preserves legacy strategy metadata, adds newly required
+families, rejects duplicate identifiers, and records both the source and
+effective checksums. It never rewrites the source policy implicitly.
+
 Historical rejection records are preserved. This ADR supersedes ambiguous
 scope wording for the current completion programme; it does not grant live
 execution authority or promise returns, alpha or equivalence with a

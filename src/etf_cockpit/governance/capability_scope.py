@@ -196,6 +196,23 @@ def resolve_instrument_capability(
     if descriptor.average_daily_value_usd is not None and descriptor.average_daily_value_usd < exclusion.minimum_average_daily_value_usd:
         return _rejected_instrument(stage=stage, horizon=horizon, reason_code="EXCLUDED_ILLIQUID_INSTRUMENT")
 
+    missing_classifiers = tuple(
+        label
+        for label, value in (
+            ("asset_type", descriptor.asset_type),
+            ("security_type", descriptor.security_type),
+            ("cfi_code", descriptor.cfi_code),
+        )
+        if not value.strip()
+    )
+    if missing_classifiers:
+        return _rejected_instrument(
+            stage=stage,
+            horizon=horizon,
+            state="unavailable",
+            reason_code="CLASSIFICATION_EVIDENCE_INCOMPLETE",
+        )
+
     families, unresolved_classifiers = _classification_evidence(policy, descriptor)
     if not families:
         return _rejected_instrument(stage=stage, horizon=horizon, reason_code="UNKNOWN_INSTRUMENT_CLASSIFICATION")
@@ -319,6 +336,9 @@ def strategy_capability_export(policy: StrategyScopePolicy) -> dict[str, object]
         "policy_id": policy.policy_id,
         "policy_version": policy.policy_version,
         "policy_checksum": policy.checksum,
+        "effective_checksum": policy.effective_checksum,
+        "migrated_from_schema": policy.migrated_from_schema,
+        "migration_source_checksum": policy.migration_source_checksum,
         "execution_allowed": False,
         "long_only_actions": ["buy_add", "hold", "avoid_no_trade", "trim_sell", "manual_review"],
         "strategy_matrix": strategy_rows,

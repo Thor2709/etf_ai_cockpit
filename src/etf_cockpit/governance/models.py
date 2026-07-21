@@ -25,6 +25,7 @@ from etf_cockpit.signals.research_states import (
 
 
 SCHEMA_VERSION = "1.0"
+STRATEGY_SCOPE_SCHEMA_VERSION = "2.0"
 SUPPORTED_SCHEMA_VERSIONS = frozenset({SCHEMA_VERSION})
 Checksum = str
 Lifecycle = Literal[
@@ -555,6 +556,10 @@ class StrategyScopeEntry(ImmutableModel):
 class StrategyScopePolicy(PolicyModel):
     """Supported, context-only, research-only and rejected strategy families."""
 
+    schema_version: Literal[STRATEGY_SCOPE_SCHEMA_VERSION] = STRATEGY_SCOPE_SCHEMA_VERSION
+    migrated_from_schema: Literal["1.0"] | None = None
+    migration_source_checksum: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    effective_checksum: str = Field(default="unavailable", pattern=r"^(?:unavailable|[0-9a-f]{64})$")
     matrix_version: str = Field(min_length=1)
     ui_surface: Literal["system_map"]
     capability_profiles: tuple[StrategyCapabilityProfile, ...]
@@ -694,6 +699,7 @@ class GovernanceLoadResult(ImmutableModel, Generic[PolicyT]):
 
 __all__ = [
     "SCHEMA_VERSION",
+    "STRATEGY_SCOPE_SCHEMA_VERSION",
     "SUPPORTED_SCHEMA_VERSIONS",
     "REQUIRED_GATE_IDS",
     "REQUIRED_GLOSSARY_TERMS",
