@@ -619,8 +619,21 @@ def test_score_evidence_distinguishes_official_and_missing_sources(tmp_path, mon
         status="OK",
         authority="high",
         source_id="sec_edgar:companyfacts",
+        as_of_date="2026-07-21",
+        freshness_status="fresh",
         explanation="Official filing fact",
         why="Fixture-backed official source",
+    )
+    stale_official = SimpleNamespace(
+        key="stale_filing_metric",
+        score_10=8.0,
+        status="OK",
+        authority="high",
+        source_id="sec_edgar:companyfacts",
+        as_of_date="2026-07-10",
+        freshness_status="stale",
+        explanation="Stale official filing fact",
+        why="Official evidence is outside the freshness window",
     )
     missing = SimpleNamespace(
         key="missing_metric",
@@ -631,14 +644,22 @@ def test_score_evidence_distinguishes_official_and_missing_sources(tmp_path, mon
         explanation="Missing source fixture",
         why="Source is unavailable",
     )
-    score = SimpleNamespace(display_id="MSFT", latest_date="2026-07-10", components=[official, missing])
+    score = SimpleNamespace(
+        display_id="MSFT",
+        latest_date="2026-07-21",
+        components=[official, stale_official, missing],
+    )
 
-    frame = pd.read_parquet(trust.write_evidence_ledger([score], run_id="run-source-gates", created_at="2026-07-10T00:00:00Z"))
+    frame = pd.read_parquet(trust.write_evidence_ledger([score], run_id="run-source-gates", created_at="2026-07-21T00:00:00Z"))
     official_row = frame.loc[frame["component"] == "filing_metric"].iloc[0]
+    stale_official_row = frame.loc[frame["component"] == "stale_filing_metric"].iloc[0]
     missing_row = frame.loc[frame["component"] == "missing_metric"].iloc[0]
 
     assert official_row["source_authority"] == "official_regulator"
     assert bool(official_row["score_eligible"]) is True
+    assert stale_official_row["source_authority"] == "official_regulator"
+    assert stale_official_row["freshness_status"] == "stale"
+    assert bool(stale_official_row["score_eligible"]) is False
     assert missing_row["source_authority"] == "unknown"
     assert bool(missing_row["score_eligible"]) is False
 

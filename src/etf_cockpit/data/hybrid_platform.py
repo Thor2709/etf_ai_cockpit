@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
+from itertools import islice
 import json
+import os
 from pathlib import Path
 import re
 from typing import Any
+import uuid
 
 import duckdb
 import pandas as pd
@@ -17,6 +20,9 @@ from etf_cockpit.data.local_storage import StorageIntegrity, StorageLayout, Tran
 
 _SAFE_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _GENERATION_COLUMNS = ("stable_id", "run_id")
+_PUBLISHING_GRACE = timedelta(minutes=5)
+_LEASE_TOKEN = re.compile(r"^[0-9a-f]{32}$")
+_MAX_PUBLISHER_LEASE_CANDIDATES = 32
 
 
 @dataclass(frozen=True)
@@ -45,6 +51,19 @@ class StorageSummary:
     last_compaction: str | None
 
 
+@dataclass(frozen=True)
+class _PublicationIdentity:
+    dataset_id: str
+    generation_id: str
+    sha256: str
+    committed_at: str
+    catalogue_rowid: int
+    token: str
+    owner_pid: int
+    process_start_id: str
+    created_at: str
+
+
 class HybridPlatform:
     """Local transactional state plus immutable, catalogued Parquet generations."""
 
@@ -70,6 +89,11 @@ class HybridPlatform:
         checksum = hashlib.sha256(payload).hexdigest()
         relative_path = (Path("data") / "analytics" / dataset_id / f"{generation_id}.parquet").as_posix()
         destination = self._safe_analytics_path(relative_path)
+        publication_token = uuid.uuid4().hex
+        staging = self._publisher_staging_path(dataset_id, generation_id, publication_token)
+        publisher_lease = self._publisher_lease_path(
+            dataset_id, generation_id, publication_token
+        )
         self._recover_pending_generations()
 
         with self.store.transaction() as connection:
@@ -86,6 +110,7 @@ class HybridPlatform:
                 if existing["status"] == "publishing":
                     raise RuntimeError(f"generation {dataset_id}/{generation_id} is already being published")
                 raise StorageIntegrityError(f"catalogued generation is not recoverable: {relative_path}")
+            self._assert_no_live_publisher_claims(dataset_id, generation_id)
             committed_at = _utc_now()
             connection.execute(
                 """
@@ -113,21 +138,74 @@ class HybridPlatform:
                     for stable_id, run_id in frame[["stable_id", "run_id"]].itertuples(index=False, name=None)
                 ],
             )
+            inserted = connection.execute(
+                """
+                SELECT rowid AS catalogue_rowid
+                FROM analytical_generations
+                WHERE dataset_id = ? AND generation_id = ? AND status = 'publishing'
+                """,
+                (dataset_id, generation_id),
+            ).fetchone()
+            if inserted is None:
+                raise StorageIntegrityError(
+                    f"generation catalogue did not return a publication identity: "
+                    f"{dataset_id}/{generation_id}"
+                )
+            catalogue_rowid = int(inserted["catalogue_rowid"])
 
-        staging = self.layout.analytics_root / ".staging" / f"{dataset_id}-{generation_id}-{checksum[:16]}.parquet"
+        if catalogue_rowid <= 0:
+            raise StorageIntegrityError(
+                f"generation catalogue returned an invalid publication identity: "
+                f"{dataset_id}/{generation_id}"
+            )
+        publication = _PublicationIdentity(
+            dataset_id=dataset_id,
+            generation_id=generation_id,
+            sha256=checksum,
+            committed_at=committed_at,
+            catalogue_rowid=catalogue_rowid,
+            token=publication_token,
+            owner_pid=os.getpid(),
+            process_start_id=_process_start_identity(os.getpid()) or "unavailable",
+            created_at=_utc_now(),
+        )
+
+        lease_acquired = False
         try:
+            self._claim_publisher_lease(publisher_lease, publication)
+            lease_acquired = True
             atomic_write_bytes(staging, payload, validate_parquet_file)
             destination.parent.mkdir(parents=True, exist_ok=True)
             staging.replace(destination)
-            with self.store.transaction() as connection:
-                connection.execute(
-                    "UPDATE analytical_generations SET status = 'published' WHERE dataset_id = ? AND generation_id = ?",
-                    (dataset_id, generation_id),
+            self._finalise_publication(publisher_lease, publication)
+        except Exception as publication_error:
+            cleanup_errors: list[Exception] = []
+            try:
+                staging.unlink(missing_ok=True)
+            except Exception as cleanup_error:
+                cleanup_errors.append(cleanup_error)
+            if lease_acquired:
+                try:
+                    self._unlink_owned_publisher_lease(publisher_lease, publication.token)
+                except Exception as cleanup_error:
+                    cleanup_errors.append(cleanup_error)
+                finally:
+                    lease_acquired = False
+            try:
+                self._cleanup_failed_publication(publication, destination)
+            except Exception as cleanup_error:
+                cleanup_errors.append(cleanup_error)
+            for cleanup_error in cleanup_errors:
+                publication_error.add_note(
+                    f"publication cleanup failed: {type(cleanup_error).__name__}: {cleanup_error}"
                 )
-        except Exception:
-            staging.unlink(missing_ok=True)
-            self._recover_pending_generations()
             raise
+        finally:
+            if lease_acquired:
+                try:
+                    self._unlink_owned_publisher_lease(publisher_lease, publication.token)
+                except Exception:
+                    pass
         return self.get_generation(dataset_id, generation_id)  # type: ignore[return-value]
 
     def get_generation(self, dataset_id: str, generation_id: str | None = None) -> AnalyticalGeneration | None:
@@ -261,9 +339,17 @@ class HybridPlatform:
 
     def _recover_pending_generations(self) -> None:
         rows = self.store.connection.execute(
-            "SELECT * FROM analytical_generations WHERE status = 'publishing' ORDER BY committed_at"
+            """
+            SELECT rowid AS catalogue_rowid, *
+            FROM analytical_generations
+            WHERE status = 'publishing'
+            ORDER BY committed_at
+            """
         ).fetchall()
         for row in rows:
+            protected, inactive_owned_leases = self._pending_claims(row)
+            if protected:
+                continue
             try:
                 path = self._safe_analytics_path(str(row["relative_path"]))
             except StorageIntegrityError:
@@ -271,15 +357,247 @@ class HybridPlatform:
             valid = path is not None and path.is_file() and sha256_file(path) == str(row["sha256"])
             with self.store.transaction() as connection:
                 if valid:
-                    connection.execute(
-                        "UPDATE analytical_generations SET status = 'published' WHERE dataset_id = ? AND generation_id = ?",
-                        (row["dataset_id"], row["generation_id"]),
+                    recovered = connection.execute(
+                        """
+                        UPDATE analytical_generations
+                        SET status = 'published'
+                        WHERE rowid = ? AND dataset_id = ? AND generation_id = ?
+                          AND status = 'publishing' AND sha256 = ? AND committed_at = ?
+                        """,
+                        (
+                            row["catalogue_rowid"],
+                            row["dataset_id"],
+                            row["generation_id"],
+                            row["sha256"],
+                            row["committed_at"],
+                        ),
                     )
                 else:
-                    connection.execute(
-                        "DELETE FROM analytical_generations WHERE dataset_id = ? AND generation_id = ? AND status = 'publishing'",
-                        (row["dataset_id"], row["generation_id"]),
+                    recovered = connection.execute(
+                        """
+                        DELETE FROM analytical_generations
+                        WHERE rowid = ? AND dataset_id = ? AND generation_id = ?
+                          AND status = 'publishing' AND committed_at = ?
+                        """,
+                        (
+                            row["catalogue_rowid"],
+                            row["dataset_id"],
+                            row["generation_id"],
+                            row["committed_at"],
+                        ),
                     )
+            if recovered.rowcount == 1:
+                for lease, token in inactive_owned_leases:
+                    self._unlink_owned_publisher_lease(lease, token)
+
+    def _publisher_lease_prefix(self, dataset_id: str, generation_id: str) -> str:
+        lease_id = hashlib.sha256(f"{dataset_id}\0{generation_id}".encode("utf-8")).hexdigest()[:32]
+        return f"{lease_id}-"
+
+    def _publisher_staging_path(
+        self, dataset_id: str, generation_id: str, token: str
+    ) -> Path:
+        if _LEASE_TOKEN.fullmatch(token) is None:
+            raise ValueError("publisher staging token must be 32 lowercase hexadecimal characters")
+        identity_hash = hashlib.sha256(
+            f"{dataset_id}\0{generation_id}".encode("utf-8")
+        ).hexdigest()[:16]
+        return self.layout.analytics_root / ".staging" / f"{identity_hash}-{token}.parquet"
+
+    def _publisher_lease_path(
+        self, dataset_id: str, generation_id: str, token: str
+    ) -> Path:
+        if _LEASE_TOKEN.fullmatch(token) is None:
+            raise ValueError("publisher lease token must be 32 lowercase hexadecimal characters")
+        prefix = self._publisher_lease_prefix(dataset_id, generation_id)
+        return self.layout.analytics_root / ".staging" / f"{prefix}{token}.publishing.json"
+
+    def _publisher_lease_candidates(
+        self, dataset_id: str, generation_id: str
+    ) -> tuple[tuple[Path, ...], bool]:
+        staging = self.layout.analytics_root / ".staging"
+        if not staging.is_dir():
+            return (), False
+        prefix = self._publisher_lease_prefix(dataset_id, generation_id)
+        candidates = tuple(
+            islice(
+                staging.glob(f"{prefix}*.publishing.json"),
+                _MAX_PUBLISHER_LEASE_CANDIDATES + 1,
+            )
+        )
+        overflow = len(candidates) > _MAX_PUBLISHER_LEASE_CANDIDATES
+        return tuple(sorted(candidates[:_MAX_PUBLISHER_LEASE_CANDIDATES])), overflow
+
+    def _claim_publisher_lease(self, lease: Path, publication: _PublicationIdentity) -> None:
+        lease.parent.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(_publication_payload(publication), sort_keys=True).encode("utf-8")
+        try:
+            descriptor = os.open(lease, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError as exc:
+            raise RuntimeError(
+                f"generation {publication.dataset_id}/{publication.generation_id} is already being published"
+            ) from exc
+        try:
+            os.write(descriptor, payload)
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+    def _assert_no_live_publisher_claims(self, dataset_id: str, generation_id: str) -> None:
+        candidates, overflow = self._publisher_lease_candidates(dataset_id, generation_id)
+        if overflow:
+            raise StorageIntegrityError(
+                f"too many publisher lease candidates: {dataset_id}/{generation_id}"
+            )
+        prefix = self._publisher_lease_prefix(dataset_id, generation_id)
+        for lease in candidates:
+            try:
+                payload = _read_lease_payload(lease)
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+                raise StorageIntegrityError(
+                    f"publisher lease cannot be proven inactive: {dataset_id}/{generation_id}"
+                ) from exc
+            token = _lease_token_from_path(lease, prefix)
+            if (
+                not _lease_payload_is_well_formed(payload)
+                or token is None
+                or payload["token"] != token
+            ):
+                raise StorageIntegrityError(
+                    f"publisher lease identity is invalid: {dataset_id}/{generation_id}"
+                )
+            if _lease_owner_state(payload) != "inactive":
+                raise RuntimeError(f"generation {dataset_id}/{generation_id} is already being published")
+            self._unlink_owned_publisher_lease(lease, token)
+
+    def _pending_claims(self, row: Any) -> tuple[bool, tuple[tuple[Path, str], ...]]:
+        dataset_id = str(row["dataset_id"])
+        generation_id = str(row["generation_id"])
+        candidates, overflow = self._publisher_lease_candidates(dataset_id, generation_id)
+        if overflow:
+            return True, ()
+        if not candidates:
+            return _timestamp_within(str(row["committed_at"]), _PUBLISHING_GRACE), ()
+        inactive_owned: list[tuple[Path, str]] = []
+        prefix = self._publisher_lease_prefix(dataset_id, generation_id)
+        for lease in candidates:
+            try:
+                payload = _read_lease_payload(lease)
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+                return True, ()
+            token = _lease_token_from_path(lease, prefix)
+            if (
+                not _lease_payload_is_well_formed(payload)
+                or token is None
+                or payload["token"] != token
+            ):
+                return True, ()
+            if _lease_owner_state(payload) != "inactive":
+                return True, ()
+            if _lease_matches_row(payload, row):
+                inactive_owned.append((lease, token))
+        return False, tuple(inactive_owned)
+
+    def _unlink_owned_publisher_lease(self, lease: Path, token: str) -> bool:
+        try:
+            payload = _read_lease_payload(lease)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            return False
+        if payload.get("token") != token or not lease.name.endswith(
+            f"-{token}.publishing.json"
+        ):
+            return False
+        try:
+            lease.unlink()
+        except FileNotFoundError:
+            return False
+        return True
+
+    def _validate_owned_publisher_lease(
+        self, lease: Path, publication: _PublicationIdentity
+    ) -> None:
+        try:
+            payload = _read_lease_payload(lease)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+            raise StorageIntegrityError(
+                f"publisher lease is unreadable: {publication.dataset_id}/{publication.generation_id}"
+            ) from exc
+        if payload != _publication_payload(publication):
+            raise StorageIntegrityError(
+                f"publisher lease identity changed: {publication.dataset_id}/{publication.generation_id}"
+            )
+
+    def _finalise_publication(
+        self, lease: Path, publication: _PublicationIdentity
+    ) -> None:
+        last_rowcount = 0
+        for _attempt in range(2):
+            self._validate_owned_publisher_lease(lease, publication)
+            with self.store.transaction() as connection:
+                transition = connection.execute(
+                    """
+                    UPDATE analytical_generations
+                    SET status = 'published'
+                    WHERE rowid = ? AND dataset_id = ? AND generation_id = ?
+                      AND status = 'publishing' AND sha256 = ? AND committed_at = ?
+                    """,
+                    (
+                        publication.catalogue_rowid,
+                        publication.dataset_id,
+                        publication.generation_id,
+                        publication.sha256,
+                        publication.committed_at,
+                    ),
+                )
+                last_rowcount = transition.rowcount
+            if last_rowcount == 1:
+                return
+            row = self.store.connection.execute(
+                """
+                SELECT rowid AS catalogue_rowid, *
+                FROM analytical_generations
+                WHERE dataset_id = ? AND generation_id = ?
+                """,
+                (publication.dataset_id, publication.generation_id),
+            ).fetchone()
+            if row is not None and _row_matches_publication(row, publication, status="published"):
+                return
+        raise StorageIntegrityError(
+            f"generation catalogue transition affected {last_rowcount} rows: "
+            f"{publication.dataset_id}/{publication.generation_id}"
+        )
+
+    def _cleanup_failed_publication(
+        self, publication: _PublicationIdentity, destination: Path
+    ) -> None:
+        with self.store.transaction() as connection:
+            connection.execute(
+                """
+                DELETE FROM analytical_generations
+                WHERE rowid = ? AND dataset_id = ? AND generation_id = ?
+                  AND status = 'publishing' AND committed_at = ?
+                """,
+                (
+                    publication.catalogue_rowid,
+                    publication.dataset_id,
+                    publication.generation_id,
+                    publication.committed_at,
+                ),
+            )
+            row = connection.execute(
+                """
+                SELECT rowid AS catalogue_rowid, *
+                FROM analytical_generations
+                WHERE dataset_id = ? AND generation_id = ?
+                """,
+                (publication.dataset_id, publication.generation_id),
+            ).fetchone()
+            if (
+                row is None
+                and destination.is_file()
+                and sha256_file(destination) == publication.sha256
+            ):
+                destination.unlink()
 
 
 class StorageIntegrityError(RuntimeError):
@@ -319,6 +637,218 @@ def _safe_component(value: str, label: str) -> str:
     if not _SAFE_COMPONENT.fullmatch(value):
         raise ValueError(f"{label} must be a single safe local identifier")
     return value
+
+
+def _parse_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _publication_payload(publication: _PublicationIdentity) -> dict[str, object]:
+    return {
+        "dataset_id": publication.dataset_id,
+        "generation_id": publication.generation_id,
+        "sha256": publication.sha256,
+        "committed_at": publication.committed_at,
+        "catalogue_rowid": publication.catalogue_rowid,
+        "token": publication.token,
+        "owner_pid": publication.owner_pid,
+        "process_start_id": publication.process_start_id,
+        "created_at": publication.created_at,
+    }
+
+
+def _read_lease_payload(lease: Path) -> dict[str, Any]:
+    payload = json.loads(lease.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("publisher lease must contain an object")
+    return payload
+
+
+def _lease_payload_is_well_formed(payload: dict[str, Any]) -> bool:
+    expected_keys = {
+        "dataset_id",
+        "generation_id",
+        "sha256",
+        "committed_at",
+        "catalogue_rowid",
+        "token",
+        "owner_pid",
+        "process_start_id",
+        "created_at",
+    }
+    return (
+        set(payload) == expected_keys
+        and isinstance(payload["dataset_id"], str)
+        and _SAFE_COMPONENT.fullmatch(payload["dataset_id"]) is not None
+        and isinstance(payload["generation_id"], str)
+        and _SAFE_COMPONENT.fullmatch(payload["generation_id"]) is not None
+        and isinstance(payload["sha256"], str)
+        and re.fullmatch(r"[0-9a-f]{64}", payload["sha256"]) is not None
+        and type(payload["catalogue_rowid"]) is int
+        and payload["catalogue_rowid"] > 0
+        and isinstance(payload["token"], str)
+        and _LEASE_TOKEN.fullmatch(payload["token"]) is not None
+        and type(payload["owner_pid"]) is int
+        and payload["owner_pid"] > 0
+        and isinstance(payload["process_start_id"], str)
+        and bool(payload["process_start_id"])
+        and isinstance(payload["committed_at"], str)
+        and _parse_timestamp(payload["committed_at"]) is not None
+        and isinstance(payload["created_at"], str)
+        and _parse_timestamp(payload["created_at"]) is not None
+    )
+
+
+def _timestamp_within(value: str | None, maximum_age: timedelta) -> bool:
+    parsed = _parse_timestamp(value)
+    if parsed is None:
+        return False
+    age = datetime.now(timezone.utc) - parsed
+    return timedelta(0) <= age <= maximum_age
+
+
+def _lease_token_from_path(lease: Path, prefix: str) -> str | None:
+    suffix = ".publishing.json"
+    if not lease.name.startswith(prefix) or not lease.name.endswith(suffix):
+        return None
+    token = lease.name[len(prefix) : -len(suffix)]
+    return token if _LEASE_TOKEN.fullmatch(token) is not None else None
+
+
+def _lease_matches_row(payload: dict[str, Any], row: Any) -> bool:
+    return (
+        payload["dataset_id"] == str(row["dataset_id"])
+        and payload["generation_id"] == str(row["generation_id"])
+        and payload["sha256"] == str(row["sha256"])
+        and payload["committed_at"] == str(row["committed_at"])
+        and payload["catalogue_rowid"] == int(row["catalogue_rowid"])
+    )
+
+
+def _lease_owner_state(payload: dict[str, Any]) -> str:
+    owner_pid = int(payload["owner_pid"])
+    expected_start = str(payload["process_start_id"])
+    actual_start = _process_start_identity(owner_pid)
+    if expected_start != "unavailable" and actual_start is not None:
+        return "live" if actual_start == expected_start else "inactive"
+    return "unknown" if _pid_alive(owner_pid) else "inactive"
+
+
+def _process_start_identity(pid: int) -> str | None:
+    if pid <= 0:
+        return None
+    if os.name == "nt":
+        return _windows_process_start_identity(pid)
+    if os.name == "posix" and Path("/proc").is_dir():
+        return _linux_process_start_identity(pid)
+    return None
+
+
+def _windows_process_start_identity(pid: int) -> str | None:
+    import ctypes
+
+    class FileTime(ctypes.Structure):
+        _fields_ = [("low", ctypes.c_uint32), ("high", ctypes.c_uint32)]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+    kernel32.OpenProcess.restype = ctypes.c_void_p
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    kernel32.GetProcessTimes.argtypes = [
+        ctypes.c_void_p,
+        ctypes.POINTER(FileTime),
+        ctypes.POINTER(FileTime),
+        ctypes.POINTER(FileTime),
+        ctypes.POINTER(FileTime),
+    ]
+    kernel32.GetProcessTimes.restype = ctypes.c_int
+    handle = kernel32.OpenProcess(0x1000, False, pid)
+    if not handle:
+        return None
+    creation = FileTime()
+    exit_time = FileTime()
+    kernel_time = FileTime()
+    user_time = FileTime()
+    try:
+        if not kernel32.GetProcessTimes(
+            handle,
+            ctypes.byref(creation),
+            ctypes.byref(exit_time),
+            ctypes.byref(kernel_time),
+            ctypes.byref(user_time),
+        ):
+            return None
+    finally:
+        kernel32.CloseHandle(handle)
+    value = (int(creation.high) << 32) | int(creation.low)
+    return f"windows-filetime:{value}"
+
+
+def _linux_process_start_identity(pid: int) -> str | None:
+    try:
+        stat_text = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        boot_id = Path("/proc/sys/kernel/random/boot_id").read_text(encoding="utf-8").strip()
+        closing_parenthesis = stat_text.rfind(")")
+        fields_after_name = stat_text[closing_parenthesis + 2 :].split()
+        start_ticks = fields_after_name[19]
+    except (OSError, IndexError):
+        return None
+    if closing_parenthesis < 0 or not boot_id or not start_ticks.isdigit():
+        return None
+    return f"linux-proc:{boot_id}:{start_ticks}"
+
+
+def _row_matches_publication(
+    row: Any, publication: _PublicationIdentity, *, status: str
+) -> bool:
+    return (
+        int(row["catalogue_rowid"]) == publication.catalogue_rowid
+        and str(row["dataset_id"]) == publication.dataset_id
+        and str(row["generation_id"]) == publication.generation_id
+        and str(row["sha256"]) == publication.sha256
+        and str(row["committed_at"]) == publication.committed_at
+        and str(row["status"]) == status
+    )
+
+
+def _pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        handle = kernel32.OpenProcess(0x1000, False, pid)
+        if handle:
+            kernel32.CloseHandle(handle)
+            return True
+        return ctypes.get_last_error() == 5
+    return _posix_pid_alive(pid)
+
+
+def _posix_pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        return True
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return False
+    return True
 
 
 def _file_size(path: Path) -> int:

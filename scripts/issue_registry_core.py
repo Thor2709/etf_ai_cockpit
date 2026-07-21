@@ -786,7 +786,7 @@ def _roadmap_phases(
     for record in records:
         records_by_id[str(record["phase"])].append(str(record["canonical_id"]))
     result: list[dict[str, Any]] = []
-    for phase in sorted(phase_definitions, key=lambda value: int(value.get("order", 0))):
+    for phase in sorted(phase_definitions, key=lambda value: int(value["order"])):
         phase_id = str(phase["phase"])
         issue_ids = sorted(records_by_id.get(phase_id, []))
         if not issue_ids:
