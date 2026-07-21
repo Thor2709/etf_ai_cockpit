@@ -1,0 +1,29 @@
+{
+  "actions": [
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Programme status"
+      ],
+      "remote_number": 85,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0037",
+      "title": "Config editor UI",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/85"
+    }
+  ],
+  "apply_authority": false,
+  "fresh_exact_plan_required_for_apply": true,
+  "plan_semantic_sha256": "fadf4560c9f8dfa370c812052435b7bb0a21d6d102d2abe1be7f7c21d0d53e6b",
+  "remote_inventory_sha256": "11b9501e569a1fe03843c7e840fd22065f3a4cbb14ba9096f5b4af658ed09976",
+  "repository": "Thor2709/etf_ai_cockpit",
+  "schema_version": "etf-ai-cockpit.safe-sync-evidence/1.0",
+  "summary": {
+    "blocked": 0,
+    "close": 0,
+    "create": 0,
+    "reopen": 0,
+    "update": 1
+  },
+  "transient_full_plan_file_sha256": "d4649049337247232eb1da0c9885fba08aa47347594ff141982d2d734eae5ebf"
+}

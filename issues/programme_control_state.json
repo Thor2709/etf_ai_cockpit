@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "a5dee7579e2ca5ae1e40a7152c798749d428d36b",
+    "generation_base_commit": "4413de82baec0dcb00e9cc81e887200bf33a962a",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -569,15 +569,25 @@
           "reviewed_date": "2026-07-21",
           "reviewer": "Codex independent reviewer",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "PR #458 settings implementation merged as 3b159c25457c7376b7108999bd8a6c7bb13188fe with all protected checks passing",
+            "PR #461 merged reviewed schema-1.2 convergence as 4413de82baec0dcb00e9cc81e887200bf33a962a and GitHub sync readback is zero actions"
+          ],
+          "review_reference": "PR #458 implementation, independent review, protected release and PR #461 convergence evidence",
+          "reviewed_date": "2026-07-21",
+          "reviewer": "Codex independent reviewer",
+          "status": "implemented_initially"
         }
       ],
       "dependency_edge_evidence": {},
       "phase": "phase-08-frontend-api",
-      "programme_status": "in_progress",
+      "programme_status": "implemented_initially",
       "status_transition": {
-        "from": "planned",
-        "review_reference": "PR #458 reviewed merge and protected release evidence",
-        "to": "in_progress"
+        "from": "in_progress",
+        "review_reference": "PR #458 implementation, independent review, protected release and PR #461 convergence evidence",
+        "to": "implemented_initially"
       },
       "transition_history": [
         {
@@ -592,9 +602,22 @@
           "reviewer": "Codex independent reviewer",
           "to": "in_progress",
           "verified_commit": "3b159c25457c7376b7108999bd8a6c7bb13188fe"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #458 settings implementation merged as 3b159c25457c7376b7108999bd8a6c7bb13188fe with all protected checks passing",
+            "PR #461 merged reviewed schema-1.2 convergence as 4413de82baec0dcb00e9cc81e887200bf33a962a and GitHub sync readback is zero actions"
+          ],
+          "from": "in_progress",
+          "review_reference": "PR #458 implementation, independent review, protected release and PR #461 convergence evidence",
+          "reviewed_date": "2026-07-21",
+          "reviewer": "Codex independent reviewer",
+          "to": "implemented_initially",
+          "verified_commit": "4413de82baec0dcb00e9cc81e887200bf33a962a"
         }
       ],
-      "verified_commit": "3b159c25457c7376b7108999bd8a6c7bb13188fe",
+      "verified_commit": "4413de82baec0dcb00e9cc81e887200bf33a962a",
       "verified_date": "2026-07-21"
     },
     "ISSUE-0038": {
