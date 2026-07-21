@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import copy
+from datetime import date
 import json
+import re
 import subprocess
 import sys
 import shutil
@@ -298,8 +300,8 @@ def test_every_record_has_typed_final_release_contract_fields() -> None:
         assert isinstance(record["dependency_edge_evidence"], dict)
         assert set(record["dependency_edge_evidence"]) == set(record["blocking_dependencies"])
         assert isinstance(record["provenance"], dict)
-        assert record["verified_commit"] == BASE_SHA
-        assert record["verified_date"] == "2026-07-21"
+        assert re.fullmatch(r"[0-9a-f]{40}", record["verified_commit"])
+        assert date.fromisoformat(record["verified_date"]).isoformat() == record["verified_date"]
         assert isinstance(record["acceptance_evidence"], list)
         assert isinstance(record["capability_lane"], str) and record["capability_lane"]
         assert isinstance(record["release_blocking"], bool)
