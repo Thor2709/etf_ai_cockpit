@@ -177,6 +177,105 @@ def test_control_authority_accepts_exact_transition_and_rejects_extra_manual_edi
         issue_registry_core.validate_control_authority(ROOT, transitioned)
 
 
+def _handcrafted_control_transition(
+    prior: dict[str, object], issue_id: str, event: dict[str, object]
+) -> dict[str, object]:
+    current = copy.deepcopy(prior)
+    record = current["records"][issue_id]  # type: ignore[index]
+    record.setdefault("transition_history", []).append(event)
+    record["programme_status"] = event.get("to")
+    record["status_transition"] = {
+        "from": event.get("from"),
+        "to": event.get("to"),
+        "review_reference": event.get("review_reference"),
+    }
+    record["verified_commit"] = event.get("verified_commit")
+    record["verified_date"] = event.get("reviewed_date")
+    record.setdefault("acceptance_evidence", []).append({
+        "status": event.get("to"),
+        "evidence_references": event.get("evidence_references"),
+        "review_reference": event.get("review_reference"),
+        "reviewer": event.get("reviewer"),
+        "reviewed_date": event.get("reviewed_date"),
+    })
+    edge_change = event.get("dependency_edge")
+    if isinstance(edge_change, dict) and isinstance(edge_change.get("dependency"), str):
+        record["dependency_edge_evidence"][edge_change["dependency"]] = edge_change.get("evidence")
+    return current
+
+
+@pytest.mark.parametrize(
+    ("case", "issue_id", "expected_error"),
+    [
+        ("skip", "ISSUE-0010", "transition is not allowed"),
+        ("unreviewed_downgrade", "ISSUE-0071", "transition is not allowed"),
+        ("invalid_date", "ISSUE-0010", "valid YYYY-MM-DD"),
+        ("invalid_commit", "ISSUE-0010", "full lowercase Git SHA"),
+        ("missing_reviewer", "ISSUE-0010", "requires reviewer"),
+        ("missing_evidence", "ISSUE-0010", "requires non-blank evidence"),
+        ("malformed_edge", "ISSUE-0071", "unsupported edge evidence schema"),
+    ],
+)
+def test_registry_entrypoint_rejects_handcrafted_invalid_transition_events(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+    issue_id: str,
+    expected_error: str,
+) -> None:
+    prior = json.loads((ROOT / issue_registry_core.CONTROL_STATE_PATH).read_text(encoding="utf-8"))
+    source = prior["records"][issue_id]["programme_status"]
+    event: dict[str, object] = {
+        "from": source,
+        "to": "closed" if source == "integrated" else "ready",
+        "review_reference": "B00-R/adversarial-review",
+        "evidence_references": ["tests/contracts/adversarial.json"],
+        "reviewer": "independent-reviewer",
+        "reviewed_date": "2026-07-21",
+        "verified_commit": BASE_SHA,
+        "allow_downgrade": False,
+    }
+    if case == "skip":
+        event["to"] = "closed"
+    elif case == "unreviewed_downgrade":
+        event["to"] = "planned"
+    elif case == "invalid_date":
+        event["reviewed_date"] = "2026-99-99"
+    elif case == "invalid_commit":
+        event["verified_commit"] = "not-a-commit"
+    elif case == "missing_reviewer":
+        del event["reviewer"]
+    elif case == "missing_evidence":
+        event["evidence_references"] = []
+    elif case == "malformed_edge":
+        event["dependency_edge"] = {
+            "dependency": "ISSUE-0070",
+            "evidence": {
+                "schema_version": "forged",
+                "state": "complete",
+                "evidence_references": event["evidence_references"],
+                "contract_reference": "B00-R/contract",
+                "reviewer": event["reviewer"],
+                "reviewed_date": event["reviewed_date"],
+            },
+        }
+    current = _handcrafted_control_transition(prior, issue_id, event)
+    path = tmp_path / "control.json"
+    path.write_text(json.dumps(current), encoding="utf-8")
+    monkeypatch.setattr(issue_registry_core, "CONTROL_STATE_PATH", path)
+
+    def authoritative(command, *args, **kwargs):
+        if list(command[:2]) == ["git", "rev-parse"]:
+            return BASE_SHA + "\n"
+        return json.dumps(prior).encode("utf-8")
+
+    monkeypatch.setattr(issue_registry_core.subprocess, "check_output", authoritative)
+    with pytest.raises(ValueError, match=expected_error):
+        build_registry(ROOT)
+    assert generate_issue_registry.main(["--root", str(ROOT), "--check"]) == 1
+    assert validate_issue_registry.main(["--root", str(ROOT)]) == 1
+
+
 def test_stale_generation_base_fails_every_canonical_check(monkeypatch: pytest.MonkeyPatch) -> None:
     real = issue_registry_core.subprocess.check_output
 

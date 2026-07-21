@@ -16,25 +16,13 @@ import tempfile
 from pathlib import Path
 
 try:
-    from scripts.issue_registry_core import PROGRAMME_STATUSES, _validate_edge_evidence
-    from scripts.status_transition_guard import _is_downgrade
+    from scripts.issue_registry_core import validate_control_transition_event
 except ModuleNotFoundError:
-    from issue_registry_core import PROGRAMME_STATUSES, _validate_edge_evidence
-    from status_transition_guard import _is_downgrade
+    from issue_registry_core import validate_control_transition_event
 
 
 CONTROL_PATH = Path("issues/programme_control_state.json")
 REGISTRY_PATH = Path("issues/issue_registry.json")
-ALLOWED_TRANSITIONS = {
-    "planned": {"ready", "in_progress", "research_only", "rejected", "deferred"},
-    "ready": {"in_progress"},
-    "in_progress": {"implemented", "implemented_initially"},
-    "implemented": {"hardening_required", "integrated"},
-    "implemented_initially": {"hardening_required", "integrated"},
-    "hardening_required": {"integrated"},
-    "integrated": {"closed"},
-    "blocked": {"planned", "ready"},
-}
 
 
 def _git(root: Path, *args: str) -> str:
@@ -135,18 +123,6 @@ def apply_transition(
     current = str(record.get("programme_status", ""))
     if current != expected_from:
         raise ValueError(f"{issue_id}: expected-from {expected_from} does not match current {current}")
-    if to_status not in PROGRAMME_STATUSES:
-        raise ValueError(f"unknown target programme status: {to_status}")
-    normal = to_status in ALLOWED_TRANSITIONS.get(current, set())
-    downgrade = _is_downgrade(current, to_status)
-    if not normal and not (allow_downgrade and downgrade):
-        raise ValueError(f"transition is not allowed: {issue_id} {current}->{to_status}")
-    if not review_reference.strip() or not reviewer.strip() or not evidence_references:
-        raise ValueError("transition requires review_reference, reviewer and evidence references")
-    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", reviewed_date):
-        raise ValueError("reviewed_date must be YYYY-MM-DD")
-    if not re.fullmatch(r"[0-9a-f]{40}", verified_commit):
-        raise ValueError("verified_commit must be a full lowercase Git SHA")
     if edge_dependency is not None:
         evidence = record.get("dependency_edge_evidence")
         if not isinstance(evidence, dict) or edge_dependency not in evidence:
@@ -159,10 +135,6 @@ def apply_transition(
             "reviewer": reviewer,
             "reviewed_date": reviewed_date,
         }
-        errors = _validate_edge_evidence(issue_id, edge_dependency, edge)
-        if errors:
-            raise ValueError("; ".join(errors))
-        evidence[edge_dependency] = edge
         edge_change = {"dependency": edge_dependency, "evidence": edge}
     else:
         edge_change = None
@@ -178,6 +150,9 @@ def apply_transition(
     }
     if edge_change is not None:
         event["dependency_edge"] = edge_change
+    validate_control_transition_event(issue_id, record, event)
+    if edge_change is not None:
+        evidence[edge_dependency] = edge
     history = record.setdefault("transition_history", [])
     if not isinstance(history, list):
         raise ValueError(f"{issue_id}: transition_history must be a list")
