@@ -1,19 +1,33 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [],
-  "base_commit": "6c369800e04b3e7d8ce3adda792cc4a82c91b7e9",
-  "branch": "codex/b02-data-identity-pr-20260722",
-  "issue_ids": [],
+  "allowed_status_transitions": [
+    {
+      "from": "in_progress",
+      "issue_id": "UPDATEV2-0011",
+      "to": "implemented_initially"
+    },
+    {
+      "from": "in_progress",
+      "issue_id": "UPDATEV2-0021",
+      "to": "implemented_initially"
+    }
+  ],
+  "base_commit": "1e9efbcd3ea67fec638d95905a66af063952dd8c",
+  "branch": "codex/b02-status-initial-20260722",
+  "issue_ids": [
+    "UPDATEV2-0011",
+    "UPDATEV2-0021"
+  ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "19664beebe79295cf80029d3d9be8a3ea45489212316e3939063a52e37c4b615",
+    "base_registry_sha256": "34e3abd482bc895ff12db82e480c386792e6489efeb5f12be9ce5f9d7eac147d",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "canonical_schema_and_intake",
-    "proposed_registry_sha256": "34e3abd482bc895ff12db82e480c386792e6489efeb5f12be9ce5f9d7eac147d",
-    "reason": "B02-DATA-IDENTITY feature integration: refresh the canonical generation base to merged main 6c369800e04b3e7d8ce3adda792cc4a82c91b7e9 without adding, removing or transitioning any of the 197 issue records; execution authority remains false.",
+    "mode": "generation_base_and_status_transitions",
+    "proposed_registry_sha256": "340e67fe8656e7b9448abd01a853d03fca7977d0601b444cab24b8932091c173",
+    "reason": "B02-DATA-IDENTITY reviewed post-merge convergence: refresh the generation base and advance only UPDATEV2-0011 and UPDATEV2-0021 from in_progress to implemented_initially using merged implementation, independent review and protected cross-platform release evidence.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.1"
+  "schema_version": "1.2"
 }
