@@ -13,6 +13,7 @@ from typing import Any, Callable, Mapping
 
 try:
     from scripts.issue_registry_core import (
+        CONTROL_STATE_PATH,
         PROGRESS_PATH,
         PROGRAMME_STATUSES,
         REGISTRY_PATH,
@@ -21,7 +22,9 @@ try:
         canonical_text_bytes,
         sha256_text_file,
         deterministic_json,
+        validate_control_authority,
         validate_control_transition_event,
+        verify_generation_base,
     )
     from scripts.update_programme_status import (
         deterministic_text,
@@ -30,6 +33,7 @@ try:
     )
 except ModuleNotFoundError:
     from issue_registry_core import (  # type: ignore[no-redef]
+        CONTROL_STATE_PATH,
         PROGRESS_PATH,
         PROGRAMME_STATUSES,
         REGISTRY_PATH,
@@ -38,7 +42,9 @@ except ModuleNotFoundError:
         canonical_text_bytes,
         sha256_text_file,
         deterministic_json,
+        validate_control_authority,
         validate_control_transition_event,
+        verify_generation_base,
     )
     from update_programme_status import (  # type: ignore[no-redef]
         deterministic_text,
@@ -95,6 +101,9 @@ HIGH_STATUS = {
     "closed",
 }
 BASE_REFRESH_TRANSITION_MODE = "generation_base_and_status_transitions"
+TRANSITION_REGISTRY_FIELDS = frozenset(
+    {"programme_status", "verified_commit", "verified_date", "acceptance_evidence"}
+)
 BASE_REFRESH_SOURCE_FIELDS = frozenset({"baseline_commit", "programme_control_state_sha256"})
 
 
@@ -282,6 +291,15 @@ def _validate_transition_record(
     errors: list[str],
     verified_commit_is_ancestor: Callable[[str], bool] | None,
 ) -> None:
+    base_fixed = {
+        key: value for key, value in base_record.items() if key not in TRANSITION_REGISTRY_FIELDS
+    }
+    proposed_fixed = {
+        key: value for key, value in proposed_record.items() if key not in TRANSITION_REGISTRY_FIELDS
+    }
+    if base_fixed != proposed_fixed:
+        _error(errors, f"non-allowlisted registry change: {issue_id}")
+
     base_evidence = base_record.get("acceptance_evidence")
     proposed_evidence = proposed_record.get("acceptance_evidence")
     if (
@@ -311,34 +329,30 @@ def _validate_transition_record(
     if verified_commit == base_record.get("verified_commit"):
         _error(errors, f"transition verified_commit must advance reviewed evidence: {issue_id}")
 
-    base_history = base_record.get("transition_history", [])
-    proposed_history = proposed_record.get("transition_history")
-    if (
-        not isinstance(base_history, list)
-        or not isinstance(proposed_history, list)
-        or len(proposed_history) != len(base_history) + 1
-        or proposed_history[: len(base_history)] != base_history
-        or not isinstance(proposed_history[-1], dict)
-    ):
-        _error(errors, f"transition history must append exactly one canonical event: {issue_id}")
-        return
-    event = proposed_history[-1]
-    if "dependency_edge" in event:
-        _error(errors, f"generation-base status transition cannot change dependency evidence: {issue_id}")
-        return
+    verified_date = proposed_record.get("verified_date")
+    if verified_date != evidence.get("reviewed_date"):
+        _error(errors, f"transition verified_date must match reviewed evidence: {issue_id}")
+
+    event = {
+        "from": base_record.get("programme_status"),
+        "to": proposed_record.get("programme_status"),
+        "review_reference": evidence.get("review_reference"),
+        "evidence_references": evidence.get("evidence_references"),
+        "reviewer": evidence.get("reviewer"),
+        "reviewed_date": evidence.get("reviewed_date"),
+        "verified_commit": verified_commit,
+        "allow_downgrade": False,
+    }
 
     if evidence.get("status") != proposed_record.get("programme_status"):
         _error(errors, f"transition acceptance evidence status mismatch: {issue_id}")
     try:
-        validate_control_transition_event(issue_id, dict(base_record), dict(event))
+        validate_control_transition_event(issue_id, dict(base_record), event)
     except ValueError as exc:
         _error(errors, f"invalid reviewed transition evidence: {issue_id}: {exc}")
         return
 
-    event_commit = event.get("verified_commit")
-    if event_commit != verified_commit:
-        _error(errors, f"transition verified_commit does not match canonical event: {issue_id}")
-    elif verified_commit_is_ancestor is None:
+    if verified_commit_is_ancestor is None:
         _error(errors, f"transition verified_commit ancestry validator is required: {issue_id}")
     elif not verified_commit_is_ancestor(verified_commit):
         _error(
@@ -347,18 +361,8 @@ def _validate_transition_record(
         )
 
     expected = deepcopy(dict(base_record))
-    expected_history = expected.setdefault("transition_history", [])
-    if not isinstance(expected_history, list):
-        _error(errors, f"authoritative transition history is invalid: {issue_id}")
-        return
-    expected_history.append(deepcopy(event))
     expected["programme_status"] = event["to"]
-    expected["status_transition"] = {
-        "from": event["from"],
-        "to": event["to"],
-        "review_reference": event["review_reference"],
-    }
-    expected["verified_commit"] = event_commit
+    expected["verified_commit"] = verified_commit
     expected["verified_date"] = event["reviewed_date"]
     expected_acceptance = expected.setdefault("acceptance_evidence", [])
     if not isinstance(expected_acceptance, list):
@@ -374,7 +378,7 @@ def _validate_transition_record(
         }
     )
     if expected != proposed_record:
-        _error(errors, f"transition record does not match the canonical writer delta: {issue_id}")
+        _error(errors, f"transition record does not match the canonical registry projection: {issue_id}")
 
 
 def _validate_base_refresh_top_level(
@@ -670,6 +674,9 @@ def main(argv: list[str] | None = None) -> int:
         base_registry = _git_json(root, requested_base, REGISTRY_PATH)
         latest_registry = _git_json(root, args.latest_ref, REGISTRY_PATH)
         proposed_registry = _load_json(root / REGISTRY_PATH)
+        proposed_control = _load_json(root / CONTROL_STATE_PATH)
+        verify_generation_base(root, proposed_control)
+        validate_control_authority(root, proposed_control)
         current_status = _load_json(_path(root, args.status))
         current_progress = _path(root, args.progress).read_bytes()
         source_manifest_sha256 = sha256_text_file(_path(root, args.source_manifest))

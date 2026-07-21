@@ -129,7 +129,9 @@ def _apply_reviewed_transition(
         verified_commit=BASE_COMMIT,
         allow_downgrade=allow_downgrade,
     )
-    registry["records"][record_index] = control["records"][issue_id]
+    transitioned = control["records"][issue_id]
+    for field in ("programme_status", "verified_commit", "verified_date", "acceptance_evidence"):
+        record[field] = copy.deepcopy(transitioned[field])
 
 
 def _errors(
@@ -561,10 +563,11 @@ def test_git_commit_ancestry_verifier_requires_existing_ancestor(tmp_path: Path)
 @pytest.mark.parametrize(
     ("mutation", "expected_error"),
     [
-        ("unrelated_record", "transition record does not match the canonical writer delta: ISSUE-0008"),
+        ("unrelated_record", "non-allowlisted registry change: ISSUE-0008"),
         ("non_transitioned_record", "non-allowlisted registry change: ISSUE-0037"),
         ("replacement_evidence", "transition acceptance evidence must append exactly one entry: ISSUE-0008"),
         ("invalid_verified_commit", "transition verified_commit must be a full lowercase Git SHA: ISSUE-0008"),
+        ("invalid_verified_date", "transition verified_date must match reviewed evidence: ISSUE-0008"),
         ("unexpected_top_level", "non-allowlisted registry change: top-level registry data"),
         ("unexpected_source_truth", "non-allowlisted source_of_truth change: package_sha256"),
         ("wrong_generation_base", "proposed registry generation base does not match manifest base"),
@@ -611,6 +614,8 @@ def test_generation_base_transition_mode_rejects_unreviewed_mutation(
         transition_record["acceptance_evidence"] = transition_record["acceptance_evidence"][-1:]
     elif mutation == "invalid_verified_commit":
         transition_record["verified_commit"] = "not-a-commit"
+    elif mutation == "invalid_verified_date":
+        transition_record["verified_date"] = "2026-07-20"
     elif mutation == "unexpected_top_level":
         proposed["policy"]["execution_allowed"] = True
     elif mutation == "unexpected_source_truth":
@@ -690,7 +695,7 @@ def test_generation_base_transition_mode_rejects_dependency_evidence_mutation() 
 
     errors = _errors(base, proposed, manifest)
 
-    assert "transition record does not match the canonical writer delta: ISSUE-0008" in errors
+    assert "non-allowlisted registry change: ISSUE-0008" in errors
 
 
 def test_generation_base_transition_mode_rejects_reasoned_downgrade() -> None:
@@ -731,7 +736,6 @@ def test_generation_base_transition_mode_rejects_fabricated_verified_commit() ->
     proposed["source_of_truth"]["programme_control_state_sha256"] = "2" * 64
     record = proposed["records"][0]
     record["verified_commit"] = "c" * 40
-    record["transition_history"][-1]["verified_commit"] = "c" * 40
     manifest = _base_refresh_transition_manifest(
         base,
         proposed,
