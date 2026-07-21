@@ -1,0 +1,17 @@
+{
+  "actions": [],
+  "apply_authority": false,
+  "fresh_exact_plan_required_for_apply": true,
+  "plan_semantic_sha256": "54fa6c686ade3c20e100e5d9e9c74f1ae3dc034b14e5d7081aee20b41f2cbb9d",
+  "remote_inventory_sha256": "9023b948b5b85c609ea8056a14d10b3772e1670e44fe88e2a8d40e0eb58444ee",
+  "repository": "Thor2709/etf_ai_cockpit",
+  "schema_version": "etf-ai-cockpit.safe-sync-evidence/1.0",
+  "summary": {
+    "blocked": 0,
+    "close": 0,
+    "create": 0,
+    "reopen": 0,
+    "update": 0
+  },
+  "transient_full_plan_file_sha256": "b548cce9e48bd173c67c90c024b9e40a694c6dde4346e9eb8e8b98dfa067b4af"
+}

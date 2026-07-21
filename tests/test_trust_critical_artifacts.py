@@ -296,7 +296,24 @@ def test_static_trust_artifacts_cover_providers_and_identity() -> None:
     assert identity.shape[0] >= 45
     assert {"VWCE", "UCG", "AIR", "MSFT", "RABO"} <= set(identity["instrument_id"])
     assert identity["executable_authority"].eq(False).all()
-    assert {"field_name", "resolution_status", "requires_manual_review"} <= set(conflicts.columns)
+    assert {
+        "identity_decision_id",
+        "identity_resolution_state",
+        "identity_objects",
+        "identity_history",
+    } <= set(identity.columns)
+    assert identity["identity_decision_id"].astype(str).str.fullmatch(r"[0-9a-f]{64}").all()
+    assert {
+        "field_name",
+        "resolution_status",
+        "requires_manual_review",
+        "reason_code",
+        "conflict_state",
+        "decision_id",
+        "candidate_count",
+        "execution_allowed",
+    } <= set(conflicts.columns)
+    assert conflicts["execution_allowed"].eq(False).all()
 
 
 def test_news_inventory_refresh_preserves_canonical_clean_evidence(tmp_path, monkeypatch) -> None:

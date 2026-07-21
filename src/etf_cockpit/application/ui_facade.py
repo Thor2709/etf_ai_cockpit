@@ -44,6 +44,7 @@ from etf_cockpit.data.score_history import *  # noqa: F401,F403
 from etf_cockpit.data.source_policy import *  # noqa: F401,F403
 from etf_cockpit.data.statement_normalisation import *  # noqa: F401,F403
 from etf_cockpit.data.trust_artifacts import *  # noqa: F401,F403
+from etf_cockpit.data.trust_artifacts import IDENTITY_PATH
 from etf_cockpit.data.universe_store import *  # noqa: F401,F403
 from etf_cockpit.application.api import *  # noqa: F401,F403
 from etf_cockpit.application.contracts import *  # noqa: F401,F403
@@ -68,6 +69,61 @@ from etf_cockpit.portfolio.risk_analytics import *  # noqa: F401,F403
 from etf_cockpit.application.portfolio_sandbox import *  # noqa: F401,F403
 from etf_cockpit.application.overlap import *  # noqa: F401,F403
 from etf_cockpit.signals.simple_scores import *  # noqa: F401,F403
+
+
+def load_identity_projection(instrument_id: str, path: Path | None = None) -> dict[str, object]:
+    """Return one fail-closed, read-only identity lineage projection for presentation."""
+
+    import pandas as pd
+
+    identity_path = Path(path or IDENTITY_PATH)
+    try:
+        frame = pd.read_parquet(identity_path)
+    except (OSError, ValueError, ImportError):
+        return {
+            "status": "unavailable",
+            "instrument_id": str(instrument_id),
+            "reason_code": "identity_evidence_unavailable",
+            "execution_allowed": False,
+        }
+    if "instrument_id" not in frame.columns:
+        return {
+            "status": "unavailable",
+            "instrument_id": str(instrument_id),
+            "reason_code": "identity_schema_unavailable",
+            "execution_allowed": False,
+        }
+    matches = frame.loc[frame["instrument_id"].astype(str).eq(str(instrument_id))]
+    if len(matches) != 1:
+        return {
+            "status": "quarantined" if len(matches) > 1 else "unavailable",
+            "instrument_id": str(instrument_id),
+            "reason_code": "duplicate_identity_projection" if len(matches) > 1 else "identity_evidence_unavailable",
+            "candidate_count": len(matches),
+            "execution_allowed": False,
+        }
+    row = matches.iloc[0]
+    fields = (
+        "identity_confidence",
+        "identity_status",
+        "identity_decision_id",
+        "identity_conflict_ids",
+        "identity_resolution_state",
+        "identity_effective_at",
+        "identity_decision_time",
+        "identity_objects",
+        "identity_history",
+        "warnings",
+    )
+    projection: dict[str, object] = {
+        "status": "available",
+        "instrument_id": str(instrument_id),
+        "execution_allowed": False,
+    }
+    for field in fields:
+        value = row.get(field)
+        projection[field] = "unavailable" if value is None or bool(pd.isna(value)) else value
+    return projection
 
 
 def load_paper_trade_rows(root: Path) -> tuple[dict[str, object], ...]:

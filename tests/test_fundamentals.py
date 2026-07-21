@@ -98,7 +98,7 @@ def test_boolean_fundamental_values_are_not_treated_as_measurements(invalid_valu
     assert evidence.score_eligible is False
 
 
-def test_source_merge_requires_matching_identity_and_period_and_cannot_grant_authority() -> None:
+def test_source_merge_retains_incompatible_identity_and_period_candidates_and_cannot_grant_authority() -> None:
     merged = merge_fundamental_sources(
         {
             "instrument_id": "MSFT",
@@ -128,16 +128,157 @@ def test_source_merge_requires_matching_identity_and_period_and_cannot_grant_aut
         },
     )
 
-    assert merged["instrument_id"] == "MSFT"
-    assert merged["as_of_date"] == "2026-06-30"
-    assert merged["valuation"] == 4.0
-    assert merged["profitability"] == 7.0
-    assert merged["source_authority"] == "mixed"
-    assert merged["sections"]["valuation"]["source_authority"] == "vendor"
-    assert merged["sections"]["profitability"]["source_authority"] == "sec_edgar"
-    assert merged["rejected_source_count"] == 2
-    assert merged["merge_status"] == "manual_review"
+    assert "instrument_id" not in merged
+    assert "as_of_date" not in merged
+    assert "valuation" not in merged
+    assert "profitability" not in merged
+    assert merged["source_authority"] == "unavailable"
+    assert merged["rejected_source_count"] == 0
+    assert merged["candidate_count"] == 4
+    assert merged["merge_status"] == "conflict"
+    assert "incompatible_metric_context" in merged["conflict_reason_codes"]
     assert merged["executable_authority"] is False
+
+
+def test_fundamental_merge_is_source_order_invariant_and_retains_every_candidate() -> None:
+    sources = (
+        {
+            "instrument_id": "MSFT",
+            "as_of_date": "2025-12-31",
+            "source_id": "official:2025",
+            "source_authority": "official",
+            "valuation": 1.0,
+        },
+        {
+            "instrument_id": "MSFT",
+            "as_of_date": "2024-12-31",
+            "source_id": "vendor:2024",
+            "source_authority": "vendor",
+            "valuation": 2.0,
+        },
+    )
+
+    forward = merge_fundamental_sources(*sources)
+    reverse = merge_fundamental_sources(*reversed(sources))
+
+    assert forward == reverse
+    assert "valuation" not in forward
+    assert forward["candidate_count"] == 2
+    assert forward["rejected_source_count"] == 0
+    assert forward["merge_status"] == "conflict"
+
+
+def test_fundamental_merge_never_invents_or_collapses_missing_source_identity() -> None:
+    sources = (
+        {
+            "instrument_id": "MSFT",
+            "as_of_date": "2025-12-31",
+            "source_authority": "vendor",
+            "valuation": 1.0,
+        },
+        {
+            "instrument_id": "MSFT",
+            "as_of_date": "2025-12-31",
+            "source_authority": "vendor",
+            "valuation": 2.0,
+        },
+    )
+
+    merged = merge_fundamental_sources(*sources)
+
+    assert "valuation" not in merged
+    assert merged["source_id"] == "unavailable"
+    assert merged["candidate_count"] == 2
+    assert merged["excluded_candidate_count"] == 0
+    assert merged["merge_status"] == "conflict"
+    assert merged["manual_review"] is True
+    assert "missing_source_identity" in merged["conflict_reason_codes"]
+
+
+def test_fundamental_merge_uses_canonical_conflict_resolver_and_retains_candidates() -> None:
+    merged = merge_fundamental_sources(
+        {
+            "instrument_id": "MSFT",
+            "as_of_date": "2026-06-30",
+            "source_id": "vendor:msft",
+            "source_authority": "vendor",
+            "valuation": 4.0,
+        },
+        {
+            "instrument_id": "MSFT",
+            "as_of_date": "2026-06-30",
+            "source_id": "sec:msft",
+            "source_authority": "official",
+            "valuation": 8.0,
+        },
+    )
+
+    assert merged["valuation"] == 8.0
+    assert merged["merge_status"] == "conflict"
+    assert merged["manual_review"] is True
+    assert merged["conflict_ids"]
+    assert merged["candidate_count"] == 2
+    assert merged["canonical_decision_id"]
+    assert merged["canonical_invalidation_token"]
+    assert merged["sections"]["valuation"]["source_id"] == "sec:msft"
+    assert merged["execution_allowed"] is False
+
+
+def test_fundamental_merge_never_pools_currency_contexts() -> None:
+    merged = merge_fundamental_sources(
+        {
+            "instrument_id": "MSFT",
+            "as_of_date": "2026-06-30",
+            "source_id": "vendor:usd",
+            "source_authority": "vendor",
+            "currency": "USD",
+            "valuation": 4.0,
+        },
+        {
+            "instrument_id": "MSFT",
+            "as_of_date": "2026-06-30",
+            "source_id": "vendor:eur",
+            "source_authority": "vendor",
+            "currency": "EUR",
+            "valuation": 4.0,
+        },
+    )
+
+    assert "valuation" not in merged
+    assert merged["merge_status"] == "conflict"
+    assert merged["manual_review"] is True
+    assert "incompatible_metric_context" in merged["conflict_reason_codes"]
+
+
+def test_fundamental_merge_excludes_future_known_official_restatement() -> None:
+    sources = (
+        {
+            "instrument_id": "MSFT",
+            "as_of_date": "2026-06-30",
+            "source_id": "vendor:msft",
+            "source_authority": "vendor",
+            "available_at": "2026-07-01T00:00:00Z",
+            "valuation": 4.0,
+        },
+        {
+            "instrument_id": "MSFT",
+            "as_of_date": "2026-06-30",
+            "source_id": "sec:msft",
+            "source_authority": "official",
+            "available_at": "2026-09-01T00:00:00Z",
+            "revision": 2,
+            "restatement_id": "restated-1",
+            "valuation": 8.0,
+        },
+    )
+
+    before = merge_fundamental_sources(*sources, decision_time="2026-08-01T00:00:00Z")
+    after = merge_fundamental_sources(*sources, decision_time="2026-10-01T00:00:00Z")
+
+    assert before["valuation"] == 4.0
+    assert before["excluded_candidate_count"] == 1
+    assert after["valuation"] == 8.0
+    assert before["canonical_invalidation_token"] != after["canonical_invalidation_token"]
 
 
 def test_non_contributing_official_source_cannot_upgrade_vendor_authority() -> None:
@@ -222,8 +363,8 @@ def test_merge_manual_review_state_survives_build_and_assessment() -> None:
     assessment = assess_fundamental_row(row, today=date(2026, 7, 18))
 
     assert evidence.manual_review is True
-    assert evidence.merge_status == "manual_review"
-    assert evidence.rejected_source_count == 1
+    assert evidence.merge_status == "conflict"
+    assert evidence.rejected_source_count == 0
     assert evidence.score_eligible is False
     assert assessment.score_eligible is False
     assert "manual_review_required" in assessment.reasons

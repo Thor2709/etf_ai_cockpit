@@ -128,6 +128,13 @@ IDENTITY_COLUMNS = [
     "cik",
     "identity_source_id",
     "identity_status",
+    "identity_decision_id",
+    "identity_conflict_ids",
+    "identity_resolution_state",
+    "identity_effective_at",
+    "identity_decision_time",
+    "identity_objects",
+    "identity_history",
     "executable_authority",
 ]
 
@@ -146,6 +153,21 @@ CONFLICT_COLUMNS = [
     "requires_manual_review",
     "reason",
     "selected_source_id",
+    "period",
+    "unit",
+    "currency",
+    "as_of",
+    "valid_from",
+    "valid_to",
+    "restatement_ids",
+    "reason_code",
+    "conflict_state",
+    "policy_id",
+    "policy_sha256",
+    "decision_id",
+    "review_decision_id",
+    "candidate_count",
+    "execution_allowed",
     "detected_at",
 ]
 
@@ -585,6 +607,13 @@ def write_instrument_identity(config: AppConfig) -> Path:
                 "cik": identity.cik or "",
                 "identity_source_id": source_id,
                 "identity_status": "manual_review" if resolution.requires_manual_review else "resolved",
+                "identity_decision_id": resolution.decision_id,
+                "identity_conflict_ids": json.dumps([item.conflict_id for item in resolution.conflicts], sort_keys=True),
+                "identity_resolution_state": resolution.resolution_state,
+                "identity_effective_at": resolution.effective_at or "latest",
+                "identity_decision_time": resolution.decision_time or "latest",
+                "identity_objects": json.dumps([asdict(item) for item in resolution.objects], sort_keys=True),
+                "identity_history": json.dumps([asdict(item) for item in resolution.history], sort_keys=True),
                 "executable_authority": False,
             }
         )
@@ -615,6 +644,24 @@ def write_source_conflicts(identity: pd.DataFrame | Any) -> Path:
                     "requires_manual_review": bool(getattr(conflict, "requires_manual_review", True)),
                     "reason": redact_text(getattr(conflict, "reason", "Conflict retained for manual review.")),
                     "selected_source_id": redact_text(getattr(conflict, "canonical_source_id", getattr(conflict, "selected_source_id", ""))),
+                    "period": str(getattr(conflict, "period", "unavailable")),
+                    "unit": str(getattr(conflict, "unit", "unavailable")),
+                    "currency": str(getattr(conflict, "currency", "unavailable")),
+                    "as_of": str(getattr(conflict, "as_of", "unavailable")),
+                    "valid_from": str(getattr(conflict, "valid_from", "unavailable")),
+                    "valid_to": str(getattr(conflict, "valid_to", "open")),
+                    "restatement_ids": json.dumps(list(getattr(conflict, "restatement_ids", ()) or ()), sort_keys=True),
+                    "reason_code": str(getattr(conflict, "reason_code", "identity_value_conflict")),
+                    "conflict_state": str(getattr(conflict, "state", "quarantine")),
+                    "policy_id": str(getattr(conflict, "policy_id", "unavailable")),
+                    "policy_sha256": str(getattr(conflict, "policy_sha256", "unavailable")),
+                    "decision_id": str(getattr(conflict, "decision_id", "unavailable")),
+                    "review_decision_id": str(getattr(conflict, "review_decision_id", "")),
+                    "candidate_count": int(
+                        getattr(conflict, "candidate_count", 0)
+                        or len(getattr(conflict, "source_ids", ()) or ())
+                    ),
+                    "execution_allowed": False,
                     "detected_at": now,
                 }
             )
@@ -646,6 +693,21 @@ def write_source_conflicts(identity: pd.DataFrame | Any) -> Path:
                     "requires_manual_review": True,
                     "reason": f"Duplicate canonical {field_name} value {value!r} is mapped to multiple instruments; identity merge is forbidden without manual review.",
                     "selected_source_id": "",
+                    "period": "unavailable",
+                    "unit": "unavailable",
+                    "currency": "unavailable",
+                    "as_of": "unavailable",
+                    "valid_from": "unavailable",
+                    "valid_to": "open",
+                    "restatement_ids": "[]",
+                    "reason_code": "duplicate_identity",
+                    "conflict_state": "quarantine",
+                    "policy_id": "identity-deduplication.v1",
+                    "policy_sha256": "unavailable",
+                    "decision_id": hashlib.sha256(f"duplicate:{field_name}:{value}:{ids}".encode()).hexdigest(),
+                    "review_decision_id": "",
+                    "candidate_count": len(ids),
+                    "execution_allowed": False,
                     "detected_at": now,
                 }
             )
@@ -1134,6 +1196,27 @@ def _candidate_identity_rows(config: AppConfig) -> list[dict[str, Any]]:
         if isin_status == "needs_verification":
             warnings.append("isin_needs_verification")
         analysis_tier = str(row.get("analysis_tier") or "secondary")
+        candidate_object = {
+            "object_type": "instrument",
+            "object_id": instrument_id,
+            "parent_object_id": None,
+            "relationship": None,
+            "fields": {"ticker": symbol, "isin": isin},
+            "source_ids": [f"candidate:{instrument_id}"],
+        }
+        candidate_decision_id = hashlib.sha256(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "object": candidate_object,
+                    "decision_time": "unavailable",
+                    "resolution_state": "manual_review",
+                    "execution_allowed": False,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
         rows.append(
             {
                 "instrument_id": instrument_id,
@@ -1156,6 +1239,15 @@ def _candidate_identity_rows(config: AppConfig) -> list[dict[str, Any]]:
                 "identity_confidence": "medium" if isin_status == "verified" and symbol else "manual_review",
                 "warnings": "|".join(warnings),
                 "provider_symbol_map": json.dumps({"yfinance": symbol}, sort_keys=True),
+                "identity_source_id": f"candidate:{instrument_id}",
+                "identity_status": "manual_review",
+                "identity_decision_id": candidate_decision_id,
+                "identity_conflict_ids": "[]",
+                "identity_resolution_state": "manual_review",
+                "identity_effective_at": "unavailable",
+                "identity_decision_time": "unavailable",
+                "identity_objects": json.dumps([candidate_object], sort_keys=True),
+                "identity_history": "[]",
                 "executable_authority": False,
             }
         )
