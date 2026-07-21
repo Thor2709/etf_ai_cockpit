@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "1e9efbcd3ea67fec638d95905a66af063952dd8c",
+    "generation_base_commit": "3f3aa361bb09d44edcd65d3184f835d06e996682",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4940,15 +4940,28 @@
           "reviewed_date": "2026-07-21",
           "reviewer": "Codex independent reviewer",
           "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "PR #465 merged as 1e9efbcd3ea67fec638d95905a66af063952dd8c",
+            "GitHub Actions release run 29872726719 passed Linux and Windows; status guard 29872726691 and supply-chain 29872726692 passed",
+            "PR #466 merged as 3f3aa361bb09d44edcd65d3184f835d06e996682; status guard 29874356182 and supply-chain 29874356193 passed",
+            "GitHub sync plan 9133bbd109c1b2da871e19b5079b41f1b61d9acd057ac9f859dc99fa48bef221 applied and readback 1419344b2f8eb58bc73c3e116ff6584ff0a0b9a54a197d990b51b5db64e85481 contained zero actions",
+            "plans/BATCH-B02-DATA-IDENTITY.md acceptance evidence and independent review"
+          ],
+          "review_reference": "B02 product review PASS, PR #465 full protected release, and PR #466 local/GitHub convergence",
+          "reviewed_date": "2026-07-21",
+          "reviewer": "Codex root convergence review",
+          "status": "integrated"
         }
       ],
       "dependency_edge_evidence": {},
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
-        "from": "in_progress",
-        "review_reference": "Independent B02 product review PASS and PR #465 protected cross-platform release evidence",
-        "to": "implemented_initially"
+        "from": "implemented_initially",
+        "review_reference": "B02 product review PASS, PR #465 full protected release, and PR #466 local/GitHub convergence",
+        "to": "integrated"
       },
       "transition_history": [
         {
@@ -4965,9 +4978,25 @@
           "reviewer": "Codex independent reviewer",
           "to": "implemented_initially",
           "verified_commit": "1e9efbcd3ea67fec638d95905a66af063952dd8c"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #465 merged as 1e9efbcd3ea67fec638d95905a66af063952dd8c",
+            "GitHub Actions release run 29872726719 passed Linux and Windows; status guard 29872726691 and supply-chain 29872726692 passed",
+            "PR #466 merged as 3f3aa361bb09d44edcd65d3184f835d06e996682; status guard 29874356182 and supply-chain 29874356193 passed",
+            "GitHub sync plan 9133bbd109c1b2da871e19b5079b41f1b61d9acd057ac9f859dc99fa48bef221 applied and readback 1419344b2f8eb58bc73c3e116ff6584ff0a0b9a54a197d990b51b5db64e85481 contained zero actions",
+            "plans/BATCH-B02-DATA-IDENTITY.md acceptance evidence and independent review"
+          ],
+          "from": "implemented_initially",
+          "review_reference": "B02 product review PASS, PR #465 full protected release, and PR #466 local/GitHub convergence",
+          "reviewed_date": "2026-07-21",
+          "reviewer": "Codex root convergence review",
+          "to": "integrated",
+          "verified_commit": "3f3aa361bb09d44edcd65d3184f835d06e996682"
         }
       ],
-      "verified_commit": "1e9efbcd3ea67fec638d95905a66af063952dd8c",
+      "verified_commit": "3f3aa361bb09d44edcd65d3184f835d06e996682",
       "verified_date": "2026-07-21"
     },
     "UPDATEV2-0012": {
@@ -5100,15 +5129,28 @@
           "reviewed_date": "2026-07-21",
           "reviewer": "Codex independent reviewer",
           "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "PR #465 merged as 1e9efbcd3ea67fec638d95905a66af063952dd8c",
+            "GitHub Actions release run 29872726719 passed Linux and Windows; status guard 29872726691 and supply-chain 29872726692 passed",
+            "PR #466 merged as 3f3aa361bb09d44edcd65d3184f835d06e996682; status guard 29874356182 and supply-chain 29874356193 passed",
+            "GitHub sync plan 9133bbd109c1b2da871e19b5079b41f1b61d9acd057ac9f859dc99fa48bef221 applied and readback 1419344b2f8eb58bc73c3e116ff6584ff0a0b9a54a197d990b51b5db64e85481 contained zero actions",
+            "plans/BATCH-B02-DATA-IDENTITY.md acceptance evidence and independent review"
+          ],
+          "review_reference": "B02 product review PASS, PR #465 full protected release, and PR #466 local/GitHub convergence",
+          "reviewed_date": "2026-07-21",
+          "reviewer": "Codex root convergence review",
+          "status": "integrated"
         }
       ],
       "dependency_edge_evidence": {},
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
-        "from": "in_progress",
-        "review_reference": "Independent B02 product review PASS and PR #465 protected cross-platform release evidence",
-        "to": "implemented_initially"
+        "from": "implemented_initially",
+        "review_reference": "B02 product review PASS, PR #465 full protected release, and PR #466 local/GitHub convergence",
+        "to": "integrated"
       },
       "transition_history": [
         {
@@ -5125,9 +5167,25 @@
           "reviewer": "Codex independent reviewer",
           "to": "implemented_initially",
           "verified_commit": "1e9efbcd3ea67fec638d95905a66af063952dd8c"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #465 merged as 1e9efbcd3ea67fec638d95905a66af063952dd8c",
+            "GitHub Actions release run 29872726719 passed Linux and Windows; status guard 29872726691 and supply-chain 29872726692 passed",
+            "PR #466 merged as 3f3aa361bb09d44edcd65d3184f835d06e996682; status guard 29874356182 and supply-chain 29874356193 passed",
+            "GitHub sync plan 9133bbd109c1b2da871e19b5079b41f1b61d9acd057ac9f859dc99fa48bef221 applied and readback 1419344b2f8eb58bc73c3e116ff6584ff0a0b9a54a197d990b51b5db64e85481 contained zero actions",
+            "plans/BATCH-B02-DATA-IDENTITY.md acceptance evidence and independent review"
+          ],
+          "from": "implemented_initially",
+          "review_reference": "B02 product review PASS, PR #465 full protected release, and PR #466 local/GitHub convergence",
+          "reviewed_date": "2026-07-21",
+          "reviewer": "Codex root convergence review",
+          "to": "integrated",
+          "verified_commit": "3f3aa361bb09d44edcd65d3184f835d06e996682"
         }
       ],
-      "verified_commit": "1e9efbcd3ea67fec638d95905a66af063952dd8c",
+      "verified_commit": "3f3aa361bb09d44edcd65d3184f835d06e996682",
       "verified_date": "2026-07-21"
     },
     "UPDATEV2-0022": {
