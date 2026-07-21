@@ -1,0 +1,40 @@
+{
+  "actions": [
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Programme status"
+      ],
+      "remote_number": 12,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0008",
+      "title": "Add strategy taxonomy and scope/rejection matrix",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/12"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Programme status"
+      ],
+      "remote_number": 85,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0037",
+      "title": "Config editor UI",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/85"
+    }
+  ],
+  "apply_authority": false,
+  "fresh_exact_plan_required_for_apply": true,
+  "plan_semantic_sha256": "d456208ac986550978ee4fa8f47cd8783e08e18cf18dd24c83e802343b0dc111",
+  "remote_inventory_sha256": "8ea5447640cc09fcc40f8b61107db454d1869503e4f072100e69b87738b5d191",
+  "repository": "Thor2709/etf_ai_cockpit",
+  "schema_version": "etf-ai-cockpit.safe-sync-evidence/1.0",
+  "summary": {
+    "blocked": 0,
+    "close": 0,
+    "create": 0,
+    "reopen": 0,
+    "update": 2
+  },
+  "transient_full_plan_file_sha256": "160d5417701522888feae3e1e94e6e468f7d1e22c9ef6376b2a12e2b0ef6a5cc"
+}
