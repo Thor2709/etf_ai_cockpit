@@ -124,6 +124,25 @@ def test_legacy_onboarding_migration_is_deterministic_and_reports_unknown_values
     assert surfaced_issues == issues_again
 
 
+def test_settings_revision_is_portable_across_companion_line_endings(tmp_path: Path) -> None:
+    lf_root = tmp_path / "lf"
+    crlf_root = tmp_path / "crlf"
+    lf_path = lf_root / "configs" / "universe.yaml"
+    crlf_path = crlf_root / "configs" / "universe.yaml"
+    lf_path.parent.mkdir(parents=True)
+    crlf_path.parent.mkdir(parents=True)
+    document = "etfs:\n- id: IE00B4L5Y983\n"
+    lf_path.write_bytes(document.encode("utf-8"))
+    crlf_path.write_bytes(document.replace("\n", "\r\n").encode("utf-8"))
+
+    lf_bundle, lf_issues = migrate_legacy_settings(lf_root)
+    crlf_bundle, crlf_issues = migrate_legacy_settings(crlf_root)
+
+    assert lf_issues == crlf_issues == ()
+    assert lf_bundle.universe == crlf_bundle.universe
+    assert lf_bundle.revision == crlf_bundle.revision
+
+
 def test_shipped_version_zero_defaults_do_not_erase_legacy_onboarding(tmp_path: Path) -> None:
     default = load_settings_bundle(tmp_path)
     settings_path = tmp_path / "configs" / "settings.yaml"

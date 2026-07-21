@@ -273,6 +273,14 @@ def _read_json(path: Path) -> dict[str, object]:
     return payload
 
 
+def _portable_text_revision(path: Path) -> str:
+    """Hash companion text without platform checkout line-ending drift."""
+
+    text = path.read_text(encoding="utf-8")
+    normalised = text.replace("\r\n", "\n").replace("\r", "\n")
+    return hashlib.sha256(normalised.encode("utf-8")).hexdigest()
+
+
 def _universe_summary(root: Path) -> dict[str, object]:
     config_dir = root / "configs"
     store = _read_json(config_dir / "universe_store.json")
@@ -288,7 +296,7 @@ def _universe_summary(root: Path) -> dict[str, object]:
         for row in records
         if isinstance(row, dict) and (row.get("instrument_id") or row.get("id"))
     )
-    digest = hashlib.sha256(source.read_bytes()).hexdigest() if source.is_file() else "unavailable"
+    digest = _portable_text_revision(source) if source.is_file() else "unavailable"
     return {"source": source.relative_to(root).as_posix(), "revision": digest, "instrument_ids": ids, "count": len(ids)}
 
 
