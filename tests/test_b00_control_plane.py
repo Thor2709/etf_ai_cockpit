@@ -32,7 +32,7 @@ BASE_SHA = "452d44034197cd5d837c1854603eea030e02acf6"
 
 
 def _registry() -> dict[str, object]:
-    return build_registry(ROOT, baseline=BASE_SHA)
+    return build_registry(ROOT)
 
 
 def _record(registry: dict[str, object], issue_id: str) -> dict[str, object]:
@@ -92,13 +92,13 @@ def test_reviewed_control_state_round_trips_and_invalid_transition_fails(
     path = tmp_path / "programme_control_state.json"
     path.write_text(json.dumps(control), encoding="utf-8")
     monkeypatch.setattr(issue_registry_core, "CONTROL_STATE_PATH", path)
-    generated = build_registry(ROOT, baseline=BASE_SHA)
+    generated = build_registry(ROOT, verify_base=False)
     assert _record(generated, "ISSUE-0154")["dependency_edge_evidence"] == record["dependency_edge_evidence"]
 
     record["programme_status"] = "integrated"
     path.write_text(json.dumps(control), encoding="utf-8")
     with pytest.raises(ValueError, match="transition is not allowlisted"):
-        build_registry(ROOT, baseline=BASE_SHA)
+        build_registry(ROOT, verify_base=False)
 
 
 def test_guarded_transition_rejects_skip_downgrade_and_wrong_expected_then_persists(
@@ -142,7 +142,7 @@ def test_guarded_transition_rejects_skip_downgrade_and_wrong_expected_then_persi
     path = tmp_path / "control.json"
     path.write_text(json.dumps(transitioned), encoding="utf-8")
     monkeypatch.setattr(issue_registry_core, "CONTROL_STATE_PATH", path)
-    generated = build_registry(ROOT, baseline=BASE_SHA, verify_base=False)
+    generated = build_registry(ROOT, verify_base=False)
     record = _record(generated, "ISSUE-0154")
     assert record["programme_status"] == "ready"
     assert record["dependency_edge_evidence"]["ISSUE-0153"]["state"] == "partial_interface"
@@ -266,7 +266,7 @@ def test_registry_entrypoint_rejects_handcrafted_invalid_transition_events(
 
     def authoritative(command, *args, **kwargs):
         if list(command[:2]) == ["git", "rev-parse"]:
-            return BASE_SHA + "\n"
+            return prior["metadata"]["generation_base_commit"] + "\n"
         return json.dumps(prior).encode("utf-8")
 
     monkeypatch.setattr(issue_registry_core.subprocess, "check_output", authoritative)
@@ -522,8 +522,8 @@ def test_registry_generation_is_identical_for_lf_and_crlf_text_inputs(tmp_path: 
         if path.suffix.lower() in {".json", ".csv", ".md", ".sha256", ".txt"}:
             payload = path.read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
             path.write_bytes(payload.replace(b"\n", b"\r\n"))
-    lf_registry = build_registry(lf, baseline=BASE_SHA, verify_base=False)
-    crlf_registry = build_registry(crlf, baseline=BASE_SHA, verify_base=False)
+    lf_registry = build_registry(lf, verify_base=False)
+    crlf_registry = build_registry(crlf, verify_base=False)
     assert issue_registry_core.deterministic_json(lf_registry) == issue_registry_core.deterministic_json(crlf_registry)
 
 
