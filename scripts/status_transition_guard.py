@@ -22,6 +22,7 @@ try:
         canonical_text_bytes,
         sha256_text_file,
         deterministic_json,
+        readiness_projection,
         validate_control_authority,
         validate_control_transition_event,
         verify_generation_base,
@@ -42,6 +43,7 @@ except ModuleNotFoundError:
         canonical_text_bytes,
         sha256_text_file,
         deterministic_json,
+        readiness_projection,
         validate_control_authority,
         validate_control_transition_event,
         verify_generation_base,
@@ -102,7 +104,13 @@ HIGH_STATUS = {
 }
 BASE_REFRESH_TRANSITION_MODE = "generation_base_and_status_transitions"
 TRANSITION_REGISTRY_FIELDS = frozenset(
-    {"programme_status", "verified_commit", "verified_date", "acceptance_evidence"}
+    {
+        "programme_status",
+        "verified_commit",
+        "verified_date",
+        "acceptance_evidence",
+        "dependency_edge_evidence",
+    }
 )
 BASE_REFRESH_SOURCE_FIELDS = frozenset({"baseline_commit", "programme_control_state_sha256"})
 
@@ -284,13 +292,50 @@ def _manifest_errors(
     return errors, issue_ids, transitions, registry_migration
 
 
+def _dependency_edge_transition(
+    issue_id: str,
+    base_record: Mapping[str, Any],
+    proposed_record: Mapping[str, Any],
+    errors: list[str],
+) -> tuple[dict[str, Any] | None, bool]:
+    """Infer one reviewed edge change; reject broader dependency mutations."""
+
+    base_edges = base_record.get("dependency_edge_evidence", {})
+    proposed_edges = proposed_record.get("dependency_edge_evidence", {})
+    if base_edges == proposed_edges:
+        return None, False
+    if not isinstance(base_edges, dict) or not isinstance(proposed_edges, dict):
+        _error(errors, f"transition dependency-edge evidence must remain an object: {issue_id}")
+        return None, True
+    if set(base_edges) != set(proposed_edges):
+        _error(errors, f"transition cannot add or remove dependency edges: {issue_id}")
+        return None, True
+    changed = [
+        dependency
+        for dependency in sorted(base_edges)
+        if base_edges[dependency] != proposed_edges[dependency]
+    ]
+    if len(changed) != 1:
+        _error(errors, f"transition must change at most one dependency edge: {issue_id}")
+        return None, True
+    dependency = changed[0]
+    edge = proposed_edges[dependency]
+    if not isinstance(edge, dict):
+        _error(errors, f"transition dependency-edge evidence is invalid: {issue_id}/{dependency}")
+        return None, True
+    return {"dependency": dependency, "evidence": deepcopy(edge)}, True
+
+
 def _validate_transition_record(
     issue_id: str,
     base_record: Mapping[str, Any],
     proposed_record: Mapping[str, Any],
     errors: list[str],
     verified_commit_is_ancestor: Callable[[str], bool] | None,
-) -> None:
+) -> int:
+    edge_change, edge_changed = _dependency_edge_transition(
+        issue_id, base_record, proposed_record, errors
+    )
     base_fixed = {
         key: value for key, value in base_record.items() if key not in TRANSITION_REGISTRY_FIELDS
     }
@@ -309,7 +354,7 @@ def _validate_transition_record(
         or proposed_evidence[: len(base_evidence)] != base_evidence
     ):
         _error(errors, f"transition acceptance evidence must append exactly one entry: {issue_id}")
-        return
+        return int(edge_changed)
     evidence = proposed_evidence[-1]
     evidence_keys = {
         "status",
@@ -320,12 +365,12 @@ def _validate_transition_record(
     }
     if not isinstance(evidence, dict) or set(evidence) != evidence_keys:
         _error(errors, f"transition acceptance evidence is malformed: {issue_id}")
-        return
+        return int(edge_changed)
 
     verified_commit = proposed_record.get("verified_commit")
     if not isinstance(verified_commit, str) or not COMMIT_RE.fullmatch(verified_commit):
         _error(errors, f"transition verified_commit must be a full lowercase Git SHA: {issue_id}")
-        return
+        return int(edge_changed)
     if verified_commit == base_record.get("verified_commit"):
         _error(errors, f"transition verified_commit must advance reviewed evidence: {issue_id}")
 
@@ -343,6 +388,8 @@ def _validate_transition_record(
         "verified_commit": verified_commit,
         "allow_downgrade": False,
     }
+    if edge_change is not None:
+        event["dependency_edge"] = edge_change
 
     if evidence.get("status") != proposed_record.get("programme_status"):
         _error(errors, f"transition acceptance evidence status mismatch: {issue_id}")
@@ -350,7 +397,7 @@ def _validate_transition_record(
         validate_control_transition_event(issue_id, dict(base_record), event)
     except ValueError as exc:
         _error(errors, f"invalid reviewed transition evidence: {issue_id}: {exc}")
-        return
+        return int(edge_changed)
 
     if verified_commit_is_ancestor is None:
         _error(errors, f"transition verified_commit ancestry validator is required: {issue_id}")
@@ -367,7 +414,7 @@ def _validate_transition_record(
     expected_acceptance = expected.setdefault("acceptance_evidence", [])
     if not isinstance(expected_acceptance, list):
         _error(errors, f"authoritative acceptance evidence is invalid: {issue_id}")
-        return
+        return int(edge_changed)
     expected_acceptance.append(
         {
             "status": event["to"],
@@ -377,8 +424,15 @@ def _validate_transition_record(
             "reviewed_date": event["reviewed_date"],
         }
     )
+    if edge_change is not None:
+        expected_edges = expected.get("dependency_edge_evidence")
+        if not isinstance(expected_edges, dict):
+            _error(errors, f"authoritative dependency-edge evidence is invalid: {issue_id}")
+            return int(edge_changed)
+        expected_edges[edge_change["dependency"]] = edge_change["evidence"]
     if expected != proposed_record:
         _error(errors, f"transition record does not match the canonical registry projection: {issue_id}")
+    return int(edge_changed)
 
 
 def _validate_base_refresh_top_level(
@@ -386,14 +440,22 @@ def _validate_base_refresh_top_level(
     proposed_registry: Mapping[str, Any],
     *,
     manifest_base: object,
+    allow_readiness_change: bool,
     errors: list[str],
 ) -> None:
-    base_top = {key: value for key, value in base_registry.items() if key not in {"records", "source_of_truth"}}
+    excluded = {"records", "source_of_truth"}
+    if allow_readiness_change:
+        excluded.add("readiness")
+    base_top = {key: value for key, value in base_registry.items() if key not in excluded}
     proposed_top = {
-        key: value for key, value in proposed_registry.items() if key not in {"records", "source_of_truth"}
+        key: value for key, value in proposed_registry.items() if key not in excluded
     }
     if base_top != proposed_top:
         _error(errors, "non-allowlisted registry change: top-level registry data")
+    if allow_readiness_change:
+        expected_readiness = readiness_projection(dict(proposed_registry))
+        if proposed_registry.get("readiness") != expected_readiness:
+            _error(errors, "dependency-edge transition readiness projection mismatch")
 
     base_source = base_registry.get("source_of_truth")
     proposed_source = proposed_registry.get("source_of_truth")
@@ -497,6 +559,7 @@ def guard_proposal(
             _error(errors, f"manifest references missing issue ID: {issue_id}")
 
     changed_statuses: dict[str, tuple[str, str]] = {}
+    edge_transition_count = 0
     comparable_ids = base_ids & proposed_ids
     for issue_id in sorted(comparable_ids):
         base_record = base_by_id[issue_id]
@@ -513,7 +576,7 @@ def guard_proposal(
                 _error(errors, f"non-allowlisted registry change: {issue_id}")
         elif migration_mode == BASE_REFRESH_TRANSITION_MODE:
             if issue_id in manifest_issue_ids:
-                _validate_transition_record(
+                edge_transition_count += _validate_transition_record(
                     issue_id,
                     base_record,
                     proposed_record,
@@ -525,6 +588,8 @@ def guard_proposal(
     if migration_requested and migration_mode == "canonical_schema_and_intake":
         for issue_id in sorted(changed_statuses):
             _error(errors, f"registry migration cannot change programme_status: {issue_id}")
+    if edge_transition_count > 1:
+        _error(errors, "proposal must change at most one dependency edge")
     base_top_level = {key: value for key, value in base_registry.items() if key != "records"}
     proposed_top_level = {key: value for key, value in proposed_registry.items() if key != "records"}
     for top_level in (base_top_level, proposed_top_level):
@@ -540,6 +605,7 @@ def guard_proposal(
             base_registry,
             proposed_registry,
             manifest_base=manifest_base,
+            allow_readiness_change=edge_transition_count > 0,
             errors=errors,
         )
 

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.issue_registry_core import deterministic_json
+from scripts.issue_registry_core import deterministic_json, readiness_projection
 from scripts.status_transition_guard import _git_commit_is_ancestor, guard_proposal
 from scripts.update_programme_control import apply_transition
 from scripts.update_programme_status import deterministic_text, progress_markdown, status_payload
@@ -674,9 +674,20 @@ def test_generation_base_transition_mode_rejects_added_or_removed_issue() -> Non
     assert "generation-base transition mode cannot add or remove issue IDs" in errors
 
 
-def test_generation_base_transition_mode_rejects_dependency_evidence_mutation() -> None:
+def test_generation_base_transition_mode_accepts_one_reviewed_dependency_edge() -> None:
     base = _base_refresh_registry("planned")
-    base["records"][0]["dependency_edge_evidence"] = {"ISSUE-0001": {"state": "unresolved"}}
+    base["records"][0]["blocking_dependencies"] = ["ISSUE-0001"]
+    base["records"][0]["dependency_edge_evidence"] = {
+        "ISSUE-0001": {
+            "schema_version": "1.0",
+            "state": "unresolved",
+            "evidence_references": [],
+            "contract_reference": "",
+            "reviewer": "",
+            "reviewed_date": "",
+        }
+    }
+    base["readiness"] = readiness_projection(base)
     proposed = copy.deepcopy(base)
     _apply_reviewed_transition(
         proposed,
@@ -684,7 +695,15 @@ def test_generation_base_transition_mode_rejects_dependency_evidence_mutation() 
         previous="planned",
         proposed="in_progress",
     )
-    proposed["records"][0]["dependency_edge_evidence"]["ISSUE-0001"] = {"state": "complete"}
+    proposed["records"][0]["dependency_edge_evidence"]["ISSUE-0001"] = {
+        "schema_version": "1.0",
+        "state": "partial_interface",
+        "evidence_references": ["PR #458 release gates and post-merge smoke"],
+        "contract_reference": "contracts/dependency-interface-v1",
+        "reviewer": "Codex independent reviewer",
+        "reviewed_date": "2026-07-21",
+    }
+    proposed["readiness"] = readiness_projection(proposed)
     proposed["source_of_truth"]["baseline_commit"] = BASE_COMMIT
     proposed["source_of_truth"]["programme_control_state_sha256"] = "2" * 64
     manifest = _base_refresh_transition_manifest(
@@ -695,7 +714,129 @@ def test_generation_base_transition_mode_rejects_dependency_evidence_mutation() 
 
     errors = _errors(base, proposed, manifest)
 
-    assert "non-allowlisted registry change: ISSUE-0008" in errors
+    assert errors == []
+
+
+def test_generation_base_transition_mode_rejects_edge_evidence_not_matching_review() -> None:
+    base = _base_refresh_registry("planned")
+    base["records"][0]["blocking_dependencies"] = ["ISSUE-0001"]
+    base["records"][0]["dependency_edge_evidence"] = {
+        "ISSUE-0001": {"state": "unresolved"}
+    }
+    base["readiness"] = readiness_projection(base)
+    proposed = copy.deepcopy(base)
+    _apply_reviewed_transition(
+        proposed,
+        "ISSUE-0008",
+        previous="planned",
+        proposed="in_progress",
+    )
+    proposed["records"][0]["dependency_edge_evidence"]["ISSUE-0001"] = {
+        "schema_version": "1.0",
+        "state": "partial_interface",
+        "evidence_references": ["different unreviewed evidence"],
+        "contract_reference": "contracts/dependency-interface-v1",
+        "reviewer": "Codex independent reviewer",
+        "reviewed_date": "2026-07-21",
+    }
+    proposed["readiness"] = readiness_projection(proposed)
+    proposed["source_of_truth"]["baseline_commit"] = BASE_COMMIT
+    proposed["source_of_truth"]["programme_control_state_sha256"] = "2" * 64
+    manifest = _base_refresh_transition_manifest(
+        base,
+        proposed,
+        ("ISSUE-0008", "planned", "in_progress"),
+    )
+
+    errors = _errors(base, proposed, manifest)
+
+    assert any("dependency-edge review evidence must match" in error for error in errors)
+
+
+def test_generation_base_transition_mode_rejects_multiple_dependency_edge_changes() -> None:
+    base = _base_refresh_registry("planned")
+    base["records"][0]["blocking_dependencies"] = ["ISSUE-0001", "ISSUE-0002"]
+    base["records"][0]["dependency_edge_evidence"] = {
+        dependency: {"state": "unresolved"}
+        for dependency in ("ISSUE-0001", "ISSUE-0002")
+    }
+    base["readiness"] = readiness_projection(base)
+    proposed = copy.deepcopy(base)
+    _apply_reviewed_transition(
+        proposed,
+        "ISSUE-0008",
+        previous="planned",
+        proposed="in_progress",
+    )
+    for dependency in ("ISSUE-0001", "ISSUE-0002"):
+        proposed["records"][0]["dependency_edge_evidence"][dependency] = {
+            "schema_version": "1.0",
+            "state": "partial_interface",
+            "evidence_references": ["PR #458 release gates and post-merge smoke"],
+            "contract_reference": f"contracts/{dependency}",
+            "reviewer": "Codex independent reviewer",
+            "reviewed_date": "2026-07-21",
+        }
+    proposed["readiness"] = readiness_projection(proposed)
+    proposed["source_of_truth"]["baseline_commit"] = BASE_COMMIT
+    proposed["source_of_truth"]["programme_control_state_sha256"] = "2" * 64
+    manifest = _base_refresh_transition_manifest(
+        base,
+        proposed,
+        ("ISSUE-0008", "planned", "in_progress"),
+    )
+
+    errors = _errors(base, proposed, manifest)
+
+    assert "transition must change at most one dependency edge: ISSUE-0008" in errors
+
+
+def test_generation_base_transition_mode_rejects_edge_changes_across_multiple_issues() -> None:
+    base = _registry({"ISSUE-0008": "planned", "ISSUE-0009": "planned"})
+    for record in base["records"]:
+        dependency = "ISSUE-0001" if record["canonical_id"] == "ISSUE-0008" else "ISSUE-0002"
+        record.update(
+            {
+                "verified_commit": "d" * 40,
+                "acceptance_evidence": [],
+                "blocking_dependencies": [dependency],
+                "dependency_edge_evidence": {dependency: {"state": "unresolved"}},
+            }
+        )
+    base["readiness"] = readiness_projection(base)
+    base["source_of_truth"].update(
+        {"baseline_commit": "e" * 40, "programme_control_state_sha256": "1" * 64}
+    )
+    proposed = copy.deepcopy(base)
+    for issue_id, dependency in (("ISSUE-0008", "ISSUE-0001"), ("ISSUE-0009", "ISSUE-0002")):
+        _apply_reviewed_transition(
+            proposed,
+            issue_id,
+            previous="planned",
+            proposed="in_progress",
+        )
+        record = next(row for row in proposed["records"] if row["canonical_id"] == issue_id)
+        record["dependency_edge_evidence"][dependency] = {
+            "schema_version": "1.0",
+            "state": "partial_interface",
+            "evidence_references": ["PR #458 release gates and post-merge smoke"],
+            "contract_reference": f"contracts/{dependency}",
+            "reviewer": "Codex independent reviewer",
+            "reviewed_date": "2026-07-21",
+        }
+    proposed["readiness"] = readiness_projection(proposed)
+    proposed["source_of_truth"]["baseline_commit"] = BASE_COMMIT
+    proposed["source_of_truth"]["programme_control_state_sha256"] = "2" * 64
+    manifest = _base_refresh_transition_manifest(
+        base,
+        proposed,
+        ("ISSUE-0008", "planned", "in_progress"),
+        ("ISSUE-0009", "planned", "in_progress"),
+    )
+
+    errors = _errors(base, proposed, manifest)
+
+    assert "proposal must change at most one dependency edge" in errors
 
 
 def test_generation_base_transition_mode_rejects_reasoned_downgrade() -> None:
