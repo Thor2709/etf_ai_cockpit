@@ -518,6 +518,7 @@ def atomic_write_group(
     requests: Iterable[AtomicWriteRequest],
     *,
     lifecycle_hook: Callable[[str, Path], None] | None = None,
+    precondition: Callable[[], None] | None = None,
 ) -> tuple[AtomicWriteResult, ...]:
     request_tuple = tuple(requests)
     if not request_tuple:
@@ -577,6 +578,8 @@ def atomic_write_group(
         locks = _acquire_group_locks(lock_parents, journal_path)
         journal_payload["lock_paths"] = [str(path.resolve()) for path in locks]
         _write_journal(journal_path, journal_payload)
+        if precondition is not None:
+            precondition()
         for index, request in enumerate(request_tuple):
             original = request.destination.read_bytes() if request.destination.is_file() else None
             previous[request.destination] = original

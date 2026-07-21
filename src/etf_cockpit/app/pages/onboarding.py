@@ -12,6 +12,7 @@ import yaml
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
+from etf_cockpit.application.settings import ANALYSIS_DEPTHS, HORIZONS, OUTPUT_CURRENCIES, RISK_PROFILES
 from etf_cockpit.core.config import load_config
 from etf_cockpit.application.ui_facade import UniverseRecord, legal_terms_report, load_universe, resource_profile_report, save_universe, source_policy_rows
 
@@ -24,6 +25,7 @@ class OnboardingProfile:
     risk_profile: str
     horizon: str
     tickers: tuple[str, ...] = ()
+    analysis_depth: str = "medium"
 
 
 @dataclass(frozen=True)
@@ -42,7 +44,22 @@ class OnboardingResult:
 
 
 _TICKER_RE = re.compile(r"^[A-Z0-9][A-Z0-9._-]{0,20}$", re.IGNORECASE)
-_ASSET_SCOPES = {"etf", "stock", "both"}
+_ASSET_SCOPES = {"etf", "stock", "fund", "bond", "both", "stock+etf", "all"}
+_RISK_MAP = {"conservative": "safe", "balanced": "medium", "growth": "aggressive", **{item: item for item in RISK_PROFILES}}
+_HORIZON_MAP = {"short": "1M", "medium": "3M", "long": "9M", **{item.casefold(): item for item in HORIZONS}}
+
+
+def _canonical_scopes(values: Iterable[str]) -> tuple[str, ...]:
+    scopes: list[str] = []
+    for raw in values:
+        value = raw.strip().lower()
+        if value in {"both", "stock+etf"}:
+            scopes.extend(("stock", "etf"))
+        elif value == "all":
+            scopes.extend(("stock", "etf", "fund", "bond"))
+        elif value in {"stock", "etf", "fund", "bond"}:
+            scopes.append(value)
+    return tuple(dict.fromkeys(scopes))
 
 
 def _profile_tickers(profile: OnboardingProfile) -> tuple[str, ...]:
@@ -117,7 +134,7 @@ def validate_onboarding(
     root: Path | None = None,
 ) -> OnboardingValidation:
     errors: list[str] = []
-    if not profile.base_currency.strip():
+    if profile.base_currency.strip().upper() not in OUTPUT_CURRENCIES:
         errors.append("base_currency")
     if not profile.region.strip():
         errors.append("region")
@@ -125,10 +142,12 @@ def validate_onboarding(
         errors.append("asset_scope")
     elif profile.tickers and not all(value.strip().lower() in _ASSET_SCOPES for value in profile.asset_scope):
         errors.append("asset_scope")
-    if not profile.risk_profile.strip():
+    if profile.risk_profile.strip().lower() not in _RISK_MAP:
         errors.append("risk_profile")
-    if not profile.horizon.strip():
+    if profile.horizon.strip().casefold() not in _HORIZON_MAP:
         errors.append("horizon")
+    if profile.analysis_depth.strip().lower() not in ANALYSIS_DEPTHS:
+        errors.append("analysis_depth")
     unresolved = validate_tickers(
         _profile_tickers(profile),
         validator=validator,
@@ -139,7 +158,8 @@ def validate_onboarding(
 
 
 def _onboarding_records(profile: OnboardingProfile, unresolved: tuple[str, ...]) -> tuple[UniverseRecord, ...]:
-    scope = next((value.strip().lower() for value in profile.asset_scope if value.strip().lower() in _ASSET_SCOPES), "both")
+    scopes = _canonical_scopes(profile.asset_scope)
+    scope = scopes[0] if len(scopes) == 1 else "both"
     tickers = _profile_tickers(profile)
     rows: list[UniverseRecord] = []
     for ticker in tickers:
@@ -176,7 +196,7 @@ def complete_onboarding(
     records = _onboarding_records(profile, validation.unresolved_symbols)
     path = Path(root) / "configs" / "onboarding.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"profile": {"base_currency": profile.base_currency, "region": profile.region, "asset_scope": list(profile.asset_scope), "risk_profile": profile.risk_profile, "horizon": profile.horizon, "tickers": list(_profile_tickers(profile))}, "unresolved_symbols": list(validation.unresolved_symbols)}, indent=2) + "\n", encoding="utf-8")
+    path.write_text(json.dumps({"profile": {"base_currency": profile.base_currency.strip().upper(), "region": profile.region, "asset_scope": list(_canonical_scopes(profile.asset_scope)), "risk_profile": _RISK_MAP[profile.risk_profile.strip().lower()], "horizon": _HORIZON_MAP[profile.horizon.strip().casefold()], "analysis_depth": profile.analysis_depth.strip().lower(), "tickers": list(_profile_tickers(profile))}, "unresolved_symbols": list(validation.unresolved_symbols)}, indent=2) + "\n", encoding="utf-8")
     revision = ""
     if records:
         revision = save_universe(records, expected_revision="", root=root).revision
@@ -189,11 +209,12 @@ def onboarding_page(
     *,
     validator: Callable[[str], bool] | None = None,
 ) -> ft.Control:
-    base_currency = ft.TextField(label="Base currency", value="EUR", width=180, dense=True)
+    base_currency = ft.Dropdown(label="Output currency", value="EUR", options=[ft.dropdown.Option(item) for item in OUTPUT_CURRENCIES], width=180, dense=True)
     region = ft.TextField(label="Region", value="Europe", width=220, dense=True)
-    scope = ft.Dropdown(label="Asset scope", value="both", options=[ft.dropdown.Option(item) for item in ("etf", "stock", "both")], width=180, dense=True)
-    risk = ft.Dropdown(label="Risk profile", value="balanced", options=[ft.dropdown.Option(item) for item in ("conservative", "balanced", "growth")], width=180, dense=True)
-    horizon = ft.Dropdown(label="Target horizon", value="medium", options=[ft.dropdown.Option(item) for item in ("short", "medium", "long")], width=180, dense=True)
+    scope = ft.Dropdown(label="Asset scope", value="stock+etf", options=[ft.dropdown.Option(item) for item in ("stock", "etf", "fund", "bond", "stock+etf", "all")], width=180, dense=True)
+    risk = ft.Dropdown(label="Risk profile", value="medium", options=[ft.dropdown.Option(item) for item in RISK_PROFILES], width=220, dense=True)
+    horizon = ft.Dropdown(label="Target horizon", value="3M", options=[ft.dropdown.Option(item) for item in HORIZONS], width=180, dense=True)
+    analysis_depth = ft.Dropdown(label="Analysis depth", value="medium", options=[ft.dropdown.Option(item) for item in ANALYSIS_DEPTHS], width=180, dense=True)
     tickers = ft.TextField(
         label="Initial tickers (comma separated)",
         hint_text="VWCE.DE, MSFT",
@@ -225,7 +246,7 @@ def onboarding_page(
 
     def submit(_event: ft.ControlEvent) -> None:
         values = tuple(value.strip() for value in (tickers.value or "").split(",") if value.strip())
-        profile = OnboardingProfile(base_currency.value or "", region.value or "", (scope.value or "both",), risk.value or "", horizon.value or "", values)
+        profile = OnboardingProfile(base_currency.value or "", region.value or "", (scope.value or "stock+etf",), risk.value or "", horizon.value or "", values, analysis_depth.value or "medium")
         try:
             result = complete_onboarding(
                 profile,
@@ -249,7 +270,7 @@ def onboarding_page(
 
     return ft.Column(
         [
-            panel(ft.Column([section_header("First-run setup", "Create a local watchlist without requiring network access."), ft.Text(f"{jurisdiction_disclaimer} Offline or unresolved tickers remain disabled until validated. Online validation is opt-in and requires an injected provider callback.", color=theme.MUTED), ft.Row([base_currency, region, scope, risk, horizon], wrap=True), ft.ResponsiveRow([ft.Container(content=tickers, col={"xs": 12, "md": 9}), ft.Container(content=ft.Button("Save setup", key="onboarding.save", icon=ft.Icons.SAVE, on_click=submit), col={"xs": 12, "md": 3})], spacing=8, run_spacing=8), online_validation, status], spacing=10)),
+            panel(ft.Column([section_header("First-run setup", "Create a local watchlist without requiring network access."), ft.Text(f"{jurisdiction_disclaimer} Offline or unresolved tickers remain disabled until validated. Online validation is opt-in and requires an injected provider callback.", color=theme.MUTED), ft.Row([base_currency, region, scope, risk, horizon, analysis_depth], wrap=True), ft.Text("Quick/Medium/High/Full are versioned analysis-effort selections; warm/cold timing effects remain unavailable until ISSUE-0175.", color=theme.MUTED, size=11), ft.ResponsiveRow([ft.Container(content=tickers, col={"xs": 12, "md": 9}), ft.Container(content=ft.Button("Save setup", key="onboarding.save", icon=ft.Icons.SAVE, on_click=submit), col={"xs": 12, "md": 3})], spacing=8, run_spacing=8), online_validation, status], spacing=10)),
             panel(ft.Column([section_header("Hardware and resource readiness", "Local profile selection, pre-job limits and graceful degradation. No telemetry or cloud compute is used."), ft.SelectionArea(ft.Text("\n".join(resource_lines), color=theme.MUTED)), ft.SelectionArea(ft.Text("CPU-only baseline remains available; optional foundation models are never required.", color=theme.GREEN))], spacing=6)),
             panel(ft.Column([section_header("Authority boundary", "Universe edits only persist configuration. They never trigger yfinance downloads, scoring, forecasts or broker execution."), ft.Text("execution_allowed=false", color=theme.AMBER)])),
             panel(ft.Column([section_header("Data source policy", "Choose local imports or replayable official evidence for the mandatory path. Online validation is optional and never required for setup."), ft.Text(source_summary, color=theme.MUTED, size=11, selectable=True), ft.Text(f"Terms acknowledgement: {legal_report['review_status']}; restricted sources are not redistributed. Registry checksum: {legal_report['registry_sha256']}", color=theme.AMBER, size=11, selectable=True)])),

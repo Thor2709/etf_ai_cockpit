@@ -13,6 +13,19 @@ from etf_cockpit.application.ui_facade import (
     legal_terms_report,
     supply_chain_intake_report,
 )
+from etf_cockpit.application.settings import (
+    ANALYSIS_DEPTHS,
+    ASSET_SCOPES,
+    HORIZONS,
+    OUTPUT_CURRENCIES,
+    RISK_PROFILES,
+    SettingsError,
+    load_settings_bundle,
+    load_settings_bundle_with_issues,
+    preview_settings,
+    save_settings,
+)
+from etf_cockpit.core.config import load_config
 from etf_cockpit.core.constants import APP_VERSION
 from etf_cockpit.core.paths import CONFIG_DIR, DATA_DIR, ROOT
 from etf_cockpit.core.secure_update import describe_release_evidence
@@ -103,44 +116,125 @@ def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
             privacy_status.value = f"Private data was not deleted: {type(exc).__name__}: {exc}"
             privacy_status.color = theme.AMBER
         refresh_privacy_status()
-    provider_fields: list[ft.Control] = []
-    for name, section in config.data_providers.providers.items():
-        provider_input = ft.TextField(label="Provider", value=section.active_provider, dense=True, width=180)
-        base_url_input = ft.TextField(label="Base URL", value=section.base_url, dense=True, width=320)
-        api_key_input = ft.TextField(label="API key", value="", password=True, can_reveal_password=True, hint_text="saved to local .env only", dense=True, width=220)
+    settings_bundle, migration_issues = load_settings_bundle_with_issues(ROOT)
+    migration_message = ""
+    if migration_issues:
+        issue_summary = ", ".join(f"{issue.code} ({issue.field})" for issue in migration_issues)
+        migration_message = f"Legacy settings require manual review: {issue_summary}. "
+    settings_status = ft.Text(
+        migration_message + "Edit locally, preview the complete policy impact, then save one atomic settings version.",
+        color=theme.MUTED,
+        selectable=True,
+    )
+    output_currency = ft.Dropdown(
+        label="Output currency",
+        value=settings_bundle.controls.output_currency,
+        options=[ft.dropdown.Option(item) for item in OUTPUT_CURRENCIES],
+        key="settings.output-currency",
+        width=180,
+        dense=True,
+    )
+    scope_checks = {
+        scope: ft.Checkbox(label=scope.title(), value=scope in settings_bundle.controls.asset_scopes)
+        for scope in ASSET_SCOPES
+    }
+    asset_scopes = ft.Column(
+        [ft.Text("Asset scope", color=theme.MUTED, size=11), ft.Row(list(scope_checks.values()), wrap=True)],
+        key="settings.asset-scopes",
+        spacing=2,
+    )
+    risk_profile = ft.Dropdown(
+        label="Risk profile",
+        value=settings_bundle.controls.risk_profile,
+        options=[ft.dropdown.Option(item) for item in RISK_PROFILES],
+        key="settings.risk-profile",
+        width=220,
+        dense=True,
+    )
+    horizon = ft.Dropdown(
+        label="Target horizon",
+        value=settings_bundle.controls.horizon,
+        options=[ft.dropdown.Option(item) for item in HORIZONS],
+        key="settings.horizon",
+        width=180,
+        dense=True,
+    )
+    analysis_depth = ft.Dropdown(
+        label="Analysis depth",
+        value=settings_bundle.controls.analysis_depth,
+        options=[ft.dropdown.Option(item) for item in ANALYSIS_DEPTHS],
+        key="settings.analysis-depth",
+        width=190,
+        dense=True,
+    )
+    version_text = ft.Text(
+        f"Settings v{settings_bundle.settings_version} · {settings_bundle.revision[:16]}",
+        key="settings.version",
+        color=theme.MUTED,
+        selectable=True,
+    )
+    last_preview: dict[str, str] = {}
 
-        def save_provider(_event: ft.ControlEvent, provider_name: str = name, provider_field: ft.TextField = provider_input, base_url_field: ft.TextField = base_url_input, api_key_field: ft.TextField = api_key_input) -> None:
-            state.begin_activity(f"Save {provider_name} provider settings", "Writing local config")
-            status_text.value = f"Saving provider settings for {provider_name}..."
-            _page.update()
-            try:
-                status_text.value = state.save_provider_settings(provider_name, provider_field.value or "none", base_url_field.value or "", api_key_field.value or "")
-                state.finish_activity(status_text.value)
-                api_key_field.value = ""
-            except Exception as exc:
-                state.fail_activity(f"Save {provider_name} provider settings", exc)
-                status_text.value = state.last_message
-            _page.update()
-
-        provider_fields.append(
-            ft.Column(
-                [
-                    ft.Text(name.replace("_", " ").title(), color=theme.TEXT, weight=ft.FontWeight.BOLD),
-                    ft.Row(
-                        [
-                            provider_input,
-                            base_url_input,
-                            api_key_input,
-                            ft.Button("Save", key=f"settings.save-provider.{name}", icon=ft.Icons.SAVE, on_click=save_provider),
-                        ],
-                        wrap=True,
-                        spacing=10,
-                    ),
-                    ft.Text("Provider/base URL are saved in data_providers.yaml. API keys are saved only in local .env and are never exported or logged.", color=theme.MUTED, size=11),
-                ],
-                spacing=6,
-            )
+    def candidate_bundle():
+        selected_scopes = tuple(scope for scope, checkbox in scope_checks.items() if checkbox.value)
+        controls = settings_bundle.controls.model_copy(
+            update={
+                "output_currency": output_currency.value or "",
+                "asset_scopes": selected_scopes,
+                "risk_profile": risk_profile.value or "",
+                "horizon": horizon.value or "",
+                "analysis_depth": analysis_depth.value or "",
+            }
         )
+        return settings_bundle.model_copy(update={"controls": controls})
+
+    def refresh_settings_status() -> None:
+        if _page is not None:
+            _page.update()
+
+    def preview(_event: ft.ControlEvent) -> None:
+        try:
+            report = preview_settings(candidate_bundle(), expected_revision=settings_bundle.revision, root=ROOT)
+            last_preview["revision"] = report.after_revision
+            changed = ", ".join(report.changed_fields) or "no semantic fields"
+            settings_status.value = (
+                f"Preview valid: {changed}. "
+                f"{'A new analysis/selection run is required.' if report.creates_new_run else 'No new run is required.'} "
+                "Currency/risk/depth effects remain explicitly unavailable until ISSUE-0173/0174/0175."
+            )
+            settings_status.color = theme.GREEN
+        except SettingsError as exc:
+            last_preview.clear()
+            settings_status.value = f"Preview rejected: {exc}"
+            settings_status.color = theme.RED
+        refresh_settings_status()
+
+    def save(_event: ft.ControlEvent) -> None:
+        nonlocal settings_bundle
+        try:
+            candidate = candidate_bundle()
+            fresh_preview = preview_settings(candidate, expected_revision=settings_bundle.revision, root=ROOT)
+            if last_preview.get("revision") != fresh_preview.after_revision:
+                raise SettingsError("SETTINGS_MIGRATION_REVIEW_REQUIRED", "preview the current edits before saving")
+            result = save_settings(candidate, expected_revision=settings_bundle.revision, root=ROOT)
+            state.snapshot.config = load_config()
+            settings_bundle = load_settings_bundle(ROOT)
+            settings_status.value = (
+                f"Settings v{result.settings_version} saved atomically; revision {result.revision[:16]}. "
+                "No analysis, provider, model or execution workflow was started."
+            )
+            settings_status.color = theme.GREEN
+            version_text.value = f"Settings v{result.settings_version} · {result.revision[:16]}"
+            last_preview.clear()
+        except Exception as exc:
+            settings_status.value = f"Settings not saved: {exc}"
+            settings_status.color = theme.RED
+        refresh_settings_status()
+
+    provider_lines = [
+        f"{name}: provider={section.active_provider or 'none'}; base URL={'configured' if section.base_url else 'not configured'}"
+        for name, section in config.data_providers.providers.items()
+    ]
     return ft.Column(
         [
             panel(
@@ -167,6 +261,50 @@ def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
                     spacing=6,
                 )
             ),
+            panel(
+                ft.Column(
+                    [
+                        section_header(
+                            "Settings centre",
+                            "Typed local controls are staged, previewed as one policy bundle and saved atomically.",
+                        ),
+                        ft.Row([output_currency, risk_profile, horizon, analysis_depth], wrap=True, spacing=10),
+                        asset_scopes,
+                        ft.Text(
+                            "Quick/Medium/High/Full describe warm/cold analysis effort; selection is stored now, while measured runtime effects remain unavailable until ISSUE-0175.",
+                            color=theme.MUTED,
+                            size=11,
+                            selectable=True,
+                        ),
+                        ft.Row(
+                            [
+                                ft.Button("Preview changes", key="settings.preview", icon=ft.Icons.PREVIEW, on_click=preview),
+                                ft.Button("Save settings", key="settings.save", icon=ft.Icons.SAVE, on_click=save),
+                                ft.Button(
+                                    "Manage credentials",
+                                    key="settings.manage-credentials",
+                                    disabled=True,
+                                    tooltip="Unavailable: secure credential CRUD depends on ISSUE-0176.",
+                                ),
+                            ],
+                            wrap=True,
+                        ),
+                        version_text,
+                        settings_status,
+                        ft.Text(
+                            "Any semantic change creates a new settings version and invalidates reuse of an existing run manifest. execution_allowed=false",
+                            color=theme.AMBER,
+                            selectable=True,
+                        ),
+                        ft.Text(
+                            "Preview shows whether a new analysis/selection run is required. Credential values never enter this bundle, logs or exports.",
+                            color=theme.MUTED,
+                            selectable=True,
+                        ),
+                    ],
+                    spacing=8,
+                )
+            ),
             panel(ft.Column([section_header("Release and data metadata", "Local release metadata helps users identify the current evidence build."), ft.Text(f"App version: {APP_VERSION}", key="settings.app-version", selectable=True), ft.Text(f"Version metadata: {version_status}", key="settings.version-metadata", selectable=True), ft.Text(f"Package metadata: {rebuild_timestamp}", key="settings.last-rebuild", selectable=True), ft.Text(f"Current data root: {DATA_DIR}", key="settings.data-root", selectable=True), ft.Text(f"Changelog: {changelog_status}", key="settings.changelog", selectable=True), ft.Text(issue_0044_update_plan, key="settings.issue-0044-update-plan", color=theme.MUTED, selectable=True)], spacing=6)),
             panel(ft.Column([section_header("Privacy, backup and recovery", "Local encrypted backups use Fernet with PBKDF2-HMAC-SHA256. Private fields, credentials, transient logs and caches are excluded by default."), recovery_key, ft.Row([ft.OutlinedButton("Create encrypted backup", key="settings.backup-create", icon=ft.Icons.SAVE, on_click=create_backup), ft.OutlinedButton("Validate latest backup", key="settings.backup-validate", icon=ft.Icons.VERIFIED, on_click=validate_backup), ft.OutlinedButton("Run recovery drill", key="settings.recovery-drill", icon=ft.Icons.SECURITY, on_click=recovery_drill)], wrap=True), ft.Text(f"Backup destination: {backup_archive}", color=theme.MUTED, selectable=True), deletion_confirmation, ft.OutlinedButton("Delete private data", key="settings.delete-private", icon=ft.Icons.DELETE_OUTLINE, on_click=delete_private), privacy_status], spacing=8)),
             panel(ft.Column([section_header("About and offline update verification", "Updates are local-only: unsigned, tampered or path-unsafe bundles are rejected before staging."), ft.Text(f"Release evidence: {release_evidence['verification']}", key="settings.update-verification", selectable=True), ft.Text(f"Release evidence version: {release_evidence['version']}", key="settings.update-version", selectable=True), ft.Text(f"Third-party notices: {release_evidence['notices']} ({release_evidence['notices_path']})", key="settings.third-party-notices", selectable=True), ft.Text("Network retrieval and live execution are disabled by policy.", color=theme.MUTED, selectable=True)], spacing=6)),
@@ -180,7 +318,7 @@ def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
             panel(ft.Column([section_header("Portfolio context targets", "Used for drift context only; they do not override stock/ETF evidence scores."), ft.Text("\n".join(target_lines), color=theme.MUTED, selectable=True)])),
             panel(ft.Column([section_header("Guardrail settings", "Data-quality failures still block analysis; allocation caps are displayed as context."), ft.Text(str(config.risks.model_dump()), color=theme.MUTED, selectable=True)])),
             panel(ft.Column([section_header("Asset support matrix", "Daily ETF/stock data is score eligible. Intraday, futures and options are research-only or unsupported; leveraged/inverse instruments require manual review."), ft.Text("execution_allowed=false", color=theme.AMBER)])),
-            panel(ft.Column([section_header("Data providers", "Local files work immediately; API providers can be configured later."), *provider_fields], spacing=12)),
+            panel(ft.Column([section_header("Data providers", "Provider definitions are visible and versioned here. Credential CRUD is unavailable until ISSUE-0176."), ft.Text("\n".join(provider_lines), color=theme.MUTED, selectable=True), ft.Text("CREDENTIAL_CRUD_UNAVAILABLE_ISSUE_0176 · no plaintext credential field is exposed.", color=theme.AMBER, selectable=True)], spacing=12)),
             panel(ft.Column([section_header("Model settings", "Toto and TimesFM remain local optional evidence sources."), ft.Text("\n".join(model_lines), color=theme.MUTED, selectable=True)])),
         ],
         spacing=14,

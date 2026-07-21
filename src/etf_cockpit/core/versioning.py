@@ -135,6 +135,7 @@ def build_run_manifest(
     registry: Mapping[str, object] | None = None,
     root: Path | None = None,
     code_revision: str | None = None,
+    settings_identity: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Resolve exact version/hash references for one immutable run."""
 
@@ -162,13 +163,15 @@ def build_run_manifest(
                 "registry_signature": current.get("registry_signature"),
             }
         )
+    resolved_settings = _resolved_settings_identity(root, settings_identity)
     payload: dict[str, object] = {
-        "schema_version": "1.0",
-        "manifest_version": "1.0.0",
+        "schema_version": "1.1",
+        "manifest_version": "1.1.0",
         "run_id": str(run_id),
         "repository_revision": current.get("repository_revision", "unknown"),
         "registry_signature": current.get("registry_signature"),
         "dependencies": dependencies,
+        "settings": resolved_settings,
         "immutable_after_run": True,
         "execution_allowed": False,
     }
@@ -184,6 +187,7 @@ def write_run_manifest(
     registry: Mapping[str, object] | None = None,
     root: Path | None = None,
     code_revision: str | None = None,
+    settings_identity: Mapping[str, object] | None = None,
 ) -> Path:
     root = Path(root) if root is not None else ROOT
     payload = build_run_manifest(
@@ -192,6 +196,7 @@ def write_run_manifest(
         registry=registry,
         root=root,
         code_revision=code_revision,
+        settings_identity=settings_identity,
     )
     destination = root / "data" / "derived" / "run_manifests" / f"{run_id}.json"
     if destination.exists():
@@ -210,6 +215,7 @@ def ensure_run_manifest(
     registry: Mapping[str, object] | None = None,
     root: Path | None = None,
     code_revision: str | None = None,
+    settings_identity: Mapping[str, object] | None = None,
 ) -> Path:
     """Return an existing immutable manifest or create it once."""
 
@@ -223,6 +229,27 @@ def ensure_run_manifest(
         unsigned = {key: value for key, value in existing.items() if key != "manifest_signature"}
         if supplied != _payload_hash(unsigned):
             raise VersionRegistryError(f"run manifest signature mismatch: {destination}")
+        # Schema-1.0 manifests are immutable historical evidence created
+        # before settings identity became part of the run contract.  Preserve
+        # them byte-for-byte; every newly created schema-1.1 manifest below is
+        # settings-aware and is compared strictly.
+        if existing.get("schema_version") == "1.0" and "settings" not in existing:
+            return destination
+        expected_settings = _resolved_settings_identity(root, settings_identity)
+        if existing.get("settings") != expected_settings:
+            raise VersionRegistryError(
+                f"immutable run manifest already exists with different settings: {run_id}"
+            )
+        existing_ids = {
+            str(item.get("artifact_id"))
+            for item in existing.get("dependencies", [])
+            if isinstance(item, dict) and item.get("artifact_id")
+        }
+        expected_ids = {str(item) for item in dependency_ids}
+        if existing_ids != expected_ids:
+            raise VersionRegistryError(
+                f"immutable run manifest already exists with different dependencies: {run_id}"
+            )
         return destination
     return write_run_manifest(
         run_id,
@@ -230,7 +257,45 @@ def ensure_run_manifest(
         registry=registry,
         root=root,
         code_revision=code_revision,
+        settings_identity=settings_identity,
     )
+
+
+def settings_bound_run_id(
+    base_run_id: str,
+    *,
+    root: Path | None = None,
+    settings_identity: Mapping[str, object] | None = None,
+) -> str:
+    """Bind a mutable run label to the exact effective settings revision."""
+
+    base = str(base_run_id).strip()
+    if not _SAFE_ID_RE.fullmatch(base):
+        raise VersionRegistryError("base_run_id must be a safe local identifier")
+    identity = _resolved_settings_identity(root, settings_identity)
+    revision = str(identity.get("settings_revision") or "").casefold()
+    if re.fullmatch(r"[0-9a-f]{64}", revision) is None:
+        raise VersionRegistryError("settings revision must be a SHA-256 digest")
+    suffix = f"__s{revision[:12]}"
+    candidate = f"{base[: 128 - len(suffix)]}{suffix}"
+    if not _SAFE_ID_RE.fullmatch(candidate):
+        raise VersionRegistryError("settings-bound run_id is invalid")
+    return candidate
+
+
+def current_settings_revision(root: Path | None = None) -> str:
+    """Return the canonical settings revision used by cache metadata."""
+
+    revision = str(current_settings_identity(root).get("settings_revision") or "").casefold()
+    if re.fullmatch(r"[0-9a-f]{64}", revision) is None:
+        raise VersionRegistryError("settings revision must be a SHA-256 digest")
+    return revision
+
+
+def current_settings_identity(root: Path | None = None) -> dict[str, object]:
+    """Capture one settings identity for a complete run/publication boundary."""
+
+    return _resolved_settings_identity(root, None)
 
 
 def cache_invalidation(
@@ -314,6 +379,7 @@ def _build_records(root: Path) -> tuple[VersionRecord, ...]:
         ("policy:costs", "policy", "1.0.0", "configs/costs.yaml", ("policy:portfolio-targets",), "schema_version"),
         ("policy:model-settings", "policy", "1.0.0", "configs/model_settings.yaml", ("formula:score-engine-v3",), "schema_version"),
         ("policy:strategy-scope", "policy", "2.0.0", "configs/strategy_scope.yaml", ("policy:gate-policy",), "schema_version"),
+        ("policy:settings-bundle", "policy", "1.0.0", "configs/settings.yaml", ("policy:strategy-scope",), "semantic_version"),
         ("dataset:universe", "dataset", "1.0.0", "configs/universe.yaml", ("schema:local-storage",), "schema_version"),
         ("dataset:prices", "dataset", "1.0.0", "data/validated/prices/prices_daily.parquet", ("schema:local-storage",), None),
         ("dataset:features", "dataset", "1.0.0", "data/features/features_daily.parquet", ("dataset:prices",), None),
@@ -389,6 +455,26 @@ def _payload_hash(payload: object) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")).hexdigest()
 
 
+def _resolved_settings_identity(
+    root: Path | None,
+    supplied: Mapping[str, object] | None,
+) -> dict[str, object]:
+    if supplied is not None:
+        identity = dict(supplied)
+    else:
+        from etf_cockpit.application.settings import load_settings_bundle, settings_run_identity
+
+        resolved_root = Path(root) if root is not None else ROOT
+        identity = settings_run_identity(load_settings_bundle(resolved_root))
+    if bool(identity.get("execution_allowed")):
+        raise VersionRegistryError("settings identity cannot enable execution")
+    required = {"settings_schema_version", "settings_version", "settings_revision", "settings_snapshot_id"}
+    if not required <= set(identity):
+        raise VersionRegistryError("settings identity is incomplete")
+    identity["execution_allowed"] = False
+    return identity
+
+
 __all__ = [
     "REGISTRY_SCHEMA_VERSION",
     "REGISTRY_VERSION",
@@ -400,10 +486,13 @@ __all__ = [
     "build_version_registry",
     "cache_invalidation",
     "compatibility_summary",
+    "current_settings_identity",
+    "current_settings_revision",
     "ensure_run_manifest",
     "load_version_registry",
     "migration_plan",
     "parse_semver",
+    "settings_bound_run_id",
     "write_run_manifest",
     "write_version_registry",
 ]
