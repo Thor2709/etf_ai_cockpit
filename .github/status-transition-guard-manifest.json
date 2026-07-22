@@ -3,21 +3,21 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "planned",
+      "from": "ready",
       "issue_id": "ISSUE-0086",
-      "to": "ready"
+      "to": "in_progress"
     }
   ],
-  "base_commit": "4300f61478be8a57abd9cc589274bcab8c199897",
-  "branch": "codex/b02-issue0086-ready-20260722",
+  "base_commit": "73d023ed45ba20e1a316c5248e24e6b87d8cbccf",
+  "branch": "codex/b02-issue0086-inprogress-20260722",
   "issue_ids": ["ISSUE-0086"],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "7a69022c16634b5585dac87b1207adf62690311e675bc9c4c38b32f7453700f5",
+    "base_registry_sha256": "6141bc022eda92465230b365092056af61cb45529abfecee7f4bf68588f6e458",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "6141bc022eda92465230b365092056af61cb45529abfecee7f4bf68588f6e458",
-    "reason": "B02 ISSUE-0086 readiness: advance only planned to ready after both reviewed blocking interfaces resolve; preserve scope, dependencies, acceptance criteria, edge evidence, status semantics, policies and execution_allowed=false.",
+    "proposed_registry_sha256": "5606432c617a454b78f6624e242bc8d30892da291fb5cf3a06b680babda0a074",
+    "reason": "B02 ISSUE-0086 implementation start: advance only ready to in_progress after readiness convergence; preserve scope, dependencies, acceptance criteria, edge evidence, status semantics, policies and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
