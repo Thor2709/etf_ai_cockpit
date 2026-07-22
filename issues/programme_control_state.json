@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "72b69b356a70a68a855513df82d107fec83e2c85",
+    "generation_base_commit": "ad783e517be68882934300df73106891ae6e3c05",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -1743,12 +1743,17 @@
           "state": "unresolved"
         },
         "ISSUE-0082": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B02/ISSUE-0082/point-in-time-identity-master-v1",
+          "evidence_references": [
+            "PR #470 merged ISSUE-0082 product as d590c8fef1f645614e7ed326e60b31d823d54113 after protected Linux/Windows release evidence",
+            "src/etf_cockpit/data/identity_master.py IdentityMasterStore and point-in-time projections",
+            "tests/test_identity_master.py persistence, migration, corruption, concurrency and identity hierarchy evidence",
+            "Independent ISSUE-0082 AC1-AC8 review passed with no remaining findings"
+          ],
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex deep reviewer and root",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         }
       },
       "phase": "phase-02-data-policy-identity",
@@ -1758,8 +1763,39 @@
         "review_reference": "B00 canonical import from audited programme state",
         "to": "planned"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0082",
+            "evidence": {
+              "contract_reference": "B02/ISSUE-0082/point-in-time-identity-master-v1",
+              "evidence_references": [
+                "PR #470 merged ISSUE-0082 product as d590c8fef1f645614e7ed326e60b31d823d54113 after protected Linux/Windows release evidence",
+                "src/etf_cockpit/data/identity_master.py IdentityMasterStore and point-in-time projections",
+                "tests/test_identity_master.py persistence, migration, corruption, concurrency and identity hierarchy evidence",
+                "Independent ISSUE-0082 AC1-AC8 review passed with no remaining findings"
+              ],
+              "reviewed_date": "2026-07-22",
+              "reviewer": "Codex deep reviewer and root",
+              "schema_version": "1.0",
+              "state": "complete"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "PR #470 merged ISSUE-0082 product as d590c8fef1f645614e7ed326e60b31d823d54113 after protected Linux/Windows release evidence",
+            "src/etf_cockpit/data/identity_master.py IdentityMasterStore and point-in-time projections",
+            "tests/test_identity_master.py persistence, migration, corruption, concurrency and identity hierarchy evidence",
+            "Independent ISSUE-0082 AC1-AC8 review passed with no remaining findings"
+          ],
+          "review_reference": "B02 ISSUE-0084 dependency review: completed point-in-time identity-master contract",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex deep reviewer and root",
+          "verified_commit": "d590c8fef1f645614e7ed326e60b31d823d54113"
+        }
+      ],
+      "verified_commit": "d590c8fef1f645614e7ed326e60b31d823d54113",
+      "verified_date": "2026-07-22"
     },
     "ISSUE-0085": {
       "acceptance_evidence": [],

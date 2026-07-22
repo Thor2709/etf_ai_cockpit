@@ -103,6 +103,31 @@ def _base_refresh_transition_manifest(
     return manifest
 
 
+def _dependency_edge_manifest(
+    base: dict,
+    proposed: dict,
+    *,
+    issue_id: str,
+    dependency_id: str,
+) -> dict:
+    manifest = _manifest()
+    manifest["schema_version"] = "1.3"
+    manifest["allowed_dependency_edge_updates"] = [
+        {"issue_id": issue_id, "dependency_id": dependency_id}
+    ]
+    manifest["registry_migration"] = {
+        "mode": "generation_base_and_dependency_edge_evidence",
+        "reason": "Refresh the reviewed generation base with one dependency-edge decision.",
+        "generator": "scripts/generate_issue_registry.py",
+        "base_registry_sha256": _registry_sha256(base),
+        "proposed_registry_sha256": _registry_sha256(proposed),
+        "source_manifest_sha256": SOURCE_MANIFEST_SHA256,
+        "added_issue_ids": [],
+        "removed_issue_ids": [],
+    }
+    return manifest
+
+
 def _apply_reviewed_transition(
     registry: dict,
     issue_id: str,
@@ -889,3 +914,111 @@ def test_generation_base_transition_mode_rejects_fabricated_verified_commit() ->
         "transition verified_commit is not an ancestor of the reviewed generation base: ISSUE-0008"
         in errors
     )
+
+
+def _edge_only_proposal() -> tuple[dict, dict, dict]:
+    base = _base_refresh_registry("planned")
+    record = base["records"][0]
+    record["blocking_dependencies"] = ["ISSUE-0001"]
+    record["dependency_edge_evidence"] = {"ISSUE-0001": {"state": "unresolved"}}
+    base["readiness"] = readiness_projection(base)
+    proposed = copy.deepcopy(base)
+    proposed_record = proposed["records"][0]
+    proposed_record["dependency_edge_evidence"]["ISSUE-0001"] = {
+        "schema_version": "1.0",
+        "state": "partial_interface",
+        "evidence_references": ["tests/contracts/dependency-interface.json"],
+        "contract_reference": "B02/dependency-interface-v1",
+        "reviewer": "Codex independent reviewer",
+        "reviewed_date": "2026-07-22",
+    }
+    proposed_record["verified_commit"] = BASE_COMMIT
+    proposed_record["verified_date"] = "2026-07-22"
+    proposed["readiness"] = readiness_projection(proposed)
+    proposed["source_of_truth"]["baseline_commit"] = BASE_COMMIT
+    proposed["source_of_truth"]["programme_control_state_sha256"] = "2" * 64
+    manifest = _dependency_edge_manifest(
+        base,
+        proposed,
+        issue_id="ISSUE-0008",
+        dependency_id="ISSUE-0001",
+    )
+    return base, proposed, manifest
+
+
+def test_dependency_edge_mode_accepts_exactly_one_edge_without_status_or_acceptance_change() -> None:
+    base, proposed, manifest = _edge_only_proposal()
+
+    assert _errors(base, proposed, manifest) == []
+    assert proposed["records"][0]["programme_status"] == base["records"][0]["programme_status"]
+    assert proposed["records"][0]["acceptance_evidence"] == base["records"][0]["acceptance_evidence"]
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_error"),
+    [
+        ("status", "dependency-edge mode cannot change programme_status: ISSUE-0008"),
+        ("acceptance", "dependency-edge acceptance evidence must remain unchanged: ISSUE-0008"),
+        ("wrong_dependency", "dependency-edge declaration does not match the changed edge: ISSUE-0008/ISSUE-0001"),
+        ("unrelated", "non-allowlisted registry change: ISSUE-0008"),
+        ("authority", "non-allowlisted registry change: top-level registry data"),
+    ],
+)
+def test_dependency_edge_mode_rejects_out_of_scope_mutations(
+    mutation: str,
+    expected_error: str,
+) -> None:
+    base, proposed, manifest = _edge_only_proposal()
+    record = proposed["records"][0]
+    if mutation == "status":
+        record["programme_status"] = "ready"
+    elif mutation == "acceptance":
+        record["acceptance_evidence"].append({"status": "planned"})
+    elif mutation == "wrong_dependency":
+        manifest["allowed_dependency_edge_updates"][0]["dependency_id"] = "ISSUE-0002"
+    elif mutation == "unrelated":
+        record["title"] = "Unreviewed mutation"
+    elif mutation == "authority":
+        proposed["policy"]["execution_allowed"] = True
+
+    errors = _errors(base, proposed, manifest)
+
+    assert expected_error in errors
+
+
+def test_status_transition_cannot_label_issue_ready_while_readiness_is_false() -> None:
+    base = _base_refresh_registry("planned")
+    record = base["records"][0]
+    record["blocking_dependencies"] = ["ISSUE-0001", "ISSUE-0002"]
+    record["dependency_edge_evidence"] = {
+        dependency: {"state": "unresolved"}
+        for dependency in record["blocking_dependencies"]
+    }
+    base["readiness"] = readiness_projection(base)
+    proposed = copy.deepcopy(base)
+    _apply_reviewed_transition(
+        proposed,
+        "ISSUE-0008",
+        previous="planned",
+        proposed="ready",
+    )
+    proposed["records"][0]["dependency_edge_evidence"]["ISSUE-0001"] = {
+        "schema_version": "1.0",
+        "state": "complete",
+        "evidence_references": ["tests/contracts/dependency-interface.json"],
+        "contract_reference": "B02/dependency-interface-v1",
+        "reviewer": "Codex independent reviewer",
+        "reviewed_date": "2026-07-21",
+    }
+    proposed["readiness"] = readiness_projection(proposed)
+    proposed["source_of_truth"]["baseline_commit"] = BASE_COMMIT
+    proposed["source_of_truth"]["programme_control_state_sha256"] = "2" * 64
+    manifest = _base_refresh_transition_manifest(
+        base,
+        proposed,
+        ("ISSUE-0008", "planned", "ready"),
+    )
+
+    errors = _errors(base, proposed, manifest)
+
+    assert "programme_status ready requires resolved implementation readiness: ISSUE-0008" in errors

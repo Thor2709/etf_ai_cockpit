@@ -33,15 +33,19 @@ def _git(root: Path, *args: str) -> str:
 
 def _phase_metadata(registry: dict[str, object]) -> list[dict[str, object]]:
     phases = registry.get("roadmap_phases", [])
-    return [
-        {
-            "phase": phase["phase"],
-            "title": phase["title"],
-            "order": index,
-        }
-        for index, phase in enumerate(phases, start=1)
-        if isinstance(phase, dict)
-    ]
+    if not isinstance(phases, list):
+        return []
+    result: list[dict[str, object]] = []
+    for index, phase in enumerate(phases, start=1):
+        if isinstance(phase, dict):
+            result.append(
+                {
+                    "phase": phase["phase"],
+                    "title": phase["title"],
+                    "order": index,
+                }
+            )
+    return result
 
 
 def import_registry(root: Path, baseline: str) -> dict[str, object]:
@@ -178,6 +182,59 @@ def apply_transition(
     return value
 
 
+def apply_dependency_edge_update(
+    value: dict[str, object],
+    *,
+    issue_id: str,
+    dependency_id: str,
+    edge_state: str,
+    review_reference: str,
+    evidence_references: list[str],
+    contract_reference: str,
+    reviewer: str,
+    reviewed_date: str,
+    verified_commit: str,
+) -> dict[str, object]:
+    """Record one reviewed dependency decision without changing issue status."""
+
+    records = value.get("records")
+    if not isinstance(records, dict) or not isinstance(records.get(issue_id), dict):
+        raise ValueError(f"unknown controlled issue ID: {issue_id}")
+    record = records[issue_id]
+    evidence = record.get("dependency_edge_evidence")
+    if not isinstance(evidence, dict) or dependency_id not in evidence:
+        raise ValueError(f"{issue_id}: non-declared dependency edge {dependency_id}")
+    prior_edge = evidence[dependency_id]
+    if not isinstance(prior_edge, dict) or prior_edge.get("state") != "unresolved":
+        raise ValueError(f"{issue_id}: dependency edge {dependency_id} is not unresolved")
+    edge = {
+        "schema_version": "1.0",
+        "state": edge_state,
+        "evidence_references": evidence_references,
+        "contract_reference": contract_reference,
+        "reviewer": reviewer,
+        "reviewed_date": reviewed_date,
+    }
+    event = {
+        "event_type": "dependency_edge_update",
+        "dependency_edge": {"dependency": dependency_id, "evidence": edge},
+        "review_reference": review_reference,
+        "evidence_references": evidence_references,
+        "reviewer": reviewer,
+        "reviewed_date": reviewed_date,
+        "verified_commit": verified_commit,
+    }
+    validate_control_transition_event(issue_id, record, event)
+    evidence[dependency_id] = edge
+    history = record.setdefault("transition_history", [])
+    if not isinstance(history, list):
+        raise ValueError(f"{issue_id}: transition_history must be a list")
+    history.append(event)
+    record["verified_commit"] = verified_commit
+    record["verified_date"] = reviewed_date
+    return value
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd())
@@ -187,6 +244,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--check-base", action="store_true")
     parser.add_argument("--refresh-base", action="store_true")
     parser.add_argument("--transition")
+    parser.add_argument("--dependency-edge-update")
     parser.add_argument("--expected-from")
     parser.add_argument("--to-status")
     parser.add_argument("--review-reference")
@@ -269,7 +327,42 @@ def main(argv: list[str] | None = None) -> int:
         _atomic_write(path, value)
         print(f"UPDATED: {args.transition} {args.expected_from}->{args.to_status}")
         return 0
-    parser.error("select --import-registry, --refresh-base, --check-base or --transition")
+    if args.dependency_edge_update:
+        required = {
+            "--edge-dependency": args.edge_dependency,
+            "--edge-state": args.edge_state,
+            "--review-reference": args.review_reference,
+            "--contract-reference": args.contract_reference,
+            "--reviewer": args.reviewer,
+            "--reviewed-date": args.reviewed_date,
+            "--verified-commit": args.verified_commit,
+        }
+        missing = [name for name, item in required.items() if not item]
+        if missing or not args.evidence_reference:
+            parser.error(
+                "dependency-edge update requires "
+                + ", ".join([*missing, *([] if args.evidence_reference else ["--evidence-reference"])])
+            )
+        value = json.loads(path.read_text(encoding="utf-8"))
+        apply_dependency_edge_update(
+            value,
+            issue_id=args.dependency_edge_update,
+            dependency_id=args.edge_dependency,
+            edge_state=args.edge_state,
+            review_reference=args.review_reference,
+            evidence_references=args.evidence_reference,
+            contract_reference=args.contract_reference,
+            reviewer=args.reviewer,
+            reviewed_date=args.reviewed_date,
+            verified_commit=args.verified_commit,
+        )
+        _atomic_write(path, value)
+        print(f"UPDATED EDGE: {args.dependency_edge_update}/{args.edge_dependency}")
+        return 0
+    parser.error(
+        "select --import-registry, --refresh-base, --check-base, --transition "
+        "or --dependency-edge-update"
+    )
 
 
 if __name__ == "__main__":

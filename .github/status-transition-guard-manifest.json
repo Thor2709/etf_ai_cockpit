@@ -1,25 +1,25 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [
+  "allowed_dependency_edge_updates": [
     {
-      "from": "implemented_initially",
-      "issue_id": "ISSUE-0083",
-      "to": "integrated"
+      "dependency_id": "ISSUE-0082",
+      "issue_id": "ISSUE-0084"
     }
   ],
-  "base_commit": "72b69b356a70a68a855513df82d107fec83e2c85",
-  "branch": "codex/b02-issue0083-convergence2-20260722",
-  "issue_ids": ["ISSUE-0083"],
+  "allowed_status_transitions": [],
+  "base_commit": "ad783e517be68882934300df73106891ae6e3c05",
+  "branch": "codex/b00-edge-only-control-20260722",
+  "issue_ids": [],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "ad3e641358ae4a96bc6029a4a98e089ef7e86bf392654570c1dc5a9c853b9b28",
+    "base_registry_sha256": "7a0f530601e7acc9e8503239a10ef6eb9693347d31be1ee9ed6cf7f781552884",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "7a0f530601e7acc9e8503239a10ef6eb9693347d31be1ee9ed6cf7f781552884",
-    "reason": "B02 ISSUE-0083 evidence convergence2: advance only ISSUE-0083 from implemented_initially to integrated after merged convergence1 and verified GitHub #223 readback; all other records, dependencies, acceptance criteria, scope, policies and execution authority remain unchanged; execution_allowed=false.",
+    "mode": "generation_base_and_dependency_edge_evidence",
+    "proposed_registry_sha256": "bf16e64e14549220a0d1030ef0abd55d321eda797c75bd3ec9171e40f010b81e",
+    "reason": "B00 protected control repair: add one reviewed edge-only event so ISSUE-0084 can record the completed ISSUE-0082 identity-master contract without changing programme status or acceptance evidence; refresh the stale generation base; preserve all issue scope, dependencies, policies, status semantics and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.2"
+  "schema_version": "1.3"
 }
