@@ -39,6 +39,7 @@ def _evidence(
     authority: str = "official",
     confidence: float = 0.95,
     source: str | None = None,
+    source_checksum: str = "",
     valid_from: str = "2020-01-01T00:00:00Z",
     valid_to: str | None = None,
     available_at: str = "2020-01-02T00:00:00Z",
@@ -53,6 +54,7 @@ def _evidence(
         confidence=confidence,
         source=evidence_id,
         source_id=evidence_id,
+        source_checksum=source_checksum,
         valid_from=valid_from,
         valid_to=valid_to,
         available_at=available_at,
@@ -68,6 +70,7 @@ def _case_evidence(case: dict) -> tuple[ClassificationEvidence, ...]:
             authority=item.get("authority", "official"),
             confidence=item.get("confidence", 0.95),
             source=f"fixture:{case['instrument_id']}:{index}",
+            source_checksum=item.get("source_checksum", ""),
         )
         for index, item in enumerate(case["evidence"])
     )
@@ -76,6 +79,7 @@ def _case_evidence(case: dict) -> tuple[ClassificationEvidence, ...]:
 def _context_for(case: dict, *, effective_at: str = AS_OF, decision_time: str = DECISION_TIME) -> InstrumentContextV2:
     return resolve_instrument_context(
         _case_evidence(case),
+        instrument_id=case["instrument_id"],
         effective_at=effective_at,
         decision_time=decision_time,
     )
@@ -103,11 +107,11 @@ def test_every_case_has_an_explicit_outcome_without_unknown_zero_fill() -> None:
     assert len(contexts) == 12
     for context in contexts:
         assert context.instrument_id
-        assert context.classification_status in {"resolved", "unresolved", "available", "manual_review"}
+        assert context.classification_status in {"resolved", "partial", "unresolved", "available", "manual_review"}
         assert context.execution_allowed is False
         if context.instrument_type is None:
             assert context.fallback_path
-            assert context.classification_status in {"unresolved", "manual_review"}
+            assert context.classification_status in {"unresolved", "partial", "manual_review"}
 
 
 def test_bond_etf_preserves_outer_type_and_fixed_income_lookthrough() -> None:
@@ -219,12 +223,22 @@ def test_override_is_versioned_and_invalidates_dependent_scores_only_after_cutof
 
 def test_accuracy_measurement_uses_labelled_fixture_and_does_not_score_unknown_as_correct() -> None:
     fixture = _fixture()
-    expected = {case["instrument_id"]: case["expected"]["asset_class"] for case in fixture["cases"]}
-    actual = {case["instrument_id"]: _context_for(case).asset_class for case in fixture["cases"]}
+    labels = ("instrument_type", "asset_class", "sector", "industry")
+    expected = {
+        case["instrument_id"]: {field: case["expected"][field] for field in labels}
+        for case in fixture["cases"]
+    }
+    actual = {case["instrument_id"]: _context_for(case) for case in fixture["cases"]}
+    actual.pop("MISSING-001")
     report = measure_classification_accuracy(expected, actual)
+    labelled_values = sum(
+        value is not None
+        for labels_for_instrument in expected.values()
+        for value in labels_for_instrument.values()
+    )
 
-    assert report.total == len(expected)
-    assert report.correct >= 9
+    assert report.total == len(expected) * len(labels)
+    assert report.correct == labelled_values
     assert 0.0 <= report.accuracy <= 1.0
     assert report.mismatches
     assert report.execution_allowed is False
@@ -247,7 +261,7 @@ def test_classification_store_is_immutable_and_replays_point_in_time(tmp_path: P
     assert classification_store_exists(tmp_path) is True
     assert old.sector == "technology"
     assert new.sector == "financials"
-    assert projection["sector"] == "technology"
+    assert projection["classification"]["sector"] == "technology"
     assert projection["execution_allowed"] is False
 
 

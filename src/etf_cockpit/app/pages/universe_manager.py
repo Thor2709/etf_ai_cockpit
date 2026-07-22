@@ -421,6 +421,12 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
             color=theme.MUTED,
             selectable=True,
         )
+        dialog: ft.AlertDialog
+
+        def close_classification(_event: ft.ControlEvent) -> None:
+            dialog.open = False
+            page.update()
+
         dialog = ft.AlertDialog(
             modal=True,
             title=ft.Text(f"Classification context: {record.instrument_id}"),
@@ -433,7 +439,7 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
                 ft.TextButton(
                     "Close",
                     key="universe.classification-close",
-                    on_click=lambda _event: setattr(dialog, "open", False),
+                    on_click=close_classification,
                 ),
                 ft.Button(
                     "Save versioned override",

@@ -12,9 +12,9 @@
         {"field": "regulatory_country", "value": "US", "authority": "official", "confidence": 0.99},
         {"field": "operating_country", "value": "US", "authority": "issuer", "confidence": 0.92},
         {"field": "primary_listing_country", "value": "US", "authority": "official", "confidence": 0.99},
-        {"field": "asset_regions", "value": "US", "authority": "issuer", "confidence": 0.80},
-        {"field": "revenue_regions", "value": "US", "authority": "issuer", "confidence": 0.80},
-        {"field": "revenue_regions", "value": "EU", "authority": "issuer", "confidence": 0.80},
+        {"field": "asset_region", "value": "US", "authority": "issuer", "confidence": 0.80},
+        {"field": "revenue_region", "value": "US", "authority": "issuer", "confidence": 0.80},
+        {"field": "revenue_region", "value": "EU", "authority": "issuer", "confidence": 0.80},
         {"field": "reporting_currency", "value": "USD", "authority": "official", "confidence": 0.99},
         {"field": "trading_currency", "value": "USD", "authority": "official", "confidence": 0.99}
       ],
@@ -51,7 +51,7 @@
         {"field": "regulatory_country", "value": "US", "authority": "official", "confidence": 0.99},
         {"field": "reporting_currency", "value": "USD", "authority": "official", "confidence": 0.99}
       ],
-      "expected": {"instrument_type": "bond", "asset_class": "fixed_income", "sector": null, "industry": null, "fallback": true}
+      "expected": {"instrument_type": "bond", "asset_class": "fixed_income", "sector": null, "industry": null, "fallback": false}
     },
     {
       "instrument_id": "ETF-BOND-001",
@@ -67,7 +67,7 @@
         {"field": "trading_currency", "value": "AUD", "authority": "issuer", "confidence": 0.95},
         {"field": "hedging_currency", "value": "AUD", "authority": "issuer", "confidence": 0.90}
       ],
-      "expected": {"instrument_type": "etf", "asset_class": "fixed_income", "sector": null, "industry": null, "fallback": true}
+      "expected": {"instrument_type": "etf", "asset_class": "fixed_income", "sector": null, "industry": null, "fallback": false}
     },
     {
       "instrument_id": "FUND-001",
@@ -81,21 +81,21 @@
         {"field": "trading_currency", "value": "GBP", "authority": "official", "confidence": 0.99},
         {"field": "hedging_currency", "value": "GBP", "authority": "issuer", "confidence": 0.90}
       ],
-      "expected": {"instrument_type": "fund", "asset_class": "equity", "sector": null, "industry": null, "fallback": true}
+      "expected": {"instrument_type": "ordinary_fund", "asset_class": "equity", "sector": null, "industry": null, "fallback": false}
     },
     {
       "instrument_id": "REIT-001",
       "evidence": [
-        {"field": "instrument_type", "value": "reit", "authority": "official", "confidence": 0.99},
+        {"field": "instrument_type", "value": "stock", "authority": "official", "confidence": 0.99},
         {"field": "asset_class", "value": "equity", "authority": "official", "confidence": 0.94},
         {"field": "sector", "value": "real_estate", "authority": "official", "confidence": 0.95},
         {"field": "industry", "value": "reit", "authority": "official", "confidence": 0.95},
         {"field": "operating_country", "value": "AU", "authority": "issuer", "confidence": 0.90},
-        {"field": "revenue_regions", "value": "AU", "authority": "issuer", "confidence": 0.80},
-        {"field": "revenue_regions", "value": "NZ", "authority": "issuer", "confidence": 0.80},
+        {"field": "revenue_region", "value": "AU", "authority": "issuer", "confidence": 0.80},
+        {"field": "revenue_region", "value": "NZ", "authority": "issuer", "confidence": 0.80},
         {"field": "reporting_currency", "value": "AUD", "authority": "official", "confidence": 0.99}
       ],
-      "expected": {"instrument_type": "reit", "asset_class": "equity", "sector": "real_estate", "industry": "reit", "fallback": false}
+      "expected": {"instrument_type": "stock", "asset_class": "equity", "sector": "real_estate", "industry": "reit", "fallback": false}
     },
     {
       "instrument_id": "BANK-001",
@@ -120,7 +120,7 @@
         {"field": "sector", "value": "technology", "authority": "issuer", "confidence": 0.84},
         {"field": "primary_listing_country", "value": "US", "authority": "official", "confidence": 0.99}
       ],
-      "expected": {"instrument_type": "etf", "asset_class": "equity", "sector": "technology", "industry": null, "fallback": true}
+      "expected": {"instrument_type": "etf", "asset_class": "equity", "sector": "technology", "industry": null, "fallback": false}
     },
     {
       "instrument_id": "INVERSE-001",
@@ -132,7 +132,7 @@
         {"field": "sector", "value": "broad_market", "authority": "issuer", "confidence": 0.80},
         {"field": "primary_listing_country", "value": "US", "authority": "official", "confidence": 0.99}
       ],
-      "expected": {"instrument_type": "etf", "asset_class": "equity", "sector": "broad_market", "industry": null, "fallback": true}
+      "expected": {"instrument_type": "etf", "asset_class": "equity", "sector": "broad_market", "industry": null, "fallback": false}
     },
     {
       "instrument_id": "FOF-001",
@@ -141,10 +141,10 @@
         {"field": "asset_class", "value": "multi_asset", "authority": "issuer", "confidence": 0.90},
         {"field": "strategy_label", "value": "fund_of_funds", "authority": "issuer", "confidence": 0.96},
         {"field": "strategy_label", "value": "multi_asset", "authority": "issuer", "confidence": 0.96},
-        {"field": "asset_regions", "value": "multi_country", "authority": "issuer", "confidence": 0.80},
+        {"field": "asset_region", "value": "multi_country", "authority": "issuer", "confidence": 0.80},
         {"field": "reporting_currency", "value": "USD", "authority": "issuer", "confidence": 0.95}
       ],
-      "expected": {"instrument_type": "fund", "asset_class": "multi_asset", "sector": null, "industry": null, "fallback": true}
+      "expected": {"instrument_type": "ordinary_fund", "asset_class": "multi_asset", "sector": null, "industry": null, "fallback": false}
     },
     {
       "instrument_id": "AMBIGUOUS-001",
@@ -152,14 +152,16 @@
         {"field": "instrument_type", "value": "fund", "authority": "vendor", "confidence": 0.55},
         {"field": "instrument_type", "value": "etf", "authority": "vendor", "confidence": 0.55},
         {"field": "asset_class", "value": "equity", "authority": "vendor", "confidence": 0.55},
-        {"field": "sector", "value": "technology", "authority": "model", "confidence": 0.52},
-        {"field": "sector", "value": "financials", "authority": "model", "confidence": 0.51}
+        {"field": "sector", "value": "technology", "authority": "model", "confidence": 0.52, "source_checksum": "0000000000000000000000000000000000000000000000000000000000000001"},
+        {"field": "sector", "value": "financials", "authority": "model", "confidence": 0.51, "source_checksum": "0000000000000000000000000000000000000000000000000000000000000002"}
       ],
       "expected": {"instrument_type": null, "asset_class": "equity", "sector": null, "industry": null, "fallback": true}
     },
     {
       "instrument_id": "MISSING-001",
-      "evidence": [],
+      "evidence": [
+        {"field": "instrument_type", "value": "unsupported_wrapper", "authority": "vendor", "confidence": 0.40}
+      ],
       "expected": {"instrument_type": null, "asset_class": null, "sector": null, "industry": null, "fallback": true}
     }
   ]

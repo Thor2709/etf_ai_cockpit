@@ -46,6 +46,10 @@ _MULTI_FIELDS = frozenset(
         "special_structure",
     }
 )
+_FIELD_ALIASES = {
+    "asset_regions": "asset_region",
+    "revenue_regions": "revenue_region",
+}
 _PROPRIETARY_FIELDS = frozenset(
     {
         "gics",
@@ -273,6 +277,7 @@ def resolve_instrument_context(
     evidence: Iterable[ClassificationEvidence],
     overrides: Iterable[ClassificationOverride] = (),
     *,
+    instrument_id: str | None = None,
     effective_at: str | datetime | None = None,
     decision_time: str | datetime | None = None,
     min_leaf_confidence: float = DEFAULT_LEAF_CONFIDENCE,
@@ -282,7 +287,12 @@ def resolve_instrument_context(
     threshold = _confidence(min_leaf_confidence, "min_leaf_confidence")
     items = tuple(_normalise_evidence(item) for item in evidence)
     decisions = tuple(_normalise_override(item) for item in overrides)
-    instrument_ids = {item.instrument_id for item in (*items, *decisions)}
+    requested_instrument_id = str(instrument_id or "").strip()
+    instrument_ids = {item.instrument_id for item in items} | {
+        item.instrument_id for item in decisions
+    }
+    if requested_instrument_id:
+        instrument_ids.add(requested_instrument_id)
     if len(instrument_ids) != 1:
         raise ClassificationSchemaError("classification resolution requires exactly one instrument_id")
     instrument_id = next(iter(instrument_ids))
@@ -315,15 +325,15 @@ def resolve_instrument_context(
     conflict_fields: set[str] = set()
     for field_name, candidates in sorted(grouped.items()):
         if field_name in _MULTI_FIELDS:
-            selected, confidence, candidate_ids, retained = _select_multi(candidates)
-            multi_values[field_name] = selected
+            multi_selected, confidence, candidate_ids, retained = _select_multi(candidates)
+            multi_values[field_name] = multi_selected
             confidences[field_name] = confidence
             selected_ids.extend(candidate_ids)
             if retained:
                 alternatives[field_name] = retained
             continue
-        selected, confidence, candidate_ids, retained, conflicted = _select_scalar(candidates)
-        values[field_name] = selected
+        scalar_selected, confidence, candidate_ids, retained, conflicted = _select_scalar(candidates)
+        values[field_name] = scalar_selected
         confidences[field_name] = confidence
         selected_ids.extend(candidate_ids)
         if retained:
@@ -345,21 +355,21 @@ def resolve_instrument_context(
     )
     applied_overrides: list[ClassificationOverride] = []
     for field_name in sorted({item.field for item in applicable_overrides}):
-        candidates = tuple(item for item in applicable_overrides if item.field == field_name)
-        selected, conflicted = _select_override(candidates)
-        if conflicted or selected is None:
+        override_candidates = tuple(item for item in applicable_overrides if item.field == field_name)
+        selected_override, conflicted = _select_override(override_candidates)
+        if conflicted or selected_override is None:
             conflict_fields.add(field_name)
-            alternatives[field_name] = tuple(sorted({item.value for item in candidates}))
+            alternatives[field_name] = tuple(sorted({item.value for item in override_candidates}))
             values[field_name] = None
             multi_values.pop(field_name, None)
             warnings.append(f"conflicting_{field_name}_overrides")
             continue
-        applied_overrides.append(selected)
+        applied_overrides.append(selected_override)
         conflict_fields.discard(field_name)
         if field_name in _MULTI_FIELDS:
-            multi_values[field_name] = (selected.value,)
+            multi_values[field_name] = (selected_override.value,)
         else:
-            values[field_name] = selected.value
+            values[field_name] = selected_override.value
         confidences[field_name] = 1.0
 
     fallback: list[str] = []
@@ -414,7 +424,14 @@ def resolve_instrument_context(
     unresolved_core = instrument_type is None or asset_class is None or bool(
         {"instrument_type", "asset_class"}.intersection(conflict_fields)
     )
-    status = "unresolved" if unresolved_core else ("partial" if fallback or conflict_fields else "resolved")
+    if conflict_fields:
+        status = "manual_review"
+    elif unresolved_core:
+        status = "unresolved"
+    elif fallback:
+        status = "available"
+    else:
+        status = "resolved"
     if not eligible:
         warnings.append("classification_evidence_unavailable_at_cutoff")
 
@@ -554,8 +571,8 @@ def sector_adapter_route(
 
 
 def measure_classification_accuracy(
-    expected: Mapping[str, Mapping[str, object]],
-    actual: Mapping[str, InstrumentContextV2],
+    expected: Mapping[str, Mapping[str, object] | object],
+    actual: Mapping[str, InstrumentContextV2 | object],
 ) -> ClassificationAccuracy:
     """Measure exact field accuracy on a labelled fixture corpus."""
 
@@ -564,19 +581,27 @@ def measure_classification_accuracy(
     correct = 0
     total = 0
     mismatches: list[str] = []
-    for instrument_id, labels in sorted(expected.items()):
-        context = actual.get(instrument_id)
-        if context is None:
+    for instrument_id, expected_labels in sorted(expected.items()):
+        labels = expected_labels if isinstance(expected_labels, Mapping) else {"classification": expected_labels}
+        observed_context = actual.get(instrument_id)
+        if instrument_id not in actual:
             for field_name in labels:
                 total += 1
                 mismatches.append(f"{instrument_id}.{field_name}: missing context")
             continue
         for field_name, expected_value in sorted(labels.items()):
-            if not hasattr(context, field_name):
-                raise ValueError(f"unknown InstrumentContextV2 label field: {field_name}")
             total += 1
-            observed = getattr(context, field_name)
-            if _comparable(observed) == _comparable(expected_value):
+            if isinstance(observed_context, InstrumentContextV2):
+                if field_name == "classification":
+                    raise ValueError("scalar expected labels require scalar actual labels")
+                if not hasattr(observed_context, field_name):
+                    raise ValueError(f"unknown InstrumentContextV2 label field: {field_name}")
+                observed = getattr(observed_context, field_name)
+            elif field_name == "classification":
+                observed = observed_context
+            else:
+                raise ValueError("field-labelled expected values require InstrumentContextV2 actual values")
+            if expected_value is not None and observed is not None and _comparable(observed) == _comparable(expected_value):
                 correct += 1
             else:
                 mismatches.append(
@@ -805,6 +830,7 @@ def _normalise_override(item: ClassificationOverride) -> ClassificationOverride:
 
 def _field(value: object) -> str:
     field_name = str(value or "").strip().casefold().replace(" ", "_").replace("-", "_")
+    field_name = _FIELD_ALIASES.get(field_name, field_name)
     if not field_name:
         raise ClassificationSchemaError("classification field must be non-empty")
     if field_name in _PROPRIETARY_FIELDS:
