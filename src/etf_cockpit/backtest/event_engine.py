@@ -8,12 +8,15 @@ historical market events only; it does not fetch data or talk to a broker.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import date, datetime, time
+from dataclasses import dataclass, field
+from datetime import date, datetime, time, timezone
 import hashlib
 import json
 import math
-from typing import Literal, TypeAlias
+from typing import Literal, Mapping, TypeAlias
+from zoneinfo import ZoneInfo
+
+from etf_cockpit.data.market_calendar import ClockContext, ListingCalendarEvidence, MarketCalendarService
 
 
 OrderSide: TypeAlias = Literal["buy", "sell"]
@@ -65,6 +68,40 @@ class SessionCalendar:
     def require_session(self, timestamp: datetime, *, event_name: str) -> None:
         if not self.is_session(timestamp):
             raise EventReplayError(f"{event_name} is outside a valid market session: {timestamp.isoformat()}")
+
+
+@dataclass(frozen=True)
+class CertifiedSessionCalendar:
+    """Backtest adapter using the canonical identity-certified market clock."""
+
+    listing: ListingCalendarEvidence
+    service: MarketCalendarService = field(default_factory=MarketCalendarService)
+    knowledge_cutoff: datetime | None = None
+
+    def is_session(self, timestamp: datetime) -> bool:
+        local = _as_timestamp(timestamp).replace(tzinfo=ZoneInfo(self.listing.timezone))
+        decision = local.astimezone(timezone.utc)
+        cutoff = self.knowledge_cutoff or decision
+        if cutoff.tzinfo is None:
+            raise EventReplayError("certified calendar knowledge_cutoff must be timezone-aware")
+        try:
+            state = self.service.market_state(
+                self.listing,
+                ClockContext.at(decision, knowledge_cutoff=cutoff),
+            )
+        except ValueError as exc:
+            raise EventReplayError(f"certified market calendar is unavailable: {exc}") from exc
+        return state.certification == "certified" and state.phase in {
+            "open",
+            "opening_auction",
+            "closing_auction",
+        }
+
+    def require_session(self, timestamp: datetime, *, event_name: str) -> None:
+        if not self.is_session(timestamp):
+            raise EventReplayError(
+                f"{event_name} is outside an identity-certified market session: {timestamp.isoformat()}"
+            )
 
 
 @dataclass(frozen=True)
@@ -294,8 +331,17 @@ class EventDrivenBacktest:
 
     execution_allowed: Literal[False] = False
 
-    def __init__(self, *, calendar: SessionCalendar | None = None) -> None:
-        self.calendar = calendar or SessionCalendar()
+    def __init__(
+        self,
+        *,
+        calendars: Mapping[str, CertifiedSessionCalendar] | None = None,
+    ) -> None:
+        self.calendars = dict(calendars or {})
+        for instrument_id, calendar in self.calendars.items():
+            if instrument_id != calendar.listing.instrument_id:
+                raise EventReplayError(
+                    "certified calendar key must match listing instrument_id"
+                )
 
     def replay(self, events: list[ReplayInput] | tuple[ReplayInput, ...]) -> ReplayResult:
         ordered = sorted(events, key=_event_key)
@@ -305,7 +351,13 @@ class EventDrivenBacktest:
         output: list[ReplayEvent] = []
 
         for event in ordered:
-            self.calendar.require_session(event.timestamp, event_name=event.kind)
+            instrument_id = self._event_instrument_id(event, active, states)
+            calendar = self.calendars.get(instrument_id)
+            if calendar is None:
+                raise EventReplayError(
+                    f"missing identity-certified calendar for instrument: {instrument_id}"
+                )
+            calendar.require_session(event.timestamp, event_name=event.kind)
             if isinstance(event, MarketEvent):
                 self._validate_market(event)
                 self._fill_active_orders(event, active, states, output)
@@ -330,6 +382,25 @@ class EventDrivenBacktest:
         serialised = tuple(_serialise_event(event, index) for index, event in enumerate(output))
         ledger_hash = hashlib.sha256(json.dumps(serialised, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
         return ReplayResult(tuple(output), tuple(states[key] for key in sorted(states)), ledger_hash)
+
+    @staticmethod
+    def _event_instrument_id(
+        event: ReplayInput,
+        active: Mapping[str, dict[str, object]],
+        states: Mapping[str, OrderState],
+    ) -> str:
+        value = getattr(event, "instrument_id", None)
+        if isinstance(value, str) and value.strip():
+            return value
+        order_id = getattr(event, "order_id", None)
+        record = active.get(str(order_id))
+        request = record.get("request") if record is not None else None
+        if isinstance(request, OrderRequest):
+            return request.instrument_id
+        state = states.get(str(order_id))
+        if state is not None:
+            return state.instrument_id
+        raise EventReplayError(f"lifecycle event references unknown order: {order_id}")
 
     def _validate_market(self, event: MarketEvent) -> None:
         if not event.listed:
@@ -445,6 +516,7 @@ def event_engine_status() -> dict[str, object]:
 __all__ = [
     "AcknowledgementEvent",
     "CancelEvent",
+    "CertifiedSessionCalendar",
     "EventDrivenBacktest",
     "EventReplayError",
     "ExpiryEvent",

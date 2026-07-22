@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, timezone
 
 import pytest
 
 from etf_cockpit.backtest.event_engine import (
     CancelEvent,
+    CertifiedSessionCalendar,
     EventDrivenBacktest,
     EventReplayError,
     ExpiryEvent,
@@ -13,15 +14,49 @@ from etf_cockpit.backtest.event_engine import (
     MarketEvent,
     OrderRequest,
     ProposalEvent,
-    SessionCalendar,
     SignalEvent,
     TargetEvent,
     UnsupportedExecutionDataError,
     proposal_to_order,
 )
+from etf_cockpit.data.market_calendar import ListingCalendarEvidence
 
 
-def _market(minutes: int, *, available_quantity: float | None = None, listed: bool = True) -> MarketEvent:
+UTC = timezone.utc
+
+
+def _certified_calendar(
+    instrument_id: str = "ETF-A",
+    *,
+    mic: str = "XNYS",
+    calendar: str | None = None,
+    tz: str = "America/New_York",
+) -> CertifiedSessionCalendar:
+    return CertifiedSessionCalendar(
+        ListingCalendarEvidence(
+            listing_id=f"listing:{instrument_id}:{mic}",
+            instrument_id=instrument_id,
+            mic=mic,
+            calendar_id=calendar or mic,
+            timezone=tz,
+            source_id="identity:test-calendar",
+            source_checksum="a" * 64,
+            valid_from=date(2020, 1, 1),
+            known_at=datetime(2020, 1, 2, tzinfo=UTC),
+        )
+    )
+
+
+def _engine(*calendars: CertifiedSessionCalendar) -> EventDrivenBacktest:
+    selected = calendars or (_certified_calendar(),)
+    return EventDrivenBacktest(
+        calendars={item.listing.instrument_id: item for item in selected}
+    )
+
+
+def _market(
+    minutes: int, *, available_quantity: float | None = None, listed: bool = True
+) -> MarketEvent:
     return MarketEvent(
         datetime(2026, 7, 17, 10, minutes),
         "ETF-A",
@@ -34,7 +69,14 @@ def _market(minutes: int, *, available_quantity: float | None = None, listed: bo
     )
 
 
-def _order(*, timestamp: datetime | None = None, quantity: float = 10.0, order_type: str = "market", limit_price: float | None = None, expires_at: datetime | None = None) -> OrderRequest:
+def _order(
+    *,
+    timestamp: datetime | None = None,
+    quantity: float = 10.0,
+    order_type: str = "market",
+    limit_price: float | None = None,
+    expires_at: datetime | None = None,
+) -> OrderRequest:
     return OrderRequest(
         timestamp=timestamp or datetime(2026, 7, 17, 10, 0),
         order_id="order-1",
@@ -57,8 +99,8 @@ def test_replay_is_order_level_and_hash_is_independent_of_input_order() -> None:
         _market(0),
     ]
 
-    first = EventDrivenBacktest().replay(events)
-    second = EventDrivenBacktest().replay(list(reversed(events)))
+    first = _engine().replay(events)
+    second = _engine().replay(list(reversed(events)))
 
     assert first.ledger_hash == second.ledger_hash
     assert len(first.fills) == 1
@@ -69,8 +111,13 @@ def test_replay_is_order_level_and_hash_is_independent_of_input_order() -> None:
 
 
 def test_partial_fills_then_cancel_preserve_remaining_quantity() -> None:
-    result = EventDrivenBacktest().replay(
-        [_order(quantity=10.0), _market(1, available_quantity=4.0), _market(2, available_quantity=3.0), CancelEvent(datetime(2026, 7, 17, 10, 3), "order-1", "user_cancel")]
+    result = _engine().replay(
+        [
+            _order(quantity=10.0),
+            _market(1, available_quantity=4.0),
+            _market(2, available_quantity=3.0),
+            CancelEvent(datetime(2026, 7, 17, 10, 3), "order-1", "user_cancel"),
+        ]
     )
 
     fills = [event for event in result.events if isinstance(event, FillEvent)]
@@ -81,9 +128,13 @@ def test_partial_fills_then_cancel_preserve_remaining_quantity() -> None:
 
 
 def test_limit_order_and_expiry_do_not_fill_after_expiry() -> None:
-    result = EventDrivenBacktest().replay(
+    result = _engine().replay(
         [
-            _order(order_type="limit", limit_price=97.0, expires_at=datetime(2026, 7, 17, 10, 2)),
+            _order(
+                order_type="limit",
+                limit_price=97.0,
+                expires_at=datetime(2026, 7, 17, 10, 2),
+            ),
             _market(1),
             _market(2),
             ExpiryEvent(datetime(2026, 7, 17, 10, 2), "order-1"),
@@ -96,14 +147,18 @@ def test_limit_order_and_expiry_do_not_fill_after_expiry() -> None:
 
 
 def test_invalid_session_and_unsupported_listing_fail_closed() -> None:
-    with pytest.raises(EventReplayError, match="outside a valid market session"):
-        EventDrivenBacktest().replay([_order(timestamp=datetime(2026, 7, 18, 10, 0))])
+    with pytest.raises(
+        EventReplayError, match="outside an identity-certified market session"
+    ):
+        _engine().replay([_order(timestamp=datetime(2026, 7, 18, 10, 0))])
     with pytest.raises(UnsupportedExecutionDataError, match="not listed"):
-        EventDrivenBacktest().replay([_market(0, listed=False)])
+        _engine().replay([_market(0, listed=False)])
 
 
 def test_proposal_conversion_preserves_shared_order_contract() -> None:
-    proposal = ProposalEvent(datetime(2026, 7, 17, 10, 0), "proposal-1", "ETF-A", "sell", 2.0, "limit", 103.0)
+    proposal = ProposalEvent(
+        datetime(2026, 7, 17, 10, 0), "proposal-1", "ETF-A", "sell", 2.0, "limit", 103.0
+    )
     order = proposal_to_order(proposal, expires_at=datetime(2026, 7, 17, 11, 0))
 
     assert order.source_id == "proposal-1"
@@ -112,7 +167,35 @@ def test_proposal_conversion_preserves_shared_order_contract() -> None:
     assert order.limit_price == 103.0
 
 
-def test_custom_calendar_rejects_holidays() -> None:
-    calendar = SessionCalendar(holidays=frozenset({datetime(2026, 7, 17).date()}))
-    with pytest.raises(EventReplayError, match="outside a valid market session"):
-        EventDrivenBacktest(calendar=calendar).replay([_market(0)])
+def test_replay_requires_instrument_keyed_certified_calendar() -> None:
+    with pytest.raises(EventReplayError, match="missing identity-certified calendar"):
+        EventDrivenBacktest().replay([_market(0)])
+    with pytest.raises(EventReplayError, match="key must match"):
+        EventDrivenBacktest(calendars={"DE:BMW": _certified_calendar("ETF-A")})
+
+
+def test_nyse_thanksgiving_and_cross_instrument_calendar_mismatch_fail_closed() -> None:
+    holiday_order = _order(timestamp=datetime(2024, 11, 28, 10, 0))
+    with pytest.raises(EventReplayError, match="outside an identity-certified"):
+        _engine().replay([holiday_order])
+
+    bmw_order = OrderRequest(
+        timestamp=datetime(2026, 7, 17, 10, 0),
+        order_id="bmw-order",
+        instrument_id="DE:BMW",
+        side="buy",
+        quantity=1.0,
+    )
+    with pytest.raises(EventReplayError, match="DE:BMW"):
+        _engine(_certified_calendar("ETF-A")).replay([bmw_order])
+
+
+def test_cross_exchange_calendar_alias_mismatch_fails_backtest_closed() -> None:
+    calendar = _certified_calendar(
+        mic="XNYS", calendar="XLON", tz="Europe/London"
+    )
+
+    with pytest.raises(
+        EventReplayError, match="outside an identity-certified market session"
+    ):
+        _engine(calendar).replay([_order()])

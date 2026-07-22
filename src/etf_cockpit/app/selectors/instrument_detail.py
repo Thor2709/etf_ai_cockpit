@@ -15,6 +15,7 @@ from etf_cockpit.application.ui_facade import (
     FUND_HOLDINGS_PATH,
     NEWS_CLEAN_PATH,
     assess_fundamental_row,
+    build_market_clock_diagnostics,
     build_direct_overlap_view,
     build_document_inventory,
     compare_runs,
@@ -54,6 +55,7 @@ class InstrumentDetailViewModel:
 _SECTION_NAMES = (
     "identity",
     "price",
+    "market_clock",
     "etf_liquidity",
     "scores",
     "feature_drivers",
@@ -1229,6 +1231,16 @@ def build_instrument_detail(
     derived = _derived_evidence_panel(instrument_id)
     friction = _friction_panel(instrument_id, candidate_score=candidate)
     scoreboard = _scoreboard_row(instrument_id, candidate_score=candidate)
+    decision_time = getattr(getattr(snapshot, "data_report", None), "as_of_date", None)
+    projection_time = str(decision_time or "").strip()
+    if len(projection_time) == 10:
+        projection_time = f"{projection_time}T23:59:59Z"
+    identity_evidence: dict[str, object] = {
+        "status": "unavailable",
+        "instrument_id": instrument_id,
+        "reason_code": "identity_master_evidence_unavailable",
+        "execution_allowed": False,
+    }
     if candidate is not None:
         identity_panel = _candidate_identity_panel(instrument_id, candidate)
         display_name = identity_panel["name"]
@@ -1251,7 +1263,11 @@ def build_instrument_detail(
             "source_id": f"config:universe:{instrument_id}",
             "execution_allowed": False,
         }
-        identity_evidence = load_identity_projection(instrument_id)
+        identity_evidence = load_identity_projection(
+            instrument_id,
+            effective_at=projection_time or None,
+            decision_time=projection_time or None,
+        )
         if identity_evidence.get("status") == "available":
             identity_panel.update(
                 {
@@ -1320,6 +1336,13 @@ def build_instrument_detail(
         holdings=holdings,
     )
     liquidity = build_etf_liquidity_panel(snapshot, instrument_id)
+    price = _price_panel(snapshot, instrument_id, candidate_score=candidate)
+    observed_at = price.get("latest_date") if isinstance(price, Mapping) else None
+    market_clock = build_market_clock_diagnostics(
+        identity_evidence,
+        decision_time=projection_time or decision_time or "",
+        observed_at=observed_at if observed_at not in {None, "unavailable"} else None,
+    )
     return InstrumentDetailViewModel(
         instrument_id,
         display_name,
@@ -1327,7 +1350,8 @@ def build_instrument_detail(
         identity_panel,
         {
             "identity": identity_panel,
-            "price": _price_panel(snapshot, instrument_id, candidate_score=candidate),
+            "price": price,
+            "market_clock": market_clock,
             "etf_liquidity": liquidity,
             "scores": _score_panel(signal, scoreboard, derived, friction),
             "feature_drivers": _feature_driver_panel(instrument_id),

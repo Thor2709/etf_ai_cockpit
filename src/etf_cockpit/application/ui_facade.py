@@ -22,6 +22,7 @@ from etf_cockpit.data.fund_holdings import *  # noqa: F401,F403
 from etf_cockpit.data.fundamentals import *  # noqa: F401,F403
 from etf_cockpit.data.fx_data import *  # noqa: F401,F403
 from etf_cockpit.data.market_adjustments import *  # noqa: F401,F403
+from etf_cockpit.application.market_clock import *  # noqa: F401,F403
 from etf_cockpit.data.health import *  # noqa: F401,F403
 from etf_cockpit.data.hybrid_platform import *  # noqa: F401,F403
 from etf_cockpit.data.import_export import *  # noqa: F401,F403

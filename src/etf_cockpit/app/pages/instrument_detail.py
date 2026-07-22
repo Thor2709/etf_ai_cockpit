@@ -413,6 +413,12 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
     )
     rows = [
         _render_evidence_section(
+            "Market clock and session",
+            model.sections.get("market_clock"),
+            subtitle="Identity-certified MIC, timezone, session/auction state, expected-session staleness and next valid advisory timestamps; execution_allowed=false.",
+            key="instrument-detail.market-clock",
+        ),
+        _render_evidence_section(
             "Classification context",
             model.identity.get(
                 "classification",
