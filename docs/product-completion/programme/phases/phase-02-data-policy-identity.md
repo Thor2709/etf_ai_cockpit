@@ -37,7 +37,7 @@ Deliver the bounded local-first data policy, identity and data platform work wit
 ## Blockers, dependencies and related links
 
 - Resolve only `blocking_dependencies` as prerequisites; `required_inputs` are policy/evidence inputs and do not block readiness. `downstream_issues` are generated reverse links and `related_issues` are context only.
-- The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-21-537e800/dependency-reconciliation.csv`.
+- The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-21-ff9aa45/dependency-reconciliation.csv`.
 
 ## Issue coverage
 
@@ -57,7 +57,7 @@ Deliver the bounded local-first data policy, identity and data platform work wit
 | `ISSUE-0081` | `P0` | `integrated` | `data-platform` | `ISSUE-0072`, `ISSUE-0077`, `ISSUE-0080` | - | `ISSUE-0087`, `ISSUE-0088`, `ISSUE-0155`, `ISSUE-0165`, `ISSUE-0171` | - |
 | `ISSUE-0082` | `P0` | `integrated` | `data-platform` | `ISSUE-0073`, `UPDATEV2-0011` | - | `ISSUE-0083`, `ISSUE-0084`, `ISSUE-0085`, `ISSUE-0086`, `ISSUE-0105`, `ISSUE-0126`, `ISSUE-0153`, `ISSUE-0170` | - |
 | `ISSUE-0083` | `P0/P1` | `integrated` | `data-platform` | `ISSUE-0082` | - | `ISSUE-0098`, `ISSUE-0153`, `ISSUE-0162`, `ISSUE-0170` | - |
-| `ISSUE-0084` | `P0` | `implemented_initially` | `data-platform` | `ISSUE-0073`, `ISSUE-0082` | - | `ISSUE-0094`, `ISSUE-0103`, `ISSUE-0127`, `ISSUE-0159`, `ISSUE-0163`, `ISSUE-0173` | - |
+| `ISSUE-0084` | `P0` | `integrated` | `data-platform` | `ISSUE-0073`, `ISSUE-0082` | - | `ISSUE-0094`, `ISSUE-0103`, `ISSUE-0127`, `ISSUE-0159`, `ISSUE-0163`, `ISSUE-0173` | - |
 | `ISSUE-0085` | `P0/P1` | `planned` | `data-platform` | `ISSUE-0079`, `ISSUE-0082` | - | `ISSUE-0153`, `ISSUE-0154`, `ISSUE-0159`, `ISSUE-0167`, `ISSUE-0170` | - |
 | `ISSUE-0086` | `P0` | `planned` | `data-platform` | `ISSUE-0036`, `ISSUE-0082` | - | - | - |
 | `ISSUE-0087` | `P0/P1` | `integrated` | `data-platform` | `ISSUE-0081`, `UPDATEV2-0012`, `UPDATEV2-0014` | - | - | - |

@@ -3,21 +3,21 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "in_progress",
+      "from": "implemented_initially",
       "issue_id": "ISSUE-0084",
-      "to": "implemented_initially"
+      "to": "integrated"
     }
   ],
-  "base_commit": "537e800dd78e9593e7769f41aecf6d79babb75f9",
-  "branch": "codex/b02-issue0084-convergence1-20260722",
+  "base_commit": "ff9aa45be46302866fb4c9d89593d9ad9ba4b817",
+  "branch": "codex/b02-issue0084-convergence2-20260722",
   "issue_ids": ["ISSUE-0084"],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "d0580ca173e0ae5084e48a7077a270bdadfba22fd638766ae85e299137d89c6b",
+    "base_registry_sha256": "c6e8992a15b359e4c6de578788766b1e5b9085ac6c2066712f4ccac2d3b9b34b",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "c6e8992a15b359e4c6de578788766b1e5b9085ac6c2066712f4ccac2d3b9b34b",
-    "reason": "B02 ISSUE-0084 first post-merge convergence: record only in_progress to implemented_initially against merged product and protected Linux/Windows release evidence; preserve scope, dependencies, acceptance criteria and execution_allowed=false.",
+    "proposed_registry_sha256": "7027f3cca0a22cdc4ec01b355eeffbe011f2d727a413fe2f969f0056f3a13f7a",
+    "reason": "B02 ISSUE-0084 second post-merge convergence: record only implemented_initially to integrated after convergence1 merge and checksum-approved GitHub readback; preserve scope, dependencies, acceptance criteria and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
