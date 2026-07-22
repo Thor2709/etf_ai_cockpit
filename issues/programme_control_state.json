@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "8b86b317c1044f56c9347dbb37a305ea60ee8025",
+    "generation_base_commit": "9542e016b1f1057e7092d1c1d2aaab4c8458a50a",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -1955,6 +1955,18 @@
           "reviewed_date": "2026-07-22",
           "reviewer": "Codex independent reviewer and root",
           "status": "ready"
+        },
+        {
+          "evidence_references": [
+            "PR #487 merged exact readiness checkpoint as 9542e016b1f1057e7092d1c1d2aaab4c8458a50a",
+            "Status-transition guard 29921692342 and supply-chain run 29921692723 passed; redundant full release cancelled under the cadence amendment",
+            "Checksum-approved GitHub #225 readiness update applied and verified; final readback e5e6e7b0c6d8cc1d96946002f23e472dda6d522e2faae9bfb175258a426f85cd contained zero actions",
+            "Both reviewed dependency edges, issue scope, acceptance criteria and execution_allowed=false remain unchanged"
+          ],
+          "review_reference": "B02 ISSUE-0085 implementation start after readiness convergence",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex root orchestrator and independent reviewer",
+          "status": "in_progress"
         }
       ],
       "dependency_edge_evidence": {
@@ -1987,11 +1999,11 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "ready",
+      "programme_status": "in_progress",
       "status_transition": {
-        "from": "planned",
-        "review_reference": "B02 ISSUE-0085 readiness review: identity and supply-chain interfaces resolved",
-        "to": "ready"
+        "from": "ready",
+        "review_reference": "B02 ISSUE-0085 implementation start after readiness convergence",
+        "to": "in_progress"
       },
       "transition_history": [
         {
@@ -2068,9 +2080,24 @@
           "reviewer": "Codex independent reviewer and root",
           "to": "ready",
           "verified_commit": "8b86b317c1044f56c9347dbb37a305ea60ee8025"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #487 merged exact readiness checkpoint as 9542e016b1f1057e7092d1c1d2aaab4c8458a50a",
+            "Status-transition guard 29921692342 and supply-chain run 29921692723 passed; redundant full release cancelled under the cadence amendment",
+            "Checksum-approved GitHub #225 readiness update applied and verified; final readback e5e6e7b0c6d8cc1d96946002f23e472dda6d522e2faae9bfb175258a426f85cd contained zero actions",
+            "Both reviewed dependency edges, issue scope, acceptance criteria and execution_allowed=false remain unchanged"
+          ],
+          "from": "ready",
+          "review_reference": "B02 ISSUE-0085 implementation start after readiness convergence",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex root orchestrator and independent reviewer",
+          "to": "in_progress",
+          "verified_commit": "9542e016b1f1057e7092d1c1d2aaab4c8458a50a"
         }
       ],
-      "verified_commit": "8b86b317c1044f56c9347dbb37a305ea60ee8025",
+      "verified_commit": "9542e016b1f1057e7092d1c1d2aaab4c8458a50a",
       "verified_date": "2026-07-22"
     },
     "ISSUE-0086": {
