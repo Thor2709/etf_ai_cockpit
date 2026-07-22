@@ -3,21 +3,21 @@
   "allow_other_status_changes": false,
   "allowed_dependency_edge_updates": [
     {
-      "dependency_id": "ISSUE-0082",
+      "dependency_id": "ISSUE-0073",
       "issue_id": "ISSUE-0084"
     }
   ],
   "allowed_status_transitions": [],
-  "base_commit": "ad783e517be68882934300df73106891ae6e3c05",
-  "branch": "codex/b00-edge-only-control-20260722",
+  "base_commit": "6d024370760caa804efd95d7591b9d26d0f75f05",
+  "branch": "codex/b02-issue0084-edge0073-20260722",
   "issue_ids": [],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "7a0f530601e7acc9e8503239a10ef6eb9693347d31be1ee9ed6cf7f781552884",
+    "base_registry_sha256": "bf16e64e14549220a0d1030ef0abd55d321eda797c75bd3ec9171e40f010b81e",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_dependency_edge_evidence",
-    "proposed_registry_sha256": "bf16e64e14549220a0d1030ef0abd55d321eda797c75bd3ec9171e40f010b81e",
-    "reason": "B00 protected control repair: add one reviewed edge-only event so ISSUE-0084 can record the completed ISSUE-0082 identity-master contract without changing programme status or acceptance evidence; refresh the stale generation base; preserve all issue scope, dependencies, policies, status semantics and execution_allowed=false.",
+    "proposed_registry_sha256": "013cced474b2f8b1b155f0379b8b1236c77256e635a1ba45002fc62489aa7d6f",
+    "reason": "B02 ISSUE-0084 dependency readiness: record only the reviewed ISSUE-0073 bitemporal as-of consumer interface, keep ISSUE-0084 planned, preserve ISSUE-0082 complete evidence, all issue scope, dependencies, acceptance criteria, status semantics, policies and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },

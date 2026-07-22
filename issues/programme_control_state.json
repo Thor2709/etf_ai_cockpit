@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "ad783e517be68882934300df73106891ae6e3c05",
+    "generation_base_commit": "6d024370760caa804efd95d7591b9d26d0f75f05",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -1735,12 +1735,17 @@
       "acceptance_evidence": [],
       "dependency_edge_evidence": {
         "ISSUE-0073": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B02/ISSUE-0073/bitemporal-as-of-interface-v1",
+          "evidence_references": [
+            "src/etf_cockpit/data/bitemporal.py BitemporalStore append-only valid-time/knowledge-time and exact as-of projection",
+            "tests/test_bitemporal.py revision, retraction, ambiguity, timezone and vintage-manifest fixtures",
+            "Commit d0d7d05984e2224f318584a7e143b22d45459af8 introduced the reviewed bitemporal foundation",
+            "ISSUE-0073 remains broader hardening work; this evidence resolves only ISSUE-0084 consumer readiness"
+          ],
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex independent reviewer and root",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "partial_interface"
         },
         "ISSUE-0082": {
           "contract_reference": "B02/ISSUE-0082/point-in-time-identity-master-v1",
@@ -1792,9 +1797,38 @@
           "reviewed_date": "2026-07-22",
           "reviewer": "Codex deep reviewer and root",
           "verified_commit": "d590c8fef1f645614e7ed326e60b31d823d54113"
+        },
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0073",
+            "evidence": {
+              "contract_reference": "B02/ISSUE-0073/bitemporal-as-of-interface-v1",
+              "evidence_references": [
+                "src/etf_cockpit/data/bitemporal.py BitemporalStore append-only valid-time/knowledge-time and exact as-of projection",
+                "tests/test_bitemporal.py revision, retraction, ambiguity, timezone and vintage-manifest fixtures",
+                "Commit d0d7d05984e2224f318584a7e143b22d45459af8 introduced the reviewed bitemporal foundation",
+                "ISSUE-0073 remains broader hardening work; this evidence resolves only ISSUE-0084 consumer readiness"
+              ],
+              "reviewed_date": "2026-07-22",
+              "reviewer": "Codex independent reviewer and root",
+              "schema_version": "1.0",
+              "state": "partial_interface"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "src/etf_cockpit/data/bitemporal.py BitemporalStore append-only valid-time/knowledge-time and exact as-of projection",
+            "tests/test_bitemporal.py revision, retraction, ambiguity, timezone and vintage-manifest fixtures",
+            "Commit d0d7d05984e2224f318584a7e143b22d45459af8 introduced the reviewed bitemporal foundation",
+            "ISSUE-0073 remains broader hardening work; this evidence resolves only ISSUE-0084 consumer readiness"
+          ],
+          "review_reference": "B02 ISSUE-0084 dependency review: bitemporal as-of consumer interface",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex independent reviewer and root",
+          "verified_commit": "d0d7d05984e2224f318584a7e143b22d45459af8"
         }
       ],
-      "verified_commit": "d590c8fef1f645614e7ed326e60b31d823d54113",
+      "verified_commit": "d0d7d05984e2224f318584a7e143b22d45459af8",
       "verified_date": "2026-07-22"
     },
     "ISSUE-0085": {
