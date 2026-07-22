@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "7229e4628c8a60d1f6cc9a3239e99da8aa3044a6",
+    "generation_base_commit": "d7adefcb119bde9b8e4e8110e257d615b662873d",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -1967,6 +1967,17 @@
           "reviewed_date": "2026-07-22",
           "reviewer": "Codex root orchestrator and independent reviewer",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "PR #493 merged reviewed product checkpoint 0f30344f1cca5dd048178010ed48b674bd533b4e as d7adefcb119bde9b8e4e8110e257d615b662873d",
+            "Status guard 29930462710 and supply-chain run 29930463124 passed on the unchanged reviewed head",
+            "Immediate protected release run 29930462623 passed Linux job 88958517341 and Windows job 88958517231"
+          ],
+          "review_reference": "B02 ISSUE-0085 merged certified market-calendar implementation and protected release evidence",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex root orchestrator and independent reviewer",
+          "status": "implemented_initially"
         }
       ],
       "dependency_edge_evidence": {
@@ -1999,11 +2010,11 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "in_progress",
+      "programme_status": "implemented_initially",
       "status_transition": {
-        "from": "ready",
-        "review_reference": "B02 ISSUE-0085 implementation start after readiness convergence",
-        "to": "in_progress"
+        "from": "in_progress",
+        "review_reference": "B02 ISSUE-0085 merged certified market-calendar implementation and protected release evidence",
+        "to": "implemented_initially"
       },
       "transition_history": [
         {
@@ -2095,9 +2106,23 @@
           "reviewer": "Codex root orchestrator and independent reviewer",
           "to": "in_progress",
           "verified_commit": "9542e016b1f1057e7092d1c1d2aaab4c8458a50a"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #493 merged reviewed product checkpoint 0f30344f1cca5dd048178010ed48b674bd533b4e as d7adefcb119bde9b8e4e8110e257d615b662873d",
+            "Status guard 29930462710 and supply-chain run 29930463124 passed on the unchanged reviewed head",
+            "Immediate protected release run 29930462623 passed Linux job 88958517341 and Windows job 88958517231"
+          ],
+          "from": "in_progress",
+          "review_reference": "B02 ISSUE-0085 merged certified market-calendar implementation and protected release evidence",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex root orchestrator and independent reviewer",
+          "to": "implemented_initially",
+          "verified_commit": "d7adefcb119bde9b8e4e8110e257d615b662873d"
         }
       ],
-      "verified_commit": "9542e016b1f1057e7092d1c1d2aaab4c8458a50a",
+      "verified_commit": "d7adefcb119bde9b8e4e8110e257d615b662873d",
       "verified_date": "2026-07-22"
     },
     "ISSUE-0086": {
