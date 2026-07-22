@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "ebf34f39d9a29dcc50c22301afd500bbd51a03eb",
+    "generation_base_commit": "384c82d784914e7f82cb824fddd1536d6d17f8f6",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -2104,12 +2104,18 @@
       "acceptance_evidence": [],
       "dependency_edge_evidence": {
         "ISSUE-0036": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B02/ISSUE-0036/import-export-foundation-v1",
+          "evidence_references": [
+            "Commit 7700ea34dcdeb59ed125dab8b9d282280e1b30ca established the local ImportPreview and ImportService foundation later hardened on main",
+            "src/etf_cockpit/data/import_export.py validates checksum-bound previews and performs atomic local commits for supported CSV, Parquet, JSON and RSS evidence",
+            "src/etf_cockpit/app/pages/import_export.py exposes explicit preview-before-commit controls and preserves execution_allowed=false",
+            "tests/test_import_export.py covers invalid previews, checksum mutation, atomic failure preservation, broker holdings and local import contracts",
+            "ISSUE-0036 remains implemented_initially with its broader broker, schema-mapping, rollback and portability gaps explicitly open"
+          ],
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex independent reviewer and root",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "partial_interface"
         },
         "ISSUE-0082": {
           "contract_reference": "B02/ISSUE-0082/point-in-time-identity-master-v1",
@@ -2161,9 +2167,40 @@
           "reviewed_date": "2026-07-22",
           "reviewer": "Codex independent reviewer and root",
           "verified_commit": "d590c8fef1f645614e7ed326e60b31d823d54113"
+        },
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0036",
+            "evidence": {
+              "contract_reference": "B02/ISSUE-0036/import-export-foundation-v1",
+              "evidence_references": [
+                "Commit 7700ea34dcdeb59ed125dab8b9d282280e1b30ca established the local ImportPreview and ImportService foundation later hardened on main",
+                "src/etf_cockpit/data/import_export.py validates checksum-bound previews and performs atomic local commits for supported CSV, Parquet, JSON and RSS evidence",
+                "src/etf_cockpit/app/pages/import_export.py exposes explicit preview-before-commit controls and preserves execution_allowed=false",
+                "tests/test_import_export.py covers invalid previews, checksum mutation, atomic failure preservation, broker holdings and local import contracts",
+                "ISSUE-0036 remains implemented_initially with its broader broker, schema-mapping, rollback and portability gaps explicitly open"
+              ],
+              "reviewed_date": "2026-07-22",
+              "reviewer": "Codex independent reviewer and root",
+              "schema_version": "1.0",
+              "state": "partial_interface"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "Commit 7700ea34dcdeb59ed125dab8b9d282280e1b30ca established the local ImportPreview and ImportService foundation later hardened on main",
+            "src/etf_cockpit/data/import_export.py validates checksum-bound previews and performs atomic local commits for supported CSV, Parquet, JSON and RSS evidence",
+            "src/etf_cockpit/app/pages/import_export.py exposes explicit preview-before-commit controls and preserves execution_allowed=false",
+            "tests/test_import_export.py covers invalid previews, checksum mutation, atomic failure preservation, broker holdings and local import contracts",
+            "ISSUE-0036 remains implemented_initially with its broader broker, schema-mapping, rollback and portability gaps explicitly open"
+          ],
+          "review_reference": "B02 ISSUE-0086 dependency review: partial local import/export interface from ISSUE-0036",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex independent reviewer and root",
+          "verified_commit": "7700ea34dcdeb59ed125dab8b9d282280e1b30ca"
         }
       ],
-      "verified_commit": "d590c8fef1f645614e7ed326e60b31d823d54113",
+      "verified_commit": "7700ea34dcdeb59ed125dab8b9d282280e1b30ca",
       "verified_date": "2026-07-22"
     },
     "ISSUE-0087": {
