@@ -9,6 +9,9 @@ from etf_cockpit.app.pages.instrument_detail import render_news_context_panel
 from etf_cockpit.app.selectors.instrument_detail import build_instrument_detail
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import load_identity_projection
+from etf_cockpit.data.contracts import SourceAuthority
+from etf_cockpit.data.identity_master import IdentityMasterStore, IdentitySourceRow
+from etf_cockpit.data.instrument_identity import IdentityClaim
 from etf_cockpit.services import build_snapshot
 
 
@@ -43,6 +46,8 @@ def test_instrument_detail_exposes_identity_lineage_from_application_facade(monk
             "identity_decision_time": "2026-07-21T00:00:00Z",
             "identity_objects": '[{"object_id":"LISTING-XETR"}]',
             "identity_history": '[{"event_type":"ticker_changed"}]',
+            "identity_conflicts": [{"conflict_id": "conflict-1", "resolution_status": "manual_review"}],
+            "identity_reviews": [{"decision_id": "review-1", "reviewer": "local-user"}],
             "warnings": "",
             "execution_allowed": False,
         },
@@ -55,6 +60,8 @@ def test_instrument_detail_exposes_identity_lineage_from_application_facade(monk
     assert model.identity["identity_resolution_state"] == "resolved"
     assert "LISTING-XETR" in model.identity["identity_objects"]
     assert "ticker_changed" in model.identity["identity_history"]
+    assert model.identity["identity_conflicts"][0]["conflict_id"] == "conflict-1"
+    assert model.identity["identity_reviews"][0]["decision_id"] == "review-1"
     assert model.identity["execution_allowed"] is False
 
 
@@ -86,6 +93,70 @@ def test_identity_projection_loader_fails_closed_on_duplicate_rows(tmp_path) -> 
         "candidate_count": 2,
         "execution_allowed": False,
     }
+
+
+def test_identity_projection_loader_exposes_durable_master_graph_and_reviews(tmp_path) -> None:
+    with IdentityMasterStore(tmp_path) as store:
+        store.import_rows(
+            (
+                IdentitySourceRow(
+                    row_id="official-sec-1",
+                    instrument_id="SEC-1",
+                    object_type="listing",
+                    object_id="LISTING-XNAS",
+                    parent_object_id="SEC-1",
+                    relationship="quotation_for",
+                    identifiers={"isin": "US0000000001"},
+                    attributes={"ticker": "ABC", "exchange": "XNAS"},
+                    source="official",
+                    authority=SourceAuthority.OFFICIAL,
+                    source_id="official:sec-1",
+                    valid_from="2024-01-01T00:00:00Z",
+                    available_at="2024-01-02T00:00:00Z",
+                ),
+            )
+        )
+
+    projection = load_identity_projection("SEC-1", storage_root=tmp_path)
+
+    assert projection["status"] == "available"
+    assert projection["identity_objects"][0]["object_id"] == "LISTING-XNAS"
+    assert projection["identity_conflicts"] == []
+    assert projection["identity_reviews"] == []
+    assert projection["execution_allowed"] is False
+
+
+def test_identity_master_migration_preserves_legacy_projection_until_imported(tmp_path) -> None:
+    legacy_path = tmp_path / "instrument_identity.parquet"
+    pd.DataFrame(
+        [
+            {
+                "instrument_id": "LEGACY-1",
+                "identity_confidence": "manual_review",
+                "identity_resolution_state": "manual_review",
+                "identity_decision_id": "b" * 64,
+            }
+        ]
+    ).to_parquet(legacy_path, index=False)
+    with IdentityMasterStore(tmp_path) as store:
+        store.append_claims(
+            (
+                IdentityClaim(
+                    "OTHER",
+                    "ticker",
+                    "OTHER",
+                    "fixture",
+                    SourceAuthority.OFFICIAL,
+                    "fixture:other",
+                ),
+            )
+        )
+
+    projection = load_identity_projection("LEGACY-1", legacy_path, storage_root=tmp_path)
+
+    assert projection["status"] == "available"
+    assert projection["identity_decision_id"] == "b" * 64
+    assert projection["execution_allowed"] is False
 
 
 def test_instrument_detail_driver_groups_are_ordered_structured_rows(tmp_path, monkeypatch) -> None:

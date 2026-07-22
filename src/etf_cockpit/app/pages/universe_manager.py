@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Iterable
 
 import flet as ft
@@ -13,6 +14,7 @@ from etf_cockpit.application.ui_facade import (
     add_record,
     disable_record,
     edit_record,
+    load_identity_projection,
     load_universe,
     remove_record,
     save_universe,
@@ -89,7 +91,12 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
     snapshot = load_universe()
     records = list(snapshot.records or records_from_config(state))
     expected_revision = snapshot.revision
-    query = ft.TextField(label="Search universe", hint_text="ID, name, ticker, ISIN, sector or theme", dense=True, expand=True)
+    query = ft.TextField(
+        label="Search universe",
+        hint_text="ID, name, ticker, ISIN, sector or theme",
+        dense=True,
+        width=520,
+    )
     status = ft.Text("No changes pending. needs_verification and pending refresh are shown per row.", color=theme.MUTED, selectable=True)
     allow_duplicates = ft.Checkbox(
         label="Allow cross-tier duplicate IDs/tickers/ISINs (explicit override)",
@@ -107,7 +114,7 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
         nonlocal records
         records = list(changed)
         status.value = message + " Pending refresh remains visible; no yfinance, scoring, forecast or broker call was started."
-        rebuild_tabs()
+        rebuild_table()
         page.update()
 
     def _apply_saved_config(revision: str) -> None:
@@ -279,6 +286,51 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
             status.value = f"Save blocked: {exc}"
         page.update()
 
+    def identity_dialog(record: UniverseRecord) -> None:
+        evidence = load_identity_projection(record.instrument_id)
+        resolution = str(evidence.get("identity_resolution_state", "unavailable"))
+        confidence = str(evidence.get("identity_confidence", "unavailable"))
+        safe_identity = (
+            evidence.get("status") == "available"
+            and resolution == "resolved"
+            and confidence not in {"manual_review", "unavailable"}
+        )
+        state_line = (
+            f"status={evidence.get('status', 'unavailable')} | "
+            f"resolution={resolution} | "
+            f"confidence={confidence} | "
+            f"execution_allowed={bool(evidence.get('execution_allowed', False))}"
+        )
+        lineage = {
+            "objects": evidence.get("identity_objects", "unavailable"),
+            "conflicts": evidence.get("identity_conflicts", "unavailable"),
+            "history": evidence.get("identity_history", "unavailable"),
+            "reviews": evidence.get("identity_reviews", "unavailable"),
+            "reason_code": evidence.get("reason_code", ""),
+        }
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(f"Identity master: {record.instrument_id}"),
+            content=ft.Column(
+                [
+                    ft.Text(state_line, color=theme.GREEN if safe_identity else theme.AMBER),
+                    ft.Text(json.dumps(lineage, sort_keys=True, indent=2, default=str), color=theme.MUTED, selectable=True),
+                ],
+                tight=True,
+                scroll=ft.ScrollMode.AUTO,
+            ),
+            actions=[
+                ft.TextButton(
+                    "Close",
+                    key="universe.identity-close",
+                    on_click=lambda _event: setattr(dialog, "open", False),
+                )
+            ],
+        )
+        page.overlay.append(dialog)
+        dialog.open = True
+        page.update()
+
     def _table_with_actions(rows: Iterable[UniverseRecord]) -> ft.DataTable:
         table = _table(rows, edit_dialog)
         for row, record in zip(table.rows, rows):
@@ -295,39 +347,46 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
                     on_click=lambda _event, item=record: enable_item(item),
                 )
             row.cells[-1] = ft.DataCell(ft.Row([
+                ft.Button("Identity", key=f"universe.identity.{record.instrument_id}", on_click=lambda _event, item=record: identity_dialog(item)),
                 ft.Button("Edit", key=f"universe.edit.{record.instrument_id}", on_click=lambda _event, item=record: edit_dialog(item)),
                 action_button,
                 ft.Button("Remove", key=f"universe.remove.{record.instrument_id}", on_click=lambda _event, item=record: remove_item(item)),
             ], wrap=True))
         return table
 
-    tab_bar = ft.TabBar(tabs=[])
-    tab_views = ft.TabBarView(controls=[], expand=True)
-    tabs_control = ft.Tabs(
-        length=3,
-        selected_index=0,
-        expand=True,
-        content=ft.Column([tab_bar, tab_views], expand=True),
+    tiers = (("primary", "Primary"), ("secondary", "Secondary"), ("sparebanken", "Sparebanken"))
+    tier_filter = ft.Dropdown(
+        key="universe.tier",
+        label="Tier",
+        value="primary",
+        options=[ft.DropdownOption(key=tier, text=title) for tier, title in tiers],
+        width=220,
+        dense=True,
     )
+    table_host = ft.Column([], key="universe.table-host", spacing=0)
 
-    def rebuild_tabs(_event: ft.ControlEvent | None = None) -> None:
+    def rebuild_table(_event: ft.ControlEvent | None = None) -> None:
         needle = query.value or ""
-        tiers = (("primary", "Primary"), ("secondary", "Secondary"), ("sparebanken", "Sparebanken"))
-        tab_bar.tabs = [ft.Tab(label=title) for _tier, title in tiers]
-        tab_views.controls = [
-            ft.Container(content=_table_with_actions(filter_records(records, needle, tier=tier)), padding=8)
-            for tier, _title in tiers
+        selected_tier = str(tier_filter.value or "primary")
+        table_host.controls = [
+            ft.Row(
+                [_table_with_actions(filter_records(records, needle, tier=selected_tier))],
+                key="universe.table-scroll",
+                scroll=ft.ScrollMode.AUTO,
+                vertical_alignment=ft.CrossAxisAlignment.START,
+            )
         ]
         page.update()
 
-    query.on_change = rebuild_tabs
+    query.on_change = rebuild_table
+    tier_filter.on_select = rebuild_table
     add_button = ft.Button("Add record", key="universe.add", icon=ft.Icons.ADD, on_click=add_dialog)
-    rebuild_tabs()
+    rebuild_table()
 
     return ft.Column(
         [
             panel(ft.Column([section_header("Universe and watchlists", "Manage validated local candidates across the Primary, Secondary and Sparebanken tiers."), ft.Row([query, add_button, ft.Button("Save validated changes", key="universe.save", icon=ft.Icons.SAVE, on_click=save_changes)], wrap=True), allow_duplicates, status, ft.Text("Edits persist only after validation. Saving never starts yfinance, scoring, forecasts or broker execution.", color=theme.MUTED)], spacing=8)),
-            panel(tabs_control),
+            panel(ft.Column([tier_filter, table_host], spacing=12)),
         ],
         expand=True,
         scroll=ft.ScrollMode.AUTO,

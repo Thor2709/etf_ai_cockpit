@@ -1263,6 +1263,8 @@ def build_instrument_detail(
                     "identity_decision_time": identity_evidence.get("identity_decision_time", "unavailable"),
                     "identity_objects": identity_evidence.get("identity_objects", "unavailable"),
                     "identity_history": identity_evidence.get("identity_history", "unavailable"),
+                    "identity_conflicts": identity_evidence.get("identity_conflicts", "unavailable"),
+                    "identity_reviews": identity_evidence.get("identity_reviews", "unavailable"),
                     "identity_warnings": identity_evidence.get("warnings", "unavailable"),
                 }
             )

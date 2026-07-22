@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sqlite3
+import time
 from typing import Any
 
 import pandas as pd
@@ -80,13 +81,34 @@ def storage_layout(root: Path) -> StorageLayout:
 def connect_storage(root: Path) -> sqlite3.Connection:
     layout = storage_layout(root)
     layout.transactional_path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(layout.transactional_path)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    connection.execute("PRAGMA journal_mode = WAL")
-    connection.execute("PRAGMA synchronous = NORMAL")
-    connection.execute("PRAGMA busy_timeout = 5000")
+    connection = sqlite3.connect(layout.transactional_path, timeout=30.0)
+    try:
+        connection.row_factory = sqlite3.Row
+        # Set the busy handler before the WAL transition.  Two first-time local
+        # writers may open the same store concurrently and journal_mode itself
+        # can need the database write lock.
+        connection.execute("PRAGMA busy_timeout = 30000")
+        connection.execute("PRAGMA foreign_keys = ON")
+        _enable_wal(connection)
+        connection.execute("PRAGMA synchronous = NORMAL")
+    except Exception:
+        connection.close()
+        raise
     return connection
+
+
+def _enable_wal(connection: sqlite3.Connection) -> None:
+    """Enable WAL with a bounded retry for SQLite's journal-mode lock race."""
+
+    deadline = time.monotonic() + 30.0
+    while True:
+        try:
+            connection.execute("PRAGMA journal_mode = WAL")
+            return
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc).casefold() or time.monotonic() >= deadline:
+                raise
+            time.sleep(0.025)
 
 
 def initialise_storage(root: Path) -> StorageLayout:
@@ -102,6 +124,12 @@ def initialise_storage(root: Path) -> StorageLayout:
 
 
 def _apply_migrations(connection: sqlite3.Connection) -> None:
+    migrations = (
+        (1, "transactional_records_v1", _migration_v1),
+        (2, "analytical_catalog_v1", _migration_v2),
+        (3, "bitemporal_observations_v1", _migration_v3),
+        (4, "durable_workflows_v1", _migration_v4),
+    )
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -111,26 +139,38 @@ def _apply_migrations(connection: sqlite3.Connection) -> None:
         )
         """
     )
+    connection.commit()
     applied = {int(row[0]) for row in connection.execute("SELECT version FROM schema_migrations")}
-    highest = max(applied, default=0)
-    if highest > STORAGE_SCHEMA_VERSION:
-        raise StorageSchemaError(
-            f"storage schema {highest} is newer than supported version {STORAGE_SCHEMA_VERSION}"
-        )
-    for version, name, migration in (
-        (1, "transactional_records_v1", _migration_v1),
-        (2, "analytical_catalog_v1", _migration_v2),
-        (3, "bitemporal_observations_v1", _migration_v3),
-        (4, "durable_workflows_v1", _migration_v4),
-    ):
-        if version in applied:
-            continue
-        with connection:
+    _validate_storage_schema(applied)
+    if all(version in applied for version, _name, _migration in migrations):
+        return
+
+    # Only pending migrations take the write lock.  Re-read after acquiring it
+    # because another constructor may have completed the same first-open work.
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        applied = {int(row[0]) for row in connection.execute("SELECT version FROM schema_migrations")}
+        _validate_storage_schema(applied)
+        for version, name, migration in migrations:
+            if version in applied:
+                continue
             migration(connection)
             connection.execute(
                 "INSERT INTO schema_migrations(version, name, applied_at) VALUES (?, ?, ?)",
                 (version, name, _utc_now()),
             )
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+
+
+def _validate_storage_schema(applied: set[int]) -> None:
+    highest = max(applied, default=0)
+    if highest > STORAGE_SCHEMA_VERSION:
+        raise StorageSchemaError(
+            f"storage schema {highest} is newer than supported version {STORAGE_SCHEMA_VERSION}"
+        )
 
 
 def _migration_v1(connection: sqlite3.Connection) -> None:

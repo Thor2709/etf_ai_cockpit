@@ -112,12 +112,22 @@ def test_real_crud_controls_stage_changes_and_save_captured_revision(monkeypatch
     assert {row.instrument_id for row in saved[-1][0]} == {"A", "B"}
     assert next(row for row in saved[-1][0] if row.instrument_id == "B").enabled is False
 
-    # Search is wired to a callback that rebuilds the three visible tier tabs.
+    # Search and tier selection rebuild the one visible, horizontally scrollable table.
     query = next(control for control in _walk(root) if isinstance(control, ft.TextField) and control.label == "Search universe")
+    assert not query.expand
+    assert query.width == 520
     query.value = "Beta"
     query.on_change(None)
-    tabs = next(control for control in _walk(root) if isinstance(control, ft.TabBar))
-    assert [tab.label for tab in tabs.tabs] == ["Primary", "Secondary", "Sparebanken"]
+    tier = next(control for control in _walk(root) if isinstance(control, ft.Dropdown) and control.key == "universe.tier")
+    assert [(option.key, option.text) for option in tier.options] == [
+        ("primary", "Primary"),
+        ("secondary", "Secondary"),
+        ("sparebanken", "Sparebanken"),
+    ]
+    tier.value = "secondary"
+    tier.on_select(None)
+    buttons = {str(control.key): control for control in _walk(root) if isinstance(control, ft.Button) and control.key}
+    assert "universe.identity.B" in buttons
 
 
 def test_override_checkbox_rehydrates_from_store_snapshot(monkeypatch) -> None:
@@ -131,6 +141,64 @@ def test_override_checkbox_rehydrates_from_store_snapshot(monkeypatch) -> None:
     root = universe_manager_page(page, _state())
     checkbox = next(control for control in _walk(root) if isinstance(control, ft.Checkbox) and control.key == "universe.allow-cross-tier-duplicates")
     assert checkbox.value is True
+
+
+def test_universe_identity_action_exposes_graph_conflict_review_and_authority(monkeypatch) -> None:
+    record = UniverseRecord("A", "Alpha", "NO0000000001", "verified", "A", "stock", "primary", "", True, "daily", "EUR", "NO", "", "", "")
+    monkeypatch.setattr(manager, "load_universe", lambda: UniverseStoreSnapshot((record,), "revision", Path("store.json")))
+    monkeypatch.setattr(
+        manager,
+        "load_identity_projection",
+        lambda _instrument_id: {
+            "status": "available",
+            "identity_confidence": "manual_review",
+            "identity_resolution_state": "quarantined",
+            "identity_objects": [{"object_type": "listing", "object_id": "LISTING-XOSL"}],
+            "identity_conflicts": [{"conflict_id": "conflict-1", "reason_code": "duplicate_identity"}],
+            "identity_history": [{"event_type": "ticker_changed"}],
+            "identity_reviews": [{"decision_id": "review-1", "reviewer": "local-user"}],
+            "execution_allowed": False,
+        },
+    )
+    page = _Page()
+    root = universe_manager_page(page, _state())
+
+    identity_button = next(
+        control
+        for control in _walk(root)
+        if isinstance(control, ft.Button) and control.key == "universe.identity.A"
+    )
+    identity_button.on_click(None)
+
+    rendered_controls = [
+        control for control in _walk(page.overlay[-1]) if isinstance(control, ft.Text) and control.value
+    ]
+    rendered = "\n".join(str(control.value) for control in rendered_controls)
+    assert "LISTING-XOSL" in rendered
+    assert "conflict-1" in rendered
+    assert "review-1" in rendered
+    assert "execution_allowed=False" in rendered
+    assert (
+        next(
+            control
+            for control in rendered_controls
+            if "resolution=quarantined" in str(control.value)
+        ).color
+        == manager.theme.AMBER
+    )
+
+
+def test_universe_tier_filter_uses_visible_scrollable_table(monkeypatch) -> None:
+    record = UniverseRecord("A", "Alpha", "NO0000000001", "verified", "A", "stock", "primary", "", True, "daily", "EUR", "NO", "", "", "")
+    monkeypatch.setattr(manager, "load_universe", lambda: UniverseStoreSnapshot((record,), "revision", Path("store.json")))
+
+    root = universe_manager_page(_Page(), _state())
+    tier = next(control for control in _walk(root) if isinstance(control, ft.Dropdown) and control.key == "universe.tier")
+    table_scroll = next(control for control in _walk(root) if isinstance(control, ft.Row) and control.key == "universe.table-scroll")
+
+    assert tier.value == "primary"
+    assert table_scroll.scroll == ft.ScrollMode.AUTO
+    assert any(isinstance(control, ft.DataTable) for control in _walk(table_scroll))
 
 
 def test_save_reloads_active_state_and_marks_universe_cache_revision(monkeypatch) -> None:
