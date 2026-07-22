@@ -1,19 +1,25 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [],
-  "base_commit": "6596055917653b36ba8bbd1bf9774adab2e841ca",
-  "branch": "codex/b02-issue0083-impl-clean-20260722",
-  "issue_ids": [],
+  "allowed_status_transitions": [
+    {
+      "from": "in_progress",
+      "issue_id": "ISSUE-0083",
+      "to": "implemented_initially"
+    }
+  ],
+  "base_commit": "7aab4f2775e35b0af248c61f8b95930d6c50b781",
+  "branch": "codex/b02-issue0083-convergence1-20260722",
+  "issue_ids": ["ISSUE-0083"],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "f548983b259d94686c58d815315e92c79e477900ce7485a10de335c5396fee85",
+    "base_registry_sha256": "fd418d32da8718ce937bb9dc88dcb40e8114b24d9815f4e74867553cb8303b0f",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "canonical_schema_and_intake",
-    "proposed_registry_sha256": "fd418d32da8718ce937bb9dc88dcb40e8114b24d9815f4e74867553cb8303b0f",
-    "reason": "B02 ISSUE-0083 feature integration no-transition base refresh: all 197 records, statuses, dependencies, acceptance criteria, scope, policies and execution authority remain unchanged; execution_allowed=false.",
+    "mode": "generation_base_and_status_transitions",
+    "proposed_registry_sha256": "ad3e641358ae4a96bc6029a4a98e089ef7e86bf392654570c1dc5a9c853b9b28",
+    "reason": "B02 ISSUE-0083 evidence convergence: advance only ISSUE-0083 from in_progress to implemented_initially after merged PR #475 and full release evidence; all other records, dependencies, acceptance criteria, scope, policies and execution authority remain unchanged; execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.1"
+  "schema_version": "1.2"
 }

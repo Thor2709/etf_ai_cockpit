@@ -14114,6 +14114,15 @@
           "reviewed_date": "2026-07-22",
           "reviewer": "Codex root orchestrator and independent reviewer",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "PR #475 merged head b3c6c91d4549a864b3cc014ffcae63f1dc28d6fe; merge 7aab4f2775e35b0af248c61f8b95930d6c50b781; full gate 29891285231 Linux 88832074084 PASS Windows 88832074085 PASS; status guard 29891285218 PASS; supply-chain 29891285239 PASS; post-merge focused 95 tests PASS; independent reviews PASS"
+          ],
+          "review_reference": "PR-475",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex release steward",
+          "status": "implemented_initially"
         }
       ],
       "activation_dependencies": [],
@@ -14180,7 +14189,7 @@
       "package_status": "",
       "phase": "phase-02-data-policy-identity",
       "priority": "P0/P1",
-      "programme_status": "in_progress",
+      "programme_status": "implemented_initially",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0083-automatic-asset-sector-industry-and-strategy-classification-with-confidence",
@@ -14211,7 +14220,7 @@
       ],
       "title": "Implement automatic asset, sector, industry and strategy classification with confidence",
       "ui_requirement": "Universe editor and Instrument header show evidence and override controls.",
-      "verified_commit": "af0566ced575e84c2587d9195da2dca39767ea89",
+      "verified_commit": "7aab4f2775e35b0af248c61f8b95930d6c50b781",
       "verified_date": "2026-07-22",
       "why": "Sector-specific algorithms and peer comparisons depend on accurate, explainable classification.",
       "write_conflict_group": "data-platform"
@@ -25953,7 +25962,7 @@
   ],
   "schema_version": "2.0",
   "source_of_truth": {
-    "baseline_commit": "6596055917653b36ba8bbd1bf9774adab2e841ca",
+    "baseline_commit": "7aab4f2775e35b0af248c61f8b95930d6c50b781",
     "closed_ledger_sha256": "2dca7fd65f7a218747bcfb91b4e5c1f734af26f29114cc7dc83b071bb86838d8",
     "final_release_manifest_sha256": "dbb71ecaa2b81206ff922eec3dcc72cb08cc001121688b107e8f1c3a2372f685",
     "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -25965,7 +25974,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "acbbc15f9ae13eba87e7a685335ee833f0582ac663806ea7bed3f02224465664",
+    "programme_control_state_sha256": "4f5d01be5005fdf0bd9dad0195ff87366db29ab82b2ada3e26bffad784ed8a6b",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
