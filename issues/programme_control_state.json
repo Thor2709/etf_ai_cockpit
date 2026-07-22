@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "384c82d784914e7f82cb824fddd1536d6d17f8f6",
+    "generation_base_commit": "4300f61478be8a57abd9cc589274bcab8c199897",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -2101,7 +2101,19 @@
       "verified_date": "2026-07-22"
     },
     "ISSUE-0086": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #489 merged ISSUE-0086 to ISSUE-0082 complete as 384c82d784914e7f82cb824fddd1536d6d17f8f6 after status guard, supply-chain and independent review",
+            "PR #490 merged ISSUE-0086 to ISSUE-0036 partial_interface as 4300f61478be8a57abd9cc589274bcab8c199897 after status guard, supply-chain and independent review",
+            "Both blocking edges now resolve deterministically; ISSUE-0036 broader gaps remain open and execution_allowed=false"
+          ],
+          "review_reference": "B02 ISSUE-0086 readiness after reviewed identity and import/export dependency convergence",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex root orchestrator and independent reviewer",
+          "status": "ready"
+        }
+      ],
       "dependency_edge_evidence": {
         "ISSUE-0036": {
           "contract_reference": "B02/ISSUE-0036/import-export-foundation-v1",
@@ -2132,11 +2144,11 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "planned",
+      "programme_status": "ready",
       "status_transition": {
         "from": "planned",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "planned"
+        "review_reference": "B02 ISSUE-0086 readiness after reviewed identity and import/export dependency convergence",
+        "to": "ready"
       },
       "transition_history": [
         {
@@ -2198,9 +2210,23 @@
           "reviewed_date": "2026-07-22",
           "reviewer": "Codex independent reviewer and root",
           "verified_commit": "7700ea34dcdeb59ed125dab8b9d282280e1b30ca"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #489 merged ISSUE-0086 to ISSUE-0082 complete as 384c82d784914e7f82cb824fddd1536d6d17f8f6 after status guard, supply-chain and independent review",
+            "PR #490 merged ISSUE-0086 to ISSUE-0036 partial_interface as 4300f61478be8a57abd9cc589274bcab8c199897 after status guard, supply-chain and independent review",
+            "Both blocking edges now resolve deterministically; ISSUE-0036 broader gaps remain open and execution_allowed=false"
+          ],
+          "from": "planned",
+          "review_reference": "B02 ISSUE-0086 readiness after reviewed identity and import/export dependency convergence",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex root orchestrator and independent reviewer",
+          "to": "ready",
+          "verified_commit": "4300f61478be8a57abd9cc589274bcab8c199897"
         }
       ],
-      "verified_commit": "7700ea34dcdeb59ed125dab8b9d282280e1b30ca",
+      "verified_commit": "4300f61478be8a57abd9cc589274bcab8c199897",
       "verified_date": "2026-07-22"
     },
     "ISSUE-0087": {
