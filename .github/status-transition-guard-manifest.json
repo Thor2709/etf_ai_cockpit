@@ -3,21 +3,21 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "in_progress",
+      "from": "implemented_initially",
       "issue_id": "ISSUE-0085",
-      "to": "implemented_initially"
+      "to": "integrated"
     }
   ],
-  "base_commit": "d7adefcb119bde9b8e4e8110e257d615b662873d",
-  "branch": "codex/b02-issue0085-convergence1-20260722",
+  "base_commit": "7db633a967775be7a5f828f379098e6bb120cca8",
+  "branch": "codex/b02-issue0085-convergence2-20260722",
   "issue_ids": ["ISSUE-0085"],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "3f74792ed725bd31863f2232c70531c543eb05d01d21c8191f570fb4a920f4e2",
+    "base_registry_sha256": "ce988106ef5b11a7ff72435f261536b8b0b5af9e59a0a271c9324e39ef9a9c6b",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "ce988106ef5b11a7ff72435f261536b8b0b5af9e59a0a271c9324e39ef9a9c6b",
-    "reason": "B02 ISSUE-0085 post-merge convergence: advance only in_progress to implemented_initially against the merged reviewed product and successful protected Linux/Windows evidence; preserve scope, dependencies, acceptance criteria, edge evidence, policies and execution_allowed=false.",
+    "proposed_registry_sha256": "aa224bc2cc68d9a51a0ae7f7016ce4e1593bc52a3f48e5bdd77fa6f5cb4a332a",
+    "reason": "B02 ISSUE-0085 final convergence: advance only implemented_initially to integrated after merged product, successful protected Linux/Windows evidence and checksum-gated GitHub readback; preserve scope, dependencies, acceptance criteria, edge evidence, policies and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },

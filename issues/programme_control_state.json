@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "d7adefcb119bde9b8e4e8110e257d615b662873d",
+    "generation_base_commit": "7db633a967775be7a5f828f379098e6bb120cca8",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -1978,6 +1978,17 @@
           "reviewed_date": "2026-07-22",
           "reviewer": "Codex root orchestrator and independent reviewer",
           "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "PR #493 merged product as d7adefcb119bde9b8e4e8110e257d615b662873d after Linux and Windows protected release run 29930462623",
+            "PR #494 merged implemented-initially convergence as 7db633a967775be7a5f828f379098e6bb120cca8 after guard 29932797284 and supply-chain 29932797976",
+            "Checksum-approved GitHub #225 plan de313a80c5bf5acdf5c65b81b28534093c4ac3a41811817258e7189541478b82 applied and readback 0d9cb3eb77ea9a36ad403e32cea99318cd2e0d736a8d4de707badbe95ac516b2 contained zero actions"
+          ],
+          "review_reference": "B02 ISSUE-0085 merged product, protected release and checksum-gated convergence readback",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex root orchestrator and independent reviewer",
+          "status": "integrated"
         }
       ],
       "dependency_edge_evidence": {
@@ -2010,11 +2021,11 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
-        "from": "in_progress",
-        "review_reference": "B02 ISSUE-0085 merged certified market-calendar implementation and protected release evidence",
-        "to": "implemented_initially"
+        "from": "implemented_initially",
+        "review_reference": "B02 ISSUE-0085 merged product, protected release and checksum-gated convergence readback",
+        "to": "integrated"
       },
       "transition_history": [
         {
@@ -2120,9 +2131,23 @@
           "reviewer": "Codex root orchestrator and independent reviewer",
           "to": "implemented_initially",
           "verified_commit": "d7adefcb119bde9b8e4e8110e257d615b662873d"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #493 merged product as d7adefcb119bde9b8e4e8110e257d615b662873d after Linux and Windows protected release run 29930462623",
+            "PR #494 merged implemented-initially convergence as 7db633a967775be7a5f828f379098e6bb120cca8 after guard 29932797284 and supply-chain 29932797976",
+            "Checksum-approved GitHub #225 plan de313a80c5bf5acdf5c65b81b28534093c4ac3a41811817258e7189541478b82 applied and readback 0d9cb3eb77ea9a36ad403e32cea99318cd2e0d736a8d4de707badbe95ac516b2 contained zero actions"
+          ],
+          "from": "implemented_initially",
+          "review_reference": "B02 ISSUE-0085 merged product, protected release and checksum-gated convergence readback",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex root orchestrator and independent reviewer",
+          "to": "integrated",
+          "verified_commit": "7db633a967775be7a5f828f379098e6bb120cca8"
         }
       ],
-      "verified_commit": "d7adefcb119bde9b8e4e8110e257d615b662873d",
+      "verified_commit": "7db633a967775be7a5f828f379098e6bb120cca8",
       "verified_date": "2026-07-22"
     },
     "ISSUE-0086": {
