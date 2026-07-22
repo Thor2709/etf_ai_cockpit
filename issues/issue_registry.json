@@ -13945,6 +13945,19 @@
           "reviewed_date": "2026-07-22",
           "reviewer": "Codex deep reviewer, release steward and root",
           "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "PR #470 merged product as d590c8fef1f645614e7ed326e60b31d823d54113 after protected Linux/Windows release evidence",
+            "PR #471 merged first convergence as 71f37f62d91a5d3721a472f91eeefa5605f3de9b",
+            "Windows documented PermissionError retry job 88808321188 passed; Linux job 88808334515 passed",
+            "GitHub semantic plan 86ca707fe74b67b8f6a62adaf2686b1a97034e336f529ad97f80b1c7548309de applied and zero-action readback 5106cbc1de471780ec174f0d84bf6cd0351e2a7217d49effe5c3ccfa13f3806d verified",
+            "plans/BATCH-B02-DATA-SPINE-CONTINUATION.md"
+          ],
+          "review_reference": "PR #471 first convergence and checksum-approved GitHub readback",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex deep reviewer, release steward and root",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -14033,7 +14046,7 @@
       "package_status": "",
       "phase": "phase-02-data-policy-identity",
       "priority": "P0",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0082-global-entity-instrument-fund-share-class-and-listing-identity-master",
@@ -14064,7 +14077,7 @@
       ],
       "title": "Create a global entity, instrument, fund, share-class and listing identity master",
       "ui_requirement": "Universe and Instrument pages show the identity graph, confidence and overrides.",
-      "verified_commit": "d590c8fef1f645614e7ed326e60b31d823d54113",
+      "verified_commit": "71f37f62d91a5d3721a472f91eeefa5605f3de9b",
       "verified_date": "2026-07-22",
       "why": "Every analytical and trading record must refer to a stable object even when tickers or listings change.",
       "write_conflict_group": "data-platform"
@@ -25908,7 +25921,7 @@
   ],
   "schema_version": "2.0",
   "source_of_truth": {
-    "baseline_commit": "d590c8fef1f645614e7ed326e60b31d823d54113",
+    "baseline_commit": "71f37f62d91a5d3721a472f91eeefa5605f3de9b",
     "closed_ledger_sha256": "2dca7fd65f7a218747bcfb91b4e5c1f734af26f29114cc7dc83b071bb86838d8",
     "final_release_manifest_sha256": "dbb71ecaa2b81206ff922eec3dcc72cb08cc001121688b107e8f1c3a2372f685",
     "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -25920,7 +25933,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "768b93f8143e879975fa7a8beccf036fb0c6b8ca65ee0dd958c2504160ea1e7d",
+    "programme_control_state_sha256": "b5e4a16582d7af310dd5cce2762d83c77e8b631c47afb212898ba1b9012ff347",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

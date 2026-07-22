@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "d590c8fef1f645614e7ed326e60b31d823d54113",
+    "generation_base_commit": "71f37f62d91a5d3721a472f91eeefa5605f3de9b",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -1426,6 +1426,19 @@
           "reviewed_date": "2026-07-22",
           "reviewer": "Codex deep reviewer, release steward and root",
           "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "PR #470 merged product as d590c8fef1f645614e7ed326e60b31d823d54113 after protected Linux/Windows release evidence",
+            "PR #471 merged first convergence as 71f37f62d91a5d3721a472f91eeefa5605f3de9b",
+            "Windows documented PermissionError retry job 88808321188 passed; Linux job 88808334515 passed",
+            "GitHub semantic plan 86ca707fe74b67b8f6a62adaf2686b1a97034e336f529ad97f80b1c7548309de applied and zero-action readback 5106cbc1de471780ec174f0d84bf6cd0351e2a7217d49effe5c3ccfa13f3806d verified",
+            "plans/BATCH-B02-DATA-SPINE-CONTINUATION.md"
+          ],
+          "review_reference": "PR #471 first convergence and checksum-approved GitHub readback",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex deep reviewer, release steward and root",
+          "status": "integrated"
         }
       ],
       "dependency_edge_evidence": {
@@ -1459,11 +1472,11 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
-        "from": "in_progress",
-        "review_reference": "PR #470 protected merge and independent ISSUE-0082 review",
-        "to": "implemented_initially"
+        "from": "implemented_initially",
+        "review_reference": "PR #471 first convergence and checksum-approved GitHub readback",
+        "to": "integrated"
       },
       "transition_history": [
         {
@@ -1547,9 +1560,25 @@
           "reviewer": "Codex deep reviewer, release steward and root",
           "to": "implemented_initially",
           "verified_commit": "d590c8fef1f645614e7ed326e60b31d823d54113"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #470 merged product as d590c8fef1f645614e7ed326e60b31d823d54113 after protected Linux/Windows release evidence",
+            "PR #471 merged first convergence as 71f37f62d91a5d3721a472f91eeefa5605f3de9b",
+            "Windows documented PermissionError retry job 88808321188 passed; Linux job 88808334515 passed",
+            "GitHub semantic plan 86ca707fe74b67b8f6a62adaf2686b1a97034e336f529ad97f80b1c7548309de applied and zero-action readback 5106cbc1de471780ec174f0d84bf6cd0351e2a7217d49effe5c3ccfa13f3806d verified",
+            "plans/BATCH-B02-DATA-SPINE-CONTINUATION.md"
+          ],
+          "from": "implemented_initially",
+          "review_reference": "PR #471 first convergence and checksum-approved GitHub readback",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex deep reviewer, release steward and root",
+          "to": "integrated",
+          "verified_commit": "71f37f62d91a5d3721a472f91eeefa5605f3de9b"
         }
       ],
-      "verified_commit": "d590c8fef1f645614e7ed326e60b31d823d54113",
+      "verified_commit": "71f37f62d91a5d3721a472f91eeefa5605f3de9b",
       "verified_date": "2026-07-22"
     },
     "ISSUE-0083": {
