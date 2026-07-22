@@ -1,27 +1,19 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [
-    {
-      "from": "ready",
-      "issue_id": "ISSUE-0083",
-      "to": "in_progress"
-    }
-  ],
-  "base_commit": "af0566ced575e84c2587d9195da2dca39767ea89",
-  "branch": "codex/b02-issue0083-in-progress-20260722",
-  "issue_ids": [
-    "ISSUE-0083"
-  ],
+  "allowed_status_transitions": [],
+  "base_commit": "6596055917653b36ba8bbd1bf9774adab2e841ca",
+  "branch": "codex/b02-issue0083-impl-clean-20260722",
+  "issue_ids": [],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "6cbe5e990847154273c197ad413c33463dc083223c3dc6263d1beb35c0e67de9",
+    "base_registry_sha256": "f548983b259d94686c58d815315e92c79e477900ce7485a10de335c5396fee85",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "f548983b259d94686c58d815315e92c79e477900ce7485a10de335c5396fee85",
-    "reason": "B02 ISSUE-0083 implementation-start step: refresh the generation base to merged readiness convergence af0566ced575e84c2587d9195da2dca39767ea89 and advance only ISSUE-0083 from ready to in_progress after the checksum-approved GitHub readback; scope, dependencies, acceptance criteria and execution authority remain unchanged.",
+    "mode": "canonical_schema_and_intake",
+    "proposed_registry_sha256": "fd418d32da8718ce937bb9dc88dcb40e8114b24d9815f4e74867553cb8303b0f",
+    "reason": "B02 ISSUE-0083 feature integration no-transition base refresh: all 197 records, statuses, dependencies, acceptance criteria, scope, policies and execution authority remain unchanged; execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.2"
+  "schema_version": "1.1"
 }
