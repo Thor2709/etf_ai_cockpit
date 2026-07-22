@@ -69,8 +69,10 @@ MANIFEST_KEYS = {
     "allow_downgrade",
     "reason",
     "registry_migration",
+    "allowed_dependency_edge_updates",
 }
 TRANSITION_KEYS = {"issue_id", "from", "to"}
+DEPENDENCY_EDGE_UPDATE_KEYS = {"issue_id", "dependency_id"}
 REGISTRY_MIGRATION_KEYS = {
     "mode",
     "reason",
@@ -103,6 +105,7 @@ HIGH_STATUS = {
     "closed",
 }
 BASE_REFRESH_TRANSITION_MODE = "generation_base_and_status_transitions"
+BASE_REFRESH_EDGE_MODE = "generation_base_and_dependency_edge_evidence"
 TRANSITION_REGISTRY_FIELDS = frozenset(
     {
         "programme_status",
@@ -154,13 +157,14 @@ def _manifest_errors(
     set[str],
     dict[str, dict[str, str]],
     dict[str, Any] | None,
+    tuple[str, str] | None,
 ]:
     errors: list[str] = []
     if set(manifest) - MANIFEST_KEYS:
         _error(errors, "manifest contains unsupported keys")
     schema_version = manifest.get("schema_version")
-    if schema_version not in {"1.0", "1.1", "1.2"}:
-        _error(errors, "manifest schema_version must be '1.0', '1.1' or '1.2'")
+    if schema_version not in {"1.0", "1.1", "1.2", "1.3"}:
+        _error(errors, "manifest schema_version must be '1.0', '1.1', '1.2' or '1.3'")
     base_commit = manifest.get("base_commit")
     if not isinstance(base_commit, str) or not COMMIT_RE.fullmatch(base_commit):
         _error(errors, "manifest base_commit must be a 40-character commit SHA")
@@ -225,13 +229,37 @@ def _manifest_errors(
         if transition["from"] not in PROGRAMME_STATUSES or transition["to"] not in PROGRAMME_STATUSES:
             _error(errors, f"manifest transition has an unknown status: {issue_id}")
 
+    edge_declaration: tuple[str, str] | None = None
+    edge_updates_value = manifest.get("allowed_dependency_edge_updates")
+    if schema_version == "1.3":
+        if not isinstance(edge_updates_value, list) or len(edge_updates_value) != 1:
+            _error(errors, "manifest schema_version 1.3 requires exactly one dependency-edge update")
+        else:
+            update = edge_updates_value[0]
+            if not isinstance(update, dict) or set(update) != DEPENDENCY_EDGE_UPDATE_KEYS:
+                _error(errors, "manifest dependency-edge update must contain only issue_id and dependency_id")
+            else:
+                issue_id = update.get("issue_id")
+                dependency_id = update.get("dependency_id")
+                if not all(
+                    isinstance(value, str) and ISSUE_ID_RE.fullmatch(value)
+                    for value in (issue_id, dependency_id)
+                ):
+                    _error(errors, "manifest dependency-edge update contains an invalid issue ID")
+                else:
+                    edge_declaration = (str(issue_id), str(dependency_id))
+        if issue_ids or transitions:
+            _error(errors, "manifest dependency-edge mode cannot authorize status transitions")
+    elif "allowed_dependency_edge_updates" in manifest:
+        _error(errors, "manifest dependency-edge updates require schema_version 1.3")
+
     registry_migration_present = "registry_migration" in manifest
     registry_migration_value = manifest.get("registry_migration")
     registry_migration: dict[str, Any] | None = None
     if not registry_migration_present:
-        if schema_version in {"1.1", "1.2"}:
-            _error(errors, "manifest schema_version 1.1 or 1.2 requires registry_migration")
-    elif schema_version not in {"1.1", "1.2"}:
+        if schema_version in {"1.1", "1.2", "1.3"}:
+            _error(errors, "manifest schema_version 1.1, 1.2 or 1.3 requires registry_migration")
+    elif schema_version not in {"1.1", "1.2", "1.3"}:
         _error(errors, "manifest registry_migration requires schema_version 1.1 or 1.2")
     elif not isinstance(registry_migration_value, dict):
         _error(errors, "manifest registry_migration must be an object")
@@ -240,12 +268,18 @@ def _manifest_errors(
     else:
         candidate = dict(registry_migration_value)
         mode = candidate.get("mode")
-        if mode not in {"canonical_schema_and_intake", BASE_REFRESH_TRANSITION_MODE}:
+        if mode not in {
+            "canonical_schema_and_intake",
+            BASE_REFRESH_TRANSITION_MODE,
+            BASE_REFRESH_EDGE_MODE,
+        }:
             _error(errors, "manifest registry_migration mode is unsupported")
         elif mode == "canonical_schema_and_intake" and schema_version != "1.1":
             _error(errors, "canonical schema migration requires manifest schema_version 1.1")
         elif mode == BASE_REFRESH_TRANSITION_MODE and schema_version != "1.2":
             _error(errors, "generation-base transition mode requires manifest schema_version 1.2")
+        elif mode == BASE_REFRESH_EDGE_MODE and schema_version != "1.3":
+            _error(errors, "dependency-edge mode requires manifest schema_version 1.3")
         reason = candidate.get("reason")
         if not isinstance(reason, str) or not reason.strip():
             _error(errors, "manifest registry_migration reason must be non-blank")
@@ -285,11 +319,16 @@ def _manifest_errors(
                 _error(errors, "generation-base transition mode requires empty added and removed issue IDs")
             if not issue_ids or not transitions:
                 _error(errors, "generation-base transition mode requires status transitions")
+        if mode == BASE_REFRESH_EDGE_MODE:
+            if migration_ids["added_issue_ids"] or migration_ids["removed_issue_ids"]:
+                _error(errors, "dependency-edge mode requires empty added and removed issue IDs")
+            if edge_declaration is None:
+                _error(errors, "dependency-edge mode requires one declared dependency edge")
         if manifest.get("allow_downgrade", False) is not False:
             _error(errors, "manifest registry_migration cannot allow a downgrade")
         if not any(error.startswith("manifest registry_migration") for error in errors):
             registry_migration = candidate
-    return errors, issue_ids, transitions, registry_migration
+    return errors, issue_ids, transitions, registry_migration, edge_declaration
 
 
 def _dependency_edge_transition(
@@ -435,6 +474,70 @@ def _validate_transition_record(
     return int(edge_changed)
 
 
+def _validate_dependency_edge_record(
+    issue_id: str,
+    dependency_id: str,
+    base_record: Mapping[str, Any],
+    proposed_record: Mapping[str, Any],
+    errors: list[str],
+    verified_commit_is_ancestor: Callable[[str], bool] | None,
+) -> None:
+    edge_change, edge_changed = _dependency_edge_transition(
+        issue_id, base_record, proposed_record, errors
+    )
+    if not edge_changed or edge_change is None:
+        _error(errors, f"dependency-edge declaration has no matching change: {issue_id}/{dependency_id}")
+        return
+    if edge_change["dependency"] != dependency_id:
+        _error(
+            errors,
+            f"dependency-edge declaration does not match the changed edge: {issue_id}/{edge_change['dependency']}",
+        )
+    if base_record.get("programme_status") != proposed_record.get("programme_status"):
+        _error(errors, f"dependency-edge mode cannot change programme_status: {issue_id}")
+    if base_record.get("acceptance_evidence") != proposed_record.get("acceptance_evidence"):
+        _error(errors, f"dependency-edge acceptance evidence must remain unchanged: {issue_id}")
+    excluded = {"dependency_edge_evidence", "verified_commit", "verified_date"}
+    if (
+        {key: value for key, value in base_record.items() if key not in excluded}
+        != {key: value for key, value in proposed_record.items() if key not in excluded}
+    ):
+        _error(errors, f"non-allowlisted registry change: {issue_id}")
+    verified_commit = proposed_record.get("verified_commit")
+    verified_date = proposed_record.get("verified_date")
+    edge = edge_change["evidence"]
+    event = {
+        "event_type": "dependency_edge_update",
+        "dependency_edge": edge_change,
+        "review_reference": edge.get("contract_reference") if isinstance(edge, dict) else None,
+        "evidence_references": edge.get("evidence_references") if isinstance(edge, dict) else None,
+        "reviewer": edge.get("reviewer") if isinstance(edge, dict) else None,
+        "reviewed_date": edge.get("reviewed_date") if isinstance(edge, dict) else None,
+        "verified_commit": verified_commit,
+    }
+    if verified_date != event["reviewed_date"]:
+        _error(errors, f"dependency-edge verified_date must match reviewed evidence: {issue_id}")
+    if verified_commit == base_record.get("verified_commit"):
+        _error(errors, f"dependency-edge verified_commit must advance reviewed evidence: {issue_id}")
+    try:
+        validate_control_transition_event(issue_id, dict(base_record), event)
+    except ValueError as exc:
+        _error(errors, f"invalid reviewed dependency-edge evidence: {issue_id}: {exc}")
+    if verified_commit_is_ancestor is None:
+        _error(errors, f"dependency-edge verified_commit ancestry validator is required: {issue_id}")
+    elif not isinstance(verified_commit, str) or not verified_commit_is_ancestor(verified_commit):
+        _error(
+            errors,
+            f"dependency-edge verified_commit is not an ancestor of the reviewed generation base: {issue_id}",
+        )
+    expected = deepcopy(dict(base_record))
+    expected["dependency_edge_evidence"][dependency_id] = edge
+    expected["verified_commit"] = verified_commit
+    expected["verified_date"] = verified_date
+    if expected != proposed_record:
+        _error(errors, f"dependency-edge record does not match the canonical registry projection: {issue_id}")
+
+
 def _validate_base_refresh_top_level(
     base_registry: Mapping[str, Any],
     proposed_registry: Mapping[str, Any],
@@ -493,7 +596,13 @@ def guard_proposal(
 ) -> list[str]:
     """Return deterministic validation errors for one proposed registry."""
 
-    errors, manifest_issue_ids, transitions, registry_migration = _manifest_errors(manifest)
+    (
+        errors,
+        manifest_issue_ids,
+        transitions,
+        registry_migration,
+        edge_declaration,
+    ) = _manifest_errors(manifest)
     requested_migration = manifest.get("registry_migration")
     migration_requested = isinstance(requested_migration, dict)
     migration_mode = requested_migration.get("mode") if isinstance(requested_migration, dict) else None
@@ -530,6 +639,8 @@ def guard_proposal(
     removed_issue_ids = base_ids - proposed_ids
     if migration_mode == BASE_REFRESH_TRANSITION_MODE and (added_issue_ids or removed_issue_ids):
         _error(errors, "generation-base transition mode cannot add or remove issue IDs")
+    elif migration_mode == BASE_REFRESH_EDGE_MODE and (added_issue_ids or removed_issue_ids):
+        _error(errors, "dependency-edge mode cannot add or remove issue IDs")
     if registry_migration is None:
         for issue_id in sorted(base_ids - proposed_ids):
             _error(errors, f"proposed registry is missing issue ID: {issue_id}")
@@ -585,6 +696,18 @@ def guard_proposal(
                 )
             elif base_record != proposed_record:
                 _error(errors, f"non-allowlisted registry change: {issue_id}")
+        elif migration_mode == BASE_REFRESH_EDGE_MODE:
+            if edge_declaration is not None and issue_id == edge_declaration[0]:
+                _validate_dependency_edge_record(
+                    issue_id,
+                    edge_declaration[1],
+                    base_record,
+                    proposed_record,
+                    errors,
+                    verified_commit_is_ancestor,
+                )
+            elif base_record != proposed_record:
+                _error(errors, f"non-allowlisted registry change: {issue_id}")
     if migration_requested and migration_mode == "canonical_schema_and_intake":
         for issue_id in sorted(changed_statuses):
             _error(errors, f"registry migration cannot change programme_status: {issue_id}")
@@ -600,12 +723,14 @@ def guard_proposal(
             top_level["source_of_truth"] = source_of_truth
     if registry_migration is None and base_top_level != proposed_top_level:
         _error(errors, "non-allowlisted registry change: top-level registry data")
-    elif migration_mode == BASE_REFRESH_TRANSITION_MODE:
+    elif migration_mode in {BASE_REFRESH_TRANSITION_MODE, BASE_REFRESH_EDGE_MODE}:
         _validate_base_refresh_top_level(
             base_registry,
             proposed_registry,
             manifest_base=manifest_base,
-            allow_readiness_change=edge_transition_count > 0,
+            allow_readiness_change=(
+                edge_transition_count > 0 or migration_mode == BASE_REFRESH_EDGE_MODE
+            ),
             errors=errors,
         )
 
@@ -627,6 +752,17 @@ def guard_proposal(
             _error(errors, f"manifest transition from/to mismatch: {issue_id}")
         if _is_downgrade(previous, proposed) and not allow_downgrade:
             _error(errors, f"unapproved downgrade: {issue_id} {previous}->{proposed}")
+
+    readiness_by_id = {
+        str(decision["issue_id"]): bool(decision["ready"])
+        for decision in readiness_projection(dict(proposed_registry))
+    }
+    for issue_id, record in proposed_by_id.items():
+        if record.get("programme_status") == "ready" and not readiness_by_id.get(issue_id, False):
+            _error(
+                errors,
+                f"programme_status ready requires resolved implementation readiness: {issue_id}",
+            )
 
     try:
         expected_status = status_payload(dict(proposed_registry))
@@ -742,7 +878,20 @@ def main(argv: list[str] | None = None) -> int:
         proposed_registry = _load_json(root / REGISTRY_PATH)
         proposed_control = _load_json(root / CONTROL_STATE_PATH)
         verify_generation_base(root, proposed_control)
-        validate_control_authority(root, proposed_control)
+        allowed_edge_update: tuple[str, str] | None = None
+        edge_updates = manifest.get("allowed_dependency_edge_updates")
+        if manifest.get("schema_version") == "1.3" and isinstance(edge_updates, list) and len(edge_updates) == 1:
+            declared_edge = edge_updates[0]
+            if isinstance(declared_edge, dict):
+                declared_issue = declared_edge.get("issue_id")
+                declared_dependency = declared_edge.get("dependency_id")
+                if isinstance(declared_issue, str) and isinstance(declared_dependency, str):
+                    allowed_edge_update = (declared_issue, declared_dependency)
+        validate_control_authority(
+            root,
+            proposed_control,
+            allowed_dependency_edge_update=allowed_edge_update,
+        )
         current_status = _load_json(_path(root, args.status))
         current_progress = _path(root, args.progress).read_bytes()
         source_manifest_sha256 = sha256_text_file(_path(root, args.source_manifest))

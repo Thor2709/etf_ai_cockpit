@@ -405,7 +405,12 @@ def verify_generation_base(root: Path, control: dict[str, Any] | None = None) ->
         raise ValueError(f"stale generation base: control records {expected}, {ref} is {actual}")
 
 
-def validate_control_authority(root: Path, control: dict[str, Any]) -> None:
+def validate_control_authority(
+    root: Path,
+    control: dict[str, Any],
+    *,
+    allowed_dependency_edge_update: tuple[str, str] | None = None,
+) -> None:
     """Reject unreviewed manual control edits relative to authoritative origin."""
     try:
         payload = subprocess.check_output(
@@ -419,24 +424,54 @@ def validate_control_authority(root: Path, control: dict[str, Any]) -> None:
             raise ValueError("control state has no authoritative origin predecessor and is not an explicit bootstrap")
         return
     prior = json.loads(payload.decode("utf-8"))
+    prior_top_level = {
+        key: value for key, value in prior.items() if key not in {"metadata", "records"}
+    }
+    current_top_level = {
+        key: value for key, value in control.items() if key not in {"metadata", "records"}
+    }
+    if prior_top_level != current_top_level:
+        raise ValueError("control top-level fields changed without an authorised migration")
     if prior.get("schema_version") != control.get("schema_version"):
         raise ValueError("control schema changed without an authorised migration")
     if prior.get("phase_definitions") != control.get("phase_definitions"):
         raise ValueError("control phase definitions changed without an authorised handoff")
+    prior_metadata = prior.get("metadata")
+    current_metadata = control.get("metadata")
+    if not isinstance(prior_metadata, dict) or not isinstance(current_metadata, dict):
+        raise ValueError("control metadata must remain an object")
+    expected_metadata = deepcopy(prior_metadata)
+    generation_base = current_metadata.get("generation_base_commit")
+    if not isinstance(generation_base, str) or not re.fullmatch(r"[0-9a-f]{40}", generation_base):
+        raise ValueError("control generation base must be a full lowercase Git SHA")
+    expected_metadata["generation_base_commit"] = generation_base
+    expected_metadata["generation_base_ref"] = "origin/main"
+    expected_metadata["bootstrap"] = False
+    expected_metadata["bootstrap_reason"] = ""
+    if current_metadata != expected_metadata:
+        raise ValueError("control metadata changed outside the generation-base refresh allowlist")
     prior_records = prior.get("records", {})
     current_records = control.get("records", {})
     if set(prior_records) != set(current_records):
         raise ValueError("control state changes unhanded issue IDs")
+    changed_issue_ids: list[str] = []
     for issue_id in sorted(current_records):
         previous = prior_records[issue_id]
         current = current_records[issue_id]
         if previous == current:
             continue
+        changed_issue_ids.append(issue_id)
         history = current.get("transition_history")
         if not isinstance(history, list) or not history:
             raise ValueError(f"{issue_id}: control change lacks transition history")
         event = history[-1]
-        if not isinstance(event, dict) or event.get("from") != previous.get("programme_status") or event.get("to") != current.get("programme_status"):
+        if not isinstance(event, dict):
+            raise ValueError(f"{issue_id}: transition history does not match authoritative prior state")
+        edge_only = event.get("event_type") == "dependency_edge_update"
+        if edge_only:
+            if current.get("programme_status") != previous.get("programme_status"):
+                raise ValueError(f"{issue_id}: dependency-edge update changed authoritative status")
+        elif event.get("from") != previous.get("programme_status") or event.get("to") != current.get("programme_status"):
             raise ValueError(f"{issue_id}: transition history does not match authoritative prior state")
         validate_control_transition_event(issue_id, previous, event)
         expected = deepcopy(previous)
@@ -444,24 +479,25 @@ def validate_control_authority(root: Path, control: dict[str, Any]) -> None:
         if not isinstance(expected_history, list):
             raise ValueError(f"{issue_id}: authoritative transition history is invalid")
         expected_history.append(event)
-        expected["programme_status"] = event["to"]
-        expected["status_transition"] = {
-            "from": event["from"],
-            "to": event["to"],
-            "review_reference": event["review_reference"],
-        }
         expected["verified_commit"] = event.get("verified_commit")
         expected["verified_date"] = event.get("reviewed_date")
-        acceptance = expected.setdefault("acceptance_evidence", [])
-        if not isinstance(acceptance, list):
-            raise ValueError(f"{issue_id}: authoritative acceptance evidence is invalid")
-        acceptance.append({
-            "status": event["to"],
-            "evidence_references": event["evidence_references"],
-            "review_reference": event["review_reference"],
-            "reviewer": event.get("reviewer"),
-            "reviewed_date": event.get("reviewed_date"),
-        })
+        if not edge_only:
+            expected["programme_status"] = event["to"]
+            expected["status_transition"] = {
+                "from": event["from"],
+                "to": event["to"],
+                "review_reference": event["review_reference"],
+            }
+            acceptance = expected.setdefault("acceptance_evidence", [])
+            if not isinstance(acceptance, list):
+                raise ValueError(f"{issue_id}: authoritative acceptance evidence is invalid")
+            acceptance.append({
+                "status": event["to"],
+                "evidence_references": event["evidence_references"],
+                "review_reference": event["review_reference"],
+                "reviewer": event.get("reviewer"),
+                "reviewed_date": event.get("reviewed_date"),
+            })
         edge_change = event.get("dependency_edge")
         if edge_change is not None:
             if not isinstance(edge_change, dict) or not str(edge_change.get("dependency", "")):
@@ -472,7 +508,26 @@ def validate_control_authority(root: Path, control: dict[str, Any]) -> None:
                 raise ValueError(f"{issue_id}: transition changes a non-declared dependency edge")
             edges[dependency] = edge_change.get("evidence")
         if expected != current:
-            raise ValueError(f"{issue_id}: control change contains fields outside the reviewed transition")
+            kind = "dependency-edge update" if edge_only else "transition"
+            raise ValueError(f"{issue_id}: control change contains fields outside the reviewed {kind}")
+    if allowed_dependency_edge_update is not None:
+        expected_issue, expected_dependency = allowed_dependency_edge_update
+        if changed_issue_ids != [expected_issue]:
+            raise ValueError(
+                "dependency-edge manifest requires exactly one changed control record: "
+                f"{expected_issue}"
+            )
+        event = current_records[expected_issue]["transition_history"][-1]
+        edge_change = event.get("dependency_edge") if isinstance(event, dict) else None
+        if (
+            event.get("event_type") != "dependency_edge_update"
+            or not isinstance(edge_change, dict)
+            or edge_change.get("dependency") != expected_dependency
+        ):
+            raise ValueError(
+                "dependency-edge manifest does not match the reviewed control event: "
+                f"{expected_issue}/{expected_dependency}"
+            )
 
 
 def baseline_sha(root: Path) -> str:
@@ -1093,39 +1148,54 @@ def validate_control_transition_event(
     event: dict[str, Any],
 ) -> None:
     """Validate the canonical reviewed event used by both writer and readback."""
-    required_keys = {
-        "from",
-        "to",
+    common_keys = {
         "review_reference",
         "evidence_references",
         "reviewer",
         "reviewed_date",
         "verified_commit",
-        "allow_downgrade",
     }
-    allowed_keys = required_keys | {"dependency_edge"}
-    missing = required_keys - set(event)
-    if missing:
-        raise ValueError(f"{issue_id}: transition requires {', '.join(sorted(missing))}")
-    unsupported = set(event) - allowed_keys
-    if unsupported:
-        raise ValueError(f"{issue_id}: transition event has unsupported fields: {', '.join(sorted(unsupported))}")
-    previous = previous_record.get("programme_status")
-    source = event.get("from")
-    target = event.get("to")
-    if source != previous or source not in PROGRAMME_STATUSES:
-        raise ValueError(f"{issue_id}: transition source does not match authoritative status")
-    if target not in PROGRAMME_STATUSES:
-        raise ValueError(f"{issue_id}: transition target is not a programme status")
-    allow_downgrade = event.get("allow_downgrade")
-    if not isinstance(allow_downgrade, bool):
-        raise ValueError(f"{issue_id}: allow_downgrade must be boolean")
-    normal = target in CONTROL_ALLOWED_TRANSITIONS.get(str(source), frozenset())
-    downgrade = _control_is_downgrade(str(source), str(target))
-    if not normal and not (allow_downgrade and downgrade):
-        raise ValueError(f"transition is not allowed: {issue_id} {source}->{target}")
-    if allow_downgrade and not downgrade:
-        raise ValueError(f"{issue_id}: allow_downgrade is valid only for a downgrade")
+    if event.get("event_type") == "dependency_edge_update":
+        required_keys = common_keys | {"event_type", "dependency_edge"}
+        if set(event) != required_keys:
+            missing = required_keys - set(event)
+            unsupported = set(event) - required_keys
+            if missing:
+                raise ValueError(f"{issue_id}: dependency-edge update requires {', '.join(sorted(missing))}")
+            raise ValueError(
+                f"{issue_id}: dependency-edge update has unsupported fields: {', '.join(sorted(unsupported))}"
+            )
+        edge_only = True
+    else:
+        required_keys = common_keys | {
+            "from",
+            "to",
+            "allow_downgrade",
+        }
+        allowed_keys = required_keys | {"dependency_edge"}
+        missing = required_keys - set(event)
+        if missing:
+            raise ValueError(f"{issue_id}: transition requires {', '.join(sorted(missing))}")
+        unsupported = set(event) - allowed_keys
+        if unsupported:
+            raise ValueError(f"{issue_id}: transition event has unsupported fields: {', '.join(sorted(unsupported))}")
+        previous = previous_record.get("programme_status")
+        source = event.get("from")
+        target = event.get("to")
+        if source != previous or source not in PROGRAMME_STATUSES:
+            raise ValueError(f"{issue_id}: transition source does not match authoritative status")
+        if target not in PROGRAMME_STATUSES:
+            raise ValueError(f"{issue_id}: transition target is not a programme status")
+        allow_downgrade = event.get("allow_downgrade")
+        if not isinstance(allow_downgrade, bool):
+            raise ValueError(f"{issue_id}: allow_downgrade must be boolean")
+        normal = target in CONTROL_ALLOWED_TRANSITIONS.get(str(source), frozenset())
+        downgrade = _control_is_downgrade(str(source), str(target))
+        if not normal and not (allow_downgrade and downgrade):
+            raise ValueError(f"transition is not allowed: {issue_id} {source}->{target}")
+        if allow_downgrade and not downgrade:
+            raise ValueError(f"{issue_id}: allow_downgrade is valid only for a downgrade")
+        edge_only = False
     for field in ("review_reference", "reviewer"):
         if not isinstance(event.get(field), str) or not str(event[field]).strip():
             raise ValueError(f"{issue_id}: transition requires {field}")
@@ -1146,6 +1216,8 @@ def validate_control_transition_event(
         raise ValueError(f"{issue_id}: verified_commit must be a full lowercase Git SHA")
     edge_change = event.get("dependency_edge")
     if edge_change is None:
+        if edge_only:
+            raise ValueError(f"{issue_id}: dependency-edge update requires dependency_edge")
         return
     if not isinstance(edge_change, dict) or set(edge_change) != {"dependency", "evidence"}:
         raise ValueError(f"{issue_id}: transition dependency edge is invalid")
@@ -1154,6 +1226,10 @@ def validate_control_transition_event(
     if not isinstance(dependency, str) or not isinstance(declared, dict) or dependency not in declared:
         raise ValueError(f"{issue_id}: transition changes a non-declared dependency edge")
     edge = edge_change.get("evidence")
+    if edge == declared[dependency]:
+        raise ValueError(f"{issue_id}: dependency-edge update must change reviewed evidence")
+    if edge_only and event.get("verified_commit") == previous_record.get("verified_commit"):
+        raise ValueError(f"{issue_id}: dependency-edge update must advance verified_commit")
     errors = _validate_edge_evidence(issue_id, dependency, edge)
     if errors:
         raise ValueError("; ".join(errors))

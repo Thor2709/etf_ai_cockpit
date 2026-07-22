@@ -179,6 +179,92 @@ def test_control_authority_accepts_exact_transition_and_rejects_extra_manual_edi
         issue_registry_core.validate_control_authority(ROOT, transitioned)
 
 
+def test_dependency_edge_update_keeps_status_and_acceptance_unchanged_and_replays_authority(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prior = json.loads((ROOT / issue_registry_core.CONTROL_STATE_PATH).read_text(encoding="utf-8"))
+    before = copy.deepcopy(prior["records"]["ISSUE-0154"])
+
+    updated = update_programme_control.apply_dependency_edge_update(
+        copy.deepcopy(prior),
+        issue_id="ISSUE-0154",
+        dependency_id="ISSUE-0153",
+        edge_state="partial_interface",
+        review_reference="B00-R/dependency-edge-review",
+        evidence_references=["tests/contracts/fixed-income-interface.json"],
+        contract_reference="B03/fixed-income-interface-v1",
+        reviewer="independent-reviewer",
+        reviewed_date="2026-07-22",
+        verified_commit="ad783e517be68882934300df73106891ae6e3c05",
+    )
+    after = updated["records"]["ISSUE-0154"]
+
+    assert after["programme_status"] == before["programme_status"]
+    assert after["status_transition"] == before["status_transition"]
+    assert after["acceptance_evidence"] == before["acceptance_evidence"]
+    assert after["transition_history"][-1]["event_type"] == "dependency_edge_update"
+    assert after["dependency_edge_evidence"]["ISSUE-0153"]["state"] == "partial_interface"
+    monkeypatch.setattr(
+        issue_registry_core.subprocess,
+        "check_output",
+        lambda *args, **kwargs: json.dumps(prior).encode("utf-8"),
+    )
+    issue_registry_core.validate_control_authority(
+        ROOT,
+        updated,
+        allowed_dependency_edge_update=("ISSUE-0154", "ISSUE-0153"),
+    )
+
+    tampered = copy.deepcopy(updated)
+    tampered["records"]["ISSUE-0154"]["acceptance_evidence"].append({"status": "planned"})
+    with pytest.raises(ValueError, match="outside the reviewed dependency-edge update"):
+        issue_registry_core.validate_control_authority(
+            ROOT,
+            tampered,
+            allowed_dependency_edge_update=("ISSUE-0154", "ISSUE-0153"),
+        )
+
+    metadata_drift = copy.deepcopy(updated)
+    metadata_drift["metadata"]["unreviewed_operator"] = "forged"
+    with pytest.raises(ValueError, match="metadata changed outside"):
+        issue_registry_core.validate_control_authority(
+            ROOT,
+            metadata_drift,
+            allowed_dependency_edge_update=("ISSUE-0154", "ISSUE-0153"),
+        )
+
+    authority_drift = copy.deepcopy(updated)
+    authority_drift["execution_allowed"] = True
+    with pytest.raises(ValueError, match="top-level fields changed"):
+        issue_registry_core.validate_control_authority(
+            ROOT,
+            authority_drift,
+            allowed_dependency_edge_update=("ISSUE-0154", "ISSUE-0153"),
+        )
+
+    extra_event = copy.deepcopy(updated)
+    other = extra_event["records"]["ISSUE-0083"]
+    dependency = "ISSUE-0082"
+    edge = copy.deepcopy(other["dependency_edge_evidence"][dependency])
+    other.setdefault("transition_history", []).append(
+        {
+            "event_type": "dependency_edge_update",
+            "dependency_edge": {"dependency": dependency, "evidence": edge},
+            "review_reference": edge["contract_reference"],
+            "evidence_references": edge["evidence_references"],
+            "reviewer": edge["reviewer"],
+            "reviewed_date": edge["reviewed_date"],
+            "verified_commit": other["verified_commit"],
+        }
+    )
+    with pytest.raises(ValueError, match="must change reviewed evidence"):
+        issue_registry_core.validate_control_authority(
+            ROOT,
+            extra_event,
+            allowed_dependency_edge_update=("ISSUE-0154", "ISSUE-0153"),
+        )
+
+
 def _handcrafted_control_transition(
     prior: dict[str, object], issue_id: str, event: dict[str, object]
 ) -> dict[str, object]:
