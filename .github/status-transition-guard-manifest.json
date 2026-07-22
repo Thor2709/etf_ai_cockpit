@@ -1,19 +1,25 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [],
-  "base_commit": "aafc249121ff1e284979d384821ea8d84ba0bddf",
-  "branch": "codex/b02-issue0086-impl-20260722",
-  "issue_ids": [],
+  "allowed_status_transitions": [
+    {
+      "from": "in_progress",
+      "issue_id": "ISSUE-0086",
+      "to": "implemented_initially"
+    }
+  ],
+  "base_commit": "41d2d6bd61eed53517e604ccc7dc30be6e666d77",
+  "branch": "codex/b02-issue0086-convergence1-20260722",
+  "issue_ids": ["ISSUE-0086"],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "aa224bc2cc68d9a51a0ae7f7016ce4e1593bc52a3f48e5bdd77fa6f5cb4a332a",
+    "base_registry_sha256": "b95d32405e34670af5a61bc887622cbe1c5c62e9bf7e4678e00d3f5df6568782",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "canonical_schema_and_intake",
-    "proposed_registry_sha256": "b95d32405e34670af5a61bc887622cbe1c5c62e9bf7e4678e00d3f5df6568782",
-    "reason": "B02 ISSUE-0086 product integration: refresh only the canonical generation base after ISSUE-0085 final convergence; preserve all issue records, scope, dependencies, acceptance criteria, edge evidence, status semantics, policies and execution_allowed=false.",
+    "mode": "generation_base_and_status_transitions",
+    "proposed_registry_sha256": "d4f3ef812c36e11a267977d9a357cbfebcbb90a63a35a1a8e01b447fd72b6d94",
+    "reason": "B02 ISSUE-0086 post-merge convergence: advance only in_progress to implemented_initially against the merged reviewed product and successful protected Linux/Windows evidence; preserve scope, dependencies, acceptance criteria, edge evidence, policies and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.1"
+  "schema_version": "1.2"
 }
