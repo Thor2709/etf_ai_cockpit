@@ -14419,7 +14419,20 @@
         "Staleness is measured in expected sessions, not generic weekdays.",
         "Historical calendar corrections are reproducible."
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #485 merged ISSUE-0082 complete edge as fd7d1758b692ea4f2f70ea194712d200b24c8a72 after guard, supply-chain and independent review",
+            "PR #486 merged ISSUE-0079 partial-interface edge as 8b86b317c1044f56c9347dbb37a305ea60ee8025 after guard, supply-chain and independent review",
+            "docs/product-completion/programme/readiness.json reports READY_BLOCKING_EDGES_RESOLVED",
+            "ISSUE-0085 scope, dependencies, acceptance criteria and execution_allowed=false remain unchanged"
+          ],
+          "review_reference": "B02 ISSUE-0085 readiness review: identity and supply-chain interfaces resolved",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex independent reviewer and root",
+          "status": "ready"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [
         "ISSUE-0079",
@@ -14495,7 +14508,7 @@
       "package_status": "",
       "phase": "phase-02-data-policy-identity",
       "priority": "P0/P1",
-      "programme_status": "planned",
+      "programme_status": "ready",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0085-exchange-calendars-sessions-holidays-auctions-and-market-state-service"
@@ -14525,7 +14538,7 @@
       ],
       "title": "Implement exchange calendars, sessions, holidays, auctions and market-state service",
       "ui_requirement": "Instrument and order views show market state, timezone and next session.",
-      "verified_commit": "0a0297016bbf26698808f74af2877bf40e1e519e",
+      "verified_commit": "8b86b317c1044f56c9347dbb37a305ea60ee8025",
       "verified_date": "2026-07-22",
       "why": "Correct availability and next-session execution require listing-specific sessions and timezones.",
       "write_conflict_group": "data-platform"
@@ -26044,7 +26057,7 @@
   ],
   "schema_version": "2.0",
   "source_of_truth": {
-    "baseline_commit": "fd7d1758b692ea4f2f70ea194712d200b24c8a72",
+    "baseline_commit": "8b86b317c1044f56c9347dbb37a305ea60ee8025",
     "closed_ledger_sha256": "2dca7fd65f7a218747bcfb91b4e5c1f734af26f29114cc7dc83b071bb86838d8",
     "final_release_manifest_sha256": "dbb71ecaa2b81206ff922eec3dcc72cb08cc001121688b107e8f1c3a2372f685",
     "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -26056,7 +26069,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "00f8fad8483290b91ed208168bf434eecfddb9a977a554df7bb9a588d2cecc08",
+    "programme_control_state_sha256": "39f37b4c9aa0ce6511c87c88b22a54779dcd77ae7a1abfac480699571e56a38f",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

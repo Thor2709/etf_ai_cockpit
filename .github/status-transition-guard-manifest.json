@@ -1,25 +1,25 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_dependency_edge_updates": [
+  "allowed_status_transitions": [
     {
-      "dependency_id": "ISSUE-0079",
-      "issue_id": "ISSUE-0085"
+      "from": "planned",
+      "issue_id": "ISSUE-0085",
+      "to": "ready"
     }
   ],
-  "allowed_status_transitions": [],
-  "base_commit": "fd7d1758b692ea4f2f70ea194712d200b24c8a72",
-  "branch": "codex/b02-issue0085-edge0079-20260722",
-  "issue_ids": [],
+  "base_commit": "8b86b317c1044f56c9347dbb37a305ea60ee8025",
+  "branch": "codex/b02-issue0085-ready-20260722",
+  "issue_ids": ["ISSUE-0085"],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "6ed89b0cde9cc62033e2f0b36ba77b497e22e4d084c83fbb43821021b63671ce",
+    "base_registry_sha256": "416634c51700c6133e514df23f689040300a485df89e59a450973bd18cfac7b2",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_dependency_edge_evidence",
-    "proposed_registry_sha256": "416634c51700c6133e514df23f689040300a485df89e59a450973bd18cfac7b2",
-    "reason": "B02 ISSUE-0085 dependency readiness: record only the reviewed ISSUE-0079 supply-chain intake and licence/provenance interface, keep ISSUE-0085 planned, preserve ISSUE-0082 complete evidence, all issue scope, dependencies, acceptance criteria, status semantics, policies and execution_allowed=false.",
+    "mode": "generation_base_and_status_transitions",
+    "proposed_registry_sha256": "f4fb5c3152a0229585313f065c5639d47f87543cf753f9141865cc42c197831e",
+    "reason": "B02 ISSUE-0085 readiness: advance only planned to ready after both reviewed blocking interfaces resolve; preserve scope, dependencies, acceptance criteria, edge evidence, status semantics, policies and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.3"
+  "schema_version": "1.2"
 }
