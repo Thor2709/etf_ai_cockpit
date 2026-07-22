@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "6d024370760caa804efd95d7591b9d26d0f75f05",
+    "generation_base_commit": "ddb4d3b2b2d56dfaaf031e7e7d31b24659942b16",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -1732,7 +1732,20 @@
       "verified_date": "2026-07-22"
     },
     "ISSUE-0084": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #478 merged protected edge-only control tooling as 6d024370760caa804efd95d7591b9d26d0f75f05 after Linux and Windows full gates",
+            "PR #479 merged ISSUE-0073 partial-interface evidence as ddb4d3b2b2d56dfaaf031e7e7d31b24659942b16 after guard, supply-chain and independent review",
+            "ISSUE-0082 identity-master edge is complete against product merge d590c8fef1f645614e7ed326e60b31d823d54113",
+            "docs/product-completion/programme/readiness.json reports READY_BLOCKING_EDGES_RESOLVED"
+          ],
+          "review_reference": "B02 ISSUE-0084 readiness review: all blocking interfaces resolved",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex independent reviewer and root",
+          "status": "ready"
+        }
+      ],
       "dependency_edge_evidence": {
         "ISSUE-0073": {
           "contract_reference": "B02/ISSUE-0073/bitemporal-as-of-interface-v1",
@@ -1762,11 +1775,11 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "planned",
+      "programme_status": "ready",
       "status_transition": {
         "from": "planned",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "planned"
+        "review_reference": "B02 ISSUE-0084 readiness review: all blocking interfaces resolved",
+        "to": "ready"
       },
       "transition_history": [
         {
@@ -1826,9 +1839,24 @@
           "reviewed_date": "2026-07-22",
           "reviewer": "Codex independent reviewer and root",
           "verified_commit": "d0d7d05984e2224f318584a7e143b22d45459af8"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #478 merged protected edge-only control tooling as 6d024370760caa804efd95d7591b9d26d0f75f05 after Linux and Windows full gates",
+            "PR #479 merged ISSUE-0073 partial-interface evidence as ddb4d3b2b2d56dfaaf031e7e7d31b24659942b16 after guard, supply-chain and independent review",
+            "ISSUE-0082 identity-master edge is complete against product merge d590c8fef1f645614e7ed326e60b31d823d54113",
+            "docs/product-completion/programme/readiness.json reports READY_BLOCKING_EDGES_RESOLVED"
+          ],
+          "from": "planned",
+          "review_reference": "B02 ISSUE-0084 readiness review: all blocking interfaces resolved",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex independent reviewer and root",
+          "to": "ready",
+          "verified_commit": "ddb4d3b2b2d56dfaaf031e7e7d31b24659942b16"
         }
       ],
-      "verified_commit": "d0d7d05984e2224f318584a7e143b22d45459af8",
+      "verified_commit": "ddb4d3b2b2d56dfaaf031e7e7d31b24659942b16",
       "verified_date": "2026-07-22"
     },
     "ISSUE-0085": {

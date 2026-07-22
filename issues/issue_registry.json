@@ -14243,7 +14243,20 @@
         "Provider discrepancies are visible and quarantined above tolerance.",
         "Currency conversions use dated source-linked rates."
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #478 merged protected edge-only control tooling as 6d024370760caa804efd95d7591b9d26d0f75f05 after Linux and Windows full gates",
+            "PR #479 merged ISSUE-0073 partial-interface evidence as ddb4d3b2b2d56dfaaf031e7e7d31b24659942b16 after guard, supply-chain and independent review",
+            "ISSUE-0082 identity-master edge is complete against product merge d590c8fef1f645614e7ed326e60b31d823d54113",
+            "docs/product-completion/programme/readiness.json reports READY_BLOCKING_EDGES_RESOLVED"
+          ],
+          "review_reference": "B02 ISSUE-0084 readiness review: all blocking interfaces resolved",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex independent reviewer and root",
+          "status": "ready"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [
         "ISSUE-0073",
@@ -14324,7 +14337,7 @@
       "package_status": "",
       "phase": "phase-02-data-policy-identity",
       "priority": "P0",
-      "programme_status": "planned",
+      "programme_status": "ready",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0084-corporate-actions-total-return-and-currency-normalisation-services",
@@ -14357,7 +14370,7 @@
       ],
       "title": "Build corporate-action, total-return and currency-normalisation services",
       "ui_requirement": "Price chart can switch raw, adjusted, total return and local/base currency.",
-      "verified_commit": "d0d7d05984e2224f318584a7e143b22d45459af8",
+      "verified_commit": "ddb4d3b2b2d56dfaaf031e7e7d31b24659942b16",
       "verified_date": "2026-07-22",
       "why": "Fundamental returns, backtests and portfolio accounting require consistent raw and total-return views.",
       "write_conflict_group": "data-platform"
@@ -25983,7 +25996,7 @@
   ],
   "schema_version": "2.0",
   "source_of_truth": {
-    "baseline_commit": "6d024370760caa804efd95d7591b9d26d0f75f05",
+    "baseline_commit": "ddb4d3b2b2d56dfaaf031e7e7d31b24659942b16",
     "closed_ledger_sha256": "2dca7fd65f7a218747bcfb91b4e5c1f734af26f29114cc7dc83b071bb86838d8",
     "final_release_manifest_sha256": "dbb71ecaa2b81206ff922eec3dcc72cb08cc001121688b107e8f1c3a2372f685",
     "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -25995,7 +26008,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "c176e5e0842a86851afa986bd45ada38bc383da6b4cd5cdd08101ad9a40ef931",
+    "programme_control_state_sha256": "92993585975ce840b965ad10c47b37171134af2e8cf1b833d81db8faadd777d0",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
