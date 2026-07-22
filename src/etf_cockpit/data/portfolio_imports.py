@@ -42,6 +42,22 @@ _ROLLBACK_TYPE = "portfolio_import_rollback_v1"
 _STAGE_TYPE = "portfolio_import_stage_v1"
 _IDENTITY_CLAIM_TYPE = "identity_claim_v1"
 _MAX_RAW_SOURCE_BYTES = 25 * 1024 * 1024
+_CURRENCY_REGISTRY_VERSION = "ISO4217-local-2026-07"
+_ACTIVE_CURRENCIES = frozenset(
+    "AED AFN ALL AMD ANG AOA ARS AUD AWG AZN BAM BBD BDT BGN BHD BIF BMD BND BOB BOV BRL BSD BTN BWP BYN BZD CAD CDF CHE CHF CHW CLF CLP CNY COP COU CRC CUC CUP CVE CZK DJF DKK DOP DZD EGP ERN ETB EUR FJD FKP GBP GEL GHS GIP GMD GNF GTQ GYD HKD HNL HTG HUF IDR ILS INR IQD IRR ISK JMD JOD JPY KES KGS KHR KMF KPW KRW KWD KYD KZT LAK LBP LKR LRD LSL LYD MAD MDL MGA MKD MMK MNT MOP MRU MUR MVR MWK MXN MXV MYR MZN NAD NGN NIO NOK NPR NZD OMR PAB PEN PGK PHP PKR PLN PYG QAR RON RSD RUB RWF SAR SBD SCR SDG SEK SGD SHP SLE SLL SOS SRD SSP STN SVC SYP SZL THB TJS TMT TND TOP TRY TTD TWD TZS UAH UGX USD USN UYI UYU UYW UZS VED VES VND VUV WST XAF XAG XAU XBA XBB XBC XBD XCD XDR XOF XPD XPF XPT XSU XUA YER ZAR ZMW ZWG".split()
+)
+_WITHDRAWN_CURRENCIES = {
+    "DEM": "2002-03-01T00:00:00Z",
+    "FRF": "2002-03-01T00:00:00Z",
+    "ITL": "2002-03-01T00:00:00Z",
+    "RUR": "1998-01-01T00:00:00Z",
+    "ZWL": "2024-09-01T00:00:00Z",
+}
+_CURRENCY_ALIASES = {
+    "US DOLLAR": ("USD",),
+    "EURO": ("EUR",),
+    "$": ("AUD", "CAD", "NZD", "USD"),
+}
 
 RECORD_TYPES = frozenset(
     {
@@ -113,6 +129,7 @@ CANONICAL_COLUMNS = (
     "predecessor_revision",
     "source_revision",
     "occurred_at",
+    "decision_time",
     "account_id",
     "instrument_id",
     "raw_instrument_id",
@@ -121,6 +138,7 @@ CANONICAL_COLUMNS = (
     "listing_id",
     "mic",
     "currency",
+    "currency_identity",
     "side",
     "quantity",
     "cash_amount",
@@ -131,8 +149,10 @@ CANONICAL_COLUMNS = (
     "adjusted_close",
     "fx_rate",
     "from_currency",
+    "from_currency_identity",
     "from_amount",
     "to_currency",
+    "to_currency_identity",
     "to_amount",
     "face_value",
     "notional_value",
@@ -141,6 +161,7 @@ CANONICAL_COLUMNS = (
     "corporate_action_type",
     "ratio_numerator",
     "ratio_denominator",
+    "lot_role",
     "transfer_id",
     "transfer_leg",
     "description",
@@ -193,6 +214,7 @@ class PortfolioImportStore:
     ) -> ImportPreview:
         source = Path(path).resolve()
         preview_id = f"portfolio_{uuid.uuid4().hex}"
+        decision_time = datetime.now(timezone.utc).isoformat()
         try:
             raw_bytes = source.read_bytes()
             if len(raw_bytes) > _MAX_RAW_SOURCE_BYTES:
@@ -206,6 +228,7 @@ class PortfolioImportStore:
                 numeric_locale=numeric_locale,
                 source_system=source_system,
                 provider_id=provider_id,
+                decision_time=decision_time,
             )
             frame = self._classify(frame)
             errors: list[str] = []
@@ -220,6 +243,8 @@ class PortfolioImportStore:
                 f"duplicates:{int(frame['staging_status'].eq('duplicate').sum()) if not frame.empty else 0}",
                 f"numeric_locale:{numeric_locale}",
                 f"source_format:{source_format}",
+                f"decision_time:{decision_time}",
+                f"currency_registry:{_CURRENCY_REGISTRY_VERSION}",
                 "mapping_version:1",
                 "execution_allowed=false",
             )
@@ -243,6 +268,7 @@ class PortfolioImportStore:
                 mapping_version=1,
                 mapping_decisions=(),
                 parent_preview_id="",
+                decision_time=decision_time,
             )
         except Exception as exc:
             preview = ImportPreview(
@@ -262,12 +288,16 @@ class PortfolioImportStore:
         return preview
 
     def commit(self, preview: ImportPreview | str) -> PortfolioCommitResult:
-        item = (
-            self._load_stage_preview(preview) if isinstance(preview, str) else preview
-        )
+        supplied = None if isinstance(preview, str) else preview
+        preview_id = preview if isinstance(preview, str) else preview.preview_id
+        item = self._load_stage_preview(preview_id)
         if item is None or not item.valid or item.import_type != "portfolio_history":
             raise PortfolioImportError("a valid portfolio dry-run preview is required")
         stage = self._verified_stage(item.preview_id)
+        if supplied is not None and not _preview_matches_stage(supplied, item):
+            raise PortfolioImportError(
+                "supplied portfolio preview does not match the verified durable stage"
+            )
         if _frame_checksum(item.frame) != item.checksum:
             raise PortfolioImportError("portfolio preview checksum verification failed")
         expected_source = _warning_value(item.warnings, "source_sha256")
@@ -330,6 +360,7 @@ class PortfolioImportStore:
             "event_ids": sorted(event_ids),
             "membership_hash": membership_hash,
             "mapping_version": int(stage["mapping_version"]),
+            "decision_time": str(stage["decision_time"]),
             "committed_at": datetime.now(timezone.utc).isoformat(),
             "execution_allowed": False,
         }
@@ -450,6 +481,12 @@ class PortfolioImportStore:
                 holdings[(account_id, instrument_id)] += direction * _decimal(
                     row.get("quantity")
                 )
+            if (
+                record_type == "lot"
+                and instrument_id
+                and row.get("lot_role") == "opening_position"
+            ):
+                holdings[(account_id, instrument_id)] += _decimal(row.get("quantity"))
             if record_type == "corporate_action" and instrument_id:
                 key = (account_id, instrument_id)
                 if key not in holdings:
@@ -562,15 +599,6 @@ class PortfolioImportStore:
             raise ValueError(
                 "source identity, canonical identity, reviewer and reason are required"
             )
-        with IdentityMasterStore(self.root) as identity_store:
-            resolution = identity_store.resolve(canonical_id)
-        if (
-            resolution.requires_manual_review
-            or resolution.resolution_state != "resolved"
-        ):
-            raise PortfolioImportError(
-                "manual mapping target is not resolved in the identity master"
-            )
         frame = previous.frame.copy(deep=True)
         matches = (
             frame["raw_instrument_id"]
@@ -580,6 +608,22 @@ class PortfolioImportStore:
         )
         if not matches.any():
             raise KeyError(f"source identity is absent from staging: {raw_identity}")
+        decision_time = datetime.now(timezone.utc).isoformat()
+        with IdentityMasterStore(self.root) as identity_store:
+            for effective_at in frame.loc[matches, "occurred_at"].astype(str).unique():
+                resolution = identity_store.resolve(
+                    canonical_id,
+                    effective_at=effective_at,
+                    decision_time=decision_time,
+                )
+                if (
+                    resolution.requires_manual_review
+                    or resolution.resolution_state != "resolved"
+                ):
+                    raise PortfolioImportError(
+                        "manual mapping target is not resolved in the identity master"
+                    )
+        frame["decision_time"] = decision_time
         frame.loc[matches, "instrument_id"] = canonical_id
         frame.loc[matches, "identity_candidates"] = canonical_id
         frame.loc[matches, "identity_mapping_method"] = "manual_reviewed"
@@ -599,8 +643,11 @@ class PortfolioImportStore:
         warnings = tuple(
             warning
             for warning in previous.warnings
-            if not warning.startswith("mapping_version:")
-        ) + (f"mapping_version:{mapping_version}",)
+            if not warning.startswith(("mapping_version:", "decision_time:"))
+        ) + (
+            f"mapping_version:{mapping_version}",
+            f"decision_time:{decision_time}",
+        )
         mapped = ImportPreview(
             new_id,
             "portfolio_history",
@@ -618,6 +665,7 @@ class PortfolioImportStore:
             "canonical_instrument_id": canonical_id,
             "reviewer": str(reviewer).strip(),
             "reason": str(reason).strip(),
+            "decision_time": decision_time,
         }
         self._persist_stage(
             mapped,
@@ -627,6 +675,7 @@ class PortfolioImportStore:
             mapping_version=mapping_version,
             mapping_decisions=(*tuple(stage.get("mapping_decisions", ())), decision),
             parent_preview_id=previous.preview_id,
+            decision_time=decision_time,
         )
         _PREVIEWS[new_id] = mapped
         ImportService(self.root).register(mapped)
@@ -671,6 +720,7 @@ class PortfolioImportStore:
         mapping_version: int,
         mapping_decisions: Iterable[Mapping[str, Any]],
         parent_preview_id: str,
+        decision_time: str,
     ) -> None:
         payload: dict[str, Any] = {
             "contract": PORTFOLIO_IMPORT_CONTRACT,
@@ -684,6 +734,8 @@ class PortfolioImportStore:
             "numeric_locale": numeric_locale,
             "mapping_version": mapping_version,
             "mapping_decisions": [dict(item) for item in mapping_decisions],
+            "decision_time": decision_time,
+            "currency_registry": _CURRENCY_REGISTRY_VERSION,
             "preview_checksum": preview.checksum,
             "warnings": list(preview.warnings),
             "columns": list(preview.frame.columns),
@@ -709,13 +761,41 @@ class PortfolioImportStore:
         stage_hash = str(payload.pop("stage_hash", ""))
         if not stage_hash or stage_hash != _payload_hash(payload):
             raise PortfolioImportError("staging integrity failure: stage hash mismatch")
+        try:
+            raw_bytes = base64.b64decode(
+                str(payload["raw_source_base64"]), validate=True
+            )
+            frame = pd.DataFrame(payload["rows"], columns=payload["columns"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise PortfolioImportError(
+                "staging integrity failure: invalid durable stage"
+            ) from exc
+        if (
+            _file_bytes_checksum(raw_bytes) != payload.get("source_sha256")
+            or _frame_checksum(frame) != payload.get("preview_checksum")
+            or (
+                not frame.empty
+                and payload.get("decision_time") != _single_decision_time(frame)
+            )
+            or payload.get("currency_registry") != _CURRENCY_REGISTRY_VERSION
+            or _warning_value(payload.get("warnings", ()), "source_sha256")
+            != payload.get("source_sha256")
+            or _warning_value(payload.get("warnings", ()), "source_format")
+            != payload.get("source_format")
+            or _warning_value(payload.get("warnings", ()), "numeric_locale")
+            != payload.get("numeric_locale")
+            or _warning_value(payload.get("warnings", ()), "mapping_version")
+            != str(payload.get("mapping_version"))
+            or _warning_value(payload.get("warnings", ()), "decision_time")
+            != payload.get("decision_time")
+        ):
+            raise PortfolioImportError(
+                "staging integrity failure: durable stage metadata mismatch"
+            )
         payload["stage_hash"] = stage_hash
         return payload
 
     def _load_stage_preview(self, preview_id: str) -> ImportPreview | None:
-        cached = _PREVIEWS.get(preview_id)
-        if cached is not None:
-            return cached
         stage = self._verified_stage(preview_id)
         frame = pd.DataFrame(stage["rows"], columns=stage["columns"])
         preview = ImportPreview(
@@ -967,7 +1047,14 @@ def _verified_active_payloads(
         frame = pd.DataFrame(
             payload.get("rows", ()), columns=payload.get("columns", ())
         )
-        if _frame_checksum(frame) != payload.get("preview_checksum"):
+        if (
+            _frame_checksum(frame) != payload.get("preview_checksum")
+            or (
+                not frame.empty
+                and payload.get("decision_time") != _single_decision_time(frame)
+            )
+            or payload.get("currency_registry") != _CURRENCY_REGISTRY_VERSION
+        ):
             raise PortfolioImportError(
                 f"portfolio integrity failure: staged frame {record_id}"
             )
@@ -1003,6 +1090,7 @@ def _verified_active_payloads(
             stage.get("preview_checksum") != payload.get("preview_checksum")
             or stage.get("source_sha256") != payload.get("source_sha256")
             or stage.get("mapping_version") != payload.get("mapping_version")
+            or stage.get("decision_time") != payload.get("decision_time")
         ):
             raise PortfolioImportError(
                 f"portfolio integrity failure: batch-stage linkage {record_id}"
@@ -1027,6 +1115,7 @@ def _verified_active_payloads(
             or not stored_hash
             or stored_hash != _payload_hash(payload)
             or payload.get("content_hash") != _content_hash(payload)
+            or payload.get("decision_time") != batch_map[batch_id].get("decision_time")
         ):
             raise PortfolioImportError(
                 f"portfolio integrity failure: invalid event {record_id}"
@@ -1111,7 +1200,7 @@ def _map_identity(
     row.setdefault("identity_mapping_method", "unresolved")
     row.setdefault("identity_review_decisions", "[]")
     effective_at = str(row.get("occurred_at") or "")
-    decision_time = datetime.now(timezone.utc).isoformat()
+    decision_time = str(row.get("decision_time") or "")
     existing_id = str(row.get("instrument_id") or "").strip()
     candidates: tuple[str, ...]
     if (
@@ -1122,7 +1211,9 @@ def _map_identity(
         candidates = (existing_id,)
         method = "manual_reviewed"
     else:
-        candidates, method = _identity_candidates(root, row, effective_at)
+        candidates, method = _identity_candidates(
+            root, row, effective_at, decision_time
+        )
     row["identity_candidates"] = "|".join(candidates)
     row["identity_mapping_method"] = method
     if len(candidates) != 1:
@@ -1163,7 +1254,10 @@ def _map_identity(
 
 
 def _identity_candidates(
-    root: Path, row: Mapping[str, Any], effective_at: str
+    root: Path,
+    row: Mapping[str, Any],
+    effective_at: str,
+    decision_time: str,
 ) -> tuple[tuple[str, ...], str]:
     explicit = str(row.get("instrument_id") or "").strip()
     if explicit:
@@ -1172,7 +1266,7 @@ def _identity_candidates(
                 store.resolve(
                     explicit,
                     effective_at=effective_at,
-                    decision_time=datetime.now(timezone.utc).isoformat(),
+                    decision_time=decision_time,
                 )
             return (explicit,), "canonical_id"
         except (KeyError, ValueError, IdentityMasterSchemaError):
@@ -1185,7 +1279,11 @@ def _identity_candidates(
             ]
     except (StorageSchemaError, sqlite3.DatabaseError, OSError):
         return (), "identity_master_unavailable"
-    claims = [claim for claim in claims if _claim_effective(claim, effective_at)]
+    claims = [
+        claim
+        for claim in claims
+        if _claim_effective(claim, effective_at, decision_time)
+    ]
 
     def matches(field_names: set[str], value: object) -> set[str]:
         text = str(value or "").strip().casefold()
@@ -1215,7 +1313,9 @@ def _identity_candidates(
     return (), "unresolved"
 
 
-def _claim_effective(claim: Mapping[str, Any], effective_at: str) -> bool:
+def _claim_effective(
+    claim: Mapping[str, Any], effective_at: str, decision_time: str
+) -> bool:
     try:
         effective = pd.Timestamp(effective_at)
         valid_from = (
@@ -1227,12 +1327,15 @@ def _claim_effective(claim: Mapping[str, Any], effective_at: str) -> bool:
         )
     except (TypeError, ValueError):
         return False
-    now = pd.Timestamp.now(tz="UTC")
+    try:
+        decision = pd.Timestamp(decision_time)
+    except (TypeError, ValueError):
+        return False
     return not (
         (valid_from is not None and effective < valid_from)
         or (valid_to is not None and effective >= valid_to)
         or available is None
-        or available > now
+        or available > decision
     )
 
 
@@ -1252,7 +1355,10 @@ def _mapped_identity_error(row: Mapping[str, Any]) -> str:
 
 def _quarantine_unpaired_transfers(frame: pd.DataFrame) -> None:
     transfers = frame.loc[frame["record_type"].eq("transfer")]
-    for transfer_id, group in transfers.groupby("transfer_id", dropna=False):
+    for namespace, group in transfers.groupby(
+        ["provider_id", "source_system", "transfer_id"], dropna=False
+    ):
+        transfer_id = namespace[2]
         indexes = group.index
         reasons = set(group["quarantine_reason"].astype(str)) - {""}
         legs = set(group["transfer_leg"].astype(str).str.lower())
@@ -1327,6 +1433,7 @@ def _normalise_frame(
     *,
     source_format: str,
     numeric_locale: str,
+    decision_time: str,
     source_system: str | None = None,
     provider_id: str | None = None,
 ) -> pd.DataFrame:
@@ -1365,6 +1472,7 @@ def _normalise_frame(
     result = result.loc[:, list(CANONICAL_COLUMNS)]
     for column in result.columns:
         result[column] = result[column].map(_clean_value)
+    result["decision_time"] = decision_time
     inferred_sides = result["record_type"].map(
         lambda value: (
             str(value).strip().lower()
@@ -1386,15 +1494,29 @@ def _normalise_frame(
     result["provider_id"] = result["provider_id"].map(
         lambda value: str(value or default_provider).strip().lower()
     )
-    for currency_column in ("currency", "from_currency", "to_currency"):
-        result[currency_column] = result[currency_column].map(
-            lambda value: str(value).strip().upper() if not _missing(value) else None
-        )
     result["raw_instrument_id"] = result.apply(_raw_identity, axis=1)
     timestamps = pd.to_datetime(result["occurred_at"], errors="coerce", utc=True)
     result["occurred_at"] = timestamps.map(
         lambda value: value.isoformat() if not pd.isna(value) else ""
     )
+    currency_errors: list[str] = [""] * len(result)
+    for currency_column in ("currency", "from_currency", "to_currency"):
+        identity_column = f"{currency_column}_identity"
+        codes: list[str | None] = []
+        identities: list[str] = []
+        for position, (value, effective_at) in enumerate(
+            zip(result[currency_column], result["occurred_at"], strict=True)
+        ):
+            code, identity, error = _resolve_currency(
+                value, effective_at=str(effective_at), field=currency_column
+            )
+            codes.append(code)
+            identities.append(identity)
+            if error and not currency_errors[position]:
+                currency_errors[position] = error
+        result[currency_column] = codes
+        result[identity_column] = identities
+    result["currency_error"] = currency_errors
     numeric_columns = (
         "quantity",
         "cash_amount",
@@ -1442,10 +1564,36 @@ def _normalise_frame(
     return result
 
 
+def _resolve_currency(
+    value: object, *, effective_at: str, field: str
+) -> tuple[str | None, str, str]:
+    if _missing(value):
+        return None, "", ""
+    raw = str(value).strip().upper()
+    candidates = _CURRENCY_ALIASES.get(raw, (raw,))
+    if len(candidates) != 1:
+        return raw, "", f"ambiguous_currency:{field}"
+    code = candidates[0]
+    if code in _WITHDRAWN_CURRENCIES:
+        try:
+            effective = pd.Timestamp(effective_at)
+            withdrawn_at = pd.Timestamp(_WITHDRAWN_CURRENCIES[code])
+        except (TypeError, ValueError):
+            return code, "", f"withdrawn_currency:{field}"
+        if effective >= withdrawn_at:
+            return code, "", f"withdrawn_currency:{field}"
+        return code, f"ISO4217:{code}", ""
+    if code not in _ACTIVE_CURRENCIES:
+        return code, "", f"unknown_currency:{field}"
+    return code, f"ISO4217:{code}", ""
+
+
 def _row_error(row: Mapping[str, Any]) -> str:
     record_type = str(row.get("record_type") or "")
     if str(row.get("numeric_error") or ""):
         return str(row["numeric_error"])
+    if str(row.get("currency_error") or ""):
+        return str(row["currency_error"])
     if record_type not in RECORD_TYPES:
         return "unsupported_record_type"
     if not str(row.get("provider_id") or "") or not str(row.get("source_system") or ""):
@@ -1456,6 +1604,8 @@ def _row_error(row: Mapping[str, Any]) -> str:
         return "invalid_source_revision"
     if not str(row.get("occurred_at") or ""):
         return "invalid_occurred_at"
+    if not str(row.get("decision_time") or ""):
+        return "missing_decision_time"
     if record_type != "price" and not str(row.get("account_id") or ""):
         return "missing_account_id"
     if record_type in _CASH_RECORDS and not str(row.get("currency") or ""):
@@ -1464,6 +1614,8 @@ def _row_error(row: Mapping[str, Any]) -> str:
         value = row.get(name)
         if not _missing(value) and not re.fullmatch(r"[A-Z]{3}", str(value)):
             return f"invalid_currency:{name}"
+        if not _missing(value) and row.get(f"{name}_identity") != f"ISO4217:{value}":
+            return f"invalid_currency_identity:{name}"
     if record_type == "price":
         if not _positive_finite(row.get("adjusted_close")):
             return "invalid_adjusted_price"
@@ -1505,8 +1657,14 @@ def _row_error(row: Mapping[str, Any]) -> str:
         expected_to = -_decimal(row.get("from_amount")) * _decimal(row.get("fx_rate"))
         if not _close(expected_to, _decimal(row.get("to_amount"))):
             return "fx_rate_mismatch"
-    if record_type == "lot" and not _positive_finite(row.get("quantity")):
-        return "invalid_lot_quantity"
+    if record_type == "lot":
+        if not _positive_finite(row.get("quantity")):
+            return "invalid_lot_quantity"
+        if str(row.get("lot_role") or "") not in {
+            "opening_position",
+            "trade_detail",
+        }:
+            return "unsupported_lot_semantics"
     if record_type == "corporate_action":
         if str(row.get("corporate_action_type") or "") not in {
             "split",
@@ -1586,7 +1744,11 @@ def _normalise_record_type(value: object) -> str:
 
 
 def _content_hash(row: Mapping[str, Any]) -> str:
-    payload = {column: _json_value(row.get(column)) for column in CANONICAL_COLUMNS}
+    payload = {
+        column: _json_value(row.get(column))
+        for column in CANONICAL_COLUMNS
+        if column != "decision_time"
+    }
     return hashlib.sha256(
         json.dumps(
             payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
@@ -1601,6 +1763,30 @@ def _frame_checksum(frame: pd.DataFrame) -> str:
         .to_json(orient="records", date_format="iso", date_unit="ns")
     )
     return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _single_decision_time(frame: pd.DataFrame) -> str:
+    if "decision_time" not in frame.columns or frame.empty:
+        return ""
+    values = tuple(dict.fromkeys(frame["decision_time"].astype(str)))
+    return values[0] if len(values) == 1 else ""
+
+
+def _preview_matches_stage(supplied: ImportPreview, durable: ImportPreview) -> bool:
+    return (
+        supplied.preview_id == durable.preview_id
+        and supplied.import_type == durable.import_type
+        and supplied.path.resolve() == durable.path.resolve()
+        and supplied.valid == durable.valid
+        and supplied.rows == durable.rows
+        and supplied.columns == durable.columns
+        and len(supplied.frame) == durable.rows
+        and tuple(map(str, supplied.frame.columns)) == durable.columns
+        and supplied.errors == durable.errors
+        and supplied.warnings == durable.warnings
+        and supplied.checksum == durable.checksum
+        and _frame_checksum(supplied.frame) == durable.checksum
+    )
 
 
 def _file_checksum(path: Path) -> str:

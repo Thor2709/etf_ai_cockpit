@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from dataclasses import replace
 
 import pandas as pd
 import pytest
@@ -115,6 +116,42 @@ def test_valid_sqlite_payload_tampering_is_detected_before_rebuild(
         store.put(entity_type, record.entity_id, tampered)
     with pytest.raises(PortfolioImportError, match="integrity"):
         service.rebuild()
+
+
+def test_commit_rejects_forged_preview_and_uses_durable_stage_authority(
+    tmp_path: Path,
+) -> None:
+    _identity(tmp_path)
+    service = PortfolioImportStore(tmp_path)
+    preview = service.preview(
+        _write(tmp_path / "forged.csv", [_trade("forged")]),
+        source_format="broker_csv",
+    )
+    forged_frame = preview.frame.copy(deep=True)
+    forged_frame.loc[0, "quantity"] = 99
+    forged_frame.loc[0, "content_hash"] = portfolio_import_module._content_hash(
+        forged_frame.iloc[0].to_dict()
+    )
+    forged = replace(
+        preview,
+        frame=forged_frame,
+        checksum=portfolio_import_module._frame_checksum(forged_frame),
+    )
+    forged_mapping_metadata = replace(
+        preview,
+        warnings=tuple(
+            "mapping_version:99" if item.startswith("mapping_version:") else item
+            for item in preview.warnings
+        ),
+    )
+    alternate_source = _write(tmp_path / "alternate.csv", [_trade("forged")])
+    forged_source_metadata = replace(preview, path=alternate_source)
+    for supplied in (forged, forged_mapping_metadata, forged_source_metadata):
+        with pytest.raises(PortfolioImportError, match="durable stage"):
+            service.commit(supplied)
+    with TransactionalStore(tmp_path) as store:
+        assert store.list("portfolio_import_batch_v1") == ()
+        assert store.list("portfolio_import_event_v1") == ()
 
 
 @pytest.mark.parametrize(
@@ -262,6 +299,8 @@ def test_manual_mapping_creates_checksum_bound_immutable_revision(
     assert stage["parent_stage_id"] == preview.preview_id
     assert stage["mapping_version"] == 2
     assert stage["mapping_decisions"][0]["reviewer"] == "operator"
+    assert stage["mapping_decisions"][0]["decision_time"] == stage["decision_time"]
+    assert set(mapped.frame["decision_time"]) == {stage["decision_time"]}
 
 
 def test_source_namespace_prevents_cross_provider_collision(tmp_path: Path) -> None:
@@ -337,6 +376,42 @@ def test_stage_and_raw_source_survive_process_restart(tmp_path: Path) -> None:
     assert stages[0]["source_sha256"]
     assert stages[0]["raw_source_base64"]
     assert stages[0]["mapping_version"] == 1
+    decision_time = stages[0]["decision_time"]
+    rebuilt = PortfolioImportStore(tmp_path).rebuild()
+    assert set(rebuilt.active_events["decision_time"]) == {decision_time}
+
+
+def test_one_decision_time_is_reused_and_future_identity_is_unavailable(
+    tmp_path: Path,
+) -> None:
+    future = IdentitySourceRow(
+        row_id="future",
+        instrument_id="SEC-FUTURE",
+        object_type="listing",
+        object_id="SEC-FUTURE:XNAS",
+        parent_object_id="SEC-FUTURE",
+        relationship="quotation_of",
+        identifiers={"isin": "US9999999999"},
+        attributes={"ticker": "FUT", "mic": "XNAS", "currency": "USD"},
+        source="fixture",
+        authority=SourceAuthority.OFFICIAL,
+        source_id="fixture:future",
+        valid_from="2020-01-01T00:00:00Z",
+        available_at="2099-01-01T00:00:00Z",
+    )
+    with IdentityMasterStore(tmp_path) as store:
+        store.import_rows((future,))
+    rows = [
+        _trade("future-1") | {"ticker": "FUT"},
+        _trade("future-2") | {"ticker": "FUT"},
+    ]
+    preview = PortfolioImportStore(tmp_path).preview(
+        _write(tmp_path / "future.csv", rows), source_format="broker_csv"
+    )
+    assert preview.frame["decision_time"].nunique() == 1
+    assert set(preview.frame["quarantine_reason"]) == {"identity_unresolved"}
+    stage = PortfolioImportStore(tmp_path).stages()[0]
+    assert stage["decision_time"] == preview.frame.iloc[0]["decision_time"]
 
 
 def test_locale_is_explicit_and_ambiguous_numbers_are_quarantined(
@@ -367,6 +442,7 @@ def test_lots_do_not_double_count_and_split_uses_ratio(tmp_path: Path) -> None:
             "ticker": "AAA",
             "mic": "XNAS",
             "quantity": 1,
+            "lot_role": "trade_detail",
         },
         {
             "source_system": "broker-a",
@@ -389,6 +465,164 @@ def test_lots_do_not_double_count_and_split_uses_ratio(tmp_path: Path) -> None:
         )
     )
     assert service.rebuild().holdings.iloc[0]["quantity"] == 2
+
+
+def test_lot_only_opening_position_is_rebuilt_once(tmp_path: Path) -> None:
+    _identity(tmp_path)
+    lot = {
+        "source_system": "broker-a",
+        "provider_id": "broker-a",
+        "record_type": "lot",
+        "source_id": "opening-lot",
+        "occurred_at": "2024-01-01T00:00:00Z",
+        "account_id": "A1",
+        "ticker": "AAA",
+        "mic": "XNAS",
+        "quantity": 7,
+        "lot_role": "opening_position",
+    }
+    service = PortfolioImportStore(tmp_path)
+    service.commit(
+        service.preview(
+            _write(tmp_path / "lot-only.csv", [lot]), source_format="broker_csv"
+        )
+    )
+    assert service.rebuild().holdings.iloc[0]["quantity"] == 7
+
+
+def test_lot_without_explicit_semantics_is_quarantined(tmp_path: Path) -> None:
+    _identity(tmp_path)
+    lot = {
+        "source_system": "broker-a",
+        "provider_id": "broker-a",
+        "record_type": "lot",
+        "source_id": "ambiguous-lot",
+        "occurred_at": "2024-01-01T00:00:00Z",
+        "account_id": "A1",
+        "ticker": "AAA",
+        "mic": "XNAS",
+        "quantity": 7,
+    }
+    preview = PortfolioImportStore(tmp_path).preview(
+        _write(tmp_path / "ambiguous-lot.csv", [lot]), source_format="broker_csv"
+    )
+    assert preview.frame.iloc[0]["quarantine_reason"] == "unsupported_lot_semantics"
+
+
+@pytest.mark.parametrize(
+    ("currency", "reason"),
+    [
+        ("ZZZ", "unknown_currency:currency"),
+        ("DEM", "withdrawn_currency:currency"),
+        ("$", "ambiguous_currency:currency"),
+    ],
+)
+def test_currency_registry_is_canonical_and_point_in_time(
+    tmp_path: Path, currency: str, reason: str
+) -> None:
+    row = {
+        "source_system": "broker-a",
+        "provider_id": "broker-a",
+        "record_type": "cash",
+        "source_id": "cash",
+        "occurred_at": "2024-01-01T00:00:00Z",
+        "account_id": "A1",
+        "currency": currency,
+        "cash_amount": 10,
+    }
+    preview = PortfolioImportStore(tmp_path).preview(
+        _write(tmp_path / "currency.csv", [row]), source_format="broker_csv"
+    )
+    assert preview.frame.iloc[0]["quarantine_reason"] == reason
+
+
+def test_cash_and_fx_persist_canonical_currency_identities(tmp_path: Path) -> None:
+    rows = [
+        {
+            "source_system": "broker-a",
+            "provider_id": "broker-a",
+            "record_type": "cash",
+            "source_id": "cash",
+            "occurred_at": "2024-01-01T00:00:00Z",
+            "account_id": "A1",
+            "currency": "usd",
+            "cash_amount": 10,
+        },
+        {
+            "source_system": "broker-a",
+            "provider_id": "broker-a",
+            "record_type": "fx",
+            "source_id": "fx",
+            "occurred_at": "2024-01-01T00:00:00Z",
+            "account_id": "A1",
+            "from_currency": "USD",
+            "from_amount": -10,
+            "to_currency": "EUR",
+            "to_amount": 9,
+            "fx_rate": 0.9,
+        },
+    ]
+    preview = PortfolioImportStore(tmp_path).preview(
+        _write(tmp_path / "canonical-currency.csv", rows),
+        source_format="broker_csv",
+    )
+    cash, fx = preview.frame.to_dict(orient="records")
+    assert cash["currency_identity"] == "ISO4217:USD"
+    assert fx["from_currency_identity"] == "ISO4217:USD"
+    assert fx["to_currency_identity"] == "ISO4217:EUR"
+    assert set(preview.frame["staging_status"]) == {"accepted"}
+
+
+def test_withdrawn_currency_is_valid_only_before_its_pit_cutoff(tmp_path: Path) -> None:
+    row = {
+        "source_system": "broker-a",
+        "provider_id": "broker-a",
+        "record_type": "cash",
+        "source_id": "historical-dem",
+        "occurred_at": "2000-01-01T00:00:00Z",
+        "account_id": "A1",
+        "currency": "DEM",
+        "cash_amount": 10,
+    }
+    preview = PortfolioImportStore(tmp_path).preview(
+        _write(tmp_path / "historical-dem.csv", [row]), source_format="broker_csv"
+    )
+    assert preview.frame.iloc[0]["staging_status"] == "accepted"
+    assert preview.frame.iloc[0]["currency_identity"] == "ISO4217:DEM"
+
+
+def test_transfer_pairing_is_namespaced_by_provider_and_source(tmp_path: Path) -> None:
+    rows: list[dict[str, object]] = []
+    for provider, amount in (("broker-a", 10), ("broker-b", 20)):
+        common = {
+            "source_system": provider,
+            "provider_id": provider,
+            "record_type": "transfer",
+            "transfer_id": "shared-transfer",
+            "occurred_at": "2024-01-01T00:00:00Z",
+            "account_id": "A1",
+            "currency": "USD",
+        }
+        rows.extend(
+            [
+                common
+                | {
+                    "source_id": f"{provider}-out",
+                    "transfer_leg": "debit",
+                    "cash_amount": -amount,
+                },
+                common
+                | {
+                    "source_id": f"{provider}-in",
+                    "transfer_leg": "credit",
+                    "cash_amount": amount,
+                },
+            ]
+        )
+    preview = PortfolioImportStore(tmp_path).preview(
+        _write(tmp_path / "transfers.csv", rows), source_format="broker_csv"
+    )
+    assert set(preview.frame["staging_status"]) == {"accepted"}
 
 
 def test_balanced_is_derived_from_reconciliation_not_quarantine_count(

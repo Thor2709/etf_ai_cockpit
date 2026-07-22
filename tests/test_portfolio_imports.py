@@ -205,7 +205,7 @@ def test_source_mutation_and_preview_mutation_are_rejected(tmp_path: Path) -> No
     service = PortfolioImportStore(tmp_path)
     preview = service.preview(source)
     preview.frame.loc[0, "quantity"] = 99
-    with pytest.raises(PortfolioImportError, match="preview checksum"):
+    with pytest.raises(PortfolioImportError, match="durable stage"):
         service.commit(preview)
 
     preview = service.preview(source)
@@ -326,6 +326,7 @@ def test_xlsx_canonical_template_supports_all_portfolio_evidence_types(
             "account_id": "A1",
             "instrument_id": "SEC-1",
             "quantity": 2,
+            "lot_role": "trade_detail",
         },
         {
             "record_type": "income",
