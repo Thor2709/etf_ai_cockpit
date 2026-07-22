@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "537e800dd78e9593e7769f41aecf6d79babb75f9",
+    "generation_base_commit": "ff9aa45be46302866fb4c9d89593d9ad9ba4b817",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -1769,6 +1769,18 @@
           "reviewed_date": "2026-07-22",
           "reviewer": "Codex root orchestrator and independent deep reviewer",
           "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "PR #483 merged evidence-only convergence1 as ff9aa45be46302866fb4c9d89593d9ad9ba4b817 after status-transition guard 29919313852 and supply-chain run 29919313809 passed",
+            "Checksum-approved GitHub #224 update d6761fec23277b5247423cc1ad12b59e09777d132780143246445da430e3ca50 applied and verified; final readback d671da53aace4fe03cc32ddc5d7e935bd2c8925a32db69262566d75a339468d6 contained zero actions",
+            "Protected product release evidence retained from PR #482: release run 29917412080 passed Linux job 88914414961 and Windows job 88914414847; post-merge 50-test product/UI suite passed",
+            "Convergence1 changed only deterministic programme evidence and preserved execution_allowed=false"
+          ],
+          "review_reference": "PR #483 convergence1 merge and checksum-approved GitHub readback",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex root orchestrator and independent deep reviewer",
+          "status": "integrated"
         }
       ],
       "dependency_edge_evidence": {
@@ -1800,11 +1812,11 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
-        "from": "in_progress",
-        "review_reference": "B02 ISSUE-0084 product merge and protected release evidence",
-        "to": "implemented_initially"
+        "from": "implemented_initially",
+        "review_reference": "PR #483 convergence1 merge and checksum-approved GitHub readback",
+        "to": "integrated"
       },
       "transition_history": [
         {
@@ -1910,9 +1922,24 @@
           "reviewer": "Codex root orchestrator and independent deep reviewer",
           "to": "implemented_initially",
           "verified_commit": "537e800dd78e9593e7769f41aecf6d79babb75f9"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #483 merged evidence-only convergence1 as ff9aa45be46302866fb4c9d89593d9ad9ba4b817 after status-transition guard 29919313852 and supply-chain run 29919313809 passed",
+            "Checksum-approved GitHub #224 update d6761fec23277b5247423cc1ad12b59e09777d132780143246445da430e3ca50 applied and verified; final readback d671da53aace4fe03cc32ddc5d7e935bd2c8925a32db69262566d75a339468d6 contained zero actions",
+            "Protected product release evidence retained from PR #482: release run 29917412080 passed Linux job 88914414961 and Windows job 88914414847; post-merge 50-test product/UI suite passed",
+            "Convergence1 changed only deterministic programme evidence and preserved execution_allowed=false"
+          ],
+          "from": "implemented_initially",
+          "review_reference": "PR #483 convergence1 merge and checksum-approved GitHub readback",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex root orchestrator and independent deep reviewer",
+          "to": "integrated",
+          "verified_commit": "ff9aa45be46302866fb4c9d89593d9ad9ba4b817"
         }
       ],
-      "verified_commit": "537e800dd78e9593e7769f41aecf6d79babb75f9",
+      "verified_commit": "ff9aa45be46302866fb4c9d89593d9ad9ba4b817",
       "verified_date": "2026-07-22"
     },
     "ISSUE-0085": {
