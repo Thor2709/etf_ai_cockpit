@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "ff9aa45be46302866fb4c9d89593d9ad9ba4b817",
+    "generation_base_commit": "c6b5742d59b7cdb64c5dbd464efaa198c7234dd8",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -1954,12 +1954,17 @@
           "state": "unresolved"
         },
         "ISSUE-0082": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B02/ISSUE-0082/point-in-time-identity-master-v1",
+          "evidence_references": [
+            "PR #470 merged ISSUE-0082 product as d590c8fef1f645614e7ed326e60b31d823d54113 after protected Linux/Windows release evidence",
+            "PRs #471 and #472 converged ISSUE-0082 to integrated; GitHub #222 final readback preserved execution_allowed=false",
+            "src/etf_cockpit/data/identity_master.py IdentityMasterStore listing/MIC/timezone identity and point-in-time projections",
+            "tests/test_identity_master.py persistence, migration, corruption, concurrency and identity hierarchy evidence"
+          ],
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex independent reviewer and root",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         }
       },
       "phase": "phase-02-data-policy-identity",
@@ -1969,8 +1974,39 @@
         "review_reference": "B00 canonical import from audited programme state",
         "to": "planned"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0082",
+            "evidence": {
+              "contract_reference": "B02/ISSUE-0082/point-in-time-identity-master-v1",
+              "evidence_references": [
+                "PR #470 merged ISSUE-0082 product as d590c8fef1f645614e7ed326e60b31d823d54113 after protected Linux/Windows release evidence",
+                "PRs #471 and #472 converged ISSUE-0082 to integrated; GitHub #222 final readback preserved execution_allowed=false",
+                "src/etf_cockpit/data/identity_master.py IdentityMasterStore listing/MIC/timezone identity and point-in-time projections",
+                "tests/test_identity_master.py persistence, migration, corruption, concurrency and identity hierarchy evidence"
+              ],
+              "reviewed_date": "2026-07-22",
+              "reviewer": "Codex independent reviewer and root",
+              "schema_version": "1.0",
+              "state": "complete"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "PR #470 merged ISSUE-0082 product as d590c8fef1f645614e7ed326e60b31d823d54113 after protected Linux/Windows release evidence",
+            "PRs #471 and #472 converged ISSUE-0082 to integrated; GitHub #222 final readback preserved execution_allowed=false",
+            "src/etf_cockpit/data/identity_master.py IdentityMasterStore listing/MIC/timezone identity and point-in-time projections",
+            "tests/test_identity_master.py persistence, migration, corruption, concurrency and identity hierarchy evidence"
+          ],
+          "review_reference": "B02 ISSUE-0085 dependency review: completed point-in-time identity-master contract",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex independent reviewer and root",
+          "verified_commit": "d590c8fef1f645614e7ed326e60b31d823d54113"
+        }
+      ],
+      "verified_commit": "d590c8fef1f645614e7ed326e60b31d823d54113",
+      "verified_date": "2026-07-22"
     },
     "ISSUE-0086": {
       "acceptance_evidence": [],
