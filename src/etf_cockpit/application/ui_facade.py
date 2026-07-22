@@ -32,6 +32,11 @@ from etf_cockpit.backtest.event_engine import *  # noqa: F401,F403
 from etf_cockpit.governance.release_certification import *  # noqa: F401,F403
 from etf_cockpit.governance.supply_chain_intake import *  # noqa: F401,F403
 from etf_cockpit.data.local_storage import *  # noqa: F401,F403
+from etf_cockpit.data.identity_master import (
+    IdentityMasterSchemaError,
+    IdentityMasterStore,
+    identity_master_exists,
+)
 from etf_cockpit.data.manual_notes import *  # noqa: F401,F403
 from etf_cockpit.data.news_context import *  # noqa: F401,F403
 from etf_cockpit.data.oam_adapters import *  # noqa: F401,F403
@@ -71,10 +76,54 @@ from etf_cockpit.application.overlap import *  # noqa: F401,F403
 from etf_cockpit.signals.simple_scores import *  # noqa: F401,F403
 
 
-def load_identity_projection(instrument_id: str, path: Path | None = None) -> dict[str, object]:
+def load_identity_projection(
+    instrument_id: str,
+    path: Path | None = None,
+    *,
+    storage_root: Path | None = None,
+    effective_at: str | None = None,
+    decision_time: str | None = None,
+) -> dict[str, object]:
     """Return one fail-closed, read-only identity lineage projection for presentation."""
 
     import pandas as pd
+
+    master_root = Path(storage_root).resolve() if storage_root is not None else None
+    if master_root is None and path is None:
+        default_path = Path(IDENTITY_PATH).resolve()
+        if len(default_path.parents) >= 3:
+            master_root = default_path.parents[2]
+    if master_root is not None:
+        try:
+            if identity_master_exists(master_root):
+                with IdentityMasterStore(master_root) as master:
+                    return master.projection(
+                        instrument_id,
+                        effective_at=effective_at,
+                        decision_time=decision_time,
+                    )
+            if storage_root is not None and path is None:
+                return {
+                    "status": "unavailable",
+                    "instrument_id": str(instrument_id),
+                    "reason_code": "identity_master_evidence_unavailable",
+                    "execution_allowed": False,
+                }
+        except KeyError:
+            if storage_root is not None and path is None:
+                return {
+                    "status": "unavailable",
+                    "instrument_id": str(instrument_id),
+                    "reason_code": "identity_master_evidence_unavailable",
+                    "execution_allowed": False,
+                }
+        except (IdentityMasterSchemaError, OSError, ValueError):
+            return {
+                "status": "unavailable",
+                "instrument_id": str(instrument_id),
+                "reason_code": "identity_master_evidence_invalid",
+                "execution_allowed": False,
+            }
 
     identity_path = Path(path or IDENTITY_PATH)
     try:

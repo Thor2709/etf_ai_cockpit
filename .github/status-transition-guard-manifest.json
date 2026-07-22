@@ -1,27 +1,19 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [
-    {
-      "from": "ready",
-      "issue_id": "ISSUE-0082",
-      "to": "in_progress"
-    }
-  ],
-  "base_commit": "5f7fc80e36cf685689cbea64cce16d9f1f8690a1",
-  "branch": "codex/b02-issue0082-in-progress-20260722",
-  "issue_ids": [
-    "ISSUE-0082"
-  ],
+  "allowed_status_transitions": [],
+  "base_commit": "f3c5521b8d7a78915c813e748917be3eb496fe4c",
+  "branch": "codex/b02-issue0082-impl-20260722",
+  "issue_ids": [],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "166baab37b896a8861092630590b9f2e638b4db13b39ea6c94bdee91336d10cc",
+    "base_registry_sha256": "d7e4744b8a6b229f9a84fa9bb8a10c330c73e51f688240d675449a72c99aad3d",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "d7e4744b8a6b229f9a84fa9bb8a10c330c73e51f688240d675449a72c99aad3d",
-    "reason": "B02 data-spine reviewed implementation-start step: refresh the generation base, record the ISSUE-0073 bitemporal store as a partial interface for ISSUE-0082, and advance only ISSUE-0082 from ready to in_progress after protected readiness convergence.",
+    "mode": "canonical_schema_and_intake",
+    "proposed_registry_sha256": "b76cc5de43d492cda13ad165465140cc232b339b16fdaf8a191d1b341b31ece2",
+    "reason": "B02 ISSUE-0082 feature integration: refresh the canonical generation base to merged main f3c5521b8d7a78915c813e748917be3eb496fe4c without adding, removing or transitioning any of the 197 issue records; execution authority remains false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.2"
+  "schema_version": "1.1"
 }
