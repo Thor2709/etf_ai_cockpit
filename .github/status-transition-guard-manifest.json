@@ -1,25 +1,19 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [
-    {
-      "from": "implemented_initially",
-      "issue_id": "ISSUE-0085",
-      "to": "integrated"
-    }
-  ],
-  "base_commit": "7db633a967775be7a5f828f379098e6bb120cca8",
-  "branch": "codex/b02-issue0085-convergence2-20260722",
-  "issue_ids": ["ISSUE-0085"],
+  "allowed_status_transitions": [],
+  "base_commit": "aafc249121ff1e284979d384821ea8d84ba0bddf",
+  "branch": "codex/b02-issue0086-impl-20260722",
+  "issue_ids": [],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "ce988106ef5b11a7ff72435f261536b8b0b5af9e59a0a271c9324e39ef9a9c6b",
+    "base_registry_sha256": "aa224bc2cc68d9a51a0ae7f7016ce4e1593bc52a3f48e5bdd77fa6f5cb4a332a",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "aa224bc2cc68d9a51a0ae7f7016ce4e1593bc52a3f48e5bdd77fa6f5cb4a332a",
-    "reason": "B02 ISSUE-0085 final convergence: advance only implemented_initially to integrated after merged product, successful protected Linux/Windows evidence and checksum-gated GitHub readback; preserve scope, dependencies, acceptance criteria, edge evidence, policies and execution_allowed=false.",
+    "mode": "canonical_schema_and_intake",
+    "proposed_registry_sha256": "b95d32405e34670af5a61bc887622cbe1c5c62e9bf7e4678e00d3f5df6568782",
+    "reason": "B02 ISSUE-0086 product integration: refresh only the canonical generation base after ISSUE-0085 final convergence; preserve all issue records, scope, dependencies, acceptance criteria, edge evidence, status semantics, policies and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.2"
+  "schema_version": "1.1"
 }

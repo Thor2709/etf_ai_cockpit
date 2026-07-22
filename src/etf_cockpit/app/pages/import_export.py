@@ -8,6 +8,7 @@ import pandas as pd
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
+from etf_cockpit.application.portfolio_imports import PortfolioImportApplication
 from etf_cockpit.core.paths import CONFIG_DIR, DATA_DIR, DERIVED_DIR, ROOT
 from etf_cockpit.application.ui_facade import (
     DecisionJournal,
@@ -35,11 +36,47 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             page.overlay.append(picker)
         except Exception:
             pass
-    import_type = ft.Dropdown(label="Import type", value="broker", options=[ft.dropdown.Option(value, value.replace("_", " ").title()) for value in ("broker", "candidate", "manual_notes", "etf_holdings", "news", "events", "rss_list")], width=190)
+    import_type = ft.Dropdown(label="Import type", value="portfolio_history", options=[ft.dropdown.Option(value, value.replace("_", " ").title()) for value in ("portfolio_history", "broker", "candidate", "manual_notes", "etf_holdings", "news", "events", "rss_list")], width=190)
     path_field = ft.TextField(label="Local source path", hint_text="Choose a CSV, JSON, Parquet or RSS file", expand=True, key="import-export.import-path")
     preview_text = ft.Text("Preview required before commit.", color=theme.MUTED, selectable=True, key="import-export.preview-status")
     commit_button = ft.OutlinedButton("Commit validated import", key="import-export.commit", disabled=True)
     selected_preview: ImportPreview | None = None
+    portfolio_imports = PortfolioImportApplication(ROOT)
+    staging_report = ft.Text(
+        "No portfolio rows staged.",
+        color=theme.MUTED,
+        selectable=True,
+        key="import-export.portfolio-staging-report",
+    )
+    reconciliation_status = ft.Text(
+        "Portfolio reconciliation not run.",
+        color=theme.MUTED,
+        selectable=True,
+        key="import-export.portfolio-reconciliation-status",
+    )
+    rollback_batch = ft.TextField(
+        label="Portfolio batch ID",
+        width=300,
+        key="import-export.portfolio-rollback-batch",
+    )
+    rollback_reason = ft.TextField(
+        label="Rollback reason",
+        width=300,
+        key="import-export.portfolio-rollback-reason",
+    )
+    portfolio_export_path = ft.TextField(
+        label="Canonical portfolio export",
+        value=str(ROOT / "exports" / "portfolio_history.csv"),
+        expand=True,
+        key="import-export.portfolio-export-path",
+    )
+    portfolio_source_system = ft.TextField(label="Source system", value="user_local", width=180, key="import-export.portfolio-source-system")
+    portfolio_provider = ft.TextField(label="Provider", value="user_local", width=180, key="import-export.portfolio-provider")
+    portfolio_locale = ft.Dropdown(label="Numeric locale", value="en_US", options=[ft.dropdown.Option("en_US", "1,234.56"), ft.dropdown.Option("de_DE", "1.234,56")], width=170, key="import-export.portfolio-locale")
+    mapping_source = ft.TextField(label="Source ticker/ISIN/listing", width=210, key="import-export.portfolio-mapping-source")
+    mapping_canonical = ft.TextField(label="Canonical instrument ID", width=210, key="import-export.portfolio-mapping-canonical")
+    mapping_reviewer = ft.TextField(label="Reviewer", width=170, key="import-export.portfolio-mapping-reviewer")
+    mapping_reason = ft.TextField(label="Mapping reason", width=240, key="import-export.portfolio-mapping-reason")
     bulk_source_id = ft.TextField(label="Bulk source ID", value="local-bulk-source", width=220, key="import-export.bulk-source-id")
     bulk_status = ft.Text("No bulk source cached in this session.", color=theme.MUTED, selectable=True, key="import-export.bulk-status")
 
@@ -66,7 +103,27 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
         selected = files[0]
         source = Path(selected.path or selected.name)
         path_field.value = str(source)
-        selected_preview = validate_import(import_type.value or "broker", source)
+        if import_type.value == "portfolio_history":
+            selected_preview = portfolio_imports.preview(source, source_format="broker_csv", numeric_locale=portfolio_locale.value or "en_US", source_system=portfolio_source_system.value or None, provider_id=portfolio_provider.value or None)
+            if not selected_preview.frame.empty:
+                staged = selected_preview.frame
+                counts = staged["staging_status"].value_counts().to_dict()
+                exceptions = staged.loc[
+                    staged["staging_status"].isin(["quarantined", "correction"]),
+                    [
+                        "source_id",
+                        "raw_instrument_id",
+                        "instrument_id",
+                        "identity_candidates",
+                        "identity_review_decisions",
+                        "staging_status",
+                        "quarantine_reason",
+                    ],
+                ].head(8)
+                staging_report.value = f"Staging counts={counts}; reconciliation exceptions={exceptions.to_dict(orient='records') or 'none'}. Identity ambiguities remain quarantined."
+                staging_report.color = theme.AMBER if counts.get("quarantined", 0) else theme.GREEN
+        else:
+            selected_preview = validate_import(import_type.value or "broker", source)
         commit_button.disabled = not selected_preview.valid
         colour = theme.GREEN if selected_preview.valid else theme.RED
         show(f"Preview {'valid' if selected_preview.valid else 'rejected'}: {selected_preview.rows} rows; source {source}; errors={'; '.join(selected_preview.errors) or 'none'}.", colour=colour)
@@ -76,14 +133,76 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             show("Commit blocked: run a valid preview first.", colour=theme.RED)
             return
         try:
-            service = ImportService(ROOT)
-            service.register(selected_preview)
-            result = service.commit(selected_preview.preview_id)
-            show(f"Import committed: {result.rows} rows at {result.destination} (execution_allowed=false).", colour=theme.GREEN)
+            if selected_preview.import_type == "portfolio_history":
+                portfolio_result = portfolio_imports.commit(selected_preview)
+                show(
+                    f"Portfolio import {portfolio_result.status}: batch {portfolio_result.batch_id}; accepted={portfolio_result.accepted}, quarantined={portfolio_result.quarantined}, duplicates={portfolio_result.duplicates}, corrections={portfolio_result.corrections} (execution_allowed=false).",
+                    colour=theme.GREEN,
+                )
+            else:
+                service = ImportService(ROOT)
+                service.register(selected_preview)
+                generic_result = service.commit(selected_preview.preview_id)
+                show(
+                    f"Import committed: {generic_result.rows} rows at {generic_result.destination} (execution_allowed=false).",
+                    colour=theme.GREEN,
+                )
         except Exception as exc:
             show(f"Import failed: {type(exc).__name__}: {exc}; previous clean state preserved.", colour=theme.RED)
 
     commit_button.on_click = commit
+
+    def apply_portfolio_mapping(_event: ft.ControlEvent) -> None:
+        nonlocal selected_preview
+        if selected_preview is None or selected_preview.import_type != "portfolio_history":
+            show("Mapping blocked: stage a portfolio import first.", colour=theme.RED)
+            return
+        try:
+            selected_preview = portfolio_imports.apply_mapping(
+                selected_preview.preview_id,
+                source_identity=mapping_source.value or "",
+                canonical_instrument_id=mapping_canonical.value or "",
+                reviewer=mapping_reviewer.value or "",
+                reason=mapping_reason.value or "",
+            )
+            commit_button.disabled = not selected_preview.valid
+            mapped = selected_preview.frame
+            exceptions = mapped.loc[mapped["staging_status"].isin(["quarantined", "correction"]), ["source_id", "raw_instrument_id", "instrument_id", "identity_candidates", "staging_status", "quarantine_reason"]].head(8)
+            staging_report.value = f"Mapping revision staged: preview={selected_preview.preview_id}; exceptions={exceptions.to_dict(orient='records') or 'none'}; mapping decision is checksum-bound and immutable."
+            staging_report.color = theme.AMBER if mapped["staging_status"].eq("quarantined").any() else theme.GREEN
+            page.update()
+        except Exception as exc:
+            show(f"Mapping rejected: {type(exc).__name__}: {exc}; prior staging revision preserved.", colour=theme.RED)
+
+    def reconcile_portfolio(_event: ft.ControlEvent) -> None:
+        try:
+            result = portfolio_imports.reconcile()
+            reconciliation_status.value = f"Rebuilt from zero: {len(result.holdings)} holding positions, {len(result.cash)} cash balances, {len(result.active_events)} active rows; accounting={'balanced' if result.balanced else 'unbalanced'}; reconciliation_errors={list(result.reconciliation_errors) or 'none'}; quarantined={len(result.quarantined)} ({'complete' if result.quarantined.empty else 'manual review'}); execution_allowed=false."
+            reconciliation_status.color = theme.GREEN if result.balanced and result.quarantined.empty else theme.AMBER
+        except Exception as exc:
+            reconciliation_status.value = f"Reconciliation unavailable: {type(exc).__name__}: {exc}; no data changed."
+            reconciliation_status.color = theme.RED
+        page.update()
+
+    def rollback_portfolio(_event: ft.ControlEvent) -> None:
+        try:
+            portfolio_imports.rollback(rollback_batch.value or "", reason=rollback_reason.value or "")
+            reconciliation_status.value = f"Rollback recorded for {rollback_batch.value}; rebuild required; execution_allowed=false."
+            reconciliation_status.color = theme.GREEN
+        except Exception as exc:
+            reconciliation_status.value = f"Rollback blocked: {type(exc).__name__}: {exc}; no data changed."
+            reconciliation_status.color = theme.RED
+        page.update()
+
+    def export_portfolio(_event: ft.ControlEvent) -> None:
+        try:
+            destination = portfolio_imports.export_canonical(Path(portfolio_export_path.value or ""))
+            reconciliation_status.value = f"Canonical portfolio history exported to {destination}; quarantined rows excluded."
+            reconciliation_status.color = theme.GREEN
+        except Exception as exc:
+            reconciliation_status.value = f"Portfolio export unavailable: {type(exc).__name__}: {exc}; no placeholder written."
+            reconciliation_status.color = theme.RED
+        page.update()
 
     async def cache_bulk_source(_event: ft.ControlEvent) -> None:
         try:
@@ -133,10 +252,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
         restore_preview = validate_restore(archive)
         restore_commit_button.disabled = not restore_preview.valid
         restore_cancel_button.disabled = False
-        restore_status.value = (
-            f"Restore preview {'valid' if restore_preview.valid else 'rejected'} for {archive}; destination {ROOT}; "
-            f"{len(restore_preview.entries)} entries; errors={'; '.join(restore_preview.errors) or 'none'}."
-        )
+        restore_status.value = f"Restore preview {'valid' if restore_preview.valid else 'rejected'} for {archive}; destination {ROOT}; {len(restore_preview.entries)} entries; errors={'; '.join(restore_preview.errors) or 'none'}."
         restore_status.color = theme.GREEN if restore_preview.valid else theme.RED
         page.update()
 
@@ -220,7 +336,8 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
 
     return ft.Column(
         [
-            panel(ft.Column([section_header("Import and Export Centre", "Preview and validate local evidence before any commit. All actions remain non-executable."), ft.Text("execution_allowed=false", color=theme.AMBER), ft.Row([import_type, path_field, ft.OutlinedButton("Choose and preview", key="import-export.import", icon=ft.Icons.UPLOAD_FILE, on_click=open_import)], wrap=True), ft.Row([commit_button], wrap=True), preview_text], spacing=10)),
+            panel(ft.Column([section_header("Import and Export Centre", "Preview and validate local evidence before any commit. All actions remain non-executable."), ft.Text("execution_allowed=false", color=theme.AMBER), ft.Row([import_type, portfolio_source_system, portfolio_provider, portfolio_locale], wrap=True), ft.Row([path_field, ft.OutlinedButton("Choose and preview", key="import-export.import", icon=ft.Icons.UPLOAD_FILE, on_click=open_import)], wrap=True), ft.Row([commit_button], wrap=True), preview_text, staging_report], spacing=10)),
+            panel(ft.Column([section_header("Portfolio reconciliation", "Review identity candidates, apply checksum-bound mapping decisions, rebuild holdings and cash from zero, roll back a batch, or export the canonical local ledger."), ft.Row([mapping_source, mapping_canonical, mapping_reviewer, mapping_reason, ft.OutlinedButton("Apply identity mapping", key="import-export.portfolio-apply-mapping", on_click=apply_portfolio_mapping)], wrap=True), ft.Row([ft.OutlinedButton("Reconcile portfolio history", key="import-export.portfolio-reconcile", on_click=reconcile_portfolio), rollback_batch, rollback_reason, ft.OutlinedButton("Rollback batch", key="import-export.portfolio-rollback", on_click=rollback_portfolio)], wrap=True), ft.Row([portfolio_export_path, ft.OutlinedButton("Export canonical portfolio", key="import-export.portfolio-export", icon=ft.Icons.DOWNLOAD, on_click=export_portfolio)], wrap=True), reconciliation_status], spacing=10)),
             panel(ft.Column([section_header("Bulk source cache", "Cache a local bulk snapshot by content hash before parsing. Interrupted, changed or invalid sources remain outside the promoted generation."), ft.Row([bulk_source_id, ft.OutlinedButton("Cache local source", key="import-export.bulk-cache", icon=ft.Icons.FOLDER_COPY, on_click=cache_bulk_source)], wrap=True), ft.Text(cache_summary, color=theme.MUTED, size=11, selectable=True), bulk_status], spacing=10)),
             panel(ft.Column([section_header("Exports", "Scoreboard, audit packet, watchlist, journals, plan/issues snapshot and analytical tables use explicit local paths."), ft.Row([export_path, ft.OutlinedButton("Export scoreboard", key="import-export.export-scoreboard", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("scoreboard")), ft.OutlinedButton("Export audit packet", key="import-export.export-audit-packet", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("audit_packet")), ft.OutlinedButton("Export watchlist", key="import-export.export-watchlist", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("watchlist")), ft.OutlinedButton("Export paper-trade journal", key="import-export.export-paper-trade-journal", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("paper_trade_journal")), ft.OutlinedButton("Export decision journal", key="import-export.export-decision-journal", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("decision_journal")), ft.OutlinedButton("Export plan/issues snapshot", key="import-export.export-plan-issues-snapshot", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("plan_issues_snapshot"))], wrap=True), ft.Text("Export status and destination are shown above; unavailable sources are reported without writing placeholders.", color=theme.MUTED, selectable=True)], spacing=10)),
             panel(ft.Column([section_header("Backup and Restore", "Validate a restore preview before an explicit commit; cancel leaves the destination unchanged."), ft.Row([backup_path, ft.OutlinedButton("Create backup", key="import-export.create-backup", icon=ft.Icons.ARCHIVE, on_click=backup)], wrap=True), ft.Row([restore_path, ft.OutlinedButton("Validate restore preview", key="import-export.restore-validate", icon=ft.Icons.RESTORE, on_click=validate_restore_preview), restore_commit_button, restore_cancel_button], wrap=True), restore_status], spacing=10)),
