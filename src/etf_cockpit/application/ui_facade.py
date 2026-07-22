@@ -37,6 +37,12 @@ from etf_cockpit.data.identity_master import (
     IdentityMasterStore,
     identity_master_exists,
 )
+from etf_cockpit.data.classification import (
+    ClassificationOverride,
+    ClassificationSchemaError,
+    ClassificationStore,
+    classification_store_exists,
+)
 from etf_cockpit.data.manual_notes import *  # noqa: F401,F403
 from etf_cockpit.data.news_context import *  # noqa: F401,F403
 from etf_cockpit.data.oam_adapters import *  # noqa: F401,F403
@@ -173,6 +179,85 @@ def load_identity_projection(
         value = row.get(field)
         projection[field] = "unavailable" if value is None or bool(pd.isna(value)) else value
     return projection
+
+
+def load_classification_projection(
+    instrument_id: str,
+    *,
+    storage_root: Path | None = None,
+    effective_at: str | None = None,
+    decision_time: str | None = None,
+    min_leaf_confidence: float = 0.75,
+) -> dict[str, object]:
+    """Return fail-closed point-in-time classification for presentation."""
+
+    root = Path(storage_root).resolve() if storage_root is not None else None
+    if root is None:
+        default_path = Path(IDENTITY_PATH).resolve()
+        if len(default_path.parents) >= 3:
+            root = default_path.parents[2]
+    if root is None:
+        return {
+            "status": "unavailable",
+            "instrument_id": str(instrument_id),
+            "reason_code": "classification_storage_unavailable",
+            "execution_allowed": False,
+        }
+    try:
+        if not classification_store_exists(root):
+            return {
+                "status": "unavailable",
+                "instrument_id": str(instrument_id),
+                "reason_code": "classification_evidence_unavailable",
+                "execution_allowed": False,
+            }
+        with ClassificationStore(root) as store:
+            return store.projection(
+                instrument_id,
+                effective_at=effective_at,
+                decision_time=decision_time,
+                min_leaf_confidence=min_leaf_confidence,
+            )
+    except KeyError:
+        return {
+            "status": "unavailable",
+            "instrument_id": str(instrument_id),
+            "reason_code": "classification_evidence_unavailable",
+            "execution_allowed": False,
+        }
+    except (ClassificationSchemaError, OSError, ValueError):
+        return {
+            "status": "unavailable",
+            "instrument_id": str(instrument_id),
+            "reason_code": "classification_evidence_invalid",
+            "execution_allowed": False,
+        }
+
+
+def save_classification_overrides(
+    storage_root: Path,
+    overrides: tuple[ClassificationOverride, ...],
+) -> dict[str, object]:
+    """Persist reviewed local overrides through the application boundary."""
+
+    try:
+        with ClassificationStore(Path(storage_root).resolve()) as store:
+            record_ids = store.append_overrides(overrides)
+        return {
+            "status": "saved",
+            "record_ids": record_ids,
+            "dependent_scores_invalidated": bool(record_ids),
+            "execution_allowed": False,
+        }
+    except (ClassificationSchemaError, OSError, ValueError) as exc:
+        return {
+            "status": "rejected",
+            "record_ids": (),
+            "reason_code": "classification_override_rejected",
+            "message": str(exc),
+            "dependent_scores_invalidated": False,
+            "execution_allowed": False,
+        }
 
 
 def load_paper_trade_rows(root: Path) -> tuple[dict[str, object], ...]:

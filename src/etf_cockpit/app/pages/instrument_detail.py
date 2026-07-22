@@ -409,6 +409,22 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
         on_click=export_instrument_evidence,
     )
     rows = [
+        _render_evidence_section(
+            "Classification context",
+            model.identity.get(
+                "classification",
+                {
+                    "status": model.identity.get("classification_status", "unavailable"),
+                    "reason_code": model.identity.get(
+                        "classification_reason_code",
+                        "classification_evidence_unavailable",
+                    ),
+                    "execution_allowed": False,
+                },
+            ),
+            subtitle="Point-in-time asset, sector, industry, strategy and fixed-income look-through with confidence, fallback and invalidation lineage.",
+            key="instrument-detail.classification",
+        ),
         _render_evidence_section("Price history", model.sections.get("price"), subtitle="Adjusted-price history, latest value/date and freshness."),
         _render_evidence_section("ETF Liquidity", model.sections.get("etf_liquidity"), subtitle="Rolling turnover, spread/gap proxies, zero-volume days, quote/NAV evidence and primary-market context remain explicit."),
         _render_etf_order_preview(page, state, selected, model.sections.get("etf_liquidity")),

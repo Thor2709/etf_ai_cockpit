@@ -8,7 +8,11 @@ from etf_cockpit.app.pages.etf_detail import etf_detail_page
 from etf_cockpit.app.pages.instrument_detail import render_news_context_panel
 from etf_cockpit.app.selectors.instrument_detail import build_instrument_detail
 from etf_cockpit.app.state import AppState
-from etf_cockpit.application.ui_facade import load_identity_projection
+from etf_cockpit.application.ui_facade import (
+    load_classification_projection,
+    load_identity_projection,
+)
+from etf_cockpit.data.classification import ClassificationEvidence, ClassificationStore
 from etf_cockpit.data.contracts import SourceAuthority
 from etf_cockpit.data.identity_master import IdentityMasterStore, IdentitySourceRow
 from etf_cockpit.data.instrument_identity import IdentityClaim
@@ -157,6 +161,80 @@ def test_identity_master_migration_preserves_legacy_projection_until_imported(tm
     assert projection["status"] == "available"
     assert projection["identity_decision_id"] == "b" * 64
     assert projection["execution_allowed"] is False
+
+
+def test_classification_projection_loader_and_instrument_selector_expose_context(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    available_at = "2026-07-21T00:00:00Z"
+    with ClassificationStore(tmp_path) as store:
+        store.append_evidence(
+            (
+                ClassificationEvidence(
+                    "type",
+                    "SEC-1",
+                    "instrument_type",
+                    "etf",
+                    "official fixture",
+                    SourceAuthority.OFFICIAL,
+                    "official:type",
+                    1.0,
+                    available_at,
+                    None,
+                    available_at,
+                ),
+                ClassificationEvidence(
+                    "bond",
+                    "SEC-1",
+                    "bond_type",
+                    "government",
+                    "official fixture",
+                    SourceAuthority.OFFICIAL,
+                    "official:bond",
+                    0.95,
+                    available_at,
+                    None,
+                    available_at,
+                ),
+                ClassificationEvidence(
+                    "sector",
+                    "SEC-1",
+                    "sector",
+                    "financials",
+                    "official fixture",
+                    SourceAuthority.OFFICIAL,
+                    "official:sector",
+                    0.90,
+                    available_at,
+                    None,
+                    available_at,
+                ),
+            )
+        )
+
+    projection = load_classification_projection("SEC-1", storage_root=tmp_path)
+    context = projection["classification"]
+    assert context["instrument_type"] == "etf"
+    assert context["asset_class"] == "fixed_income"
+    assert context["bond_type"] == "government"
+    assert projection["sector_adapter_route"]["allowed"] is True
+    assert projection["execution_allowed"] is False
+
+    from etf_cockpit.app.selectors import instrument_detail as selector
+
+    snapshot = build_snapshot()
+    instrument_id = snapshot.config.universe.enabled_ids[0]
+    monkeypatch.setattr(
+        selector,
+        "load_classification_projection",
+        lambda _instrument_id: projection,
+    )
+    model = selector.build_instrument_detail(snapshot, instrument_id)
+    assert model.identity["classification_status"] == "available"
+    assert model.identity["classification"]["asset_class"] == "fixed_income"
+    assert model.identity["classification_sector_route"]["allowed"] is True
+    assert model.identity["execution_allowed"] is False
 
 
 def test_instrument_detail_driver_groups_are_ordered_structured_rows(tmp_path, monkeypatch) -> None:
