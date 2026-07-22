@@ -13,10 +13,12 @@ from etf_cockpit.app.components.simple_scores import _score_history_panel
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.paths import RAW_DIR
+from etf_cockpit.data.classification import ClassificationOverride, ClassificationStore
 from etf_cockpit.services import DataService, build_snapshot
 from etf_cockpit.signals import simple_scores as simple_scores_module
 from etf_cockpit.signals.friction_edge import estimate_friction_edge
 from etf_cockpit.signals.simple_scores import (
+    SimpleInstrumentScore,
     SimpleScoreComponent,
     _evidence_maturity,
     _model_backtest_validity,
@@ -26,6 +28,7 @@ from etf_cockpit.signals.simple_scores import (
     decision_from_score,
     final_label_from_scores,
     group_simple_scores,
+    load_simple_scoreboard,
     raw_to_score_10,
     simple_scoreboard_frame,
     write_simple_scoreboard,
@@ -505,6 +508,121 @@ def test_scoreboard_frame_contains_quality_and_authority_columns() -> None:
     assert "model_contamination_risk" in frame.columns
     assert "model_authority_reason" in frame.columns
     assert "calibration_required" in frame.columns
+
+
+def test_scoreboard_binds_classification_token_and_reader_invalidates_stale_score(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    report = pd.DataFrame(
+        [
+            {
+                "instrument_id": "ABC",
+                "name": "ABC Test Stock",
+                "yahoo_symbol": "ABC.DE",
+                "latest_date": "2026-07-10",
+                "latest_price": 100.0,
+                "rows": 300,
+                "return_3m": 0.10,
+                "return_6m": 0.18,
+                "return_12m": 0.25,
+                "volatility_60d_ann": 0.18,
+                "current_drawdown": -0.04,
+                "sma50_signal": True,
+                "sma200_signal": True,
+                "median_turnover_60d_eur": 2_500_000,
+                "blocked_by": "",
+            }
+        ]
+    )
+    monkeypatch.setattr(simple_scores_module, "ROOT", tmp_path)
+    candidate = build_candidate_simple_scores(report, pd.DataFrame())[0]
+    bound = simple_scores_module._with_canonical_score(
+        simple_scores_module._with_classification_dependency(candidate)
+    )
+    path = tmp_path / "data" / "derived" / "scoreboard.parquet"
+    write_simple_scoreboard([bound], path)
+    raw_before = pd.read_parquet(path)
+
+    assert bound.classification_dependency_status == "current"
+    assert bound.classification_invalidation_hash != "unavailable"
+    assert bound.canonical_score is not None
+    assert raw_before.iloc[0]["classification_invalidation_hash"] == bound.classification_invalidation_hash
+
+    with ClassificationStore(tmp_path) as store:
+        store.append_overrides(
+            (
+                ClassificationOverride(
+                    override_id="override:ABC:sector:1",
+                    instrument_id="ABC",
+                    field="sector",
+                    value="technology",
+                    reason="reviewed issuer activity",
+                    reviewer="local_user",
+                    valid_from="2026-07-11T00:00:00Z",
+                    available_at="2026-07-11T00:00:00Z",
+                    dependent_score_keys=("classification:ABC:*",),
+                ),
+            )
+        )
+
+    projected = load_simple_scoreboard(path, root=tmp_path)
+    raw_after = pd.read_parquet(path)
+    assert pd.notna(raw_after.iloc[0]["canonical_attractiveness_10"])
+    assert pd.isna(projected.iloc[0]["canonical_attractiveness_10"])
+    assert projected.iloc[0]["classification_dependency_status"] == "classification_override_invalidated"
+    assert projected.iloc[0]["analysis_status"] == "unavailable"
+    assert not bool(projected.iloc[0]["execution_allowed"])
+
+
+def test_score_construction_fails_closed_when_classification_storage_is_unavailable(monkeypatch) -> None:
+    candidate = SimpleInstrumentScore(
+        instrument_key="candidate:ABC",
+        display_id="ABC",
+        source_group="candidate",
+        asset_type="stock",
+        name="ABC",
+        yahoo_symbol="ABC.DE",
+        latest_date="2026-07-10",
+        latest_price=100.0,
+        final_score_10=7.0,
+        decision="review",
+        one_line_reason="candidate evidence",
+        components=[
+            SimpleScoreComponent(
+                key="momentum",
+                label="Momentum",
+                score_10=7.0,
+                raw_score=0.10,
+                status="available",
+                explanation="deterministic adjusted-price evidence",
+                good_score="higher is stronger",
+                why="review evidence",
+            )
+        ],
+        warnings=[],
+    )
+    monkeypatch.setattr(
+        simple_scores_module,
+        "classification_score_state",
+        lambda _root, _instrument_id: {
+            "status": "unavailable",
+            "version_id": "unavailable",
+            "invalidation_token": "corrupt-store-hash",
+            "invalidated_score_keys": ("classification:ABC:*",),
+            "execution_allowed": False,
+        },
+    )
+
+    result = simple_scores_module._with_canonical_score(
+        simple_scores_module._with_classification_dependency(candidate)
+    )
+
+    assert result.final_score_10 is None
+    assert result.canonical_score is None
+    assert result.classification_dependency_status == "classification_unavailable"
+    assert "classification_unavailable" in result.warnings
+    assert result.execution_allowed is False
 
 
 def test_score_friction_fields_equal_selected_friction_edge_calculator_output() -> None:

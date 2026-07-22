@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import date
+import hashlib
 import json
 from math import isfinite, tanh
 from pathlib import Path
@@ -12,8 +13,10 @@ import pandas as pd
 
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
 from etf_cockpit.core.config import AppConfig
-from etf_cockpit.core.paths import BACKTESTS_DIR, DERIVED_DIR, FORECASTS_DIR, RAW_DIR, REPORTS_DIR
+from etf_cockpit.core.paths import BACKTESTS_DIR, DERIVED_DIR, FORECASTS_DIR, RAW_DIR, REPORTS_DIR, ROOT
 from etf_cockpit.core.types import SignalResult
+from etf_cockpit.data.classification import classification_score_state
+from etf_cockpit.data.score_history import project_classification_score_frame
 from etf_cockpit.governance.gate_policy import resolve_authority
 from etf_cockpit.data.reference_data import load_reference_dataset
 from etf_cockpit.data.news_context import NEWS_CLEAN_PATH, load_news_items
@@ -345,6 +348,9 @@ class SimpleInstrumentScore:
     schema_version: str = "2.0"
     authority_decision: AuthorityDecision | None = None
     canonical_score: CanonicalScore | None = None
+    classification_version_id: str = "unavailable"
+    classification_invalidation_hash: str = "unavailable"
+    classification_dependency_status: str = "legacy_unbound"
 
     def __post_init__(self) -> None:
         try:
@@ -625,20 +631,54 @@ def build_simple_instrument_scores(
         )
         for index, score in enumerate(scores, start=1)
     ]
-    return [_with_canonical_score(_attach_authority(score)) for score in ranked]
+    return [
+        _with_canonical_score(_attach_authority(_with_classification_dependency(score)))
+        for score in ranked
+    ]
+
+
+def _with_classification_dependency(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
+    state = classification_score_state(ROOT, score.display_id)
+    if str(state.get("status")) == "unavailable":
+        return replace(
+            score,
+            final_score_10=None,
+            evidence_score_10=None,
+            evidence_quality_10=None,
+            risk_friction_10=None,
+            rank=None,
+            score_rank=None,
+            warnings=list(dict.fromkeys([*score.warnings, "classification_unavailable"])),
+            classification_version_id=str(state.get("version_id") or "unavailable"),
+            classification_invalidation_hash=str(state.get("invalidation_token") or "unavailable"),
+            classification_dependency_status="classification_unavailable",
+        )
+    return replace(
+        score,
+        classification_version_id=str(state.get("version_id") or "unavailable"),
+        classification_invalidation_hash=str(state.get("invalidation_token") or "unavailable"),
+        classification_dependency_status="current",
+    )
 
 
 def _with_canonical_score(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
-    if score.canonical_score is not None:
+    if score.canonical_score is not None or score.classification_dependency_status != "current":
         return score
+    canonical = canonical_score_from_simple_components(
+        score.display_id,
+        score.asset_type,
+        score.latest_date,
+        score.components,
+    )
+    source_vintage_hash = hashlib.sha256(
+        (
+            f"{canonical.source_vintage_hash}|classification:"
+            f"{score.classification_invalidation_hash}"
+        ).encode("utf-8")
+    ).hexdigest()
     return replace(
         score,
-        canonical_score=canonical_score_from_simple_components(
-            score.display_id,
-            score.asset_type,
-            score.latest_date,
-            score.components,
-        ),
+        canonical_score=replace(canonical, source_vintage_hash=source_vintage_hash),
     )
 
 
@@ -907,6 +947,9 @@ def simple_scoreboard_frame(
             "formula_version": score.canonical_score.formula_version if score.canonical_score else "unavailable",
             "formula_checksum": score.canonical_score.formula_checksum if score.canonical_score else "unavailable",
             "source_vintage_hash": score.canonical_score.source_vintage_hash if score.canonical_score else "unavailable",
+            "classification_version_id": score.classification_version_id,
+            "classification_invalidation_hash": score.classification_invalidation_hash,
+            "classification_dependency_status": score.classification_dependency_status,
             "canonical_attractiveness_10": score.canonical_score.attractiveness_10 if score.canonical_score else None,
             "canonical_expected_return_10": score.canonical_score.expected_return_10 if score.canonical_score else None,
             "canonical_risk_implementation_10": score.canonical_score.risk_implementation_10 if score.canonical_score else None,
@@ -943,6 +986,19 @@ def write_simple_scoreboard(scores: list[SimpleInstrumentScore], path: Path | No
     )
     atomic_write_group(requests)
     return output_path
+
+
+def load_simple_scoreboard(path: Path | None = None, *, root: Path | None = None) -> pd.DataFrame:
+    """Load the canonical fail-closed projection of the persisted scoreboard."""
+
+    output_path = path or DERIVED_DIR / "scoreboard.parquet"
+    if not output_path.exists():
+        return pd.DataFrame()
+    try:
+        frame = pd.read_parquet(output_path)
+    except Exception:
+        return pd.DataFrame()
+    return project_classification_score_frame(frame, root=root)
 
 
 def build_universe_simple_scores(

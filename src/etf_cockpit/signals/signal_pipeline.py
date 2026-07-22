@@ -8,8 +8,10 @@ import pandas as pd
 
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.logging import append_jsonl
+from etf_cockpit.core.paths import ROOT
 from etf_cockpit.core.scheduler import current_run_id
 from etf_cockpit.core.types import DataQualityReport, SignalResult
+from etf_cockpit.data.classification import classification_score_state
 from etf_cockpit.governance.gate_policy import resolve_authority
 from etf_cockpit.portfolio.allocation import allocation_frame
 from etf_cockpit.portfolio.costs import estimate_execution_cost, estimated_cost_bps
@@ -137,6 +139,7 @@ def generate_signals(
         distribution = forecast_distributions.get(str(row["etf_id"])) if forecast_distributions is not None else None
         distribution_status = _distribution_value(distribution, "status")
         distribution_reason = _distribution_value(distribution, "reason")
+        classification_state = classification_score_state(ROOT, str(row["etf_id"]))
         signal = SignalResult(
             run_id=run_id,
             signal_date=signal_date,
@@ -160,6 +163,9 @@ def generate_signals(
                 "formula_version": canonical_score.formula_version,
                 "formula_checksum": canonical_score.formula_checksum,
                 "source_vintage_hash": canonical_score.source_vintage_hash,
+                "classification_status": str(classification_state["status"]),
+                "classification_version_id": str(classification_state["version_id"]),
+                "classification_invalidation_hash": str(classification_state["invalidation_token"]),
                 "short_term_alert_score": float(row.get("momentum_20d") or 0.0),
                 "medium_term_signal_score": float(
                     0.50 * float(row.get("momentum_60d") or 0.0)

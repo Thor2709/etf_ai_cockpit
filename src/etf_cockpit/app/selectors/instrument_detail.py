@@ -23,7 +23,9 @@ from etf_cockpit.application.ui_facade import (
     load_fundamental_evidence,
     load_news_items,
     load_calendar_events,
+    load_classification_projection,
     load_identity_projection,
+    load_simple_scoreboard,
     load_statement_evidence,
     load_paper_trade_rows,
     read_document_registry,
@@ -764,9 +766,8 @@ def _friction_panel(instrument_id: str, *, candidate_score: SimpleInstrumentScor
     else:
         if not SCOREBOARD_PATH.exists():
             return empty
-        try:
-            frame = pd.read_parquet(SCOREBOARD_PATH)
-        except Exception:
+        frame = load_simple_scoreboard(SCOREBOARD_PATH)
+        if frame.empty:
             return empty
         rows = _instrument_rows(frame, instrument_id, columns=("display_id", "instrument_id", "etf_id"))
         if rows.empty:
@@ -970,7 +971,7 @@ def build_etf_liquidity_panel(
 def _scoreboard_row(instrument_id: str, *, candidate_score: SimpleInstrumentScore | None = None) -> dict[str, Any]:
     if _candidate_score_matches(candidate_score, instrument_id):
         return _candidate_scoreboard(candidate_score)  # type: ignore[arg-type]
-    frame = _load_parquet(SCOREBOARD_PATH)
+    frame = load_simple_scoreboard(SCOREBOARD_PATH)
     rows = _instrument_rows(frame, instrument_id, columns=("instrument_id", "display_id", "etf_id"))
     return rows.iloc[-1].to_dict() if not rows.empty else {}
 
@@ -1276,6 +1277,41 @@ def build_instrument_detail(
                 }
             )
         display_name = identity.name
+    classification_evidence = load_classification_projection(instrument_id)
+    if classification_evidence.get("status") in {"available", "unresolved"}:
+        classification = classification_evidence.get("classification", {})
+        route = classification_evidence.get("sector_adapter_route", {})
+        identity_panel.update(
+            {
+                "classification_status": classification_evidence.get("status", "unresolved"),
+                "classification": classification,
+                "classification_confidence": (
+                    classification.get("classification_confidence", 0.0)
+                    if isinstance(classification, Mapping)
+                    else 0.0
+                ),
+                "classification_version_id": (
+                    classification.get("version_id", "unavailable")
+                    if isinstance(classification, Mapping)
+                    else "unavailable"
+                ),
+                "classification_fallback_path": (
+                    classification.get("fallback_path", ())
+                    if isinstance(classification, Mapping)
+                    else ()
+                ),
+                "classification_sector_route": route,
+            }
+        )
+    else:
+        identity_panel.update(
+            {
+                "classification_status": "unavailable",
+                "classification_reason_code": classification_evidence.get(
+                    "reason_code", "classification_evidence_unavailable"
+                ),
+            }
+        )
     disclosure = _etf_disclosure_panel(instrument_id, document_registry=document_registry, holdings=holdings, kid_records=kid_records, methodology_records=methodology_records)
     overlap = build_direct_overlap_view(
         snapshot,

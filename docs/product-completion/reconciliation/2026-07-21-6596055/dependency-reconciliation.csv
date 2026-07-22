@@ -1,0 +1,542 @@
+source_id,dependency,candidate_type,resolved_as,reason
+ISSUE-0007,ISSUE-0024,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0007,ISSUE-0026,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0007,ISSUE-0054,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0007,ISSUE-0073,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0007,ISSUE-0115,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0008,ISSUE-0060,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0008,ISSUE-0070,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0008,ISSUE-0130,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0008,ISSUE-0133,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0010,ISSUE-0030,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0010,ISSUE-0057,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0010,ISSUE-0147,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0011,ISSUE-0014,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0011,ISSUE-0045,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0011,ISSUE-0136,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0011,ISSUE-0143,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0012,ISSUE-0077,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0012,ISSUE-0117,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0012,ISSUE-0139,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0013,ISSUE-0141,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0013,ISSUE-0145,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0013,ISSUE-0152,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0013,UPDATEV2-0029,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0014,ISSUE-0045,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0014,ISSUE-0143,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0014,ISSUE-0152,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0015,ISSUE-0070,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0015,ISSUE-0075,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0015,ISSUE-0152,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0016,ISSUE-0137,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0016,ISSUE-0138,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0016,ISSUE-0139,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0016,ISSUE-0140,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0017,ISSUE-0080,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0017,ISSUE-0146,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0017,ISSUE-0151,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0018,ISSUE-0082,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0018,ISSUE-0083,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0018,ISSUE-0126,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0018,UPDATEV2-0011,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0019,ISSUE-0091,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0019,ISSUE-0116,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0019,ISSUE-0138,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0020,ISSUE-0073,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0020,ISSUE-0074,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0020,ISSUE-0098,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0020,ISSUE-0138,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0021,ISSUE-0110,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0021,ISSUE-0116,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0021,ISSUE-0130,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0022,ISSUE-0082,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0022,ISSUE-0105,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0022,UPDATEV2-0016,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0023,ISSUE-0091,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0023,ISSUE-0102,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0024,ISSUE-0073,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0024,ISSUE-0084,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0024,ISSUE-0085,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0024,ISSUE-0130,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0025,ISSUE-0007,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0025,ISSUE-0054,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0025,ISSUE-0087,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0025,ISSUE-0149,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0026,ISSUE-0073,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0026,ISSUE-0088,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0026,ISSUE-0115,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0027,ISSUE-0117,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0027,ISSUE-0124,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0027,ISSUE-0139,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0028,ISSUE-0120,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0028,ISSUE-0125,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0028,ISSUE-0128,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0029,ISSUE-0074,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0029,ISSUE-0075,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0029,ISSUE-0130,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0030,ISSUE-0010,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0030,ISSUE-0057,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0030,ISSUE-0129,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0030,ISSUE-0147,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0031,ISSUE-0125,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0031,ISSUE-0127,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0031,ISSUE-0130,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0032,ISSUE-0070,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0032,ISSUE-0131,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0032,ISSUE-0135,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0033,ISSUE-0024,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0033,ISSUE-0077,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0033,ISSUE-0132,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0033,ISSUE-0135,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0034,ISSUE-0075,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0034,ISSUE-0090,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0034,ISSUE-0116,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0034,ISSUE-0134,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0036,ISSUE-0081,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0036,ISSUE-0086,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0036,ISSUE-0127,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0036,ISSUE-0146,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0037,ISSUE-0075,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0037,ISSUE-0076,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0037,ISSUE-0144,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0038,ISSUE-0072,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0038,ISSUE-0073,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0038,ISSUE-0090,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0039,ISSUE-0077,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0039,ISSUE-0078,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0039,ISSUE-0151,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0040,ISSUE-0077,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0040,ISSUE-0089,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0040,ISSUE-0135,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0040,ISSUE-0146,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0041,ISSUE-0137,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0041,ISSUE-0140,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0041,ISSUE-0143,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0042,ISSUE-0090,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0042,ISSUE-0138,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0042,ISSUE-0147,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0043,ISSUE-0148,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0043,ISSUE-0149,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0044,ISSUE-0145,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0044,ISSUE-0146,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0045,ISSUE-0136,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0045,ISSUE-0143,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0046,ISSUE-0108,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0046,ISSUE-0112,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0046,ISSUE-0115,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0046,ISSUE-0130,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0047,ISSUE-0074,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0047,ISSUE-0098,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0047,ISSUE-0138,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0048,ISSUE-0120,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0048,ISSUE-0122,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0048,ISSUE-0147,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0049,ISSUE-0111,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0049,ISSUE-0115,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0049,ISSUE-0128,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0050,ISSUE-0085,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0050,ISSUE-0125,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0050,ISSUE-0128,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0050,ISSUE-0134,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0051,ISSUE-0088,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0051,ISSUE-0112,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0052,ISSUE-0105,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0052,ISSUE-0110,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0052,ISSUE-0113,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0052,ISSUE-0115,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0053,ISSUE-0033,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0053,ISSUE-0034,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0053,ISSUE-0139,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0054,ISSUE-0025,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0054,ISSUE-0073,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0054,ISSUE-0149,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0055,ISSUE-0080,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0055,ISSUE-0081,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0055,ISSUE-0087,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0055,ISSUE-0088,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0056,ISSUE-0076,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0056,ISSUE-0085,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0056,ISSUE-0130,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0057,ISSUE-0075,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0057,ISSUE-0129,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0057,ISSUE-0147,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0058,ISSUE-0010,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0058,ISSUE-0149,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0059,ISSUE-0105,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0059,ISSUE-0110,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0059,ISSUE-0116,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0060,ISSUE-0008,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0060,ISSUE-0070,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0060,ISSUE-0132,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0060,ISSUE-0133,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0061,ISSUE-0120,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0061,ISSUE-0128,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0062,ISSUE-0119,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0062,ISSUE-0120,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0063,ISSUE-0092,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0063,ISSUE-0098,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0063,ISSUE-0125,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0063,ISSUE-0129,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0064,ISSUE-0108,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0064,ISSUE-0128,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0065,ISSUE-0049,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0065,ISSUE-0111,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0065,ISSUE-0125,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0066,ISSUE-0070,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0066,ISSUE-0127,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0066,ISSUE-0131,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0066,ISSUE-0135,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0068,ISSUE-0076,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0068,ISSUE-0080,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0068,ISSUE-0082,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0068,ISSUE-0083,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0011,ISSUE-0082,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0011,ISSUE-0083,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0012,ISSUE-0073,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0012,ISSUE-0081,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0012,ISSUE-0091,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0014,ISSUE-0076,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0014,ISSUE-0087,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0015,ISSUE-0090,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0015,ISSUE-0103,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0015,ISSUE-0104,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0016,ISSUE-0082,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0016,ISSUE-0105,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0017,ISSUE-0103,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0017,ISSUE-0104,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0018,ISSUE-0104,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0018,UPDATEV2-0015,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0019,ISSUE-0105,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0019,ISSUE-0112,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0020,ISSUE-0104,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0020,ISSUE-0149,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0020,UPDATEV2-0015,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0021,ISSUE-0073,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0021,ISSUE-0089,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0021,ISSUE-0090,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0023,ISSUE-0076,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0023,ISSUE-0080,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0024,ISSUE-0076,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0024,ISSUE-0080,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0025,ISSUE-0076,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0025,ISSUE-0080,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0026,ISSUE-0084,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0026,ISSUE-0125,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0026,ISSUE-0128,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0027,ISSUE-0011,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0027,ISSUE-0012,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0027,ISSUE-0077,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0027,ISSUE-0136,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0029,ISSUE-0141,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0029,ISSUE-0145,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0029,ISSUE-0152,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0030,ISSUE-0080,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0030,ISSUE-0086,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+UPDATEV2-0030,ISSUE-0089,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0070,ISSUE-0008,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0070,ISSUE-0032,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0070,ISSUE-0060,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0070,ISSUE-0066,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0071,ISSUE-0070,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0072,ISSUE-0038,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0072,ISSUE-0071,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0073,ISSUE-0072,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0074,ISSUE-0071,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0074,ISSUE-0073,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0075,ISSUE-0072,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0075,ISSUE-0074,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0076,ISSUE-0070,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0076,ISSUE-0071,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0077,ISSUE-0072,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0077,ISSUE-0075,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0078,ISSUE-0077,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0079,ISSUE-0145,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0079,ISSUE-0149,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0080,ISSUE-0070,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0080,ISSUE-0076,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0081,ISSUE-0072,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0081,ISSUE-0077,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0081,ISSUE-0080,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0082,ISSUE-0073,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0082,UPDATEV2-0011,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0083,ISSUE-0082,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0084,ISSUE-0073,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0084,ISSUE-0082,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0085,ISSUE-0079,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0085,ISSUE-0082,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0086,ISSUE-0036,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0086,ISSUE-0082,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0087,ISSUE-0081,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0087,UPDATEV2-0012,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0087,UPDATEV2-0014,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0088,ISSUE-0073,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0088,ISSUE-0080,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0088,ISSUE-0081,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0089,ISSUE-0073,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0089,UPDATEV2-0021,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0090,ISSUE-0072,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0090,ISSUE-0075,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0091,ISSUE-0073,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0091,UPDATEV2-0012,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0092,ISSUE-0074,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0092,ISSUE-0091,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0093,ISSUE-0091,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0094,ISSUE-0084,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0094,ISSUE-0091,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0095,ISSUE-0091,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0096,ISSUE-0088,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0096,ISSUE-0091,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0097,ISSUE-0091,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0097,ISSUE-0092,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0098,ISSUE-0074,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0098,ISSUE-0083,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0099,ISSUE-0098,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0100,ISSUE-0098,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0101,ISSUE-0098,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0102,ISSUE-0098,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0103,ISSUE-0084,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0103,UPDATEV2-0015,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0104,UPDATEV2-0015,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0104,UPDATEV2-0018,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0105,ISSUE-0082,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0105,UPDATEV2-0016,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0106,ISSUE-0128,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0107,ISSUE-0088,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0107,ISSUE-0104,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0108,ISSUE-0074,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0108,ISSUE-0096,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0108,ISSUE-0105,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0109,ISSUE-0108,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0110,ISSUE-0052,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0110,ISSUE-0059,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0111,ISSUE-0110,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0112,ISSUE-0051,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0112,ISSUE-0059,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0113,ISSUE-0021,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0113,ISSUE-0110,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0113,ISSUE-0111,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0114,ISSUE-0113,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0115,ISSUE-0109,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0115,ISSUE-0110,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0116,ISSUE-0021,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0116,ISSUE-0059,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0117,ISSUE-0027,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0117,ISSUE-0075,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0118,ISSUE-0117,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0119,ISSUE-0073,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0119,ISSUE-0117,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0120,ISSUE-0119,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0121,ISSUE-0117,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0121,ISSUE-0120,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0122,ISSUE-0120,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0123,ISSUE-0108,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0123,ISSUE-0120,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0124,ISSUE-0117,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0124,ISSUE-0123,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0125,ISSUE-0028,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0125,ISSUE-0050,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0126,ISSUE-0073,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0126,ISSUE-0082,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0127,ISSUE-0072,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0127,ISSUE-0084,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0128,ISSUE-0064,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0128,ISSUE-0106,blocking,related_issues,blocking graph cycle prevention
+ISSUE-0129,ISSUE-0031,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0129,ISSUE-0057,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0130,ISSUE-0070,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0130,ISSUE-0114,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0131,ISSUE-0066,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0131,ISSUE-0127,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0132,ISSUE-0131,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0133,ISSUE-0132,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0133,ISSUE-0152,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0134,ISSUE-0116,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0134,ISSUE-0131,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0135,ISSUE-0131,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0135,ISSUE-0132,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0136,ISSUE-0071,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0137,ISSUE-0136,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0138,ISSUE-0137,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0139,ISSUE-0136,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0139,ISSUE-0137,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0140,ISSUE-0137,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0141,ISSUE-0075,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0141,ISSUE-0145,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0142,ISSUE-0074,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0142,ISSUE-0127,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0142,ISSUE-0132,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0143,ISSUE-0141,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0144,ISSUE-0076,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0144,ISSUE-0145,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0145,ISSUE-0079,blocking,related_issues,blocking graph cycle prevention
+ISSUE-0145,ISSUE-0141,blocking,related_issues,blocking graph cycle prevention
+ISSUE-0146,ISSUE-0044,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0146,ISSUE-0144,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0147,ISSUE-0075,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0147,UPDATEV2-0028,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0148,ISSUE-0043,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0149,ISSUE-0079,blocking,related_issues,blocking graph cycle prevention
+ISSUE-0149,ISSUE-0080,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0150,ISSUE-0090,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0150,ISSUE-0120,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0151,ISSUE-0078,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0153,ISSUE-0082,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0153,ISSUE-0083,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0153,ISSUE-0085,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0154,ISSUE-0085,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0154,ISSUE-0088,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0154,ISSUE-0153,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0155,ISSUE-0076,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0155,ISSUE-0081,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0155,ISSUE-0088,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0155,ISSUE-0149,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0155,ISSUE-0153,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0156,ISSUE-0091,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0156,ISSUE-0111,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0156,ISSUE-0154,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0156,ISSUE-0155,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0157,ISSUE-0098,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0157,ISSUE-0108,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0157,ISSUE-0109,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0157,ISSUE-0112,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0157,ISSUE-0120,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0157,ISSUE-0123,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0157,ISSUE-0154,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0157,ISSUE-0155,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0157,ISSUE-0156,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0158,ISSUE-0136,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0158,ISSUE-0137,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0158,ISSUE-0138,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0158,ISSUE-0139,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0158,ISSUE-0140,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0158,ISSUE-0153,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0158,ISSUE-0154,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0158,ISSUE-0155,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0158,ISSUE-0156,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0158,ISSUE-0157,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0158,ISSUE-0161,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0158,ISSUE-0162,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0159,ISSUE-0084,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0159,ISSUE-0085,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0159,ISSUE-0127,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0160,ISSUE-0139,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0160,ISSUE-0159,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0161,ISSUE-0074,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0161,ISSUE-0127,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0161,ISSUE-0138,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0161,ISSUE-0139,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0161,ISSUE-0159,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0162,ISSUE-0022,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0162,ISSUE-0083,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0162,ISSUE-0105,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0162,ISSUE-0127,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0162,ISSUE-0153,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0163,ISSUE-0024,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0163,ISSUE-0084,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0163,ISSUE-0127,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0163,ISSUE-0153,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0163,ISSUE-0158,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0163,ISSUE-0161,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0164,ISSUE-0113,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0164,ISSUE-0114,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0164,ISSUE-0115,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0164,ISSUE-0116,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0164,ISSUE-0127,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0164,ISSUE-0161,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0164,ISSUE-0162,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0164,ISSUE-0163,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0165,ISSUE-0018,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0165,ISSUE-0020,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0165,ISSUE-0074,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0165,ISSUE-0077,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0165,ISSUE-0081,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0165,ISSUE-0126,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0166,ISSUE-0020,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0166,ISSUE-0108,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0166,ISSUE-0109,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0166,ISSUE-0110,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0166,ISSUE-0111,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0166,ISSUE-0112,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0166,ISSUE-0113,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0166,ISSUE-0128,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0166,ISSUE-0157,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0166,ISSUE-0165,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0167,ISSUE-0085,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0167,ISSUE-0114,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0167,ISSUE-0127,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0167,ISSUE-0130,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0167,ISSUE-0131,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0167,ISSUE-0132,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0167,ISSUE-0133,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0167,ISSUE-0134,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0167,ISSUE-0135,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0168,ISSUE-0108,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0168,ISSUE-0109,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0168,ISSUE-0110,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0168,ISSUE-0111,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0168,ISSUE-0115,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0168,ISSUE-0127,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0168,ISSUE-0161,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0169,ISSUE-0074,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0169,ISSUE-0136,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0169,ISSUE-0142,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0169,ISSUE-0152,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0169,ISSUE-0161,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0169,ISSUE-0165,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0169,ISSUE-0167,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0170,ISSUE-0076,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0170,ISSUE-0082,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0170,ISSUE-0083,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0170,ISSUE-0085,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0170,ISSUE-0149,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0171,ISSUE-0076,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0171,ISSUE-0080,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0171,ISSUE-0081,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0171,ISSUE-0149,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0171,ISSUE-0170,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0171,ISSUE-0176,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0172,ISSUE-0074,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0172,ISSUE-0098,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0172,ISSUE-0105,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0172,ISSUE-0108,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0172,ISSUE-0109,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0172,ISSUE-0112,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0172,ISSUE-0120,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0172,ISSUE-0123,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0172,ISSUE-0128,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0172,ISSUE-0170,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0172,ISSUE-0171,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0172,ISSUE-0173,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0172,ISSUE-0174,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0172,ISSUE-0175,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0173,ISSUE-0076,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0173,ISSUE-0084,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0173,ISSUE-0088,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0173,ISSUE-0089,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0173,ISSUE-0149,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0173,ISSUE-0176,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0174,ISSUE-0074,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0174,ISSUE-0108,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0174,ISSUE-0109,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0174,ISSUE-0110,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0174,ISSUE-0111,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0174,ISSUE-0112,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0174,ISSUE-0123,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0174,ISSUE-0128,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0174,ISSUE-0173,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0175,ISSUE-0039,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0175,ISSUE-0077,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0175,ISSUE-0078,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0175,ISSUE-0121,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0175,ISSUE-0151,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0175,ISSUE-0165,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0176,ISSUE-0037,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0176,ISSUE-0076,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0176,ISSUE-0080,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0176,ISSUE-0144,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0176,ISSUE-0145,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0176,ISSUE-0146,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0176,ISSUE-0149,blocking,blocking_dependencies,proposed programme prerequisite
+ISSUE-0067,ISSUE-0034,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0067,ISSUE-0047,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review
+ISSUE-0067,UPDATEV2-0022,related,related_issues,current-ledger dependency retained as a candidate pending explicit prerequisite review

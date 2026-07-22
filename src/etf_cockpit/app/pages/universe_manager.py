@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 from typing import Iterable
 
@@ -9,15 +10,19 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.config import load_config
+from etf_cockpit.core.paths import ROOT
 from etf_cockpit.application.ui_facade import (
+    ClassificationOverride,
     UniverseRecord,
     add_record,
     disable_record,
     edit_record,
+    load_classification_projection,
     load_identity_projection,
     load_universe,
     remove_record,
     save_universe,
+    save_classification_overrides,
     validate_universe,
 )
 
@@ -331,6 +336,130 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
         dialog.open = True
         page.update()
 
+    def classification_dialog(record: UniverseRecord) -> None:
+        evidence = load_classification_projection(record.instrument_id, storage_root=ROOT)
+        current = evidence.get("classification", {})
+        current_context = current if isinstance(current, dict) else {}
+        controls = {
+            "instrument_type": _field(
+                "Instrument type override",
+                current_context.get("instrument_type", record.asset_type),
+            ),
+            "asset_class": _field(
+                "Economic asset class override",
+                current_context.get("asset_class", ""),
+            ),
+            "sector": _field("Sector override", current_context.get("sector", record.sector)),
+            "industry": _field("Industry override", current_context.get("industry", "")),
+            "strategy_label": _field(
+                "Strategy label override",
+                next(iter(current_context.get("strategy_labels", ())), "")
+                if isinstance(current_context.get("strategy_labels", ()), (list, tuple))
+                else "",
+            ),
+        }
+        initial_values = {
+            field_name: str(control.value or "").strip()
+            for field_name, control in controls.items()
+        }
+        reason = _field("Override reason")
+
+        def save_override(_event: ft.ControlEvent) -> None:
+            reason_value = str(reason.value or "").strip()
+            if not reason_value:
+                status.value = "Classification override rejected: a review reason is required."
+                page.update()
+                return
+            now = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+            selected = tuple(
+                ClassificationOverride(
+                    override_id=f"universe:{record.instrument_id}:{field_name}:{now}",
+                    instrument_id=record.instrument_id,
+                    field=field_name,
+                    value=str(control.value or "").strip(),
+                    reason=reason_value,
+                    reviewer="local_user",
+                    valid_from=now,
+                    available_at=now,
+                    dependent_score_keys=(f"classification:{record.instrument_id}:*",),
+                )
+                for field_name, control in controls.items()
+                if str(control.value or "").strip()
+                and str(control.value or "").strip() != initial_values[field_name]
+            )
+            if not selected:
+                status.value = "Classification override rejected: change at least one non-empty field."
+                page.update()
+                return
+            result = save_classification_overrides(ROOT, selected)
+            if result.get("status") != "saved":
+                status.value = (
+                    "Classification override rejected: "
+                    + str(result.get("message") or result.get("reason_code") or "unknown error")
+                )
+                page.update()
+                return
+            invalidate = getattr(state, "invalidate_classification_scores", None)
+            if callable(invalidate):
+                invalidate(record.instrument_id, root=ROOT)
+            refreshed = load_classification_projection(record.instrument_id, storage_root=ROOT)
+            rendered.value = json.dumps(refreshed, sort_keys=True, indent=2, default=str)
+            state_line.value = (
+                f"status={refreshed.get('status', 'unavailable')} | "
+                f"dependent_scores_invalidated={bool(result.get('dependent_scores_invalidated', False))} | "
+                f"execution_allowed={bool(refreshed.get('execution_allowed', False))}"
+            )
+            status.value = (
+                f"Saved versioned classification override for {record.instrument_id}; "
+                "classification-dependent scores are invalid until recomputed."
+            )
+            page.update()
+
+        state_line = ft.Text(
+            (
+                f"status={evidence.get('status', 'unavailable')} | "
+                f"confidence={current_context.get('classification_confidence', 0.0)} | "
+                f"sector_adapter_allowed={bool(current_context.get('sector_adapter_allowed', False))} | "
+                f"execution_allowed={bool(evidence.get('execution_allowed', False))}"
+            ),
+            color=theme.GREEN if evidence.get("status") == "available" else theme.AMBER,
+        )
+        rendered = ft.Text(
+            json.dumps(evidence, sort_keys=True, indent=2, default=str),
+            color=theme.MUTED,
+            selectable=True,
+        )
+        dialog: ft.AlertDialog
+
+        def close_classification(_event: ft.ControlEvent) -> None:
+            dialog.open = False
+            page.update()
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(f"Classification context: {record.instrument_id}"),
+            content=ft.Column(
+                [state_line, rendered, *controls.values(), reason],
+                tight=True,
+                scroll=ft.ScrollMode.AUTO,
+            ),
+            actions=[
+                ft.TextButton(
+                    "Close",
+                    key="universe.classification-close",
+                    on_click=close_classification,
+                ),
+                ft.Button(
+                    "Save versioned override",
+                    key="universe.classification-save",
+                    on_click=save_override,
+                ),
+            ],
+        )
+        page.overlay.append(dialog)
+        dialog.open = True
+        page.update()
+
     def _table_with_actions(rows: Iterable[UniverseRecord]) -> ft.DataTable:
         table = _table(rows, edit_dialog)
         for row, record in zip(table.rows, rows):
@@ -348,6 +477,7 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
                 )
             row.cells[-1] = ft.DataCell(ft.Row([
                 ft.Button("Identity", key=f"universe.identity.{record.instrument_id}", on_click=lambda _event, item=record: identity_dialog(item)),
+                ft.Button("Classification", key=f"universe.classification.{record.instrument_id}", on_click=lambda _event, item=record: classification_dialog(item)),
                 ft.Button("Edit", key=f"universe.edit.{record.instrument_id}", on_click=lambda _event, item=record: edit_dialog(item)),
                 action_button,
                 ft.Button("Remove", key=f"universe.remove.{record.instrument_id}", on_click=lambda _event, item=record: remove_item(item)),

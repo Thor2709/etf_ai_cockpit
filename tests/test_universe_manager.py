@@ -80,7 +80,15 @@ def test_real_crud_controls_stage_changes_and_save_captured_revision(monkeypatch
     root = universe_manager_page(page, _state())
     controls = {str(control.key): control for control in _walk(root) if control.key}
     buttons = {key: control for key, control in controls.items() if isinstance(control, ft.Button)}
-    assert {"universe.add", "universe.save", "universe.edit.A", "universe.disable.A", "universe.remove.A"} <= set(buttons)
+    assert {
+        "universe.add",
+        "universe.save",
+        "universe.edit.A",
+        "universe.identity.A",
+        "universe.classification.A",
+        "universe.disable.A",
+        "universe.remove.A",
+    } <= set(buttons)
     assert "universe.allow-cross-tier-duplicates" in controls
 
     # Disable and add use the real callbacks, and neither callback invokes a
@@ -185,6 +193,136 @@ def test_universe_identity_action_exposes_graph_conflict_review_and_authority(mo
             if "resolution=quarantined" in str(control.value)
         ).color
         == manager.theme.AMBER
+    )
+
+
+def test_universe_classification_action_exposes_fallback_and_saves_versioned_override(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    record = UniverseRecord(
+        "A",
+        "Alpha",
+        "NO0000000001",
+        "verified",
+        "A",
+        "stock",
+        "primary",
+        "",
+        True,
+        "daily",
+        "EUR",
+        "NO",
+        "Financials",
+        "",
+        "",
+    )
+    monkeypatch.setattr(
+        manager,
+        "load_universe",
+        lambda: UniverseStoreSnapshot((record,), "revision", Path("store.json")),
+    )
+    monkeypatch.setattr(manager, "ROOT", tmp_path)
+    projections = [
+        {
+            "status": "available",
+            "classification": {
+                "instrument_type": "stock",
+                "asset_class": "equity",
+                "sector": "financials",
+                "industry": None,
+                "strategy_labels": ["quality"],
+                "classification_confidence": 0.82,
+                "fallback_path": ["industry->sector_low_confidence"],
+                "sector_adapter_allowed": True,
+                "execution_allowed": False,
+            },
+            "sector_adapter_route": {
+                "allowed": True,
+                "adapter_id": "sector:financials",
+                "execution_allowed": False,
+            },
+            "execution_allowed": False,
+        },
+        {
+            "status": "available",
+            "classification": {
+                "instrument_type": "stock",
+                "asset_class": "equity",
+                "sector": "banks",
+                "dependent_scores_invalidated": True,
+                "execution_allowed": False,
+            },
+            "execution_allowed": False,
+        },
+    ]
+    monkeypatch.setattr(
+        manager,
+        "load_classification_projection",
+        lambda _instrument_id, **_kwargs: projections.pop(0),
+    )
+    captured = []
+
+    def fake_save(_root, overrides):
+        captured.extend(overrides)
+        return {
+            "status": "saved",
+            "record_ids": ("record-1",),
+            "dependent_scores_invalidated": True,
+            "execution_allowed": False,
+        }
+
+    monkeypatch.setattr(manager, "save_classification_overrides", fake_save)
+    page = _Page()
+    state = _state()
+    invalidated: list[tuple[str, Path]] = []
+    state.invalidate_classification_scores = (
+        lambda instrument_id, *, root: invalidated.append((instrument_id, root))
+    )
+    root = universe_manager_page(page, state)
+    button = next(
+        control
+        for control in _walk(root)
+        if isinstance(control, ft.Button) and control.key == "universe.classification.A"
+    )
+    button.on_click(None)
+
+    dialog = page.overlay[-1]
+    rendered = "\n".join(
+        str(control.value)
+        for control in _walk(dialog)
+        if isinstance(control, ft.Text) and control.value
+    )
+    assert "industry->sector_low_confidence" in rendered
+    assert "sector:financials" in rendered
+    assert "execution_allowed=False" in rendered
+
+    fields = {
+        str(control.label): control
+        for control in _walk(dialog)
+        if isinstance(control, ft.TextField) and control.label
+    }
+    fields["Sector override"].value = "banks"
+    fields["Override reason"].value = "Reviewed issuer activity"
+    save = next(
+        control
+        for control in _walk(dialog)
+        if isinstance(control, ft.Button) and control.key == "universe.classification-save"
+    )
+    save.on_click(None)
+
+    assert len(captured) == 1
+    assert captured[0].instrument_id == "A"
+    assert captured[0].field == "sector"
+    assert captured[0].value == "banks"
+    assert all(item.dependent_score_keys == ("classification:A:*",) for item in captured)
+    assert invalidated == [("A", tmp_path)]
+    assert "classification-dependent scores are invalid" in str(
+        next(
+            control
+            for control in _walk(root)
+            if isinstance(control, ft.Text) and "classification-dependent" in str(control.value)
+        ).value
     )
 
 

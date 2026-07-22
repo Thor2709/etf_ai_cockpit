@@ -22,6 +22,7 @@ from etf_cockpit.application.ui_facade import (
     validate_import,
     validate_restore,
     bulk_cache_health,
+    load_simple_scoreboard,
 )
 
 
@@ -176,7 +177,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
         if category == "watchlist":
             scoreboard_path = DERIVED_DIR / "scoreboard.parquet"
             if scoreboard_path.exists():
-                frame = pd.read_parquet(scoreboard_path)
+                frame = load_simple_scoreboard(scoreboard_path)
                 if "final_label" in frame.columns:
                     return frame.loc[frame["final_label"].astype(str).isin({"watchlist", "mixed_evidence_review", "hold_context"})].copy()
                 return frame.iloc[0:0].copy()

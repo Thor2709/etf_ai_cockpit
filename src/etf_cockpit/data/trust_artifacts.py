@@ -19,7 +19,7 @@ from etf_cockpit.core.atomic_io import (
     wait_for_atomic_group,
 )
 from etf_cockpit.core.config import AppConfig
-from etf_cockpit.core.paths import CLEAN_DIR, DERIVED_DIR, RAW_DIR
+from etf_cockpit.core.paths import CLEAN_DIR, DERIVED_DIR, RAW_DIR, ROOT
 from etf_cockpit.core.session_log import log_event
 from etf_cockpit.core.versioning import build_run_manifest, build_version_registry, ensure_run_manifest, write_version_registry
 from etf_cockpit.data.trade_candidate_analysis import latest_candidate_input
@@ -42,6 +42,7 @@ from etf_cockpit.data.parsed_disclosures import (
     METHODOLOGY_COLUMNS,
     PRIIPS_KID_RECORDS_PATH,
 )
+from etf_cockpit.data.score_history import project_classification_score_frame
 from etf_cockpit.signals.feature_drivers import build_feature_drivers
 from etf_cockpit.signals.canonical_scoring import load_score_policy
 from etf_cockpit.features.crowding import build_correlation_clusters
@@ -289,6 +290,9 @@ SCORE_HISTORY_COLUMNS = [
     "formula_version",
     "formula_checksum",
     "source_vintage_hash",
+    "classification_version_id",
+    "classification_invalidation_hash",
+    "classification_dependency_status",
     "version_registry_signature",
     "dependency_graph_hash",
     "snapshot_hash",
@@ -980,6 +984,9 @@ def append_score_history(
                 "formula_version": getattr(getattr(score, "canonical_score", None), "formula_version", "unavailable"),
                 "formula_checksum": getattr(getattr(score, "canonical_score", None), "formula_checksum", "unavailable"),
                 "source_vintage_hash": getattr(getattr(score, "canonical_score", None), "source_vintage_hash", "unavailable"),
+                "classification_version_id": getattr(score, "classification_version_id", "unavailable"),
+                "classification_invalidation_hash": getattr(score, "classification_invalidation_hash", "unavailable"),
+                "classification_dependency_status": getattr(score, "classification_dependency_status", "legacy_unbound"),
                 "version_registry_signature": version_registry_signature,
                 "dependency_graph_hash": dependency_graph_hash,
                 "snapshot_hash": "",
@@ -1163,7 +1170,10 @@ def write_optional_source_inventories(config: AppConfig, identity: pd.DataFrame)
 
 
 def load_score_history_summary() -> dict[str, list[dict[str, Any]]]:
-    history = _safe_read_parquet(SCORE_HISTORY_PATH, SCORE_HISTORY_COLUMNS)
+    history = project_classification_score_frame(
+        _safe_read_parquet(SCORE_HISTORY_PATH, SCORE_HISTORY_COLUMNS),
+        root=ROOT,
+    )
     if history.empty:
         return {}
     if "run_completed_at" in history.columns:

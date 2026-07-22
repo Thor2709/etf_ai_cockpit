@@ -8,11 +8,21 @@ from etf_cockpit.app.pages.etf_detail import etf_detail_page
 from etf_cockpit.app.pages.instrument_detail import render_news_context_panel
 from etf_cockpit.app.selectors.instrument_detail import build_instrument_detail
 from etf_cockpit.app.state import AppState
-from etf_cockpit.application.ui_facade import load_identity_projection
+from etf_cockpit.application.ui_facade import (
+    load_classification_projection,
+    load_identity_projection,
+)
+from etf_cockpit.data.classification import (
+    ClassificationEvidence,
+    ClassificationOverride,
+    ClassificationStore,
+    classification_score_state,
+)
 from etf_cockpit.data.contracts import SourceAuthority
 from etf_cockpit.data.identity_master import IdentityMasterStore, IdentitySourceRow
 from etf_cockpit.data.instrument_identity import IdentityClaim
 from etf_cockpit.services import build_snapshot
+from etf_cockpit.signals.simple_scores import load_simple_scoreboard
 
 
 def _walk_controls(control):
@@ -25,6 +35,70 @@ def _walk_controls(control):
     for row in getattr(control, "rows", []) or []:
         for cell in getattr(row, "cells", []) or []:
             yield from _walk_controls(getattr(cell, "content", None))
+
+
+def test_instrument_detail_scoreboard_reader_hides_classification_invalidated_score(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from etf_cockpit.app.selectors import instrument_detail as selector
+
+    before = classification_score_state(tmp_path, "A")
+    scoreboard_path = tmp_path / "scoreboard.parquet"
+    pd.DataFrame(
+        [
+            {
+                "instrument_id": "A",
+                "final_combined_score_10": 7.0,
+                "evidence_score_10": 7.0,
+                "evidence_quality_10": 8.0,
+                "final_label": "watchlist",
+                "reason": "stale score evidence",
+                "freshness_status": "ok",
+                "classification_version_id": before["version_id"],
+                "classification_invalidation_hash": before["invalidation_token"],
+                "classification_dependency_status": "current",
+                "execution_allowed": False,
+            }
+        ]
+    ).to_parquet(scoreboard_path, index=False)
+    with ClassificationStore(tmp_path) as store:
+        store.append_overrides(
+            (
+                ClassificationOverride(
+                    override_id="override:A:sector:instrument-detail",
+                    instrument_id="A",
+                    field="sector",
+                    value="financials",
+                    reason="reviewed issuer activity",
+                    reviewer="local_user",
+                    valid_from="2026-07-11T00:00:00Z",
+                    available_at="2026-07-11T00:00:00Z",
+                    dependent_score_keys=("classification:A:*",),
+                ),
+            )
+        )
+    monkeypatch.setattr(selector, "SCOREBOARD_PATH", scoreboard_path)
+    monkeypatch.setattr(
+        selector,
+        "load_simple_scoreboard",
+        lambda path: load_simple_scoreboard(path, root=tmp_path),
+    )
+
+    row = selector._scoreboard_row("A")
+    panel = selector._score_panel(
+        None,
+        row,
+        {"crowding": {}},
+        {"status": "unavailable", "execution_allowed": False},
+    )
+
+    assert pd.isna(row["final_combined_score_10"])
+    assert row["classification_dependency_status"] == "classification_override_invalidated"
+    assert panel["status"] == "manual_review"
+    assert panel["evidence_score"] is None
+    assert panel["final_label"] == "manual_review"
+    assert panel["execution_allowed"] is False
 
 
 def test_instrument_detail_exposes_identity_lineage_from_application_facade(monkeypatch) -> None:
@@ -157,6 +231,80 @@ def test_identity_master_migration_preserves_legacy_projection_until_imported(tm
     assert projection["status"] == "available"
     assert projection["identity_decision_id"] == "b" * 64
     assert projection["execution_allowed"] is False
+
+
+def test_classification_projection_loader_and_instrument_selector_expose_context(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    available_at = "2026-07-21T00:00:00Z"
+    with ClassificationStore(tmp_path) as store:
+        store.append_evidence(
+            (
+                ClassificationEvidence(
+                    "type",
+                    "SEC-1",
+                    "instrument_type",
+                    "etf",
+                    "official fixture",
+                    SourceAuthority.OFFICIAL,
+                    "official:type",
+                    1.0,
+                    available_at,
+                    None,
+                    available_at,
+                ),
+                ClassificationEvidence(
+                    "bond",
+                    "SEC-1",
+                    "bond_type",
+                    "government",
+                    "official fixture",
+                    SourceAuthority.OFFICIAL,
+                    "official:bond",
+                    0.95,
+                    available_at,
+                    None,
+                    available_at,
+                ),
+                ClassificationEvidence(
+                    "sector",
+                    "SEC-1",
+                    "sector",
+                    "financials",
+                    "official fixture",
+                    SourceAuthority.OFFICIAL,
+                    "official:sector",
+                    0.90,
+                    available_at,
+                    None,
+                    available_at,
+                ),
+            )
+        )
+
+    projection = load_classification_projection("SEC-1", storage_root=tmp_path)
+    context = projection["classification"]
+    assert context["instrument_type"] == "etf"
+    assert context["asset_class"] == "fixed_income"
+    assert context["bond_type"] == "government"
+    assert projection["sector_adapter_route"]["allowed"] is True
+    assert projection["execution_allowed"] is False
+
+    from etf_cockpit.app.selectors import instrument_detail as selector
+
+    snapshot = build_snapshot()
+    instrument_id = snapshot.config.universe.enabled_ids[0]
+    monkeypatch.setattr(
+        selector,
+        "load_classification_projection",
+        lambda _instrument_id: projection,
+    )
+    model = selector.build_instrument_detail(snapshot, instrument_id)
+    assert model.identity["classification_status"] == "available"
+    assert model.identity["classification"]["asset_class"] == "fixed_income"
+    assert model.identity["classification_sector_route"]["allowed"] is True
+    assert model.identity["execution_allowed"] is False
 
 
 def test_instrument_detail_driver_groups_are_ordered_structured_rows(tmp_path, monkeypatch) -> None:

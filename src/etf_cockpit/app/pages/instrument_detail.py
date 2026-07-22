@@ -272,7 +272,10 @@ def _render_evidence_section(
             compact = ", ".join(f"{child}={child_value if child_value is not None else 'N/A'}" for child, child_value in item.items())
             lines.append(ft.Text(f"{field_name}: {compact or 'unavailable'}", color=theme.MUTED, size=11, selectable=True))
         elif isinstance(item, (list, tuple)):
-            lines.append(ft.Text(f"{field_name}: {', '.join(str(child) for child in item) or 'unavailable'}", color=theme.MUTED, size=11, selectable=True))
+            if any(isinstance(child, Mapping) for child in item):
+                lines.append(_render_record_group(str(field_name), item))
+            else:
+                lines.append(ft.Text(f"{field_name}: {', '.join(str(child) for child in item) or 'unavailable'}", color=theme.MUTED, size=11, selectable=True))
         else:
             lines.append(ft.Text(f"{field_name}: {item if item is not None else 'N/A'}", color=theme.MUTED, size=11, selectable=True))
     if not lines:
@@ -409,6 +412,22 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
         on_click=export_instrument_evidence,
     )
     rows = [
+        _render_evidence_section(
+            "Classification context",
+            model.identity.get(
+                "classification",
+                {
+                    "status": model.identity.get("classification_status", "unavailable"),
+                    "reason_code": model.identity.get(
+                        "classification_reason_code",
+                        "classification_evidence_unavailable",
+                    ),
+                    "execution_allowed": False,
+                },
+            ),
+            subtitle="Point-in-time asset, sector, industry, strategy and fixed-income look-through with confidence, fallback and invalidation lineage.",
+            key="instrument-detail.classification",
+        ),
         _render_evidence_section("Price history", model.sections.get("price"), subtitle="Adjusted-price history, latest value/date and freshness."),
         _render_evidence_section("ETF Liquidity", model.sections.get("etf_liquidity"), subtitle="Rolling turnover, spread/gap proxies, zero-volume days, quote/NAV evidence and primary-market context remain explicit."),
         _render_etf_order_preview(page, state, selected, model.sections.get("etf_liquidity")),
@@ -437,7 +456,37 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
     ]
     return ft.Column(
         [
-            panel(ft.Column([section_header(f"Instrument Detail: {model.display_name}", "Canonical identity, score evidence, data freshness and unavailable states are shown without recalculating authority in the UI."), _render_evidence_badges(model.identity), ft.Text(str(model.identity), color=theme.MUTED, selectable=True), ft.Row([export_control, export_status], wrap=True)], spacing=8)),
+            panel(ft.Column([
+                section_header(f"Instrument Detail: {model.display_name}", "Canonical identity, score evidence, data freshness and unavailable states are shown without recalculating authority in the UI."),
+                _render_evidence_badges(model.identity),
+                _render_record_group(
+                    "Identity",
+                    [
+                        {
+                            field: model.identity.get(field)
+                            for field in (
+                                "instrument_id",
+                                "ticker",
+                                "isin",
+                                "asset_type",
+                                "asset_class",
+                                "exchange",
+                                "currency",
+                                "region",
+                                "sector",
+                                "theme",
+                                "identity_resolution_state",
+                                "identity_confidence",
+                                "identity_decision_id",
+                                "source_id",
+                                "execution_allowed",
+                            )
+                            if field in model.identity
+                        }
+                    ],
+                ),
+                ft.Row([export_control, export_status], wrap=True),
+            ], spacing=8)),
             _render_feature_driver_panel(model.sections.get("feature_drivers")),
             _render_crowding_attribution_panel(model.sections),
             render_etf_disclosure_panel(model),
