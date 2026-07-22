@@ -26,7 +26,7 @@ def _identity(
         parent_object_id=None,
         relationship=None,
         identifiers={"isin": isin},
-        attributes={"ticker": instrument_id, "exchange": "XNAS"},
+        attributes={"ticker": instrument_id, "exchange": "XNAS", "currency": "USD"},
         source="fixture",
         authority=SourceAuthority.OFFICIAL,
         source_id=f"fixture:{instrument_id}",
@@ -46,13 +46,19 @@ def _trade(
     source_id: str = "trade-1", *, settlement: float = -101, quantity: float = 1
 ) -> dict[str, object]:
     return {
+        "provider_id": "broker-a",
+        "source_system": "broker-a",
         "record_type": "transaction",
         "source_id": source_id,
         "occurred_at": "2024-01-02T10:00:00Z",
         "account_id": "A1",
         "instrument_id": "SEC-1",
         "currency": "USD",
+        "side": "buy",
         "quantity": quantity,
+        "price": abs(settlement) / quantity - 1,
+        "fee_amount": -quantity,
+        "tax_amount": 0,
         "settlement_cash": settlement,
     }
 
@@ -106,6 +112,8 @@ def test_broker_csv_aliases_stage_as_canonical_transaction(tmp_path: Path) -> No
                 "Symbol": "SEC-1",
                 "Currency": "USD",
                 "Units": 3,
+                "Price": 100,
+                "Commission Amount": -3,
                 "Net Amount": -303,
             }
         ],
@@ -133,9 +141,15 @@ def test_duplicate_correction_and_rollback_reactivate_prior_version(
     service.commit(duplicate_preview)
     assert service.rebuild().holdings.iloc[0]["quantity"] == 1
 
-    correction_path = _write(
-        tmp_path / "correction.csv", [_trade(settlement=-202, quantity=2)]
-    )
+    corrected = _trade(settlement=-202, quantity=2)
+    corrected["predecessor_content_hash"] = service.rebuild().active_events.iloc[0][
+        "content_hash"
+    ]
+    corrected["predecessor_revision"] = service.rebuild().active_events.iloc[0][
+        "source_revision"
+    ]
+    corrected["source_revision"] = int(corrected["predecessor_revision"]) + 1
+    correction_path = _write(tmp_path / "correction.csv", [corrected])
     correction_preview = service.preview(correction_path)
     assert correction_preview.frame.iloc[0]["staging_status"] == "correction"
     correction = service.commit(correction_preview)
@@ -181,7 +195,8 @@ def test_ambiguous_unbalanced_and_bad_bond_rows_remain_quarantined(
     rebuilt = service.rebuild()
     assert rebuilt.holdings.empty
     assert len(rebuilt.quarantined) == 3
-    assert rebuilt.balanced is False
+    assert rebuilt.balanced is True
+    assert rebuilt.quarantined.shape[0] == 3
 
 
 def test_source_mutation_and_preview_mutation_are_rejected(tmp_path: Path) -> None:
@@ -259,11 +274,23 @@ def test_xlsx_canonical_template_supports_all_portfolio_evidence_types(
         _trade(),
         {
             "record_type": "transfer",
-            "source_id": "transfer",
+            "source_id": "transfer-out",
             "occurred_at": "2024-01-02T00:00:00Z",
             "account_id": "A1",
             "currency": "USD",
+            "cash_amount": -25,
+            "transfer_id": "transfer-1",
+            "transfer_leg": "debit",
+        },
+        {
+            "record_type": "transfer",
+            "source_id": "transfer-in",
+            "occurred_at": "2024-01-02T00:00:00Z",
+            "account_id": "A2",
+            "currency": "USD",
             "cash_amount": 25,
+            "transfer_id": "transfer-1",
+            "transfer_leg": "credit",
         },
         {
             "record_type": "fee",
@@ -315,8 +342,9 @@ def test_xlsx_canonical_template_supports_all_portfolio_evidence_types(
             "occurred_at": "2024-01-04T00:00:00Z",
             "account_id": "A1",
             "instrument_id": "SEC-1",
-            "quantity": 1,
             "corporate_action_type": "split",
+            "ratio_numerator": 2,
+            "ratio_denominator": 1,
         },
     ]
     path = _write(tmp_path / "canonical.csv", rows)
@@ -329,11 +357,13 @@ def test_xlsx_canonical_template_supports_all_portfolio_evidence_types(
     assert rebuilt.holdings.iloc[0].to_dict() == {
         "account_id": "A1",
         "instrument_id": "SEC-1",
-        "quantity": 4.0,
+        "quantity": 2.0,
     }
-    assert dict(
-        zip(rebuilt.cash["currency"], rebuilt.cash["cash_balance"], strict=True)
-    ) == {"EUR": 90.0, "USD": 824.0}
+    assert rebuilt.cash.to_dict(orient="records") == [
+        {"account_id": "A1", "currency": "EUR", "cash_balance": 90.0},
+        {"account_id": "A1", "currency": "USD", "cash_balance": 774.0},
+        {"account_id": "A2", "currency": "USD", "cash_balance": 25.0},
+    ]
     workbook = service.export_canonical(tmp_path / "canonical.xlsx")
     other = tmp_path / "xlsx-roundtrip"
     other.mkdir()
@@ -344,6 +374,10 @@ def test_xlsx_canonical_template_supports_all_portfolio_evidence_types(
     assert set(xlsx_preview.frame["record_type"]) == {
         row["record_type"] for row in rows
     }
+    assert set(xlsx_preview.frame["staging_status"]) == {"accepted"}
+    xlsx_service.commit(xlsx_preview)
+    pd.testing.assert_frame_equal(rebuilt.holdings, xlsx_service.rebuild().holdings)
+    pd.testing.assert_frame_equal(rebuilt.cash, xlsx_service.rebuild().cash)
 
 
 def test_concurrent_disjoint_commits_are_serialized(tmp_path: Path) -> None:

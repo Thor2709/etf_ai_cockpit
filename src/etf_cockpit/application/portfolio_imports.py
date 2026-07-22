@@ -30,8 +30,22 @@ class PortfolioImportApplication:
     def __init__(self, root: Path):
         self._store = PortfolioImportStore(root)
 
-    def preview(self, path: Path, *, source_format: str = "canonical") -> ImportPreview:
-        return self._store.preview(path, source_format=source_format)
+    def preview(
+        self,
+        path: Path,
+        *,
+        source_format: str = "canonical",
+        numeric_locale: str = "en_US",
+        source_system: str | None = None,
+        provider_id: str | None = None,
+    ) -> ImportPreview:
+        return self._store.preview(
+            path,
+            source_format=source_format,
+            numeric_locale=numeric_locale,
+            source_system=source_system,
+            provider_id=provider_id,
+        )
 
     def commit(self, preview: ImportPreview | str) -> PortfolioCommitResult:
         return self._store.commit(preview)
@@ -45,11 +59,33 @@ class PortfolioImportApplication:
     def export_canonical(self, destination: Path) -> Path:
         return self._store.export_canonical(destination)
 
+    def apply_mapping(
+        self,
+        preview_id: str,
+        *,
+        source_identity: str,
+        canonical_instrument_id: str,
+        reviewer: str,
+        reason: str,
+    ) -> ImportPreview:
+        return self._store.apply_mapping(
+            preview_id,
+            source_identity=source_identity,
+            canonical_instrument_id=canonical_instrument_id,
+            reviewer=reviewer,
+            reason=reason,
+        )
+
     def summary(self) -> PortfolioImportSummary:
         rebuilt = self.reconcile()
         batches = self._store.batches()
+        status = (
+            "unbalanced"
+            if not rebuilt.balanced
+            else ("manual_review" if not rebuilt.quarantined.empty else "balanced")
+        )
         return PortfolioImportSummary(
-            status="balanced" if rebuilt.balanced else "manual_review",
+            status=status,
             batches=len(batches),
             active_rows=len(rebuilt.active_events),
             quarantined_rows=len(rebuilt.quarantined),
