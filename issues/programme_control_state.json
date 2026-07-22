@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "040447418c401112c6d6c74c3e2527d62054654f",
+    "generation_base_commit": "55e08b4ce116dd0ca71a9e5971bbae1877b417a6",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4167,12 +4167,17 @@
           "state": "complete"
         },
         "ISSUE-0083": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B03/ISSUE-0083/point-in-time-classification-context-v2",
+          "evidence_references": [
+            "PR #475 merged ISSUE-0083 classification product as 7aab4f2775e35b0af248c61f8b95930d6c50b781 after protected release evidence",
+            "PRs #476 and #477 converged ISSUE-0083; final merged convergence ad783e517be68882934300df73106891ae6e3c05",
+            "src/etf_cockpit/data/classification.py InstrumentContextV2 and ClassificationStore supply bond type, issuer sector, seniority, secured, coupon, rating, maturity and duration contexts",
+            "tests/test_classification.py and affected score/history/UI regressions prove point-in-time revisions and fail-closed consumer invalidation"
+          ],
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex root orchestrator and independent reviewer",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         },
         "ISSUE-0085": {
           "contract_reference": "",
@@ -4219,9 +4224,38 @@
           "reviewed_date": "2026-07-22",
           "reviewer": "Codex root orchestrator and independent reviewer",
           "verified_commit": "88b862927a78b61f2b2a9f13f096d1e7f81ce57f"
+        },
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0083",
+            "evidence": {
+              "contract_reference": "B03/ISSUE-0083/point-in-time-classification-context-v2",
+              "evidence_references": [
+                "PR #475 merged ISSUE-0083 classification product as 7aab4f2775e35b0af248c61f8b95930d6c50b781 after protected release evidence",
+                "PRs #476 and #477 converged ISSUE-0083; final merged convergence ad783e517be68882934300df73106891ae6e3c05",
+                "src/etf_cockpit/data/classification.py InstrumentContextV2 and ClassificationStore supply bond type, issuer sector, seniority, secured, coupon, rating, maturity and duration contexts",
+                "tests/test_classification.py and affected score/history/UI regressions prove point-in-time revisions and fail-closed consumer invalidation"
+              ],
+              "reviewed_date": "2026-07-22",
+              "reviewer": "Codex root orchestrator and independent reviewer",
+              "schema_version": "1.0",
+              "state": "complete"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "PR #475 merged ISSUE-0083 classification product as 7aab4f2775e35b0af248c61f8b95930d6c50b781 after protected release evidence",
+            "PRs #476 and #477 converged ISSUE-0083; final merged convergence ad783e517be68882934300df73106891ae6e3c05",
+            "src/etf_cockpit/data/classification.py InstrumentContextV2 and ClassificationStore supply bond type, issuer sector, seniority, secured, coupon, rating, maturity and duration contexts",
+            "tests/test_classification.py and affected score/history/UI regressions prove point-in-time revisions and fail-closed consumer invalidation"
+          ],
+          "review_reference": "B03 ISSUE-0153 classification dependency against merged point-in-time classification context",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex root orchestrator and independent reviewer",
+          "verified_commit": "ad783e517be68882934300df73106891ae6e3c05"
         }
       ],
-      "verified_commit": "88b862927a78b61f2b2a9f13f096d1e7f81ce57f",
+      "verified_commit": "ad783e517be68882934300df73106891ae6e3c05",
       "verified_date": "2026-07-22"
     },
     "ISSUE-0154": {
