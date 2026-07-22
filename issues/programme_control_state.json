@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "7ce4fa53b1c5b8b6718b23766913cd9afd1bc2f9",
+    "generation_base_commit": "5a6766c3a7520299cc2c058455ddcd7b2993dc8e",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4163,6 +4163,18 @@
           "reviewed_date": "2026-07-22",
           "reviewer": "Codex root orchestrator and independent reviewer",
           "status": "ready"
+        },
+        {
+          "evidence_references": [
+            "PR #502 merged the independently reviewed ISSUE-0153 planned-to-ready transition as 5a6766c3a7520299cc2c058455ddcd7b2993dc8e",
+            "GitHub plan b1bca95d822019f7db568900fd61f49a46ad5a9617ecbeadba8e9274b823f8f8 applied and verified remote #432 open/ready with execution_allowed=false",
+            "Final GitHub dry-run plan 1d4df855195795e3e7f467ab113019b643bd0e7da65da2e06e6e5a6ec9023f43 contained zero actions",
+            "Implementation remains bounded to ISSUE-0153 terms, schedules, point-in-time persistence and read-only UI; unsupported structures fail closed and no broker/order authority is granted"
+          ],
+          "review_reference": "B03 ISSUE-0153 bounded implementation hand-off after ready convergence",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex root orchestrator and independent reviewer",
+          "status": "in_progress"
         }
       ],
       "dependency_edge_evidence": {
@@ -4207,11 +4219,11 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "ready",
+      "programme_status": "in_progress",
       "status_transition": {
-        "from": "planned",
-        "review_reference": "B03 ISSUE-0153 dependency-readiness review after all three blocking interfaces converged",
-        "to": "ready"
+        "from": "ready",
+        "review_reference": "B03 ISSUE-0153 bounded implementation hand-off after ready convergence",
+        "to": "in_progress"
       },
       "transition_history": [
         {
@@ -4315,9 +4327,24 @@
           "reviewer": "Codex root orchestrator and independent reviewer",
           "to": "ready",
           "verified_commit": "7ce4fa53b1c5b8b6718b23766913cd9afd1bc2f9"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #502 merged the independently reviewed ISSUE-0153 planned-to-ready transition as 5a6766c3a7520299cc2c058455ddcd7b2993dc8e",
+            "GitHub plan b1bca95d822019f7db568900fd61f49a46ad5a9617ecbeadba8e9274b823f8f8 applied and verified remote #432 open/ready with execution_allowed=false",
+            "Final GitHub dry-run plan 1d4df855195795e3e7f467ab113019b643bd0e7da65da2e06e6e5a6ec9023f43 contained zero actions",
+            "Implementation remains bounded to ISSUE-0153 terms, schedules, point-in-time persistence and read-only UI; unsupported structures fail closed and no broker/order authority is granted"
+          ],
+          "from": "ready",
+          "review_reference": "B03 ISSUE-0153 bounded implementation hand-off after ready convergence",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex root orchestrator and independent reviewer",
+          "to": "in_progress",
+          "verified_commit": "5a6766c3a7520299cc2c058455ddcd7b2993dc8e"
         }
       ],
-      "verified_commit": "7ce4fa53b1c5b8b6718b23766913cd9afd1bc2f9",
+      "verified_commit": "5a6766c3a7520299cc2c058455ddcd7b2993dc8e",
       "verified_date": "2026-07-22"
     },
     "ISSUE-0154": {
