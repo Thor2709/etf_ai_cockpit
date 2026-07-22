@@ -1704,9 +1704,9 @@
         },
         {
           "dependency_id": "ISSUE-0082",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
+          "evidence_state": "complete",
+          "reason_code": "EDGE_EVIDENCE_COMPLETE",
+          "resolved": true
         }
       ],
       "execution_allowed": false,
@@ -5156,5 +5156,5 @@
     "ISSUE-0062"
   ],
   "schema_version": "1.0",
-  "source_registry_sha256": "f5227d4978d5d077ad2b018589ace257838ac608b555098545cc1d13b9507f5a"
+  "source_registry_sha256": "1fca73ba05afba7937597794b12b745b53d2c558c07d0c68f4fd0b8502b41748"
 }
