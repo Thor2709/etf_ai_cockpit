@@ -13,3 +13,4 @@ rich>=13.7
 joblib>=1.4
 scikit-learn>=1.5
 yfinance>=1.5
+exchange-calendars>=4.13,<5

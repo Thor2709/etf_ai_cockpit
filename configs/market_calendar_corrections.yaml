@@ -1,0 +1,5 @@
+schema_version: market-calendar-corrections.v1
+ledger_version: "2026-07-22"
+# Append immutable, source-linked correction revisions here. Empty is a valid
+# certified baseline; undocumented closures or guessed sessions are forbidden.
+corrections: []

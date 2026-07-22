@@ -8,12 +8,15 @@ historical market events only; it does not fetch data or talk to a broker.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import date, datetime, time
+from dataclasses import dataclass, field
+from datetime import date, datetime, time, timezone
 import hashlib
 import json
 import math
 from typing import Literal, TypeAlias
+from zoneinfo import ZoneInfo
+
+from etf_cockpit.data.market_calendar import ClockContext, ListingCalendarEvidence, MarketCalendarService
 
 
 OrderSide: TypeAlias = Literal["buy", "sell"]
@@ -65,6 +68,40 @@ class SessionCalendar:
     def require_session(self, timestamp: datetime, *, event_name: str) -> None:
         if not self.is_session(timestamp):
             raise EventReplayError(f"{event_name} is outside a valid market session: {timestamp.isoformat()}")
+
+
+@dataclass(frozen=True)
+class CertifiedSessionCalendar:
+    """Backtest adapter using the canonical identity-certified market clock."""
+
+    listing: ListingCalendarEvidence
+    service: MarketCalendarService = field(default_factory=MarketCalendarService)
+    knowledge_cutoff: datetime | None = None
+
+    def is_session(self, timestamp: datetime) -> bool:
+        local = _as_timestamp(timestamp).replace(tzinfo=ZoneInfo(self.listing.timezone))
+        decision = local.astimezone(timezone.utc)
+        cutoff = self.knowledge_cutoff or decision
+        if cutoff.tzinfo is None:
+            raise EventReplayError("certified calendar knowledge_cutoff must be timezone-aware")
+        try:
+            state = self.service.market_state(
+                self.listing,
+                ClockContext.at(decision, knowledge_cutoff=cutoff),
+            )
+        except ValueError as exc:
+            raise EventReplayError(f"certified market calendar is unavailable: {exc}") from exc
+        return state.certification == "certified" and state.phase in {
+            "open",
+            "opening_auction",
+            "closing_auction",
+        }
+
+    def require_session(self, timestamp: datetime, *, event_name: str) -> None:
+        if not self.is_session(timestamp):
+            raise EventReplayError(
+                f"{event_name} is outside an identity-certified market session: {timestamp.isoformat()}"
+            )
 
 
 @dataclass(frozen=True)
@@ -294,7 +331,7 @@ class EventDrivenBacktest:
 
     execution_allowed: Literal[False] = False
 
-    def __init__(self, *, calendar: SessionCalendar | None = None) -> None:
+    def __init__(self, *, calendar: SessionCalendar | CertifiedSessionCalendar | None = None) -> None:
         self.calendar = calendar or SessionCalendar()
 
     def replay(self, events: list[ReplayInput] | tuple[ReplayInput, ...]) -> ReplayResult:
@@ -445,6 +482,7 @@ def event_engine_status() -> dict[str, object]:
 __all__ = [
     "AcknowledgementEvent",
     "CancelEvent",
+    "CertifiedSessionCalendar",
     "EventDrivenBacktest",
     "EventReplayError",
     "ExpiryEvent",

@@ -16,6 +16,7 @@ joblib==1.5.3
 cryptography==49.0.0
 scikit-learn==1.9.0
 yfinance==1.5.1
+exchange-calendars==4.13.2
 pytest==9.1.1
 hypothesis==6.156.6
 ruff==0.15.20
