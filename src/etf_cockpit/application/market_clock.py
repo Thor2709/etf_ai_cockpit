@@ -53,14 +53,46 @@ def build_market_clock_diagnostics(
                 "execution_allowed": False,
             }
         )
-        if observed_at is not None and state.certification == "certified":
-            staleness = calendar_service.assess_staleness(
-                listing,
-                observed_at=_instant(observed_at),
-                assessed_at=decision,
-                maximum_expected_sessions=maximum_expected_sessions,
+        try:
+            settlement = calendar_service.settlement_from_identity_projection(
+                identity_projection
             )
-            payload["staleness"] = staleness.as_dict()
+        except MarketClockError as exc:
+            payload["settlement_calendar"] = {
+                "status": "unavailable",
+                "reason_code": "declared_settlement_calendar_unavailable",
+                "message": str(exc),
+                "execution_allowed": False,
+            }
+        else:
+            payload["settlement_calendar"] = {
+                "status": "available",
+                "settlement_calendar_id": settlement.settlement_calendar_id,
+                "calendar_id": settlement.calendar_id,
+                "timezone": settlement.timezone,
+                "source_id": settlement.source_id,
+                "source_version": settlement.source_version,
+                "lineage_hash": settlement.lineage_hash,
+                "execution_allowed": False,
+            }
+        if observed_at is not None and state.certification == "certified":
+            try:
+                staleness = calendar_service.assess_staleness(
+                    listing,
+                    observed_at=_instant(observed_at),
+                    assessed_at=decision,
+                    maximum_expected_sessions=maximum_expected_sessions,
+                )
+            except MarketClockError as exc:
+                payload["staleness"] = {
+                    "certification": "unavailable",
+                    "status": "unknown",
+                    "reason_code": "observation_cutoff_invalid",
+                    "message": str(exc),
+                    "execution_allowed": False,
+                }
+            else:
+                payload["staleness"] = staleness.as_dict()
         else:
             payload["staleness"] = {
                 "certification": "unavailable",

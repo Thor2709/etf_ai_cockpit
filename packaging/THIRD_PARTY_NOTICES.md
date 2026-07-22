@@ -14,7 +14,7 @@ reviewer can compare the package against the signed release manifest:
 | pandas / NumPy / PyArrow / DuckDB | Package metadata and SBOM component |
 | Plotly / Pydantic / PyYAML / python-dotenv | Package metadata and SBOM component |
 | requests / Rich / joblib / scikit-learn / yfinance | Package metadata and SBOM component |
-| exchange-calendars | MIT; audited exchange-session/holiday dependency pinned in the release lock, used locally without runtime network access |
+| exchange-calendars | Apache-2.0; audited exchange-session/holiday dependency pinned in the release lock, used locally without runtime network access |
 | cryptography | Fernet/PBKDF2 backup encryption; package metadata and SBOM component |
 | pytest / Hypothesis / Ruff / mypy / pytest-timeout / pip-audit | Release-gate tooling; package metadata and SBOM component |
 

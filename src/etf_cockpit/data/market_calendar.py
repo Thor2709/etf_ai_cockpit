@@ -56,6 +56,7 @@ class ListingCalendarEvidence:
     """Immutable MIC/calendar/timezone link supplied by the identity master."""
 
     listing_id: str
+    instrument_id: str
     mic: str
     calendar_id: str
     timezone: str
@@ -72,6 +73,7 @@ class ListingCalendarEvidence:
     def __post_init__(self) -> None:
         for field_name in (
             "listing_id",
+            "instrument_id",
             "mic",
             "calendar_id",
             "timezone",
@@ -97,6 +99,59 @@ class ListingCalendarEvidence:
         except ZoneInfoNotFoundError as exc:
             raise MarketClockError(
                 f"listing calendar timezone is unknown: {self.timezone}"
+            ) from exc
+
+    @property
+    def lineage_hash(self) -> str:
+        return _hash(asdict(self))
+
+
+@dataclass(frozen=True)
+class SettlementCalendarEvidence:
+    """Distinct immutable settlement-calendar evidence; never inferred from trading hours."""
+
+    settlement_calendar_id: str
+    instrument_id: str
+    calendar_id: str
+    timezone: str
+    source_id: str
+    source_checksum: str
+    valid_from: date
+    known_at: datetime
+    source_version: str = "1"
+    valid_to: date | None = None
+    conflict_ids: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "settlement_calendar_id",
+            "instrument_id",
+            "calendar_id",
+            "timezone",
+            "source_id",
+            "source_version",
+        ):
+            if not str(getattr(self, field_name)).strip():
+                raise MarketClockError(f"settlement calendar {field_name} is required")
+        if self.known_at.tzinfo is None:
+            raise MarketClockError(
+                "settlement calendar known_at must be timezone-aware"
+            )
+        if not _SHA256.fullmatch(self.source_checksum.casefold()):
+            raise MarketClockError(
+                "settlement calendar source_checksum must be a SHA-256 digest"
+            )
+        if self.valid_to is not None and self.valid_to <= self.valid_from:
+            raise MarketClockError(
+                "settlement calendar valid_to must follow valid_from"
+            )
+        if self.conflict_ids:
+            raise MarketClockError("settlement calendar evidence must be conflict-free")
+        try:
+            ZoneInfo(self.timezone)
+        except ZoneInfoNotFoundError as exc:
+            raise MarketClockError(
+                f"settlement calendar timezone is unknown: {self.timezone}"
             ) from exc
 
     @property
@@ -154,11 +209,14 @@ class CalendarCorrection:
     reason: str
     source_id: str
     source_checksum: str
+    timezone: str
     valid_from: date
     known_at: datetime
     source_version: str = "1"
     open_time: time | None = None
     close_time: time | None = None
+    break_start: time | None = None
+    break_end: time | None = None
 
     def __post_init__(self) -> None:
         if self.kind not in {"exceptional_closure", "modified_session"}:
@@ -192,6 +250,40 @@ class CalendarCorrection:
             raise MarketClockError(
                 "modified-session corrections require open_time and close_time"
             )
+        try:
+            zone = ZoneInfo(self.timezone)
+        except ZoneInfoNotFoundError as exc:
+            raise MarketClockError(
+                f"calendar correction timezone is unknown: {self.timezone}"
+            ) from exc
+        if self.kind == "modified_session":
+            assert self.open_time is not None and self.close_time is not None
+            if self.open_time >= self.close_time:
+                raise MarketClockError(
+                    "modified-session correction requires open_time < close_time"
+                )
+            if (self.break_start is None) != (self.break_end is None):
+                raise MarketClockError(
+                    "modified-session correction requires both break times or neither"
+                )
+            if (
+                self.break_start is not None
+                and self.break_end is not None
+                and not (
+                    self.open_time < self.break_start < self.break_end < self.close_time
+                )
+            ):
+                raise MarketClockError(
+                    "modified-session correction break must be ordered within the session"
+                )
+            for value in (
+                self.open_time,
+                self.close_time,
+                self.break_start,
+                self.break_end,
+            ):
+                if value is not None:
+                    _localise_strict(self.session_date, value, zone)
 
     @classmethod
     def exceptional_closure(cls, **values: Any) -> CalendarCorrection:
@@ -289,6 +381,8 @@ class MarketCalendarService:
         corrections = self._active_corrections(
             listing.mic, local_date, context.knowledge_cutoff
         )
+        if any(item.timezone != listing.timezone for item in corrections):
+            return self._unavailable_state(listing, "correction_timezone_mismatch")
         closure = next(
             (item for item in corrections if item.kind == "exceptional_closure"), None
         )
@@ -324,14 +418,27 @@ class MarketCalendarService:
         if modified is not None:
             zone = ZoneInfo(listing.timezone)
             assert modified.open_time is not None and modified.close_time is not None
-            session_open = datetime.combine(
+            if modified.timezone != listing.timezone:
+                return self._unavailable_state(listing, "correction_timezone_mismatch")
+            session_open = _localise_strict(
                 local_date, modified.open_time, zone
             ).astimezone(UTC)
-            session_close = datetime.combine(
+            session_close = _localise_strict(
                 local_date, modified.close_time, zone
             ).astimezone(UTC)
-        break_start = _optional_utc_datetime(row.get("break_start"))
-        break_end = _optional_utc_datetime(row.get("break_end"))
+            break_start = (
+                _localise_strict(local_date, modified.break_start, zone).astimezone(UTC)
+                if modified.break_start is not None
+                else None
+            )
+            break_end = (
+                _localise_strict(local_date, modified.break_end, zone).astimezone(UTC)
+                if modified.break_end is not None
+                else None
+            )
+        else:
+            break_start = _optional_utc_datetime(row.get("break_start"))
+            break_end = _optional_utc_datetime(row.get("break_end"))
         early_close = (
             bool(local_date in {item.date() for item in calendar.early_closes})
             or modified is not None
@@ -439,28 +546,75 @@ class MarketCalendarService:
         zone = ZoneInfo(listing.timezone)
         start = observed_at.astimezone(zone).date()
         end = assessed_at.astimezone(zone).date()
-        sessions = [
-            item.date() for item in calendar.sessions_in_range(str(start), str(end))
-        ]
         cutoff = context.knowledge_cutoff
-        active_closures = {
-            day
-            for day in sessions
-            if any(
-                item.kind == "exceptional_closure"
-                for item in self._active_corrections(listing.mic, day, cutoff)
+        schedule = calendar.schedule
+        schedule = schedule[
+            (schedule.index >= pd.Timestamp(start))
+            & (schedule.index <= pd.Timestamp(end))
+        ]
+        close_instants: list[datetime] = []
+        correction_ids: list[str] = []
+        for session_label, row in schedule.iterrows():
+            session_date = pd.Timestamp(session_label).date()
+            corrections = self._active_corrections(listing.mic, session_date, cutoff)
+            correction_ids.extend(item.correction_id for item in corrections)
+            if any(item.timezone != listing.timezone for item in corrections):
+                lineage = _hash(
+                    {
+                        "listing": listing.lineage_hash,
+                        "reason": "correction_timezone_mismatch",
+                        "corrections": [item.correction_id for item in corrections],
+                    }
+                )
+                return StalenessAssessment(
+                    "unavailable",
+                    "unknown",
+                    None,
+                    maximum_expected_sessions,
+                    "correction_timezone_mismatch",
+                    lineage,
+                )
+            if any(item.kind == "exceptional_closure" for item in corrections):
+                continue
+            modified = next(
+                (item for item in corrections if item.kind == "modified_session"), None
             )
-        }
+            if modified is None:
+                close_instants.append(_utc_datetime(row["close"]))
+                continue
+            if modified.timezone != listing.timezone or modified.close_time is None:
+                lineage = _hash(
+                    {
+                        "listing": listing.lineage_hash,
+                        "reason": "correction_timezone_mismatch",
+                        "correction": modified.correction_id,
+                    }
+                )
+                return StalenessAssessment(
+                    "unavailable",
+                    "unknown",
+                    None,
+                    maximum_expected_sessions,
+                    "correction_timezone_mismatch",
+                    lineage,
+                )
+            close_instants.append(
+                _localise_strict(session_date, modified.close_time, zone).astimezone(
+                    UTC
+                )
+            )
+        observed_utc = observed_at.astimezone(UTC)
+        assessed_utc = assessed_at.astimezone(UTC)
         elapsed = sum(
-            1 for day in sessions if day > start and day not in active_closures
+            1 for close in close_instants if observed_utc < close <= assessed_utc
         )
         status = "fresh" if elapsed <= maximum_expected_sessions else "stale"
         lineage = _hash(
             {
                 "contract": MARKET_CALENDAR_CONTRACT,
                 "listing": listing.lineage_hash,
-                "sessions": [day.isoformat() for day in sessions],
-                "closures": sorted(day.isoformat() for day in active_closures),
+                "session_closes": [value.isoformat() for value in close_instants],
+                "correction_ids": sorted(correction_ids),
                 "observed_at": observed_at,
                 "assessed_at": assessed_at,
                 "maximum": maximum_expected_sessions,
@@ -530,23 +684,122 @@ class MarketCalendarService:
 
     def settlement_date(
         self,
-        listing: ListingCalendarEvidence,
+        settlement: SettlementCalendarEvidence,
         trade_date: date,
         settlement_business_days: int,
         *,
         knowledge_cutoff: datetime | None = None,
     ) -> date:
+        if not isinstance(settlement, SettlementCalendarEvidence):
+            raise MarketClockError("distinct settlement-calendar evidence is required")
         if settlement_business_days < 0:
             raise MarketClockError("settlement_business_days cannot be negative")
-        candidate = self.adjust_business_day(
-            listing,
+        candidate = self.adjust_settlement_business_day(
+            settlement,
             trade_date,
             BusinessDayConvention.FOLLOWING,
             knowledge_cutoff=knowledge_cutoff,
         )
         for _ in range(settlement_business_days):
-            candidate = self._walk_business_days(
-                listing, candidate, 1, knowledge_cutoff
+            candidate = self._walk_settlement_business_days(
+                settlement, candidate, 1, knowledge_cutoff
+            )
+        return candidate
+
+    def is_settlement_business_day(
+        self,
+        settlement: SettlementCalendarEvidence,
+        value: date,
+        *,
+        knowledge_cutoff: datetime | None = None,
+    ) -> bool:
+        if not isinstance(settlement, SettlementCalendarEvidence):
+            raise MarketClockError("distinct settlement-calendar evidence is required")
+        cutoff = knowledge_cutoff or datetime.combine(value, time.max, UTC)
+        if self._settlement_reason(settlement, value, cutoff) is not None:
+            raise MarketClockError("settlement calendar is uncertified")
+        calendar = self._named_calendar(
+            settlement.calendar_id, settlement.timezone, value
+        )
+        if calendar is None:
+            raise MarketClockError("settlement calendar is unknown")
+        return bool(calendar.is_session(str(value)))
+
+    def adjust_settlement_business_day(
+        self,
+        settlement: SettlementCalendarEvidence,
+        value: date,
+        convention: BusinessDayConvention,
+        *,
+        knowledge_cutoff: datetime | None = None,
+    ) -> date:
+        if not isinstance(settlement, SettlementCalendarEvidence):
+            raise MarketClockError("distinct settlement-calendar evidence is required")
+        convention = BusinessDayConvention(convention)
+        if (
+            convention == BusinessDayConvention.UNADJUSTED
+            or self.is_settlement_business_day(
+                settlement, value, knowledge_cutoff=knowledge_cutoff
+            )
+        ):
+            return value
+        forward = convention in {
+            BusinessDayConvention.FOLLOWING,
+            BusinessDayConvention.MODIFIED_FOLLOWING,
+        }
+        candidate = self._walk_settlement_business_days(
+            settlement, value, 1 if forward else -1, knowledge_cutoff
+        )
+        if (
+            convention == BusinessDayConvention.MODIFIED_FOLLOWING
+            and candidate.month != value.month
+        ):
+            candidate = self._walk_settlement_business_days(
+                settlement, value, -1, knowledge_cutoff
+            )
+        if (
+            convention == BusinessDayConvention.MODIFIED_PRECEDING
+            and candidate.month != value.month
+        ):
+            candidate = self._walk_settlement_business_days(
+                settlement, value, 1, knowledge_cutoff
+            )
+        return candidate
+
+    def coupon_date(
+        self,
+        settlement: SettlementCalendarEvidence,
+        contractual_date: date,
+        convention: BusinessDayConvention,
+        *,
+        knowledge_cutoff: datetime | None = None,
+    ) -> date:
+        return self.adjust_settlement_business_day(
+            settlement,
+            contractual_date,
+            convention,
+            knowledge_cutoff=knowledge_cutoff,
+        )
+
+    def ex_date(
+        self,
+        settlement: SettlementCalendarEvidence,
+        entitlement_date: date,
+        business_days_before: int,
+        *,
+        knowledge_cutoff: datetime | None = None,
+    ) -> date:
+        if business_days_before < 0:
+            raise MarketClockError("business_days_before cannot be negative")
+        candidate = self.adjust_settlement_business_day(
+            settlement,
+            entitlement_date,
+            BusinessDayConvention.FOLLOWING,
+            knowledge_cutoff=knowledge_cutoff,
+        )
+        for _ in range(business_days_before):
+            candidate = self._walk_settlement_business_days(
+                settlement, candidate, -1, knowledge_cutoff
             )
         return candidate
 
@@ -569,8 +822,14 @@ class MarketCalendarService:
                 - min(start.day, 30)
             ) / 360.0
         if convention == DayCountConvention.THIRTY_360_US:
-            d1 = 30 if start.day == 31 else start.day
-            d2 = 30 if end.day == 31 and d1 == 30 else end.day
+            start_last_feb = _is_last_day_of_february(start)
+            end_last_feb = _is_last_day_of_february(end)
+            d1 = 30 if start.day == 31 or start_last_feb else start.day
+            d2 = (
+                30
+                if (end.day == 31 and d1 == 30) or (end_last_feb and start_last_feb)
+                else end.day
+            )
             return (
                 (end.year - start.year) * 360 + (end.month - start.month) * 30 + d2 - d1
             ) / 360.0
@@ -641,6 +900,7 @@ class MarketCalendarService:
         valid_from = _parse_date(effective_raw)
         return ListingCalendarEvidence(
             listing_id=str(item.get("object_id", "")),
+            instrument_id=str(projection.get("instrument_id", "")),
             mic=str(fields["mic"]).upper(),
             calendar_id=str(fields["calendar_id"]),
             timezone=str(fields["timezone"]),
@@ -661,6 +921,77 @@ class MarketCalendarService:
             ),
         )
 
+    @staticmethod
+    def settlement_from_identity_projection(
+        projection: Mapping[str, object],
+    ) -> SettlementCalendarEvidence:
+        if projection.get("status") != "available" or projection.get(
+            "identity_conflict_ids"
+        ):
+            raise MarketClockError("identity projection is unavailable or conflicted")
+        objects = projection.get("identity_objects")
+        if not isinstance(objects, list):
+            raise MarketClockError("identity projection has no immutable objects")
+        candidates: list[
+            tuple[Mapping[str, object], Mapping[str, object], str, str]
+        ] = []
+        for item in objects:
+            if not isinstance(item, Mapping) or not isinstance(
+                item.get("fields"), Mapping
+            ):
+                continue
+            fields = item["fields"]
+            assert isinstance(fields, Mapping)
+            object_type = str(item.get("object_type", "")).casefold()
+            if object_type == "settlement_calendar" and all(
+                str(fields.get(key, "")).strip() for key in ("calendar_id", "timezone")
+            ):
+                candidates.append((item, fields, "calendar_id", "timezone"))
+            elif object_type in {"listing", "quotation"} and all(
+                str(fields.get(key, "")).strip()
+                for key in ("settlement_calendar_id", "settlement_timezone")
+            ):
+                candidates.append(
+                    (item, fields, "settlement_calendar_id", "settlement_timezone")
+                )
+        if len(candidates) != 1:
+            raise MarketClockError(
+                "identity projection must resolve exactly one declared settlement calendar"
+            )
+        item, fields, calendar_key, timezone_key = candidates[0]
+        known_raw = projection.get("identity_decision_time")
+        effective_raw = projection.get("identity_effective_at")
+        if known_raw in {None, "latest"} or effective_raw in {None, "latest"}:
+            raise MarketClockError(
+                "identity projection requires explicit effective and decision times"
+            )
+        source_payload = {
+            "instrument_id": projection.get("instrument_id"),
+            "object": item,
+            "decision_id": projection.get("identity_decision_id"),
+        }
+        raw_source_ids = item.get("source_ids")
+        source_ids = raw_source_ids if isinstance(raw_source_ids, (list, tuple)) else ()
+        return SettlementCalendarEvidence(
+            settlement_calendar_id=str(
+                fields.get("settlement_calendar_evidence_id")
+                or f"{item.get('object_id', '')}:settlement"
+            ),
+            instrument_id=str(projection.get("instrument_id", "")),
+            calendar_id=str(fields[calendar_key]),
+            timezone=str(fields[timezone_key]),
+            source_id="|".join(str(value) for value in source_ids if value)
+            or "identity-master:settlement-projection",
+            source_checksum=_hash(source_payload),
+            valid_from=_parse_date(effective_raw),
+            known_at=_parse_datetime(known_raw),
+            source_version=str(
+                fields.get("settlement_source_version")
+                or fields.get("source_version")
+                or "identity-master.v1"
+            ),
+        )
+
     def _walk_business_days(
         self,
         listing: ListingCalendarEvidence,
@@ -677,6 +1008,24 @@ class MarketCalendarService:
                 return candidate
         raise MarketClockError("no business day found within certified search horizon")
 
+    def _walk_settlement_business_days(
+        self,
+        settlement: SettlementCalendarEvidence,
+        value: date,
+        step: int,
+        knowledge_cutoff: datetime | None,
+    ) -> date:
+        candidate = value
+        for _ in range(370):
+            candidate += timedelta(days=step)
+            if self.is_settlement_business_day(
+                settlement, candidate, knowledge_cutoff=knowledge_cutoff
+            ):
+                return candidate
+        raise MarketClockError(
+            "no settlement business day found within certified search horizon"
+        )
+
     @staticmethod
     def _calendar(listing: ListingCalendarEvidence, around: date) -> Any | None:
         registered = xcals.get_calendar_names()
@@ -685,15 +1034,25 @@ class MarketCalendarService:
             or listing.calendar_id.upper() not in registered
         ):
             return None
+        return MarketCalendarService._named_calendar(
+            listing.calendar_id, listing.timezone, around
+        )
+
+    @staticmethod
+    def _named_calendar(
+        calendar_id: str, timezone_name: str, around: date
+    ) -> Any | None:
+        if calendar_id.upper() not in xcals.get_calendar_names():
+            return None
         try:
             calendar = xcals.get_calendar(
-                listing.calendar_id.upper(),
+                calendar_id.upper(),
                 start=f"{around.year - 3}-01-01",
                 end=f"{around.year + 3}-12-31",
             )
         except (KeyError, ValueError, TypeError):
             return None
-        return calendar if str(calendar.tz) == listing.timezone else None
+        return calendar if str(calendar.tz) == timezone_name else None
 
     @staticmethod
     def _identity_reason(
@@ -706,6 +1065,20 @@ class MarketCalendarService:
             listing.valid_to is not None and local_date >= listing.valid_to
         ):
             return "identity_calendar_not_effective"
+        return None
+
+    @staticmethod
+    def _settlement_reason(
+        settlement: SettlementCalendarEvidence,
+        value: date,
+        cutoff: datetime,
+    ) -> str | None:
+        if cutoff.astimezone(UTC) < settlement.known_at.astimezone(UTC):
+            return "settlement_calendar_not_known"
+        if value < settlement.valid_from or (
+            settlement.valid_to is not None and value >= settlement.valid_to
+        ):
+            return "settlement_calendar_not_effective"
         return None
 
     def _active_corrections(
@@ -742,23 +1115,19 @@ class MarketCalendarService:
             except (ValueError, KeyError):
                 return None
             local_date = candidate.astimezone(ZoneInfo(listing.timezone)).date()
-            if not any(
-                item.kind == "exceptional_closure"
-                for item in self._active_corrections(listing.mic, local_date, cutoff)
-            ):
+            active = self._active_corrections(listing.mic, local_date, cutoff)
+            if any(item.timezone != listing.timezone for item in active):
+                return None
+            if not any(item.kind == "exceptional_closure" for item in active):
                 modified = next(
-                    (
-                        item
-                        for item in self._active_corrections(
-                            listing.mic, local_date, cutoff
-                        )
-                        if item.kind == "modified_session"
-                    ),
+                    (item for item in active if item.kind == "modified_session"),
                     None,
                 )
                 if modified is not None:
                     assert modified.open_time is not None
-                    return datetime.combine(
+                    if modified.timezone != listing.timezone:
+                        return None
+                    return _localise_strict(
                         local_date, modified.open_time, ZoneInfo(listing.timezone)
                     ).astimezone(UTC)
                 return candidate
@@ -874,11 +1243,14 @@ def load_calendar_corrections(path: str | Path) -> tuple[CalendarCorrection, ...
                     reason=str(row["reason"]),
                     source_id=str(row["source_id"]),
                     source_checksum=str(row["source_checksum"]),
+                    timezone=str(row["timezone"]),
                     source_version=str(row["source_version"]),
                     valid_from=_parse_date(row["valid_from"]),
                     known_at=_parse_datetime(row["known_at"]),
                     open_time=_parse_time(row.get("open_time")),
                     close_time=_parse_time(row.get("close_time")),
+                    break_start=_parse_time(row.get("break_start")),
+                    break_end=_parse_time(row.get("break_end")),
                 )
             )
         except (KeyError, TypeError, ValueError) as exc:
@@ -908,6 +1280,28 @@ def _non_negative_int(value: object) -> int:
     return parsed
 
 
+def _localise_strict(value_date: date, value_time: time, zone: ZoneInfo) -> datetime:
+    """Reject wall times that are nonexistent or ambiguous at a DST transition."""
+
+    naive = datetime.combine(value_date, value_time.replace(tzinfo=None))
+    candidates: list[datetime] = []
+    for fold in (0, 1):
+        candidate = naive.replace(tzinfo=zone, fold=fold)
+        round_trip = candidate.astimezone(UTC).astimezone(zone).replace(tzinfo=None)
+        if round_trip == naive:
+            candidates.append(candidate)
+    offsets = {candidate.utcoffset() for candidate in candidates}
+    if not candidates:
+        raise MarketClockError(
+            "calendar correction contains a nonexistent DST wall time"
+        )
+    if len(offsets) > 1:
+        raise MarketClockError(
+            "calendar correction contains an ambiguous DST wall time"
+        )
+    return candidates[0]
+
+
 def _utc_datetime(value: object) -> datetime:
     parsed = pd.Timestamp(value)
     if parsed.tzinfo is None:
@@ -921,6 +1315,10 @@ def _optional_utc_datetime(value: object) -> datetime | None:
 
 def _is_leap(year: int) -> bool:
     return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+
+
+def _is_last_day_of_february(value: date) -> bool:
+    return value.month == 2 and (value + timedelta(days=1)).month == 3
 
 
 def _jsonable(value: object) -> Any:
@@ -952,6 +1350,7 @@ __all__ = [
     "MarketCalendarService",
     "MarketClockError",
     "MarketState",
+    "SettlementCalendarEvidence",
     "StalenessAssessment",
     "load_calendar_corrections",
 ]

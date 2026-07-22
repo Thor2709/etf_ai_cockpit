@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 import pytest
 from hypothesis import given, settings, strategies as st
@@ -14,6 +14,7 @@ from etf_cockpit.data.market_calendar import (
     ListingCalendarEvidence,
     MarketCalendarService,
     MarketClockError,
+    SettlementCalendarEvidence,
     load_calendar_corrections,
 )
 
@@ -30,6 +31,7 @@ def _listing(
 ) -> ListingCalendarEvidence:
     return ListingCalendarEvidence(
         listing_id=f"listing:{mic}",
+        instrument_id="ETF-A",
         mic=mic,
         calendar_id=calendar or mic,
         timezone=tz,
@@ -39,6 +41,21 @@ def _listing(
         known_at=datetime(2020, 1, 2, tzinfo=UTC),
         opening_auction_minutes=5 if auctions else 0,
         closing_auction_minutes=10 if auctions else 0,
+    )
+
+
+def _settlement(
+    *, calendar: str = "XNYS", tz: str = "America/New_York"
+) -> SettlementCalendarEvidence:
+    return SettlementCalendarEvidence(
+        settlement_calendar_id=f"settlement:{calendar}",
+        instrument_id="ETF-A",
+        calendar_id=calendar,
+        timezone=tz,
+        source_id="identity-master:test-settlement",
+        source_checksum="d" * 64,
+        valid_from=date(2020, 1, 1),
+        known_at=datetime(2020, 1, 2, tzinfo=UTC),
     )
 
 
@@ -114,6 +131,7 @@ def test_unknown_or_conflicting_identity_calendar_fails_closed() -> None:
     with pytest.raises(MarketClockError, match="conflict-free"):
         ListingCalendarEvidence(
             listing_id="listing:bad",
+            instrument_id="ETF-A",
             mic="XNYS",
             calendar_id="XNYS",
             timezone="America/New_York",
@@ -155,6 +173,71 @@ def test_staleness_counts_expected_sessions_not_weekdays_or_holidays() -> None:
     assert assessment.execution_allowed is False
 
 
+def test_staleness_counts_exact_session_closes_across_pre_and_post_open_cutoffs() -> (
+    None
+):
+    service = MarketCalendarService()
+    listing = _listing()
+    monday_preopen = service.assess_staleness(
+        listing,
+        observed_at=datetime(2024, 11, 29, 18, 0, tzinfo=UTC),
+        assessed_at=datetime(2024, 12, 2, 14, 0, tzinfo=UTC),
+        maximum_expected_sessions=0,
+    )
+    monday_postclose = service.assess_staleness(
+        listing,
+        observed_at=datetime(2024, 12, 2, 13, 0, tzinfo=UTC),
+        assessed_at=datetime(2024, 12, 2, 22, 0, tzinfo=UTC),
+        maximum_expected_sessions=0,
+    )
+    assert monday_preopen.expected_sessions_elapsed == 0
+    assert monday_preopen.status == "fresh"
+    assert monday_postclose.expected_sessions_elapsed == 1
+    assert monday_postclose.status == "stale"
+
+
+def test_staleness_uses_early_and_corrected_close_instants() -> None:
+    listing = _listing()
+    service = MarketCalendarService()
+    before_early_close = service.assess_staleness(
+        listing,
+        observed_at=datetime(2024, 11, 29, 17, 0, tzinfo=UTC),
+        assessed_at=datetime(2024, 11, 29, 17, 59, tzinfo=UTC),
+        maximum_expected_sessions=0,
+    )
+    at_early_close = service.assess_staleness(
+        listing,
+        observed_at=datetime(2024, 11, 29, 17, 0, tzinfo=UTC),
+        assessed_at=datetime(2024, 11, 29, 18, 0, tzinfo=UTC),
+        maximum_expected_sessions=0,
+    )
+    assert before_early_close.expected_sessions_elapsed == 0
+    assert at_early_close.expected_sessions_elapsed == 1
+
+    correction = CalendarCorrection(
+        correction_id="xnys-2024-12-02-v1",
+        mic="XNYS",
+        session_date=date(2024, 12, 2),
+        kind="modified_session",
+        revision=1,
+        reason="Corrected noon close fixture.",
+        source_id="exchange-notice:test",
+        source_checksum="f" * 64,
+        timezone="America/New_York",
+        valid_from=date(2024, 12, 2),
+        known_at=datetime(2024, 12, 1, tzinfo=UTC),
+        open_time=time(9, 30),
+        close_time=time(12, 0),
+    )
+    corrected = MarketCalendarService(corrections=(correction,)).assess_staleness(
+        listing,
+        observed_at=datetime(2024, 12, 2, 16, 0, tzinfo=UTC),
+        assessed_at=datetime(2024, 12, 2, 17, 0, tzinfo=UTC),
+        maximum_expected_sessions=0,
+    )
+    assert corrected.expected_sessions_elapsed == 1
+
+
 def test_manual_exceptional_closure_is_versioned_by_knowledge_time() -> None:
     correction = CalendarCorrection.exceptional_closure(
         correction_id="nyse-2024-01-03-v1",
@@ -164,6 +247,7 @@ def test_manual_exceptional_closure_is_versioned_by_knowledge_time() -> None:
         reason="Exchange-declared exceptional closure fixture.",
         source_id="exchange-notice:test",
         source_checksum="c" * 64,
+        timezone="America/New_York",
         valid_from=date(2024, 1, 3),
         known_at=datetime(2024, 1, 2, 12, 0, tzinfo=UTC),
     )
@@ -205,6 +289,7 @@ corrections:
     reason: Exchange-declared closure.
     source_id: exchange-notice:test
     source_checksum: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+    timezone: America/New_York
     source_version: notice-v1
     valid_from: 2024-01-03
     known_at: 2024-01-02T12:00:00Z
@@ -214,6 +299,56 @@ corrections:
     corrections = load_calendar_corrections(ledger)
     assert corrections[0].source_version == "notice-v1"
     assert corrections[0].known_at == datetime(2024, 1, 2, 12, 0, tzinfo=UTC)
+
+
+@pytest.mark.parametrize(
+    "values, session_date, message",
+    [
+        (
+            {"open_time": time(16, 0), "close_time": time(9, 30)},
+            date(2024, 3, 8),
+            "open_time < close_time",
+        ),
+        (
+            {
+                "open_time": time(9, 30),
+                "close_time": time(16, 0),
+                "break_start": time(14, 0),
+                "break_end": time(13, 0),
+            },
+            date(2024, 3, 8),
+            "break must be ordered",
+        ),
+        (
+            {"open_time": time(2, 30), "close_time": time(16, 0)},
+            date(2024, 3, 10),
+            "nonexistent DST",
+        ),
+        (
+            {"open_time": time(1, 30), "close_time": time(16, 0)},
+            date(2024, 11, 3),
+            "ambiguous DST",
+        ),
+    ],
+)
+def test_invalid_modified_session_corrections_fail_closed(
+    values: dict[str, time], session_date: date, message: str
+) -> None:
+    with pytest.raises(MarketClockError, match=message):
+        CalendarCorrection(
+            correction_id="invalid-v1",
+            mic="XNYS",
+            session_date=session_date,
+            kind="modified_session",
+            revision=1,
+            reason="Invalid correction fixture.",
+            source_id="exchange-notice:test",
+            source_checksum="e" * 64,
+            timezone="America/New_York",
+            valid_from=session_date,
+            known_at=datetime(2024, 3, 1, tzinfo=UTC),
+            **values,
+        )
 
 
 @pytest.mark.parametrize(
@@ -242,6 +377,22 @@ def test_actual_actual_isda_splits_leap_years() -> None:
     ) == pytest.approx(expected)
 
 
+@pytest.mark.parametrize(
+    ("start", "end", "expected"),
+    [
+        (date(2023, 2, 28), date(2023, 3, 31), 30 / 360),
+        (date(2024, 2, 29), date(2024, 3, 31), 30 / 360),
+        (date(2024, 2, 28), date(2024, 3, 31), 33 / 360),
+    ],
+)
+def test_us_30_360_applies_nasd_end_of_february_rules(
+    start: date, end: date, expected: float
+) -> None:
+    assert MarketCalendarService.year_fraction(
+        start, end, DayCountConvention.THIRTY_360_US
+    ) == pytest.approx(expected)
+
+
 def test_business_day_adjustment_and_settlement_use_declared_calendar() -> None:
     service = MarketCalendarService()
     listing = _listing()
@@ -249,7 +400,21 @@ def test_business_day_adjustment_and_settlement_use_declared_calendar() -> None:
     assert service.adjust_business_day(
         listing, date(2024, 8, 31), BusinessDayConvention.MODIFIED_FOLLOWING
     ) == date(2024, 8, 30)
-    assert service.settlement_date(listing, date(2024, 11, 27), 1) == date(2024, 11, 29)
+    settlement = _settlement()
+    assert service.settlement_date(settlement, date(2024, 11, 27), 1) == date(
+        2024, 11, 29
+    )
+    assert service.coupon_date(
+        settlement, date(2024, 8, 31), BusinessDayConvention.MODIFIED_FOLLOWING
+    ) == date(2024, 8, 30)
+    assert service.ex_date(settlement, date(2024, 12, 2), 1) == date(2024, 11, 29)
+
+
+def test_settlement_operations_reject_trading_calendar_evidence() -> None:
+    with pytest.raises((AttributeError, MarketClockError)):
+        MarketCalendarService().settlement_date(  # type: ignore[arg-type]
+            _listing(), date(2024, 11, 27), 1
+        )
 
 
 def test_clock_context_keeps_all_financial_times_distinct() -> None:

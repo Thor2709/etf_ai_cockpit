@@ -109,7 +109,7 @@ def test_instrument_detail_exposes_identity_lineage_from_application_facade(monk
     monkeypatch.setattr(
         selector,
         "load_identity_projection",
-        lambda _instrument_id: {
+        lambda _instrument_id, **_cutoffs: {
             "status": "available",
             "identity_confidence": "high",
             "identity_status": "resolved",

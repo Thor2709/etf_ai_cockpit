@@ -13,7 +13,7 @@ from datetime import date, datetime, time, timezone
 import hashlib
 import json
 import math
-from typing import Literal, TypeAlias
+from typing import Literal, Mapping, TypeAlias
 from zoneinfo import ZoneInfo
 
 from etf_cockpit.data.market_calendar import ClockContext, ListingCalendarEvidence, MarketCalendarService
@@ -331,8 +331,17 @@ class EventDrivenBacktest:
 
     execution_allowed: Literal[False] = False
 
-    def __init__(self, *, calendar: SessionCalendar | CertifiedSessionCalendar | None = None) -> None:
-        self.calendar = calendar or SessionCalendar()
+    def __init__(
+        self,
+        *,
+        calendars: Mapping[str, CertifiedSessionCalendar] | None = None,
+    ) -> None:
+        self.calendars = dict(calendars or {})
+        for instrument_id, calendar in self.calendars.items():
+            if instrument_id != calendar.listing.instrument_id:
+                raise EventReplayError(
+                    "certified calendar key must match listing instrument_id"
+                )
 
     def replay(self, events: list[ReplayInput] | tuple[ReplayInput, ...]) -> ReplayResult:
         ordered = sorted(events, key=_event_key)
@@ -342,7 +351,13 @@ class EventDrivenBacktest:
         output: list[ReplayEvent] = []
 
         for event in ordered:
-            self.calendar.require_session(event.timestamp, event_name=event.kind)
+            instrument_id = self._event_instrument_id(event, active, states)
+            calendar = self.calendars.get(instrument_id)
+            if calendar is None:
+                raise EventReplayError(
+                    f"missing identity-certified calendar for instrument: {instrument_id}"
+                )
+            calendar.require_session(event.timestamp, event_name=event.kind)
             if isinstance(event, MarketEvent):
                 self._validate_market(event)
                 self._fill_active_orders(event, active, states, output)
@@ -367,6 +382,25 @@ class EventDrivenBacktest:
         serialised = tuple(_serialise_event(event, index) for index, event in enumerate(output))
         ledger_hash = hashlib.sha256(json.dumps(serialised, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
         return ReplayResult(tuple(output), tuple(states[key] for key in sorted(states)), ledger_hash)
+
+    @staticmethod
+    def _event_instrument_id(
+        event: ReplayInput,
+        active: Mapping[str, dict[str, object]],
+        states: Mapping[str, OrderState],
+    ) -> str:
+        value = getattr(event, "instrument_id", None)
+        if isinstance(value, str) and value.strip():
+            return value
+        order_id = getattr(event, "order_id", None)
+        record = active.get(str(order_id))
+        request = record.get("request") if record is not None else None
+        if isinstance(request, OrderRequest):
+            return request.instrument_id
+        state = states.get(str(order_id))
+        if state is not None:
+            return state.instrument_id
+        raise EventReplayError(f"lifecycle event references unknown order: {order_id}")
 
     def _validate_market(self, event: MarketEvent) -> None:
         if not event.listed:

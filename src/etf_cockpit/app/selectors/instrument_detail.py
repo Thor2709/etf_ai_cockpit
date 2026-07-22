@@ -1232,6 +1232,9 @@ def build_instrument_detail(
     friction = _friction_panel(instrument_id, candidate_score=candidate)
     scoreboard = _scoreboard_row(instrument_id, candidate_score=candidate)
     decision_time = getattr(getattr(snapshot, "data_report", None), "as_of_date", None)
+    projection_time = str(decision_time or "").strip()
+    if len(projection_time) == 10:
+        projection_time = f"{projection_time}T23:59:59Z"
     identity_evidence: dict[str, object] = {
         "status": "unavailable",
         "instrument_id": instrument_id,
@@ -1260,7 +1263,11 @@ def build_instrument_detail(
             "source_id": f"config:universe:{instrument_id}",
             "execution_allowed": False,
         }
-        identity_evidence = load_identity_projection(instrument_id)
+        identity_evidence = load_identity_projection(
+            instrument_id,
+            effective_at=projection_time or None,
+            decision_time=projection_time or None,
+        )
         if identity_evidence.get("status") == "available":
             identity_panel.update(
                 {
@@ -1333,7 +1340,7 @@ def build_instrument_detail(
     observed_at = price.get("latest_date") if isinstance(price, Mapping) else None
     market_clock = build_market_clock_diagnostics(
         identity_evidence,
-        decision_time=decision_time or "",
+        decision_time=projection_time or decision_time or "",
         observed_at=observed_at if observed_at not in {None, "unavailable"} else None,
     )
     return InstrumentDetailViewModel(
