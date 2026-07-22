@@ -14,4 +14,4 @@ Follow the phase order below. Within a phase, resolve `blocking_dependencies` be
 10. **phase-10-audit-documentation-governance** - Audit, reproducibility, documentation and governance (ISSUE-0147–ISSUE-0151; 5 records).
 11. **phase-11-certification** - Final certification and programme closure (ISSUE-0152; 1 records).
 
-The canonical blocking graph is available as `docs/product-completion/reconciliation/2026-07-21-55e08b4/canonical-dag.json`. Cyclic raw candidates were converted to related references with reasons rather than silently dropped.
+The canonical blocking graph is available as `docs/product-completion/reconciliation/2026-07-21-3ad4455/canonical-dag.json`. Cyclic raw candidates were converted to related references with reasons rather than silently dropped.

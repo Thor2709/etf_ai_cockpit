@@ -3,21 +3,21 @@
   "allow_other_status_changes": false,
   "allowed_dependency_edge_updates": [
     {
-      "dependency_id": "ISSUE-0083",
+      "dependency_id": "ISSUE-0085",
       "issue_id": "ISSUE-0153"
     }
   ],
   "allowed_status_transitions": [],
-  "base_commit": "55e08b4ce116dd0ca71a9e5971bbae1877b417a6",
-  "branch": "codex/b03-issue0153-edge0083-20260722",
+  "base_commit": "3ad445524eaea4945d305f8a5e39034fcd3e2b8e",
+  "branch": "codex/b03-issue0153-edge0085-20260722",
   "issue_ids": [],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "1dfe1737e64aa9093500a73124cf0affdd1ef62fb0e7e6b0ee3888e37bb9ac59",
+    "base_registry_sha256": "b4f316d512b3afe19ede6f730ccbebfeb9cf792285d4de792017cf4a4a690708",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_dependency_edge_evidence",
-    "proposed_registry_sha256": "b4f316d512b3afe19ede6f730ccbebfeb9cf792285d4de792017cf4a4a690708",
-    "reason": "B03 ISSUE-0153 dependency readiness: record only the reviewed ISSUE-0083 point-in-time classification-context-v2 interface, keep ISSUE-0153 planned with ISSUE-0085 unresolved, and preserve batch composition, scope, dependencies, acceptance criteria, status semantics, policies and execution_allowed=false.",
+    "proposed_registry_sha256": "b564ff57dd8f35923befe365f82f7add0879ec122a2ac779d36fafc6c4875346",
+    "reason": "B03 ISSUE-0153 dependency readiness: record only the reviewed ISSUE-0085 certified market-calendar and schedule interface, keep ISSUE-0153 planned with all three blocking edges complete, and preserve batch composition, scope, dependencies, acceptance criteria, status semantics, policies and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
