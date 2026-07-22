@@ -3,21 +3,21 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "in_progress",
+      "from": "implemented_initially",
       "issue_id": "ISSUE-0083",
-      "to": "implemented_initially"
+      "to": "integrated"
     }
   ],
-  "base_commit": "7aab4f2775e35b0af248c61f8b95930d6c50b781",
-  "branch": "codex/b02-issue0083-convergence1-20260722",
+  "base_commit": "72b69b356a70a68a855513df82d107fec83e2c85",
+  "branch": "codex/b02-issue0083-convergence2-20260722",
   "issue_ids": ["ISSUE-0083"],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "fd418d32da8718ce937bb9dc88dcb40e8114b24d9815f4e74867553cb8303b0f",
+    "base_registry_sha256": "ad3e641358ae4a96bc6029a4a98e089ef7e86bf392654570c1dc5a9c853b9b28",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "ad3e641358ae4a96bc6029a4a98e089ef7e86bf392654570c1dc5a9c853b9b28",
-    "reason": "B02 ISSUE-0083 evidence convergence: advance only ISSUE-0083 from in_progress to implemented_initially after merged PR #475 and full release evidence; all other records, dependencies, acceptance criteria, scope, policies and execution authority remain unchanged; execution_allowed=false.",
+    "proposed_registry_sha256": "7a0f530601e7acc9e8503239a10ef6eb9693347d31be1ee9ed6cf7f781552884",
+    "reason": "B02 ISSUE-0083 evidence convergence2: advance only ISSUE-0083 from implemented_initially to integrated after merged convergence1 and verified GitHub #223 readback; all other records, dependencies, acceptance criteria, scope, policies and execution authority remain unchanged; execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
