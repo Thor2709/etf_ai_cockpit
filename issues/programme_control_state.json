@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "f3c5521b8d7a78915c813e748917be3eb496fe4c",
+    "generation_base_commit": "d590c8fef1f645614e7ed326e60b31d823d54113",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -1413,6 +1413,19 @@
           "reviewed_date": "2026-07-21",
           "reviewer": "Codex scout reviewer, deep reviewer and root",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "PR #470 merged as d590c8fef1f645614e7ed326e60b31d823d54113",
+            "Protected release run 29881056993 passed Linux and Windows; status-transition guard and supply-chain passed",
+            "Independent ISSUE-0082 AC1-AC8 review passed with no remaining findings",
+            "Real Flet Universe/Identity interaction evidence and 154-test combined regression evidence",
+            "plans/BATCH-B02-DATA-SPINE-CONTINUATION.md"
+          ],
+          "review_reference": "PR #470 protected merge and independent ISSUE-0082 review",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex deep reviewer, release steward and root",
+          "status": "implemented_initially"
         }
       ],
       "dependency_edge_evidence": {
@@ -1446,11 +1459,11 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "in_progress",
+      "programme_status": "implemented_initially",
       "status_transition": {
-        "from": "ready",
-        "review_reference": "B02 ISSUE-0082 dependency-interface review: bitemporal point-in-time contract and protected readiness convergence",
-        "to": "in_progress"
+        "from": "in_progress",
+        "review_reference": "PR #470 protected merge and independent ISSUE-0082 review",
+        "to": "implemented_initially"
       },
       "transition_history": [
         {
@@ -1518,10 +1531,26 @@
           "reviewer": "Codex scout reviewer, deep reviewer and root",
           "to": "in_progress",
           "verified_commit": "5f7fc80e36cf685689cbea64cce16d9f1f8690a1"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #470 merged as d590c8fef1f645614e7ed326e60b31d823d54113",
+            "Protected release run 29881056993 passed Linux and Windows; status-transition guard and supply-chain passed",
+            "Independent ISSUE-0082 AC1-AC8 review passed with no remaining findings",
+            "Real Flet Universe/Identity interaction evidence and 154-test combined regression evidence",
+            "plans/BATCH-B02-DATA-SPINE-CONTINUATION.md"
+          ],
+          "from": "in_progress",
+          "review_reference": "PR #470 protected merge and independent ISSUE-0082 review",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex deep reviewer, release steward and root",
+          "to": "implemented_initially",
+          "verified_commit": "d590c8fef1f645614e7ed326e60b31d823d54113"
         }
       ],
-      "verified_commit": "5f7fc80e36cf685689cbea64cce16d9f1f8690a1",
-      "verified_date": "2026-07-21"
+      "verified_commit": "d590c8fef1f645614e7ed326e60b31d823d54113",
+      "verified_date": "2026-07-22"
     },
     "ISSUE-0083": {
       "acceptance_evidence": [],
