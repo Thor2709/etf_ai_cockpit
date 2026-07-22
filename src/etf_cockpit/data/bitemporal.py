@@ -106,6 +106,7 @@ class BitemporalStore:
         timezone_confidence: str = "exact",
         availability_confidence: str = "exact",
         status: str = "active",
+        require_revision_advance: bool = False,
     ) -> BitemporalObservation:
         dataset_id, entity_id, stable_id, run_id, source_id = _identities(dataset_id, entity_id, stable_id or entity_id, run_id, source_id)
         if available_at is None:
@@ -144,6 +145,16 @@ class BitemporalStore:
         payload = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         with self.store.transaction() as connection:
             try:
+                if require_revision_advance:
+                    row = connection.execute(
+                        "SELECT revision, available_at FROM bitemporal_observations WHERE dataset_id = ? AND stable_id = ? ORDER BY revision DESC, available_at DESC LIMIT 1",
+                        (dataset_id, stable_id),
+                    ).fetchone()
+                    maximum = int(row[0]) if row is not None else 0
+                    if revision <= maximum:
+                        raise BitemporalError(f"revision must advance beyond {maximum} for {stable_id}")
+                    if row is not None and str(canonical["available_at"]) < str(row[1]):
+                        raise BitemporalError(f"available_at cannot move backwards for {stable_id}")
                 connection.execute(
                     """
                     INSERT INTO bitemporal_observations
@@ -231,12 +242,14 @@ class BitemporalStore:
         selected = self.as_of(dataset_id, decision_time, entity_id=entity_id)
         observation_ids = tuple(sorted(str(value) for value in selected.get("observation_id", pd.Series(dtype=str)).tolist()))
         checksums = tuple(sorted(str(value) for value in selected.get("source_checksum", pd.Series(dtype=str)).tolist()))
+        normalised_decision_time = _timestamp(decision_time, "decision_time")
+        assert normalised_decision_time is not None
         content = json.dumps(
-            {"dataset_id": str(dataset_id), "decision_time": _timestamp(decision_time, "decision_time"), "observation_ids": observation_ids, "source_checksums": checksums},
+            {"dataset_id": str(dataset_id), "decision_time": normalised_decision_time, "observation_ids": observation_ids, "source_checksums": checksums},
             sort_keys=True,
             separators=(",", ":"),
         ).encode("utf-8")
-        return VintageManifest(str(dataset_id), _timestamp(decision_time, "decision_time"), observation_ids, checksums, hashlib.sha256(content).hexdigest())
+        return VintageManifest(str(dataset_id), normalised_decision_time, observation_ids, checksums, hashlib.sha256(content).hexdigest())
 
     def stamp_derived_frame(self, frame: pd.DataFrame, dataset_id: str, decision_time: str | datetime, *, entity_id: str | None = None) -> pd.DataFrame:
         manifest = self.vintage_manifest(dataset_id, decision_time, entity_id=entity_id)

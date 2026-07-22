@@ -14,6 +14,7 @@ from etf_cockpit.application.ui_facade import (
     forecast_score_details,
     latest_fundamental_rows,
     load_fundamental_evidence,
+    load_market_series_projection,
     load_news_items,
     raw_to_score_10,
     sort_news_items,
@@ -43,7 +44,7 @@ def etf_detail_page(page: ft.Page, state: AppState) -> ft.Control:
             expand=True,
         )
     latest = latest_frame.iloc[0]
-    price_history = state.snapshot.prices[state.snapshot.prices["etf_id"] == selected].tail(8)
+    price_history = state.snapshot.prices[state.snapshot.prices["etf_id"] == selected]
     forecast_details = forecast_score_details(state.snapshot.forecasts)
     forecast_details = forecast_details[forecast_details["etf_id"].astype(str) == selected] if not forecast_details.empty else forecast_details
     evidence_score = raw_to_score_10(signal.total_score)
@@ -62,15 +63,49 @@ def etf_detail_page(page: ft.Page, state: AppState) -> ft.Control:
         ("Vol 60d", f"{latest['vol_60d_ann']:.1%}"),
         ("Drawdown", f"{latest['drawdown_current']:.1%}"),
     ]
-    price_rows = [
-        ft.DataRow(
-            cells=[
-                ft.DataCell(ft.Text(str(row["date"]), color=theme.MUTED, size=11)),
-                ft.DataCell(ft.Text(f"{row['adjusted_close']:.2f}", color=theme.TEXT, size=11)),
-            ]
+    output_currencies = tuple(dict.fromkeys((etf.currency.upper(), config.targets.base_currency.upper())))
+    price_basis = ft.Dropdown(label="Price basis", value="adjusted", options=[ft.DropdownOption(value) for value in ("raw", "adjusted", "total_return")], key="instrument-detail.price-basis", width=180)
+    price_currency = ft.Dropdown(label="Currency", value=etf.currency.upper(), options=[ft.DropdownOption(value) for value in output_currencies], key="instrument-detail.price-currency", width=150)
+    price_evidence = ft.Container(key="instrument-detail.price-series")
+
+    def render_price_evidence(*, update: bool = False) -> None:
+        projection = load_market_series_projection(
+            price_history,
+            selected,
+            basis=str(price_basis.value or "adjusted"),
+            local_currency=etf.currency,
+            output_currency=str(price_currency.value or etf.currency),
         )
-        for _, row in price_history.iterrows()
-    ]
+        frame = projection.get("frame")
+        if projection.get("status") != "available" or frame is None or frame.empty:
+            price_evidence.content = ft.Column(
+                [
+                    ft.Text(f"Series unavailable: {projection.get('reason_code', projection.get('status', 'unavailable'))}", color=theme.AMBER, selectable=True),
+                    ft.Text("Missing, stale or conflicted action/FX evidence is never filled or silently normalised.", color=theme.MUTED, selectable=True, size=11),
+                ]
+            )
+        else:
+            rows = [
+                ft.DataRow(cells=[ft.DataCell(ft.Text(str(row["date"]), color=theme.MUTED, size=11)), ft.DataCell(ft.Text(f"{float(row['series_value']):.4f}", color=theme.TEXT, size=11))])
+                for _, row in frame.tail(8).iterrows()
+            ]
+            price_evidence.content = ft.Column(
+                [
+                    ft.Text(f"{projection.get('basis')} | {projection.get('currency')} | {projection.get('provenance')}", color=theme.MUTED, selectable=True, size=11),
+                    ft.DataTable(columns=[ft.DataColumn(ft.Text("Date")), ft.DataColumn(ft.Text("Series value"))], rows=rows),
+                    ft.Text(f"Total-return convention: {projection.get('total_return_convention', 'provider adjusted close only')} | execution_allowed=false", color=theme.MUTED, selectable=True, size=11),
+                ],
+                scroll=ft.ScrollMode.AUTO,
+            )
+        if update:
+            price_evidence.update()
+
+    def change_price_view(_event: ft.ControlEvent) -> None:
+        render_price_evidence(update=True)
+
+    price_basis.on_select = change_price_view
+    price_currency.on_select = change_price_view
+    render_price_evidence()
     return ft.Column(
         [
             ft.Row(
@@ -110,8 +145,9 @@ def etf_detail_page(page: ft.Page, state: AppState) -> ft.Control:
                     panel(
                         ft.Column(
                             [
-                                section_header("Recent adjusted prices", "Local adjusted-close history used for algorithms and model inputs."),
-                                ft.DataTable(columns=[ft.DataColumn(ft.Text("Date")), ft.DataColumn(ft.Text("Adjusted close"))], rows=price_rows),
+                                section_header("Price and total-return series", "Switch raw, explicit-action adjusted and total-return evidence in local or configured base currency."),
+                                ft.Row([price_basis, price_currency], wrap=True),
+                                price_evidence,
                             ],
                             scroll=ft.ScrollMode.AUTO,
                         ),

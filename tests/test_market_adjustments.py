@@ -9,9 +9,12 @@ import pytest
 
 from etf_cockpit.data.market_adjustments import (
     CorporateAction,
+    CorporateActionCoverage,
+    CorporateActionCoverageStore,
     CorporateActionStore,
     FXObservation,
     FXObservationStore,
+    MarketAdjustmentError,
     apply_total_return_adjustments,
     derive_fx_cross,
     reconcile_adjustments,
@@ -23,6 +26,7 @@ from etf_cockpit.data.market_adjustments import (
 ASSET = "US-ETF-001"
 KNOWN_ANNOUNCEMENT = "2024-01-02T00:00:00Z"
 KNOWN_CORRECTION = "2024-03-02T00:00:00Z"
+KNOWN_FX_ORIGINAL = "2024-01-10T00:00:00Z"
 
 
 def _action(
@@ -65,27 +69,37 @@ def _fx(
     rate: float,
     *,
     valid_at: str = "2024-01-10T00:00:00Z",
-    known_at: str = KNOWN_ANNOUNCEMENT,
+    known_at: str | None = None,
+    published_at: str | None = None,
+    retrieved_at: str | None = None,
     revision: int = 1,
     source: str = "fixture:ecb-reference",
+    source_id: str | None = None,
     is_reference: bool = True,
     executable: bool = False,
+    authority: str = "official",
 ) -> FXObservation:
+    # The default fixture is deliberately point-in-time valid.  Tests that
+    # exercise chronology can override each timestamp independently.
+    known = known_at or valid_at
+    published = published_at or valid_at
+    retrieved = retrieved_at or known
     return FXObservation(
         observation_id=observation_id,
         base_currency=base,
         quote_currency=quote,
         rate=Decimal(str(rate)),
         valid_at=valid_at,
-        published_at=valid_at,
-        retrieved_at="2024-01-11T00:00:00Z",
-        known_at=known_at,
+        published_at=published,
+        retrieved_at=retrieved,
+        known_at=known,
         revision=revision,
         source=source,
-        source_id=f"{source}:{observation_id}:r{revision}",
+        source_id=source_id or f"{source}:{observation_id}:r{revision}",
         source_checksum=f"sha256:{observation_id}:{revision}",
         is_reference=is_reference,
         executable=executable,
+        authority=authority,
     )
 
 
@@ -137,6 +151,31 @@ def test_future_known_at_revision_is_excluded_from_historical_projection(tmp_pat
     assert historical == ()
     assert len(current) == 1
     assert current[0].amount == 3.0
+
+
+def test_action_coverage_is_persisted_and_replayed_as_explicit_no_action_evidence(tmp_path: Path) -> None:
+    coverage = CorporateActionCoverage(
+        instrument_id=ASSET,
+        coverage_through="2024-01-11T00:00:00Z",
+        published_at="2024-01-01T00:00:00Z",
+        retrieved_at="2024-01-02T00:00:00Z",
+        known_at="2024-01-11T00:00:00Z",
+        revision=1,
+        source="fixture:official-actions",
+        source_id="fixture:official-actions:coverage:US-ETF-001:r1",
+        source_checksum="sha256:coverage-us-etf-001-r1",
+    )
+
+    with CorporateActionCoverageStore(tmp_path) as store:
+        store.append(coverage)
+        replay = store.as_of(
+            ASSET,
+            valid_at="2024-01-11T00:00:00Z",
+            known_at="2024-01-11T00:00:00Z",
+        )
+
+    assert replay == (coverage,)
+    assert replay[0].execution_allowed is False
 
 
 @pytest.mark.parametrize(
@@ -191,7 +230,30 @@ def test_total_return_convention_and_income_price_components_reconcile() -> None
     assert result.convention == "price_plus_reinvested_income"
     assert result.price_return == pytest.approx(0.08)
     assert result.income_return == pytest.approx(0.02)
-    assert result.total_return == pytest.approx((1.08 * 1.02) - 1.0)
+    assert result.total_return == pytest.approx(((108.0 + 2.0) / 100.0) - 1.0)
+
+
+@pytest.mark.parametrize(
+    ("prices", "action", "expected_total_return"),
+    (
+        ((100.0, 50.0), _action("SPLIT-SEQUENCE-001", "split", ratio=2.0), 0.0),
+        ((100.0, 108.0), _action("DISTRIBUTION-SEQUENCE-001", "distribution", amount=2.0), 0.10),
+    ),
+)
+def test_sequence_adjustments_use_canonical_cash_and_quantity_identity(
+    prices: tuple[float, float],
+    action: CorporateAction,
+    expected_total_return: float,
+) -> None:
+    result = apply_total_return_adjustments(
+        prices=prices,
+        actions=(action,),
+        convention="reinvest_on_ex_date",
+    )
+
+    assert result.available is True
+    assert result.total_return == pytest.approx(expected_total_return)
+    assert result.execution_allowed is False
 
 
 def test_adjustment_round_trip_restores_raw_series_and_reconciles_to_actions() -> None:
@@ -254,7 +316,7 @@ def test_fx_observations_are_append_only_and_point_in_time(tmp_path: Path) -> No
     with FXObservationStore(tmp_path) as store:
         store.append(original)
         store.append(correction)
-        before = store.as_of("EUR", "USD", valid_at="2024-01-10T00:00:00Z", known_at=KNOWN_ANNOUNCEMENT)
+        before = store.as_of("EUR", "USD", valid_at="2024-01-10T00:00:00Z", known_at=KNOWN_FX_ORIGINAL)
         after = store.as_of("EUR", "USD", valid_at="2024-01-10T00:00:00Z", known_at=KNOWN_CORRECTION)
         versions = store.query("EUR", "USD")
 
@@ -264,6 +326,77 @@ def test_fx_observations_are_append_only_and_point_in_time(tmp_path: Path) -> No
     assert after[0].rate == Decimal("1.11")
     assert [item.revision for item in versions] == [1, 2]
     assert all(item.execution_allowed is False for item in versions)
+
+
+def test_fx_cross_collapses_same_lineage_revisions_before_provider_reconciliation(tmp_path: Path) -> None:
+    original = _fx("EURUSD-REVISION", "EUR", "USD", 1.20, known_at="2024-01-10T00:00:00Z")
+    correction = replace(original, rate=Decimal("1.30"), revision=2, known_at="2024-01-11T00:00:00Z")
+
+    with FXObservationStore(tmp_path) as store:
+        store.append(original)
+        store.append(correction)
+        result = derive_fx_cross(
+            store,
+            "EUR",
+            "USD",
+            as_of="2024-01-10T00:00:00Z",
+            decision_time="2024-01-11T00:00:00Z",
+        )
+
+    assert result.available is True
+    assert result.rate == pytest.approx(1.30)
+    assert result.discrepancies == ()
+
+
+@pytest.mark.parametrize(
+    ("published_at", "retrieved_at", "known_at"),
+    (
+        ("2024-01-11T00:00:00Z", "2024-01-12T00:00:00Z", "2024-01-10T00:00:00Z"),
+        ("2024-01-09T00:00:00Z", "2024-01-12T00:00:00Z", "2024-01-10T00:00:00Z"),
+    ),
+)
+def test_fx_known_at_cannot_precede_publication_or_retrieval(
+    published_at: str,
+    retrieved_at: str,
+    known_at: str,
+) -> None:
+    with pytest.raises(MarketAdjustmentError):
+        _fx(
+            "FX-CHRONOLOGY",
+            "EUR",
+            "USD",
+            1.10,
+            published_at=published_at,
+            retrieved_at=retrieved_at,
+            known_at=known_at,
+        )
+
+
+def test_fx_revision_knowledge_cannot_move_backwards_for_one_source_lineage(tmp_path: Path) -> None:
+    original = _fx(
+        "FX-REVISION-CHRONOLOGY",
+        "EUR",
+        "USD",
+        1.10,
+        valid_at="2024-01-10T00:00:00Z",
+        published_at="2024-01-10T00:00:00Z",
+        retrieved_at="2024-01-12T00:00:00Z",
+        known_at="2024-01-12T00:00:00Z",
+        source_id="fixture:fx-revision-chronology:stable",
+    )
+    backdated = replace(
+        original,
+        rate=Decimal("1.11"),
+        revision=2,
+        source_checksum="sha256:fx-revision-chronology-r2",
+        retrieved_at="2024-01-11T00:00:00Z",
+        known_at="2024-01-11T00:00:00Z",
+    )
+
+    with FXObservationStore(tmp_path) as store:
+        store.append(original)
+        with pytest.raises(MarketAdjustmentError):
+            store.append(backdated)
 
 
 def test_fx_cross_supports_inverse_and_declared_triangular_path(tmp_path: Path) -> None:
@@ -294,6 +427,56 @@ def test_fx_cross_rejects_triangular_inconsistency_above_tolerance(tmp_path: Pat
     assert report.available is False
     assert report.status == "quarantined"
     assert report.discrepancies
+    assert report.execution_allowed is False
+
+
+def test_conflicted_authoritative_direct_fx_cannot_be_bypassed_by_lower_authority_inverse(tmp_path: Path) -> None:
+    with FXObservationStore(tmp_path) as store:
+        store.append(
+            _fx(
+                "EURUSD-OFFICIAL-1",
+                "EUR",
+                "USD",
+                1.10,
+                source="fixture:ecb-reference",
+                source_id="fixture:ecb-reference:EURUSD:r1",
+                authority="official",
+            )
+        )
+        store.append(
+            _fx(
+                "EURUSD-OFFICIAL-2",
+                "EUR",
+                "USD",
+                1.20,
+                source="fixture:ecb-reference-correction",
+                source_id="fixture:ecb-reference:EURUSD:r2",
+                authority="official",
+            )
+        )
+        store.append(
+            _fx(
+                "USDEUR-PROVIDER-1",
+                "USD",
+                "EUR",
+                0.91,
+                source="fixture:provider-inverse",
+                authority="provider",
+            )
+        )
+        report = derive_fx_cross(
+            store,
+            "EUR",
+            "USD",
+            as_of="2024-01-10T00:00:00Z",
+            decision_time="2024-01-11T00:00:00Z",
+            tolerance=1e-6,
+        )
+
+    assert report.available is False
+    assert report.status == "quarantined"
+    assert report.rate is None
+    assert "EUR/USD:conflicted_fx_sources" in report.discrepancies
     assert report.execution_allowed is False
 
 
@@ -346,14 +529,121 @@ def test_selected_currency_return_uses_exact_multiplicative_formula(tmp_path: Pa
     assert result.execution_allowed is False
 
 
+def test_selected_currency_return_preserves_transaction_and_valuation_fx_attribution(tmp_path: Path) -> None:
+    transaction_at = "2024-01-10T00:00:00Z"
+    valuation_at = "2024-01-11T00:00:00Z"
+    with FXObservationStore(tmp_path) as store:
+        store.append(_fx("EURUSD-001", "EUR", "USD", 1.20, valid_at=transaction_at))
+        store.append(_fx("EURUSD-002", "EUR", "USD", 1.10, valid_at=valuation_at))
+        result = selected_currency_return(
+            local_return=0.10,
+            base_currency="EUR",
+            output_currency="USD",
+            fx_store=store,
+            transaction_at=transaction_at,
+            valuation_at=valuation_at,
+        )
+
+    assert result.available is True
+    assert result.transaction_at == transaction_at
+    assert result.valuation_at == valuation_at
+    assert result.transaction_rate == pytest.approx(1.20)
+    assert result.valuation_rate == pytest.approx(1.10)
+    assert result.fx_return == pytest.approx((1.10 / 1.20) - 1.0)
+    assert result.output_return == pytest.approx((1.10 * (1.10 / 1.20)) - 1.0)
+    assert result.source_ids
+    assert result.source_checksums
+    assert result.execution_allowed is False
+
+
+def test_selected_currency_return_is_unavailable_when_transaction_or_valuation_fx_is_incomplete(tmp_path: Path) -> None:
+    with FXObservationStore(tmp_path) as store:
+        result = selected_currency_return(
+            local_return=0.10,
+            base_currency="USD",
+            output_currency="EUR",
+            fx_store=store,
+            transaction_at="2024-01-10T00:00:00Z",
+            valuation_at=None,
+        )
+
+    assert result.available is False
+    assert result.status == "unavailable"
+    assert result.output_return is None
+    assert result.execution_allowed is False
+
+
+def test_selected_currency_return_rejects_bare_and_unlinked_numeric_fx_inputs() -> None:
+    bare = selected_currency_return(0.10, 0.20)
+    explicit = selected_currency_return(
+        0.10,
+        start_rate=1.00,
+        end_rate=1.20,
+        transaction_at="2024-01-10T00:00:00Z",
+        valuation_at="2024-01-11T00:00:00Z",
+    )
+
+    for result in (bare, explicit):
+        assert result.available is False
+        assert result.status == "unavailable"
+        assert result.reason_code == "FX_SOURCE_UNLINKED"
+        assert result.output_return is None
+        assert result.source_ids == ()
+        assert result.source_checksums == ()
+        assert result.execution_allowed is False
+
+
+def test_selected_currency_return_uses_requested_transaction_date_fx(tmp_path: Path) -> None:
+    with FXObservationStore(tmp_path) as store:
+        store.append(_fx("EURUSD-OLD", "EUR", "USD", 1.30, valid_at="2024-01-08T00:00:00Z"))
+        store.append(_fx("EURUSD-TRANSACTION", "EUR", "USD", 1.20, valid_at="2024-01-10T00:00:00Z"))
+        store.append(_fx("EURUSD-VALUATION", "EUR", "USD", 1.10, valid_at="2024-01-11T00:00:00Z"))
+        result = selected_currency_return(
+            local_return=0.10,
+            base_currency="EUR",
+            output_currency="USD",
+            fx_store=store,
+            transaction_at="2024-01-10T00:00:00Z",
+            valuation_at="2024-01-11T00:00:00Z",
+        )
+
+    assert result.available is True
+    assert result.transaction_rate == pytest.approx(1.20)
+    assert result.valuation_rate == pytest.approx(1.10)
+    assert result.fx_return == pytest.approx((1.10 / 1.20) - 1.0)
+
+
+def test_transaction_fx_does_not_see_correction_first_known_at_valuation_time(tmp_path: Path) -> None:
+    transaction = _fx("EURUSD-TRANSACTION-PIT", "EUR", "USD", 1.20, known_at="2024-01-10T00:00:00Z")
+    late_correction = replace(transaction, rate=Decimal("1.30"), revision=2, known_at="2024-01-11T00:00:00Z")
+    valuation = _fx("EURUSD-VALUATION-PIT", "EUR", "USD", 1.10, valid_at="2024-01-11T00:00:00Z", known_at="2024-01-11T00:00:00Z")
+
+    with FXObservationStore(tmp_path) as store:
+        store.append(transaction)
+        store.append(late_correction)
+        store.append(valuation)
+        result = selected_currency_return(
+            local_return=0.10,
+            base_currency="EUR",
+            output_currency="USD",
+            fx_store=store,
+            transaction_at="2024-01-10T00:00:00Z",
+            valuation_at="2024-01-11T00:00:00Z",
+        )
+
+    assert result.available is True
+    assert result.transaction_rate == pytest.approx(1.20)
+    assert result.valuation_rate == pytest.approx(1.10)
+
+
 def test_positive_local_return_can_be_reversed_by_falling_currency(tmp_path: Path) -> None:
     with FXObservationStore(tmp_path) as store:
         store.append(_fx("EURUSD-001", "EUR", "USD", 1.20))
         store.append(_fx("EURUSD-002", "EUR", "USD", 0.84, valid_at="2024-01-11T00:00:00Z"))
         result = selected_currency_return(
             local_return=0.25,
-            base_currency="USD",
-            output_currency="EUR",
+            base_currency="EUR",
+            output_currency="USD",
             fx_store=store,
             valuation_at="2024-01-11T00:00:00Z",
         )
@@ -396,6 +686,29 @@ def test_concurrent_appenders_do_not_drop_corporate_actions(tmp_path: Path) -> N
 
     assert len(retained) == len(actions)
     assert {item.action_id for item in retained} == {item.action_id for item in actions}
+
+
+def test_concurrent_conflicting_revisions_allow_exactly_one_writer(tmp_path: Path) -> None:
+    original = _action("CONCURRENT-SAME", "dividend", amount=1.0)
+    conflicting = replace(original, amount=2.0)
+
+    def append(action: CorporateAction) -> str:
+        try:
+            with CorporateActionStore(tmp_path) as store:
+                store.append(action)
+        except MarketAdjustmentError:
+            return "rejected"
+        return "stored"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = tuple(pool.map(append, (original, conflicting)))
+
+    with CorporateActionStore(tmp_path) as store:
+        retained = store.query(ASSET)
+
+    assert sorted(results) == ["rejected", "stored"]
+    assert len(retained) == 1
+    assert retained[0].amount in {Decimal("1.0"), Decimal("2.0")}
 
 
 def test_malformed_action_and_fx_observation_are_rejected_without_zero_fill(tmp_path: Path) -> None:
