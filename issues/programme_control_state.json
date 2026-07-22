@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "7aab4f2775e35b0af248c61f8b95930d6c50b781",
+    "generation_base_commit": "72b69b356a70a68a855513df82d107fec83e2c85",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -1616,6 +1616,17 @@
           "reviewed_date": "2026-07-22",
           "reviewer": "Codex release steward",
           "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "PR #476 merged evidence-only convergence1 as 72b69b356a70a68a855513df82d107fec83e2c85; checksum-approved GitHub #223 update applied and final dry-run 3783ccdd56bc5b479f16b613dee6baf604f31b6016725ff8e954294b88314cc9 zero actions",
+            "Protected product release evidence retained from PR #475: full gate 29891285231 Linux 88832074084 PASS Windows 88832074085 PASS; focused post-merge 95 tests PASS",
+            "Convergence1 status/registry/completion freshness and supply-chain guards PASS; no product, test, workflow, packaging, schema or tooling changes"
+          ],
+          "review_reference": "PR-476 convergence1 merge and GitHub #223 readback",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex release steward",
+          "status": "integrated"
         }
       ],
       "dependency_edge_evidence": {
@@ -1635,11 +1646,11 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
-        "from": "in_progress",
-        "review_reference": "PR-475",
-        "to": "implemented_initially"
+        "from": "implemented_initially",
+        "review_reference": "PR-476 convergence1 merge and GitHub #223 readback",
+        "to": "integrated"
       },
       "transition_history": [
         {
@@ -1701,9 +1712,23 @@
           "reviewer": "Codex release steward",
           "to": "implemented_initially",
           "verified_commit": "7aab4f2775e35b0af248c61f8b95930d6c50b781"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #476 merged evidence-only convergence1 as 72b69b356a70a68a855513df82d107fec83e2c85; checksum-approved GitHub #223 update applied and final dry-run 3783ccdd56bc5b479f16b613dee6baf604f31b6016725ff8e954294b88314cc9 zero actions",
+            "Protected product release evidence retained from PR #475: full gate 29891285231 Linux 88832074084 PASS Windows 88832074085 PASS; focused post-merge 95 tests PASS",
+            "Convergence1 status/registry/completion freshness and supply-chain guards PASS; no product, test, workflow, packaging, schema or tooling changes"
+          ],
+          "from": "implemented_initially",
+          "review_reference": "PR-476 convergence1 merge and GitHub #223 readback",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex release steward",
+          "to": "integrated",
+          "verified_commit": "72b69b356a70a68a855513df82d107fec83e2c85"
         }
       ],
-      "verified_commit": "7aab4f2775e35b0af248c61f8b95930d6c50b781",
+      "verified_commit": "72b69b356a70a68a855513df82d107fec83e2c85",
       "verified_date": "2026-07-22"
     },
     "ISSUE-0084": {
