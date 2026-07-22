@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "55e08b4ce116dd0ca71a9e5971bbae1877b417a6",
+    "generation_base_commit": "3ad445524eaea4945d305f8a5e39034fcd3e2b8e",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4180,12 +4180,17 @@
           "state": "complete"
         },
         "ISSUE-0085": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B03/ISSUE-0085/canonical-market-calendar-schedule-v1",
+          "evidence_references": [
+            "PR #493 merged ISSUE-0085 certified market-calendar product as d7adefcb119bde9b8e4e8110e257d615b662873d after protected Linux and Windows release evidence",
+            "PRs #494 and #495 converged ISSUE-0085; final merged convergence aafc249121ff1e284979d384821ea8d84ba0bddf",
+            "src/etf_cockpit/data/market_calendar.py MarketCalendarService supplies certified sessions, distinct settlement calendars, business-day conventions, day-count calculations, coupon dates and ex-dates",
+            "tests/test_market_calendar.py, tests/test_event_backtest.py and affected UI/instrument regressions prove point-in-time corrections, fail-closed conflicts and canonical calendar equivalence"
+          ],
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex root orchestrator and independent reviewer",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         }
       },
       "phase": "phase-02-data-policy-identity",
@@ -4253,9 +4258,38 @@
           "reviewed_date": "2026-07-22",
           "reviewer": "Codex root orchestrator and independent reviewer",
           "verified_commit": "ad783e517be68882934300df73106891ae6e3c05"
+        },
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0085",
+            "evidence": {
+              "contract_reference": "B03/ISSUE-0085/canonical-market-calendar-schedule-v1",
+              "evidence_references": [
+                "PR #493 merged ISSUE-0085 certified market-calendar product as d7adefcb119bde9b8e4e8110e257d615b662873d after protected Linux and Windows release evidence",
+                "PRs #494 and #495 converged ISSUE-0085; final merged convergence aafc249121ff1e284979d384821ea8d84ba0bddf",
+                "src/etf_cockpit/data/market_calendar.py MarketCalendarService supplies certified sessions, distinct settlement calendars, business-day conventions, day-count calculations, coupon dates and ex-dates",
+                "tests/test_market_calendar.py, tests/test_event_backtest.py and affected UI/instrument regressions prove point-in-time corrections, fail-closed conflicts and canonical calendar equivalence"
+              ],
+              "reviewed_date": "2026-07-22",
+              "reviewer": "Codex root orchestrator and independent reviewer",
+              "schema_version": "1.0",
+              "state": "complete"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "PR #493 merged ISSUE-0085 certified market-calendar product as d7adefcb119bde9b8e4e8110e257d615b662873d after protected Linux and Windows release evidence",
+            "PRs #494 and #495 converged ISSUE-0085; final merged convergence aafc249121ff1e284979d384821ea8d84ba0bddf",
+            "src/etf_cockpit/data/market_calendar.py MarketCalendarService supplies certified sessions, distinct settlement calendars, business-day conventions, day-count calculations, coupon dates and ex-dates",
+            "tests/test_market_calendar.py, tests/test_event_backtest.py and affected UI/instrument regressions prove point-in-time corrections, fail-closed conflicts and canonical calendar equivalence"
+          ],
+          "review_reference": "B03 ISSUE-0153 market-calendar dependency against merged certified calendar and schedule contract",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex root orchestrator and independent reviewer",
+          "verified_commit": "aafc249121ff1e284979d384821ea8d84ba0bddf"
         }
       ],
-      "verified_commit": "ad783e517be68882934300df73106891ae6e3c05",
+      "verified_commit": "aafc249121ff1e284979d384821ea8d84ba0bddf",
       "verified_date": "2026-07-22"
     },
     "ISSUE-0154": {
