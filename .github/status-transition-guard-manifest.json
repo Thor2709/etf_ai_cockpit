@@ -3,21 +3,21 @@
   "allow_other_status_changes": false,
   "allowed_dependency_edge_updates": [
     {
-      "dependency_id": "ISSUE-0082",
+      "dependency_id": "ISSUE-0079",
       "issue_id": "ISSUE-0085"
     }
   ],
   "allowed_status_transitions": [],
-  "base_commit": "c6b5742d59b7cdb64c5dbd464efaa198c7234dd8",
-  "branch": "codex/b02-issue0085-edge0082-20260722",
+  "base_commit": "fd7d1758b692ea4f2f70ea194712d200b24c8a72",
+  "branch": "codex/b02-issue0085-edge0079-20260722",
   "issue_ids": [],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "7027f3cca0a22cdc4ec01b355eeffbe011f2d727a413fe2f969f0056f3a13f7a",
+    "base_registry_sha256": "6ed89b0cde9cc62033e2f0b36ba77b497e22e4d084c83fbb43821021b63671ce",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_dependency_edge_evidence",
-    "proposed_registry_sha256": "6ed89b0cde9cc62033e2f0b36ba77b497e22e4d084c83fbb43821021b63671ce",
-    "reason": "B02 ISSUE-0085 dependency readiness: record only the reviewed ISSUE-0082 point-in-time identity-master interface, keep ISSUE-0085 planned and ISSUE-0079 unresolved, and preserve scope, dependencies, acceptance criteria, status semantics, policies and execution_allowed=false.",
+    "proposed_registry_sha256": "416634c51700c6133e514df23f689040300a485df89e59a450973bd18cfac7b2",
+    "reason": "B02 ISSUE-0085 dependency readiness: record only the reviewed ISSUE-0079 supply-chain intake and licence/provenance interface, keep ISSUE-0085 planned, preserve ISSUE-0082 complete evidence, all issue scope, dependencies, acceptance criteria, status semantics, policies and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
