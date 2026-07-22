@@ -38,6 +38,27 @@ Freeze and reuse `BitemporalStore`, `IdentityClaim`, `IdentityObject`, `Identity
 
 Forbidden without re-plan: product writes during control prerequisites; control/status/generated programme files during feature implementation; unrelated scoring/model/portfolio/provider/broker code; provider network enablement; paid dependencies/cloud services; live authority; unrelated refactors; weakened unavailable/quarantine/test gates.
 
+## Validation-cadence amendment (2026-07-22)
+
+The product owner's narrow execution-policy amendment changes validation cadence only. It does not change product functionality, issue scope, batch composition, dependencies, acceptance criteria, safety rules, programme-status semantics, agent roles or the invariant `execution_allowed=false`.
+
+- Every implementation lane and batch still requires focused behavioural tests, affected integration and UI tests, Ruff/type/compile checks as applicable, registry/status guards and required independent review.
+- The complete Linux plus Windows packaged release gate runs centrally after every two to three completed batches and always for B13 final certification. Intervening batches may reuse the latest successful full-gate evidence.
+- An immediate full gate remains mandatory for shared schema or migration, persistence/concurrency, canonical financial calculation, security/credential, packaging/CI/release-tooling, programme-control/status-transition machinery or broker/order-authority changes.
+- Evidence-only status and documentation PRs use their focused deterministic guards and supply-chain checks unless they modify protected tooling.
+- Dependency-ready work remains parallelised inside each batch through disjoint worktrees and non-overlapping ownership.
+
+The latest reusable full-gate evidence is ISSUE-0082 product PR `#470`, run `29881056993`, which passed Linux and Windows. The current ISSUE-0083 readiness transition is evidence-only and does not modify protected tooling, so its gate is the exact status-transition guard, deterministic registry/status/completion checks, focused control tests, supply-chain check, semantic diff and independent review.
+
+## ISSUE-0083 acceptance contract
+
+- `B02-0083-AC1`: every enabled instrument receives a supported classification or remains explicitly unresolved.
+- `B02-0083-AC2`: the sector-specific adapter is not used below the reviewed confidence threshold.
+- `B02-0083-AC3`: overrides invalidate dependent scores and remain historically versioned.
+- `B02-0083-AC4`: accuracy is measured on a labelled fixture set.
+
+Frozen specification constraints implementing those unchanged criteria: InstrumentContext v2 keeps instrument type, asset class, sector, industry and strategy separate; retains distinct regulatory/operating/listing country, asset/revenue geography and currency dimensions; and records confidence, source, point-in-time evidence, limitations, fallback and version state. Fixed-income look-through retains the specified bond dimensions while a bond ETF remains an ETF. Official and deterministic rule evidence precede weaker inference, low-confidence leaf classifications fall back explicitly, multi-label evidence remains explicit and no proprietary GICS/ICB taxonomy is redistributed. Universe and Instrument surfaces expose evidence, confidence, fallback/unresolved state and historically versioned override controls through an application facade.
+
 ## Validation and evidence log
 
 Control prerequisites require exact transition/edge guard, deterministic registry/status/completion freshness, registry validation, control tests, semantic diff, independent review, protected evidence-only PR and checksum-gated GitHub readback.
@@ -65,3 +86,9 @@ Product work follows regression-first contract tests, durable repository/migrati
 - `IN_PROGRESS` first post-merge convergence advances only ISSUE-0082 `in_progress -> implemented_initially`. The generated GitHub projection contains one Programme-status update for open issue `#222`, semantic SHA-256 `86ca707fe74b67b8f6a62adaf2686b1a97034e336f529ad97f80b1c7548309de`; no other issue, dependency, policy, closure or execution-authority mutation is authorised.
 - `VERIFIED` first convergence PR `#471` merged as `71f37f62d91a5d3721a472f91eeefa5605f3de9b`. Linux job `88808334515` passed; the exact documented Windows `PermissionError(13, 'Access is denied')` concurrency flake passed its one authorised retry job `88808321188`. The checksum-approved #222 Programme-status update applied and final readback plan `5106cbc1de471780ec174f0d84bf6cd0351e2a7217d49effe5c3ccfa13f3806d` contained zero actions.
 - `IN_PROGRESS` final convergence advances only ISSUE-0082 `implemented_initially -> integrated`. The generated GitHub projection contains one Programme-status update for open issue `#222`, semantic SHA-256 `8dcfb1a42c426723d172cf37701914c5e8bb66fd80e7978f3fa7240a3efb9ab7`; no closure, dependency, policy or execution-authority mutation is authorised.
+- `VERIFIED` final convergence PR `#472` merged as `88b862927a78b61f2b2a9f13f096d1e7f81ce57f`. Status-transition guard run `29884036976` and supply-chain run `29884036962` passed; redundant full run `29884036967` was cancelled under the validation-cadence amendment because the PR changed deterministic evidence only and protected full-gate evidence from PR `#470` remained current.
+- `VERIFIED` the checksum-approved ISSUE-0082/#222 Programme-status plan `8dcfb1a42c426723d172cf37701914c5e8bb66fd80e7978f3fa7240a3efb9ab7` applied `integrated`, preserved the open GitHub issue and `execution_allowed=false`, and final readback `270ce848cd901603b5fc82ce45f28c0b52297cde8126045f738c9cf0cc3318f0` contained zero actions.
+- `IN_PROGRESS` ISSUE-0083 readiness advances only `planned -> ready` and records its sole blocking edge, ISSUE-0082, as `complete` against the merged identity-master contract. The fresh GitHub projection contains one Programme-status update for open issue `#223`, semantic SHA-256 `8ec4f3af498d02b63768cd8f52610f9ea9b336541785f9d529fa102b46cb233b`; no other issue, dependency, acceptance criterion, policy, closure or execution-authority mutation is authorised.
+- `REVISE` independent review rejected the first completed-edge reference because it named a nonexistent `project_identity` symbol. The evidence was corrected before checkpoint to the exact existing APIs `IdentityMasterStore`, `IdentitySourceRow` and `IdentityMasterStore.projection`; no status, edge state or product contract changed.
+- `VERIFIED` after regeneration, the canonical registry remains 197 records and changes only ISSUE-0083; canonical acceptance criteria and blocking dependencies are byte-equivalent to base, the sole readiness edge changes `unresolved -> complete`, and `execution_allowed=false` remains universal. Corrected registry SHA-256 is `6cbe5e990847154273c197ad413c33463dc083223c3dc6263d1beb35c0e67de9`.
+- `VERIFIED` 96 focused control tests, the exact status-transition guard, registry validation, registry/status/completion freshness, Ruff, compileall and diff hygiene pass. Independent re-review has no remaining finding, and the freshly regenerated GitHub plan retains exactly one #223 Programme-status update with semantic SHA-256 `8ec4f3af498d02b63768cd8f52610f9ea9b336541785f9d529fa102b46cb233b` and `apply_authority=false`.

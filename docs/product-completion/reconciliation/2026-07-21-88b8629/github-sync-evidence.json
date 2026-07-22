@@ -1,0 +1,29 @@
+{
+  "actions": [
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Programme status"
+      ],
+      "remote_number": 223,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0083",
+      "title": "Implement automatic asset, sector, industry and strategy classification with confidence",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/223"
+    }
+  ],
+  "apply_authority": false,
+  "fresh_exact_plan_required_for_apply": true,
+  "plan_semantic_sha256": "8ec4f3af498d02b63768cd8f52610f9ea9b336541785f9d529fa102b46cb233b",
+  "remote_inventory_sha256": "fb10293a280475b406cfc443b14eee7fb3778ec56fed3dce26683869ff868171",
+  "repository": "Thor2709/etf_ai_cockpit",
+  "schema_version": "etf-ai-cockpit.safe-sync-evidence/1.0",
+  "summary": {
+    "blocked": 0,
+    "close": 0,
+    "create": 0,
+    "reopen": 0,
+    "update": 1
+  },
+  "transient_full_plan_file_sha256": "dd5664f0368091c5d01c34af87f1da43838f483589e76880b71da1e42d6338a5"
+}

@@ -5251,16 +5251,16 @@
       "edges": [
         {
           "dependency_id": "ISSUE-0082",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
+          "evidence_state": "complete",
+          "reason_code": "EDGE_EVIDENCE_COMPLETE",
+          "resolved": true
         }
       ],
       "execution_allowed": false,
       "issue_id": "ISSUE-0083",
-      "ready": false,
+      "ready": true,
       "reason_codes": [
-        "BLOCKED_UNRESOLVED_DEPENDENCY"
+        "READY_BLOCKING_EDGES_RESOLVED"
       ],
       "required_inputs": []
     },
@@ -14089,7 +14089,21 @@
         "Overrides invalidate dependent scores and are historically versioned.",
         "Accuracy is measured on a labelled fixture set."
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #470 merged durable identity master as d590c8fef1f645614e7ed326e60b31d823d54113 after protected release evidence",
+            "PRs #471 and #472 converged ISSUE-0082 to integrated; GitHub #222 final readback integrated and execution_allowed=false",
+            "src/etf_cockpit/data/identity_master.py immutable object IDs, source/authority/checksum, point-in-time replay, conflict and review contract",
+            "tests/test_identity_master.py exact/PIT/non-collapse/quarantine/concurrency fixtures",
+            "plans/BATCH-B02-DATA-SPINE-CONTINUATION.md ISSUE-0083 reconnaissance"
+          ],
+          "review_reference": "ISSUE-0083 scout map and completed ISSUE-0082 identity-master convergence",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex scout reviewer, deep reviewer and root",
+          "status": "ready"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [
         "ISSUE-0082"
@@ -14107,12 +14121,18 @@
       "dependency_conversions": [],
       "dependency_edge_evidence": {
         "ISSUE-0082": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "src/etf_cockpit/data/identity_master.py#IdentityMasterStore,IdentitySourceRow,IdentityMasterStore.projection",
+          "evidence_references": [
+            "PR #470 merged durable identity master as d590c8fef1f645614e7ed326e60b31d823d54113 after protected release evidence",
+            "PRs #471 and #472 converged ISSUE-0082 to integrated; GitHub #222 final readback integrated and execution_allowed=false",
+            "src/etf_cockpit/data/identity_master.py immutable object IDs, source/authority/checksum, point-in-time replay, conflict and review contract",
+            "tests/test_identity_master.py exact/PIT/non-collapse/quarantine/concurrency fixtures",
+            "plans/BATCH-B02-DATA-SPINE-CONTINUATION.md ISSUE-0083 reconnaissance"
+          ],
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex scout reviewer, deep reviewer and root",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         }
       },
       "downstream_issues": [
@@ -14148,7 +14168,7 @@
       "package_status": "",
       "phase": "phase-02-data-policy-identity",
       "priority": "P0/P1",
-      "programme_status": "planned",
+      "programme_status": "ready",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0083-automatic-asset-sector-industry-and-strategy-classification-with-confidence",
@@ -14179,8 +14199,8 @@
       ],
       "title": "Implement automatic asset, sector, industry and strategy classification with confidence",
       "ui_requirement": "Universe editor and Instrument header show evidence and override controls.",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "88b862927a78b61f2b2a9f13f096d1e7f81ce57f",
+      "verified_date": "2026-07-22",
       "why": "Sector-specific algorithms and peer comparisons depend on accurate, explainable classification.",
       "write_conflict_group": "data-platform"
     },
@@ -25921,7 +25941,7 @@
   ],
   "schema_version": "2.0",
   "source_of_truth": {
-    "baseline_commit": "71f37f62d91a5d3721a472f91eeefa5605f3de9b",
+    "baseline_commit": "88b862927a78b61f2b2a9f13f096d1e7f81ce57f",
     "closed_ledger_sha256": "2dca7fd65f7a218747bcfb91b4e5c1f734af26f29114cc7dc83b071bb86838d8",
     "final_release_manifest_sha256": "dbb71ecaa2b81206ff922eec3dcc72cb08cc001121688b107e8f1c3a2372f685",
     "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -25933,7 +25953,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "b5e4a16582d7af310dd5cce2762d83c77e8b631c47afb212898ba1b9012ff347",
+    "programme_control_state_sha256": "363bf784ec592e6ef758b0c179b8b968eb95a194720fa7f7b35aa2cfad93278a",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

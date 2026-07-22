@@ -3,23 +3,23 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "implemented_initially",
-      "issue_id": "ISSUE-0082",
-      "to": "integrated"
+      "from": "planned",
+      "issue_id": "ISSUE-0083",
+      "to": "ready"
     }
   ],
-  "base_commit": "71f37f62d91a5d3721a472f91eeefa5605f3de9b",
-  "branch": "codex/b02-issue0082-status-integrated-20260722",
+  "base_commit": "88b862927a78b61f2b2a9f13f096d1e7f81ce57f",
+  "branch": "codex/b02-issue0083-ready-20260722",
   "issue_ids": [
-    "ISSUE-0082"
+    "ISSUE-0083"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "700d621d5d79e7d29004a40a729852636246e60dbaa7ed1c1c573c24a563d537",
+    "base_registry_sha256": "ed71c5a123adc0a6524f268ac1ca275c608580a37239509d318c677071476736",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "ed71c5a123adc0a6524f268ac1ca275c608580a37239509d318c677071476736",
-    "reason": "B02 ISSUE-0082 final post-merge convergence: refresh the generation base to first-convergence merge 71f37f62d91a5d3721a472f91eeefa5605f3de9b and advance only ISSUE-0082 from implemented_initially to integrated after protected product release, reviewed evidence, checksum-approved GitHub apply and zero-action readback; execution authority remains false.",
+    "proposed_registry_sha256": "6cbe5e990847154273c197ad413c33463dc083223c3dc6263d1beb35c0e67de9",
+    "reason": "B02 ISSUE-0083 readiness step: refresh the generation base to completed ISSUE-0082 convergence 88b862927a78b61f2b2a9f13f096d1e7f81ce57f, record the durable identity-master dependency interface as complete, and advance only ISSUE-0083 from planned to ready; execution authority remains false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
