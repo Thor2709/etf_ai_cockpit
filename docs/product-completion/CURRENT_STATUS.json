@@ -207,7 +207,8 @@
     "implemented_initially": 58,
     "in_progress": 7,
     "integrated": 41,
-    "planned": 67,
+    "planned": 66,
+    "ready": 1,
     "research_only": 2
   },
   "execution_allowed": false,
@@ -5158,5 +5159,5 @@
     "ISSUE-0062"
   ],
   "schema_version": "1.0",
-  "source_registry_sha256": "b564ff57dd8f35923befe365f82f7add0879ec122a2ac779d36fafc6c4875346"
+  "source_registry_sha256": "1887ba4a3a49ca9bfc72de2ff2dc5f8f91a0da8592b80a9ae4462d34655caf4e"
 }
