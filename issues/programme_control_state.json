@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "c6b5742d59b7cdb64c5dbd464efaa198c7234dd8",
+    "generation_base_commit": "fd7d1758b692ea4f2f70ea194712d200b24c8a72",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -1946,12 +1946,18 @@
       "acceptance_evidence": [],
       "dependency_edge_evidence": {
         "ISSUE-0079": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B02/ISSUE-0079/supply-chain-intake-v1",
+          "evidence_references": [
+            "PR #342 merged ISSUE-0079 supply-chain intake governance as 0a0297016bbf26698808f74af2877bf40e1e519e",
+            "src/etf_cockpit/governance/supply_chain_intake.py and configs/supply_chain_intake.yaml define bounded licence, provenance, security and upstream-update review",
+            "scripts/supply_chain_scan.py and artifacts/supply_chain_intake/issue-0079 provide deterministic review evidence",
+            "tests/test_supply_chain_intake.py and tests/test_supply_chain_scan.py cover policy, redaction and failure states",
+            "ISSUE-0079 remains broader hardening work; this evidence resolves only ISSUE-0085 dependency-intake readiness"
+          ],
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex independent reviewer and root",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "partial_interface"
         },
         "ISSUE-0082": {
           "contract_reference": "B02/ISSUE-0082/point-in-time-identity-master-v1",
@@ -2003,9 +2009,40 @@
           "reviewed_date": "2026-07-22",
           "reviewer": "Codex independent reviewer and root",
           "verified_commit": "d590c8fef1f645614e7ed326e60b31d823d54113"
+        },
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0079",
+            "evidence": {
+              "contract_reference": "B02/ISSUE-0079/supply-chain-intake-v1",
+              "evidence_references": [
+                "PR #342 merged ISSUE-0079 supply-chain intake governance as 0a0297016bbf26698808f74af2877bf40e1e519e",
+                "src/etf_cockpit/governance/supply_chain_intake.py and configs/supply_chain_intake.yaml define bounded licence, provenance, security and upstream-update review",
+                "scripts/supply_chain_scan.py and artifacts/supply_chain_intake/issue-0079 provide deterministic review evidence",
+                "tests/test_supply_chain_intake.py and tests/test_supply_chain_scan.py cover policy, redaction and failure states",
+                "ISSUE-0079 remains broader hardening work; this evidence resolves only ISSUE-0085 dependency-intake readiness"
+              ],
+              "reviewed_date": "2026-07-22",
+              "reviewer": "Codex independent reviewer and root",
+              "schema_version": "1.0",
+              "state": "partial_interface"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "PR #342 merged ISSUE-0079 supply-chain intake governance as 0a0297016bbf26698808f74af2877bf40e1e519e",
+            "src/etf_cockpit/governance/supply_chain_intake.py and configs/supply_chain_intake.yaml define bounded licence, provenance, security and upstream-update review",
+            "scripts/supply_chain_scan.py and artifacts/supply_chain_intake/issue-0079 provide deterministic review evidence",
+            "tests/test_supply_chain_intake.py and tests/test_supply_chain_scan.py cover policy, redaction and failure states",
+            "ISSUE-0079 remains broader hardening work; this evidence resolves only ISSUE-0085 dependency-intake readiness"
+          ],
+          "review_reference": "B02 ISSUE-0085 dependency review: supply-chain and licence intake interface",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex independent reviewer and root",
+          "verified_commit": "0a0297016bbf26698808f74af2877bf40e1e519e"
         }
       ],
-      "verified_commit": "d590c8fef1f645614e7ed326e60b31d823d54113",
+      "verified_commit": "0a0297016bbf26698808f74af2877bf40e1e519e",
       "verified_date": "2026-07-22"
     },
     "ISSUE-0086": {

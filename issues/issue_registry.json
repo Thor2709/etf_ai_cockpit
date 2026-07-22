@@ -5301,9 +5301,9 @@
       "edges": [
         {
           "dependency_id": "ISSUE-0079",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
+          "evidence_state": "partial_interface",
+          "reason_code": "EDGE_EVIDENCE_PARTIAL_INTERFACE",
+          "resolved": true
         },
         {
           "dependency_id": "ISSUE-0082",
@@ -5314,9 +5314,9 @@
       ],
       "execution_allowed": false,
       "issue_id": "ISSUE-0085",
-      "ready": false,
+      "ready": true,
       "reason_codes": [
-        "BLOCKED_UNRESOLVED_DEPENDENCY"
+        "READY_BLOCKING_EDGES_RESOLVED"
       ],
       "required_inputs": []
     },
@@ -14439,12 +14439,18 @@
       "dependency_conversions": [],
       "dependency_edge_evidence": {
         "ISSUE-0079": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B02/ISSUE-0079/supply-chain-intake-v1",
+          "evidence_references": [
+            "PR #342 merged ISSUE-0079 supply-chain intake governance as 0a0297016bbf26698808f74af2877bf40e1e519e",
+            "src/etf_cockpit/governance/supply_chain_intake.py and configs/supply_chain_intake.yaml define bounded licence, provenance, security and upstream-update review",
+            "scripts/supply_chain_scan.py and artifacts/supply_chain_intake/issue-0079 provide deterministic review evidence",
+            "tests/test_supply_chain_intake.py and tests/test_supply_chain_scan.py cover policy, redaction and failure states",
+            "ISSUE-0079 remains broader hardening work; this evidence resolves only ISSUE-0085 dependency-intake readiness"
+          ],
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex independent reviewer and root",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "partial_interface"
         },
         "ISSUE-0082": {
           "contract_reference": "B02/ISSUE-0082/point-in-time-identity-master-v1",
@@ -14519,7 +14525,7 @@
       ],
       "title": "Implement exchange calendars, sessions, holidays, auctions and market-state service",
       "ui_requirement": "Instrument and order views show market state, timezone and next session.",
-      "verified_commit": "d590c8fef1f645614e7ed326e60b31d823d54113",
+      "verified_commit": "0a0297016bbf26698808f74af2877bf40e1e519e",
       "verified_date": "2026-07-22",
       "why": "Correct availability and next-session execution require listing-specific sessions and timezones.",
       "write_conflict_group": "data-platform"
@@ -26038,7 +26044,7 @@
   ],
   "schema_version": "2.0",
   "source_of_truth": {
-    "baseline_commit": "c6b5742d59b7cdb64c5dbd464efaa198c7234dd8",
+    "baseline_commit": "fd7d1758b692ea4f2f70ea194712d200b24c8a72",
     "closed_ledger_sha256": "2dca7fd65f7a218747bcfb91b4e5c1f734af26f29114cc7dc83b071bb86838d8",
     "final_release_manifest_sha256": "dbb71ecaa2b81206ff922eec3dcc72cb08cc001121688b107e8f1c3a2372f685",
     "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -26050,7 +26056,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "f1254e405688e06d45d7799e170b8e1fb3e5ca0c60fda16a0fecd90a636bcb1e",
+    "programme_control_state_sha256": "00f8fad8483290b91ed208168bf434eecfddb9a977a554df7bb9a588d2cecc08",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
