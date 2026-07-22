@@ -3,23 +3,23 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "in_progress",
+      "from": "implemented_initially",
       "issue_id": "ISSUE-0082",
-      "to": "implemented_initially"
+      "to": "integrated"
     }
   ],
-  "base_commit": "d590c8fef1f645614e7ed326e60b31d823d54113",
-  "branch": "codex/b02-issue0082-status-initial-20260722",
+  "base_commit": "71f37f62d91a5d3721a472f91eeefa5605f3de9b",
+  "branch": "codex/b02-issue0082-status-integrated-20260722",
   "issue_ids": [
     "ISSUE-0082"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "b76cc5de43d492cda13ad165465140cc232b339b16fdaf8a191d1b341b31ece2",
+    "base_registry_sha256": "700d621d5d79e7d29004a40a729852636246e60dbaa7ed1c1c573c24a563d537",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "700d621d5d79e7d29004a40a729852636246e60dbaa7ed1c1c573c24a563d537",
-    "reason": "B02 ISSUE-0082 first post-merge convergence: refresh the generation base to protected merge d590c8fef1f645614e7ed326e60b31d823d54113 and advance only ISSUE-0082 from in_progress to implemented_initially using reviewed AC1-AC8 product, UI and release evidence; execution authority remains false.",
+    "proposed_registry_sha256": "ed71c5a123adc0a6524f268ac1ca275c608580a37239509d318c677071476736",
+    "reason": "B02 ISSUE-0082 final post-merge convergence: refresh the generation base to first-convergence merge 71f37f62d91a5d3721a472f91eeefa5605f3de9b and advance only ISSUE-0082 from implemented_initially to integrated after protected product release, reviewed evidence, checksum-approved GitHub apply and zero-action readback; execution authority remains false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
