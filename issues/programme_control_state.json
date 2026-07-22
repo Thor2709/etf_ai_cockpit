@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "fd7d1758b692ea4f2f70ea194712d200b24c8a72",
+    "generation_base_commit": "8b86b317c1044f56c9347dbb37a305ea60ee8025",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -1943,7 +1943,20 @@
       "verified_date": "2026-07-22"
     },
     "ISSUE-0085": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #485 merged ISSUE-0082 complete edge as fd7d1758b692ea4f2f70ea194712d200b24c8a72 after guard, supply-chain and independent review",
+            "PR #486 merged ISSUE-0079 partial-interface edge as 8b86b317c1044f56c9347dbb37a305ea60ee8025 after guard, supply-chain and independent review",
+            "docs/product-completion/programme/readiness.json reports READY_BLOCKING_EDGES_RESOLVED",
+            "ISSUE-0085 scope, dependencies, acceptance criteria and execution_allowed=false remain unchanged"
+          ],
+          "review_reference": "B02 ISSUE-0085 readiness review: identity and supply-chain interfaces resolved",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex independent reviewer and root",
+          "status": "ready"
+        }
+      ],
       "dependency_edge_evidence": {
         "ISSUE-0079": {
           "contract_reference": "B02/ISSUE-0079/supply-chain-intake-v1",
@@ -1974,11 +1987,11 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "planned",
+      "programme_status": "ready",
       "status_transition": {
         "from": "planned",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "planned"
+        "review_reference": "B02 ISSUE-0085 readiness review: identity and supply-chain interfaces resolved",
+        "to": "ready"
       },
       "transition_history": [
         {
@@ -2040,9 +2053,24 @@
           "reviewed_date": "2026-07-22",
           "reviewer": "Codex independent reviewer and root",
           "verified_commit": "0a0297016bbf26698808f74af2877bf40e1e519e"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #485 merged ISSUE-0082 complete edge as fd7d1758b692ea4f2f70ea194712d200b24c8a72 after guard, supply-chain and independent review",
+            "PR #486 merged ISSUE-0079 partial-interface edge as 8b86b317c1044f56c9347dbb37a305ea60ee8025 after guard, supply-chain and independent review",
+            "docs/product-completion/programme/readiness.json reports READY_BLOCKING_EDGES_RESOLVED",
+            "ISSUE-0085 scope, dependencies, acceptance criteria and execution_allowed=false remain unchanged"
+          ],
+          "from": "planned",
+          "review_reference": "B02 ISSUE-0085 readiness review: identity and supply-chain interfaces resolved",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex independent reviewer and root",
+          "to": "ready",
+          "verified_commit": "8b86b317c1044f56c9347dbb37a305ea60ee8025"
         }
       ],
-      "verified_commit": "0a0297016bbf26698808f74af2877bf40e1e519e",
+      "verified_commit": "8b86b317c1044f56c9347dbb37a305ea60ee8025",
       "verified_date": "2026-07-22"
     },
     "ISSUE-0086": {
