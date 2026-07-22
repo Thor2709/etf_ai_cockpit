@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "a71e747fc30b31b2968de8fa4ec13eb17977df5a",
+    "generation_base_commit": "537e800dd78e9593e7769f41aecf6d79babb75f9",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -1756,6 +1756,19 @@
           "reviewed_date": "2026-07-22",
           "reviewer": "Codex root orchestrator and independent reviewer",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "PR #482 merged unchanged reviewed head b76f34167c961480421b9703b044e0b103478b4b as 537e800dd78e9593e7769f41aecf6d79babb75f9",
+            "Release run 29917412080 passed Linux job 88914414961 and Windows job 88914414847",
+            "Status guard 29917412077 and supply-chain 29917412095 passed",
+            "Independent high-risk review passed after action-coverage, financial-identity, FX lineage and point-in-time repairs",
+            "Post-merge 50-test ISSUE-0084 product/UI suite passed with execution_allowed=false"
+          ],
+          "review_reference": "B02 ISSUE-0084 product merge and protected release evidence",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex root orchestrator and independent deep reviewer",
+          "status": "implemented_initially"
         }
       ],
       "dependency_edge_evidence": {
@@ -1787,11 +1800,11 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "in_progress",
+      "programme_status": "implemented_initially",
       "status_transition": {
-        "from": "ready",
-        "review_reference": "B02 ISSUE-0084 implementation start after readiness convergence",
-        "to": "in_progress"
+        "from": "in_progress",
+        "review_reference": "B02 ISSUE-0084 product merge and protected release evidence",
+        "to": "implemented_initially"
       },
       "transition_history": [
         {
@@ -1881,9 +1894,25 @@
           "reviewer": "Codex root orchestrator and independent reviewer",
           "to": "in_progress",
           "verified_commit": "1d9838ae3a1a54db4d513b8cfe37d8fd5a3f1a49"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #482 merged unchanged reviewed head b76f34167c961480421b9703b044e0b103478b4b as 537e800dd78e9593e7769f41aecf6d79babb75f9",
+            "Release run 29917412080 passed Linux job 88914414961 and Windows job 88914414847",
+            "Status guard 29917412077 and supply-chain 29917412095 passed",
+            "Independent high-risk review passed after action-coverage, financial-identity, FX lineage and point-in-time repairs",
+            "Post-merge 50-test ISSUE-0084 product/UI suite passed with execution_allowed=false"
+          ],
+          "from": "in_progress",
+          "review_reference": "B02 ISSUE-0084 product merge and protected release evidence",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex root orchestrator and independent deep reviewer",
+          "to": "implemented_initially",
+          "verified_commit": "537e800dd78e9593e7769f41aecf6d79babb75f9"
         }
       ],
-      "verified_commit": "1d9838ae3a1a54db4d513b8cfe37d8fd5a3f1a49",
+      "verified_commit": "537e800dd78e9593e7769f41aecf6d79babb75f9",
       "verified_date": "2026-07-22"
     },
     "ISSUE-0085": {
