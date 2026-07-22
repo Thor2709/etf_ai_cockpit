@@ -358,6 +358,10 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
                 else "",
             ),
         }
+        initial_values = {
+            field_name: str(control.value or "").strip()
+            for field_name, control in controls.items()
+        }
         reason = _field("Override reason")
 
         def save_override(_event: ft.ControlEvent) -> None:
@@ -381,9 +385,10 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
                 )
                 for field_name, control in controls.items()
                 if str(control.value or "").strip()
+                and str(control.value or "").strip() != initial_values[field_name]
             )
             if not selected:
-                status.value = "Classification override rejected: at least one field is required."
+                status.value = "Classification override rejected: change at least one non-empty field."
                 page.update()
                 return
             result = save_classification_overrides(ROOT, selected)
@@ -394,6 +399,9 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
                 )
                 page.update()
                 return
+            invalidate = getattr(state, "invalidate_classification_scores", None)
+            if callable(invalidate):
+                invalidate(record.instrument_id, root=ROOT)
             refreshed = load_classification_projection(record.instrument_id, storage_root=ROOT)
             rendered.value = json.dumps(refreshed, sort_keys=True, indent=2, default=str)
             state_line.value = (

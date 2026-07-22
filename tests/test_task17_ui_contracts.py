@@ -18,7 +18,7 @@ def _walk(control):
 def test_what_changed_exposes_instrument_search_and_dimension_filters(monkeypatch) -> None:
     import etf_cockpit.app.pages.what_changed as module
 
-    monkeypatch.setattr(module.pd, "read_parquet", lambda _path: pd.DataFrame([
+    monkeypatch.setattr(module, "score_history_frame", lambda: pd.DataFrame([
         {"run_id": "old", "run_completed_at": "2026-07-09", "instrument_id": "A", "final_combined_score_10": 5.0, "final_action": "watchlist"},
         {"run_id": "new", "run_completed_at": "2026-07-10", "instrument_id": "A", "final_combined_score_10": 7.0, "final_action": "watchlist"},
     ]))
@@ -34,9 +34,9 @@ def test_what_changed_uses_compact_responsive_instrument_cards_without_horizonta
     import etf_cockpit.app.pages.what_changed as module
 
     monkeypatch.setattr(
-        module.pd,
-        "read_parquet",
-        lambda _path: pd.DataFrame(
+        module,
+        "score_history_frame",
+        lambda: pd.DataFrame(
             [
                 {
                     "run_id": "old",
@@ -84,7 +84,7 @@ def test_what_changed_uses_compact_responsive_instrument_cards_without_horizonta
 def test_dashboard_digest_surfaces_deterministic_run_changes(monkeypatch) -> None:
     import etf_cockpit.app.pages.dashboard as module
 
-    monkeypatch.setattr(module.pd, "read_parquet", lambda _path: pd.DataFrame([
+    monkeypatch.setattr(module, "score_history_frame", lambda: pd.DataFrame([
         {"run_id": "old", "run_completed_at": "2026-07-09", "instrument_id": "A", "final_combined_score_10": 5.0, "final_action": "watchlist"},
         {"run_id": "new", "run_completed_at": "2026-07-10", "instrument_id": "A", "final_combined_score_10": 7.0, "final_action": "watchlist"},
     ]))

@@ -25,6 +25,7 @@ from etf_cockpit.application.ui_facade import (
     exposure_summary,
     export_table,
     load_reference_dataset,
+    load_simple_scoreboard,
     normalise_holdings,
     return_correlation_matrix,
     build_robust_risk_report,
@@ -715,10 +716,7 @@ def _crowding_attribution_panel() -> ft.Control:
 def _friction_edge_panel() -> ft.Control:
     """Show persisted gross/net edge and cost scenarios as risk evidence."""
 
-    try:
-        scoreboard = pd.read_parquet(SCOREBOARD_PATH) if SCOREBOARD_PATH.exists() else pd.DataFrame()
-    except Exception:
-        scoreboard = pd.DataFrame()
+    scoreboard = load_simple_scoreboard(SCOREBOARD_PATH)
     required = {"gross_expected_edge_bps", "estimated_total_cost_bps", "net_expected_edge_bps", "edge_to_cost_ratio", "cost_stress_scenario"}
     id_column = next((column for column in ("display_id", "instrument_id", "etf_id") if column in scoreboard.columns), None)
     if scoreboard.empty or id_column is None or not required.issubset(scoreboard.columns):

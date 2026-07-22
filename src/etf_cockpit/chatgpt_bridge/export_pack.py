@@ -22,6 +22,7 @@ from etf_cockpit.data.manual_notes import MANUAL_NEWS_CLEAN_PATH, load_manual_ne
 from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH, FUNDAMENTAL_RAW_DIR, load_fundamental_evidence
 from etf_cockpit.data.news_context import NEWS_RAW_DIR, load_news_items
 from etf_cockpit.data.reference_data import reference_data_inventory
+from etf_cockpit.data.score_history import project_classification_score_frame
 from etf_cockpit.data.trust_artifacts import (
     BENCHMARK_ATTRIBUTION_PATH,
     CORRELATION_CLUSTERS_PATH,
@@ -62,6 +63,7 @@ from etf_cockpit.governance.product_scope import (
 from etf_cockpit.governance.capability_scope import strategy_capability_export
 from etf_cockpit.governance.supply_chain_intake import supply_chain_intake_report
 from etf_cockpit.portfolio.allocation import allocation_frame
+from etf_cockpit.signals.simple_scores import load_simple_scoreboard
 
 
 # Backwards-compatible name for older scripts/tests; new exports default to data/audit_packets.
@@ -689,7 +691,7 @@ def _export_derived_evidence(export_dir: Path) -> dict[str, object]:
     scoreboard_path = DERIVED_DIR / "scoreboard.parquet"
     if scoreboard_path.exists():
         try:
-            scoreboard = pd.read_parquet(scoreboard_path)
+            scoreboard = load_simple_scoreboard(scoreboard_path, root=ROOT)
             scoreboard.to_csv(export_dir / "14_scoreboard.csv", index=False)
             scoreboard.to_json(export_dir / "14_scoreboard.json", orient="records", indent=2)
             evidence_dir = export_dir / "instrument_evidence"
@@ -958,7 +960,21 @@ def _copy_evidence_file(source_path: Path, evidence_root: Path, manifest: dict[s
         if csv_mirror.exists():
             target = evidence_root / csv_mirror.name
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(csv_mirror.read_bytes())
+            if source_path.resolve() == SCORE_HISTORY_PATH.resolve():
+                try:
+                    frame = _project_score_history_export(pd.read_csv(csv_mirror))
+                    frame.to_csv(target, index=False)
+                except Exception as exc:
+                    marker = evidence_root / f"{source_path.stem}_export_failed.txt"
+                    _write_unavailable_marker(
+                        marker,
+                        source_path,
+                        manifest,
+                        reason=f"export_failed:{type(exc).__name__}",
+                    )
+                    return
+            else:
+                target.write_bytes(csv_mirror.read_bytes())
             _include_file(target, target.name, manifest)
             return
     if not source_path.exists():
@@ -974,6 +990,8 @@ def _copy_evidence_file(source_path: Path, evidence_root: Path, manifest: dict[s
     if source_path.suffix == ".parquet":
         try:
             frame = pd.read_parquet(source_path)
+            if source_path.resolve() == SCORE_HISTORY_PATH.resolve():
+                frame = _project_score_history_export(frame)
             csv_target = evidence_root / f"{source_path.stem}.csv"
             json_target = evidence_root / f"{source_path.stem}.json"
             frame.to_csv(csv_target, index=False)
@@ -986,7 +1004,21 @@ def _copy_evidence_file(source_path: Path, evidence_root: Path, manifest: dict[s
             if csv_mirror.exists():
                 target = evidence_root / csv_mirror.name
                 target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(csv_mirror.read_bytes())
+                if source_path.resolve() == SCORE_HISTORY_PATH.resolve():
+                    try:
+                        frame = _project_score_history_export(pd.read_csv(csv_mirror))
+                        frame.to_csv(target, index=False)
+                    except Exception as csv_exc:
+                        marker = evidence_root / f"{source_path.stem}_export_failed.txt"
+                        _write_unavailable_marker(
+                            marker,
+                            source_path,
+                            manifest,
+                            reason=f"export_failed:{type(csv_exc).__name__}",
+                        )
+                        return
+                else:
+                    target.write_bytes(csv_mirror.read_bytes())
                 _include_file(target, target.name, manifest)
                 return
             relative = source_path.as_posix()
@@ -1001,6 +1033,12 @@ def _copy_evidence_file(source_path: Path, evidence_root: Path, manifest: dict[s
     target = evidence_root / source_path.name
     target.write_bytes(source_path.read_bytes())
     _include_file(target, target.name, manifest)
+
+
+def _project_score_history_export(frame: pd.DataFrame) -> pd.DataFrame:
+    if not any(column in frame.columns for column in ("instrument_id", "display_id", "etf_id")):
+        raise ValueError("score-history export requires an instrument identifier")
+    return project_classification_score_frame(frame, root=ROOT)
 
 
 def _copy_evidence_tree(source_root: Path, destination_root: Path, manifest: dict[str, object]) -> None:

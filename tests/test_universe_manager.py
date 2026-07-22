@@ -274,7 +274,12 @@ def test_universe_classification_action_exposes_fallback_and_saves_versioned_ove
 
     monkeypatch.setattr(manager, "save_classification_overrides", fake_save)
     page = _Page()
-    root = universe_manager_page(page, _state())
+    state = _state()
+    invalidated: list[tuple[str, Path]] = []
+    state.invalidate_classification_scores = (
+        lambda instrument_id, *, root: invalidated.append((instrument_id, root))
+    )
+    root = universe_manager_page(page, state)
     button = next(
         control
         for control in _walk(root)
@@ -306,10 +311,12 @@ def test_universe_classification_action_exposes_fallback_and_saves_versioned_ove
     )
     save.on_click(None)
 
-    assert captured
-    assert {item.instrument_id for item in captured} == {"A"}
-    assert any(item.field == "sector" and item.value == "banks" for item in captured)
+    assert len(captured) == 1
+    assert captured[0].instrument_id == "A"
+    assert captured[0].field == "sector"
+    assert captured[0].value == "banks"
     assert all(item.dependent_score_keys == ("classification:A:*",) for item in captured)
+    assert invalidated == [("A", tmp_path)]
     assert "classification-dependent scores are invalid" in str(
         next(
             control

@@ -13,7 +13,6 @@ from etf_cockpit.app.components.simple_scores import score_colour, simple_score_
 from etf_cockpit.app.components.states import state_panel
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import FORECASTS_DIR
-from etf_cockpit.core.paths import DERIVED_DIR
 from etf_cockpit.application.ui_facade import (
     NEWS_CLEAN_PATH,
     SimpleInstrumentScore,
@@ -22,6 +21,7 @@ from etf_cockpit.application.ui_facade import (
     filter_forecasts_for_universe,
     load_latest_forecasts,
     load_news_items,
+    score_history_frame,
     sort_news_items,
 )
 
@@ -100,11 +100,7 @@ def _evidence_state_panel(state: AppState) -> ft.Container:
 def _run_changes_digest(_page: ft.Page, _state: AppState) -> ft.Control:
     """Show a deterministic, informational summary of the latest run delta."""
 
-    path = DERIVED_DIR / "score_history.parquet"
-    try:
-        history = pd.read_parquet(path) if path.exists() else pd.DataFrame()
-    except Exception:
-        history = pd.DataFrame()
+    history = score_history_frame()
     if history.empty or "run_id" not in history.columns:
         body: ft.Control = ft.Text("Run changes unavailable; complete two score runs to populate the digest.", color=theme.MUTED, selectable=True)
     else:

@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import pandas as pd
 
+from etf_cockpit.data.classification import (
+    ClassificationOverride,
+    ClassificationStore,
+    classification_score_state,
+)
 from etf_cockpit.data.score_history import append_score_run, score_history_frame, score_history_v2_payload
 
 
@@ -235,3 +240,67 @@ def test_score_history_publishes_paired_csv_and_rolls_back_on_group_failure(tmp_
         raise AssertionError("failure injection did not reach grouped persistence")
     assert parquet_path.read_bytes() == before
     assert len(pd.read_csv(csv_path)) == 1
+
+
+def test_classification_override_invalidates_canonical_history_read_but_preserves_raw_audit_row(tmp_path) -> None:
+    before = classification_score_state(tmp_path, "A")
+    append_score_run(
+        pd.DataFrame(
+            {
+                "instrument_id": ["A"],
+                "final_combined_score_10": [7.0],
+                "classification_version_id": [before["version_id"]],
+                "classification_invalidation_hash": [before["invalidation_token"]],
+                "classification_dependency_status": ["current"],
+            }
+        ),
+        "run-before-override",
+        "2026-07-10",
+        root=tmp_path,
+    )
+    with ClassificationStore(tmp_path) as store:
+        store.append_overrides(
+            (
+                ClassificationOverride(
+                    override_id="override:A:sector:1",
+                    instrument_id="A",
+                    field="sector",
+                    value="financials",
+                    reason="reviewed issuer activity",
+                    reviewer="local_user",
+                    valid_from="2026-07-11T00:00:00Z",
+                    available_at="2026-07-11T00:00:00Z",
+                    dependent_score_keys=("classification:A:*",),
+                ),
+            )
+        )
+
+    parquet_path = tmp_path / "data" / "derived" / "score_history.parquet"
+    raw = pd.read_parquet(parquet_path)
+    projected = score_history_frame(root=tmp_path)
+
+    assert raw.iloc[0]["final_combined_score_10"] == 7.0
+    assert pd.isna(projected.iloc[0]["final_combined_score_10"])
+    assert projected.iloc[0]["classification_dependency_status"] == "classification_override_invalidated"
+    assert projected.iloc[0]["analysis_status"] == "unavailable"
+    assert projected.iloc[0]["execution_allowed"] is False or not bool(projected.iloc[0]["execution_allowed"])
+    assert "classification_override_invalidated" in projected.iloc[0]["blocked_by"]
+
+    current = classification_score_state(tmp_path, "A")
+    append_score_run(
+        pd.DataFrame(
+            {
+                "instrument_id": ["A"],
+                "final_combined_score_10": [8.0],
+                "classification_version_id": [current["version_id"]],
+                "classification_invalidation_hash": [current["invalidation_token"]],
+                "classification_dependency_status": ["current"],
+            }
+        ),
+        "run-after-recompute",
+        "2026-07-12",
+        root=tmp_path,
+    )
+    refreshed = score_history_frame(root=tmp_path).set_index("run_id")
+    assert refreshed.loc["run-after-recompute", "final_combined_score_10"] == 8.0
+    assert refreshed.loc["run-after-recompute", "classification_dependency_status"] == "current"

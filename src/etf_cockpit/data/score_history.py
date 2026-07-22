@@ -10,6 +10,7 @@ from typing import Literal
 import pandas as pd
 
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, wait_for_atomic_group
+from etf_cockpit.data.classification import classification_score_state
 from etf_cockpit.governance.migrations import _snapshot_checksum, validated_portfolio_snapshot
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.signals.research_states import (
@@ -81,6 +82,9 @@ _COLUMNS = [
     "formula_version",
     "formula_checksum",
     "source_vintage_hash",
+    "classification_version_id",
+    "classification_invalidation_hash",
+    "classification_dependency_status",
     "version_registry_signature",
     "dependency_graph_hash",
     "snapshot_hash",
@@ -247,6 +251,9 @@ def append_score_run(
         ("formula_version", "unavailable"),
         ("formula_checksum", "unavailable"),
         ("source_vintage_hash", "unavailable"),
+        ("classification_version_id", "unavailable"),
+        ("classification_invalidation_hash", "unavailable"),
+        ("classification_dependency_status", "legacy_unbound"),
         ("version_registry_signature", "unavailable"),
         ("dependency_graph_hash", "unavailable"),
     ):
@@ -304,7 +311,112 @@ def score_history_frame(*, root: Path | None = None) -> pd.DataFrame:
         frame = _normalise_history_frame(pd.read_parquet(path))
     except Exception:
         return pd.DataFrame(columns=_COLUMNS)
-    return frame.reindex(columns=_COLUMNS).copy()
+    return project_classification_score_frame(frame.reindex(columns=_COLUMNS), root=root)
+
+
+_CLASSIFICATION_DEPENDENT_NUMERIC_COLUMNS = (
+    "evidence_score_10",
+    "evidence_quality_10",
+    "risk_friction_10",
+    "final_score_10",
+    "final_combined_score_10",
+    "rank",
+    "score_rank",
+    "canonical_attractiveness_10",
+    "canonical_expected_return_10",
+    "canonical_risk_implementation_10",
+    "canonical_evidence_confidence_10",
+    "canonical_coverage",
+)
+
+
+def project_classification_score_frame(
+    frame: pd.DataFrame,
+    *,
+    root: Path | None = None,
+    instrument_columns: tuple[str, ...] = ("instrument_id", "display_id", "etf_id"),
+) -> pd.DataFrame:
+    """Fail closed when a persisted score predates its classification context.
+
+    The stored row remains immutable audit evidence.  Only this canonical read
+    projection clears score/rank values until the normal scoring workflow
+    recomputes them against the current classification invalidation token.
+    """
+
+    if frame.empty:
+        return frame.copy()
+    canonical_root = Path(root) if root is not None else ROOT
+    result = frame.copy()
+    if "classification_invalidation_token" in result.columns:
+        if "classification_invalidation_hash" not in result.columns:
+            result["classification_invalidation_hash"] = result["classification_invalidation_token"]
+        result = result.drop(columns=["classification_invalidation_token"])
+    id_column = next((column for column in instrument_columns if column in result.columns), None)
+    if id_column is None:
+        return result
+    for column, default in (
+        ("classification_version_id", "unavailable"),
+        ("classification_invalidation_hash", "unavailable"),
+        ("classification_dependency_status", "legacy_unbound"),
+        ("analysis_status", "unavailable"),
+        ("research_promotion_allowed", False),
+        ("portfolio_review_allowed", False),
+        ("execution_allowed", False),
+        ("blocked_by", ""),
+        ("warnings", ""),
+    ):
+        if column not in result.columns:
+            result[column] = default
+
+    for index, row in result.iterrows():
+        instrument_id = _clean_optional_text(row.get(id_column))
+        if instrument_id is None:
+            continue
+        state = classification_score_state(canonical_root, instrument_id)
+        current_token = str(state.get("invalidation_token") or "unavailable")
+        stored_token = _clean_optional_text(row.get("classification_invalidation_hash")) or "unavailable"
+        has_active_invalidation = bool(state.get("invalidated_score_keys"))
+        token_is_bound = stored_token not in {"", "none", "nan", "unavailable"}
+        invalid = (
+            str(state.get("status")) == "unavailable"
+            or str(row.get("classification_dependency_status")) == "classification_unavailable"
+            or (token_is_bound and stored_token != current_token)
+            or (has_active_invalidation and stored_token != current_token)
+        )
+        if not invalid:
+            result.at[index, "classification_dependency_status"] = (
+                "current" if stored_token == current_token else "legacy_unbound"
+            )
+            result.at[index, "execution_allowed"] = False
+            continue
+
+        dependent_columns = set(_CLASSIFICATION_DEPENDENT_NUMERIC_COLUMNS)
+        dependent_columns.update(
+            column for column in result.columns if str(column).endswith("_score_10")
+        )
+        for column in dependent_columns:
+            if column in result.columns:
+                result.at[index, column] = None
+        result.at[index, "classification_dependency_status"] = "classification_override_invalidated"
+        result.at[index, "analysis_status"] = "unavailable"
+        result.at[index, "research_promotion_allowed"] = False
+        result.at[index, "portfolio_review_allowed"] = False
+        result.at[index, "execution_allowed"] = False
+        result.at[index, "final_label"] = "manual_review"
+        if "final_action" in result.columns:
+            result.at[index, "final_action"] = "manual_review"
+        if "decision" in result.columns:
+            result.at[index, "decision"] = "manual_review"
+        if "research_state" in result.columns:
+            result.at[index, "research_state"] = ResearchState.MANUAL_REVIEW.value
+        if "portfolio_review_state" in result.columns:
+            result.at[index, "portfolio_review_state"] = PortfolioReviewState.NOT_APPLICABLE.value
+        marker = "classification_override_invalidated"
+        for column in ("blocked_by", "warnings"):
+            existing = _clean_optional_text(result.at[index, column])
+            values = [value for value in (existing, marker) if value]
+            result.at[index, column] = " | ".join(dict.fromkeys(values))
+    return result
 
 
 def _read_history_raw(path: Path) -> pd.DataFrame:
@@ -532,6 +644,9 @@ def _normalise_history_frame(frame: pd.DataFrame) -> pd.DataFrame:
         ("formula_version", "unavailable"),
         ("formula_checksum", "unavailable"),
         ("source_vintage_hash", "unavailable"),
+        ("classification_version_id", "unavailable"),
+        ("classification_invalidation_hash", "unavailable"),
+        ("classification_dependency_status", "legacy_unbound"),
         ("version_registry_signature", "unavailable"),
         ("dependency_graph_hash", "unavailable"),
         ("migration_version", "2.0"),

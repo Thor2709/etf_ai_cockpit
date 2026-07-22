@@ -15,6 +15,11 @@ from etf_cockpit.chatgpt_bridge.audit_packet import validate_audit_archive
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core import session_log
 from etf_cockpit.data import trust_artifacts as trust
+from etf_cockpit.data.classification import (
+    ClassificationOverride,
+    ClassificationStore,
+    classification_score_state,
+)
 from etf_cockpit.services import build_snapshot
 from etf_cockpit import services as services_module
 from etf_cockpit.signals.simple_scores import SimpleScoreComponent, build_simple_instrument_scores, simple_scoreboard_frame
@@ -787,3 +792,68 @@ def test_audit_evidence_uses_csv_mirror_when_parquet_is_missing(tmp_path) -> Non
     assert (evidence_root / "fund_holdings.csv").exists()
     assert "fund_holdings.csv" in manifest["included"]
     assert not any("unavailable" in str(item) for item in manifest["missing"])
+
+
+def test_score_history_csv_fallback_projects_invalidated_rows_before_export(tmp_path, monkeypatch) -> None:
+    parquet_path = tmp_path / "score_history.parquet"
+    csv_path = parquet_path.with_suffix(".csv")
+    before = classification_score_state(tmp_path, "A")
+    pd.DataFrame(
+        [
+            {
+                "instrument_id": "A",
+                "final_combined_score_10": 7.0,
+                "classification_version_id": before["version_id"],
+                "classification_invalidation_hash": before["invalidation_token"],
+                "classification_dependency_status": "current",
+                "execution_allowed": False,
+            }
+        ]
+    ).to_csv(csv_path, index=False)
+    parquet_path.write_bytes(b"not parquet")
+    with ClassificationStore(tmp_path) as store:
+        store.append_overrides(
+            (
+                ClassificationOverride(
+                    override_id="override:A:sector:audit-export",
+                    instrument_id="A",
+                    field="sector",
+                    value="financials",
+                    reason="reviewed issuer activity",
+                    reviewer="local_user",
+                    valid_from="2026-07-11T00:00:00Z",
+                    available_at="2026-07-11T00:00:00Z",
+                    dependent_score_keys=("classification:A:*",),
+                ),
+            )
+        )
+    monkeypatch.setattr(export_module, "SCORE_HISTORY_PATH", parquet_path)
+    monkeypatch.setattr(export_module, "ROOT", tmp_path)
+    evidence_root = tmp_path / "evidence_export"
+    manifest = {"included": [], "missing": [], "checksums": {}}
+
+    export_module._copy_evidence_file(parquet_path, evidence_root, manifest)
+
+    exported = pd.read_csv(evidence_root / "score_history.csv")
+    assert pd.isna(exported.iloc[0]["final_combined_score_10"])
+    assert exported.iloc[0]["classification_dependency_status"] == "classification_override_invalidated"
+    assert exported.iloc[0]["analysis_status"] == "unavailable"
+    assert not bool(exported.iloc[0]["execution_allowed"])
+
+
+def test_score_history_csv_fallback_emits_unavailable_marker_when_schema_cannot_be_validated(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    parquet_path = tmp_path / "score_history.parquet"
+    parquet_path.write_bytes(b"not parquet")
+    pd.DataFrame([{"score": 7.0}]).to_csv(parquet_path.with_suffix(".csv"), index=False)
+    monkeypatch.setattr(export_module, "SCORE_HISTORY_PATH", parquet_path)
+    monkeypatch.setattr(export_module, "ROOT", tmp_path)
+    evidence_root = tmp_path / "evidence_export"
+    manifest = {"included": [], "missing": [], "checksums": {}}
+
+    export_module._copy_evidence_file(parquet_path, evidence_root, manifest)
+
+    assert not (evidence_root / "score_history.csv").exists()
+    assert (evidence_root / "score_history_export_failed.txt").exists()

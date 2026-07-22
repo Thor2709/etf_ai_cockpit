@@ -41,7 +41,7 @@ from etf_cockpit.data.classification import (
     ClassificationOverride,
     ClassificationSchemaError,
     ClassificationStore,
-    classification_store_exists,
+    read_classification_projection,
 )
 from etf_cockpit.data.manual_notes import *  # noqa: F401,F403
 from etf_cockpit.data.news_context import *  # noqa: F401,F403
@@ -204,27 +204,13 @@ def load_classification_projection(
             "execution_allowed": False,
         }
     try:
-        if not classification_store_exists(root):
-            return {
-                "status": "unavailable",
-                "instrument_id": str(instrument_id),
-                "reason_code": "classification_evidence_unavailable",
-                "execution_allowed": False,
-            }
-        with ClassificationStore(root) as store:
-            return store.projection(
-                instrument_id,
-                effective_at=effective_at,
-                decision_time=decision_time,
-                min_leaf_confidence=min_leaf_confidence,
-            )
-    except KeyError:
-        return {
-            "status": "unavailable",
-            "instrument_id": str(instrument_id),
-            "reason_code": "classification_evidence_unavailable",
-            "execution_allowed": False,
-        }
+        return read_classification_projection(
+            root,
+            instrument_id,
+            effective_at=effective_at,
+            decision_time=decision_time,
+            min_leaf_confidence=min_leaf_confidence,
+        )
     except (ClassificationSchemaError, OSError, ValueError):
         return {
             "status": "unavailable",

@@ -10,7 +10,7 @@ from typing import Any
 from etf_cockpit.core.config import AppConfig, save_provider_settings
 from etf_cockpit.core.atomic_io import atomic_write_bytes, sha256_file
 from etf_cockpit.core.migrations import run_startup_migrations
-from etf_cockpit.core.paths import CLEAN_DIR, FILINGS_STATEMENTS_PATH, RAW_DIR, STATEMENT_FACTS_PATH
+from etf_cockpit.core.paths import CLEAN_DIR, FILINGS_STATEMENTS_PATH, RAW_DIR, ROOT, STATEMENT_FACTS_PATH
 from etf_cockpit.core.session_log import SESSION_LOG_PATH, log_event, log_exception
 from etf_cockpit.core.errors import ErrorStore, classify_exception
 from etf_cockpit.core.timing import timed_step
@@ -28,6 +28,7 @@ from etf_cockpit.data.oam_adapters import (
     write_oam_discovery_registry,
 )
 from etf_cockpit.data.instrument_identity import CanonicalIdentity
+from etf_cockpit.data.classification import classification_score_state
 from etf_cockpit.parsers.contracts import RawDocument, load_fixture_manifest
 from etf_cockpit.parsers.esef_ixbrl import parse_esef_package
 from etf_cockpit.parsers.sec_facts import parse_companyfacts, statement_facts_from_esef, write_statement_evidence
@@ -43,6 +44,27 @@ from etf_cockpit.app import theme
 # Compatibility seam for existing callers and tests. This is the session trace,
 # not a second mutable activity store.
 ACTIVITY_LOG_PATH = SESSION_LOG_PATH
+
+
+def _signal_classification_is_current(signal: object, *, root: Path) -> bool:
+    instrument_id = str(getattr(signal, "etf_id", "") or "").strip()
+    if not instrument_id:
+        return False
+    metrics = getattr(signal, "supporting_metrics", {})
+    stored_token = (
+        str(metrics.get("classification_invalidation_hash") or "unavailable")
+        if isinstance(metrics, dict)
+        else "unavailable"
+    )
+    state = classification_score_state(root, instrument_id)
+    if str(state.get("status")) == "unavailable":
+        return False
+    current_token = str(state.get("invalidation_token") or "unavailable")
+    token_is_bound = stored_token not in {"", "none", "nan", "unavailable"}
+    return not (
+        (token_is_bound and stored_token != current_token)
+        or (bool(state.get("invalidated_score_keys")) and stored_token != current_token)
+    )
 
 
 @dataclass
@@ -171,7 +193,33 @@ class AppState:
             refresh_static_trust_artifacts(snapshot.config)
         except Exception:
             pass
-        return cls(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf, recent_activity=_read_recent_activity())
+        state = cls(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf, recent_activity=_read_recent_activity())
+        state.snapshot.signals = [
+            signal for signal in state.snapshot.signals
+            if _signal_classification_is_current(signal, root=ROOT)
+        ]
+        return state
+
+    def invalidate_classification_scores(self, instrument_id: str, *, root: Path | None = None) -> None:
+        """Remove stale in-memory score consumers after a saved override."""
+
+        canonical_id = str(instrument_id or "").strip()
+        if not canonical_id:
+            return
+        canonical_root = Path(root) if root is not None else ROOT
+        self.snapshot.signals = [
+            signal for signal in self.snapshot.signals
+            if str(getattr(signal, "etf_id", "")).strip() != canonical_id
+            or _signal_classification_is_current(signal, root=canonical_root)
+        ]
+        if (
+            self.selected_instrument_score is not None
+            and self.selected_instrument_score.display_id == canonical_id
+        ):
+            self.selected_instrument_score = None
+        self.last_message = (
+            f"Classification-dependent scores for {canonical_id} are unavailable until recomputed."
+        )
 
     def apply_universe_config(self, config: AppConfig, revision: str) -> None:
         """Apply a saved local universe and invalidate derived cache views.

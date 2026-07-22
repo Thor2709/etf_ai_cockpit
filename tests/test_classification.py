@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from etf_cockpit.core.config import load_config
 from etf_cockpit.data.contracts import SourceAuthority
 from etf_cockpit.data.classification import (
     AdapterRoute,
@@ -16,6 +17,7 @@ from etf_cockpit.data.classification import (
     ClassificationStore,
     InstrumentContextV2,
     classification_store_exists,
+    read_classification_projection,
     measure_classification_accuracy,
     resolve_instrument_context,
     sector_adapter_route,
@@ -179,6 +181,94 @@ def test_authority_wins_deterministically_and_conflicts_remain_visible() -> None
     assert first.evidence_ids == second.evidence_ids
 
 
+def test_revision_selection_is_point_in_time_within_one_source_lineage() -> None:
+    first_revision = _evidence(
+        "REV-001",
+        "sector",
+        "technology",
+        confidence=0.99,
+        source="official:sector-lineage",
+        available_at="2024-01-02T00:00:00Z",
+    )
+    second_revision = replace(
+        first_revision,
+        value="financials",
+        confidence=0.80,
+        revision=2,
+        available_at="2025-01-02T00:00:00Z",
+    )
+
+    before = resolve_instrument_context(
+        (first_revision, second_revision),
+        instrument_id="REV-001",
+        effective_at="2024-06-30T00:00:00Z",
+        decision_time="2024-07-02T00:00:00Z",
+    )
+    after = resolve_instrument_context(
+        (first_revision, second_revision),
+        instrument_id="REV-001",
+        effective_at="2025-06-30T00:00:00Z",
+        decision_time="2025-07-02T00:00:00Z",
+    )
+
+    assert before.sector == "technology"
+    assert after.sector == "financials"
+    assert first_revision.evidence_id in after.excluded_evidence_ids
+
+
+def test_independent_source_disagreement_is_not_hidden_by_revision_metadata() -> None:
+    first = _evidence(
+        "REV-CONFLICT",
+        "sector",
+        "technology",
+        source="official:source-a",
+        available_at="2024-01-02T00:00:00Z",
+    )
+    second = replace(
+        _evidence(
+            "REV-CONFLICT",
+            "sector",
+            "financials",
+            source="official:source-b",
+            available_at="2025-01-02T00:00:00Z",
+        ),
+        revision=3,
+    )
+
+    context = resolve_instrument_context((first, second), instrument_id="REV-CONFLICT")
+
+    assert context.sector is None
+    assert "conflicting_sector_evidence" in context.warnings
+    assert set(context.evidence_ids) == {first.evidence_id, second.evidence_id}
+
+
+def test_missing_classification_is_explicit_unresolved_without_creating_storage(tmp_path: Path) -> None:
+    projection = read_classification_projection(tmp_path, "NO-EVIDENCE")
+
+    assert projection["status"] == "unresolved"
+    context = projection["classification"]
+    assert context["instrument_id"] == "NO-EVIDENCE"
+    assert context["classification_status"] == "unresolved"
+    assert context["evidence_ids"] == ()
+    assert context["fallback_path"]
+    assert projection["sector_adapter_route"]["allowed"] is False
+    assert projection["execution_allowed"] is False
+    assert classification_store_exists(tmp_path) is False
+    assert not (tmp_path / "data" / "storage").exists()
+
+
+def test_every_enabled_universe_record_has_explicit_classification_outcome(tmp_path: Path) -> None:
+    enabled_ids = load_config().universe.enabled_ids
+
+    projections = [read_classification_projection(tmp_path, instrument_id) for instrument_id in enabled_ids]
+
+    assert projections
+    assert all(item["status"] == "unresolved" for item in projections)
+    assert all(item["classification"]["fallback_path"] for item in projections)
+    assert all(item["execution_allowed"] is False for item in projections)
+    assert not (tmp_path / "data" / "storage").exists()
+
+
 def test_multi_label_strategy_and_distinct_geography_currency_dimensions_are_retained() -> None:
     case = next(item for item in _fixture()["cases"] if item["instrument_id"] == "FUND-001")
     context = _context_for(case)
@@ -245,11 +335,24 @@ def test_accuracy_measurement_uses_labelled_fixture_and_does_not_score_unknown_a
 
 
 def test_classification_store_is_immutable_and_replays_point_in_time(tmp_path: Path) -> None:
+    sector_revision_1 = _evidence(
+        "STORE-001",
+        "sector",
+        "technology",
+        source="store:sector",
+        valid_from="2020-01-01T00:00:00Z",
+    )
     evidence = (
         _evidence("STORE-001", "instrument_type", "stock"),
         _evidence("STORE-001", "asset_class", "equity"),
-        _evidence("STORE-001", "sector", "technology", source="store:sector:old", valid_from="2020-01-01T00:00:00Z"),
-        _evidence("STORE-001", "sector", "financials", source="store:sector:new", valid_from="2025-01-01T00:00:00Z", available_at="2025-01-02T00:00:00Z"),
+        sector_revision_1,
+        replace(
+            sector_revision_1,
+            value="financials",
+            revision=2,
+            valid_from="2025-01-01T00:00:00Z",
+            available_at="2025-01-02T00:00:00Z",
+        ),
     )
     assert classification_store_exists(tmp_path) is False
     with ClassificationStore(tmp_path) as store:

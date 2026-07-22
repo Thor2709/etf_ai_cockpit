@@ -300,7 +300,7 @@ def resolve_instrument_context(
     effective_cutoff = _cutoff(effective_at) or now
     decision_cutoff = _cutoff(decision_time) or now
 
-    eligible = tuple(
+    eligible_candidates = tuple(
         item
         for item in items
         if _eligible(
@@ -311,7 +311,8 @@ def resolve_instrument_context(
             decision_time=decision_cutoff,
         )
     )
-    excluded = tuple(item for item in items if item not in eligible)
+    eligible, superseded = _latest_lineage_revisions(eligible_candidates)
+    excluded = tuple(item for item in items if item not in eligible_candidates) + superseded
     grouped: dict[str, list[ClassificationEvidence]] = {}
     for item in eligible:
         grouped.setdefault(item.field, []).append(item)
@@ -414,6 +415,8 @@ def resolve_instrument_context(
         alternatives.setdefault("industry", (industry,))
         industry = None
         fallback.append("industry->unresolved_without_sector")
+    if not eligible and not fallback:
+        fallback.append("classification->unresolved_no_evidence")
 
     essential_confidence = tuple(
         confidences.get(field_name, 0.0)
@@ -670,11 +673,10 @@ class ClassificationStore:
             raise ValueError("instrument_id must be non-empty")
         evidence = tuple(item for item in self._load_evidence() if item.instrument_id == canonical_id)
         overrides = tuple(item for item in self._load_overrides() if item.instrument_id == canonical_id)
-        if not evidence and not overrides:
-            raise KeyError(f"classification evidence unavailable for {canonical_id}")
         return resolve_instrument_context(
             evidence,
             overrides,
+            instrument_id=canonical_id,
             effective_at=effective_at,
             decision_time=decision_time,
             min_leaf_confidence=min_leaf_confidence,
@@ -694,13 +696,7 @@ class ClassificationStore:
             decision_time=decision_time,
             min_leaf_confidence=min_leaf_confidence,
         )
-        route = sector_adapter_route(context, min_confidence=min_leaf_confidence)
-        return {
-            "status": "available" if context.classification_status != "unresolved" else "unresolved",
-            "classification": asdict(context),
-            "sector_adapter_route": asdict(route),
-            "execution_allowed": False,
-        }
+        return _context_projection(context, min_leaf_confidence=min_leaf_confidence)
 
     def _ensure_schema(self) -> None:
         expected = {
@@ -759,6 +755,100 @@ def classification_store_exists(root: Path) -> bool:
             connection.close()
     except sqlite3.DatabaseError as exc:
         raise ClassificationSchemaError(f"classification store is unreadable: {exc}") from exc
+
+
+def read_instrument_context(
+    root: Path,
+    instrument_id: str,
+    *,
+    effective_at: str | datetime | None = None,
+    decision_time: str | datetime | None = None,
+    min_leaf_confidence: float = DEFAULT_LEAF_CONFIDENCE,
+) -> InstrumentContextV2:
+    """Read one context without creating storage when no evidence exists."""
+
+    canonical_id = _required(instrument_id, "instrument_id")
+    canonical_root = Path(root).resolve()
+    if not classification_store_exists(canonical_root):
+        return resolve_instrument_context(
+            (),
+            instrument_id=canonical_id,
+            effective_at=effective_at,
+            decision_time=decision_time,
+            min_leaf_confidence=min_leaf_confidence,
+        )
+    with ClassificationStore(canonical_root) as store:
+        return store.classify(
+            canonical_id,
+            effective_at=effective_at,
+            decision_time=decision_time,
+            min_leaf_confidence=min_leaf_confidence,
+        )
+
+
+def read_classification_projection(
+    root: Path,
+    instrument_id: str,
+    *,
+    effective_at: str | datetime | None = None,
+    decision_time: str | datetime | None = None,
+    min_leaf_confidence: float = DEFAULT_LEAF_CONFIDENCE,
+) -> dict[str, object]:
+    """Return an available or explicit-unresolved presentation projection."""
+
+    context = read_instrument_context(
+        root,
+        instrument_id,
+        effective_at=effective_at,
+        decision_time=decision_time,
+        min_leaf_confidence=min_leaf_confidence,
+    )
+    return _context_projection(context, min_leaf_confidence=min_leaf_confidence)
+
+
+def classification_score_state(root: Path, instrument_id: str) -> dict[str, object]:
+    """Return the canonical token used to reject stale classification-dependent scores."""
+
+    try:
+        context = read_instrument_context(root, instrument_id)
+    except (ClassificationSchemaError, OSError, ValueError):
+        return {
+            "status": "unavailable",
+            "version_id": "unavailable",
+            "invalidation_token": _hash(
+                {
+                    "instrument_id": str(instrument_id),
+                    "classification_status": "unavailable",
+                }
+            ),
+            "invalidated_score_keys": (f"classification:{instrument_id}:*",),
+            "execution_allowed": False,
+        }
+    return {
+        "status": context.classification_status,
+        "version_id": context.version_id,
+        "invalidation_token": context.score_invalidation_token,
+        "invalidated_score_keys": context.invalidated_score_keys,
+        "execution_allowed": False,
+    }
+
+
+def _context_projection(
+    context: InstrumentContextV2,
+    *,
+    min_leaf_confidence: float,
+) -> dict[str, object]:
+    route = sector_adapter_route(context, min_confidence=min_leaf_confidence)
+    return {
+        "status": (
+            "unresolved"
+            if context.classification_status in {"unresolved", "manual_review"}
+            else "available"
+        ),
+        "classification": asdict(context),
+        "sector_adapter_route": asdict(route),
+        "execution_allowed": False,
+    }
 
 
 def _normalise_evidence(item: ClassificationEvidence) -> ClassificationEvidence:
@@ -840,6 +930,26 @@ def _field(value: object) -> str:
     return field_name
 
 
+def _latest_lineage_revisions(
+    candidates: tuple[ClassificationEvidence, ...],
+) -> tuple[tuple[ClassificationEvidence, ...], tuple[ClassificationEvidence, ...]]:
+    """Retain only the latest known revision inside each evidence lineage."""
+
+    grouped: dict[tuple[str, str, str, str], list[ClassificationEvidence]] = {}
+    for item in candidates:
+        grouped.setdefault((item.instrument_id, item.field, item.source_id, item.evidence_id), []).append(item)
+    retained: list[ClassificationEvidence] = []
+    superseded: list[ClassificationEvidence] = []
+    for items in grouped.values():
+        latest_revision = max(item.revision for item in items)
+        revision_items = [item for item in items if item.revision == latest_revision]
+        latest_available = max((item.available_at or "") for item in revision_items)
+        current = [item for item in revision_items if (item.available_at or "") == latest_available]
+        retained.extend(current)
+        superseded.extend(item for item in items if item not in current)
+    return tuple(retained), tuple(superseded)
+
+
 def _select_scalar(
     candidates: Iterable[ClassificationEvidence],
 ) -> tuple[str | None, float, tuple[str, ...], tuple[str, ...], bool]:
@@ -903,8 +1013,12 @@ def _select_override(
     return sorted(tied, key=lambda item: item.override_id)[0], False
 
 
-def _evidence_rank(item: ClassificationEvidence) -> tuple[int, float, int, str]:
-    return item.authority.rank, item.confidence, item.revision, item.available_at or ""
+def _evidence_rank(item: ClassificationEvidence) -> tuple[int, float]:
+    # Revision and availability order evidence *inside* one source lineage.
+    # Once lineage heads have been selected, independent sources are compared
+    # only by authority and confidence so equally authoritative disagreement
+    # remains an explicit conflict rather than a recency tie-break.
+    return item.authority.rank, item.confidence
 
 
 def _override_rank(item: ClassificationOverride) -> tuple[int, str]:

@@ -25,6 +25,7 @@ from etf_cockpit.application.ui_facade import (
     load_calendar_events,
     load_classification_projection,
     load_identity_projection,
+    load_simple_scoreboard,
     load_statement_evidence,
     load_paper_trade_rows,
     read_document_registry,
@@ -765,9 +766,8 @@ def _friction_panel(instrument_id: str, *, candidate_score: SimpleInstrumentScor
     else:
         if not SCOREBOARD_PATH.exists():
             return empty
-        try:
-            frame = pd.read_parquet(SCOREBOARD_PATH)
-        except Exception:
+        frame = load_simple_scoreboard(SCOREBOARD_PATH)
+        if frame.empty:
             return empty
         rows = _instrument_rows(frame, instrument_id, columns=("display_id", "instrument_id", "etf_id"))
         if rows.empty:
@@ -971,7 +971,7 @@ def build_etf_liquidity_panel(
 def _scoreboard_row(instrument_id: str, *, candidate_score: SimpleInstrumentScore | None = None) -> dict[str, Any]:
     if _candidate_score_matches(candidate_score, instrument_id):
         return _candidate_scoreboard(candidate_score)  # type: ignore[arg-type]
-    frame = _load_parquet(SCOREBOARD_PATH)
+    frame = load_simple_scoreboard(SCOREBOARD_PATH)
     rows = _instrument_rows(frame, instrument_id, columns=("instrument_id", "display_id", "etf_id"))
     return rows.iloc[-1].to_dict() if not rows.empty else {}
 

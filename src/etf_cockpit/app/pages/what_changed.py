@@ -1,26 +1,21 @@
 from __future__ import annotations
 
 import flet as ft
-import pandas as pd
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
-from etf_cockpit.core.paths import DERIVED_DIR
 from etf_cockpit.application.ui_facade import (
     REQUIRED_CHANGE_DIMENSIONS,
     build_version_registry,
     compatibility_summary,
     compare_runs,
+    score_history_frame,
 )
 
 
 def what_changed_page(_page: ft.Page, _state: AppState) -> ft.Control:
-    path = DERIVED_DIR / "score_history.parquet"
-    try:
-        history = pd.read_parquet(path) if path.exists() else pd.DataFrame()
-    except Exception:
-        history = pd.DataFrame()
+    history = score_history_frame()
     report = None
     changes = []
     current = previous = None
