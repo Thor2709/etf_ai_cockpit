@@ -29,6 +29,7 @@ def _certified_calendar(
     instrument_id: str = "ETF-A",
     *,
     mic: str = "XNYS",
+    calendar: str | None = None,
     tz: str = "America/New_York",
 ) -> CertifiedSessionCalendar:
     return CertifiedSessionCalendar(
@@ -36,7 +37,7 @@ def _certified_calendar(
             listing_id=f"listing:{instrument_id}:{mic}",
             instrument_id=instrument_id,
             mic=mic,
-            calendar_id=mic,
+            calendar_id=calendar or mic,
             timezone=tz,
             source_id="identity:test-calendar",
             source_checksum="a" * 64,
@@ -187,3 +188,14 @@ def test_nyse_thanksgiving_and_cross_instrument_calendar_mismatch_fail_closed() 
     )
     with pytest.raises(EventReplayError, match="DE:BMW"):
         _engine(_certified_calendar("ETF-A")).replay([bmw_order])
+
+
+def test_cross_exchange_calendar_alias_mismatch_fails_backtest_closed() -> None:
+    calendar = _certified_calendar(
+        mic="XNYS", calendar="XLON", tz="Europe/London"
+    )
+
+    with pytest.raises(
+        EventReplayError, match="outside an identity-certified market session"
+    ):
+        _engine(calendar).replay([_order()])

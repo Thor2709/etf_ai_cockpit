@@ -342,10 +342,19 @@ class MarketCalendarService:
                 "calendar correction_id values must be immutable and unique"
             )
         versions: dict[tuple[str, date, str], list[CalendarCorrection]] = {}
+        kinds_by_session: dict[tuple[str, date], set[str]] = {}
         for item in self._corrections:
             versions.setdefault(
                 (item.mic.upper(), item.session_date, item.kind), []
             ).append(item)
+            kinds_by_session.setdefault(
+                (item.mic.upper(), item.session_date), set()
+            ).add(item.kind)
+        if any(len(kinds) > 1 for kinds in kinds_by_session.values()):
+            raise MarketClockError(
+                "calendar correction ledger contains contradictory correction kinds "
+                "for the same MIC and session date"
+            )
         for group in versions.values():
             ordered = sorted(group, key=lambda item: item.revision)
             if [item.revision for item in ordered] != list(range(1, len(ordered) + 1)):
@@ -1028,31 +1037,43 @@ class MarketCalendarService:
 
     @staticmethod
     def _calendar(listing: ListingCalendarEvidence, around: date) -> Any | None:
-        registered = xcals.get_calendar_names()
-        if (
-            listing.mic.upper() not in registered
-            or listing.calendar_id.upper() not in registered
-        ):
+        mic_calendar = MarketCalendarService._raw_calendar(listing.mic, around)
+        declared_calendar = MarketCalendarService._raw_calendar(
+            listing.calendar_id, around
+        )
+        if mic_calendar is None or declared_calendar is None:
             return None
-        return MarketCalendarService._named_calendar(
-            listing.calendar_id, listing.timezone, around
+        if str(mic_calendar.name) != str(declared_calendar.name):
+            return None
+        return (
+            declared_calendar
+            if str(declared_calendar.tz) == listing.timezone
+            else None
         )
 
     @staticmethod
     def _named_calendar(
         calendar_id: str, timezone_name: str, around: date
     ) -> Any | None:
+        calendar = MarketCalendarService._raw_calendar(calendar_id, around)
+        return (
+            calendar
+            if calendar is not None and str(calendar.tz) == timezone_name
+            else None
+        )
+
+    @staticmethod
+    def _raw_calendar(calendar_id: str, around: date) -> Any | None:
         if calendar_id.upper() not in xcals.get_calendar_names():
             return None
         try:
-            calendar = xcals.get_calendar(
+            return xcals.get_calendar(
                 calendar_id.upper(),
                 start=f"{around.year - 3}-01-01",
                 end=f"{around.year + 3}-12-31",
             )
         except (KeyError, ValueError, TypeError):
             return None
-        return calendar if str(calendar.tz) == timezone_name else None
 
     @staticmethod
     def _identity_reason(

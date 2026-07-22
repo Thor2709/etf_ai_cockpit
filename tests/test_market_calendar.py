@@ -155,6 +155,27 @@ def test_identity_evidence_can_map_a_known_mic_to_a_registered_calendar_alias() 
     assert state.calendar_id == "NYSE"
 
 
+def test_cross_exchange_calendar_mapping_fails_closed_across_consumers() -> None:
+    service = MarketCalendarService()
+    listing = _listing("XNYS", calendar="XLON", tz="Europe/London")
+    state = service.market_state(
+        listing,
+        ClockContext.at(datetime(2024, 3, 11, 15, 0, tzinfo=UTC)),
+    )
+
+    assert state.certification == "unavailable"
+    assert state.reason_code == "unknown_calendar"
+    with pytest.raises(MarketClockError, match="calendar is unknown"):
+        service.adjust_business_day(
+            listing,
+            date(2024, 3, 9),
+            BusinessDayConvention.FOLLOWING,
+        )
+    assert CertifiedSessionCalendar(listing).is_session(
+        datetime(2024, 3, 11, 10, 0)
+    ) is False
+
+
 def test_staleness_counts_expected_sessions_not_weekdays_or_holidays() -> None:
     service = MarketCalendarService()
     listing = _listing()
@@ -349,6 +370,33 @@ def test_invalid_modified_session_corrections_fail_closed(
             known_at=datetime(2024, 3, 1, tzinfo=UTC),
             **values,
         )
+
+
+def test_correction_ledger_rejects_cross_kind_same_session_contradiction() -> None:
+    common = {
+        "mic": "XNYS",
+        "session_date": date(2024, 3, 8),
+        "revision": 1,
+        "reason": "Contradictory exchange notice fixture.",
+        "source_id": "exchange-notice:test",
+        "source_checksum": "e" * 64,
+        "timezone": "America/New_York",
+        "valid_from": date(2024, 3, 8),
+        "known_at": datetime(2024, 3, 7, tzinfo=UTC),
+    }
+    closure = CalendarCorrection.exceptional_closure(
+        correction_id="closure-v1", **common
+    )
+    modified = CalendarCorrection(
+        correction_id="modified-v1",
+        kind="modified_session",
+        open_time=time(9, 30),
+        close_time=time(13, 0),
+        **common,
+    )
+
+    with pytest.raises(MarketClockError, match="contradictory correction kinds"):
+        MarketCalendarService(corrections=(closure, modified))
 
 
 @pytest.mark.parametrize(
