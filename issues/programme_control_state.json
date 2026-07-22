@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "88b862927a78b61f2b2a9f13f096d1e7f81ce57f",
+    "generation_base_commit": "af0566ced575e84c2587d9195da2dca39767ea89",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -1595,6 +1595,18 @@
           "reviewed_date": "2026-07-22",
           "reviewer": "Codex scout reviewer, deep reviewer and root",
           "status": "ready"
+        },
+        {
+          "evidence_references": [
+            "PR #473 merged exact readiness checkpoint as af0566ced575e84c2587d9195da2dca39767ea89",
+            "Status-transition guard 29885255298 and supply-chain 29885255352 passed; redundant full release cancelled under owner cadence amendment",
+            "Checksum-approved GitHub #223 Programme-status update applied and verified; final dry-run 4191fe067bd1c8a5fd9301f2827e32380bacf53f05fdf3d9c4f4e8614cde1d53 contained zero actions",
+            "plans/BATCH-B02-DATA-SPINE-CONTINUATION.md unchanged ISSUE-0083 acceptance contract, ownership boundaries and validation policy"
+          ],
+          "review_reference": "B02 ISSUE-0083 implementation start after readiness convergence",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex root orchestrator and independent reviewer",
+          "status": "in_progress"
         }
       ],
       "dependency_edge_evidence": {
@@ -1614,11 +1626,11 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "ready",
+      "programme_status": "in_progress",
       "status_transition": {
-        "from": "planned",
-        "review_reference": "ISSUE-0083 scout map and completed ISSUE-0082 identity-master convergence",
-        "to": "ready"
+        "from": "ready",
+        "review_reference": "B02 ISSUE-0083 implementation start after readiness convergence",
+        "to": "in_progress"
       },
       "transition_history": [
         {
@@ -1653,9 +1665,24 @@
           "reviewer": "Codex scout reviewer, deep reviewer and root",
           "to": "ready",
           "verified_commit": "88b862927a78b61f2b2a9f13f096d1e7f81ce57f"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #473 merged exact readiness checkpoint as af0566ced575e84c2587d9195da2dca39767ea89",
+            "Status-transition guard 29885255298 and supply-chain 29885255352 passed; redundant full release cancelled under owner cadence amendment",
+            "Checksum-approved GitHub #223 Programme-status update applied and verified; final dry-run 4191fe067bd1c8a5fd9301f2827e32380bacf53f05fdf3d9c4f4e8614cde1d53 contained zero actions",
+            "plans/BATCH-B02-DATA-SPINE-CONTINUATION.md unchanged ISSUE-0083 acceptance contract, ownership boundaries and validation policy"
+          ],
+          "from": "ready",
+          "review_reference": "B02 ISSUE-0083 implementation start after readiness convergence",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex root orchestrator and independent reviewer",
+          "to": "in_progress",
+          "verified_commit": "af0566ced575e84c2587d9195da2dca39767ea89"
         }
       ],
-      "verified_commit": "88b862927a78b61f2b2a9f13f096d1e7f81ce57f",
+      "verified_commit": "af0566ced575e84c2587d9195da2dca39767ea89",
       "verified_date": "2026-07-22"
     },
     "ISSUE-0084": {
