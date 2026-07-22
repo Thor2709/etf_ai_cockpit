@@ -1,25 +1,25 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_dependency_edge_updates": [
+  "allowed_status_transitions": [
     {
-      "dependency_id": "ISSUE-0073",
-      "issue_id": "ISSUE-0084"
+      "from": "planned",
+      "issue_id": "ISSUE-0084",
+      "to": "ready"
     }
   ],
-  "allowed_status_transitions": [],
-  "base_commit": "6d024370760caa804efd95d7591b9d26d0f75f05",
-  "branch": "codex/b02-issue0084-edge0073-20260722",
-  "issue_ids": [],
+  "base_commit": "ddb4d3b2b2d56dfaaf031e7e7d31b24659942b16",
+  "branch": "codex/b02-issue0084-ready2-20260722",
+  "issue_ids": ["ISSUE-0084"],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "bf16e64e14549220a0d1030ef0abd55d321eda797c75bd3ec9171e40f010b81e",
+    "base_registry_sha256": "013cced474b2f8b1b155f0379b8b1236c77256e635a1ba45002fc62489aa7d6f",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_dependency_edge_evidence",
-    "proposed_registry_sha256": "013cced474b2f8b1b155f0379b8b1236c77256e635a1ba45002fc62489aa7d6f",
-    "reason": "B02 ISSUE-0084 dependency readiness: record only the reviewed ISSUE-0073 bitemporal as-of consumer interface, keep ISSUE-0084 planned, preserve ISSUE-0082 complete evidence, all issue scope, dependencies, acceptance criteria, status semantics, policies and execution_allowed=false.",
+    "mode": "generation_base_and_status_transitions",
+    "proposed_registry_sha256": "41965bd30a828840340df84db87f59ccbbfdb243a43572461b08aff808548a15",
+    "reason": "B02 ISSUE-0084 readiness: advance only planned to ready after both blocking dependency edges received reviewed evidence; preserve all scope, dependencies, acceptance criteria, edge evidence, policies and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.3"
+  "schema_version": "1.2"
 }
