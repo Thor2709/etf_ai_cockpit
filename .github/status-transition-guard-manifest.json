@@ -1,25 +1,19 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [
-    {
-      "from": "ready",
-      "issue_id": "ISSUE-0086",
-      "to": "in_progress"
-    }
-  ],
-  "base_commit": "73d023ed45ba20e1a316c5248e24e6b87d8cbccf",
-  "branch": "codex/b02-issue0086-inprogress-20260722",
-  "issue_ids": ["ISSUE-0086"],
+  "allowed_status_transitions": [],
+  "base_commit": "7229e4628c8a60d1f6cc9a3239e99da8aa3044a6",
+  "branch": "codex/b02-issue0085-impl-20260722",
+  "issue_ids": [],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "6141bc022eda92465230b365092056af61cb45529abfecee7f4bf68588f6e458",
+    "base_registry_sha256": "5606432c617a454b78f6624e242bc8d30892da291fb5cf3a06b680babda0a074",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "5606432c617a454b78f6624e242bc8d30892da291fb5cf3a06b680babda0a074",
-    "reason": "B02 ISSUE-0086 implementation start: advance only ready to in_progress after readiness convergence; preserve scope, dependencies, acceptance criteria, edge evidence, status semantics, policies and execution_allowed=false.",
+    "mode": "canonical_schema_and_intake",
+    "proposed_registry_sha256": "3f74792ed725bd31863f2232c70531c543eb05d01d21c8191f570fb4a920f4e2",
+    "reason": "B02 ISSUE-0085 product integration: refresh only the canonical generation base after ISSUE-0086 readiness convergence; preserve all issue records, scope, dependencies, acceptance criteria, edge evidence, status semantics, policies and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.2"
+  "schema_version": "1.1"
 }
