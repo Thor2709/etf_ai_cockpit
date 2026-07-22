@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "6596055917653b36ba8bbd1bf9774adab2e841ca",
+    "generation_base_commit": "7aab4f2775e35b0af248c61f8b95930d6c50b781",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -1607,6 +1607,15 @@
           "reviewed_date": "2026-07-22",
           "reviewer": "Codex root orchestrator and independent reviewer",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "PR #475 merged head b3c6c91d4549a864b3cc014ffcae63f1dc28d6fe; merge 7aab4f2775e35b0af248c61f8b95930d6c50b781; full gate 29891285231 Linux 88832074084 PASS Windows 88832074085 PASS; status guard 29891285218 PASS; supply-chain 29891285239 PASS; post-merge focused 95 tests PASS; independent reviews PASS"
+          ],
+          "review_reference": "PR-475",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex release steward",
+          "status": "implemented_initially"
         }
       ],
       "dependency_edge_evidence": {
@@ -1626,11 +1635,11 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "in_progress",
+      "programme_status": "implemented_initially",
       "status_transition": {
-        "from": "ready",
-        "review_reference": "B02 ISSUE-0083 implementation start after readiness convergence",
-        "to": "in_progress"
+        "from": "in_progress",
+        "review_reference": "PR-475",
+        "to": "implemented_initially"
       },
       "transition_history": [
         {
@@ -1680,9 +1689,21 @@
           "reviewer": "Codex root orchestrator and independent reviewer",
           "to": "in_progress",
           "verified_commit": "af0566ced575e84c2587d9195da2dca39767ea89"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #475 merged head b3c6c91d4549a864b3cc014ffcae63f1dc28d6fe; merge 7aab4f2775e35b0af248c61f8b95930d6c50b781; full gate 29891285231 Linux 88832074084 PASS Windows 88832074085 PASS; status guard 29891285218 PASS; supply-chain 29891285239 PASS; post-merge focused 95 tests PASS; independent reviews PASS"
+          ],
+          "from": "in_progress",
+          "review_reference": "PR-475",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex release steward",
+          "to": "implemented_initially",
+          "verified_commit": "7aab4f2775e35b0af248c61f8b95930d6c50b781"
         }
       ],
-      "verified_commit": "af0566ced575e84c2587d9195da2dca39767ea89",
+      "verified_commit": "7aab4f2775e35b0af248c61f8b95930d6c50b781",
       "verified_date": "2026-07-22"
     },
     "ISSUE-0084": {
