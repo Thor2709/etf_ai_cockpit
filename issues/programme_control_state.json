@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "3ad445524eaea4945d305f8a5e39034fcd3e2b8e",
+    "generation_base_commit": "7ce4fa53b1c5b8b6718b23766913cd9afd1bc2f9",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4151,7 +4151,20 @@
       "verified_date": "2026-07-21"
     },
     "ISSUE-0153": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #499 merged ISSUE-0153 to ISSUE-0082 identity-master edge as 55e08b4ce116dd0ca71a9e5971bbae1877b417a6",
+            "PR #500 merged ISSUE-0153 to ISSUE-0083 classification edge as 3ad445524eaea4945d305f8a5e39034fcd3e2b8e",
+            "PR #501 merged ISSUE-0153 to ISSUE-0085 calendar edge as 7ce4fa53b1c5b8b6718b23766913cd9afd1bc2f9",
+            "All three edge-only proposals passed deterministic status guards, supply-chain checks and independent review; ISSUE-0153 scope, acceptance criteria, batch composition and execution_allowed=false remain unchanged"
+          ],
+          "review_reference": "B03 ISSUE-0153 dependency-readiness review after all three blocking interfaces converged",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex root orchestrator and independent reviewer",
+          "status": "ready"
+        }
+      ],
       "dependency_edge_evidence": {
         "ISSUE-0082": {
           "contract_reference": "B03/ISSUE-0082/point-in-time-identity-master-v1",
@@ -4194,11 +4207,11 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "planned",
+      "programme_status": "ready",
       "status_transition": {
         "from": "planned",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "planned"
+        "review_reference": "B03 ISSUE-0153 dependency-readiness review after all three blocking interfaces converged",
+        "to": "ready"
       },
       "transition_history": [
         {
@@ -4287,9 +4300,24 @@
           "reviewed_date": "2026-07-22",
           "reviewer": "Codex root orchestrator and independent reviewer",
           "verified_commit": "aafc249121ff1e284979d384821ea8d84ba0bddf"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #499 merged ISSUE-0153 to ISSUE-0082 identity-master edge as 55e08b4ce116dd0ca71a9e5971bbae1877b417a6",
+            "PR #500 merged ISSUE-0153 to ISSUE-0083 classification edge as 3ad445524eaea4945d305f8a5e39034fcd3e2b8e",
+            "PR #501 merged ISSUE-0153 to ISSUE-0085 calendar edge as 7ce4fa53b1c5b8b6718b23766913cd9afd1bc2f9",
+            "All three edge-only proposals passed deterministic status guards, supply-chain checks and independent review; ISSUE-0153 scope, acceptance criteria, batch composition and execution_allowed=false remain unchanged"
+          ],
+          "from": "planned",
+          "review_reference": "B03 ISSUE-0153 dependency-readiness review after all three blocking interfaces converged",
+          "reviewed_date": "2026-07-22",
+          "reviewer": "Codex root orchestrator and independent reviewer",
+          "to": "ready",
+          "verified_commit": "7ce4fa53b1c5b8b6718b23766913cd9afd1bc2f9"
         }
       ],
-      "verified_commit": "aafc249121ff1e284979d384821ea8d84ba0bddf",
+      "verified_commit": "7ce4fa53b1c5b8b6718b23766913cd9afd1bc2f9",
       "verified_date": "2026-07-22"
     },
     "ISSUE-0154": {
