@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "75e30d4e7851e7fdb557a249e1d676fc7e72db37",
+    "generation_base_commit": "4c281e66019a1b2cae1c65dcdbd90e2411a577ab",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4410,6 +4410,15 @@
           "reviewed_date": "2026-07-27",
           "reviewer": "Codex root orchestrator",
           "status": "ready"
+        },
+        {
+          "evidence_references": [
+            "GitHub #433 ready update applied with checksum 5ef0d541a3d3998b5f37bcf5d05474fa29f444f1b670087acdb53394424aeaf3 and zero-action readback; implementation handoff keeps execution_allowed=false, requires explicit typed curve evidence, and excludes provider adapters, portfolio risk, recommendations, broker writes, live orders, unvalidated OAS, and executable dealer quotations"
+          ],
+          "review_reference": "PR #514 merged readiness at 4c281e66019a1b2cae1c65dcdbd90e2411a577ab after dependency-edge reviews #511-#513",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "codex",
+          "status": "in_progress"
         }
       ],
       "dependency_edge_evidence": {
@@ -4454,11 +4463,11 @@
         }
       },
       "phase": "phase-05-returns-risk-portfolio",
-      "programme_status": "ready",
+      "programme_status": "in_progress",
       "status_transition": {
-        "from": "planned",
-        "review_reference": "B03 ISSUE-0154 dependency-readiness review after all three blocking interfaces converged",
-        "to": "ready"
+        "from": "ready",
+        "review_reference": "PR #514 merged readiness at 4c281e66019a1b2cae1c65dcdbd90e2411a577ab after dependency-edge reviews #511-#513",
+        "to": "in_progress"
       },
       "transition_history": [
         {
@@ -4562,9 +4571,21 @@
           "reviewer": "Codex root orchestrator",
           "to": "ready",
           "verified_commit": "75e30d4e7851e7fdb557a249e1d676fc7e72db37"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "GitHub #433 ready update applied with checksum 5ef0d541a3d3998b5f37bcf5d05474fa29f444f1b670087acdb53394424aeaf3 and zero-action readback; implementation handoff keeps execution_allowed=false, requires explicit typed curve evidence, and excludes provider adapters, portfolio risk, recommendations, broker writes, live orders, unvalidated OAS, and executable dealer quotations"
+          ],
+          "from": "ready",
+          "review_reference": "PR #514 merged readiness at 4c281e66019a1b2cae1c65dcdbd90e2411a577ab after dependency-edge reviews #511-#513",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "codex",
+          "to": "in_progress",
+          "verified_commit": "4c281e66019a1b2cae1c65dcdbd90e2411a577ab"
         }
       ],
-      "verified_commit": "75e30d4e7851e7fdb557a249e1d676fc7e72db37",
+      "verified_commit": "4c281e66019a1b2cae1c65dcdbd90e2411a577ab",
       "verified_date": "2026-07-27"
     },
     "ISSUE-0155": {

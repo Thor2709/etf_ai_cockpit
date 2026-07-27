@@ -3,21 +3,21 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "planned",
+      "from": "ready",
       "issue_id": "ISSUE-0154",
-      "to": "ready"
+      "to": "in_progress"
     }
   ],
-  "base_commit": "75e30d4e7851e7fdb557a249e1d676fc7e72db37",
-  "branch": "codex/issue-0154-ready-20260727",
+  "base_commit": "4c281e66019a1b2cae1c65dcdbd90e2411a577ab",
+  "branch": "codex/issue-0154-in-progress-20260727",
   "issue_ids": ["ISSUE-0154"],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "e254390f58be6fdd376d32e5ef9677088019fdda0fb0a1f3df4b23e7df789501",
+    "base_registry_sha256": "563b68f4b8785e1a0371c16e4a71406fc10a2d1c4fba979af9a928d37aedbfac",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "563b68f4b8785e1a0371c16e4a71406fc10a2d1c4fba979af9a928d37aedbfac",
-    "reason": "B03 ISSUE-0154 readiness: advance only planned to ready after all three reviewed blocking interfaces resolve; preserve the ISSUE-0088 partial-interface limitations, batch composition, scope, dependencies, acceptance criteria, status semantics, policies and execution_allowed=false.",
+    "proposed_registry_sha256": "f115c56041b146e0f7e0567ea859d525098b71c23a86cdb23f11970b584f5c8d",
+    "reason": "B03 ISSUE-0154 implementation handoff: advance only ready to in_progress after PR #514 and GitHub #433 converged; preserve the ISSUE-0088 partial-interface limitations, batch composition, scope, dependencies, acceptance criteria, status semantics, policies and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
