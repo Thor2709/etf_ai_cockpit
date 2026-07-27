@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "637af409155c805dd0644f8640b4ea2590be6277",
+    "generation_base_commit": "12f844f0610764c3974dc79fd15a315853025d3f",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4642,12 +4642,16 @@
       "acceptance_evidence": [],
       "dependency_edge_evidence": {
         "ISSUE-0076": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B03/ISSUE-0076/plugin-provider-contract-v1",
+          "evidence_references": [
+            "src/etf_cockpit/plugins/contracts.py at 12f844f defines strict provider manifests with capability, licence, network, credential, quota, retention, authority and explicit unavailable/degraded result contracts",
+            "src/etf_cockpit/plugins/registry.py at 12f844f enforces allow-listed versioned discovery, contains failures, prevents canonical-store writes and executable authority, and keeps disabled providers visible",
+            "17 focused plugin-contract, provider-registry and plugin-status UI tests pass; provider rate/resume, data-source and legal approvals remain separate ISSUE-0081, ISSUE-0088 and ISSUE-0149 edges"
+          ],
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         },
         "ISSUE-0081": {
           "contract_reference": "",
@@ -4689,8 +4693,37 @@
         "review_reference": "B00 canonical import from audited programme state",
         "to": "planned"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0076",
+            "evidence": {
+              "contract_reference": "B03/ISSUE-0076/plugin-provider-contract-v1",
+              "evidence_references": [
+                "src/etf_cockpit/plugins/contracts.py at 12f844f defines strict provider manifests with capability, licence, network, credential, quota, retention, authority and explicit unavailable/degraded result contracts",
+                "src/etf_cockpit/plugins/registry.py at 12f844f enforces allow-listed versioned discovery, contains failures, prevents canonical-store writes and executable authority, and keeps disabled providers visible",
+                "17 focused plugin-contract, provider-registry and plugin-status UI tests pass; provider rate/resume, data-source and legal approvals remain separate ISSUE-0081, ISSUE-0088 and ISSUE-0149 edges"
+              ],
+              "reviewed_date": "2026-07-27",
+              "reviewer": "Codex root orchestrator",
+              "schema_version": "1.0",
+              "state": "complete"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "src/etf_cockpit/plugins/contracts.py at 12f844f defines strict provider manifests with capability, licence, network, credential, quota, retention, authority and explicit unavailable/degraded result contracts",
+            "src/etf_cockpit/plugins/registry.py at 12f844f enforces allow-listed versioned discovery, contains failures, prevents canonical-store writes and executable authority, and keeps disabled providers visible",
+            "17 focused plugin-contract, provider-registry and plugin-status UI tests pass; provider rate/resume, data-source and legal approvals remain separate ISSUE-0081, ISSUE-0088 and ISSUE-0149 edges"
+          ],
+          "review_reference": "B03 ISSUE-0155 provider-contract dependency review",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "verified_commit": "12f844f0610764c3974dc79fd15a315853025d3f"
+        }
+      ],
+      "verified_commit": "12f844f0610764c3974dc79fd15a315853025d3f",
+      "verified_date": "2026-07-27"
     },
     "ISSUE-0156": {
       "acceptance_evidence": [],
