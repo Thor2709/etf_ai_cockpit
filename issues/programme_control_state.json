@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "57262943fa3fb538216a97f6b595fbbfc23024fc",
+    "generation_base_commit": "379bb8a73a76c3e43d2fcfaaad3ef9927306228c",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4979,6 +4979,16 @@
           "reviewed_date": "2026-07-27",
           "reviewer": "Codex root orchestrator",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "PR #535 merged canonical fixed-income-risk.v1 as 379bb8a73a76c3e43d2fcfaaad3ef9927306228c after Linux and Windows package, parity, smoke, performance and policy evidence",
+            "Focused risk, persistence, concurrency, portfolio, application, UI and architecture checks passed; the protected full suite retained only the documented B03 simple-score baseline after deterministic control refresh"
+          ],
+          "review_reference": "B03 ISSUE-0156 reviewed fixed-income risk product merge",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "status": "implemented_initially"
         }
       ],
       "dependency_edge_evidence": {
@@ -5032,11 +5042,11 @@
         }
       },
       "phase": "phase-05-returns-risk-portfolio",
-      "programme_status": "in_progress",
+      "programme_status": "implemented_initially",
       "status_transition": {
-        "from": "ready",
-        "review_reference": "B03 ISSUE-0156 bounded implementation hand-off after readiness convergence",
-        "to": "in_progress"
+        "from": "in_progress",
+        "review_reference": "B03 ISSUE-0156 reviewed fixed-income risk product merge",
+        "to": "implemented_initially"
       },
       "transition_history": [
         {
@@ -5172,9 +5182,22 @@
           "reviewer": "Codex root orchestrator",
           "to": "in_progress",
           "verified_commit": "57262943fa3fb538216a97f6b595fbbfc23024fc"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #535 merged canonical fixed-income-risk.v1 as 379bb8a73a76c3e43d2fcfaaad3ef9927306228c after Linux and Windows package, parity, smoke, performance and policy evidence",
+            "Focused risk, persistence, concurrency, portfolio, application, UI and architecture checks passed; the protected full suite retained only the documented B03 simple-score baseline after deterministic control refresh"
+          ],
+          "from": "in_progress",
+          "review_reference": "B03 ISSUE-0156 reviewed fixed-income risk product merge",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "to": "implemented_initially",
+          "verified_commit": "379bb8a73a76c3e43d2fcfaaad3ef9927306228c"
         }
       ],
-      "verified_commit": "57262943fa3fb538216a97f6b595fbbfc23024fc",
+      "verified_commit": "379bb8a73a76c3e43d2fcfaaad3ef9927306228c",
       "verified_date": "2026-07-27"
     },
     "ISSUE-0157": {
