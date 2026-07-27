@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import inspect
+from dataclasses import replace
+from decimal import Decimal
 
 import numpy as np
 import pandas as pd
@@ -11,8 +13,11 @@ from etf_cockpit.portfolio.robust_risk import (
     ESTIMATOR_NAMES,
     build_robust_risk_report,
     covariance_estimators,
+    integrate_fixed_income_risk,
 )
 from test_factor_risk import _fixture as _factor_fixture
+from test_fixed_income_risk import _risk
+from etf_cockpit.analysis.fixed_income_risk import calculate_fixed_income_risk
 
 
 def _fixture(periods: int = 100) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -98,3 +103,31 @@ def test_risk_workspace_surfaces_robust_risk_evidence() -> None:
     source = inspect.getsource(risk_page)
     assert "build_robust_risk_report" in source
     assert "_robust_estimator_panel" in source
+
+
+def test_fixed_income_components_marginals_and_scenarios_reconcile_without_zero_fill() -> None:
+    complete_input = _risk(
+        spread_shock_bps=Decimal("20"),
+        rating_change_loss=Decimal("1"),
+        default_probability=Decimal("0.01"),
+        recovery_rate=Decimal("0.4"),
+        liquidity_cost_bps=Decimal("5"),
+    )
+    complete = calculate_fixed_income_risk(complete_input)
+    missing_scenario = replace(
+        calculate_fixed_income_risk(replace(complete_input, position_face_value=Decimal("2000"))),
+        scenarios=(calculate_fixed_income_risk(replace(complete_input, position_face_value=Decimal("2000"))).scenarios[0],),
+    )
+    report = integrate_fixed_income_risk((complete, missing_scenario))
+    rows = {row["scenario_id"]: row for row in report["scenarios"]}
+    assert rows["up-10"]["reconciled"] is True
+    assert rows["up-10"]["total_pnl"] == rows["up-10"]["known_component_total"]
+    assert rows["key-up"]["total_pnl"] is None
+    assert rows["key-up"]["missing_instruments"] == ["BOND-1"]
+    assert report["components"][1]["value"] is not Decimal("0")
+    assert report["execution_allowed"] is False
+
+    unsupported = calculate_fixed_income_risk(_risk(instrument_kind="bond_etf"))
+    unavailable = integrate_fixed_income_risk((unsupported,))
+    assert unavailable["status"] == "unavailable"
+    assert unavailable["reason_codes"] == ["fixed_income_scenarios_unavailable"]

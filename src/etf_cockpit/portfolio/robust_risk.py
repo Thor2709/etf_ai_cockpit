@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import numpy as np
 import pandas as pd
+
+from etf_cockpit.analysis.fixed_income_risk import FixedIncomeRiskRecord
 
 
 ROBUST_RISK_MODEL_VERSION = "robust_risk.v1"
@@ -16,6 +20,7 @@ def build_robust_risk_report(
     allocation: pd.DataFrame | None = None,
     *,
     factor_report: dict[str, object] | None = None,
+    fixed_income_records: tuple[FixedIncomeRiskRecord, ...] = (),
     window: int = 252,
     ewma_lambda: float = 0.97,
     shrinkage_alpha: float = 0.10,
@@ -26,10 +31,13 @@ def build_robust_risk_report(
     """Build versioned covariance, tail-risk and uncertainty evidence."""
 
     returns = _return_matrix(prices, window=window)
+    fixed_income = integrate_fixed_income_risk(fixed_income_records)
     ids = list(returns.columns)
     weights = _weights(allocation, ids)
     if returns.empty or len(ids) < 2:
-        return _unavailable_report("At least two instruments with adjusted-price returns are required.", returns, weights)
+        report = _unavailable_report("At least two instruments with adjusted-price returns are required.", returns, weights)
+        report["fixed_income_risk"] = fixed_income
+        return report
     covariances, estimator_meta = _covariance_estimators(returns, factor_report, ewma_lambda=ewma_lambda, shrinkage_alpha=shrinkage_alpha)
     comparison, selected, validation_warnings = _out_of_sample_selection(returns, factor_report, ewma_lambda=ewma_lambda, shrinkage_alpha=shrinkage_alpha)
     selected_covariance = covariances.get(selected, pd.DataFrame()).reindex(index=ids, columns=ids)
@@ -77,6 +85,108 @@ def build_robust_risk_report(
         "tail_risk": tail_risk,
         "diagnostics": diagnostics,
         "warnings": warnings,
+        "fixed_income_risk": fixed_income,
+    }
+
+
+def integrate_fixed_income_risk(
+    records: tuple[FixedIncomeRiskRecord, ...],
+) -> dict[str, object]:
+    """Ingest debt component/scenario evidence without converting unknowns to zero."""
+
+    if not records:
+        return {
+            "status": "unavailable",
+            "components": [],
+            "marginal_contributions": [],
+            "scenarios": [],
+            "reason_codes": ["fixed_income_records_unavailable"],
+            "execution_allowed": False,
+        }
+    components = []
+    marginal = []
+    for record in records:
+        for name, component in record.components.items():
+            components.append(
+                {
+                    "instrument_id": record.instrument_id,
+                    "component": name,
+                    "value": component.value,
+                    "unit": component.unit,
+                    "coverage": component.coverage,
+                    "unknown_amount": component.unknown_amount,
+                    "support": component.support,
+                }
+            )
+        marginal.append(
+            {
+                "instrument_id": record.instrument_id,
+                "position_face_value": record.position_face_value,
+                "scenario_known_pnl": {
+                    row.scenario_id: row.known_component_total for row in record.scenarios
+                },
+                "scenario_total_pnl": {
+                    row.scenario_id: row.total_pnl for row in record.scenarios
+                },
+                "unit": next((row.unit for row in record.scenarios), None),
+                "coverage": (
+                    sum((row.coverage for row in record.scenarios), Decimal("0"))
+                    / Decimal(len(record.scenarios))
+                    if record.scenarios
+                    else Decimal("0")
+                ),
+            }
+        )
+    scenario_ids = sorted({row.scenario_id for record in records for row in record.scenarios})
+    if not scenario_ids:
+        return {
+            "status": "unavailable",
+            "components": components,
+            "marginal_contributions": marginal,
+            "scenarios": [],
+            "reason_codes": ["fixed_income_scenarios_unavailable"],
+            "execution_allowed": False,
+        }
+    scenarios = []
+    for scenario_id in scenario_ids:
+        matched = [
+            (record, next((row for row in record.scenarios if row.scenario_id == scenario_id), None))
+            for record in records
+        ]
+        units = {row.unit for _, row in matched if row is not None}
+        missing = [record.instrument_id for record, row in matched if row is None]
+        unknown = sorted(
+            {
+                name
+                for _, row in matched
+                if row is not None
+                for name in row.unknown_components
+            }
+        )
+        known = sum(
+            (row.known_component_total for _, row in matched if row is not None),
+            Decimal("0"),
+        )
+        reconciled = not missing and not unknown and len(units) == 1
+        scenarios.append(
+            {
+                "scenario_id": scenario_id,
+                "known_component_total": known,
+                "total_pnl": known if reconciled else None,
+                "unit": next(iter(units)) if len(units) == 1 else None,
+                "coverage": Decimal(len(records) - len(missing)) / Decimal(len(records)),
+                "missing_instruments": missing,
+                "unknown_components": unknown,
+                "reconciled": reconciled,
+            }
+        )
+    partial = any(row["total_pnl"] is None for row in scenarios)
+    return {
+        "status": "partial" if partial else "available",
+        "components": components,
+        "marginal_contributions": marginal,
+        "scenarios": scenarios,
+        "execution_allowed": False,
     }
 
 
@@ -391,4 +501,4 @@ def _unavailable_report(message: str, returns: pd.DataFrame, weights: pd.Series)
     }
 
 
-__all__ = ["ANNUALISATION_FACTOR", "ESTIMATOR_NAMES", "ROBUST_RISK_MODEL_VERSION", "build_robust_risk_report", "covariance_estimators"]
+__all__ = ["ANNUALISATION_FACTOR", "ESTIMATOR_NAMES", "ROBUST_RISK_MODEL_VERSION", "build_robust_risk_report", "covariance_estimators", "integrate_fixed_income_risk"]

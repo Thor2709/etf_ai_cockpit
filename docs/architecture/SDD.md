@@ -499,6 +499,22 @@ typed input hash and result checksum, and reads reconstruct the input and
 re-run the canonical calculator before returning data. Unknown or altered
 schemas, hashes, authority, chronology, or results fail closed.
 
+## Fixed-income component risk
+
+`fixed-income-risk.v1` is the canonical local, immutable component and scenario
+contract for supported bonds. It reuses `fixed-income-analytics.v1` for every
+full reprice and records duration/convexity approximation, full-reprice P&L,
+discrepancy and currency units. Parallel and exact curve-node key-rate shocks
+are supported. Spread, rating, default/recovery and liquidity amounts exist
+only when explicit valid evidence is supplied; otherwise coverage and unknown
+amount remain visible and scenario totals are unavailable rather than
+zero-filled. Callable/reinvestment, quote age/size, inflation and FX warnings
+prevent a low-duration-only low-risk label. Bond ETFs require look-through and
+are not priced as bonds. The transactional analytical projection verifies
+schema, input hash, canonical recalculation and result checksum on replay.
+Application and Instrument Detail surfaces render this projection read-only;
+`execution_allowed=false` throughout.
+
 ## Fixed-income market-data evidence
 
 `fixed-income-market-data.v1` is an immutable, provider-neutral local contract

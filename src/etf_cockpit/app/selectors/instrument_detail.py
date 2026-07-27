@@ -27,6 +27,7 @@ from etf_cockpit.application.ui_facade import (
     load_classification_projection,
     load_identity_projection,
     load_fixed_income_terms_projection,
+    load_fixed_income_risk_projection,
     load_fixed_income_market_data_projection,
     load_fixed_income_analytics_projection,
     load_simple_scoreboard,
@@ -62,6 +63,7 @@ _SECTION_NAMES = (
     "fixed_income_terms",
     "fixed_income_market_data",
     "fixed_income_analytics",
+    "fixed_income_risk",
     "etf_liquidity",
     "scores",
     "feature_drivers",
@@ -1363,6 +1365,10 @@ def build_instrument_detail(
         instrument_id,
         decision_time=projection_time or None,
     )
+    fixed_income_risk = load_fixed_income_risk_projection(
+        instrument_id,
+        decision_time=projection_time or None,
+    )
     return InstrumentDetailViewModel(
         instrument_id,
         display_name,
@@ -1375,6 +1381,7 @@ def build_instrument_detail(
             "fixed_income_terms": fixed_income_terms,
             "fixed_income_market_data": fixed_income_market_data,
             "fixed_income_analytics": fixed_income_analytics,
+            "fixed_income_risk": fixed_income_risk,
             "etf_liquidity": liquidity,
             "scores": _score_panel(signal, scoreboard, derived, friction),
             "feature_drivers": _feature_driver_panel(instrument_id),

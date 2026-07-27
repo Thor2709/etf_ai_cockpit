@@ -859,3 +859,50 @@ The status guard, registry validation, all generation/freshness checks and
 diff hygiene pass; all 121 focused control, registry, completion, tracker,
 programme-map and UI tests pass. The committed privacy-safe GitHub evidence
 identifies only ISSUE-0156's Programme status.
+
+`VERIFIED` implementation hand-off PR #534 merged as
+`e9847c910080892af6fda7f420ccdb194b73e0ef` from reviewed head
+`3799f3080f0f22c895bfa3ce71760bf5368bdbcc`. Status-transition guard run
+`30255879394` and supply-chain run `30255879362` passed; redundant release run
+`30255879367` was cancelled. Checksum-approved GitHub plan
+`0add5677998d354a9d19e92534cb945179776dcfcb71832b3ba95ad99ce2eb95`
+applied and verified #435 open/in_progress with `execution_allowed=false`;
+readback `0d4164705d284745b80c1836fcc4c7695e3ce3e0273713957784deae297404e5`
+contained zero actions.
+
+`IN_PROGRESS` one `sol_worker` owns the bounded ISSUE-0156 product slice from
+fresh main. The smallest usable outcome is a canonical local
+`fixed-income-risk.v1` calculation and replay contract for supported bonds,
+with parallel/key-rate full repricing and approximation discrepancy,
+spread/default/recovery only from explicit inputs, issuer and portfolio
+scenario reconciliation, liquidity/quote-age/minimum-size warnings,
+call/reinvestment, inflation/FX and bond-versus-bond-ETF flags, read-only
+application/Instrument Detail projection, audit lineage and
+`execution_allowed=false`. Missing inputs must remain unknown and low duration
+must never suppress other risk components.
+
+Excluded: remote provider acquisition, new dependencies, recommendations,
+optimiser changes, proposal/order workflows, broker writes, live execution,
+unvalidated OAS and unrelated refactors. Required evidence is focused
+parallel/non-parallel, approximation/full-reprice, default/recovery, callable,
+sign/unit, aggregation/reconciliation, unknown-input, persistence/replay,
+application/UI and architecture tests.
+
+`VERIFIED` the bounded implementation and its single focused correction now
+provide canonical versioned risk/scenario records, explicit parallel and
+key-rate shocks, position-scaled DV01, full-reprice discrepancy, explicit
+unknown spread/default/liquidity evidence, callable and other material-risk
+guards, immutable verified replay, concurrent-writer reconciliation and common
+portfolio component/marginal/scenario integration. Instrument Detail consumes
+the read-only application projection and `execution_allowed=false` remains
+fixed.
+
+Root review corrected three final integration details: shock values are present
+in the scenario output, non-zero credit/liquidity losses prevent a low-risk
+label, and missing holding scenarios remain unreconciled rather than being
+silently omitted. Fresh evidence is 60 fixed-income risk, analytics,
+market-data, terms-UI and robust-risk tests plus 12 architecture/application
+API tests; the earlier 103 architecture/documentation/application/Instrument
+Detail checks also passed. Ruff, compileall, scoped MyPy for both new modules
+and diff hygiene pass. Repository-wide transitive MyPy remains an existing
+baseline with missing third-party stubs and unrelated historical errors.
