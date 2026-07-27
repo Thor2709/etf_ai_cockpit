@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "fc734201b138d3f24fa68d8c07422322506d6fc5",
+    "generation_base_commit": "a01c663cd10bc13057175bd128456108bfceb0c4",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -2719,6 +2719,16 @@
           "reviewed_date": "2026-07-27",
           "reviewer": "Codex root orchestrator",
           "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "PR #543 merged the guarded ISSUE-0098 implemented_initially convergence as a01c663cd10bc13057175bd128456108bfceb0c4 with status guard and supply-chain validation passing",
+            "Checksum-approved GitHub plan e9d4d3eee2d726a2614d775c8ac2f7cc4240fa36b9be82906bc6472f290b51be updated only #238; readback bb68cd2ac53599bb3a26b7c619f35174b492cf707ed2d21376e32604c504ba0a was zero action"
+          ],
+          "review_reference": "B04 ISSUE-0098 implemented-initially convergence and GitHub readback",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "status": "integrated"
         }
       ],
       "dependency_edge_evidence": {
@@ -2748,11 +2758,11 @@
         }
       },
       "phase": "phase-03-stock-research",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
-        "from": "in_progress",
-        "review_reference": "B04 ISSUE-0098 reviewed peer cohort product merge",
-        "to": "implemented_initially"
+        "from": "implemented_initially",
+        "review_reference": "B04 ISSUE-0098 implemented-initially convergence and GitHub readback",
+        "to": "integrated"
       },
       "transition_history": [
         {
@@ -2849,9 +2859,22 @@
           "reviewer": "Codex root orchestrator",
           "to": "implemented_initially",
           "verified_commit": "fc734201b138d3f24fa68d8c07422322506d6fc5"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #543 merged the guarded ISSUE-0098 implemented_initially convergence as a01c663cd10bc13057175bd128456108bfceb0c4 with status guard and supply-chain validation passing",
+            "Checksum-approved GitHub plan e9d4d3eee2d726a2614d775c8ac2f7cc4240fa36b9be82906bc6472f290b51be updated only #238; readback bb68cd2ac53599bb3a26b7c619f35174b492cf707ed2d21376e32604c504ba0a was zero action"
+          ],
+          "from": "implemented_initially",
+          "review_reference": "B04 ISSUE-0098 implemented-initially convergence and GitHub readback",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "to": "integrated",
+          "verified_commit": "a01c663cd10bc13057175bd128456108bfceb0c4"
         }
       ],
-      "verified_commit": "fc734201b138d3f24fa68d8c07422322506d6fc5",
+      "verified_commit": "a01c663cd10bc13057175bd128456108bfceb0c4",
       "verified_date": "2026-07-27"
     },
     "ISSUE-0099": {

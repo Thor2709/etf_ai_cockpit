@@ -161,3 +161,22 @@ The reviewed GitHub plan contains exactly one Programme-status update for open
 issue #238 with semantic SHA-256
 `e9d4d3eee2d726a2614d775c8ac2f7cc4240fa36b9be82906bc6472f290b51be`.
 No dependency, scope, acceptance, policy or authority change is included.
+
+`VERIFIED` implemented-initially PR #543 merged as
+`a01c663cd10bc13057175bd128456108bfceb0c4` from reviewed head
+`01f95db5f1211ffc436e01458f78d8d0e63d123c`. Status guard run
+`30276147784` and supply-chain run `30276148150` passed; the redundant
+evidence-only release run was cancelled. Checksum-approved GitHub plan
+`e9d4d3eee2d726a2614d775c8ac2f7cc4240fa36b9be82906bc6472f290b51be`
+applied only #238, and zero-action readback
+`bb68cd2ac53599bb3a26b7c619f35174b492cf707ed2d21376e32604c504ba0a`
+verified convergence.
+
+`IN_PROGRESS` the final separate convergence advances only ISSUE-0098
+`implemented_initially -> integrated`. The proposed 197-record registry has
+SHA-256 `3c484a44ce57f2b5b9a04e8011a5691e67e90c5e31b8d8b768873a5d1b1e7e10`.
+The reviewed GitHub plan contains exactly one Programme-status update for open
+issue #238 with semantic SHA-256
+`04c08b15461989be76539fc401ea00c99c199ab79a5c1ea2a6379eceebb05b74`.
+No dependency, scope, acceptance, policy or authority change is included;
+`execution_allowed=false`.
