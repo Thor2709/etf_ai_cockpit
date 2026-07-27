@@ -293,6 +293,7 @@ class IdentityMasterStore:
         *,
         effective_at: str | datetime | None = None,
         decision_time: str | datetime | None = None,
+        decision_schema_version: int = 2,
     ) -> IdentityResolution:
         """Resolve one instrument and apply persisted reviews at the cut-off."""
 
@@ -308,6 +309,7 @@ class IdentityMasterStore:
             claims,
             effective_at=effective_at,
             decision_time=decision_time,
+            decision_schema_version=decision_schema_version,
         )
         conflict_ids = {item.conflict_id for item in initial.conflicts}
         reviews = tuple(item for item in self._load_reviews() if item.conflict_id in conflict_ids)
@@ -317,6 +319,7 @@ class IdentityMasterStore:
                 effective_at=effective_at,
                 decision_time=decision_time,
                 review_decisions=reviews,
+                decision_schema_version=decision_schema_version,
             )
             if reviews
             else initial
@@ -335,6 +338,7 @@ class IdentityMasterStore:
         *,
         effective_at: str | datetime | None = None,
         decision_time: str | datetime | None = None,
+        decision_schema_version: int = 2,
     ) -> dict[str, object]:
         """Return a read-only graph/conflict/history projection for the UI."""
 
@@ -342,6 +346,7 @@ class IdentityMasterStore:
             instrument_id,
             effective_at=effective_at,
             decision_time=decision_time,
+            decision_schema_version=decision_schema_version,
         )
         known_reviews = _known_reviews(
             self._load_reviews(),
@@ -355,6 +360,7 @@ class IdentityMasterStore:
             "identity_status": "manual_review" if resolution.requires_manual_review else "resolved",
             "identity_resolution_state": resolution.resolution_state,
             "identity_decision_id": resolution.decision_id,
+            "identity_decision_schema_version": resolution.decision_schema_version,
             "identity_conflict_ids": [item.conflict_id for item in resolution.conflicts],
             "identity_effective_at": resolution.effective_at or "latest",
             "identity_decision_time": resolution.decision_time or "latest",
@@ -492,6 +498,7 @@ class IdentityMasterStore:
                 available_at=row.available_at,
                 revision=row.revision,
                 event_type=row.event_type,
+                retrieved_at=row.retrieved_at,
             )
             for field, value in sorted(values.items())
             if value
@@ -646,6 +653,9 @@ def _normalise_claim(claim: IdentityClaim) -> IdentityClaim:
     valid_from = _optional_timestamp(claim.valid_from, "valid_from")
     valid_to = _optional_timestamp(claim.valid_to, "valid_to")
     available_at = _optional_timestamp(claim.available_at, "available_at", require_timezone=True)
+    retrieved_at = _optional_timestamp(
+        claim.retrieved_at, "retrieved_at", require_timezone=True
+    )
     if valid_from and valid_to and _as_datetime(valid_to) <= _as_datetime(valid_from):
         raise IdentityMasterSchemaError("identity valid_to must be later than valid_from")
     parent = str(claim.parent_object_id).strip() if claim.parent_object_id else None
@@ -670,6 +680,7 @@ def _normalise_claim(claim: IdentityClaim) -> IdentityClaim:
         available_at=available_at,
         revision=revision,
         event_type=str(claim.event_type or "observation").strip().lower(),
+        retrieved_at=retrieved_at,
     )
 
 
@@ -783,6 +794,8 @@ def _claim_key(claim: IdentityClaim) -> str:
         "source_id": claim.source_id,
         "revision": claim.revision,
     }
+    if claim.retrieved_at is not None:
+        logical["retrieved_at"] = claim.retrieved_at
     return _hash(logical)
 
 
@@ -822,12 +835,13 @@ def _with_duplicate_conflicts(
         confidence="manual_review",
         warnings=tuple(dict.fromkeys((*resolution.identity.warnings, "duplicate_identity_requires_manual_review"))),
     )
-    decision_id = _hash(
-        {
-            "base_decision_id": resolution.decision_id,
-            "duplicate_conflict_ids": [item.conflict_id for item in duplicate_conflicts],
-        }
-    )
+    decision_payload: dict[str, Any] = {
+        "base_decision_id": resolution.decision_id,
+        "duplicate_conflict_ids": [item.conflict_id for item in duplicate_conflicts],
+    }
+    if resolution.decision_schema_version == 2:
+        decision_payload["schema_version"] = 2
+    decision_id = _hash(decision_payload)
     return replace(
         resolution,
         identity=identity,
@@ -872,6 +886,8 @@ def _claim_is_eligible(
         if claim.valid_from is None:
             raise IdentityResolutionError("point-in-time identity claims require valid_from")
         if _as_datetime(claim.available_at) > decision:
+            return False
+        if claim.retrieved_at is not None and _as_datetime(claim.retrieved_at) > decision:
             return False
     if effective is not None:
         if claim.valid_from and _as_datetime(claim.valid_from) > effective:

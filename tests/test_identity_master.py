@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 import json
 from pathlib import Path
 import sqlite3
@@ -8,7 +9,11 @@ import sqlite3
 import pytest
 
 from etf_cockpit.data.contracts import SourceAuthority
-from etf_cockpit.data.instrument_identity import IdentityClaim, IdentityReviewDecision
+from etf_cockpit.data.instrument_identity import (
+    IdentityClaim,
+    IdentityResolutionError,
+    IdentityReviewDecision,
+)
 from etf_cockpit.data.identity_master import (
     IdentityImportResult,
     IdentityMasterSchemaError,
@@ -447,6 +452,100 @@ def test_persistence_is_idempotent_and_invalid_batch_rolls_back_atomically(tmp_p
             reopened.resolve("SEC-INVALID")
 
 
+def test_append_claims_preserves_retrieval_observations_and_exact_idempotency(
+    tmp_path: Path,
+) -> None:
+    claim = IdentityClaim(
+        "SEC-CHRONOLOGY",
+        "ticker",
+        "CHRON",
+        "fixture",
+        SourceAuthority.OFFICIAL,
+        "official:ticker",
+        valid_from="2024-01-01T00:00:00Z",
+        available_at="2024-01-02T00:00:00Z",
+        retrieved_at="2024-01-03T00:00:00Z",
+    )
+    later = replace(claim, retrieved_at="2024-02-03T00:00:00Z")
+    with IdentityMasterStore(tmp_path) as store:
+        first_id = store.append_claims((claim,))
+        duplicate_id = store.append_claims((claim,))
+        later_id = store.append_claims((later,))
+
+        assert first_id == duplicate_id
+        assert later_id != first_id
+        current = store.resolve("SEC-CHRONOLOGY")
+        historical = store.resolve(
+            "SEC-CHRONOLOGY",
+            effective_at="2024-01-15T00:00:00Z",
+            decision_time="2024-01-15T00:00:00Z",
+        )
+
+    assert [item.retrieved_at for item in current.claims] == [
+        "2024-01-03T00:00:00Z",
+        "2024-02-03T00:00:00Z",
+    ]
+    assert [item.retrieved_at for item in historical.claims] == [
+        "2024-01-03T00:00:00Z"
+    ]
+    assert [item.retrieved_at for item in historical.excluded_claims] == [
+        "2024-02-03T00:00:00Z"
+    ]
+
+
+def test_identity_master_replays_legacy_v1_decision_and_projects_v2_schema(
+    tmp_path: Path,
+) -> None:
+    claims = _claims("SEC-LEGACY", "legacy")
+    with IdentityMasterStore(tmp_path) as store:
+        store.append_claims(claims)
+        first = store.resolve("SEC-LEGACY", decision_schema_version=1)
+        replay = store.resolve("SEC-LEGACY", decision_schema_version=1)
+        current = store.resolve("SEC-LEGACY")
+        projection = store.projection("SEC-LEGACY")
+
+    assert first.decision_id == replay.decision_id
+    assert first.decision_schema_version == 1
+    assert current.decision_schema_version == 2
+    assert projection["identity_decision_schema_version"] == 2
+    assert projection["execution_allowed"] is False
+    with IdentityMasterStore(tmp_path) as store:
+        with pytest.raises(
+            IdentityResolutionError, match="unsupported identity decision schema"
+        ):
+            store.resolve("SEC-LEGACY", decision_schema_version=99)
+
+
+def test_pre_retrieval_field_v1_records_remain_readable_and_replayable(
+    tmp_path: Path,
+) -> None:
+    claims = _claims("SEC-OLD-RECORD", "old-record")
+    with IdentityMasterStore(tmp_path) as store:
+        store.append_claims(claims)
+        expected = store.resolve(
+            "SEC-OLD-RECORD", decision_schema_version=1
+        ).decision_id
+
+    with sqlite3.connect(storage_layout(tmp_path).transactional_path) as connection:
+        rows = connection.execute(
+            "SELECT entity_id, payload_json FROM transactional_records "
+            "WHERE entity_type = 'identity_claim_v1'"
+        ).fetchall()
+        for entity_id, encoded in rows:
+            payload = json.loads(encoded)
+            payload["claim"].pop("retrieved_at", None)
+            connection.execute(
+                "UPDATE transactional_records SET payload_json = ? "
+                "WHERE entity_type = 'identity_claim_v1' AND entity_id = ?",
+                (json.dumps(payload, sort_keys=True), entity_id),
+            )
+
+    with IdentityMasterStore(tmp_path) as store:
+        replay = store.resolve("SEC-OLD-RECORD", decision_schema_version=1)
+    assert replay.decision_id == expected
+    assert all(claim.retrieved_at is None for claim in replay.claims)
+
+
 def test_source_checksum_must_be_auditable_sha256(tmp_path: Path) -> None:
     invalid = _row(
         "bad-checksum",
@@ -475,6 +574,31 @@ def test_two_concurrent_writers_commit_without_lost_identity_rows(tmp_path: Path
     with IdentityMasterStore(tmp_path) as store:
         assert store.resolve("CONCURRENT-A").identity.ticker == "CONCURRENT-A"
         assert store.resolve("CONCURRENT-B").identity.ticker == "CONCURRENT-B"
+
+
+def test_concurrent_retrieval_observations_are_both_retained(tmp_path: Path) -> None:
+    base = IdentityClaim(
+        "CONCURRENT-CHRONOLOGY",
+        "ticker",
+        "CC",
+        "fixture",
+        SourceAuthority.OFFICIAL,
+        "official:ticker",
+        valid_from="2024-01-01T00:00:00Z",
+        available_at="2024-01-02T00:00:00Z",
+    )
+
+    def write(retrieved_at: str) -> None:
+        with IdentityMasterStore(tmp_path) as store:
+            store.append_claims((replace(base, retrieved_at=retrieved_at),))
+
+    retrievals = ("2024-01-03T00:00:00Z", "2024-02-03T00:00:00Z")
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        tuple(executor.map(write, retrievals))
+
+    with IdentityMasterStore(tmp_path) as store:
+        resolution = store.resolve("CONCURRENT-CHRONOLOGY")
+    assert tuple(item.retrieved_at for item in resolution.claims) == retrievals
 
 
 def test_concurrent_duplicate_import_results_are_serialized_with_quarantine(tmp_path: Path) -> None:

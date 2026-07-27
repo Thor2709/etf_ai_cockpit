@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from etf_cockpit.data.contracts import SourceAuthority
 
 import pytest
@@ -7,9 +9,40 @@ import pytest
 from etf_cockpit.data.instrument_identity import (
     AmbiguousIdentityAvailabilityError,
     IdentityClaim,
+    IdentityResolutionError,
     IdentityReviewDecision,
     resolve_identity,
 )
+
+
+def test_decision_hash_versions_preserve_v1_and_version_retrieval_semantics() -> None:
+    base = IdentityClaim(
+        "SEC-VERSION",
+        "ticker",
+        "VER",
+        "fixture",
+        SourceAuthority.OFFICIAL,
+        "official:ticker",
+        valid_from="2024-01-01T00:00:00Z",
+        available_at="2024-01-02T00:00:00Z",
+    )
+    retrieved = replace(base, retrieved_at="2024-01-03T00:00:00Z")
+
+    legacy_without_retrieval = resolve_identity((base,), decision_schema_version=1)
+    legacy_with_retrieval = resolve_identity((retrieved,), decision_schema_version=1)
+    current_without_retrieval = resolve_identity((base,), decision_schema_version=2)
+    current_with_retrieval = resolve_identity((retrieved,), decision_schema_version=2)
+
+    assert (
+        legacy_without_retrieval.decision_id
+        == "a2229b3c5407b82d8d761f208256c92f21ed6ca40b0178736a80a3dee87a3430"
+    )
+    assert legacy_without_retrieval.decision_id == legacy_with_retrieval.decision_id
+    assert legacy_without_retrieval.decision_schema_version == 1
+    assert current_without_retrieval.decision_id != current_with_retrieval.decision_id
+    assert current_with_retrieval.decision_schema_version == 2
+    with pytest.raises(IdentityResolutionError, match="unsupported identity decision schema"):
+        resolve_identity((base,), decision_schema_version=3)
 
 
 def test_identity_resolution_preserves_unknown_isin_and_provider_symbols() -> None:

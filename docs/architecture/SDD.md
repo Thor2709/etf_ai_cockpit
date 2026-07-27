@@ -314,12 +314,14 @@ linked tests are the detailed authorities.
 
 **Current risk — ISSUE-0153:** the issue is `in_progress` at the verified base.
 The [stopped implementation evidence](../../plans/BATCH-B03-FIXED-INCOME.md)
-records two unresolved protected identity-contract defects:
-`IdentityMasterStore.append_claims` discarded retrieval chronology and accepted
-changed retrieval timestamps as idempotent, creating look-ahead risk; identity
-decision hashes also changed while still declaring schema version 1, risking
-incompatible audit comparison.
-Dependent ISSUE-0154/0155/0158/0162/0163 work must not assume this is resolved.
+records the protected identity-contract transition. Identity claims retain
+`retrieved_at` as immutable chronology: exact duplicates are idempotent, while
+otherwise-identical observations retrieved at different times remain distinct
+and are excluded from earlier decision-time replay. Identity decision hashes
+use schema version 2 when retrieval chronology participates in the payload;
+callers may explicitly request deterministic legacy version-1 replay, and
+unknown versions fail closed. Stored version-1 claims remain readable without
+inventing missing retrieval evidence. `execution_allowed` remains false.
 See the [phase record](../product-completion/programme/phases/phase-02-data-policy-identity.md)
 and canonical registry; status and full acceptance criteria are not duplicated
 here.

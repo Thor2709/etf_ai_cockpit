@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, cast
 
 from etf_cockpit.data.contracts import SourceAuthority
 
@@ -44,6 +44,7 @@ class IdentityClaim:
     available_at: str | None = None
     revision: int = 1
     event_type: str = "observation"
+    retrieved_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -98,6 +99,7 @@ class IdentityHistoryEntry:
     available_at: str | None
     revision: int
     event_type: str
+    retrieved_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -148,6 +150,7 @@ class IdentityResolution:
     resolution_state: str = "manual_review"
     execution_allowed: bool = False
     excluded_claims: tuple[IdentityClaim, ...] = ()
+    decision_schema_version: int = 2
 
 
 _SPECIAL_FIELDS = frozenset({"ticker", "isin", "exchange", "mic", "currency", "share_class", "listing"})
@@ -159,6 +162,7 @@ def resolve_identity(
     effective_at: str | datetime | None = None,
     decision_time: str | datetime | None = None,
     review_decisions: Iterable[IdentityReviewDecision] = (),
+    decision_schema_version: int = 2,
 ) -> IdentityResolution:
     """Resolve one instrument's claims deterministically.
 
@@ -168,6 +172,10 @@ def resolve_identity(
     values.
     """
 
+    if decision_schema_version not in {1, 2}:
+        raise IdentityResolutionError(
+            f"unsupported identity decision schema version: {decision_schema_version}"
+        )
     items = tuple(_coerce_claim(item) for item in claims)
     if not items:
         raise ValueError("identity resolution requires at least one claim")
@@ -311,6 +319,7 @@ def resolve_identity(
             available_at=claim.available_at,
             revision=claim.revision,
             event_type=claim.event_type,
+            retrieved_at=claim.retrieved_at,
         )
         for claim in sorted(known_items, key=_history_sort_key)
     )
@@ -320,6 +329,7 @@ def resolve_identity(
         decision_timestamp,
         eligible,
         conflicts,
+        schema_version=decision_schema_version,
     )
     resolution_state = (
         "quarantined"
@@ -344,6 +354,7 @@ def resolve_identity(
         resolution_state=resolution_state,
         execution_allowed=False,
         excluded_claims=excluded_items,
+        decision_schema_version=decision_schema_version,
     )
 
 
@@ -368,6 +379,9 @@ def _coerce_claim(claim: IdentityClaim) -> IdentityClaim:
     valid_from = _optional_timestamp(claim.valid_from, "valid_from")
     valid_to = _optional_timestamp(claim.valid_to, "valid_to")
     available_at = _optional_timestamp(claim.available_at, "available_at", require_timezone=True)
+    retrieved_at = _optional_timestamp(
+        claim.retrieved_at, "retrieved_at", require_timezone=True
+    )
     if valid_from and valid_to and _as_datetime(valid_to) <= _as_datetime(valid_from):
         raise IdentityResolutionError("identity valid_to must be later than valid_from")
     return IdentityClaim(
@@ -388,6 +402,7 @@ def _coerce_claim(claim: IdentityClaim) -> IdentityClaim:
         available_at=available_at,
         revision=revision,
         event_type=str(claim.event_type or "observation").strip().lower(),
+        retrieved_at=retrieved_at,
     )
 
 
@@ -549,11 +564,23 @@ def _eligible_claims(
         claim
         for claim in items
         if _as_datetime(claim.available_at or decision_time) <= decision
+        and (
+            claim.retrieved_at is None
+            or _as_datetime(claim.retrieved_at) <= decision
+        )
         and _as_datetime(claim.valid_from or effective_at or decision_time) <= effective
         and (claim.valid_to is None or effective < _as_datetime(claim.valid_to))
     ]
     latest: dict[tuple[str, str, str, str, str], IdentityClaim] = {}
-    for claim in sorted(candidates, key=lambda item: (_as_datetime(item.available_at or decision_time), item.revision, _claim_sort_key(item))):
+    for claim in sorted(
+        candidates,
+        key=lambda item: (
+            _as_datetime(item.available_at or decision_time),
+            _as_datetime(item.retrieved_at or item.available_at or decision_time),
+            item.revision,
+            _claim_sort_key(item),
+        ),
+    ):
         key = (
             claim.instrument_id,
             claim.object_type,
@@ -570,9 +597,15 @@ def _known_identity_claims(
     decision_time: str | None,
 ) -> tuple[tuple[IdentityClaim, ...], tuple[IdentityClaim, ...]]:
     if decision_time is None:
-        return items, ()
+        return tuple(sorted(items, key=_history_sort_key)), ()
     cutoff = _as_datetime(decision_time)
-    known = tuple(item for item in items if item.available_at is not None and _as_datetime(item.available_at) <= cutoff)
+    known = tuple(
+        item
+        for item in items
+        if item.available_at is not None
+        and _as_datetime(item.available_at) <= cutoff
+        and (item.retrieved_at is None or _as_datetime(item.retrieved_at) <= cutoff)
+    )
     excluded = tuple(item for item in items if item not in known)
     return tuple(sorted(known, key=_history_sort_key)), tuple(sorted(excluded, key=_history_sort_key))
 
@@ -611,7 +644,9 @@ def _single_context_value(
     return next(iter(values), None)
 
 
-def _history_sort_key(claim: IdentityClaim) -> tuple[str, str, str, str, int, str, str]:
+def _history_sort_key(
+    claim: IdentityClaim,
+) -> tuple[str, str, str, str, int, str, str, str]:
     return (
         claim.object_type,
         claim.object_id,
@@ -619,6 +654,7 @@ def _history_sort_key(claim: IdentityClaim) -> tuple[str, str, str, str, int, st
         claim.valid_from or "",
         claim.revision,
         claim.available_at or "",
+        claim.retrieved_at or "",
         claim.source_id or "unknown",
     )
 
@@ -629,9 +665,14 @@ def _decision_id(
     decision_time: str | None,
     claims: Iterable[IdentityClaim],
     conflicts: Iterable[IdentityConflict],
+    *,
+    schema_version: int,
 ) -> str:
+    claim_items = tuple(claims)
+    claim_sort_key = _legacy_history_sort_key if schema_version == 1 else _history_sort_key
+    ordered_claims = sorted(claim_items, key=claim_sort_key)
     payload = {
-        "schema_version": 1,
+        "schema_version": schema_version,
         "instrument_id": instrument_id,
         "effective_at": effective_at or "latest",
         "decision_time": decision_time or "latest",
@@ -647,7 +688,7 @@ def _decision_id(
                 "valid_to": item.valid_to,
                 "available_at": item.available_at,
             }
-            for item in sorted(claims, key=_history_sort_key)
+            for item in ordered_claims
         ],
         "conflicts": [
             {
@@ -661,7 +702,29 @@ def _decision_id(
         ],
         "execution_allowed": False,
     }
+    if schema_version == 2:
+        claim_payloads = cast(list[dict[str, Any]], payload["claims"])
+        for claim_payload, claim in zip(
+            claim_payloads,
+            ordered_claims,
+            strict=True,
+        ):
+            claim_payload["retrieved_at"] = claim.retrieved_at
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def _legacy_history_sort_key(
+    claim: IdentityClaim,
+) -> tuple[str, str, str, str, int, str, str]:
+    return (
+        claim.object_type,
+        claim.object_id,
+        _canonical_field(claim.field),
+        claim.valid_from or "",
+        claim.revision,
+        claim.available_at or "",
+        claim.source_id or "unknown",
+    )
 
 
 def _optional_timestamp(value: str | datetime | None, field: str, *, require_timezone: bool = False) -> str | None:
