@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "0d810c3c1c5f59916ae58cef222ea6b6e9321c5b",
+    "generation_base_commit": "8b2508c800b63ea779af709a56b7bc619278f80b",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4974,12 +4974,16 @@
           "state": "partial_interface"
         },
         "ISSUE-0111": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B03/ISSUE-0111/robust-covariance-tail-risk-v1",
+          "evidence_references": [
+            "PR #322 merged robust covariance and tail-risk evidence as 5606671df4e23eaf0a0fe98158a2e05a45557fe4",
+            "src/etf_cockpit/portfolio/robust_risk.py provides adjusted-price sample, EWMA, shrinkage, winsorised, diagonal and optional factor-model covariance, visible PSD repair and conditioning, held-out selection, reconciled portfolio variance contributions, bootstrap uncertainty, regime comparison and tail/liquidity evidence",
+            "tests/test_robust_risk.py and tests/test_factor_risk.py pass 13 focused PSD, ill-conditioned, factor-model, uncertainty, reconciliation and UI-contract tests; partial interface only because debt-specific duration/spread/credit/FX component ingestion and common fixed-income scenario reconciliation remain absent"
+          ],
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "partial_interface"
         },
         "ISSUE-0154": {
           "contract_reference": "",
@@ -5032,9 +5036,36 @@
           "reviewed_date": "2026-07-27",
           "reviewer": "Codex root orchestrator",
           "verified_commit": "15dc107324b2248ec720d8e0747e5476a6a93656"
+        },
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0111",
+            "evidence": {
+              "contract_reference": "B03/ISSUE-0111/robust-covariance-tail-risk-v1",
+              "evidence_references": [
+                "PR #322 merged robust covariance and tail-risk evidence as 5606671df4e23eaf0a0fe98158a2e05a45557fe4",
+                "src/etf_cockpit/portfolio/robust_risk.py provides adjusted-price sample, EWMA, shrinkage, winsorised, diagonal and optional factor-model covariance, visible PSD repair and conditioning, held-out selection, reconciled portfolio variance contributions, bootstrap uncertainty, regime comparison and tail/liquidity evidence",
+                "tests/test_robust_risk.py and tests/test_factor_risk.py pass 13 focused PSD, ill-conditioned, factor-model, uncertainty, reconciliation and UI-contract tests; partial interface only because debt-specific duration/spread/credit/FX component ingestion and common fixed-income scenario reconciliation remain absent"
+              ],
+              "reviewed_date": "2026-07-27",
+              "reviewer": "Codex root orchestrator",
+              "schema_version": "1.0",
+              "state": "partial_interface"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "PR #322 merged robust covariance and tail-risk evidence as 5606671df4e23eaf0a0fe98158a2e05a45557fe4",
+            "src/etf_cockpit/portfolio/robust_risk.py provides adjusted-price sample, EWMA, shrinkage, winsorised, diagonal and optional factor-model covariance, visible PSD repair and conditioning, held-out selection, reconciled portfolio variance contributions, bootstrap uncertainty, regime comparison and tail/liquidity evidence",
+            "tests/test_robust_risk.py and tests/test_factor_risk.py pass 13 focused PSD, ill-conditioned, factor-model, uncertainty, reconciliation and UI-contract tests; partial interface only because debt-specific duration/spread/credit/FX component ingestion and common fixed-income scenario reconciliation remain absent"
+          ],
+          "review_reference": "B03 ISSUE-0156 dependency review: ISSUE-0111 robust risk interface",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "verified_commit": "5606671df4e23eaf0a0fe98158a2e05a45557fe4"
         }
       ],
-      "verified_commit": "15dc107324b2248ec720d8e0747e5476a6a93656",
+      "verified_commit": "5606671df4e23eaf0a0fe98158a2e05a45557fe4",
       "verified_date": "2026-07-27"
     },
     "ISSUE-0157": {

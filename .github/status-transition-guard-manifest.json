@@ -3,21 +3,21 @@
   "allow_other_status_changes": false,
   "allowed_dependency_edge_updates": [
     {
-      "dependency_id": "ISSUE-0091",
+      "dependency_id": "ISSUE-0111",
       "issue_id": "ISSUE-0156"
     }
   ],
   "allowed_status_transitions": [],
-  "base_commit": "0d810c3c1c5f59916ae58cef222ea6b6e9321c5b",
-  "branch": "codex/issue-0156-edge-0091-20260727",
+  "base_commit": "8b2508c800b63ea779af709a56b7bc619278f80b",
+  "branch": "codex/issue-0156-edge-0111-20260727",
   "issue_ids": [],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "772496e7646f579259103dabaa399f09918e1b1d6b7acb083f8b6f7f1c30aaa7",
+    "base_registry_sha256": "609a74cf57e12ddff4cc23a82fbe41dbd62a68262b1d9b07ac0f314c96e63c80",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_dependency_edge_evidence",
-    "proposed_registry_sha256": "609a74cf57e12ddff4cc23a82fbe41dbd62a68262b1d9b07ac0f314c96e63c80",
-    "reason": "B03 ISSUE-0156 dependency readiness: record only the ISSUE-0091 canonical statement-history interface as partial, keep ISSUE-0156 planned and its other three edges unresolved, preserve explicit missing issuer/rating/default/recovery inputs, and preserve scope, dependencies, acceptance criteria, policies and execution_allowed=false.",
+    "proposed_registry_sha256": "91733b64f830af90bcff4e3ba8087ef0b3de0bf0a7fd42c17929f885a22c18f6",
+    "reason": "B03 ISSUE-0156 dependency readiness: record only the ISSUE-0111 robust covariance and tail-risk interface as partial, keep ISSUE-0156 planned and its ISSUE-0154/ISSUE-0155 edges unresolved, preserve explicit missing debt-component and fixed-income scenario integration, and preserve scope, dependencies, acceptance criteria, policies and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
