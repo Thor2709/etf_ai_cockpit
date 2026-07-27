@@ -45,6 +45,7 @@ from etf_cockpit.core.paths import ETF_QUOTES_PATH
 from etf_cockpit.features.etf_economics import calculate_etf_liquidity
 from etf_cockpit.services import CockpitSnapshot
 from etf_cockpit.application.ui_facade import SimpleInstrumentScore
+from etf_cockpit.application.ui_facade import load_peer_cohort_projection
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,7 @@ _SECTION_NAMES = (
     "fixed_income_market_data",
     "fixed_income_analytics",
     "fixed_income_risk",
+    "peer_cohort",
     "etf_liquidity",
     "scores",
     "feature_drivers",
@@ -1369,6 +1371,10 @@ def build_instrument_detail(
         instrument_id,
         decision_time=projection_time or None,
     )
+    peer_cohort = load_peer_cohort_projection(
+        instrument_id,
+        decision_time=projection_time or None,
+    )
     return InstrumentDetailViewModel(
         instrument_id,
         display_name,
@@ -1382,6 +1388,7 @@ def build_instrument_detail(
             "fixed_income_market_data": fixed_income_market_data,
             "fixed_income_analytics": fixed_income_analytics,
             "fixed_income_risk": fixed_income_risk,
+            "peer_cohort": peer_cohort,
             "etf_liquidity": liquidity,
             "scores": _score_panel(signal, scoreboard, derived, friction),
             "feature_drivers": _feature_driver_panel(instrument_id),

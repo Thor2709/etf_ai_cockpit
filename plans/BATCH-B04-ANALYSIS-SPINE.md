@@ -111,3 +111,37 @@ execution. The proposed registry SHA-256 is
 `6f7fc25da846cec6c6ee23c131bf77f918d36f17b27e0ee0f24751699394178c`;
 the reviewed one-update GitHub plan is
 `af636dec29f5aa00750f1a09bb1d30c46a3a2f08cd71cfec37b98eafb6a7426a`.
+
+`BLOCKED REVIEW CHECKPOINT` the initial ISSUE-0098 implementation and its one
+authorised focused correction were not accepted or committed. On unchanged
+base `3beeb75071d5c063d870c42e7f07a66a9860b7b1`, a historical cohort admitted a
+`PeerObservation` whose `InstrumentContextV2.decision_time` was in the future
+because eligibility checked only the observation timestamps. A second
+reproduction showed `PeerCohortStore.append` accepting an arbitrary
+`result_hash` that did not authenticate the canonical projection payload.
+These are point-in-time and immutable-audit contract failures. The branch
+remains unmerged; `execution_allowed=false`. Any later authorised attempt must
+first add failing tests for both reproductions and must not reuse the rejected
+implementation wholesale.
+
+`AUTHORIZED REPAIR` on 2026-07-27 the user explicitly authorised one new
+bounded repair attempt in this existing worktree, retaining the reviewed
+ISSUE-0098 implementation. The only product blockers in scope are exact-cutoff
+ISSUE-0083 classification resolution/validation and canonical peer-result
+hash verification before write and on replay. One Sol-low worker may implement
+the repair and receive at most one focused correction. No other issue or
+downstream analysis work is authorised; `execution_allowed=false`.
+
+`REVIEWED REPAIR CHECKPOINT` the worker implementation plus its one focused
+correction are accepted for release validation. The data boundary now resolves
+target and candidate ISSUE-0083 contexts at exact UTC cut-offs; analysis
+excludes invalid candidate lineage and fails closed for an invalid target.
+Canonical schema, frozen-universe, formula, hierarchy, statistical, warning
+and authority fields participate in the result hash. The store validates
+before creation and independently reconstructs and recalculates replay.
+Orchestrator reproductions passed for future-context exclusion, historical
+revision invariance, forged-hash rejection without storage residue and
+rehashed SQLite tamper rejection. Focused evidence is 52 peer/classification/
+architecture tests, 85 Instrument Detail tests and 9 architecture/document
+tests, plus Ruff, compileall and diff hygiene. Protected Linux and Windows
+release gates and supply-chain validation remain required before merge.

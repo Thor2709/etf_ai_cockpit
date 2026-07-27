@@ -69,6 +69,7 @@ from etf_cockpit.data.classification import (
     read_instrument_context,
     read_classification_projection,
 )
+from etf_cockpit.data.peer_cohort_store import read_peer_cohort_projection
 from etf_cockpit.data.manual_notes import *  # noqa: F401,F403
 from etf_cockpit.data.news_context import *  # noqa: F401,F403
 from etf_cockpit.data.oam_adapters import *  # noqa: F401,F403
@@ -495,6 +496,32 @@ def load_classification_projection(
             "status": "unavailable",
             "instrument_id": str(instrument_id),
             "reason_code": "classification_evidence_invalid",
+            "execution_allowed": False,
+        }
+
+
+def load_peer_cohort_projection(
+    instrument_id: str,
+    *,
+    storage_root: Path | None = None,
+    decision_time: str | None = None,
+) -> dict[str, object]:
+    """Return persisted peer lineage only; presentation never calculates statistics."""
+
+    from etf_cockpit.core.paths import ROOT
+
+    try:
+        return read_peer_cohort_projection(
+            Path(storage_root or ROOT).resolve(),
+            instrument_id,
+            decision_time=decision_time,
+        )
+    except (OSError, TypeError, ValueError):
+        return {
+            "contract": "peer-cohort.v1",
+            "status": "unavailable",
+            "instrument_id": str(instrument_id),
+            "reason_code": "peer_cohort_evidence_invalid",
             "execution_allowed": False,
         }
 

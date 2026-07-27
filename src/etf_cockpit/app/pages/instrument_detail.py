@@ -462,6 +462,12 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
         _render_evidence_section("ETF Liquidity", model.sections.get("etf_liquidity"), subtitle="Rolling turnover, spread/gap proxies, zero-volume days, quote/NAV evidence and primary-market context remain explicit."),
         _render_etf_order_preview(page, state, selected, model.sections.get("etf_liquidity")),
         _render_evidence_section("Evidence Score", model.sections.get("scores"), subtitle="Authority score, quality, final label/reason and blocked gates; execution_allowed=false."),
+        _render_evidence_section(
+            "Peer cohort and adapter lineage",
+            model.sections.get("peer_cohort"),
+            subtitle="Persisted point-in-time adapter, fallback, members/exclusions, support, effective sample, applicability, rank interval and version hashes; execution_allowed=false.",
+            key="instrument-detail.peer-cohort",
+        ),
         _render_evidence_section("Risk and feature evidence", model.sections.get("risk"), subtitle="Momentum, trend, relative strength, volatility, drawdown and liquidity/cost."),
         _render_evidence_section("Alpha, beta and correlation", model.sections.get("attribution")),
         _render_evidence_section(
