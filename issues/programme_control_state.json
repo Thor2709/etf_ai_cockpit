@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "b3dd4decbef105ef8eff44abc5a97820507ea64a",
+    "generation_base_commit": "fc734201b138d3f24fa68d8c07422322506d6fc5",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -2709,6 +2709,16 @@
           "reviewed_date": "2026-07-27",
           "reviewer": "Codex root orchestrator",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "PR #542 merged canonical peer-cohort.v1 as fc734201b138d3f24fa68d8c07422322506d6fc5 after protected Linux and Windows package, parity, smoke, performance and policy evidence plus supply-chain validation",
+            "Focused classification, peer, persistence, concurrency, application, UI and architecture checks passed; deterministic control refresh left only the documented B03 simple-score baseline"
+          ],
+          "review_reference": "B04 ISSUE-0098 reviewed peer cohort product merge",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "status": "implemented_initially"
         }
       ],
       "dependency_edge_evidence": {
@@ -2738,11 +2748,11 @@
         }
       },
       "phase": "phase-03-stock-research",
-      "programme_status": "in_progress",
+      "programme_status": "implemented_initially",
       "status_transition": {
-        "from": "ready",
-        "review_reference": "B04 ISSUE-0098 implementation hand-off after readiness and GitHub convergence",
-        "to": "in_progress"
+        "from": "in_progress",
+        "review_reference": "B04 ISSUE-0098 reviewed peer cohort product merge",
+        "to": "implemented_initially"
       },
       "transition_history": [
         {
@@ -2826,9 +2836,22 @@
           "reviewer": "Codex root orchestrator",
           "to": "in_progress",
           "verified_commit": "b3dd4decbef105ef8eff44abc5a97820507ea64a"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #542 merged canonical peer-cohort.v1 as fc734201b138d3f24fa68d8c07422322506d6fc5 after protected Linux and Windows package, parity, smoke, performance and policy evidence plus supply-chain validation",
+            "Focused classification, peer, persistence, concurrency, application, UI and architecture checks passed; deterministic control refresh left only the documented B03 simple-score baseline"
+          ],
+          "from": "in_progress",
+          "review_reference": "B04 ISSUE-0098 reviewed peer cohort product merge",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "to": "implemented_initially",
+          "verified_commit": "fc734201b138d3f24fa68d8c07422322506d6fc5"
         }
       ],
-      "verified_commit": "b3dd4decbef105ef8eff44abc5a97820507ea64a",
+      "verified_commit": "fc734201b138d3f24fa68d8c07422322506d6fc5",
       "verified_date": "2026-07-27"
     },
     "ISSUE-0099": {
