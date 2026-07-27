@@ -322,3 +322,28 @@ dependency, edge-evidence, policy or authority mutation. The status guard,
 registry validation and all generation/freshness checks pass; 108 focused
 control, registry, tracker, programme-map and UI tests pass. The committed
 privacy-safe GitHub evidence identifies only ISSUE-0154's Programme status.
+
+`VERIFIED` evidence-only PR #517 merged the implemented-initially convergence
+as `637af409155c805dd0644f8640b4ea2590be6277`. Status guard run
+`30242029782` and supply-chain run `30242029786` passed; redundant release run
+`30242029818` was cancelled under programme policy. Checksum-approved GitHub
+plan `20ee9feb3f2d032da4287ea4a577c7657d2b6f09c4360bdee2bc12caf8f5c004`
+applied and verified #433 open/implemented_initially with
+`execution_allowed=false`; final readback plan
+`f07ac667e4a91a2e387f6a54826b9e97c97d0bf9c17ad363b161ee9f0ff35529`
+contained zero actions.
+
+`IN_PROGRESS` final convergence advances only ISSUE-0154
+`implemented_initially -> integrated`. The regenerated 197-record registry has
+SHA-256 `2e655d40f2e6326ddc956880af164472e443778da291d7ae146f3edae40290f8`;
+the reviewed GitHub plan contains exactly one Programme status update for open
+#433 with semantic SHA-256
+`a569ba47ab96b35aa0fa4b3e2247612e49280523e0f86f9f89012dc24631f8b6`.
+No product, test, dependency, workflow, scope, acceptance, safety or authority
+change is included.
+
+`VERIFIED` final convergence review confirms only ISSUE-0154's status and
+supporting deterministic evidence change. The status guard, registry
+validation, generation/freshness checks, diff hygiene and the same 108 focused
+control, registry, tracker, programme-map and UI tests pass. The GitHub plan is
+one open Programme status update and preserves `execution_allowed=false`.
