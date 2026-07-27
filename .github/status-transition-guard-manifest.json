@@ -1,25 +1,25 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_dependency_edge_updates": [
+  "allowed_status_transitions": [
     {
-      "dependency_id": "ISSUE-0088",
-      "issue_id": "ISSUE-0154"
+      "from": "planned",
+      "issue_id": "ISSUE-0154",
+      "to": "ready"
     }
   ],
-  "allowed_status_transitions": [],
-  "base_commit": "575ec0ab7c7e86f066c763022ea2dfaf397dd53d",
-  "branch": "codex/issue-0154-edge-0088-20260727",
-  "issue_ids": [],
+  "base_commit": "75e30d4e7851e7fdb557a249e1d676fc7e72db37",
+  "branch": "codex/issue-0154-ready-20260727",
+  "issue_ids": ["ISSUE-0154"],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "4dc9a08f949b1fca10577a8006ea3b1ac2f0413f412a0daedddd8dc0ee49739e",
+    "base_registry_sha256": "e254390f58be6fdd376d32e5ef9677088019fdda0fb0a1f3df4b23e7df789501",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_dependency_edge_evidence",
-    "proposed_registry_sha256": "e254390f58be6fdd376d32e5ef9677088019fdda0fb0a1f3df4b23e7df789501",
-    "reason": "B03 ISSUE-0154 dependency readiness: record only the bounded ISSUE-0088 bitemporal risk-free and benchmark observation interface as partial, keep ISSUE-0154 planned, preserve explicit missing-curve limitations, and preserve batch composition, scope, dependencies, acceptance criteria, status semantics, policies and execution_allowed=false.",
+    "mode": "generation_base_and_status_transitions",
+    "proposed_registry_sha256": "563b68f4b8785e1a0371c16e4a71406fc10a2d1c4fba979af9a928d37aedbfac",
+    "reason": "B03 ISSUE-0154 readiness: advance only planned to ready after all three reviewed blocking interfaces resolve; preserve the ISSUE-0088 partial-interface limitations, batch composition, scope, dependencies, acceptance criteria, status semantics, policies and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.3"
+  "schema_version": "1.2"
 }

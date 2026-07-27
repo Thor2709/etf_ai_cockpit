@@ -211,3 +211,32 @@ control, programme, bitemporal, macro-warehouse and UI tests pass. Diff hygiene
 passes. Because only deterministic dependency evidence and generated
 programme artifacts change, this proposal qualifies for the evidence-only
 fast path.
+
+`VERIFIED` PR #513 merged the bounded ISSUE-0154→ISSUE-0088
+`partial_interface` edge as
+`75e30d4e7851e7fdb557a249e1d676fc7e72db37`. Status guard `30236950713`
+and supply-chain run `30236950750` passed; redundant release run
+`30236950689` was cancelled under the evidence-only policy. The reviewed
+head, deterministic file allowlist, explicit curve limitations and
+`execution_allowed=false` were unchanged at merge.
+
+`IN_PROGRESS` the separately guarded ISSUE-0154 `planned -> ready` proposal
+is supported by all three reviewed blocking interfaces. It preserves the
+ISSUE-0088 partial-interface limitation and changes no dependency, scope,
+acceptance criterion, safety rule, batch composition, status semantics,
+product behaviour or authority. The 197-record registry has base SHA-256
+`e254390f58be6fdd376d32e5ef9677088019fdda0fb0a1f3df4b23e7df789501`
+and proposed SHA-256
+`563b68f4b8785e1a0371c16e4a71406fc10a2d1c4fba979af9a928d37aedbfac`.
+The reviewed GitHub plan contains exactly one managed Programme status update
+for open remote #433, has semantic SHA-256
+`5ef0d541a3d3998b5f37bcf5d05474fa29f444f1b670087acdb53394424aeaf3`,
+and preserves `execution_allowed=false`.
+
+`VERIFIED` the readiness transition and exact one-action GitHub projection
+pass guard, registry and generated-document freshness checks. Control tests
+now construct their own planned ISSUE-0154 fixture instead of inheriting live
+canonical status. All 108 focused control, status, registry, completion,
+programme and UI tests pass; Ruff and diff hygiene pass. Because a test file
+changes, this transition requires the full protected Linux and Windows release
+path before merge.

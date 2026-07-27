@@ -44,6 +44,30 @@ def _record(registry: dict[str, object], issue_id: str) -> dict[str, object]:
     )
 
 
+def _planned_issue0154_control() -> dict[str, object]:
+    control = json.loads(
+        (ROOT / issue_registry_core.CONTROL_STATE_PATH).read_text(encoding="utf-8")
+    )
+    record = control["records"]["ISSUE-0154"]
+    record["programme_status"] = "planned"
+    record["status_transition"] = {
+        "from": "planned",
+        "review_reference": "B00 canonical import from audited programme state",
+        "to": "planned",
+    }
+    record["acceptance_evidence"] = [
+        item
+        for item in record["acceptance_evidence"]
+        if item.get("status") != "ready"
+    ]
+    record["transition_history"] = [
+        item
+        for item in record.get("transition_history", [])
+        if not (item.get("from") == "planned" and item.get("to") == "ready")
+    ]
+    return control
+
+
 def test_final_release_source_expands_registry_without_hard_coded_count() -> None:
     registry = _registry()
     records = registry["records"]
@@ -80,7 +104,7 @@ def test_all_ledger_only_records_are_canonical_typed_records() -> None:
 def test_reviewed_control_state_round_trips_and_invalid_transition_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    control = json.loads((ROOT / issue_registry_core.CONTROL_STATE_PATH).read_text(encoding="utf-8"))
+    control = _planned_issue0154_control()
     record = control["records"]["ISSUE-0154"]
     record["dependency_edge_evidence"]["ISSUE-0153"] = {
         "schema_version": "1.0",
@@ -105,7 +129,7 @@ def test_reviewed_control_state_round_trips_and_invalid_transition_fails(
 def test_guarded_transition_rejects_skip_downgrade_and_wrong_expected_then_persists(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    control = json.loads((ROOT / issue_registry_core.CONTROL_STATE_PATH).read_text(encoding="utf-8"))
+    control = _planned_issue0154_control()
     common = {
         "review_reference": "B00-R/transition-review",
         "evidence_references": ["tests/contracts/fixed-income-interface.json"],
@@ -152,7 +176,7 @@ def test_guarded_transition_rejects_skip_downgrade_and_wrong_expected_then_persi
 def test_control_authority_accepts_exact_transition_and_rejects_extra_manual_edit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    prior = json.loads((ROOT / issue_registry_core.CONTROL_STATE_PATH).read_text(encoding="utf-8"))
+    prior = _planned_issue0154_control()
     transitioned = update_programme_control.apply_transition(
         copy.deepcopy(prior),
         issue_id="ISSUE-0154",
