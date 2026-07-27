@@ -1,0 +1,29 @@
+{
+  "actions": [
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Programme status"
+      ],
+      "remote_number": 435,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0156",
+      "title": "Implement fixed-income rate, curve, spread, credit, liquidity and optionality risk",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/435"
+    }
+  ],
+  "apply_authority": false,
+  "fresh_exact_plan_required_for_apply": true,
+  "plan_semantic_sha256": "024c5d1a21fa3157c17d975cbbd66c1c083780bf2b65d8d1d97d5f4d9d40bf0f",
+  "remote_inventory_sha256": "1b6b58ba576aec6cc7fdb04f6e41b32e0daf2dca61755ccb5a883c89ae099372",
+  "repository": "Thor2709/etf_ai_cockpit",
+  "schema_version": "etf-ai-cockpit.safe-sync-evidence/1.0",
+  "summary": {
+    "blocked": 0,
+    "close": 0,
+    "create": 0,
+    "reopen": 0,
+    "update": 1
+  },
+  "transient_full_plan_file_sha256": "cf4ee7848e4ef1f36513715e68449195c414b716116cbc62417389e0ea9e2d58"
+}

@@ -1,25 +1,27 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_dependency_edge_updates": [
+  "allowed_status_transitions": [
     {
-      "dependency_id": "ISSUE-0155",
-      "issue_id": "ISSUE-0156"
+      "from": "planned",
+      "issue_id": "ISSUE-0156",
+      "to": "ready"
     }
   ],
-  "allowed_status_transitions": [],
-  "base_commit": "5c02f8c3bd4bfdceb34a06abbe4b3b177987c1bf",
-  "branch": "codex/issue-0156-edge-0155-20260727",
-  "issue_ids": [],
+  "base_commit": "8d8ce4f38e657dde6c282ef1d7191f4427134a07",
+  "branch": "codex/issue-0156-ready-20260727",
+  "issue_ids": [
+    "ISSUE-0156"
+  ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "854c103709b18a6a806dd842646c3b64a5951d0cc4116e076f9da67de3f65fe9",
+    "base_registry_sha256": "1c775f07efc78aa3bdcbfdffdaa6951d6018befd6985cf544c2fcbd328b7dbc9",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_dependency_edge_evidence",
-    "proposed_registry_sha256": "1c775f07efc78aa3bdcbfdffdaa6951d6018befd6985cf544c2fcbd328b7dbc9",
-    "reason": "B03 ISSUE-0156 dependency readiness: record only the ISSUE-0155 provider-neutral fixed-income market-evidence interface as complete, keep ISSUE-0156 planned for a later separate transition, preserve disabled remote providers and explicit unavailable market evidence, and preserve scope, dependencies, acceptance criteria, policies and execution_allowed=false.",
+    "mode": "generation_base_and_status_transitions",
+    "proposed_registry_sha256": "8b991273f8e725c7f2af7b445dbf6292ea693d8b2993508e0ba6956200204b66",
+    "reason": "B03 ISSUE-0156 readiness: advance only planned to ready after all four reviewed blocking interfaces resolve; preserve partial-interface limitations, disabled remote providers, scope, dependencies, acceptance criteria, status semantics, policies and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.3"
+  "schema_version": "1.2"
 }
