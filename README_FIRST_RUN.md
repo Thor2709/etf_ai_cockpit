@@ -6,7 +6,10 @@
 4. If the Python launcher cannot start and the packaged exe exists, `ETF_AI_Cockpit.bat` falls back to the packaged executable.
 5. The Python launcher creates or repairs a local `.venv` if needed and installs project dependencies.
 6. First launch creates sample data and opens the local dashboard in your browser at `http://127.0.0.1:8550`.
-7. Toto and TimesFM are optional. If their model folders or runtime packages are missing, the app uses baseline signals only. The current project has TimesFM 2.5 and Toto 2.0 1B active, with Toto 2.0 4M retained as a small fallback checkpoint under `models\`.
+7. Toto and TimesFM are optional. If their model folders or runtime packages
+   are missing, the app uses baseline signals only. Availability depends on
+   the local installation and external folders under `models\`; it is not a
+   package guarantee.
 
 The browser window is intentional. The Flet desktop renderer opened a blank shell on this Windows setup, so the normal launcher uses the local web renderer for reliability.
 

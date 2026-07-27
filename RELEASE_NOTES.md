@@ -1,5 +1,8 @@
 # ETF AI Cockpit 0.1.0rc1
 
+This describes a release candidate, not completion or certification of the
+final multi-asset programme. See the [current SDD](docs/architecture/SDD.md).
+
 ## Install and first run
 
 1. Download and extract the complete `ETF_AI_Cockpit_Portable_v0.1.0rc1.zip`

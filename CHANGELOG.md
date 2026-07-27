@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Replaced the obsolete ETF-only architecture authority with a code-verified
+  current SDD, architecture index, traceability map and focused ADR set.
+- Archived the legacy master specification while retaining its root
+  compatibility path; no product behaviour or programme status changed.
+
 ## 0.1.0rc1 - 2026-07-14
 
 First usable Windows release candidate for the local-first ETF AI Evidence

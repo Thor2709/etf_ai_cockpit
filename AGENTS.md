@@ -54,6 +54,9 @@ The `sol_worker`:
 
 ## Product rules
 
+Architecture-affecting work must read `docs/architecture/SDD.md` and relevant
+ADRs; architecture or contract changes must update the SDD/ADR in the same PR.
+
 - Keep the application local-first.
 - Keep `execution_allowed=false`.
 - Do not enable live orders or broker writes.

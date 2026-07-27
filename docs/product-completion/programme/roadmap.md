@@ -2,6 +2,10 @@
 
 This roadmap is the lightweight programme view. `issues/issue_registry.json` owns issue identity, title, priority, state, acceptance criteria and dependencies; phase documents own implementation guidance.
 
+Stable current architecture is documented in
+[`docs/architecture/SDD.md`](../../architecture/SDD.md); this roadmap describes
+programme sequencing and is not implementation-state authority.
+
 ## Guardrails
 
 - Local-first and advisory by default; no broker automation, external upload or cloud service is introduced.

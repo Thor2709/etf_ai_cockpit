@@ -1,5 +1,12 @@
 # Issues Index
 
+> **Compatibility issue history.** Use the
+> [canonical registry](issues/issue_registry.json) for current identity,
+> dependencies and status. Architecture is in the
+> [SDD](docs/architecture/SDD.md); sequencing is in the
+> [roadmap](docs/product-completion/programme/roadmap.md) and active
+> [batch plans](plans/).
+
 Canonical open issue tracker: `issues/open.md`.
 
 This root file exists because some research/update prompts refer to `ISSUES.md`. Keep detailed issue records in `issues/open.md`; this file is a navigational index and coverage checklist.

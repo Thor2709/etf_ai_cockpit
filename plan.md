@@ -1,5 +1,11 @@
 # AI Evidence Cockpit Plan
 
+> **Historical planning record.** Preserve this file for research and
+> traceability; it is not current architecture or status authority. See the
+> [current SDD](docs/architecture/SDD.md), [canonical registry](issues/issue_registry.json),
+> [programme roadmap](docs/product-completion/programme/roadmap.md), and active
+> [batch plans](plans/).
+
 This root plan is synchronised with `issues/open.md` and `issues/closed.md`.
 
 ## Product Objective

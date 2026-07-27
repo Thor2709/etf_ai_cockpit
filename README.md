@@ -1,6 +1,11 @@
-# ETF AI Portfolio Cockpit
+# ETF AI Cockpit
 
-Local-first Windows desktop-style ETF analysis app for 1-week to 9-month hold, no-trade, add-candidate, trim-candidate and manual-review signals.
+Private, local-first Windows investment-research and decision-support
+application. Verified capabilities include deterministic ETF analysis, local
+evidence, screening, backtest and paper-replay foundations; the canonical
+programme also covers stocks, ordinary funds, supported fixed income,
+selected-currency bulk analysis and separate portfolio capabilities. Programme
+scope is not a claim that every capability is certified today.
 
 The app is a decision-support cockpit, not a financial adviser and not an execution bot. Models forecast, deterministic rules decide, risk gates block, backtests validate, and external audit imports are commentary only.
 
@@ -85,6 +90,14 @@ scripts\build_windows.bat
 The build script first tries Flet one-folder packaging. If that is unavailable, it creates a portable folder with launch scripts, app code, configs, data folders, logs, models and first-run notes. A one-file executable is not the default because model weights and writable data/config/log folders are better kept external.
 
 By default the app uses Flet browser mode on `127.0.0.1:8550`, which avoids the blank Flet desktop shell seen on some Windows GPU/Flutter combinations. To try the native desktop renderer anyway, set `ETF_COCKPIT_VIEW=desktop` before launching.
+
+## Architecture
+
+The [current SDD](docs/architecture/SDD.md) describes verified architecture,
+runtime flows and gaps. See the [architecture index](docs/architecture/README.md),
+[decision records](docs/architecture/decisions/README.md), and
+[traceability map](docs/architecture/TRACEABILITY.md). The old root master
+specification is a compatibility pointer to preserved legacy history.
 
 ## Broker Automation TODO
 
