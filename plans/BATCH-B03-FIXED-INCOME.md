@@ -551,3 +551,47 @@ status guard, registry validation and deterministic generation/freshness
 checks pass. All 108 focused control, status, registry, completion, programme
 and UI tests pass; diff hygiene passes. This remains an evidence-only
 transition and `execution_allowed=false`.
+
+`IN_PROGRESS` ISSUE-0155 product implementation starts from fresh merged
+`main` at `e7de20f4aaf690a1bf754c88d07bb06d00faa707`; canonical and GitHub
+issue #434 are both `in_progress`. One `sol_worker` owns the smallest usable
+slice: frozen provider-neutral market/curve/liquidity observation contracts,
+append-safe point-in-time local storage and manual import, disabled
+ECB/ESMA/FINRA provider definitions, coverage/health projection and read-only
+application/Instrument Detail exposure. Source-specific network acquisition,
+legal approval, analytics/risk/portfolio changes, recommendations, broker
+writes and live execution are excluded. Missing, stale, conflicted or
+non-executable evidence must remain explicit and `execution_allowed=false`.
+
+`VERIFIED` the worker implementation and its single focused correction pass
+now satisfy the bounded contract. Root reviewed the complete diff for
+point-in-time leakage, immutable retry identity, cross-provider overwrite,
+transaction rollback, concurrent append loss, legal/retention bypass, schema
+drift, false liquidity precision and disabled-provider authority. A small
+integration hardening constrains source authority to the shared enum and
+cross-validates coverage status against its numerator/denominator values.
+Fresh local evidence is 159 affected fixed-income, legal, plugin, application
+and Instrument Detail tests passing, plus the security-policy check (4 tests,
+1 skipped), architecture boundary, Ruff, compile, scoped MyPy and diff hygiene.
+Changed validation passed its source smoke and changed tests; its only failure
+is the unchanged retained control fingerprint: generation base
+`d1a6a451284fb52e81d1f7bb3773ec8c3faa2847` versus current `origin/main`
+`e7de20f4aaf690a1bf754c88d07bb06d00faa707`. No provider network acquisition,
+analytics/risk/portfolio change or execution authority is included.
+
+Next action: checkpoint this reviewed branch, open the ISSUE-0155 product PR
+and require the complete protected Linux and Windows packaged gate before any
+merge or status transition.
+
+`IN_PROGRESS` draft product PR #526 preserved reviewed checkpoint
+`34a09ae32b8929418bba4559ae374d23ad88000a`. Protected run `30248410578`
+passed package builds, source/package parity, packaged smoke, performance,
+source policy, bulk cache, privacy, legal and SBOM checks on Linux and Windows.
+Its 19 full-suite failures on each platform exactly match the retained
+`e7de20f4` baseline. One current-feature security check failed because the
+manifest-only disabled provider rows declared network access. The bounded
+correction keeps ECB, ESMA and FINRA stubs both disabled and network-disabled;
+it does not weaken the security gate or add acquisition code. Fresh fixed-income,
+plugin and security tests pass (25 passed, 1 skipped), as do the release
+security checker, Ruff, compile and diff hygiene. Next action is to commit the
+correction and require a fresh complete protected gate.

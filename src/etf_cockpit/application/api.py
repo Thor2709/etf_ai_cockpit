@@ -69,6 +69,11 @@ from etf_cockpit.data.fixed_income_terms import (
     FixedIncomeTermsStore,
     fixed_income_terms_exists,
 )
+from etf_cockpit.data.fixed_income_market_data import (
+    FixedIncomeMarketDataSchemaError,
+    FixedIncomeMarketDataStore,
+    fixed_income_market_data_exists,
+)
 from etf_cockpit.data.classification import (
     ClassificationSchemaError,
     classification_store_exists,
@@ -282,6 +287,36 @@ class LocalApplicationApi:
             ValueError,
         ):
             return unavailable | {"reason_code": "fixed_income_terms_invalid"}
+
+    def get_fixed_income_market_data(
+        self,
+        instrument_id: str,
+        *,
+        effective_at: datetime | None = None,
+        decision_time: datetime | None = None,
+    ) -> Mapping[str, object]:
+        """Read provider-neutral fixed-income observations without authority."""
+
+        try:
+            if not fixed_income_market_data_exists(self._root):
+                raise FixedIncomeMarketDataSchemaError("market data unavailable")
+            with FixedIncomeMarketDataStore(self._root) as store:
+                return store.resolve(
+                    instrument_id,
+                    effective_at=effective_at,
+                    decision_time=decision_time,
+                )
+        except (FixedIncomeMarketDataSchemaError, OSError, TypeError, ValueError):
+            return {
+                "contract": "fixed-income-market-data.v1",
+                "status": "unavailable",
+                "instrument_id": str(instrument_id),
+                "reason_codes": ["fixed_income_market_data_unavailable"],
+                "observations": [],
+                "provider_coverage": {"status": "unavailable", "rows": []},
+                "precise_liquidity_available": False,
+                "execution_allowed": False,
+            }
 
     def get_scores(self, page: PageRequest = PageRequest()) -> PageView[ScoreViewModel]:
         snapshot = self._snapshot()

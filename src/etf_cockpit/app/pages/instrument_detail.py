@@ -413,6 +413,12 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
     )
     rows = [
         _render_evidence_section(
+            "Fixed-income market data",
+            model.sections.get("fixed_income_market_data"),
+            subtitle="Provider-separated point-in-time quotes, curves, liquidity labels, conflicts and source lineage; missing tape/quotes remain non-executable.",
+            key="instrument-detail.fixed-income-market-data",
+        ),
+        _render_evidence_section(
             "Fixed-income analytics",
             model.sections.get("fixed_income_analytics"),
             subtitle="Deterministic clean/dirty price, yield, risk, curve and scenario evidence; observed and model values remain separate and execution_allowed=false.",

@@ -498,3 +498,23 @@ and changed content under the same identity is rejected. Each row binds the
 typed input hash and result checksum, and reads reconstruct the input and
 re-run the canonical calculator before returning data. Unknown or altered
 schemas, hashes, authority, chronology, or results fail closed.
+
+## Fixed-income market-data evidence
+
+`fixed-income-market-data.v1` is an immutable, provider-neutral local contract
+for market observations, yield-curve snapshots and bond-liquidity evidence.
+The record identity hashes instrument/curve, provider, observation kind,
+market, valid time and source revision; the full content is hashed separately.
+Exact retries are idempotent and an identity/content collision is rejected.
+Distinct providers and revisions remain separate, with `valid_at`, `known_at`
+and `retrieved_at` retained for deterministic point-in-time replay.
+
+Only the core-owned `manual_local` import writes this store, after fail-closed
+legal terms and retention validation. ECB, ESMA FIRDS/FITRS and FINRA/TRACE are
+manifest-only disabled providers until source-specific approvals exist.
+Coverage is materialised as
+`fixed_income_provider_coverage.parquet` with explicit numerator/denominator
+pairs or unavailable states for market, rating, currency, duration, size and
+history. Source and raw SHA-256 lineage is retained. Missing tape or bid/ask
+evidence, stale/evaluated labels and provider conflicts never grant precise
+liquidity or execution claims; `execution_allowed` is always false.
