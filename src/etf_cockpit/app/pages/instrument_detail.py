@@ -381,7 +381,12 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
     selected = route.split("/", 2)[-1].split("?", 1)[0].split("#", 1)[0] if route.startswith("/instrument/") else state.selected_etf
     if selected:
         state.selected_etf = selected
-    model = build_instrument_detail(state.snapshot, selected, candidate_score=getattr(state, "selected_instrument_score", None))
+    model = build_instrument_detail(
+        state.snapshot,
+        selected,
+        candidate_score=getattr(state, "selected_instrument_score", None),
+        financial_projection=getattr(state, "financial_projection", None),
+    )
     vintage_history = bitemporal_history_summary(selected) if selected else {"status": "unavailable", "message": "No instrument selected."}
     export_status = ft.Text(
         "Audit evidence export unavailable for this selection."
@@ -467,6 +472,12 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
             model.sections.get("peer_cohort"),
             subtitle="Persisted point-in-time adapter, fallback, members/exclusions, support, effective sample, applicability, rank interval and version hashes; execution_allowed=false.",
             key="instrument-detail.peer-cohort",
+        ),
+        _render_evidence_section(
+            "Financial Institutions",
+            model.sections.get("financial_institutions"),
+            subtitle="Bank, insurer and diversified-financial solvency, asset quality, stress, rationale, lineage and limitations; unavailable inputs stay explicit.",
+            key="instrument-detail.financial-institutions",
         ),
         _render_evidence_section("Risk and feature evidence", model.sections.get("risk"), subtitle="Momentum, trend, relative strength, volatility, drawdown and liquidity/cost."),
         _render_evidence_section("Alpha, beta and correlation", model.sections.get("attribution")),

@@ -1,27 +1,19 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [
-    {
-      "from": "ready",
-      "issue_id": "ISSUE-0099",
-      "to": "in_progress"
-    }
-  ],
-  "base_commit": "b1f2c065b4556b7b5200b70e05ef0aa2940bb60e",
-  "branch": "codex/b04-issue0099-in-progress-20260728",
-  "issue_ids": [
-    "ISSUE-0099"
-  ],
+  "allowed_status_transitions": [],
+  "base_commit": "4647a6a466a1fe666e4860138213d169f2bddef8",
+  "branch": "codex/issue-0099-financial-adapters-20260728",
+  "issue_ids": [],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "971a2df0cbe9d1d49b189d9fe19ec1afb7768f989f1f588016d1ad2b6e132ea0",
+    "base_registry_sha256": "814aafe0626e0f1e52c82be7a8702e4797156a5eda50bad98d51e498207da3ba",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "814aafe0626e0f1e52c82be7a8702e4797156a5eda50bad98d51e498207da3ba",
-    "reason": "B04 ISSUE-0099 bounded implementation handoff: advance only ready to in_progress after readiness PR #546 and checksum-approved GitHub convergence; preserve financial-sector scope, acceptance criteria, policy and execution_allowed=false.",
+    "mode": "canonical_schema_and_intake",
+    "proposed_registry_sha256": "d53a096a8cedc9e2eb1f4e3e87626d283fe5e653e373115fd73ce01af188a949",
+    "reason": "B04 ISSUE-0099 product release base-only refresh to merged main 4647a6a466a1fe666e4860138213d169f2bddef8; all 197 records, statuses, dependencies, policies and execution_allowed=false remain unchanged.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.2"
+  "schema_version": "1.1"
 }

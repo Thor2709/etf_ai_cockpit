@@ -167,6 +167,7 @@ class AppState:
     error_store: ErrorStore = field(default_factory=ErrorStore, repr=False)
     universe_cache_revision: str = ""
     selected_instrument_score: SimpleInstrumentScore | None = None
+    financial_projection: dict[str, object] | None = None
     evidence_mode: str = "default"
     application_api: LocalApplicationApi = field(init=False, repr=False)
 

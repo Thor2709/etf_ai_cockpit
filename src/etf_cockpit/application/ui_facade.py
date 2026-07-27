@@ -6,6 +6,7 @@ implementations remain compatible while later slices move them behind typed
 ports and application commands.
 """
 
+from collections.abc import Mapping
 from pathlib import Path
 
 from etf_cockpit.analysis.fixed_income_analytics import (
@@ -70,6 +71,12 @@ from etf_cockpit.data.classification import (
     read_classification_projection,
 )
 from etf_cockpit.data.peer_cohort_store import read_peer_cohort_projection
+from etf_cockpit.analysis.financial_sector_adapters import (
+    FinancialAdapterError,
+    FinancialInstitutionProjection,
+    unavailable_financial_projection,
+    verify_financial_projection,
+)
 from etf_cockpit.data.manual_notes import *  # noqa: F401,F403
 from etf_cockpit.data.news_context import *  # noqa: F401,F403
 from etf_cockpit.data.oam_adapters import *  # noqa: F401,F403
@@ -524,6 +531,26 @@ def load_peer_cohort_projection(
             "reason_code": "peer_cohort_evidence_invalid",
             "execution_allowed": False,
         }
+
+
+def load_financial_institution_projection(
+    instrument_id: str,
+    *,
+    projection: FinancialInstitutionProjection | Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """Verify optional in-memory evidence; default remains explicitly unavailable."""
+
+    if projection is None:
+        return unavailable_financial_projection(instrument_id)
+    try:
+        payload = verify_financial_projection(projection)
+        if payload.get("instrument_id") != str(instrument_id):
+            raise FinancialAdapterError("financial projection identity mismatch")
+        return payload
+    except (FinancialAdapterError, TypeError, ValueError):
+        return unavailable_financial_projection(
+            instrument_id, "financial_evidence_invalid"
+        )
 
 
 def save_classification_overrides(
