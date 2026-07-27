@@ -3,23 +3,23 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "ready",
+      "from": "in_progress",
       "issue_id": "ISSUE-0155",
-      "to": "in_progress"
+      "to": "implemented_initially"
     }
   ],
-  "base_commit": "d1a6a451284fb52e81d1f7bb3773ec8c3faa2847",
-  "branch": "codex/issue-0155-in-progress-20260727",
+  "base_commit": "5cdf8de38abe6d809edce43b791eea7dd71e53e8",
+  "branch": "codex/issue-0155-implemented-initially-20260727",
   "issue_ids": [
     "ISSUE-0155"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "08dd7a615af1a75c597442dd15ce5a4cb663db8911f63a86c595b1068738a697",
+    "base_registry_sha256": "dc207bec5b66c3ee02779dad5824f883ef772bcc3c1130e98647e0b2d07aaba3",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "dc207bec5b66c3ee02779dad5824f883ef772bcc3c1130e98647e0b2d07aaba3",
-    "reason": "B03 ISSUE-0155 implementation hand-off: advance only ready to in_progress after guarded readiness and checksum-controlled GitHub convergence; preserve provider-neutral scope, disabled ECB/ESMA/FINRA adapters, explicit missing-evidence behavior, batch composition, dependencies, acceptance criteria, policies and execution_allowed=false.",
+    "proposed_registry_sha256": "2d78c97db98964eb39a0e26e0444b1d692846be4ebd7911766f07a06a2102ef5",
+    "reason": "B03 ISSUE-0155 product convergence: advance only in_progress to implemented_initially after merged provider-neutral fixed-income market evidence and protected Linux/Windows validation; preserve disabled/network-disabled provider stubs, missing-evidence behavior, dependencies, scope, acceptance criteria, policies and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
