@@ -621,3 +621,30 @@ guard, registry validation, registry/status/document generation and freshness
 checks pass; all 119 focused control, registry, completion, tracker,
 programme-map and UI tests pass. The committed privacy-safe GitHub evidence
 identifies only ISSUE-0155's Programme status.
+
+`VERIFIED` evidence-only PR #527 merged ISSUE-0155 as
+`implemented_initially` in
+`75c6f2902d44d59d03ac4b49ed5a88cb31b24d05`. Status-transition guard run
+`30251869405` and supply-chain run `30251869466` passed; redundant release run
+`30251869420` was cancelled under programme policy. Checksum-approved GitHub
+plan `e07946063d4e27cad6ea7fdd789f86616463a0d2420fa96dc811a1a1e0fb8243`
+applied and verified #434 open/implemented_initially with
+`execution_allowed=false`; final readback
+`95b2550d18b8ceaabc5c06c215ebb4eb336923c88d2fbb9c7825393b3c4b610f`
+contained zero actions.
+
+`IN_PROGRESS` final convergence advances only ISSUE-0155
+`implemented_initially -> integrated`. The regenerated 197-record registry has
+SHA-256 `772496e7646f579259103dabaa399f09918e1b1d6b7acb083f8b6f7f1c30aaa7`;
+the reviewed GitHub plan contains exactly one Programme status update for open
+#434 with semantic SHA-256
+`ebc7b7d74e2d1ddadae16260b1b75d590e933029c03854a7a7d4fd8a03bf33dc`.
+No product, dependency, scope, acceptance, policy, provider, safety or
+execution authority change is included.
+
+`VERIFIED` final deterministic review found no unrelated issue, dependency,
+edge-evidence, policy, provider or authority mutation. Status guard, registry
+validation, all generation/freshness checks and diff hygiene pass; all 119
+focused control, registry, completion, tracker, programme-map and UI tests
+pass. The privacy-safe GitHub evidence identifies only ISSUE-0155's Programme
+status and `execution_allowed=false` remains binding.

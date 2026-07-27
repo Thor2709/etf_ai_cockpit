@@ -21764,6 +21764,17 @@
           "reviewed_date": "2026-07-27",
           "reviewer": "Codex root orchestrator and sol_worker",
           "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "PR #526 merged ISSUE-0155 fixed-income market evidence as 5cdf8de38abe6d809edce43b791eea7dd71e53e8 after protected Linux and Windows package evidence",
+            "PR #527 merged implemented-initially convergence as 75c6f2902d44d59d03ac4b49ed5a88cb31b24d05; status guard 30251869405 and supply-chain 30251869466 passed",
+            "GitHub plan e07946063d4e27cad6ea7fdd789f86616463a0d2420fa96dc811a1a1e0fb8243 applied and verified issue #434 open/implemented_initially with execution_allowed=false; readback 95b2550d18b8ceaabc5c06c215ebb4eb336923c88d2fbb9c7825393b3c4b610f had zero actions"
+          ],
+          "review_reference": "B03 ISSUE-0155 final integration after canonical and GitHub convergence",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -21861,7 +21872,7 @@
       "package_status": "planned",
       "phase": "phase-02-data-policy-identity",
       "priority": "P0/P1",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -21881,7 +21892,7 @@
       "source_record_id": "ISSUE-0155",
       "source_title": "Add fixed-income reference, curve, trade and liquidity data adapters",
       "title": "Add fixed-income reference, curve, trade and liquidity data adapters",
-      "verified_commit": "5cdf8de38abe6d809edce43b791eea7dd71e53e8",
+      "verified_commit": "75c6f2902d44d59d03ac4b49ed5a88cb31b24d05",
       "verified_date": "2026-07-27",
       "write_conflict_group": "data-platform"
     },
@@ -26327,7 +26338,7 @@
   ],
   "schema_version": "2.0",
   "source_of_truth": {
-    "baseline_commit": "5cdf8de38abe6d809edce43b791eea7dd71e53e8",
+    "baseline_commit": "75c6f2902d44d59d03ac4b49ed5a88cb31b24d05",
     "closed_ledger_sha256": "2dca7fd65f7a218747bcfb91b4e5c1f734af26f29114cc7dc83b071bb86838d8",
     "final_release_manifest_sha256": "dbb71ecaa2b81206ff922eec3dcc72cb08cc001121688b107e8f1c3a2372f685",
     "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -26339,7 +26350,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "5c1d0b3a03b0cdac6d6430d16f1dceef53edc44ab3c5453eb3eaebdf445f9577",
+    "programme_control_state_sha256": "231279ec685e4da14c15e56978a7ad816688513a1bc6fcb575c2e4c5dacafd55",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
