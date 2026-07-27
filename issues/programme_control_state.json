@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "bc2e8ad35ad4989056abe24528a04374dcf48c3c",
+    "generation_base_commit": "575ec0ab7c7e86f066c763022ea2dfaf397dd53d",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4414,12 +4414,17 @@
           "state": "complete"
         },
         "ISSUE-0088": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B03/ISSUE-0088/bitemporal-risk-free-benchmark-observations-v1",
+          "evidence_references": [
+            "PR #349 merged the local macro, factor, risk-free and benchmark observation warehouse as 3d1fc6fb1708aef0daecd244aa6404d5d127d6c5; PR #350 merged its GitHub convergence as 52efc6c2df16499829ab4a0928773adec3ab1b03",
+            "src/etf_cockpit/data/macro_warehouse.py MacroObservation and MacroWarehouse provide currency/unit-labelled risk-free and benchmark observations, source checksums, transformation versions and decision-time as-of retrieval",
+            "tests/test_macro_warehouse.py covers revision/vintage exclusion, reversible unit and frequency transformation, and explicit missing country/currency context",
+            "Partial interface only: no certified tenor, spot/par/forward curve or interpolation contract exists; ISSUE-0154 must require explicit typed curve inputs and return unavailable or quarantine ambiguous/missing curve evidence"
+          ],
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "partial_interface"
         },
         "ISSUE-0153": {
           "contract_reference": "B03/ISSUE-0153/fixed-income-terms-v1",
@@ -4500,9 +4505,38 @@
           "reviewed_date": "2026-07-27",
           "reviewer": "Codex root orchestrator",
           "verified_commit": "bc2e8ad35ad4989056abe24528a04374dcf48c3c"
+        },
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0088",
+            "evidence": {
+              "contract_reference": "B03/ISSUE-0088/bitemporal-risk-free-benchmark-observations-v1",
+              "evidence_references": [
+                "PR #349 merged the local macro, factor, risk-free and benchmark observation warehouse as 3d1fc6fb1708aef0daecd244aa6404d5d127d6c5; PR #350 merged its GitHub convergence as 52efc6c2df16499829ab4a0928773adec3ab1b03",
+                "src/etf_cockpit/data/macro_warehouse.py MacroObservation and MacroWarehouse provide currency/unit-labelled risk-free and benchmark observations, source checksums, transformation versions and decision-time as-of retrieval",
+                "tests/test_macro_warehouse.py covers revision/vintage exclusion, reversible unit and frequency transformation, and explicit missing country/currency context",
+                "Partial interface only: no certified tenor, spot/par/forward curve or interpolation contract exists; ISSUE-0154 must require explicit typed curve inputs and return unavailable or quarantine ambiguous/missing curve evidence"
+              ],
+              "reviewed_date": "2026-07-27",
+              "reviewer": "Codex root orchestrator",
+              "schema_version": "1.0",
+              "state": "partial_interface"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "PR #349 merged the local macro, factor, risk-free and benchmark observation warehouse as 3d1fc6fb1708aef0daecd244aa6404d5d127d6c5; PR #350 merged its GitHub convergence as 52efc6c2df16499829ab4a0928773adec3ab1b03",
+            "src/etf_cockpit/data/macro_warehouse.py MacroObservation and MacroWarehouse provide currency/unit-labelled risk-free and benchmark observations, source checksums, transformation versions and decision-time as-of retrieval",
+            "tests/test_macro_warehouse.py covers revision/vintage exclusion, reversible unit and frequency transformation, and explicit missing country/currency context",
+            "Partial interface only: no certified tenor, spot/par/forward curve or interpolation contract exists; ISSUE-0154 must require explicit typed curve inputs and return unavailable or quarantine ambiguous/missing curve evidence"
+          ],
+          "review_reference": "B03 ISSUE-0154 data dependency against the bounded bitemporal risk-free and benchmark observation interface",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "verified_commit": "575ec0ab7c7e86f066c763022ea2dfaf397dd53d"
         }
       ],
-      "verified_commit": "bc2e8ad35ad4989056abe24528a04374dcf48c3c",
+      "verified_commit": "575ec0ab7c7e86f066c763022ea2dfaf397dd53d",
       "verified_date": "2026-07-27"
     },
     "ISSUE-0155": {
