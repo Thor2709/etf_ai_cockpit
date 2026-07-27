@@ -820,3 +820,42 @@ The status guard, registry validation, all generation/freshness checks and
 diff hygiene pass; all 121 focused control, registry, completion, tracker,
 programme-map and UI tests pass. The committed privacy-safe GitHub evidence
 identifies only ISSUE-0156's Programme status.
+
+`VERIFIED` readiness PR #533 merged as
+`57262943fa3fb538216a97f6b595fbbfc23024fc` from reviewed head
+`9c68a98898e5a2bca65bfd8c9fa907282d87acb5`. Status-transition guard run
+`30255341598` and supply-chain run `30255341482` passed; redundant release run
+`30255342372` was cancelled. Checksum-approved GitHub plan
+`024c5d1a21fa3157c17d975cbbd66c1c083780bf2b65d8d1d97d5f4d9d40bf0f`
+applied and verified #435 open/ready with `execution_allowed=false`; readback
+`afedeb316e7c192285edb6501cc0390a9bbef95e2623c91b54ab944a3194e3d9`
+contained zero actions.
+
+`IN_PROGRESS` the separately guarded ISSUE-0156 `ready -> in_progress`
+hand-off changes only that canonical status. The implementation contract is
+the smallest usable fixed-income risk record and scenario decomposition:
+parallel/key-rate curve risk with approximation-versus-full-reprice evidence,
+explicit spread/credit/default/recovery and issuer-concentration support,
+liquidity/quote-age/minimum-size warnings, callable/reinvestment,
+inflation/FX and bond-versus-bond-ETF distinctions, portfolio reconciliation,
+read-only application/UI/audit exposure and `execution_allowed=false`.
+Unsupported or missing evidence must remain unavailable or unknown. Provider
+acquisition, recommendations, optimiser changes, broker writes and live
+orders are excluded. The registry moves from SHA-256
+`8b991273f8e725c7f2af7b445dbf6292ea693d8b2993508e0ba6956200204b66`
+to `75bb70f6db764a88789cf58e52cd827a1819106d6bbcd9f19ebfe77fc179c611`.
+The reviewed GitHub plan contains exactly one Programme status update for
+open issue #435 with semantic SHA-256
+`0add5677998d354a9d19e92534cb945179776dcfcb71832b3ba95ad99ce2eb95`;
+`execution_allowed=false`.
+
+Next action: generate and review the single-status implementation hand-off,
+apply its checksum-controlled GitHub update only after merge, and require a
+zero-action readback before product work starts from fresh main.
+
+`VERIFIED` deterministic hand-off review found no unrelated issue,
+dependency, edge-evidence, scope, acceptance, policy or authority mutation.
+The status guard, registry validation, all generation/freshness checks and
+diff hygiene pass; all 121 focused control, registry, completion, tracker,
+programme-map and UI tests pass. The committed privacy-safe GitHub evidence
+identifies only ISSUE-0156's Programme status.

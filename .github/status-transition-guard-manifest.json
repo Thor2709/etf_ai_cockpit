@@ -3,23 +3,23 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "planned",
+      "from": "ready",
       "issue_id": "ISSUE-0156",
-      "to": "ready"
+      "to": "in_progress"
     }
   ],
-  "base_commit": "8d8ce4f38e657dde6c282ef1d7191f4427134a07",
-  "branch": "codex/issue-0156-ready-20260727",
+  "base_commit": "57262943fa3fb538216a97f6b595fbbfc23024fc",
+  "branch": "codex/issue-0156-in-progress-20260727",
   "issue_ids": [
     "ISSUE-0156"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "1c775f07efc78aa3bdcbfdffdaa6951d6018befd6985cf544c2fcbd328b7dbc9",
+    "base_registry_sha256": "8b991273f8e725c7f2af7b445dbf6292ea693d8b2993508e0ba6956200204b66",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "8b991273f8e725c7f2af7b445dbf6292ea693d8b2993508e0ba6956200204b66",
-    "reason": "B03 ISSUE-0156 readiness: advance only planned to ready after all four reviewed blocking interfaces resolve; preserve partial-interface limitations, disabled remote providers, scope, dependencies, acceptance criteria, status semantics, policies and execution_allowed=false.",
+    "proposed_registry_sha256": "75bb70f6db764a88789cf58e52cd827a1819106d6bbcd9f19ebfe77fc179c611",
+    "reason": "B03 ISSUE-0156 implementation hand-off: advance only ready to in_progress after readiness and GitHub convergence; preserve partial-interface limitations, disabled remote providers, scope, dependencies, acceptance criteria, status semantics, policies and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
