@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "6ac65c216e39a89a93222adb349398f13fba894b",
+    "generation_base_commit": "2e5aea8339589763f46a3b23416e5ec194d938f7",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4690,12 +4690,16 @@
           "state": "partial_interface"
         },
         "ISSUE-0153": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B03/ISSUE-0153/fixed-income-terms-v1",
+          "evidence_references": [
+            "PR #508 merged the fixed-income terms master as 4e1d2d819e0c99d5f9f109f1494db7352365916e and PRs #509/#510 converged it to integrated with protected Linux/Windows evidence",
+            "src/etf_cockpit/data/fixed_income_terms.py at 2e5aea8 supplies immutable security identity, versioned terms, certified coupon/redemption schedules, source checksums, known/retrieved chronology, point-in-time selection, conflicts and unsupported-structure quarantine",
+            "Twenty-seven focused terms and UI tests pass for fixed-rate/zero-coupon schedules, revisions, conflicts, chronology, persistence, concurrency, schema compatibility and application projection"
+          ],
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         }
       },
       "phase": "phase-02-data-policy-identity",
@@ -4813,9 +4817,36 @@
           "reviewed_date": "2026-07-27",
           "reviewer": "Codex root orchestrator",
           "verified_commit": "6ac65c216e39a89a93222adb349398f13fba894b"
+        },
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0153",
+            "evidence": {
+              "contract_reference": "B03/ISSUE-0153/fixed-income-terms-v1",
+              "evidence_references": [
+                "PR #508 merged the fixed-income terms master as 4e1d2d819e0c99d5f9f109f1494db7352365916e and PRs #509/#510 converged it to integrated with protected Linux/Windows evidence",
+                "src/etf_cockpit/data/fixed_income_terms.py at 2e5aea8 supplies immutable security identity, versioned terms, certified coupon/redemption schedules, source checksums, known/retrieved chronology, point-in-time selection, conflicts and unsupported-structure quarantine",
+                "Twenty-seven focused terms and UI tests pass for fixed-rate/zero-coupon schedules, revisions, conflicts, chronology, persistence, concurrency, schema compatibility and application projection"
+              ],
+              "reviewed_date": "2026-07-27",
+              "reviewer": "Codex root orchestrator",
+              "schema_version": "1.0",
+              "state": "complete"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "PR #508 merged the fixed-income terms master as 4e1d2d819e0c99d5f9f109f1494db7352365916e and PRs #509/#510 converged it to integrated with protected Linux/Windows evidence",
+            "src/etf_cockpit/data/fixed_income_terms.py at 2e5aea8 supplies immutable security identity, versioned terms, certified coupon/redemption schedules, source checksums, known/retrieved chronology, point-in-time selection, conflicts and unsupported-structure quarantine",
+            "Twenty-seven focused terms and UI tests pass for fixed-rate/zero-coupon schedules, revisions, conflicts, chronology, persistence, concurrency, schema compatibility and application projection"
+          ],
+          "review_reference": "B03 ISSUE-0155 fixed-income terms dependency review",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "verified_commit": "2e5aea8339589763f46a3b23416e5ec194d938f7"
         }
       ],
-      "verified_commit": "6ac65c216e39a89a93222adb349398f13fba894b",
+      "verified_commit": "2e5aea8339589763f46a3b23416e5ec194d938f7",
       "verified_date": "2026-07-27"
     },
     "ISSUE-0156": {
