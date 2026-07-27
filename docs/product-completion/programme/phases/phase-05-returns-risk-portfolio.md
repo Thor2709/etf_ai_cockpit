@@ -37,7 +37,7 @@ Deliver the bounded expected return, risk and portfolio construction work with l
 ## Blockers, dependencies and related links
 
 - Resolve only `blocking_dependencies` as prerequisites; `required_inputs` are policy/evidence inputs and do not block readiness. `downstream_issues` are generated reverse links and `related_issues` are context only.
-- The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-21-75e30d4/dependency-reconciliation.csv`.
+- The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-21-4c281e6/dependency-reconciliation.csv`.
 
 ## Issue coverage
 
@@ -62,7 +62,7 @@ Deliver the bounded expected return, risk and portfolio construction work with l
 | `ISSUE-0114` | `P0/P1` | `implemented_initially` | `portfolio-construction` | `ISSUE-0113` | - | `ISSUE-0130`, `ISSUE-0164`, `ISSUE-0167` | - |
 | `ISSUE-0115` | `P0/P1` | `integrated` | `returns-and-risk` | `ISSUE-0109`, `ISSUE-0110` | - | `ISSUE-0164`, `ISSUE-0168` | - |
 | `ISSUE-0116` | `P0/P1` | `implemented_initially` | `returns-and-risk` | `ISSUE-0021`, `ISSUE-0059` | - | `ISSUE-0134`, `ISSUE-0164` | - |
-| `ISSUE-0154` | `P0` | `ready` | `returns-and-risk` | `ISSUE-0085`, `ISSUE-0088`, `ISSUE-0153` | - | `ISSUE-0156`, `ISSUE-0157`, `ISSUE-0158` | - |
+| `ISSUE-0154` | `P0` | `in_progress` | `returns-and-risk` | `ISSUE-0085`, `ISSUE-0088`, `ISSUE-0153` | - | `ISSUE-0156`, `ISSUE-0157`, `ISSUE-0158` | - |
 | `ISSUE-0156` | `P0/P1` | `planned` | `returns-and-risk` | `ISSUE-0091`, `ISSUE-0111`, `ISSUE-0154`, `ISSUE-0155` | - | `ISSUE-0157`, `ISSUE-0158` | - |
 | `ISSUE-0157` | `P0/P1` | `planned` | `returns-and-risk` | `ISSUE-0098`, `ISSUE-0108`, `ISSUE-0109`, `ISSUE-0112`, `ISSUE-0120`, `ISSUE-0123`, `ISSUE-0154`, `ISSUE-0155`, `ISSUE-0156` | - | `ISSUE-0158`, `ISSUE-0166` | - |
 | `ISSUE-0159` | `P0` | `planned` | `returns-and-risk` | `ISSUE-0084`, `ISSUE-0085`, `ISSUE-0127` | - | `ISSUE-0160`, `ISSUE-0161` | - |
