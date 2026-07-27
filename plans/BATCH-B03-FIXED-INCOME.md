@@ -595,3 +595,29 @@ it does not weaken the security gate or add acquisition code. Fresh fixed-income
 plugin and security tests pass (25 passed, 1 skipped), as do the release
 security checker, Ruff, compile and diff hygiene. Next action is to commit the
 correction and require a fresh complete protected gate.
+
+`VERIFIED` product PR #526 preserved corrected head
+`fefbf72d7a1fc36596807b5954c153ba96def4ba` and merged as
+`5cdf8de38abe6d809edce43b791eea7dd71e53e8`. Supply-chain run
+`30249924072` passed. Protected run `30249924156` completed Linux and Windows
+package builds, parity, packaged smoke, performance, source policy, bulk cache,
+security, privacy, legal and SBOM checks. The security correction passed on
+both platforms; the only full-suite failures were the exact retained 19-node
+`e7de20f4` baseline. No ISSUE-0155 test or current-feature gate failed.
+
+`IN_PROGRESS` the separate evidence-only convergence advances only ISSUE-0155
+`in_progress -> implemented_initially`. The regenerated 197-record registry
+has SHA-256
+`2d78c97db98964eb39a0e26e0444b1d692846be4ebd7911766f07a06a2102ef5`.
+The reviewed GitHub plan contains exactly one Programme status update for open
+#434 with semantic SHA-256
+`e07946063d4e27cad6ea7fdd789f86616463a0d2420fa96dc811a1a1e0fb8243`.
+No product, dependency, scope, acceptance, policy, safety, provider or
+execution authority change is included, and `execution_allowed=false`.
+
+`VERIFIED` deterministic convergence review found no unrelated issue,
+dependency, edge-evidence, policy, provider or authority mutation. The status
+guard, registry validation, registry/status/document generation and freshness
+checks pass; all 119 focused control, registry, completion, tracker,
+programme-map and UI tests pass. The committed privacy-safe GitHub evidence
+identifies only ISSUE-0155's Programme status.

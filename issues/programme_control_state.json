@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "d1a6a451284fb52e81d1f7bb3773ec8c3faa2847",
+    "generation_base_commit": "5cdf8de38abe6d809edce43b791eea7dd71e53e8",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4665,6 +4665,17 @@
           "reviewed_date": "2026-07-27",
           "reviewer": "Codex root orchestrator",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "PR #526 merged reviewed ISSUE-0155 product head fefbf72d7a1fc36596807b5954c153ba96def4ba as 5cdf8de38abe6d809edce43b791eea7dd71e53e8",
+            "Protected run 30249924156 completed Linux and Windows package, parity, smoke, performance, security and policy checks; its 19 full-suite failures exactly matched the retained e7de20f4 baseline",
+            "Supply-chain run 30249924072 passed; 159 affected local tests and post-correction security validation passed; execution_allowed=false"
+          ],
+          "review_reference": "B03 ISSUE-0155 merged fixed-income market evidence and protected cross-platform validation",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator and sol_worker",
+          "status": "implemented_initially"
         }
       ],
       "dependency_edge_evidence": {
@@ -4730,11 +4741,11 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "in_progress",
+      "programme_status": "implemented_initially",
       "status_transition": {
-        "from": "ready",
-        "review_reference": "B03 ISSUE-0155 implementation hand-off after guarded readiness convergence",
-        "to": "in_progress"
+        "from": "in_progress",
+        "review_reference": "B03 ISSUE-0155 merged fixed-income market evidence and protected cross-platform validation",
+        "to": "implemented_initially"
       },
       "transition_history": [
         {
@@ -4903,9 +4914,23 @@
           "reviewer": "Codex root orchestrator",
           "to": "in_progress",
           "verified_commit": "d1a6a451284fb52e81d1f7bb3773ec8c3faa2847"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #526 merged reviewed ISSUE-0155 product head fefbf72d7a1fc36596807b5954c153ba96def4ba as 5cdf8de38abe6d809edce43b791eea7dd71e53e8",
+            "Protected run 30249924156 completed Linux and Windows package, parity, smoke, performance, security and policy checks; its 19 full-suite failures exactly matched the retained e7de20f4 baseline",
+            "Supply-chain run 30249924072 passed; 159 affected local tests and post-correction security validation passed; execution_allowed=false"
+          ],
+          "from": "in_progress",
+          "review_reference": "B03 ISSUE-0155 merged fixed-income market evidence and protected cross-platform validation",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator and sol_worker",
+          "to": "implemented_initially",
+          "verified_commit": "5cdf8de38abe6d809edce43b791eea7dd71e53e8"
         }
       ],
-      "verified_commit": "d1a6a451284fb52e81d1f7bb3773ec8c3faa2847",
+      "verified_commit": "5cdf8de38abe6d809edce43b791eea7dd71e53e8",
       "verified_date": "2026-07-27"
     },
     "ISSUE-0156": {
