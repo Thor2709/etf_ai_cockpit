@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "4e5540b982fc370a2312d64f78a454ef652ce940",
+    "generation_base_commit": "ec721a5576c3ce3a26690d906b256d94106d5db0",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -2687,7 +2687,19 @@
       "verified_date": "2026-07-21"
     },
     "ISSUE-0098": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #538 merged the ISSUE-0074 canonical score-v3 dependency edge as partial_interface in 4e5540b982fc370a2312d64f78a454ef652ce940",
+            "PR #539 merged the ISSUE-0083 point-in-time classification dependency edge as complete in ec721a5576c3ce3a26690d906b256d94106d5db0",
+            "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED; ISSUE-0098 retains peer/cohort implementation scope and execution_allowed=false"
+          ],
+          "review_reference": "B04 ISSUE-0098 readiness after reviewed score and classification interfaces",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "status": "ready"
+        }
+      ],
       "dependency_edge_evidence": {
         "ISSUE-0074": {
           "contract_reference": "B04/ISSUE-0074/canonical-score-v3-partial-v1",
@@ -2715,11 +2727,11 @@
         }
       },
       "phase": "phase-03-stock-research",
-      "programme_status": "planned",
+      "programme_status": "ready",
       "status_transition": {
         "from": "planned",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "planned"
+        "review_reference": "B04 ISSUE-0098 readiness after reviewed score and classification interfaces",
+        "to": "ready"
       },
       "transition_history": [
         {
@@ -2775,9 +2787,23 @@
           "reviewed_date": "2026-07-27",
           "reviewer": "Codex root orchestrator",
           "verified_commit": "7aab4f2775e35b0af248c61f8b95930d6c50b781"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #538 merged the ISSUE-0074 canonical score-v3 dependency edge as partial_interface in 4e5540b982fc370a2312d64f78a454ef652ce940",
+            "PR #539 merged the ISSUE-0083 point-in-time classification dependency edge as complete in ec721a5576c3ce3a26690d906b256d94106d5db0",
+            "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED; ISSUE-0098 retains peer/cohort implementation scope and execution_allowed=false"
+          ],
+          "from": "planned",
+          "review_reference": "B04 ISSUE-0098 readiness after reviewed score and classification interfaces",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "to": "ready",
+          "verified_commit": "ec721a5576c3ce3a26690d906b256d94106d5db0"
         }
       ],
-      "verified_commit": "7aab4f2775e35b0af248c61f8b95930d6c50b781",
+      "verified_commit": "ec721a5576c3ce3a26690d906b256d94106d5db0",
       "verified_date": "2026-07-27"
     },
     "ISSUE-0099": {

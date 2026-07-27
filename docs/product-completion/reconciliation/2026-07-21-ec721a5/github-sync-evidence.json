@@ -1,0 +1,29 @@
+{
+  "actions": [
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Programme status"
+      ],
+      "remote_number": 238,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0098",
+      "title": "Create the stock sector-adapter and peer-cohort framework",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/238"
+    }
+  ],
+  "apply_authority": false,
+  "fresh_exact_plan_required_for_apply": true,
+  "plan_semantic_sha256": "68cef5b7a35b34bda5043b84ba2c3782d218a5b8a9b52b8e7f1b40b7cab4aaf2",
+  "remote_inventory_sha256": "337fa504a1c7332bfff591803c70c5b022bed6aafc7f0fd4b1da6638b191b6b7",
+  "repository": "Thor2709/etf_ai_cockpit",
+  "schema_version": "etf-ai-cockpit.safe-sync-evidence/1.0",
+  "summary": {
+    "blocked": 0,
+    "close": 0,
+    "create": 0,
+    "reopen": 0,
+    "update": 1
+  },
+  "transient_full_plan_file_sha256": "e52d761e724b69c7dfdaa412d54b5fbcfbf2dbfa5ce68cfdd0ee768b7e13582c"
+}

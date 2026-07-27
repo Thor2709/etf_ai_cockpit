@@ -68,3 +68,21 @@ reviewed. The proposed registry SHA-256 is
 `4935b3dc3ad8645251a31c0629eeaa9afa528607a669c610cccfba687cc7246b`;
 the live GitHub projection remains the zero-action plan
 `f51ed48ed324a3d4fbe89da65cacb8285ebd5fb59bc222efe542f4c8f8cb7dec`.
+
+`VERIFIED` PR #539 merged the classification edge checkpoint as
+`ec721a5576c3ce3a26690d906b256d94106d5db0` from reviewed head
+`05831cba6b617ac4dd50936d647807422640d81e`. Status guard run
+`30263254026` and supply-chain run `30263254064` passed; the redundant
+evidence-only release run was cancelled. Post-merge GitHub readback remained
+zero action.
+
+`IN_PROGRESS` the separate guarded transition advances only ISSUE-0098
+`planned -> ready`. Both declared dependency interfaces are resolved while
+the score interface's limitations remain explicit. The 197-record registry
+has proposed SHA-256
+`8d21b82252ad512ec05b1135b18e5e281bb8a4f2e4dffdcccf3964a3ede2d494`.
+The reviewed GitHub plan contains exactly one Programme-status update for
+open issue #238 with semantic SHA-256
+`68cef5b7a35b34bda5043b84ba2c3782d218a5b8a9b52b8e7f1b40b7cab4aaf2`.
+No product, dependency, scope, acceptance, policy or authority change is
+included; `execution_allowed=false`.
