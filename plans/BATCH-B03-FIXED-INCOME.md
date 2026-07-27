@@ -347,3 +347,35 @@ supporting deterministic evidence change. The status guard, registry
 validation, generation/freshness checks, diff hygiene and the same 108 focused
 control, registry, tracker, programme-map and UI tests pass. The GitHub plan is
 one open Programme status update and preserves `execution_allowed=false`.
+
+`VERIFIED` final evidence-only PR #518 merged ISSUE-0154 as integrated in
+`12f844f0610764c3974dc79fd15a315853025d3f`. Status guard run
+`30242561041` and supply-chain run `30242561098` passed; redundant release run
+`30242561052` was cancelled under programme policy. GitHub plan
+`a569ba47ab96b35aa0fa4b3e2247612e49280523e0f86f9f89012dc24631f8b6`
+applied and verified #433 open/integrated with `execution_allowed=false`;
+final readback plan
+`17a2d232ab37285969da9250114747ba30a607d5c8bb9d8c9b9e2c02e50582d8`
+contained zero actions.
+
+`IN_PROGRESS` the first ISSUE-0155 readiness review records only the
+ISSUE-0155→ISSUE-0076 edge `unresolved -> complete`. The frozen
+`plugin-contract.v1` interface supplies strict provider capabilities, licence,
+network, credential, quota, retention, health and authority fields; allow-list
+and version checks contain failures and prohibit canonical-store writes or
+execution authority. ISSUE-0155 remains planned, and its ISSUE-0081,
+ISSUE-0088, ISSUE-0149 and ISSUE-0153 edges remain unresolved. The regenerated
+197-record registry has SHA-256
+`85833d1ece0be4507a1abaa3ad2001cf3f076908731b4b351595c470e92edddf`;
+the GitHub projection is the zero-action plan
+`17a2d232ab37285969da9250114747ba30a607d5c8bb9d8c9b9e2c02e50582d8`.
+No product, provider, dependency-list, scope, acceptance, status, safety or
+authority change is authorised.
+
+`VERIFIED` edge review confirms the provider-neutral contract is sufficient
+for later fixed-income adapter children without granting persistence or
+execution authority. Seventeen focused plugin/provider/UI tests and Ruff pass;
+the status guard, registry validation, generation/freshness checks, 108
+control/programme/UI tests and diff hygiene pass. Provider data semantics,
+bulk transport and legal approval remain explicitly owned by the unresolved
+edges.
