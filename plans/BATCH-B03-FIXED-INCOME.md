@@ -103,3 +103,22 @@ scope, dependency, edge-evidence or authority mutation. The status guard,
 registry validation and all generation/freshness checks pass; 60 focused
 control, registry, tracker, programme-map and UI tests pass; the committed
 safe GitHub evidence identifies only ISSUE-0153's Programme status field.
+
+`VERIFIED` evidence-only PR #509 merged the implemented-initially convergence
+as `b54d8a3d7a76c3154d4e0a06eaf75e88cf45223a`. Status guard run
+`30233674450` and supply-chain run `30233674446` passed; redundant release run
+`30233674447` was cancelled under the evidence-only policy. Checksum-approved
+GitHub plan `62d1eb324239be687583c4bd375b362fb9987867dc0c341d76dc3697c7590f49`
+applied and verified #432 open/implemented_initially with
+`execution_allowed=false`; final readback plan
+`7a0a444289d8c8a5e4eb355b961c01a42432b6ec1d649af2a899d73330c23f65`
+contained zero actions.
+
+`IN_PROGRESS` final convergence advances only ISSUE-0153
+`implemented_initially -> integrated`. The regenerated 197-record registry has
+SHA-256 `c10fd8a55673f2553abfb400e587a18923936200d013d6d5b133651407a6ab95`;
+the reviewed GitHub plan contains exactly one Programme status update for open
+#432 with semantic SHA-256
+`775d533889453d59f415010a23731adcac8cbdc4ac8b8265a28571b8ce6f0f70`.
+No product, test, dependency, workflow, scope, acceptance, safety or authority
+change is included.

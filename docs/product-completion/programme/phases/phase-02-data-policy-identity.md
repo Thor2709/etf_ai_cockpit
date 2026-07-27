@@ -37,7 +37,7 @@ Deliver the bounded local-first data policy, identity and data platform work wit
 ## Blockers, dependencies and related links
 
 - Resolve only `blocking_dependencies` as prerequisites; `required_inputs` are policy/evidence inputs and do not block readiness. `downstream_issues` are generated reverse links and `related_issues` are context only.
-- The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-21-4e1d2d8/dependency-reconciliation.csv`.
+- The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-21-b54d8a3/dependency-reconciliation.csv`.
 
 ## Issue coverage
 
@@ -64,7 +64,7 @@ Deliver the bounded local-first data policy, identity and data platform work wit
 | `ISSUE-0088` | `P0/P1` | `implemented_initially` | `data-platform` | `ISSUE-0073`, `ISSUE-0080`, `ISSUE-0081` | - | `ISSUE-0096`, `ISSUE-0107`, `ISSUE-0154`, `ISSUE-0155`, `ISSUE-0173` | - |
 | `ISSUE-0089` | `P0` | `planned` | `data-platform` | `ISSUE-0073`, `UPDATEV2-0021` | - | `ISSUE-0173` | - |
 | `ISSUE-0090` | `P0/P1` | `implemented_initially` | `data-platform` | `ISSUE-0072`, `ISSUE-0075` | - | `ISSUE-0150` | - |
-| `ISSUE-0153` | `P0` | `implemented_initially` | `data-platform` | `ISSUE-0082`, `ISSUE-0083`, `ISSUE-0085` | - | `ISSUE-0154`, `ISSUE-0155`, `ISSUE-0158`, `ISSUE-0162`, `ISSUE-0163` | - |
+| `ISSUE-0153` | `P0` | `integrated` | `data-platform` | `ISSUE-0082`, `ISSUE-0083`, `ISSUE-0085` | - | `ISSUE-0154`, `ISSUE-0155`, `ISSUE-0158`, `ISSUE-0162`, `ISSUE-0163` | - |
 | `ISSUE-0155` | `P0/P1` | `planned` | `data-platform` | `ISSUE-0076`, `ISSUE-0081`, `ISSUE-0088`, `ISSUE-0149`, `ISSUE-0153` | - | `ISSUE-0156`, `ISSUE-0157`, `ISSUE-0158` | - |
 | `ISSUE-0170` | `P0` | `planned` | `data-platform` | `ISSUE-0076`, `ISSUE-0082`, `ISSUE-0083`, `ISSUE-0085`, `ISSUE-0149` | - | `ISSUE-0171`, `ISSUE-0172` | - |
 | `ISSUE-0171` | `P0` | `planned` | `data-platform` | `ISSUE-0076`, `ISSUE-0080`, `ISSUE-0081`, `ISSUE-0149`, `ISSUE-0170`, `ISSUE-0176` | - | `ISSUE-0172` | - |
