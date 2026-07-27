@@ -5665,9 +5665,9 @@
       "edges": [
         {
           "dependency_id": "ISSUE-0074",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
+          "evidence_state": "partial_interface",
+          "reason_code": "EDGE_EVIDENCE_PARTIAL_INTERFACE",
+          "resolved": true
         },
         {
           "dependency_id": "ISSUE-0083",
@@ -15827,12 +15827,16 @@
       "dependency_conversions": [],
       "dependency_edge_evidence": {
         "ISSUE-0074": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B04/ISSUE-0074/canonical-score-v3-partial-v1",
+          "evidence_references": [
+            "PR #307 merged canonical score engine v3 as aae5357fecbb52d5bcd6be141eea8ef86b23c1e4",
+            "src/etf_cockpit/signals/canonical_scoring.py and configs/score_engine_v3.yaml provide typed components, versioned asset policies, explicit missing/conflict exclusion, coverage, formula checksum, source-vintage hash and separated score outputs",
+            "tests/test_canonical_scoring.py covers deterministic policy identity, contribution reconciliation, missing/conflicted coverage, legacy migration and source lineage; partial interface only because point-in-time cohort membership, effective support, robust peer statistics, hierarchical fallback, bootstrap intervals and reusable peer stores remain ISSUE-0098 work"
+          ],
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "partial_interface"
         },
         "ISSUE-0083": {
           "contract_reference": "",
@@ -15909,8 +15913,8 @@
       ],
       "title": "Create the stock sector-adapter and peer-cohort framework",
       "ui_requirement": "Instrument page shows adapter, peer cohort and excluded metrics.",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "aae5357fecbb52d5bcd6be141eea8ef86b23c1e4",
+      "verified_date": "2026-07-27",
       "why": "Institutional-style analysis uses common foundations plus sector-specific economics and peer comparisons.",
       "write_conflict_group": "stock-research"
     },
@@ -26395,7 +26399,7 @@
   ],
   "schema_version": "2.0",
   "source_of_truth": {
-    "baseline_commit": "9c3dbf16aa68f7f9c96878361f06fef2e507f7e3",
+    "baseline_commit": "b8eb6b4967d5655ed4e528ee9cb222690a424d57",
     "closed_ledger_sha256": "2dca7fd65f7a218747bcfb91b4e5c1f734af26f29114cc7dc83b071bb86838d8",
     "final_release_manifest_sha256": "dbb71ecaa2b81206ff922eec3dcc72cb08cc001121688b107e8f1c3a2372f685",
     "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -26407,7 +26411,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "86190e7e38616c989c1015066eadb946088a29e0a0f874ae5647e9d4c463b9c6",
+    "programme_control_state_sha256": "d7d3f1b44acd71c9f3fd9609e92257fa1bd03a2f028020b268460fe4f20a8832",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

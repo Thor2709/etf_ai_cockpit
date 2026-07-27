@@ -1802,9 +1802,9 @@
       "edges": [
         {
           "dependency_id": "ISSUE-0074",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
+          "evidence_state": "partial_interface",
+          "reason_code": "EDGE_EVIDENCE_PARTIAL_INTERFACE",
+          "resolved": true
         },
         {
           "dependency_id": "ISSUE-0083",
@@ -4843,5 +4843,5 @@
   ],
   "execution_allowed": false,
   "schema_version": "1.0",
-  "source_registry_sha256": "da414ac5973acd619154bd01d75bb9157ff70e0ecb6b2cca5eea5ef22e8db078"
+  "source_registry_sha256": "ecc1b95ae86fcf89b21c8b67b3c64135dc1e597f5f6ec77826c8d3a11be37aa2"
 }

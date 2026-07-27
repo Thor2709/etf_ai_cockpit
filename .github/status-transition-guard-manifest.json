@@ -1,27 +1,25 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [
+  "allowed_dependency_edge_updates": [
     {
-      "from": "implemented_initially",
-      "issue_id": "ISSUE-0156",
-      "to": "integrated"
+      "dependency_id": "ISSUE-0074",
+      "issue_id": "ISSUE-0098"
     }
   ],
-  "base_commit": "9c3dbf16aa68f7f9c96878361f06fef2e507f7e3",
-  "branch": "codex/issue-0156-integrated-20260727",
-  "issue_ids": [
-    "ISSUE-0156"
-  ],
+  "allowed_status_transitions": [],
+  "base_commit": "b8eb6b4967d5655ed4e528ee9cb222690a424d57",
+  "branch": "codex/b04-issue0098-score-edge-20260727",
+  "issue_ids": [],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "ebe2a113b1fa86b212c11642aa2e2bf06e0462ead74271fd35c428fd53602f0c",
+    "base_registry_sha256": "da414ac5973acd619154bd01d75bb9157ff70e0ecb6b2cca5eea5ef22e8db078",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "da414ac5973acd619154bd01d75bb9157ff70e0ecb6b2cca5eea5ef22e8db078",
-    "reason": "B03 ISSUE-0156 final convergence: advance only implemented_initially to integrated after PR #536 and checksum-reviewed GitHub convergence; preserve product code, scope, dependencies, acceptance criteria, provider limitations, policy and execution_allowed=false.",
+    "mode": "generation_base_and_dependency_edge_evidence",
+    "proposed_registry_sha256": "ecc1b95ae86fcf89b21c8b67b3c64135dc1e597f5f6ec77826c8d3a11be37aa2",
+    "reason": "B04 ISSUE-0098 readiness review: record only the ISSUE-0074 canonical score-v3 dependency as a partial interface, retain point-in-time peer membership and robust cohort statistics as ISSUE-0098 work, leave ISSUE-0098 planned and ISSUE-0083 unresolved, and preserve scope, acceptance criteria, policy and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.2"
+  "schema_version": "1.3"
 }
