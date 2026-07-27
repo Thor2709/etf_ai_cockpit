@@ -3,21 +3,21 @@
   "allow_other_status_changes": false,
   "allowed_dependency_edge_updates": [
     {
-      "dependency_id": "ISSUE-0076",
+      "dependency_id": "ISSUE-0081",
       "issue_id": "ISSUE-0155"
     }
   ],
   "allowed_status_transitions": [],
-  "base_commit": "12f844f0610764c3974dc79fd15a315853025d3f",
-  "branch": "codex/issue-0155-edge-0076-20260727",
+  "base_commit": "c76f54f82d8101f6d1ce3bb0f0282ac68f3a4043",
+  "branch": "codex/issue-0155-edge-0081-20260727",
   "issue_ids": [],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "2e655d40f2e6326ddc956880af164472e443778da291d7ae146f3edae40290f8",
+    "base_registry_sha256": "85833d1ece0be4507a1abaa3ad2001cf3f076908731b4b351595c470e92edddf",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_dependency_edge_evidence",
-    "proposed_registry_sha256": "85833d1ece0be4507a1abaa3ad2001cf3f076908731b4b351595c470e92edddf",
-    "reason": "B03 ISSUE-0155 dependency readiness: record only the ISSUE-0076 provider/plugin contract interface as complete, keep ISSUE-0155 planned and its four remaining edges unresolved, and preserve batch composition, scope, dependencies, acceptance criteria, status semantics, policies and execution_allowed=false.",
+    "proposed_registry_sha256": "1a9be068d6df377269ac9257df6b3fc422a8dd8dde54d7f3ce3c293454d031a8",
+    "reason": "B03 ISSUE-0155 dependency readiness: record only the ISSUE-0081 resumable content-addressed cache interface as complete, keep ISSUE-0155 planned and its three remaining edges unresolved, and preserve batch composition, scope, dependencies, acceptance criteria, status semantics, policies and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },

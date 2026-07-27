@@ -379,3 +379,29 @@ the status guard, registry validation, generation/freshness checks, 108
 control/programme/UI tests and diff hygiene pass. Provider data semantics,
 bulk transport and legal approval remain explicitly owned by the unresolved
 edges.
+
+`VERIFIED` evidence-only PR #519 merged the ISSUE-0155→ISSUE-0076 provider
+edge as `c76f54f82d8101f6d1ce3bb0f0282ac68f3a4043`. Status guard run
+`30243047028` and supply-chain run `30243047057` passed; redundant release run
+`30243047026` was cancelled under programme policy. The GitHub projection
+remained the zero-action plan
+`17a2d232ab37285969da9250114747ba30a607d5c8bb9d8c9b9e2c02e50582d8`.
+
+`IN_PROGRESS` the second ISSUE-0155 readiness review records only the
+ISSUE-0155→ISSUE-0081 edge `unresolved -> complete`. The reviewed
+`bulk-cache.v1` interface supplies bounded resumable downloads, immutable
+content-addressed raw objects, checksum and size verification, revision
+manifests, local licence/update metadata, validation-before-promotion and safe
+archive handling. ISSUE-0155 remains planned; ISSUE-0088, ISSUE-0149 and
+ISSUE-0153 remain unresolved. The regenerated registry has SHA-256
+`1a9be068d6df377269ac9257df6b3fc422a8dd8dde54d7f3ce3c293454d031a8`;
+the GitHub projection remains the zero-action plan
+`17a2d232ab37285969da9250114747ba30a607d5c8bb9d8c9b9e2c02e50582d8`.
+No product, provider, dependency-list, scope, acceptance, status, safety or
+authority change is authorised.
+
+`VERIFIED` edge review confirms the bulk cache provides ISSUE-0155's shared
+transport and immutable raw-object prerequisite without claiming
+provider-specific schemas or legal enablement. Seven focused bulk-cache tests
+and Ruff pass; the status guard, registry validation, generation/freshness
+checks, 108 control/programme/UI tests and diff hygiene pass.
