@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "9c3dbf16aa68f7f9c96878361f06fef2e507f7e3",
+    "generation_base_commit": "b8eb6b4967d5655ed4e528ee9cb222690a424d57",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -2690,12 +2690,16 @@
       "acceptance_evidence": [],
       "dependency_edge_evidence": {
         "ISSUE-0074": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B04/ISSUE-0074/canonical-score-v3-partial-v1",
+          "evidence_references": [
+            "PR #307 merged canonical score engine v3 as aae5357fecbb52d5bcd6be141eea8ef86b23c1e4",
+            "src/etf_cockpit/signals/canonical_scoring.py and configs/score_engine_v3.yaml provide typed components, versioned asset policies, explicit missing/conflict exclusion, coverage, formula checksum, source-vintage hash and separated score outputs",
+            "tests/test_canonical_scoring.py covers deterministic policy identity, contribution reconciliation, missing/conflicted coverage, legacy migration and source lineage; partial interface only because point-in-time cohort membership, effective support, robust peer statistics, hierarchical fallback, bootstrap intervals and reusable peer stores remain ISSUE-0098 work"
+          ],
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "partial_interface"
         },
         "ISSUE-0083": {
           "contract_reference": "",
@@ -2713,8 +2717,37 @@
         "review_reference": "B00 canonical import from audited programme state",
         "to": "planned"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0074",
+            "evidence": {
+              "contract_reference": "B04/ISSUE-0074/canonical-score-v3-partial-v1",
+              "evidence_references": [
+                "PR #307 merged canonical score engine v3 as aae5357fecbb52d5bcd6be141eea8ef86b23c1e4",
+                "src/etf_cockpit/signals/canonical_scoring.py and configs/score_engine_v3.yaml provide typed components, versioned asset policies, explicit missing/conflict exclusion, coverage, formula checksum, source-vintage hash and separated score outputs",
+                "tests/test_canonical_scoring.py covers deterministic policy identity, contribution reconciliation, missing/conflicted coverage, legacy migration and source lineage; partial interface only because point-in-time cohort membership, effective support, robust peer statistics, hierarchical fallback, bootstrap intervals and reusable peer stores remain ISSUE-0098 work"
+              ],
+              "reviewed_date": "2026-07-27",
+              "reviewer": "Codex root orchestrator",
+              "schema_version": "1.0",
+              "state": "partial_interface"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "PR #307 merged canonical score engine v3 as aae5357fecbb52d5bcd6be141eea8ef86b23c1e4",
+            "src/etf_cockpit/signals/canonical_scoring.py and configs/score_engine_v3.yaml provide typed components, versioned asset policies, explicit missing/conflict exclusion, coverage, formula checksum, source-vintage hash and separated score outputs",
+            "tests/test_canonical_scoring.py covers deterministic policy identity, contribution reconciliation, missing/conflicted coverage, legacy migration and source lineage; partial interface only because point-in-time cohort membership, effective support, robust peer statistics, hierarchical fallback, bootstrap intervals and reusable peer stores remain ISSUE-0098 work"
+          ],
+          "review_reference": "B04 ISSUE-0098 score dependency review against merged PR #307",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "verified_commit": "aae5357fecbb52d5bcd6be141eea8ef86b23c1e4"
+        }
+      ],
+      "verified_commit": "aae5357fecbb52d5bcd6be141eea8ef86b23c1e4",
+      "verified_date": "2026-07-27"
     },
     "ISSUE-0099": {
       "acceptance_evidence": [],
