@@ -183,6 +183,14 @@ def test_dependency_edge_update_keeps_status_and_acceptance_unchanged_and_replay
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     prior = json.loads((ROOT / issue_registry_core.CONTROL_STATE_PATH).read_text(encoding="utf-8"))
+    prior["records"]["ISSUE-0154"]["dependency_edge_evidence"]["ISSUE-0153"] = {
+        "contract_reference": "",
+        "evidence_references": [],
+        "reviewed_date": "",
+        "reviewer": "",
+        "schema_version": "1.0",
+        "state": "unresolved",
+    }
     before = copy.deepcopy(prior["records"]["ISSUE-0154"])
 
     updated = update_programme_control.apply_dependency_edge_update(
