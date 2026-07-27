@@ -39,10 +39,17 @@ from etf_cockpit.data.identity_master import (
     IdentityMasterStore,
     identity_master_exists,
 )
+from etf_cockpit.data.fixed_income_terms import (
+    FixedIncomeTermsSchemaError,
+    FixedIncomeTermsStore,
+    fixed_income_terms_exists,
+)
 from etf_cockpit.data.classification import (
     ClassificationOverride,
     ClassificationSchemaError,
     ClassificationStore,
+    classification_store_exists,
+    read_instrument_context,
     read_classification_projection,
 )
 from etf_cockpit.data.manual_notes import *  # noqa: F401,F403
@@ -181,6 +188,78 @@ def load_identity_projection(
         value = row.get(field)
         projection[field] = "unavailable" if value is None or bool(pd.isna(value)) else value
     return projection
+
+
+def load_fixed_income_terms_projection(
+    instrument_id: str,
+    *,
+    storage_root: Path | None = None,
+    effective_at: str | None = None,
+    decision_time: str | None = None,
+) -> dict[str, object]:
+    """Return read-only contractual terms/schedules or an explicit unavailable state."""
+
+    from datetime import datetime
+
+    from etf_cockpit.core.paths import ROOT
+
+    root = Path(storage_root or ROOT).resolve()
+    unavailable = {
+        "status": "unavailable",
+        "instrument_id": str(instrument_id),
+        "reason_codes": ["fixed_income_terms_unavailable"],
+        "capability_flags": {
+            "terms_available": False,
+            "contractual_schedule_available": False,
+            "pricing_allowed": False,
+            "screening_allowed": False,
+            "proposal_allowed": False,
+            "execution_allowed": False,
+        },
+        "pricing_allowed": False,
+        "screening_allowed": False,
+        "proposal_allowed": False,
+        "execution_allowed": False,
+    }
+    try:
+        if not fixed_income_terms_exists(root):
+            return unavailable
+        effective = (
+            datetime.fromisoformat(effective_at.replace("Z", "+00:00"))
+            if effective_at
+            else None
+        )
+        decision = (
+            datetime.fromisoformat(decision_time.replace("Z", "+00:00"))
+            if decision_time
+            else None
+        )
+        classification = (
+            read_instrument_context(
+                root,
+                instrument_id,
+                effective_at=effective,
+                decision_time=decision,
+            )
+            if classification_store_exists(root)
+            else None
+        )
+        with FixedIncomeTermsStore(root) as store:
+            return store.projection(
+                instrument_id,
+                effective_at=effective,
+                decision_time=decision,
+                classification=classification,
+            )
+    except (
+        ClassificationSchemaError,
+        FixedIncomeTermsSchemaError,
+        KeyError,
+        OSError,
+        TypeError,
+        ValueError,
+    ):
+        return unavailable | {"reason_codes": ["fixed_income_terms_invalid"]}
 
 
 def load_classification_projection(

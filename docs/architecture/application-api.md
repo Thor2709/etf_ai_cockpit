@@ -17,3 +17,11 @@ This document is generated from `etf_cockpit.application.contracts` (`applicatio
 - No command grants broker or execution authority; `execution_allowed` remains `false`.
 - Paper fills use explicit execution quotes; account marks require adjusted-close evidence and remain local simulation only.
 - The JSON schema beside this document is the contract artefact for a second local frontend.
+## Fixed-income contractual terms
+
+`LocalApplicationApi.get_fixed_income_terms` and
+`application.ui_facade.load_fixed_income_terms_projection` expose the same
+read-only `fixed-income-terms.v1` projection. The data layer alone validates
+and generates supported contractual schedules; selectors and pages only render
+terms, source/knowledge/retrieval lineage, overlay history, conflicts and
+capability flags. Pricing, screening, proposals and execution remain false.

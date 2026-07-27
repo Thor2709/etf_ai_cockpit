@@ -53,6 +53,16 @@ from etf_cockpit.application.contracts import (
 from etf_cockpit.core.job_scheduler import DurableJobScheduler, JobSpec
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.core.resource_profiles import estimate_workflow_resources
+from etf_cockpit.data.fixed_income_terms import (
+    FixedIncomeTermsSchemaError,
+    FixedIncomeTermsStore,
+    fixed_income_terms_exists,
+)
+from etf_cockpit.data.classification import (
+    ClassificationSchemaError,
+    classification_store_exists,
+    read_instrument_context,
+)
 
 
 SnapshotProvider = Callable[[], object]
@@ -132,6 +142,59 @@ class LocalApplicationApi:
         instruments = self.get_universe(PageRequest(offset=0, limit=500)).items
         rows = tuple(item.model_copy(update={"status": "available" if item.instrument_id in available else "unavailable"}) for item in instruments)
         return _page(rows, page)
+
+    def get_fixed_income_terms(
+        self,
+        instrument_id: str,
+        *,
+        effective_at: str | None = None,
+        decision_time: str | None = None,
+    ) -> Mapping[str, object]:
+        """Read one persisted contractual terms projection without analytics."""
+
+        unavailable = {
+            "status": "unavailable",
+            "instrument_id": str(instrument_id),
+            "pricing_allowed": False,
+            "screening_allowed": False,
+            "proposal_allowed": False,
+            "execution_allowed": False,
+        }
+        try:
+            if not fixed_income_terms_exists(self._root):
+                return unavailable
+            effective = (
+                pd.Timestamp(effective_at).to_pydatetime() if effective_at else None
+            )
+            decision = (
+                pd.Timestamp(decision_time).to_pydatetime() if decision_time else None
+            )
+            classification = (
+                read_instrument_context(
+                    self._root,
+                    instrument_id,
+                    effective_at=effective,
+                    decision_time=decision,
+                )
+                if classification_store_exists(self._root)
+                else None
+            )
+            with FixedIncomeTermsStore(self._root) as store:
+                return store.projection(
+                    instrument_id,
+                    effective_at=effective,
+                    decision_time=decision,
+                    classification=classification,
+                )
+        except (
+            ClassificationSchemaError,
+            FixedIncomeTermsSchemaError,
+            KeyError,
+            OSError,
+            TypeError,
+            ValueError,
+        ):
+            return unavailable | {"reason_code": "fixed_income_terms_invalid"}
 
     def get_scores(self, page: PageRequest = PageRequest()) -> PageView[ScoreViewModel]:
         snapshot = self._snapshot()

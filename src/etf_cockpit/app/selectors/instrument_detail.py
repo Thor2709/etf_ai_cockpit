@@ -26,6 +26,7 @@ from etf_cockpit.application.ui_facade import (
     load_calendar_events,
     load_classification_projection,
     load_identity_projection,
+    load_fixed_income_terms_projection,
     load_simple_scoreboard,
     load_statement_evidence,
     load_paper_trade_rows,
@@ -56,6 +57,7 @@ _SECTION_NAMES = (
     "identity",
     "price",
     "market_clock",
+    "fixed_income_terms",
     "etf_liquidity",
     "scores",
     "feature_drivers",
@@ -1343,6 +1345,11 @@ def build_instrument_detail(
         decision_time=projection_time or decision_time or "",
         observed_at=observed_at if observed_at not in {None, "unavailable"} else None,
     )
+    fixed_income_terms = load_fixed_income_terms_projection(
+        instrument_id,
+        effective_at=projection_time or None,
+        decision_time=projection_time or None,
+    )
     return InstrumentDetailViewModel(
         instrument_id,
         display_name,
@@ -1352,6 +1359,7 @@ def build_instrument_detail(
             "identity": identity_panel,
             "price": price,
             "market_clock": market_clock,
+            "fixed_income_terms": fixed_income_terms,
             "etf_liquidity": liquidity,
             "scores": _score_panel(signal, scoreboard, derived, friction),
             "feature_drivers": _feature_driver_panel(instrument_id),

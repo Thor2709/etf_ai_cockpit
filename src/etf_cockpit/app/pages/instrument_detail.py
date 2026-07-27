@@ -413,6 +413,12 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
     )
     rows = [
         _render_evidence_section(
+            "Fixed-income terms and contractual cash flows",
+            model.sections.get("fixed_income_terms"),
+            subtitle="Versioned terms, coupon/redemption schedule, source lineage, overlays, conflicts and unsupported structures; pricing, proposals and execution remain disabled.",
+            key="instrument-detail.fixed-income-terms",
+        ),
+        _render_evidence_section(
             "Market clock and session",
             model.sections.get("market_clock"),
             subtitle="Identity-certified MIC, timezone, session/auction state, expected-session staleness and next valid advisory timestamps; execution_allowed=false.",
