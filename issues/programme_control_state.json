@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "12f844f0610764c3974dc79fd15a315853025d3f",
+    "generation_base_commit": "c76f54f82d8101f6d1ce3bb0f0282ac68f3a4043",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4654,12 +4654,16 @@
           "state": "complete"
         },
         "ISSUE-0081": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B03/ISSUE-0081/resumable-content-addressed-cache-v1",
+          "evidence_references": [
+            "src/etf_cockpit/data/bulk_cache.py at c76f54f supplies HTTPS allow-listing, bounded resumable range downloads, checksum/size verification, immutable content-addressed objects, revision manifests and local licence/update metadata",
+            "The bulk-cache staged-generation path validates before atomic promotion, records content lineage, retains failed partial downloads for controlled retry and rejects unsafe archives",
+            "Seven focused bulk-cache tests pass for resume, checksum failure, deduplication/revisions, atomic validation/promotion, archive safety, local health and network allow-listing; provider-specific schemas and legal enablement remain separate edges"
+          ],
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         },
         "ISSUE-0088": {
           "contract_reference": "",
@@ -4720,9 +4724,36 @@
           "reviewed_date": "2026-07-27",
           "reviewer": "Codex root orchestrator",
           "verified_commit": "12f844f0610764c3974dc79fd15a315853025d3f"
+        },
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0081",
+            "evidence": {
+              "contract_reference": "B03/ISSUE-0081/resumable-content-addressed-cache-v1",
+              "evidence_references": [
+                "src/etf_cockpit/data/bulk_cache.py at c76f54f supplies HTTPS allow-listing, bounded resumable range downloads, checksum/size verification, immutable content-addressed objects, revision manifests and local licence/update metadata",
+                "The bulk-cache staged-generation path validates before atomic promotion, records content lineage, retains failed partial downloads for controlled retry and rejects unsafe archives",
+                "Seven focused bulk-cache tests pass for resume, checksum failure, deduplication/revisions, atomic validation/promotion, archive safety, local health and network allow-listing; provider-specific schemas and legal enablement remain separate edges"
+              ],
+              "reviewed_date": "2026-07-27",
+              "reviewer": "Codex root orchestrator",
+              "schema_version": "1.0",
+              "state": "complete"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "src/etf_cockpit/data/bulk_cache.py at c76f54f supplies HTTPS allow-listing, bounded resumable range downloads, checksum/size verification, immutable content-addressed objects, revision manifests and local licence/update metadata",
+            "The bulk-cache staged-generation path validates before atomic promotion, records content lineage, retains failed partial downloads for controlled retry and rejects unsafe archives",
+            "Seven focused bulk-cache tests pass for resume, checksum failure, deduplication/revisions, atomic validation/promotion, archive safety, local health and network allow-listing; provider-specific schemas and legal enablement remain separate edges"
+          ],
+          "review_reference": "B03 ISSUE-0155 bulk-cache dependency review",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "verified_commit": "c76f54f82d8101f6d1ce3bb0f0282ac68f3a4043"
         }
       ],
-      "verified_commit": "12f844f0610764c3974dc79fd15a315853025d3f",
+      "verified_commit": "c76f54f82d8101f6d1ce3bb0f0282ac68f3a4043",
       "verified_date": "2026-07-27"
     },
     "ISSUE-0156": {
