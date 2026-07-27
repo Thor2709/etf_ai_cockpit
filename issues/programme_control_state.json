@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "75c6f2902d44d59d03ac4b49ed5a88cb31b24d05",
+    "generation_base_commit": "0d810c3c1c5f59916ae58cef222ea6b6e9321c5b",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4962,12 +4962,16 @@
       "acceptance_evidence": [],
       "dependency_edge_evidence": {
         "ISSUE-0091": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B03/ISSUE-0091/canonical-statement-history-credit-input-v1",
+          "evidence_references": [
+            "PR #318 merged canonical financial statement histories as 15dc107324b2248ec720d8e0747e5476a6a93656",
+            "src/etf_cockpit/data/statement_normalisation.py provides retained reported/latest-restated/as-known views, 5-annual/12-quarter coverage, statement reconciliation and explicit unsupported concepts",
+            "tests/test_statement_normalisation.py passes 7 focused chronology, restatement, coverage, identity, reconciliation and unsupported-concept tests; partial interface only because bond-to-issuer mapping and rating/default/recovery inputs remain absent and must stay explicit in ISSUE-0156"
+          ],
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "partial_interface"
         },
         "ISSUE-0111": {
           "contract_reference": "",
@@ -5001,8 +5005,37 @@
         "review_reference": "B00 canonical import from audited programme state",
         "to": "planned"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0091",
+            "evidence": {
+              "contract_reference": "B03/ISSUE-0091/canonical-statement-history-credit-input-v1",
+              "evidence_references": [
+                "PR #318 merged canonical financial statement histories as 15dc107324b2248ec720d8e0747e5476a6a93656",
+                "src/etf_cockpit/data/statement_normalisation.py provides retained reported/latest-restated/as-known views, 5-annual/12-quarter coverage, statement reconciliation and explicit unsupported concepts",
+                "tests/test_statement_normalisation.py passes 7 focused chronology, restatement, coverage, identity, reconciliation and unsupported-concept tests; partial interface only because bond-to-issuer mapping and rating/default/recovery inputs remain absent and must stay explicit in ISSUE-0156"
+              ],
+              "reviewed_date": "2026-07-27",
+              "reviewer": "Codex root orchestrator",
+              "schema_version": "1.0",
+              "state": "partial_interface"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "PR #318 merged canonical financial statement histories as 15dc107324b2248ec720d8e0747e5476a6a93656",
+            "src/etf_cockpit/data/statement_normalisation.py provides retained reported/latest-restated/as-known views, 5-annual/12-quarter coverage, statement reconciliation and explicit unsupported concepts",
+            "tests/test_statement_normalisation.py passes 7 focused chronology, restatement, coverage, identity, reconciliation and unsupported-concept tests; partial interface only because bond-to-issuer mapping and rating/default/recovery inputs remain absent and must stay explicit in ISSUE-0156"
+          ],
+          "review_reference": "B03 ISSUE-0156 dependency-readiness review of integrated ISSUE-0091 statement history",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "verified_commit": "15dc107324b2248ec720d8e0747e5476a6a93656"
+        }
+      ],
+      "verified_commit": "15dc107324b2248ec720d8e0747e5476a6a93656",
+      "verified_date": "2026-07-27"
     },
     "ISSUE-0157": {
       "acceptance_evidence": [],

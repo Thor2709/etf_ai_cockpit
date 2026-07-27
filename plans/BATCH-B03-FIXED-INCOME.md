@@ -648,3 +648,31 @@ validation, all generation/freshness checks and diff hygiene pass; all 119
 focused control, registry, completion, tracker, programme-map and UI tests
 pass. The privacy-safe GitHub evidence identifies only ISSUE-0155's Programme
 status and `execution_allowed=false` remains binding.
+
+`VERIFIED` final evidence-only PR #528 merged ISSUE-0155 as integrated in
+`0d810c3c1c5f59916ae58cef222ea6b6e9321c5b`. Status-transition guard run
+`30252372304` and supply-chain run `30252371206` passed; redundant release run
+`30252371133` was cancelled. GitHub plan
+`ebc7b7d74e2d1ddadae16260b1b75d590e933029c03854a7a7d4fd8a03bf33dc`
+applied and verified #434 open/integrated with `execution_allowed=false`;
+readback `5e2de0865c00e34090849f765a065ae44ecd4ab9368463bf50dedb7fa6e92602`
+contained zero actions.
+
+`IN_PROGRESS` ISSUE-0156 remains planned while its first dependency edge,
+ISSUE-0091, is recorded as `partial_interface`. PR #318 supplies retained
+reported/latest-restated/as-known statement histories, period coverage,
+reconciliation and explicit unsupported concepts. It does not supply
+bond-to-issuer mapping or rating/default/recovery inputs; ISSUE-0156 must keep
+those unknown rather than infer or zero-fill them. The registry moves from
+SHA-256 `772496e7646f579259103dabaa399f09918e1b1d6b7acb083f8b6f7f1c30aaa7`
+to `609a74cf57e12ddff4cc23a82fbe41dbd62a68262b1d9b07ac0f314c96e63c80`.
+The GitHub projection remains zero-action plan
+`5e2de0865c00e34090849f765a065ae44ecd4ab9368463bf50dedb7fa6e92602`;
+the other three ISSUE-0156 edges remain unresolved and
+`execution_allowed=false`.
+
+`VERIFIED` the one-edge diff preserves ISSUE-0156's planned status, scope,
+acceptance criteria, remaining edges and authority. The schema-1.3 dependency
+guard, registry validation, all generation/freshness checks and diff hygiene
+pass; all 126 focused statement-history, control, registry, completion,
+tracker, programme-map and UI tests pass.
