@@ -786,3 +786,37 @@ declared dependency review. The schema-1.3 dependency guard, registry
 validation, all generation/freshness checks and diff hygiene pass; all 136
 focused market-data, control, registry, completion, tracker, programme-map
 and UI tests pass.
+
+`VERIFIED` final dependency-edge PR #532 merged as
+`8d8ce4f38e657dde6c282ef1d7191f4427134a07` from reviewed head
+`2b6ca0629fa75b528e803c4d037ddcb408a7c032`. Status-transition guard run
+`30254863284` and supply-chain run `30254863195` passed; redundant release run
+`30254863139` was cancelled under the evidence-only policy. The GitHub
+projection remained the zero-action plan
+`5e2de0865c00e34090849f765a065ae44ecd4ab9368463bf50dedb7fa6e92602`.
+
+`IN_PROGRESS` the separately guarded ISSUE-0156 `planned -> ready` proposal is
+supported by all four reviewed blocking interfaces. Two partial interfaces
+remain explicit: statement history does not supply bond-to-issuer or
+rating/default/recovery data, and common robust risk does not yet ingest debt
+components or reconcile fixed-income scenarios. Those gaps are ISSUE-0156's
+bounded work and must remain unknown or unavailable until explicit evidence
+exists. The transition changes no dependency, scope, acceptance criterion,
+safety rule, product behaviour or authority. The registry moves from SHA-256
+`1c775f07efc78aa3bdcbfdffdaa6951d6018befd6985cf544c2fcbd328b7dbc9`
+to `8b991273f8e725c7f2af7b445dbf6292ea693d8b2993508e0ba6956200204b66`.
+The reviewed GitHub plan contains exactly one Programme status update for
+open issue #435 with semantic SHA-256
+`024c5d1a21fa3157c17d975cbbd66c1c083780bf2b65d8d1d97d5f4d9d40bf0f`;
+`execution_allowed=false`.
+
+Next action: generate and review the single-status readiness transition,
+apply its checksum-controlled GitHub update only after merge, and require a
+zero-action readback.
+
+`VERIFIED` deterministic readiness review found no unrelated issue,
+dependency, edge-evidence, scope, acceptance, policy or authority mutation.
+The status guard, registry validation, all generation/freshness checks and
+diff hygiene pass; all 121 focused control, registry, completion, tracker,
+programme-map and UI tests pass. The committed privacy-safe GitHub evidence
+identifies only ISSUE-0156's Programme status.
