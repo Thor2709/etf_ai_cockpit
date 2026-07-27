@@ -145,3 +145,19 @@ rehashed SQLite tamper rejection. Focused evidence is 52 peer/classification/
 architecture tests, 85 Instrument Detail tests and 9 architecture/document
 tests, plus Ruff, compileall and diff hygiene. Protected Linux and Windows
 release gates and supply-chain validation remain required before merge.
+
+`IN_PROGRESS` product PR #542 merged the reviewed ISSUE-0098 peer-cohort tree
+as `fc734201b138d3f24fa68d8c07422322506d6fc5`. Protected Linux and Windows
+evidence passed package build, artefacts, source/package parity, packaged
+smoke, performance and policy checks. A deterministic generation-base refresh
+left only the documented B03 simple-score baseline on both platforms; no
+ISSUE-0098 or changed-path test failed. Supply-chain validation passed and
+`execution_allowed=false`.
+
+The separate guarded convergence advances only ISSUE-0098
+`in_progress -> implemented_initially`. The proposed 197-record registry has
+SHA-256 `c77d4b5e306f6d50425be783751cfd6ecf361d40bd42da31dd5a4f6e9aa11f76`.
+The reviewed GitHub plan contains exactly one Programme-status update for open
+issue #238 with semantic SHA-256
+`e9d4d3eee2d726a2614d775c8ac2f7cc4240fa36b9be82906bc6472f290b51be`.
+No dependency, scope, acceptance, policy or authority change is included.
