@@ -1,0 +1,29 @@
+{
+  "actions": [
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Programme status"
+      ],
+      "remote_number": 433,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0154",
+      "title": "Implement fixed-income cash-flow, clean/dirty pricing and yield/risk analytics",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/433"
+    }
+  ],
+  "apply_authority": false,
+  "fresh_exact_plan_required_for_apply": true,
+  "plan_semantic_sha256": "a569ba47ab96b35aa0fa4b3e2247612e49280523e0f86f9f89012dc24631f8b6",
+  "remote_inventory_sha256": "b32a9f7ff1dc11f9c7669eaa711f4d4be08079cf37f016da4ef6114c7b64ffae",
+  "repository": "Thor2709/etf_ai_cockpit",
+  "schema_version": "etf-ai-cockpit.safe-sync-evidence/1.0",
+  "summary": {
+    "blocked": 0,
+    "close": 0,
+    "create": 0,
+    "reopen": 0,
+    "update": 1
+  },
+  "transient_full_plan_file_sha256": "39bb1a0b914c7c785b95b7705234316c58b7a3480d467c83545cac447e6b1f03"
+}
