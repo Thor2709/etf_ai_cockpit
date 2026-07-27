@@ -1,27 +1,25 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [
+  "allowed_dependency_edge_updates": [
     {
-      "from": "implemented_initially",
-      "issue_id": "ISSUE-0098",
-      "to": "integrated"
+      "dependency_id": "ISSUE-0098",
+      "issue_id": "ISSUE-0099"
     }
   ],
-  "base_commit": "a01c663cd10bc13057175bd128456108bfceb0c4",
-  "branch": "codex/issue-0098-integrated-20260727",
-  "issue_ids": [
-    "ISSUE-0098"
-  ],
+  "allowed_status_transitions": [],
+  "base_commit": "389278a6a30e5fc96ce96d2c796de2f075bb3b60",
+  "branch": "codex/b04-issue0099-peer-edge-20260728",
+  "issue_ids": [],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "c77d4b5e306f6d50425be783751cfd6ecf361d40bd42da31dd5a4f6e9aa11f76",
+    "base_registry_sha256": "3c484a44ce57f2b5b9a04e8011a5691e67e90c5e31b8d8b768873a5d1b1e7e10",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "3c484a44ce57f2b5b9a04e8011a5691e67e90c5e31b8d8b768873a5d1b1e7e10",
-    "reason": "B04 ISSUE-0098 convergence: advance only implemented_initially to integrated after PR #543 passed the status guard and supply-chain validation, merged the reviewed evidence, and its checksum-approved GitHub update produced a zero-action readback; preserve dependencies, edge evidence, scope, acceptance criteria, policy and execution_allowed=false.",
+    "mode": "generation_base_and_dependency_edge_evidence",
+    "proposed_registry_sha256": "1a65285002021849652bd57a8c89d2e5e0285bbaa8717e6279b21ce2df627a79",
+    "reason": "B04 ISSUE-0099 readiness review: record only the integrated ISSUE-0098 peer-cohort and adapter framework as a complete dependency interface, keep financial formulas, regulatory evidence, stress models and UI rationale in ISSUE-0099, leave ISSUE-0099 planned, and preserve scope, acceptance criteria, policy and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.2"
+  "schema_version": "1.3"
 }

@@ -180,3 +180,29 @@ issue #238 with semantic SHA-256
 `04c08b15461989be76539fc401ea00c99c199ab79a5c1ea2a6379eceebb05b74`.
 No dependency, scope, acceptance, policy or authority change is included;
 `execution_allowed=false`.
+
+`VERIFIED` integrated PR #544 merged ISSUE-0098 as
+`389278a6a30e5fc96ce96d2c796de2f075bb3b60` from reviewed head
+`0d44615bc0cf7a95e24d3228ad9782b0a3947db6`. Status guard run
+`30276601498` and supply-chain run `30276601199` passed; the redundant
+evidence-only release run was cancelled. Checksum-approved GitHub plan
+`04c08b15461989be76539fc401ea00c99c199ab79a5c1ea2a6379eceebb05b74`
+applied only #238, and zero-action readback
+`e9e91f058561411005a408eae8f1e1508d02c24c8b2427cfc08b5bc4ed6b6c4a`
+verified final ISSUE-0098 convergence.
+
+`IN_PROGRESS` the next dependency-valid B04 prerequisite reviews only
+ISSUE-0099→ISSUE-0098. The integrated `peer-cohort.v1` contract supplies
+versioned sector-adapter registration and applicability lineage,
+classification-gated routing, exact-cutoff leaf-to-parent cohorts, explicit
+exclusions/support, robust peer statistics and verified deterministic replay.
+ISSUE-0099 retains all bank, insurer and diversified-financial formulas,
+regulatory evidence, stress models, country variants and UI rationale.
+
+Record the edge as `complete` while ISSUE-0099 remains planned. The proposed
+197-record registry has SHA-256
+`1a65285002021849652bd57a8c89d2e5e0285bbaa8717e6279b21ce2df627a79`;
+the live GitHub projection remains the zero-action semantic plan
+`e9e91f058561411005a408eae8f1e1508d02c24c8b2427cfc08b5bc4ed6b6c4a`.
+No product, status, dependency-list, scope, acceptance, policy or authority
+change is included; `execution_allowed=false`.
