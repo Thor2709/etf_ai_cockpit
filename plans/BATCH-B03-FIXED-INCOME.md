@@ -582,3 +582,16 @@ analytics/risk/portfolio change or execution authority is included.
 Next action: checkpoint this reviewed branch, open the ISSUE-0155 product PR
 and require the complete protected Linux and Windows packaged gate before any
 merge or status transition.
+
+`IN_PROGRESS` draft product PR #526 preserved reviewed checkpoint
+`34a09ae32b8929418bba4559ae374d23ad88000a`. Protected run `30248410578`
+passed package builds, source/package parity, packaged smoke, performance,
+source policy, bulk cache, privacy, legal and SBOM checks on Linux and Windows.
+Its 19 full-suite failures on each platform exactly match the retained
+`e7de20f4` baseline. One current-feature security check failed because the
+manifest-only disabled provider rows declared network access. The bounded
+correction keeps ECB, ESMA and FINRA stubs both disabled and network-disabled;
+it does not weaken the security gate or add acquisition code. Fresh fixed-income,
+plugin and security tests pass (25 passed, 1 skipped), as do the release
+security checker, Ruff, compile and diff hygiene. Next action is to commit the
+correction and require a fresh complete protected gate.

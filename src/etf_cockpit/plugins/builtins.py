@@ -98,7 +98,7 @@ class _DisabledFixedIncomeProvider:
             kind="provider",
             capabilities=("health", "fixed_income_market_data"),
             licence="Unapproved: source-specific legal record required",
-            network_access=True,
+            network_access=False,
             quota="unavailable",
             retention="unapproved",
             authority="disabled",
@@ -156,8 +156,7 @@ def _load_policy(path: Path) -> tuple[dict[str, str], dict[str, bool]]:
             version = str(row.get("version", "")).strip()
             if plugin_id not in _BUILTIN_VERSIONS or version != _BUILTIN_VERSIONS[plugin_id]:
                 return fallback
-            expected_network = plugin_id in _REMOTE_FIXED_INCOME_PROVIDERS
-            if row.get("network_access") is not expected_network:
+            if row.get("network_access") is not False:
                 return fallback
             allowlist[plugin_id] = version
             enabled[plugin_id] = (

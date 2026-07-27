@@ -4,6 +4,6 @@ allowlist:
   - {plugin_id: builtin.local-provider, version: "1.0.0", enabled: true, network_access: false}
   - {plugin_id: builtin.baseline-model, version: "1.0.0", enabled: true, network_access: false}
   - {plugin_id: builtin.paper-broker, version: "1.0.0", enabled: false, network_access: false}
-  - {plugin_id: fixed-income.ecb, version: "1.0.0", enabled: false, network_access: true}
-  - {plugin_id: fixed-income.esma-firds-fitrs, version: "1.0.0", enabled: false, network_access: true}
-  - {plugin_id: fixed-income.finra-trace, version: "1.0.0", enabled: false, network_access: true}
+  - {plugin_id: fixed-income.ecb, version: "1.0.0", enabled: false, network_access: false}
+  - {plugin_id: fixed-income.esma-firds-fitrs, version: "1.0.0", enabled: false, network_access: false}
+  - {plugin_id: fixed-income.finra-trace, version: "1.0.0", enabled: false, network_access: false}
