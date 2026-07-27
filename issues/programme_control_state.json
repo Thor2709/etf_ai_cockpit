@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "4c281e66019a1b2cae1c65dcdbd90e2411a577ab",
+    "generation_base_commit": "571366c8d75fbf3afad17e6d9b0549d299c92e49",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4419,6 +4419,17 @@
           "reviewed_date": "2026-07-27",
           "reviewer": "codex",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "PR #516 merged reviewed ISSUE-0154 product checkpoint eb16e2b354166bfd83a620ca601406ad33287191 as 571366c8d75fbf3afad17e6d9b0549d299c92e49",
+            "Protected run 30240413171 completed Linux and Windows package, parity, smoke, performance, safety and policy checks; its 19 full-suite failures exactly reproduced from isolated base 570eb3fc22d1a9595ed601fe56460c54e9850d8e",
+            "Supply-chain run 30240413112 passed; 185 focused local analytics, terms, calendar, application, UI and architecture tests passed; execution_allowed=false"
+          ],
+          "review_reference": "B03 ISSUE-0154 merged fixed-income analytics and protected cross-platform evidence",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator and sol_worker",
+          "status": "implemented_initially"
         }
       ],
       "dependency_edge_evidence": {
@@ -4463,11 +4474,11 @@
         }
       },
       "phase": "phase-05-returns-risk-portfolio",
-      "programme_status": "in_progress",
+      "programme_status": "implemented_initially",
       "status_transition": {
-        "from": "ready",
-        "review_reference": "PR #514 merged readiness at 4c281e66019a1b2cae1c65dcdbd90e2411a577ab after dependency-edge reviews #511-#513",
-        "to": "in_progress"
+        "from": "in_progress",
+        "review_reference": "B03 ISSUE-0154 merged fixed-income analytics and protected cross-platform evidence",
+        "to": "implemented_initially"
       },
       "transition_history": [
         {
@@ -4583,9 +4594,23 @@
           "reviewer": "codex",
           "to": "in_progress",
           "verified_commit": "4c281e66019a1b2cae1c65dcdbd90e2411a577ab"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #516 merged reviewed ISSUE-0154 product checkpoint eb16e2b354166bfd83a620ca601406ad33287191 as 571366c8d75fbf3afad17e6d9b0549d299c92e49",
+            "Protected run 30240413171 completed Linux and Windows package, parity, smoke, performance, safety and policy checks; its 19 full-suite failures exactly reproduced from isolated base 570eb3fc22d1a9595ed601fe56460c54e9850d8e",
+            "Supply-chain run 30240413112 passed; 185 focused local analytics, terms, calendar, application, UI and architecture tests passed; execution_allowed=false"
+          ],
+          "from": "in_progress",
+          "review_reference": "B03 ISSUE-0154 merged fixed-income analytics and protected cross-platform evidence",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator and sol_worker",
+          "to": "implemented_initially",
+          "verified_commit": "571366c8d75fbf3afad17e6d9b0549d299c92e49"
         }
       ],
-      "verified_commit": "4c281e66019a1b2cae1c65dcdbd90e2411a577ab",
+      "verified_commit": "571366c8d75fbf3afad17e6d9b0549d299c92e49",
       "verified_date": "2026-07-27"
     },
     "ISSUE-0155": {

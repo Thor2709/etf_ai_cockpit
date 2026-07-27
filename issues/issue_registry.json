@@ -21601,6 +21601,17 @@
           "reviewed_date": "2026-07-27",
           "reviewer": "codex",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "PR #516 merged reviewed ISSUE-0154 product checkpoint eb16e2b354166bfd83a620ca601406ad33287191 as 571366c8d75fbf3afad17e6d9b0549d299c92e49",
+            "Protected run 30240413171 completed Linux and Windows package, parity, smoke, performance, safety and policy checks; its 19 full-suite failures exactly reproduced from isolated base 570eb3fc22d1a9595ed601fe56460c54e9850d8e",
+            "Supply-chain run 30240413112 passed; 185 focused local analytics, terms, calendar, application, UI and architecture tests passed; execution_allowed=false"
+          ],
+          "review_reference": "B03 ISSUE-0154 merged fixed-income analytics and protected cross-platform evidence",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator and sol_worker",
+          "status": "implemented_initially"
         }
       ],
       "activation_dependencies": [],
@@ -21673,7 +21684,7 @@
       "package_status": "planned",
       "phase": "phase-05-returns-risk-portfolio",
       "priority": "P0",
-      "programme_status": "in_progress",
+      "programme_status": "implemented_initially",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -21693,7 +21704,7 @@
       "source_record_id": "ISSUE-0154",
       "source_title": "Implement fixed-income cash-flow, clean/dirty pricing and yield/risk analytics",
       "title": "Implement fixed-income cash-flow, clean/dirty pricing and yield/risk analytics",
-      "verified_commit": "4c281e66019a1b2cae1c65dcdbd90e2411a577ab",
+      "verified_commit": "571366c8d75fbf3afad17e6d9b0549d299c92e49",
       "verified_date": "2026-07-27",
       "write_conflict_group": "returns-and-risk"
     },
@@ -26247,7 +26258,7 @@
   ],
   "schema_version": "2.0",
   "source_of_truth": {
-    "baseline_commit": "4c281e66019a1b2cae1c65dcdbd90e2411a577ab",
+    "baseline_commit": "571366c8d75fbf3afad17e6d9b0549d299c92e49",
     "closed_ledger_sha256": "2dca7fd65f7a218747bcfb91b4e5c1f734af26f29114cc7dc83b071bb86838d8",
     "final_release_manifest_sha256": "dbb71ecaa2b81206ff922eec3dcc72cb08cc001121688b107e8f1c3a2372f685",
     "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -26259,7 +26270,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "842fd1e0c9cefc020c568b04fb9eaf4a12a634578fa7ba4a949bb1e537304338",
+    "programme_control_state_sha256": "00c21f59f29c47401b18779a29f77a6b83a85de75e2a6a4c66659f54d64a3687",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
