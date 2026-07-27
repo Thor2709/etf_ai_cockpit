@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "c76f54f82d8101f6d1ce3bb0f0282ac68f3a4043",
+    "generation_base_commit": "06a77a2539a8b414944d380d0c39b18b29cfad7f",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4666,12 +4666,16 @@
           "state": "complete"
         },
         "ISSUE-0088": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B03/ISSUE-0088/bitemporal-macro-risk-free-observations-v1",
+          "evidence_references": [
+            "src/etf_cockpit/data/macro_warehouse.py at 06a77a2 supplies append-only bitemporal macro, risk-free and benchmark observations with currency/unit/frequency, source terms/checksum, revisions, transformations and decision-time selection",
+            "tests/test_macro_warehouse.py and tests/test_bitemporal.py pass nine focused tests covering vintage exclusion, revision selection, source lineage, transforms and explicit missing country/currency context",
+            "Partial interface only: no fixed-income security observation, curve tenor/type/interpolation, bid/ask/size, trade, spread, evaluated/executable label, liquidity or provider-coverage contract exists; ISSUE-0155 must define these and keep absent market evidence unavailable"
+          ],
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "partial_interface"
         },
         "ISSUE-0149": {
           "contract_reference": "",
@@ -4751,9 +4755,36 @@
           "reviewed_date": "2026-07-27",
           "reviewer": "Codex root orchestrator",
           "verified_commit": "c76f54f82d8101f6d1ce3bb0f0282ac68f3a4043"
+        },
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0088",
+            "evidence": {
+              "contract_reference": "B03/ISSUE-0088/bitemporal-macro-risk-free-observations-v1",
+              "evidence_references": [
+                "src/etf_cockpit/data/macro_warehouse.py at 06a77a2 supplies append-only bitemporal macro, risk-free and benchmark observations with currency/unit/frequency, source terms/checksum, revisions, transformations and decision-time selection",
+                "tests/test_macro_warehouse.py and tests/test_bitemporal.py pass nine focused tests covering vintage exclusion, revision selection, source lineage, transforms and explicit missing country/currency context",
+                "Partial interface only: no fixed-income security observation, curve tenor/type/interpolation, bid/ask/size, trade, spread, evaluated/executable label, liquidity or provider-coverage contract exists; ISSUE-0155 must define these and keep absent market evidence unavailable"
+              ],
+              "reviewed_date": "2026-07-27",
+              "reviewer": "Codex root orchestrator",
+              "schema_version": "1.0",
+              "state": "partial_interface"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "src/etf_cockpit/data/macro_warehouse.py at 06a77a2 supplies append-only bitemporal macro, risk-free and benchmark observations with currency/unit/frequency, source terms/checksum, revisions, transformations and decision-time selection",
+            "tests/test_macro_warehouse.py and tests/test_bitemporal.py pass nine focused tests covering vintage exclusion, revision selection, source lineage, transforms and explicit missing country/currency context",
+            "Partial interface only: no fixed-income security observation, curve tenor/type/interpolation, bid/ask/size, trade, spread, evaluated/executable label, liquidity or provider-coverage contract exists; ISSUE-0155 must define these and keep absent market evidence unavailable"
+          ],
+          "review_reference": "B03 ISSUE-0155 macro/risk-free observation dependency review",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "verified_commit": "06a77a2539a8b414944d380d0c39b18b29cfad7f"
         }
       ],
-      "verified_commit": "c76f54f82d8101f6d1ce3bb0f0282ac68f3a4043",
+      "verified_commit": "06a77a2539a8b414944d380d0c39b18b29cfad7f",
       "verified_date": "2026-07-27"
     },
     "ISSUE-0156": {
