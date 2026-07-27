@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "06a77a2539a8b414944d380d0c39b18b29cfad7f",
+    "generation_base_commit": "6ac65c216e39a89a93222adb349398f13fba894b",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4678,12 +4678,16 @@
           "state": "partial_interface"
         },
         "ISSUE-0149": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B03/ISSUE-0149/legal-terms-gate-v1",
+          "evidence_references": [
+            "src/etf_cockpit/data/legal_terms.py and configs/legal_terms_registry.yaml at 6ac65c2 supply fail-closed cache, redistribution and audit-export decisions, terms-change review, source checksums and local-only reporting",
+            "Eight focused legal-terms and UI tests pass for unresolved mandatory entries, restricted exports, change review, professional-review visibility and no-network operation",
+            "Partial interface only: ECB, ESMA FIRDS/FITRS and FINRA/TRACE have no source-specific approved terms records, and ISSUE-0149 remains hardening_required; ISSUE-0155 may define disabled adapters but must not enable those sources until reviewed entries exist"
+          ],
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "partial_interface"
         },
         "ISSUE-0153": {
           "contract_reference": "",
@@ -4782,9 +4786,36 @@
           "reviewed_date": "2026-07-27",
           "reviewer": "Codex root orchestrator",
           "verified_commit": "06a77a2539a8b414944d380d0c39b18b29cfad7f"
+        },
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0149",
+            "evidence": {
+              "contract_reference": "B03/ISSUE-0149/legal-terms-gate-v1",
+              "evidence_references": [
+                "src/etf_cockpit/data/legal_terms.py and configs/legal_terms_registry.yaml at 6ac65c2 supply fail-closed cache, redistribution and audit-export decisions, terms-change review, source checksums and local-only reporting",
+                "Eight focused legal-terms and UI tests pass for unresolved mandatory entries, restricted exports, change review, professional-review visibility and no-network operation",
+                "Partial interface only: ECB, ESMA FIRDS/FITRS and FINRA/TRACE have no source-specific approved terms records, and ISSUE-0149 remains hardening_required; ISSUE-0155 may define disabled adapters but must not enable those sources until reviewed entries exist"
+              ],
+              "reviewed_date": "2026-07-27",
+              "reviewer": "Codex root orchestrator",
+              "schema_version": "1.0",
+              "state": "partial_interface"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "src/etf_cockpit/data/legal_terms.py and configs/legal_terms_registry.yaml at 6ac65c2 supply fail-closed cache, redistribution and audit-export decisions, terms-change review, source checksums and local-only reporting",
+            "Eight focused legal-terms and UI tests pass for unresolved mandatory entries, restricted exports, change review, professional-review visibility and no-network operation",
+            "Partial interface only: ECB, ESMA FIRDS/FITRS and FINRA/TRACE have no source-specific approved terms records, and ISSUE-0149 remains hardening_required; ISSUE-0155 may define disabled adapters but must not enable those sources until reviewed entries exist"
+          ],
+          "review_reference": "B03 ISSUE-0155 legal-terms dependency review",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "verified_commit": "6ac65c216e39a89a93222adb349398f13fba894b"
         }
       ],
-      "verified_commit": "06a77a2539a8b414944d380d0c39b18b29cfad7f",
+      "verified_commit": "6ac65c216e39a89a93222adb349398f13fba894b",
       "verified_date": "2026-07-27"
     },
     "ISSUE-0156": {
