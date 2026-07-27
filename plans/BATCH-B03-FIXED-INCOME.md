@@ -927,3 +927,23 @@ issue #435 with semantic SHA-256
 `554ea6e37cdd22da85bf56a68cbe4f0b58280386fc4a00358194f59bc6e0001a`.
 No product, dependency, scope, acceptance, policy or authority change is
 included.
+
+`VERIFIED` implemented-initially PR #536 merged as
+`9c3dbf16aa68f7f9c96878361f06fef2e507f7e3` from exact reviewed head
+`9b4099c94617071751b911f77cf3d68cb6191c4c`. Status-transition guard run
+`30261402474` and supply-chain run `30261402439` passed; the redundant
+evidence-only release run was cancelled. Checksum-approved GitHub plan
+`554ea6e37cdd22da85bf56a68cbe4f0b58280386fc4a00358194f59bc6e0001a`
+applied only ISSUE-0156/#435 and zero-action readback
+`63976673a6d8a69982e6c2be7141f413cb390c6edc2a705d8a3f4dcd8c10961a`
+verified open/implemented_initially with `execution_allowed=false`.
+
+`IN_PROGRESS` the final evidence-only convergence advances only ISSUE-0156
+`implemented_initially -> integrated`. The registry remains 197 records with
+proposed SHA-256
+`da414ac5973acd619154bd01d75bb9157ff70e0ecb6b2cca5eea5ef22e8db078`.
+The reviewed GitHub plan contains exactly one Programme-status update for #435
+with semantic SHA-256
+`3805e7ccbe2f132464a038e55a41fb782848c7dd5c4d679c9dd5af2ee106515c`.
+No product, dependency, scope, acceptance, policy or authority change is
+included.

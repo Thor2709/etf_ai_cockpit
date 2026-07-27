@@ -3,23 +3,23 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "in_progress",
+      "from": "implemented_initially",
       "issue_id": "ISSUE-0156",
-      "to": "implemented_initially"
+      "to": "integrated"
     }
   ],
-  "base_commit": "379bb8a73a76c3e43d2fcfaaad3ef9927306228c",
-  "branch": "codex/issue-0156-implemented-initially-20260727",
+  "base_commit": "9c3dbf16aa68f7f9c96878361f06fef2e507f7e3",
+  "branch": "codex/issue-0156-integrated-20260727",
   "issue_ids": [
     "ISSUE-0156"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "75bb70f6db764a88789cf58e52cd827a1819106d6bbcd9f19ebfe77fc179c611",
+    "base_registry_sha256": "ebe2a113b1fa86b212c11642aa2e2bf06e0462ead74271fd35c428fd53602f0c",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "ebe2a113b1fa86b212c11642aa2e2bf06e0462ead74271fd35c428fd53602f0c",
-    "reason": "B03 ISSUE-0156 reviewed product merge: advance only in_progress to implemented_initially after PR #535 supplied canonical fixed-income risk, protected platform evidence and local verification; preserve scope, dependencies, acceptance criteria, provider limitations, policy and execution_allowed=false.",
+    "proposed_registry_sha256": "da414ac5973acd619154bd01d75bb9157ff70e0ecb6b2cca5eea5ef22e8db078",
+    "reason": "B03 ISSUE-0156 final convergence: advance only implemented_initially to integrated after PR #536 and checksum-reviewed GitHub convergence; preserve product code, scope, dependencies, acceptance criteria, provider limitations, policy and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
