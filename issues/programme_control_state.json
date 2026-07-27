@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "b54d8a3d7a76c3154d4e0a06eaf75e88cf45223a",
+    "generation_base_commit": "fb0f21a36a805b4c45053bc7eab42329522f91cf",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4417,12 +4417,17 @@
           "state": "unresolved"
         },
         "ISSUE-0153": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B03/ISSUE-0153/fixed-income-terms-v1",
+          "evidence_references": [
+            "PR #508 merged the reviewed fixed-income terms master as 4e1d2d819e0c99d5f9f109f1494db7352365916e after protected Linux and Windows package evidence",
+            "PRs #509 and #510 converged ISSUE-0153; final integrated merge is fb0f21a36a805b4c45053bc7eab42329522f91cf with GitHub zero-action readback",
+            "src/etf_cockpit/data/fixed_income_terms.py supplies immutable point-in-time terms, certified contractual schedules, source lineage, conflicts and explicit unsupported states required by deterministic bond analytics",
+            "tests/test_fixed_income_terms.py covers fixed-rate/zero-coupon schedules, point-in-time corrections, conflict quarantine, persistence, corruption, concurrency and application parity"
+          ],
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         }
       },
       "phase": "phase-05-returns-risk-portfolio",
@@ -4432,8 +4437,39 @@
         "review_reference": "B00 canonical import from audited programme state",
         "to": "planned"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0153",
+            "evidence": {
+              "contract_reference": "B03/ISSUE-0153/fixed-income-terms-v1",
+              "evidence_references": [
+                "PR #508 merged the reviewed fixed-income terms master as 4e1d2d819e0c99d5f9f109f1494db7352365916e after protected Linux and Windows package evidence",
+                "PRs #509 and #510 converged ISSUE-0153; final integrated merge is fb0f21a36a805b4c45053bc7eab42329522f91cf with GitHub zero-action readback",
+                "src/etf_cockpit/data/fixed_income_terms.py supplies immutable point-in-time terms, certified contractual schedules, source lineage, conflicts and explicit unsupported states required by deterministic bond analytics",
+                "tests/test_fixed_income_terms.py covers fixed-rate/zero-coupon schedules, point-in-time corrections, conflict quarantine, persistence, corruption, concurrency and application parity"
+              ],
+              "reviewed_date": "2026-07-27",
+              "reviewer": "Codex root orchestrator",
+              "schema_version": "1.0",
+              "state": "complete"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "PR #508 merged the reviewed fixed-income terms master as 4e1d2d819e0c99d5f9f109f1494db7352365916e after protected Linux and Windows package evidence",
+            "PRs #509 and #510 converged ISSUE-0153; final integrated merge is fb0f21a36a805b4c45053bc7eab42329522f91cf with GitHub zero-action readback",
+            "src/etf_cockpit/data/fixed_income_terms.py supplies immutable point-in-time terms, certified contractual schedules, source lineage, conflicts and explicit unsupported states required by deterministic bond analytics",
+            "tests/test_fixed_income_terms.py covers fixed-rate/zero-coupon schedules, point-in-time corrections, conflict quarantine, persistence, corruption, concurrency and application parity"
+          ],
+          "review_reference": "B03 ISSUE-0154 terms dependency against integrated point-in-time fixed-income terms master",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "verified_commit": "fb0f21a36a805b4c45053bc7eab42329522f91cf"
+        }
+      ],
+      "verified_commit": "fb0f21a36a805b4c45053bc7eab42329522f91cf",
+      "verified_date": "2026-07-27"
     },
     "ISSUE-0155": {
       "acceptance_evidence": [],

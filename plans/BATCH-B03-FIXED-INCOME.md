@@ -122,3 +122,27 @@ the reviewed GitHub plan contains exactly one Programme status update for open
 `775d533889453d59f415010a23731adcac8cbdc4ac8b8265a28571b8ce6f0f70`.
 No product, test, dependency, workflow, scope, acceptance, safety or authority
 change is included.
+
+`VERIFIED` final evidence-only PR #510 merged ISSUE-0153 as integrated in
+`fb0f21a36a805b4c45053bc7eab42329522f91cf`. Its status guard and
+supply-chain checks passed; the checksum-approved GitHub update applied and
+read back with zero actions. ISSUE-0153 and remote #432 are integrated and
+`execution_allowed=false`.
+
+`IN_PROGRESS` the first ISSUE-0154 readiness review records only the
+ISSUE-0154→ISSUE-0153 edge `unresolved -> complete` against the integrated
+`fixed-income-terms.v1` contract. ISSUE-0154 remains planned; ISSUE-0085 and
+ISSUE-0088 remain unresolved. The regenerated 197-record registry has SHA-256
+`709fb35513e9968e570a0c520e9bc60c3446525e4cc8529cc2468c5f57473fb3`;
+the GitHub projection is the zero-action plan
+`66bec5f128c60b6158f0cca36aae0464f01cb12a092206c97945b66e0ee29c66`.
+No product, pricing, dependency-list, scope, acceptance, safety, status or
+authority change is authorised.
+
+`VERIFIED` edge review confirmed the integrated terms contract supplies the
+schedule, point-in-time, lineage and quarantine inputs required by ISSUE-0154
+without granting valuation or execution authority. The control helper test now
+constructs its own unresolved edge precondition instead of depending on live
+canonical state. Guard, freshness, registry validation, 60 focused tests, Ruff
+and diff hygiene pass. Because a test file changes, this PR follows the full
+protected release path rather than the evidence-only fast path.
