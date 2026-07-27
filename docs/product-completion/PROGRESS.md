@@ -12,7 +12,8 @@ This file is generated from `issues/issue_registry.json`; it contains no wall-cl
 | `implemented_initially` | 58 |
 | `in_progress` | 7 |
 | `integrated` | 46 |
-| `planned` | 62 |
+| `planned` | 61 |
+| `ready` | 1 |
 | `research_only` | 2 |
 
 ## Ready issues

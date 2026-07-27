@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "389278a6a30e5fc96ce96d2c796de2f075bb3b60",
+    "generation_base_commit": "d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -2878,7 +2878,18 @@
       "verified_date": "2026-07-27"
     },
     "ISSUE-0099": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #545 merged the sole ISSUE-0099→ISSUE-0098 dependency edge as complete in d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b with status guard and supply-chain validation passing",
+            "ISSUE-0098 peer-cohort.v1 supplies the required adapter registration, point-in-time cohort, robust statistics, lineage and replay boundary while ISSUE-0099 retains financial-sector implementation"
+          ],
+          "review_reference": "B04 ISSUE-0099 readiness after complete ISSUE-0098 dependency review",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "status": "ready"
+        }
+      ],
       "dependency_edge_evidence": {
         "ISSUE-0098": {
           "contract_reference": "B04/ISSUE-0098/peer-cohort-adapter-contract-v1",
@@ -2894,11 +2905,11 @@
         }
       },
       "phase": "phase-03-stock-research",
-      "programme_status": "planned",
+      "programme_status": "ready",
       "status_transition": {
         "from": "planned",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "planned"
+        "review_reference": "B04 ISSUE-0099 readiness after complete ISSUE-0098 dependency review",
+        "to": "ready"
       },
       "transition_history": [
         {
@@ -2927,9 +2938,22 @@
           "reviewed_date": "2026-07-28",
           "reviewer": "Codex root orchestrator",
           "verified_commit": "fc734201b138d3f24fa68d8c07422322506d6fc5"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #545 merged the sole ISSUE-0099→ISSUE-0098 dependency edge as complete in d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b with status guard and supply-chain validation passing",
+            "ISSUE-0098 peer-cohort.v1 supplies the required adapter registration, point-in-time cohort, robust statistics, lineage and replay boundary while ISSUE-0099 retains financial-sector implementation"
+          ],
+          "from": "planned",
+          "review_reference": "B04 ISSUE-0099 readiness after complete ISSUE-0098 dependency review",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "to": "ready",
+          "verified_commit": "d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b"
         }
       ],
-      "verified_commit": "fc734201b138d3f24fa68d8c07422322506d6fc5",
+      "verified_commit": "d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b",
       "verified_date": "2026-07-28"
     },
     "ISSUE-0100": {

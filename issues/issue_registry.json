@@ -15972,7 +15972,18 @@
         "Stress tests cover credit loss, funding and market shocks.",
         "Missing regulatory data lowers confidence and blocks high-authority labels."
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #545 merged the sole ISSUE-0099→ISSUE-0098 dependency edge as complete in d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b with status guard and supply-chain validation passing",
+            "ISSUE-0098 peer-cohort.v1 supplies the required adapter registration, point-in-time cohort, robust statistics, lineage and replay boundary while ISSUE-0099 retains financial-sector implementation"
+          ],
+          "review_reference": "B04 ISSUE-0099 readiness after complete ISSUE-0098 dependency review",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "status": "ready"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [
         "ISSUE-0098"
@@ -16024,7 +16035,7 @@
       "package_status": "",
       "phase": "phase-03-stock-research",
       "priority": "P0/P1",
-      "programme_status": "planned",
+      "programme_status": "ready",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0099-issue-0102-sector-specific-stock-adapters"
@@ -16054,7 +16065,7 @@
       ],
       "title": "Implement bank, insurer and diversified-financial sector adapters",
       "ui_requirement": "Financial Institutions section with solvency and asset-quality history.",
-      "verified_commit": "fc734201b138d3f24fa68d8c07422322506d6fc5",
+      "verified_commit": "d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b",
       "verified_date": "2026-07-28",
       "why": "Banks and insurers require solvency, asset quality, underwriting and funding metrics.",
       "write_conflict_group": "stock-research"
@@ -26450,7 +26461,7 @@
   ],
   "schema_version": "2.0",
   "source_of_truth": {
-    "baseline_commit": "389278a6a30e5fc96ce96d2c796de2f075bb3b60",
+    "baseline_commit": "d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b",
     "closed_ledger_sha256": "2dca7fd65f7a218747bcfb91b4e5c1f734af26f29114cc7dc83b071bb86838d8",
     "final_release_manifest_sha256": "dbb71ecaa2b81206ff922eec3dcc72cb08cc001121688b107e8f1c3a2372f685",
     "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -26462,7 +26473,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "05f317bd9651aaf59a344d3096727e517aea41800aaa58bd0b03584ab038ac68",
+    "programme_control_state_sha256": "975ca9558bcd45a396824603be1d5df5f65650bcc228d442f46309fd0081d144",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

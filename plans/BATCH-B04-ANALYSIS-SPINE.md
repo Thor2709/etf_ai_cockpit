@@ -206,3 +206,23 @@ the live GitHub projection remains the zero-action semantic plan
 `e9e91f058561411005a408eae8f1e1508d02c24c8b2427cfc08b5bc4ed6b6c4a`.
 No product, status, dependency-list, scope, acceptance, policy or authority
 change is included; `execution_allowed=false`.
+
+`VERIFIED` peer-framework edge PR #545 merged as
+`d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b` from reviewed head
+`9e2a59e5178f1634500519b82e59cfb0b004ecdd`. Status guard run
+`30310958193` and supply-chain run `30310958226` passed; the redundant
+evidence-only release run was cancelled. The live GitHub projection remained
+the zero-action plan
+`e9e91f058561411005a408eae8f1e1508d02c24c8b2427cfc08b5bc4ed6b6c4a`.
+
+`IN_PROGRESS` the separate guarded readiness transition advances only
+ISSUE-0099 `planned -> ready`. Its sole blocking dependency interface is
+reviewed complete while financial formulas, regulatory evidence, stress
+models, country variants and UI rationale remain unimplemented ISSUE-0099
+scope. The proposed 197-record registry has SHA-256
+`971a2df0cbe9d1d49b189d9fe19ec1afb7768f989f1f588016d1ad2b6e132ea0`.
+The reviewed GitHub plan contains exactly one Programme-status update for open
+issue #239 with semantic SHA-256
+`d66bd2acc35adf35bb4b0b33678d2dda5ba31106df7d1d8f83c588c672b4c2bd`.
+No product, dependency, scope, acceptance, policy or authority change is
+included; `execution_allowed=false`.

@@ -1,0 +1,29 @@
+{
+  "actions": [
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Programme status"
+      ],
+      "remote_number": 239,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0099",
+      "title": "Implement bank, insurer and diversified-financial sector adapters",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/239"
+    }
+  ],
+  "apply_authority": false,
+  "fresh_exact_plan_required_for_apply": true,
+  "plan_semantic_sha256": "d66bd2acc35adf35bb4b0b33678d2dda5ba31106df7d1d8f83c588c672b4c2bd",
+  "remote_inventory_sha256": "ae6f18eddbceb1f2366f171a3e2cca0801405834335ee354b6ab4509d81ab4d5",
+  "repository": "Thor2709/etf_ai_cockpit",
+  "schema_version": "etf-ai-cockpit.safe-sync-evidence/1.0",
+  "summary": {
+    "blocked": 0,
+    "close": 0,
+    "create": 0,
+    "reopen": 0,
+    "update": 1
+  },
+  "transient_full_plan_file_sha256": "670007ff84d24af1aa9aa8e6408e5e68d3f701d9e8478b696e2aedadc42c2768"
+}
