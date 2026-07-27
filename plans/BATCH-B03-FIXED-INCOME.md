@@ -434,3 +434,31 @@ market-data field rather than overstating the macro warehouse. Nine focused
 macro/bitemporal tests and Ruff pass; the status guard, registry validation,
 generation/freshness checks, 108 control/programme/UI tests and diff hygiene
 pass.
+
+`VERIFIED` evidence-only PR #521 merged the ISSUE-0155→ISSUE-0088 partial
+macro-data edge as `6ac65c216e39a89a93222adb349398f13fba894b`. Status guard
+run `30243901856` and supply-chain run `30243901887` passed; redundant release
+run `30243901806` was cancelled under programme policy. The GitHub projection
+remained the zero-action plan
+`17a2d232ab37285969da9250114747ba30a607d5c8bb9d8c9b9e2c02e50582d8`.
+
+`IN_PROGRESS` the fourth ISSUE-0155 readiness review records only the
+ISSUE-0155→ISSUE-0149 edge `unresolved -> partial_interface`. The existing
+`legal-terms.v1` registry supplies fail-closed cache, redistribution and audit
+export decisions, terms-change review and professional-review visibility.
+ECB, ESMA FIRDS/FITRS and FINRA/TRACE have no source-specific approved terms
+records, while ISSUE-0149 remains `hardening_required`; ISSUE-0155 may define
+disabled adapters but must not enable those sources before reviewed records
+exist. ISSUE-0155 remains planned and ISSUE-0153 remains unresolved. The
+regenerated registry has SHA-256
+`555a2019c37d669b12c94d52bbbf4f77e6235e65d3bdf106247b3054d49832cd`;
+the GitHub projection remains the zero-action plan
+`17a2d232ab37285969da9250114747ba30a607d5c8bb9d8c9b9e2c02e50582d8`.
+No product, provider, dependency-list, scope, acceptance, status, safety or
+authority change is authorised.
+
+`VERIFIED` partial-interface review confirms the generic legal gate fails
+closed and does not imply approval for any named fixed-income source. Eight
+focused legal/UI tests and Ruff pass; the status guard, registry validation,
+generation/freshness checks, 108 control/programme/UI tests and diff hygiene
+pass.
