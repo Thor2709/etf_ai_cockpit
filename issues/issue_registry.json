@@ -21933,6 +21933,16 @@
           "reviewed_date": "2026-07-27",
           "reviewer": "Codex root orchestrator",
           "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "PR #536 merged implemented_initially evidence as 9c3dbf16aa68f7f9c96878361f06fef2e507f7e3 after status-transition guard 30261402474 and supply-chain run 30261402439 passed",
+            "Checksum-approved GitHub plan 554ea6e37cdd22da85bf56a68cbe4f0b58280386fc4a00358194f59bc6e0001a applied only ISSUE-0156 and zero-action readback 63976673a6d8a69982e6c2be7141f413cb390c6edc2a705d8a3f4dcd8c10961a verified convergence"
+          ],
+          "review_reference": "B03 ISSUE-0156 final reviewed integration convergence",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -22015,7 +22025,7 @@
       "package_status": "planned",
       "phase": "phase-05-returns-risk-portfolio",
       "priority": "P0/P1",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -22035,7 +22045,7 @@
       "source_record_id": "ISSUE-0156",
       "source_title": "Implement fixed-income rate, curve, spread, credit, liquidity and optionality risk",
       "title": "Implement fixed-income rate, curve, spread, credit, liquidity and optionality risk",
-      "verified_commit": "379bb8a73a76c3e43d2fcfaaad3ef9927306228c",
+      "verified_commit": "9c3dbf16aa68f7f9c96878361f06fef2e507f7e3",
       "verified_date": "2026-07-27",
       "write_conflict_group": "returns-and-risk"
     },
@@ -26385,7 +26395,7 @@
   ],
   "schema_version": "2.0",
   "source_of_truth": {
-    "baseline_commit": "379bb8a73a76c3e43d2fcfaaad3ef9927306228c",
+    "baseline_commit": "9c3dbf16aa68f7f9c96878361f06fef2e507f7e3",
     "closed_ledger_sha256": "2dca7fd65f7a218747bcfb91b4e5c1f734af26f29114cc7dc83b071bb86838d8",
     "final_release_manifest_sha256": "dbb71ecaa2b81206ff922eec3dcc72cb08cc001121688b107e8f1c3a2372f685",
     "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -26397,7 +26407,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "9e8a86e86f02cd648e6bcafe193f9a7996114881da6e5a087a82689cb9fbcc80",
+    "programme_control_state_sha256": "86190e7e38616c989c1015066eadb946088a29e0a0f874ae5647e9d4c463b9c6",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

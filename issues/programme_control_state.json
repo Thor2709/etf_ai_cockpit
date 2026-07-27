@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "379bb8a73a76c3e43d2fcfaaad3ef9927306228c",
+    "generation_base_commit": "9c3dbf16aa68f7f9c96878361f06fef2e507f7e3",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4989,6 +4989,16 @@
           "reviewed_date": "2026-07-27",
           "reviewer": "Codex root orchestrator",
           "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "PR #536 merged implemented_initially evidence as 9c3dbf16aa68f7f9c96878361f06fef2e507f7e3 after status-transition guard 30261402474 and supply-chain run 30261402439 passed",
+            "Checksum-approved GitHub plan 554ea6e37cdd22da85bf56a68cbe4f0b58280386fc4a00358194f59bc6e0001a applied only ISSUE-0156 and zero-action readback 63976673a6d8a69982e6c2be7141f413cb390c6edc2a705d8a3f4dcd8c10961a verified convergence"
+          ],
+          "review_reference": "B03 ISSUE-0156 final reviewed integration convergence",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "status": "integrated"
         }
       ],
       "dependency_edge_evidence": {
@@ -5042,11 +5052,11 @@
         }
       },
       "phase": "phase-05-returns-risk-portfolio",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
-        "from": "in_progress",
-        "review_reference": "B03 ISSUE-0156 reviewed fixed-income risk product merge",
-        "to": "implemented_initially"
+        "from": "implemented_initially",
+        "review_reference": "B03 ISSUE-0156 final reviewed integration convergence",
+        "to": "integrated"
       },
       "transition_history": [
         {
@@ -5195,9 +5205,22 @@
           "reviewer": "Codex root orchestrator",
           "to": "implemented_initially",
           "verified_commit": "379bb8a73a76c3e43d2fcfaaad3ef9927306228c"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #536 merged implemented_initially evidence as 9c3dbf16aa68f7f9c96878361f06fef2e507f7e3 after status-transition guard 30261402474 and supply-chain run 30261402439 passed",
+            "Checksum-approved GitHub plan 554ea6e37cdd22da85bf56a68cbe4f0b58280386fc4a00358194f59bc6e0001a applied only ISSUE-0156 and zero-action readback 63976673a6d8a69982e6c2be7141f413cb390c6edc2a705d8a3f4dcd8c10961a verified convergence"
+          ],
+          "from": "implemented_initially",
+          "review_reference": "B03 ISSUE-0156 final reviewed integration convergence",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "to": "integrated",
+          "verified_commit": "9c3dbf16aa68f7f9c96878361f06fef2e507f7e3"
         }
       ],
-      "verified_commit": "379bb8a73a76c3e43d2fcfaaad3ef9927306228c",
+      "verified_commit": "9c3dbf16aa68f7f9c96878361f06fef2e507f7e3",
       "verified_date": "2026-07-27"
     },
     "ISSUE-0157": {
