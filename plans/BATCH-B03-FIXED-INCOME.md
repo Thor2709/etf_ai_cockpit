@@ -712,3 +712,39 @@ acceptance criteria, ISSUE-0154/ISSUE-0155 edges and authority. The schema-1.3
 dependency guard, registry validation, all generation/freshness checks and
 diff hygiene pass; all 134 focused robust-risk, factor-risk, control,
 registry, completion, tracker, programme-map and UI tests pass.
+
+`VERIFIED` dependency-edge PR #530 merged as
+`7946829d29c58f0bbe06d399581e9865f7307a08` from reviewed head
+`4aff27211d54b10ecc7666b891d2ff0f8eb98dee`. Status-transition guard run
+`30253745818` and supply-chain run `30253745835` passed; redundant release run
+`30253748149` was cancelled under the evidence-only policy. The GitHub
+projection remained the zero-action plan
+`5e2de0865c00e34090849f765a065ae44ecd4ab9368463bf50dedb7fa6e92602`.
+
+`IN_PROGRESS` the third ISSUE-0156 dependency review covers only ISSUE-0154.
+PR #516 supplies the complete deterministic fixed-income valuation interface:
+certified contractual cash flows, clean/dirty and accrued conversions,
+price/yield round trips, exact YTC/YTW, duration, convexity, DV01/PV01, typed
+point-in-time curves, full parallel-shock repricing, observed-versus-model
+separation, differential quarantine and immutable audited replay. Twenty-four
+fresh analytics tests pass, including sign/unit, curve chronology, scenario,
+round-trip, persistence, corruption, concurrency and point-in-time cases.
+Key-rate, spread, credit, liquidity, optionality and portfolio scenario
+decomposition remain ISSUE-0156 work rather than gaps in this prerequisite.
+The registry moves from SHA-256
+`91733b64f830af90bcff4e3ba8087ef0b3de0bf0a7fd42c17929f885a22c18f6`
+to `854c103709b18a6a806dd842646c3b64a5951d0cc4116e076f9da67de3f65fe9`;
+the GitHub projection remains zero-action plan
+`5e2de0865c00e34090849f765a065ae44ecd4ab9368463bf50dedb7fa6e92602`.
+ISSUE-0156 stays planned, its ISSUE-0155 edge remains unresolved, and
+`execution_allowed=false`.
+
+Next action: record only ISSUE-0156→ISSUE-0154 as `complete`, regenerate
+deterministic evidence, and run the evidence-only protected control gates
+before merge.
+
+`VERIFIED` the one-edge diff preserves ISSUE-0156's planned status, scope,
+acceptance criteria, prior edges, unresolved ISSUE-0155 edge and authority.
+The schema-1.3 dependency guard, registry validation, all
+generation/freshness checks and diff hygiene pass; all 145 focused analytics,
+control, registry, completion, tracker, programme-map and UI tests pass.
