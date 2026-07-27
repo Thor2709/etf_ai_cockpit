@@ -21,6 +21,7 @@ from etf_cockpit.data.fixed_income_terms import (
     FixedIncomeTermsError,
     FixedIncomeTermsSchemaError,
     FixedIncomeTermsStore,
+    CouponSchedule,
     OptionalitySchedule,
     SettlementConvention,
     fixed_income_terms_exists,
@@ -35,6 +36,11 @@ from etf_cockpit.data.market_calendar import (
 )
 from etf_cockpit.application.api import LocalApplicationApi
 from etf_cockpit.application.ui_facade import load_fixed_income_terms_projection
+from etf_cockpit.analysis.fixed_income_analytics import (
+    FixedIncomeAnalyticsError,
+    calculate_fixed_income_analytics,
+    valuation_input_from_terms,
+)
 
 
 UTC = timezone.utc
@@ -172,6 +178,78 @@ def test_golden_fixed_rate_government_schedule_and_lineage(tmp_path: Path) -> No
     assert projection["pricing_allowed"] is False
     assert projection["terms"]["source_id"] == "official:prospectus"
     assert projection["terms"]["retrieved_at"] == "2024-01-03T00:00:00Z"
+
+
+def test_analytics_adapter_preserves_certified_schedule_and_rejects_lookahead(
+    tmp_path: Path,
+) -> None:
+    _identity(tmp_path, "BOND-00001")
+    terms = _terms()
+    with FixedIncomeTermsStore(tmp_path) as store:
+        store.append((terms,))
+        resolved = store.resolve(
+            terms.instrument_id,
+            effective_at=datetime(2025, 1, 1, tzinfo=UTC),
+            decision_time=datetime(2025, 1, 1, tzinfo=UTC),
+        )
+    valuation = valuation_input_from_terms(
+        terms,
+        resolved.coupon_schedule,
+        resolved.redemption_schedule,
+        settlement_date=date(2025, 1, 2),
+        decision_time=datetime(2025, 1, 2, tzinfo=UTC),
+        yield_to_maturity=Decimal("0.05"),
+    )
+    assert valuation.terms_version_id == terms.version_id
+    assert calculate_fixed_income_analytics(valuation).status == "partial"
+    with pytest.raises(FixedIncomeAnalyticsError, match="certified lineage"):
+        valuation_input_from_terms(
+            terms,
+            resolved.coupon_schedule,
+            resolved.redemption_schedule,
+            settlement_date=date(2024, 1, 2),
+            decision_time=datetime(2024, 1, 2, tzinfo=UTC),
+            yield_to_maturity=Decimal("0.05"),
+        )
+    altered_coupon = replace(
+        resolved.coupon_schedule.payments[0],
+        amount=Decimal("24"),
+    )
+    with pytest.raises(FixedIncomeAnalyticsError, match="certification"):
+        valuation_input_from_terms(
+            terms,
+            CouponSchedule(
+                resolved.coupon_schedule.instrument_id,
+                (altered_coupon, *resolved.coupon_schedule.payments[1:]),
+                resolved.coupon_schedule.source_version_id,
+            ),
+            resolved.redemption_schedule,
+            settlement_date=date(2025, 1, 2),
+            decision_time=datetime(2025, 1, 2, tzinfo=UTC),
+            yield_to_maturity=Decimal("0.05"),
+        )
+    unsupported = replace(terms, coupon_type="floating_rate")
+    with pytest.raises(FixedIncomeAnalyticsError, match="certified lineage"):
+        valuation_input_from_terms(
+            unsupported,
+            resolved.coupon_schedule,
+            resolved.redemption_schedule,
+            settlement_date=date(2025, 1, 2),
+            decision_time=datetime(2025, 1, 2, tzinfo=UTC),
+            yield_to_maturity=Decimal("0.05"),
+        )
+    future_effective = replace(
+        terms, valid_from=datetime(2025, 2, 1, tzinfo=UTC)
+    )
+    with pytest.raises(FixedIncomeAnalyticsError, match="certified lineage"):
+        valuation_input_from_terms(
+            future_effective,
+            resolved.coupon_schedule,
+            resolved.redemption_schedule,
+            settlement_date=date(2025, 1, 2),
+            decision_time=datetime(2025, 2, 2, tzinfo=UTC),
+            yield_to_maturity=Decimal("0.05"),
+        )
 
 
 def test_golden_zero_coupon_corporate_gbp_has_only_redemption(tmp_path: Path) -> None:

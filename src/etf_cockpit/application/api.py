@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timezone
 import hashlib
 import math
 from pathlib import Path
@@ -14,6 +14,17 @@ import uuid
 
 import pandas as pd
 
+from etf_cockpit.analysis.fixed_income_analytics import (
+    FixedIncomeAnalyticsError,
+    FixedIncomeValuationInput,
+    FixedIncomeValuationResult,
+    calculate_fixed_income_analytics,
+)
+from etf_cockpit.data.bond_analytics_store import (
+    BondAnalyticsRecord,
+    read_bond_analytics,
+    write_bond_analytics,
+)
 from etf_cockpit.application.contracts import (
     ApiStatus,
     ApplicationCommand,
@@ -142,6 +153,82 @@ class LocalApplicationApi:
         instruments = self.get_universe(PageRequest(offset=0, limit=500)).items
         rows = tuple(item.model_copy(update={"status": "available" if item.instrument_id in available else "unavailable"}) for item in instruments)
         return _page(rows, page)
+
+    def calculate_fixed_income_analytics(
+        self, valuation: FixedIncomeValuationInput
+    ) -> FixedIncomeValuationResult:
+        """Run deterministic analytics with no proposal or execution authority."""
+
+        return calculate_fixed_income_analytics(valuation)
+
+    def get_fixed_income_analytics(
+        self,
+        instrument_id: str,
+        *,
+        decision_time: datetime | None = None,
+    ) -> Mapping[str, object]:
+        """Read the latest persisted local analytics projection."""
+
+        unavailable: Mapping[str, object] = {
+            "status": "unavailable",
+            "instrument_id": str(instrument_id),
+            "reason_codes": ["fixed_income_analytics_unavailable"],
+            "execution_allowed": False,
+        }
+        path = self._root / "data" / "analytics" / "bond_analytics.parquet"
+        if not path.exists():
+            return unavailable
+        try:
+            rows = [
+                row
+                for row in read_bond_analytics(path)
+                if row["instrument_id"] == str(instrument_id)
+                and (
+                    decision_time is None
+                    or datetime.fromisoformat(str(row["decision_time"]))
+                    <= decision_time
+                )
+            ]
+            if not rows:
+                return unavailable
+            latest = max(
+                rows,
+                key=lambda row: (
+                    str(row["decision_time"]),
+                    str(row["calculated_at"]),
+                    str(row["record_id"]),
+                ),
+            )
+            result = latest["result"]
+            return result if isinstance(result, Mapping) else unavailable
+        except (FixedIncomeAnalyticsError, OSError, TypeError, ValueError):
+            return dict(unavailable) | {
+                "reason_codes": ["fixed_income_analytics_invalid"]
+            }
+
+    def calculate_and_persist_fixed_income_analytics(
+        self, valuation: FixedIncomeValuationInput
+    ) -> Mapping[str, object]:
+        """Calculate, atomically persist, and replay one canonical local record."""
+
+        result = calculate_fixed_income_analytics(valuation)
+        record = BondAnalyticsRecord(
+            record_id=str(uuid.uuid4()),
+            calculated_at=datetime.now(timezone.utc),
+            input=valuation,
+            result=result,
+        )
+        path = self._root / "data" / "analytics" / "bond_analytics.parquet"
+        write_bond_analytics(path, (record,))
+        matches = [
+            row
+            for row in read_bond_analytics(path)
+            if row["record_id"] == record.record_id
+        ]
+        replay = matches[0]["result"] if len(matches) == 1 else None
+        if not isinstance(replay, Mapping) or replay.get("input_hash") != result.input_hash:
+            raise FixedIncomeAnalyticsError("persisted analytics replay mismatch")
+        return replay
 
     def get_fixed_income_terms(
         self,

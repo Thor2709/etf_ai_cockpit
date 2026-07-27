@@ -240,3 +240,60 @@ canonical status. All 108 focused control, status, registry, completion,
 programme and UI tests pass; Ruff and diff hygiene pass. Because a test file
 changes, this transition requires the full protected Linux and Windows release
 path before merge.
+
+`IN_PROGRESS` ISSUE-0154 product implementation starts from fresh merged
+`main` at `570eb3fc22d1a9595ed601fe56460c54e9850d8e`; canonical and GitHub
+issue #433 are both `in_progress`. The bounded outcome is one deterministic
+fixed-rate/zero-coupon analytics path with explicit settlement, yield and
+curve conventions, read-only application/API/Instrument Detail projection,
+and audit lineage. The ISSUE-0088 curve edge remains partial: missing or
+ambiguous tenor, curve type, interpolation, units, source, checksum or as-of
+evidence must be unavailable or quarantined. No new dependency, provider
+adapter, portfolio risk, recommendation, order authority, unvalidated OAS,
+dealer quotation, broker write or live execution is in scope.
+
+Next action: one `sol_worker` implements and focused-tests the smallest usable
+ISSUE-0154 slice; root then reviews the complete diff for financial,
+point-in-time, authority and UI-boundary correctness before the protected
+Linux/Windows release gate.
+
+`BLOCKED` root review rejected the uncommitted ISSUE-0154 product diff after
+the single permitted worker correction. The corrected financial calculations,
+curve chronology and outer authority checks pass 65 focused tests, Ruff,
+compile and diff hygiene. Three contract failures remain: the application
+persist operation rewrites `bond_analytics.parquet` with one record and loses
+all prior instruments/history; a result changed after calculation is accepted
+because replay does not bind or recompute the result payload; and a valuation
+with no typed curve evidence reports overall `available` while curve/model
+value is absent and no curve-unavailable limitation is emitted. Direct
+terms-adapter/API replay and multi-call exact-YTW tests also remain absent.
+No product commit, PR, merge, status transition or GitHub update is made.
+Canonical ISSUE-0154 and GitHub #433 remain `in_progress`;
+`execution_allowed=false`.
+
+`IN_PROGRESS` a fresh bounded repair resumes from the same isolated
+`570eb3fc22d1a9595ed601fe56460c54e9850d8e` worktree. It owns only the
+review-proven blockers: append-safe/concurrent analytics history, result-payload
+integrity and deterministic replay, explicit partial/unavailable curve state,
+terms-adapter/API persistence coverage, and exact multi-call YTW coverage.
+No formula, provider, portfolio, recommendation, execution or issue-scope
+expansion is authorised. Next action: one `sol_worker` completes those repairs
+and focused tests; root then reviews the entire accumulated ISSUE-0154 diff.
+
+`VERIFIED` the bounded ISSUE-0154 product diff now supplies one canonical
+fixed-rate/zero-coupon calculation path, explicit yield and curve conventions,
+certified point-in-time terms adaptation, append-safe transactional history,
+checksum-bound deterministic replay, read-only application/API projection and
+Instrument Detail evidence. Root review reproduced and closed contradictory
+price/yield input, invalid coupon, schedule-tampering, curve-basis, chronology,
+projection-divergence and historical-selection failures. Missing typed curve
+evidence remains explicit `partial`; the local differential harness preserves
+the stated external-library limitation. Fresh local evidence is 185 focused
+analytics, terms, calendar, application, UI and architecture tests passing,
+with Ruff, compile and diff hygiene passing. No provider, portfolio,
+recommendation, broker-write or execution authority was added, and
+`execution_allowed=false`.
+
+Next action: checkpoint the reviewed branch, open its feature PR and require
+the full protected Linux and Windows packaged gate before merge or status
+transition.
