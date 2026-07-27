@@ -71,6 +71,18 @@ def test_instrument_detail_selector_uses_read_only_terms_facade(monkeypatch) -> 
         return _projection(selected)
 
     monkeypatch.setattr(selector, "load_fixed_income_terms_projection", load)
+    monkeypatch.setattr(
+        selector,
+        "load_fixed_income_analytics_projection",
+        lambda selected, **_kwargs: {
+            "status": "available",
+            "instrument_id": selected,
+            "clean_price": "99.5",
+            "curve_dirty_value": "100.7",
+            "curve_model_value": "99.5",
+            "execution_allowed": False,
+        },
+    )
     model = selector.build_instrument_detail(snapshot, instrument_id)
 
     assert captured["instrument_id"] == instrument_id
@@ -79,6 +91,8 @@ def test_instrument_detail_selector_uses_read_only_terms_facade(monkeypatch) -> 
         "official:prospectus"
     )
     assert model.sections["fixed_income_terms"]["execution_allowed"] is False
+    assert model.sections["fixed_income_analytics"]["curve_model_value"] == "99.5"
+    assert model.sections["fixed_income_analytics"]["execution_allowed"] is False
 
 
 def test_fixed_income_panel_has_acceptance_key_lineage_and_authority_warning() -> None:
@@ -96,3 +110,26 @@ def test_fixed_income_panel_has_acceptance_key_lineage_and_authority_warning() -
     assert "official:prospectus" in text
     assert "retrieved_at" in text
     assert "execution_allowed" in text
+
+
+def test_fixed_income_analytics_panel_exposes_clean_model_without_authority() -> None:
+    control = _render_evidence_section(
+        "Fixed-income analytics",
+        {
+            "status": "available",
+            "clean_price": "99.5",
+            "curve_dirty_value": "100.75",
+            "curve_model_value": "99.5",
+            "observed_clean_price": "99.0",
+            "execution_allowed": False,
+        },
+        subtitle="Clean and dirty model evidence; execution_allowed=false.",
+        key="instrument-detail.fixed-income-analytics",
+    )
+    controls = tuple(_walk(control))
+    assert "instrument-detail.fixed-income-analytics" in {
+        getattr(item, "key", None) for item in controls
+    }
+    assert "execution_allowed" in " ".join(
+        str(getattr(item, "value", "")) for item in controls
+    )

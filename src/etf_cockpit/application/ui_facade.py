@@ -8,6 +8,12 @@ ports and application commands.
 
 from pathlib import Path
 
+from etf_cockpit.analysis.fixed_income_analytics import (
+    FixedIncomeAnalyticsError,
+    FixedIncomeValuationInput,
+    calculate_fixed_income_analytics,
+)
+from etf_cockpit.data.bond_analytics_store import read_bond_analytics
 
 from etf_cockpit.chatgpt_bridge.audit_packet import *  # noqa: F401,F403
 from etf_cockpit.data.backup_restore import *  # noqa: F401,F403
@@ -260,6 +266,92 @@ def load_fixed_income_terms_projection(
         ValueError,
     ):
         return unavailable | {"reason_codes": ["fixed_income_terms_invalid"]}
+
+
+def calculate_fixed_income_analytics_projection(
+    valuation: FixedIncomeValuationInput,
+) -> dict[str, object]:
+    """Calculate and serialize analytics behind the application boundary."""
+
+    from dataclasses import asdict
+
+    projection = _analytics_jsonable(
+        asdict(calculate_fixed_income_analytics(valuation))
+    )
+    if not isinstance(projection, dict):
+        raise FixedIncomeAnalyticsError("analytics projection is invalid")
+    return projection
+
+
+def load_fixed_income_analytics_projection(
+    instrument_id: str,
+    *,
+    storage_root: Path | None = None,
+    decision_time: str | None = None,
+) -> dict[str, object]:
+    """Load the latest local analytics record, failing closed when unavailable."""
+
+    from datetime import datetime
+
+    from etf_cockpit.core.paths import ROOT
+
+    unavailable = {
+        "status": "unavailable",
+        "instrument_id": str(instrument_id),
+        "reason_codes": ["fixed_income_analytics_unavailable"],
+        "execution_allowed": False,
+    }
+    path = Path(storage_root or ROOT) / "data" / "analytics" / "bond_analytics.parquet"
+    if not path.exists():
+        return unavailable
+    try:
+        cutoff = (
+            datetime.fromisoformat(decision_time.replace("Z", "+00:00"))
+            if decision_time
+            else None
+        )
+        matches = [
+            row
+            for row in read_bond_analytics(path)
+            if row["instrument_id"] == str(instrument_id)
+            and (
+                cutoff is None
+                or datetime.fromisoformat(str(row["decision_time"])) <= cutoff
+            )
+        ]
+        if not matches:
+            return unavailable
+        latest = max(
+            matches,
+            key=lambda row: (
+                str(row["decision_time"]),
+                str(row["calculated_at"]),
+                str(row["record_id"]),
+            ),
+        )
+        result = latest["result"]
+        return dict(result) if isinstance(result, dict) else unavailable
+    except (FixedIncomeAnalyticsError, OSError, TypeError, ValueError):
+        return unavailable | {"reason_codes": ["fixed_income_analytics_invalid"]}
+
+
+def _analytics_jsonable(value: object) -> object:
+    from datetime import date, datetime
+    from decimal import Decimal
+    from enum import Enum
+    from collections.abc import Mapping
+
+    if isinstance(value, Decimal):
+        return format(value, "f")
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, Mapping):
+        return {str(key): _analytics_jsonable(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_analytics_jsonable(item) for item in value]
+    return value
 
 
 def load_classification_projection(

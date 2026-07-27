@@ -475,3 +475,26 @@ configuration and tests.
 | proposal | advisory or paper artefact with no broker-write authority |
 | certification lane | independently gated capability such as research, paper or broker read-only |
 | programme status | registry-owned implementation evidence state, not runtime authority |
+
+## Fixed-income analytics contract
+
+`fixed-income-analytics.v1` is the canonical deterministic calculation
+contract for supported fixed-rate and zero-coupon bonds. Application and UI
+surfaces consume its serialized result and never recalculate bond formulas.
+Yield and curve compounding/day-count conventions are explicit and remain
+separate.
+Missing typed curve evidence produces a `partial` result with
+`curve_status=unavailable`; price/yield facts remain usable while curve model
+values and scenarios remain unavailable. Invalid, conflicted, or future-known
+evidence fails closed.
+
+The local `data/analytics/bond_analytics.parquet` file is an atomic analytical
+projection of immutable version-1 records serialized through the repository
+transactional store. Publication holds the transactional write lock while it
+projects the complete retained history, so concurrent distinct appends cannot
+silently replace each other and a failed publication preserves the preceding
+valid generation. Record identity is immutable; exact retries are idempotent
+and changed content under the same identity is rejected. Each row binds the
+typed input hash and result checksum, and reads reconstruct the input and
+re-run the canonical calculator before returning data. Unknown or altered
+schemas, hashes, authority, chronology, or results fail closed.

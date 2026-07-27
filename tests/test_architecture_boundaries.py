@@ -21,3 +21,14 @@ def test_diagnostics_boundary_report_is_user_visible() -> None:
 
     assert report["boundary"] == "presentation-to-application"
     assert report["status"] == "passed"
+
+
+def test_fixed_income_analysis_has_no_concrete_persistence_imports() -> None:
+    source = (
+        Path("src/etf_cockpit/analysis/fixed_income_analytics.py")
+        .read_text(encoding="utf-8")
+    )
+    assert "import pandas" not in source
+    assert "core.atomic_io" not in source
+    assert "data.local_storage" not in source
+    assert "sqlite3" not in source

@@ -413,6 +413,12 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
     )
     rows = [
         _render_evidence_section(
+            "Fixed-income analytics",
+            model.sections.get("fixed_income_analytics"),
+            subtitle="Deterministic clean/dirty price, yield, risk, curve and scenario evidence; observed and model values remain separate and execution_allowed=false.",
+            key="instrument-detail.fixed-income-analytics",
+        ),
+        _render_evidence_section(
             "Fixed-income terms and contractual cash flows",
             model.sections.get("fixed_income_terms"),
             subtitle="Versioned terms, coupon/redemption schedule, source lineage, overlays, conflicts and unsupported structures; pricing, proposals and execution remain disabled.",
