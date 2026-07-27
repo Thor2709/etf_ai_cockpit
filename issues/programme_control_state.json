@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "575ec0ab7c7e86f066c763022ea2dfaf397dd53d",
+    "generation_base_commit": "75e30d4e7851e7fdb557a249e1d676fc7e72db37",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4398,7 +4398,20 @@
       "verified_date": "2026-07-27"
     },
     "ISSUE-0154": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #511 merged the ISSUE-0153 fixed-income terms edge as bc2e8ad35ad4989056abe24528a04374dcf48c3c",
+            "PR #512 merged the ISSUE-0085 certified market-calendar edge as 575ec0ab7c7e86f066c763022ea2dfaf397dd53d",
+            "PR #513 merged the bounded ISSUE-0088 risk-free and benchmark observation edge as partial_interface in 75e30d4e7851e7fdb557a249e1d676fc7e72db37",
+            "All three edge proposals passed deterministic guards, focused contract tests and supply-chain checks; scope, acceptance criteria and execution_allowed=false remain unchanged"
+          ],
+          "review_reference": "B03 ISSUE-0154 dependency-readiness review after all three blocking interfaces converged",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "status": "ready"
+        }
+      ],
       "dependency_edge_evidence": {
         "ISSUE-0085": {
           "contract_reference": "B03/ISSUE-0085/canonical-market-calendar-schedule-v1",
@@ -4441,11 +4454,11 @@
         }
       },
       "phase": "phase-05-returns-risk-portfolio",
-      "programme_status": "planned",
+      "programme_status": "ready",
       "status_transition": {
         "from": "planned",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "planned"
+        "review_reference": "B03 ISSUE-0154 dependency-readiness review after all three blocking interfaces converged",
+        "to": "ready"
       },
       "transition_history": [
         {
@@ -4534,9 +4547,24 @@
           "reviewed_date": "2026-07-27",
           "reviewer": "Codex root orchestrator",
           "verified_commit": "575ec0ab7c7e86f066c763022ea2dfaf397dd53d"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #511 merged the ISSUE-0153 fixed-income terms edge as bc2e8ad35ad4989056abe24528a04374dcf48c3c",
+            "PR #512 merged the ISSUE-0085 certified market-calendar edge as 575ec0ab7c7e86f066c763022ea2dfaf397dd53d",
+            "PR #513 merged the bounded ISSUE-0088 risk-free and benchmark observation edge as partial_interface in 75e30d4e7851e7fdb557a249e1d676fc7e72db37",
+            "All three edge proposals passed deterministic guards, focused contract tests and supply-chain checks; scope, acceptance criteria and execution_allowed=false remain unchanged"
+          ],
+          "from": "planned",
+          "review_reference": "B03 ISSUE-0154 dependency-readiness review after all three blocking interfaces converged",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "to": "ready",
+          "verified_commit": "75e30d4e7851e7fdb557a249e1d676fc7e72db37"
         }
       ],
-      "verified_commit": "575ec0ab7c7e86f066c763022ea2dfaf397dd53d",
+      "verified_commit": "75e30d4e7851e7fdb557a249e1d676fc7e72db37",
       "verified_date": "2026-07-27"
     },
     "ISSUE-0155": {
