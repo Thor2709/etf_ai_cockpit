@@ -490,3 +490,31 @@ authority change is authorised.
 Twenty-seven focused fixed-income terms/UI tests and Ruff pass; the status
 guard, registry validation, generation/freshness checks, 108
 control/programme/UI tests and diff hygiene pass.
+
+`VERIFIED` evidence-only PR #523 merged the ISSUE-0155→ISSUE-0153 terms edge
+as `d2947d32740a475e3fb0b41795d1e52d41841961`. Status guard run
+`30244912786` and supply-chain run `30244912771` passed; redundant release run
+`30244912765` was cancelled under programme policy. The GitHub projection
+remained the zero-action plan
+`17a2d232ab37285969da9250114747ba30a607d5c8bb9d8c9b9e2c02e50582d8`.
+
+`IN_PROGRESS` the separately guarded ISSUE-0155 `planned -> ready` proposal is
+supported by all five reviewed blocking interfaces. It preserves the
+ISSUE-0088 macro-data and ISSUE-0149 legal-terms partial-interface limitations:
+ECB, ESMA and FINRA adapters remain disabled until source-specific legal
+approval, and absent market evidence remains unavailable rather than inferred.
+The 197-record registry has base SHA-256
+`7f90e71ec7d80d0e050c58ca12f8aacf097ea83a9691b4cd1c197444735ef1c7`
+and proposed SHA-256
+`08dd7a615af1a75c597442dd15ce5a4cb663db8911f63a86c595b1068738a697`.
+The reviewed GitHub plan contains exactly one Programme status update for open
+remote #434, has semantic SHA-256
+`a6f4b964f8fdddcf9f4d2b247c37110a5d69f82f2a743eff0ca6c0b531c8d448`,
+and preserves `execution_allowed=false`. No product, dependency, scope,
+acceptance, safety, batch or authority change is authorised.
+
+`VERIFIED` the readiness transition, exact one-action GitHub projection,
+status guard, registry validation and deterministic generation/freshness
+checks pass. All 108 focused control, status, registry, completion, programme
+and UI tests pass; diff hygiene passes. The change is restricted to generated
+control/evidence artifacts and qualifies for the evidence-only fast path.

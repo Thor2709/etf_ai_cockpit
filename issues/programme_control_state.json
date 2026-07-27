@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "2e5aea8339589763f46a3b23416e5ec194d938f7",
+    "generation_base_commit": "d2947d32740a475e3fb0b41795d1e52d41841961",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4639,7 +4639,22 @@
       "verified_date": "2026-07-27"
     },
     "ISSUE-0155": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #519 merged the ISSUE-0076 provider plugin-contract edge as c76f54f82d8101f6d1ce3bb0f0282ac68f3a4043",
+            "PR #520 merged the ISSUE-0081 resumable content-addressed bulk-cache edge as 06a77a2539a8b414944d380d0c39b18b29cfad7f",
+            "PR #521 merged the ISSUE-0088 macro/risk-free observation edge as partial_interface in 6ac65c216e39a89a93222adb349398f13fba894b",
+            "PR #522 merged the ISSUE-0149 legal-terms gate edge as partial_interface in 2e5aea8339589763f46a3b23416e5ec194d938f7",
+            "PR #523 merged the ISSUE-0153 fixed-income terms edge as d2947d32740a475e3fb0b41795d1e52d41841961",
+            "All five edges passed deterministic guards and focused contract tests; ECB, ESMA and FINRA adapters remain disabled until source-specific legal approval, missing market evidence remains unavailable, and execution_allowed=false is unchanged"
+          ],
+          "review_reference": "B03 ISSUE-0155 dependency-readiness review after all five blocking interfaces converged",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "status": "ready"
+        }
+      ],
       "dependency_edge_evidence": {
         "ISSUE-0076": {
           "contract_reference": "B03/ISSUE-0076/plugin-provider-contract-v1",
@@ -4703,11 +4718,11 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "planned",
+      "programme_status": "ready",
       "status_transition": {
         "from": "planned",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "planned"
+        "review_reference": "B03 ISSUE-0155 dependency-readiness review after all five blocking interfaces converged",
+        "to": "ready"
       },
       "transition_history": [
         {
@@ -4844,9 +4859,26 @@
           "reviewed_date": "2026-07-27",
           "reviewer": "Codex root orchestrator",
           "verified_commit": "2e5aea8339589763f46a3b23416e5ec194d938f7"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #519 merged the ISSUE-0076 provider plugin-contract edge as c76f54f82d8101f6d1ce3bb0f0282ac68f3a4043",
+            "PR #520 merged the ISSUE-0081 resumable content-addressed bulk-cache edge as 06a77a2539a8b414944d380d0c39b18b29cfad7f",
+            "PR #521 merged the ISSUE-0088 macro/risk-free observation edge as partial_interface in 6ac65c216e39a89a93222adb349398f13fba894b",
+            "PR #522 merged the ISSUE-0149 legal-terms gate edge as partial_interface in 2e5aea8339589763f46a3b23416e5ec194d938f7",
+            "PR #523 merged the ISSUE-0153 fixed-income terms edge as d2947d32740a475e3fb0b41795d1e52d41841961",
+            "All five edges passed deterministic guards and focused contract tests; ECB, ESMA and FINRA adapters remain disabled until source-specific legal approval, missing market evidence remains unavailable, and execution_allowed=false is unchanged"
+          ],
+          "from": "planned",
+          "review_reference": "B03 ISSUE-0155 dependency-readiness review after all five blocking interfaces converged",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "to": "ready",
+          "verified_commit": "d2947d32740a475e3fb0b41795d1e52d41841961"
         }
       ],
-      "verified_commit": "2e5aea8339589763f46a3b23416e5ec194d938f7",
+      "verified_commit": "d2947d32740a475e3fb0b41795d1e52d41841961",
       "verified_date": "2026-07-27"
     },
     "ISSUE-0156": {
