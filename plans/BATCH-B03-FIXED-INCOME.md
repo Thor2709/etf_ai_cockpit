@@ -906,3 +906,24 @@ API tests; the earlier 103 architecture/documentation/application/Instrument
 Detail checks also passed. Ruff, compileall, scoped MyPy for both new modules
 and diff hygiene pass. Repository-wide transitive MyPy remains an existing
 baseline with missing third-party stubs and unrelated historical errors.
+
+`VERIFIED` product PR #535 merged the exact 13-file reviewed product tree as
+`379bb8a73a76c3e43d2fcfaaad3ef9927306228c`. Protected runs
+`30257803363` and `30259488969` completed Linux and Windows package build,
+artefacts, source/package parity, packaged smoke, performance, source, cache,
+security, privacy, legal and SBOM checks. The diagnostic control refresh
+reduced full-suite failures to only the previously authorised B03
+classification-score invalidation assertion; no ISSUE-0156 or changed-path
+test failed. Current-head supply-chain run `30260932938` passed and
+`execution_allowed=false` remained fixed.
+
+`IN_PROGRESS` the evidence-only convergence advances only ISSUE-0156
+`in_progress -> implemented_initially` with verified product commit
+`379bb8a73a76c3e43d2fcfaaad3ef9927306228c`. The canonical registry retains
+197 records and proposed SHA-256
+`ebe2a113b1fa86b212c11642aa2e2bf06e0462ead74271fd35c428fd53602f0c`.
+The reviewed GitHub plan contains exactly one Programme-status update for open
+issue #435 with semantic SHA-256
+`554ea6e37cdd22da85bf56a68cbe4f0b58280386fc4a00358194f59bc6e0001a`.
+No product, dependency, scope, acceptance, policy or authority change is
+included.
