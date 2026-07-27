@@ -21727,7 +21727,22 @@
         "Terms/licence/retention approval exists before enabling an adapter.",
         "Missing tape/quote prevents precise liquidity/execution claims."
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #519 merged the ISSUE-0076 provider plugin-contract edge as c76f54f82d8101f6d1ce3bb0f0282ac68f3a4043",
+            "PR #520 merged the ISSUE-0081 resumable content-addressed bulk-cache edge as 06a77a2539a8b414944d380d0c39b18b29cfad7f",
+            "PR #521 merged the ISSUE-0088 macro/risk-free observation edge as partial_interface in 6ac65c216e39a89a93222adb349398f13fba894b",
+            "PR #522 merged the ISSUE-0149 legal-terms gate edge as partial_interface in 2e5aea8339589763f46a3b23416e5ec194d938f7",
+            "PR #523 merged the ISSUE-0153 fixed-income terms edge as d2947d32740a475e3fb0b41795d1e52d41841961",
+            "All five edges passed deterministic guards and focused contract tests; ECB, ESMA and FINRA adapters remain disabled until source-specific legal approval, missing market evidence remains unavailable, and execution_allowed=false is unchanged"
+          ],
+          "review_reference": "B03 ISSUE-0155 dependency-readiness review after all five blocking interfaces converged",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "status": "ready"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [
         "ISSUE-0076",
@@ -21823,7 +21838,7 @@
       "package_status": "planned",
       "phase": "phase-02-data-policy-identity",
       "priority": "P0/P1",
-      "programme_status": "planned",
+      "programme_status": "ready",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -21843,7 +21858,7 @@
       "source_record_id": "ISSUE-0155",
       "source_title": "Add fixed-income reference, curve, trade and liquidity data adapters",
       "title": "Add fixed-income reference, curve, trade and liquidity data adapters",
-      "verified_commit": "2e5aea8339589763f46a3b23416e5ec194d938f7",
+      "verified_commit": "d2947d32740a475e3fb0b41795d1e52d41841961",
       "verified_date": "2026-07-27",
       "write_conflict_group": "data-platform"
     },
@@ -26289,7 +26304,7 @@
   ],
   "schema_version": "2.0",
   "source_of_truth": {
-    "baseline_commit": "2e5aea8339589763f46a3b23416e5ec194d938f7",
+    "baseline_commit": "d2947d32740a475e3fb0b41795d1e52d41841961",
     "closed_ledger_sha256": "2dca7fd65f7a218747bcfb91b4e5c1f734af26f29114cc7dc83b071bb86838d8",
     "final_release_manifest_sha256": "dbb71ecaa2b81206ff922eec3dcc72cb08cc001121688b107e8f1c3a2372f685",
     "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -26301,7 +26316,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "ef118e746485b19d1e254dfce06410fabf52a239dfd63716078d5f6f5434ba65",
+    "programme_control_state_sha256": "3877952362d165da079a083e1e0a0630434c95e42360b55b02769b2f50263e58",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
