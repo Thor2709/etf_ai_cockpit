@@ -1,5 +1,12 @@
 # ETF AI Portfolio Cockpit — Master Build Specification
 
+> **LEGACY — historical ETF-only MVP build specification.** This document is
+> preserved for rationale and traceability. It is not the current architecture
+> or implementation source of truth. See the
+> [current SDD](../architecture/SDD.md), the
+> [canonical issue registry](../../issues/issue_registry.json), and the
+> [current-status artefact](../product-completion/CURRENT_STATUS.json).
+
 **Purpose of this file:** this Markdown file is the complete implementation specification for an AI coding agent to build a local desktop app for ETF buy/add/hold/trim/sell analysis over a **1-week to 9-month** horizon. It should be treated as the single source of truth for product design, architecture, algorithms, UI, model integration, testing, packaging, and implementation order.
 
 **Important scope note:** this app is not a licensed financial adviser and must not present outputs as guaranteed recommendations. It is a personal analysis and decision-support cockpit. Its default action must be **hold / no trade** unless evidence is strong, data is valid, and risk gates pass.
@@ -96,8 +103,8 @@ The app covers 1 week to 9 months, but weight horizons differently:
 | 3–6 months | medium-term allocation tilt | high |
 | 6–9 months | thesis/allocation review | medium |
 
-Primary decision horizon: **1–3 months**.  
-Secondary decision horizon: **3–6 months**.  
+Primary decision horizon: **1–3 months**.
+Secondary decision horizon: **3–6 months**.
 1-week horizon is **not** for aggressive trading; it is for alerts and entry timing.
 
 ---
@@ -3390,4 +3397,3 @@ Does this ETF deserve more, less, or the same weight in the portfolio over the n
 ```
 
 If a feature does not help answer that question, do not build it yet.
-
