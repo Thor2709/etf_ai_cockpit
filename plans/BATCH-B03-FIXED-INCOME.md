@@ -297,3 +297,28 @@ recommendation, broker-write or execution authority was added, and
 Next action: checkpoint the reviewed branch, open its feature PR and require
 the full protected Linux and Windows packaged gate before merge or status
 transition.
+
+`VERIFIED` product PR #516 preserved reviewed head
+`eb16e2b354166bfd83a620ca601406ad33287191` and merged as
+`571366c8d75fbf3afad17e6d9b0549d299c92e49`. Supply-chain run
+`30240413112` passed. Protected run `30240413171` completed every Linux and
+Windows package, parity, smoke, performance, safety and policy check. Its 19
+full-suite failures were reproduced exactly from an isolated worktree at base
+`570eb3fc22d1a9595ed601fe56460c54e9850d8e`: 18 stale-generation failures
+and the retained simple-score invalidation failure. No ISSUE-0154 test or
+changed-path gate failed.
+
+`IN_PROGRESS` the separate evidence-only convergence advances only ISSUE-0154
+`in_progress -> implemented_initially`. The 197-record registry has proposed
+SHA-256 `368db17a6a229e64ffa3c7d79a59caa83ef671187689e4af00591ae75102d27e`.
+The reviewed GitHub plan contains exactly one Programme status update for open
+#433 with semantic SHA-256
+`20ee9feb3f2d032da4287ea4a577c7657d2b6f09c4360bdee2bc12caf8f5c004`.
+No product, dependency, scope, acceptance, policy, safety or authority change
+is included, and `execution_allowed=false`.
+
+`VERIFIED` deterministic convergence review found no unrelated issue,
+dependency, edge-evidence, policy or authority mutation. The status guard,
+registry validation and all generation/freshness checks pass; 108 focused
+control, registry, tracker, programme-map and UI tests pass. The committed
+privacy-safe GitHub evidence identifies only ISSUE-0154's Programme status.
