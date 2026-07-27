@@ -462,3 +462,31 @@ closed and does not imply approval for any named fixed-income source. Eight
 focused legal/UI tests and Ruff pass; the status guard, registry validation,
 generation/freshness checks, 108 control/programme/UI tests and diff hygiene
 pass.
+
+`VERIFIED` evidence-only PR #522 merged the ISSUE-0155→ISSUE-0149 partial
+legal-terms edge as `2e5aea8339589763f46a3b23416e5ec194d938f7`. Status guard
+run `30244387504` and supply-chain run `30244387520` passed; redundant release
+run `30244387516` was cancelled under programme policy. The GitHub projection
+remained the zero-action plan
+`17a2d232ab37285969da9250114747ba30a607d5c8bb9d8c9b9e2c02e50582d8`.
+
+`IN_PROGRESS` the final ISSUE-0155 readiness review records only the
+ISSUE-0155→ISSUE-0153 edge `unresolved -> complete`. The integrated
+`fixed-income-terms-v1` contract supplies immutable security identity,
+versioned terms, certified coupon and redemption schedules, source checksums,
+known/retrieved chronology, point-in-time selection, conflict handling and
+unsupported-structure quarantine. All five dependency edges are now resolved:
+ISSUE-0076, ISSUE-0081 and ISSUE-0153 are complete; ISSUE-0088 and ISSUE-0149
+remain partial interfaces with their limitations explicit. ISSUE-0155 remains
+planned pending a separate readiness transition. The regenerated registry has
+SHA-256
+`7f90e71ec7d80d0e050c58ca12f8aacf097ea83a9691b4cd1c197444735ef1c7`;
+the GitHub projection remains the zero-action plan
+`17a2d232ab37285969da9250114747ba30a607d5c8bb9d8c9b9e2c02e50582d8`.
+No product, provider, dependency-list, scope, acceptance, status, safety or
+authority change is authorised.
+
+`VERIFIED` the terms dependency review is bounded to the existing contract.
+Twenty-seven focused fixed-income terms/UI tests and Ruff pass; the status
+guard, registry validation, generation/freshness checks, 108
+control/programme/UI tests and diff hygiene pass.

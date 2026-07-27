@@ -37,7 +37,7 @@ Deliver the bounded local-first data policy, identity and data platform work wit
 ## Blockers, dependencies and related links
 
 - Resolve only `blocking_dependencies` as prerequisites; `required_inputs` are policy/evidence inputs and do not block readiness. `downstream_issues` are generated reverse links and `related_issues` are context only.
-- The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-21-6ac65c2/dependency-reconciliation.csv`.
+- The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-21-2e5aea8/dependency-reconciliation.csv`.
 
 ## Issue coverage
 
