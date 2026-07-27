@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "8b2508c800b63ea779af709a56b7bc619278f80b",
+    "generation_base_commit": "7946829d29c58f0bbe06d399581e9865f7307a08",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4986,12 +4986,16 @@
           "state": "partial_interface"
         },
         "ISSUE-0154": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B03/ISSUE-0154/fixed-income-analytics-v1",
+          "evidence_references": [
+            "PR #516 merged reviewed ISSUE-0154 fixed-income analytics as 571366c8d75fbf3afad17e6d9b0549d299c92e49 after protected Linux and Windows package evidence",
+            "src/etf_cockpit/analysis/fixed_income_analytics.py provides certified cash-flow valuation, clean/dirty/accrued conversions, exact price-yield and YTC/YTW calculations, duration/convexity/DV01/PV01, typed point-in-time curves, full parallel-shock repricing, observed/model separation and fail-closed differential validation",
+            "tests/test_fixed_income_analytics.py passes 24 focused round-trip, accrual, call, curve chronology, scenario, sign/unit, persistence, corruption, concurrency, application and point-in-time tests; key-rate, spread, credit, liquidity, optionality and portfolio decomposition remain ISSUE-0156 scope"
+          ],
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         },
         "ISSUE-0155": {
           "contract_reference": "",
@@ -5063,9 +5067,36 @@
           "reviewed_date": "2026-07-27",
           "reviewer": "Codex root orchestrator",
           "verified_commit": "5606671df4e23eaf0a0fe98158a2e05a45557fe4"
+        },
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0154",
+            "evidence": {
+              "contract_reference": "B03/ISSUE-0154/fixed-income-analytics-v1",
+              "evidence_references": [
+                "PR #516 merged reviewed ISSUE-0154 fixed-income analytics as 571366c8d75fbf3afad17e6d9b0549d299c92e49 after protected Linux and Windows package evidence",
+                "src/etf_cockpit/analysis/fixed_income_analytics.py provides certified cash-flow valuation, clean/dirty/accrued conversions, exact price-yield and YTC/YTW calculations, duration/convexity/DV01/PV01, typed point-in-time curves, full parallel-shock repricing, observed/model separation and fail-closed differential validation",
+                "tests/test_fixed_income_analytics.py passes 24 focused round-trip, accrual, call, curve chronology, scenario, sign/unit, persistence, corruption, concurrency, application and point-in-time tests; key-rate, spread, credit, liquidity, optionality and portfolio decomposition remain ISSUE-0156 scope"
+              ],
+              "reviewed_date": "2026-07-27",
+              "reviewer": "Codex root orchestrator",
+              "schema_version": "1.0",
+              "state": "complete"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "PR #516 merged reviewed ISSUE-0154 fixed-income analytics as 571366c8d75fbf3afad17e6d9b0549d299c92e49 after protected Linux and Windows package evidence",
+            "src/etf_cockpit/analysis/fixed_income_analytics.py provides certified cash-flow valuation, clean/dirty/accrued conversions, exact price-yield and YTC/YTW calculations, duration/convexity/DV01/PV01, typed point-in-time curves, full parallel-shock repricing, observed/model separation and fail-closed differential validation",
+            "tests/test_fixed_income_analytics.py passes 24 focused round-trip, accrual, call, curve chronology, scenario, sign/unit, persistence, corruption, concurrency, application and point-in-time tests; key-rate, spread, credit, liquidity, optionality and portfolio decomposition remain ISSUE-0156 scope"
+          ],
+          "review_reference": "B03 ISSUE-0156 dependency review: ISSUE-0154 deterministic fixed-income analytics interface",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "verified_commit": "571366c8d75fbf3afad17e6d9b0549d299c92e49"
         }
       ],
-      "verified_commit": "5606671df4e23eaf0a0fe98158a2e05a45557fe4",
+      "verified_commit": "571366c8d75fbf3afad17e6d9b0549d299c92e49",
       "verified_date": "2026-07-27"
     },
     "ISSUE-0157": {
