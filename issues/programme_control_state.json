@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "8d8ce4f38e657dde6c282ef1d7191f4427134a07",
+    "generation_base_commit": "57262943fa3fb538216a97f6b595fbbfc23024fc",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4969,6 +4969,16 @@
           "reviewed_date": "2026-07-27",
           "reviewer": "Codex root orchestrator",
           "status": "ready"
+        },
+        {
+          "evidence_references": [
+            "PR #533 merged readiness as 57262943fa3fb538216a97f6b595fbbfc23024fc after status and supply-chain gates; GitHub #435 is open/ready with a zero-action readback",
+            "Implementation remains bounded to transparent fixed-income component risk, scenario reconciliation, read-only application/UI/audit exposure, explicit unknowns and execution_allowed=false; no provider acquisition, recommendations, optimiser changes, broker writes or live orders"
+          ],
+          "review_reference": "B03 ISSUE-0156 bounded implementation hand-off after readiness convergence",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "status": "in_progress"
         }
       ],
       "dependency_edge_evidence": {
@@ -5022,11 +5032,11 @@
         }
       },
       "phase": "phase-05-returns-risk-portfolio",
-      "programme_status": "ready",
+      "programme_status": "in_progress",
       "status_transition": {
-        "from": "planned",
-        "review_reference": "B03 ISSUE-0156 readiness after all four blocking dependency interfaces were reviewed",
-        "to": "ready"
+        "from": "ready",
+        "review_reference": "B03 ISSUE-0156 bounded implementation hand-off after readiness convergence",
+        "to": "in_progress"
       },
       "transition_history": [
         {
@@ -5149,9 +5159,22 @@
           "reviewer": "Codex root orchestrator",
           "to": "ready",
           "verified_commit": "8d8ce4f38e657dde6c282ef1d7191f4427134a07"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #533 merged readiness as 57262943fa3fb538216a97f6b595fbbfc23024fc after status and supply-chain gates; GitHub #435 is open/ready with a zero-action readback",
+            "Implementation remains bounded to transparent fixed-income component risk, scenario reconciliation, read-only application/UI/audit exposure, explicit unknowns and execution_allowed=false; no provider acquisition, recommendations, optimiser changes, broker writes or live orders"
+          ],
+          "from": "ready",
+          "review_reference": "B03 ISSUE-0156 bounded implementation hand-off after readiness convergence",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "to": "in_progress",
+          "verified_commit": "57262943fa3fb538216a97f6b595fbbfc23024fc"
         }
       ],
-      "verified_commit": "8d8ce4f38e657dde6c282ef1d7191f4427134a07",
+      "verified_commit": "57262943fa3fb538216a97f6b595fbbfc23024fc",
       "verified_date": "2026-07-27"
     },
     "ISSUE-0157": {
