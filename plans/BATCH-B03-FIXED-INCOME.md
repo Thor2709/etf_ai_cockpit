@@ -77,3 +77,29 @@ portfolio or execution scope is included and `execution_allowed=false`.
 Next action: checkpoint the reviewed branch, open its feature PR and require
 the full protected Linux and Windows packaged gate before merge or status
 transition.
+
+`VERIFIED` product PR #508 preserved reviewed head
+`33f4eb01a20fbeba6019b3aef974df7f0a003d8f` and merged as
+`4e1d2d819e0c99d5f9f109f1494db7352365916e`. Protected run `30232472307`
+completed the Linux and Windows package, parity, packaged smoke, performance,
+source, cache, security, privacy, legal and SBOM checks; supply-chain run
+`30232472248` passed. The 19 full-suite failures on each platform exactly
+matched protected `main` baseline run `30229667416`: 18 stale-generation
+control/registry failures and the unchanged classification-score invalidation
+assertion. No ISSUE-0153 test or current-feature gate failed.
+
+`IN_PROGRESS` the separate evidence-only convergence advances only ISSUE-0153
+`in_progress -> implemented_initially` against the merged product and protected
+evidence. The registry remains 197 records with proposed SHA-256
+`0e6c851624d3375fd6e9d41301dca6348fb5496099eca6989e379d2773a9484d`.
+The reviewed GitHub plan contains exactly one managed update for open issue
+#432 with semantic SHA-256
+`62d1eb324239be687583c4bd375b362fb9987867dc0c341d76dc3697c7590f49`;
+`execution_allowed=false`, scope, dependencies, acceptance criteria and batch
+composition remain unchanged.
+
+`VERIFIED` the deterministic convergence review found no unrelated status,
+scope, dependency, edge-evidence or authority mutation. The status guard,
+registry validation and all generation/freshness checks pass; 60 focused
+control, registry, tracker, programme-map and UI tests pass; the committed
+safe GitHub evidence identifies only ISSUE-0153's Programme status field.

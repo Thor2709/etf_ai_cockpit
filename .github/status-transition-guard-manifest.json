@@ -3,21 +3,21 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "ready",
+      "from": "in_progress",
       "issue_id": "ISSUE-0153",
-      "to": "in_progress"
+      "to": "implemented_initially"
     }
   ],
-  "base_commit": "5a6766c3a7520299cc2c058455ddcd7b2993dc8e",
-  "branch": "codex/b03-issue0153-in-progress-20260722",
+  "base_commit": "4e1d2d819e0c99d5f9f109f1494db7352365916e",
+  "branch": "codex/issue-0153-convergence-20260727",
   "issue_ids": ["ISSUE-0153"],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "1887ba4a3a49ca9bfc72de2ff2dc5f8f91a0da8592b80a9ae4462d34655caf4e",
+    "base_registry_sha256": "150e7fc892876c27c779ca7e0cea6405375c19c2e842ed03a5ac75e3a131546b",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "150e7fc892876c27c779ca7e0cea6405375c19c2e842ed03a5ac75e3a131546b",
-    "reason": "B03 ISSUE-0153 implementation hand-off: advance only ready to in_progress after ready convergence and verified GitHub readback; preserve batch composition, scope, dependencies, acceptance criteria, edge evidence, status semantics, policies and execution_allowed=false.",
+    "proposed_registry_sha256": "0e6c851624d3375fd6e9d41301dca6348fb5496099eca6989e379d2773a9484d",
+    "reason": "B03 ISSUE-0153 post-merge convergence: advance only in_progress to implemented_initially against merged product, focused tests and protected Linux/Windows evidence; preserve batch composition, scope, dependencies, acceptance criteria, edge evidence, policies and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
