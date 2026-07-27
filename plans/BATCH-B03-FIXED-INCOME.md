@@ -748,3 +748,41 @@ acceptance criteria, prior edges, unresolved ISSUE-0155 edge and authority.
 The schema-1.3 dependency guard, registry validation, all
 generation/freshness checks and diff hygiene pass; all 145 focused analytics,
 control, registry, completion, tracker, programme-map and UI tests pass.
+
+`VERIFIED` dependency-edge PR #531 merged as
+`5c02f8c3bd4bfdceb34a06abbe4b3b177987c1bf` from reviewed head
+`69de8caf9125378ab95bd6ec68f30fb69ece72f6`. Status-transition guard run
+`30254353156` and supply-chain run `30254353117` passed; redundant release run
+`30254353166` was cancelled under the evidence-only policy. The GitHub
+projection remained the zero-action plan
+`5e2de0865c00e34090849f765a065ae44ecd4ab9368463bf50dedb7fa6e92602`.
+
+`IN_PROGRESS` the final ISSUE-0156 dependency review covers only ISSUE-0155.
+PR #526 supplies the complete provider-neutral fixed-income market-evidence
+interface: immutable point-in-time price/yield/spread, typed curve-tenor and
+liquidity observations, source separation/conflict state, explicit
+indicative/evaluated/executable labels, legal/retention gates, coverage
+lineage, atomic provider isolation and read-only application projection.
+Fifteen fresh market-data tests pass for chronology, retrieval identity,
+concurrency, conflicts, curve typing, manual legal gates, disabled providers,
+liquidity precision, coverage, API/UI parity and execution denial. Remote
+ECB/ESMA/FINRA acquisition remains intentionally disabled pending
+source-specific approval; missing evidence stays unavailable and does not
+make the interface incomplete. The registry moves from SHA-256
+`854c103709b18a6a806dd842646c3b64a5951d0cc4116e076f9da67de3f65fe9`
+to `1c775f07efc78aa3bdcbfdffdaa6951d6018befd6985cf544c2fcbd328b7dbc9`;
+the GitHub projection remains zero-action plan
+`5e2de0865c00e34090849f765a065ae44ecd4ab9368463bf50dedb7fa6e92602`.
+ISSUE-0156 stays planned until a later separate readiness transition, and
+`execution_allowed=false`.
+
+Next action: record only ISSUE-0156→ISSUE-0155 as `complete`, regenerate
+deterministic evidence, and run the evidence-only protected control gates
+before merge.
+
+`VERIFIED` the one-edge diff preserves ISSUE-0156's planned status, scope,
+acceptance criteria, prior edges and authority while completing its final
+declared dependency review. The schema-1.3 dependency guard, registry
+validation, all generation/freshness checks and diff hygiene pass; all 136
+focused market-data, control, registry, completion, tracker, programme-map
+and UI tests pass.
