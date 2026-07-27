@@ -1,0 +1,29 @@
+{
+  "actions": [
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Programme status"
+      ],
+      "remote_number": 434,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0155",
+      "title": "Add fixed-income reference, curve, trade and liquidity data adapters",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/434"
+    }
+  ],
+  "apply_authority": false,
+  "fresh_exact_plan_required_for_apply": true,
+  "plan_semantic_sha256": "0de1dcfe0b9e4b2f91d32f8fe38c2bb361f0b85bb109ac7ada3d142a50fd80b2",
+  "remote_inventory_sha256": "782b772310fbd97ca06c46ce0f5df0dba77b89b09f1653036d31ae1328adcfbb",
+  "repository": "Thor2709/etf_ai_cockpit",
+  "schema_version": "etf-ai-cockpit.safe-sync-evidence/1.0",
+  "summary": {
+    "blocked": 0,
+    "close": 0,
+    "create": 0,
+    "reopen": 0,
+    "update": 1
+  },
+  "transient_full_plan_file_sha256": "13afc1caf763e3abd7a770c49c4c9d080d8a6f6bd9410be9298bc3526d035150"
+}

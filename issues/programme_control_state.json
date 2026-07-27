@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "d2947d32740a475e3fb0b41795d1e52d41841961",
+    "generation_base_commit": "d1a6a451284fb52e81d1f7bb3773ec8c3faa2847",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4653,6 +4653,18 @@
           "reviewed_date": "2026-07-27",
           "reviewer": "Codex root orchestrator",
           "status": "ready"
+        },
+        {
+          "evidence_references": [
+            "PR #524 merged the guarded ISSUE-0155 planned-to-ready transition as d1a6a451284fb52e81d1f7bb3773ec8c3faa2847",
+            "Protected status-transition run 30245425161 and supply-chain run 30245425173 passed; release run 30245425126 was cancelled under the evidence-only fast path",
+            "Checksum-approved GitHub plan a6f4b964f8fdddcf9f4d2b247c37110a5d69f82f2a743eff0ca6c0b531c8d448 applied exactly to open issue #434; zero-action readback 373fec787836cf6bbe007039228bc647594608dda6139646ee15dd10a5ef6353 verified ready state",
+            "The implementation hand-off remains bounded to provider-neutral schemas, local/manual imports and disabled provider definitions; ECB, ESMA and FINRA remain disabled, missing market evidence stays unavailable and execution_allowed=false"
+          ],
+          "review_reference": "B03 ISSUE-0155 implementation hand-off after guarded readiness convergence",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "status": "in_progress"
         }
       ],
       "dependency_edge_evidence": {
@@ -4718,11 +4730,11 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "ready",
+      "programme_status": "in_progress",
       "status_transition": {
-        "from": "planned",
-        "review_reference": "B03 ISSUE-0155 dependency-readiness review after all five blocking interfaces converged",
-        "to": "ready"
+        "from": "ready",
+        "review_reference": "B03 ISSUE-0155 implementation hand-off after guarded readiness convergence",
+        "to": "in_progress"
       },
       "transition_history": [
         {
@@ -4876,9 +4888,24 @@
           "reviewer": "Codex root orchestrator",
           "to": "ready",
           "verified_commit": "d2947d32740a475e3fb0b41795d1e52d41841961"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #524 merged the guarded ISSUE-0155 planned-to-ready transition as d1a6a451284fb52e81d1f7bb3773ec8c3faa2847",
+            "Protected status-transition run 30245425161 and supply-chain run 30245425173 passed; release run 30245425126 was cancelled under the evidence-only fast path",
+            "Checksum-approved GitHub plan a6f4b964f8fdddcf9f4d2b247c37110a5d69f82f2a743eff0ca6c0b531c8d448 applied exactly to open issue #434; zero-action readback 373fec787836cf6bbe007039228bc647594608dda6139646ee15dd10a5ef6353 verified ready state",
+            "The implementation hand-off remains bounded to provider-neutral schemas, local/manual imports and disabled provider definitions; ECB, ESMA and FINRA remain disabled, missing market evidence stays unavailable and execution_allowed=false"
+          ],
+          "from": "ready",
+          "review_reference": "B03 ISSUE-0155 implementation hand-off after guarded readiness convergence",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "to": "in_progress",
+          "verified_commit": "d1a6a451284fb52e81d1f7bb3773ec8c3faa2847"
         }
       ],
-      "verified_commit": "d2947d32740a475e3fb0b41795d1e52d41841961",
+      "verified_commit": "d1a6a451284fb52e81d1f7bb3773ec8c3faa2847",
       "verified_date": "2026-07-27"
     },
     "ISSUE-0156": {

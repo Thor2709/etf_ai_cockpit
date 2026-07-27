@@ -518,3 +518,36 @@ status guard, registry validation and deterministic generation/freshness
 checks pass. All 108 focused control, status, registry, completion, programme
 and UI tests pass; diff hygiene passes. The change is restricted to generated
 control/evidence artifacts and qualifies for the evidence-only fast path.
+
+`VERIFIED` readiness PR #524 merged ISSUE-0155 `planned -> ready` as
+`d1a6a451284fb52e81d1f7bb3773ec8c3faa2847`. Status guard run
+`30245425161` and supply-chain run `30245425173` passed; redundant release run
+`30245425126` was cancelled under programme policy. Checksum-approved GitHub
+plan `a6f4b964f8fdddcf9f4d2b247c37110a5d69f82f2a743eff0ca6c0b531c8d448`
+applied and verified #434 open/ready with `execution_allowed=false`; final
+readback plan
+`373fec787836cf6bbe007039228bc647594608dda6139646ee15dd10a5ef6353`
+contained zero actions.
+
+`IN_PROGRESS` the separately guarded ISSUE-0155 `ready -> in_progress`
+handoff changes only that canonical status. The bounded implementation outcome
+is provider-neutral fixed-income market, curve and liquidity schemas;
+immutable point-in-time storage; lawful local/manual import; disabled
+source-specific adapter definitions; coverage and health projection; and
+explicit conflict, stale, unavailable and non-executable states. ECB, ESMA and
+FINRA remain disabled until source-specific legal approval. The registry has
+base SHA-256
+`08dd7a615af1a75c597442dd15ce5a4cb663db8911f63a86c595b1068738a697`
+and proposed SHA-256
+`dc207bec5b66c3ee02779dad5824f883ef772bcc3c1130e98647e0b2d07aaba3`.
+The reviewed GitHub plan contains exactly one open Programme status update for
+#434 with semantic SHA-256
+`0de1dcfe0b9e4b2f91d32f8fe38c2bb361f0b85bb109ac7ada3d142a50fd80b2`.
+No product, dependency, scope, acceptance, safety, provider authority or
+execution change is authorised.
+
+`VERIFIED` the implementation handoff, exact one-action GitHub projection,
+status guard, registry validation and deterministic generation/freshness
+checks pass. All 108 focused control, status, registry, completion, programme
+and UI tests pass; diff hygiene passes. This remains an evidence-only
+transition and `execution_allowed=false`.
