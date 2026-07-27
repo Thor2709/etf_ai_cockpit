@@ -322,6 +322,21 @@ use schema version 2 when retrieval chronology participates in the payload;
 callers may explicitly request deterministic legacy version-1 replay, and
 unknown versions fail closed. Stored version-1 claims remain readable without
 inventing missing retrieval evidence. `execution_allowed` remains false.
+
+ISSUE-0153 adds `fixed-income-terms.v1` as an append-only contract in the
+existing transactional store. `FixedIncomeSecurityTerms`,
+`SettlementConvention`, `OptionalitySchedule`, `CouponSchedule` and
+`RedemptionSchedule` cover only declared fixed-rate and zero-coupon government
+or corporate bonds. Writes require an existing shared identity-master
+security; payment-date and ex-coupon adjustment consume certified
+`MarketCalendarService` settlement evidence. Valid/knowledge/retrieval times,
+source hashes, immutable corrections and overlays support point-in-time replay.
+Conflicted critical terms, uncertified calendars and floating, linked,
+optional, amortising, convertible, perpetual or structured features quarantine
+the schedule and keep pricing, screening, proposals and execution disabled.
+The application API/facade projects the same read-only terms, schedules,
+history, lineage and capability state rendered by Instrument Detail; the page
+does not calculate cash flows.
 See the [phase record](../product-completion/programme/phases/phase-02-data-policy-identity.md)
 and canonical registry; status and full acceptance criteria are not duplicated
 here.

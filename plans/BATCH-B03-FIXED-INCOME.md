@@ -45,3 +45,35 @@ Every lane receives focused tests, Ruff, scoped type/compile checks, affected in
 `VERIFIED` the ISSUE-0153 `ready -> in_progress` PR #503 merged as `95e3fadd4dc773214881a0e7f2a5b3eeaf28d9da` from reviewed head `8fa01f752ce79a7e79865c22620b34d6fdbbd480`. Status guard run `29939369685` and supply-chain run `29939369793` passed; redundant evidence-only release run `29939369772` was cancelled. GitHub plan `7017bd659ed789ed9438068077c9b9bcf13728b1369661b1258f535faa949f6b` applied and verified #432 open/in_progress with `execution_allowed=false`; final readback plan `217cd7f3ec152ac0c337ee390ab42d26aa5c8bd398f93b6e575ac082b563d2d4` had zero actions.
 
 `BLOCKED` the ISSUE-0153 implementation lane stopped after the repository's two-repair limit. Initial checkpoint `30bf0ab6283656a8543f4179451e856903e851bc`, first repair `febaaaa0f358c35f31a8ace88d6b7a0a600bb4a7` and second/final repair `937d5b9de156ab29f3cc559834099f49496cccd2` were never pushed or merged. The decisive independent re-review reproduced two protected identity-contract blockers: `IdentityMasterStore.append_claims` discards retrieval chronology and accepts changed retrieval timestamps as idempotent, causing point-in-time look-ahead; and identity decision hashes changed while still declaring schema version 1, risking incompatible audit comparisons. No third repair, product PR or protected Linux/Windows release gate is authorised in this run. Reviewer-created SQLite artifacts were removed exactly and the product worktree is clean. Canonical ISSUE-0153 remains `in_progress` because the existing status machine permits only `implemented` or `implemented_initially` from that state; no status-semantic change or unauthorised downgrade is made. ISSUE-0154 through ISSUE-0156 remain dependency-blocked, batch composition is unchanged, and `execution_allowed=false` remains binding.
+
+## 2026-07-27 restart
+
+`VERIFIED` the separate identity-contract prerequisite merged through PR #507 as
+`e3fbf152165a0686bd42429c4cd90a3ca982974a`. Retrieval observations are now
+immutable and point-in-time filtered, exact duplicate appends remain
+idempotent, legacy decision-hash v1 replay is golden-tested, and retrieval-aware
+decisions use schema v2. The protected Linux/Windows package builds, parity,
+packaged smoke and safety checks passed; the only full-suite failures exactly
+matched the retained `main` baseline.
+
+`IN_PROGRESS` ISSUE-0153 restarts from that merged SHA in a fresh worktree.
+The smallest usable outcome remains fixed-rate and zero-coupon terms, validated
+contractual schedules, point-in-time corrections/conflicts, read-only
+application/UI projection and audit lineage. Unsupported structures fail
+closed. Fixed-income pricing, expected returns, provider adapters, risk models,
+portfolio analytics, broker writes and live orders remain excluded.
+
+`VERIFIED` one `sol_worker` implemented the bounded terms-master contract and
+root reviewed the complete diff. Historical projections expose only versions
+known and retrieved by the requested cutoff; persisted classification
+disagreements, source conflicts, unsupported structures and uncertified
+calendars quarantine schedules; immutable concurrent versions and exact
+duplicate retries are retained deterministically. Fresh local evidence is 223
+targeted identity, classification, fixed-income, application, Instrument
+Detail, calendar/property and UI-contract tests passing. Ruff, compile, diff
+checks and scoped MyPy for the new contract pass. No pricing, provider, risk,
+portfolio or execution scope is included and `execution_allowed=false`.
+
+Next action: checkpoint the reviewed branch, open its feature PR and require
+the full protected Linux and Windows packaged gate before merge or status
+transition.
