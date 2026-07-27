@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "7946829d29c58f0bbe06d399581e9865f7307a08",
+    "generation_base_commit": "5c02f8c3bd4bfdceb34a06abbe4b3b177987c1bf",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4998,12 +4998,16 @@
           "state": "complete"
         },
         "ISSUE-0155": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B03/ISSUE-0155/fixed-income-market-data-v1",
+          "evidence_references": [
+            "PR #526 merged reviewed ISSUE-0155 fixed-income market evidence as 5cdf8de38abe6d809edce43b791eea7dd71e53e8 after protected Linux and Windows package evidence",
+            "src/etf_cockpit/data/fixed_income_market_data.py provides immutable point-in-time price/yield/spread, typed curve-tenor and liquidity observations, provider separation/conflict state, evidence authority labels, legal/retention gates, explicit coverage lineage and execution-denied projections",
+            "tests/test_fixed_income_market_data.py passes 15 focused chronology, retrieval identity, concurrency, conflict, curve typing, manual legal gate, disabled provider, liquidity precision, coverage and API/UI tests; ECB/ESMA/FINRA acquisition remains intentionally disabled and missing evidence stays unavailable"
+          ],
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         }
       },
       "phase": "phase-05-returns-risk-portfolio",
@@ -5094,9 +5098,36 @@
           "reviewed_date": "2026-07-27",
           "reviewer": "Codex root orchestrator",
           "verified_commit": "571366c8d75fbf3afad17e6d9b0549d299c92e49"
+        },
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0155",
+            "evidence": {
+              "contract_reference": "B03/ISSUE-0155/fixed-income-market-data-v1",
+              "evidence_references": [
+                "PR #526 merged reviewed ISSUE-0155 fixed-income market evidence as 5cdf8de38abe6d809edce43b791eea7dd71e53e8 after protected Linux and Windows package evidence",
+                "src/etf_cockpit/data/fixed_income_market_data.py provides immutable point-in-time price/yield/spread, typed curve-tenor and liquidity observations, provider separation/conflict state, evidence authority labels, legal/retention gates, explicit coverage lineage and execution-denied projections",
+                "tests/test_fixed_income_market_data.py passes 15 focused chronology, retrieval identity, concurrency, conflict, curve typing, manual legal gate, disabled provider, liquidity precision, coverage and API/UI tests; ECB/ESMA/FINRA acquisition remains intentionally disabled and missing evidence stays unavailable"
+              ],
+              "reviewed_date": "2026-07-27",
+              "reviewer": "Codex root orchestrator",
+              "schema_version": "1.0",
+              "state": "complete"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "PR #526 merged reviewed ISSUE-0155 fixed-income market evidence as 5cdf8de38abe6d809edce43b791eea7dd71e53e8 after protected Linux and Windows package evidence",
+            "src/etf_cockpit/data/fixed_income_market_data.py provides immutable point-in-time price/yield/spread, typed curve-tenor and liquidity observations, provider separation/conflict state, evidence authority labels, legal/retention gates, explicit coverage lineage and execution-denied projections",
+            "tests/test_fixed_income_market_data.py passes 15 focused chronology, retrieval identity, concurrency, conflict, curve typing, manual legal gate, disabled provider, liquidity precision, coverage and API/UI tests; ECB/ESMA/FINRA acquisition remains intentionally disabled and missing evidence stays unavailable"
+          ],
+          "review_reference": "B03 ISSUE-0156 dependency review: ISSUE-0155 provider-neutral fixed-income market evidence",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "verified_commit": "5cdf8de38abe6d809edce43b791eea7dd71e53e8"
         }
       ],
-      "verified_commit": "571366c8d75fbf3afad17e6d9b0549d299c92e49",
+      "verified_commit": "5cdf8de38abe6d809edce43b791eea7dd71e53e8",
       "verified_date": "2026-07-27"
     },
     "ISSUE-0157": {
