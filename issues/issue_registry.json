@@ -7191,9 +7191,9 @@
         },
         {
           "dependency_id": "ISSUE-0111",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
+          "evidence_state": "partial_interface",
+          "reason_code": "EDGE_EVIDENCE_PARTIAL_INTERFACE",
+          "resolved": true
         },
         {
           "dependency_id": "ISSUE-0154",
@@ -21936,12 +21936,16 @@
           "state": "partial_interface"
         },
         "ISSUE-0111": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B03/ISSUE-0111/robust-covariance-tail-risk-v1",
+          "evidence_references": [
+            "PR #322 merged robust covariance and tail-risk evidence as 5606671df4e23eaf0a0fe98158a2e05a45557fe4",
+            "src/etf_cockpit/portfolio/robust_risk.py provides adjusted-price sample, EWMA, shrinkage, winsorised, diagonal and optional factor-model covariance, visible PSD repair and conditioning, held-out selection, reconciled portfolio variance contributions, bootstrap uncertainty, regime comparison and tail/liquidity evidence",
+            "tests/test_robust_risk.py and tests/test_factor_risk.py pass 13 focused PSD, ill-conditioned, factor-model, uncertainty, reconciliation and UI-contract tests; partial interface only because debt-specific duration/spread/credit/FX component ingestion and common fixed-income scenario reconciliation remain absent"
+          ],
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "partial_interface"
         },
         "ISSUE-0154": {
           "contract_reference": "",
@@ -21992,7 +21996,7 @@
       "source_record_id": "ISSUE-0156",
       "source_title": "Implement fixed-income rate, curve, spread, credit, liquidity and optionality risk",
       "title": "Implement fixed-income rate, curve, spread, credit, liquidity and optionality risk",
-      "verified_commit": "15dc107324b2248ec720d8e0747e5476a6a93656",
+      "verified_commit": "5606671df4e23eaf0a0fe98158a2e05a45557fe4",
       "verified_date": "2026-07-27",
       "write_conflict_group": "returns-and-risk"
     },
@@ -26342,7 +26346,7 @@
   ],
   "schema_version": "2.0",
   "source_of_truth": {
-    "baseline_commit": "0d810c3c1c5f59916ae58cef222ea6b6e9321c5b",
+    "baseline_commit": "8b2508c800b63ea779af709a56b7bc619278f80b",
     "closed_ledger_sha256": "2dca7fd65f7a218747bcfb91b4e5c1f734af26f29114cc7dc83b071bb86838d8",
     "final_release_manifest_sha256": "dbb71ecaa2b81206ff922eec3dcc72cb08cc001121688b107e8f1c3a2372f685",
     "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -26354,7 +26358,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "0fe376dca03dccfcfecd630b632a9b9bfc87d44807497fc8dd5ad21f0a40afb7",
+    "programme_control_state_sha256": "5aaeb4c8b2fda8ef2642f20b3ec60ab67dc346218e3f3938fc2e2c443f6dd923",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

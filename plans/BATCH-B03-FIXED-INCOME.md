@@ -676,3 +676,39 @@ acceptance criteria, remaining edges and authority. The schema-1.3 dependency
 guard, registry validation, all generation/freshness checks and diff hygiene
 pass; all 126 focused statement-history, control, registry, completion,
 tracker, programme-map and UI tests pass.
+
+`VERIFIED` dependency-edge PR #529 merged as
+`8b2508c800b63ea779af709a56b7bc619278f80b` from reviewed head
+`ccf4d7e22123421835925f8fd82ee34de47c267f`. Status-transition guard run
+`30252982106` and supply-chain run `30252982330` passed; redundant release run
+`30252982121` was cancelled under the evidence-only policy. The GitHub
+projection remained the zero-action plan
+`5e2de0865c00e34090849f765a065ae44ecd4ab9368463bf50dedb7fa6e92602`.
+
+`IN_PROGRESS` the second ISSUE-0156 dependency review covers only ISSUE-0111.
+PR #322 supplies a versioned common-risk interface with sample, EWMA,
+shrinkage, winsorised, diagonal and optional factor covariance, visible PSD
+repair and conditioning, held-out estimator selection, reconciled component
+variance, bootstrap uncertainty, regime comparison and tail/liquidity
+evidence. The edge is `partial_interface`: it has no debt-specific
+duration/spread/credit/FX component ingestion or common fixed-income scenario
+reconciliation, which ISSUE-0156 must implement without zero-filling unknown
+inputs. The registry moves from SHA-256
+`609a74cf57e12ddff4cc23a82fbe41dbd62a68262b1d9b07ac0f314c96e63c80`
+to `91733b64f830af90bcff4e3ba8087ef0b3de0bf0a7fd42c17929f885a22c18f6`;
+the GitHub projection remains zero-action plan
+`5e2de0865c00e34090849f765a065ae44ecd4ab9368463bf50dedb7fa6e92602`.
+Thirteen focused robust-risk and factor-risk tests pass under the system
+Python environment; the stale repository virtual environment remains missing
+`exchange_calendars`. ISSUE-0156 stays planned, its ISSUE-0154 and ISSUE-0155
+edges remain unresolved, and `execution_allowed=false`.
+
+Next action: record only ISSUE-0156→ISSUE-0111 as `partial_interface`,
+regenerate deterministic evidence, and run the evidence-only protected
+control gates before merge.
+
+`VERIFIED` the one-edge diff preserves ISSUE-0156's planned status, scope,
+acceptance criteria, ISSUE-0154/ISSUE-0155 edges and authority. The schema-1.3
+dependency guard, registry validation, all generation/freshness checks and
+diff hygiene pass; all 134 focused robust-risk, factor-risk, control,
+registry, completion, tracker, programme-map and UI tests pass.
