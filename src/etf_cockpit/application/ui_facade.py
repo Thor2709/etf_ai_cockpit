@@ -14,6 +14,12 @@ from etf_cockpit.analysis.fixed_income_analytics import (
     calculate_fixed_income_analytics,
 )
 from etf_cockpit.data.bond_analytics_store import read_bond_analytics
+from etf_cockpit.analysis.fixed_income_risk import (
+    FixedIncomeRiskError,
+    FixedIncomeRiskInput,
+    calculate_fixed_income_risk,
+)
+from etf_cockpit.data.fixed_income_risk_store import read_fixed_income_risk
 
 from etf_cockpit.chatgpt_bridge.audit_packet import *  # noqa: F401,F403
 from etf_cockpit.data.backup_restore import *  # noqa: F401,F403
@@ -332,6 +338,55 @@ def calculate_fixed_income_analytics_projection(
     if not isinstance(projection, dict):
         raise FixedIncomeAnalyticsError("analytics projection is invalid")
     return projection
+
+
+def calculate_fixed_income_risk_projection(
+    risk_input: FixedIncomeRiskInput,
+) -> dict[str, object]:
+    """Calculate a serialisable non-executable fixed-income risk projection."""
+
+    from dataclasses import asdict
+
+    projection = _analytics_jsonable(asdict(calculate_fixed_income_risk(risk_input)))
+    if not isinstance(projection, dict):
+        raise FixedIncomeRiskError("risk projection is invalid")
+    return projection
+
+
+def load_fixed_income_risk_projection(
+    instrument_id: str,
+    *,
+    storage_root: Path | None = None,
+    decision_time: str | None = None,
+) -> dict[str, object]:
+    """Load verified local risk evidence for presentation only."""
+
+    from datetime import datetime
+    from etf_cockpit.core.paths import ROOT
+
+    unavailable = {
+        "contract": "fixed-income-risk.v1",
+        "status": "unavailable",
+        "instrument_id": str(instrument_id),
+        "reason_codes": ["fixed_income_risk_unavailable"],
+        "execution_allowed": False,
+    }
+    path = Path(storage_root or ROOT) / "data" / "analytics" / "fixed_income_risk.parquet"
+    if not path.exists():
+        return unavailable
+    try:
+        cutoff = datetime.fromisoformat(decision_time.replace("Z", "+00:00")) if decision_time else None
+        rows = [
+            row for row in read_fixed_income_risk(path)
+            if row["instrument_id"] == str(instrument_id)
+            and (cutoff is None or datetime.fromisoformat(str(row["decision_time"])) <= cutoff)
+        ]
+        if not rows:
+            return unavailable
+        result = max(rows, key=lambda row: (str(row["decision_time"]), str(row["calculated_at"])))["result"]
+        return dict(result) if isinstance(result, dict) else unavailable
+    except (FixedIncomeRiskError, OSError, TypeError, ValueError):
+        return unavailable | {"reason_codes": ["fixed_income_risk_invalid"]}
 
 
 def load_fixed_income_analytics_projection(

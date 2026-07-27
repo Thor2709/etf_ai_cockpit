@@ -25,3 +25,13 @@ read-only `fixed-income-terms.v1` projection. The data layer alone validates
 and generates supported contractual schedules; selectors and pages only render
 terms, source/knowledge/retrieval lineage, overlay history, conflicts and
 capability flags. Pricing, screening, proposals and execution remain false.
+
+## Fixed-income risk
+
+`LocalApplicationApi.calculate_fixed_income_risk`,
+`calculate_and_persist_fixed_income_risk` and `get_fixed_income_risk`, with
+their serialisable facade equivalents, expose `fixed-income-risk.v1`. The
+application boundary returns verified local component/scenario evidence,
+explicit unknowns, units, mapping, assumptions, coverage and lineage. Pages
+only render projections; calculations, proposals, orders and execution are not
+available through this surface.

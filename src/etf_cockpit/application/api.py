@@ -20,6 +20,17 @@ from etf_cockpit.analysis.fixed_income_analytics import (
     FixedIncomeValuationResult,
     calculate_fixed_income_analytics,
 )
+from etf_cockpit.analysis.fixed_income_risk import (
+    FixedIncomeRiskError,
+    FixedIncomeRiskInput,
+    FixedIncomeRiskRecord,
+    calculate_fixed_income_risk,
+)
+from etf_cockpit.data.fixed_income_risk_store import (
+    StoredFixedIncomeRisk,
+    read_fixed_income_risk,
+    write_fixed_income_risk,
+)
 from etf_cockpit.data.bond_analytics_store import (
     BondAnalyticsRecord,
     read_bond_analytics,
@@ -234,6 +245,64 @@ class LocalApplicationApi:
         if not isinstance(replay, Mapping) or replay.get("input_hash") != result.input_hash:
             raise FixedIncomeAnalyticsError("persisted analytics replay mismatch")
         return replay
+
+    def calculate_fixed_income_risk(
+        self, risk_input: FixedIncomeRiskInput
+    ) -> FixedIncomeRiskRecord:
+        return calculate_fixed_income_risk(risk_input)
+
+    def calculate_and_persist_fixed_income_risk(
+        self, risk_input: FixedIncomeRiskInput
+    ) -> Mapping[str, object]:
+        result = calculate_fixed_income_risk(risk_input)
+        path = self._root / "data" / "analytics" / "fixed_income_risk.parquet"
+        record = StoredFixedIncomeRisk(
+            record_id=risk_input.input_hash,
+            calculated_at=risk_input.valuation.decision_time.astimezone(timezone.utc),
+            input=risk_input,
+            result=result,
+        )
+        write_fixed_income_risk(path, (record,))
+        matches = [
+            row
+            for row in read_fixed_income_risk(path)
+            if row["record_id"] == record.record_id
+        ]
+        replay = matches[0]["result"] if len(matches) == 1 else None
+        if not isinstance(replay, Mapping) or replay.get("input_hash") != result.input_hash:
+            raise FixedIncomeRiskError("persisted risk replay mismatch")
+        return replay
+
+    def get_fixed_income_risk(
+        self, instrument_id: str, *, decision_time: datetime | None = None
+    ) -> Mapping[str, object]:
+        unavailable: Mapping[str, object] = {
+            "contract": "fixed-income-risk.v1",
+            "status": "unavailable",
+            "instrument_id": str(instrument_id),
+            "reason_codes": ["fixed_income_risk_unavailable"],
+            "execution_allowed": False,
+        }
+        path = self._root / "data" / "analytics" / "fixed_income_risk.parquet"
+        if not path.exists():
+            return unavailable
+        try:
+            rows = [
+                row
+                for row in read_fixed_income_risk(path)
+                if row["instrument_id"] == str(instrument_id)
+                and (
+                    decision_time is None
+                    or datetime.fromisoformat(str(row["decision_time"])) <= decision_time
+                )
+            ]
+            if not rows:
+                return unavailable
+            latest = max(rows, key=lambda row: (str(row["decision_time"]), str(row["calculated_at"])))
+            result = latest["result"]
+            return result if isinstance(result, Mapping) else unavailable
+        except (FixedIncomeRiskError, OSError, TypeError, ValueError):
+            return dict(unavailable) | {"reason_codes": ["fixed_income_risk_invalid"]}
 
     def get_fixed_income_terms(
         self,

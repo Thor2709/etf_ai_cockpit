@@ -413,6 +413,12 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
     )
     rows = [
         _render_evidence_section(
+            "Fixed-income risk",
+            model.sections.get("fixed_income_risk"),
+            subtitle="Rates, curve, spread, credit, liquidity and optionality scenarios with explicit unknowns and non-executable authority.",
+            key="instrument-detail.fixed-income-risk",
+        ),
+        _render_evidence_section(
             "Fixed-income market data",
             model.sections.get("fixed_income_market_data"),
             subtitle="Provider-separated point-in-time quotes, curves, liquidity labels, conflicts and source lineage; missing tape/quotes remain non-executable.",
