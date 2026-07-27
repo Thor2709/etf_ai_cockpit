@@ -1,5 +1,11 @@
 # AI Evidence Cockpit Report
 
+> **Historical research record.** This file is not current architecture or
+> programme-status authority. Use the [current SDD](docs/architecture/SDD.md),
+> [canonical registry](issues/issue_registry.json),
+> [roadmap](docs/product-completion/programme/roadmap.md), and active
+> [batch plans](plans/).
+
 This report is synchronised with `plan.md`, `issues/open.md`, `issues/closed.md` and `ISSUES.md`. It records research-derived product requirements and source references. It is not implementation proof.
 
 ## 2026-07-09 Research Update - Provider, Filings, ETF Disclosure and Candle Evidence Expansion
