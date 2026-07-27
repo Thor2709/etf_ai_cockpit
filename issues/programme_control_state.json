@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b",
+    "generation_base_commit": "b1f2c065b4556b7b5200b70e05ef0aa2940bb60e",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -2888,6 +2888,16 @@
           "reviewed_date": "2026-07-28",
           "reviewer": "Codex root orchestrator",
           "status": "ready"
+        },
+        {
+          "evidence_references": [
+            "PR #546 merged ISSUE-0099 ready as b1f2c065b4556b7b5200b70e05ef0aa2940bb60e with status guard and supply-chain validation passing",
+            "Checksum-approved GitHub plan d66bd2acc35adf35bb4b0b33678d2dda5ba31106df7d1d8f83c588c672b4c2bd updated only #239 and readback 86cb76eb492a78ba911634f94271ef4005f012e15ce14743676437e67ffa114d was zero action"
+          ],
+          "review_reference": "B04 ISSUE-0099 bounded financial-adapter implementation hand-off",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "status": "in_progress"
         }
       ],
       "dependency_edge_evidence": {
@@ -2905,11 +2915,11 @@
         }
       },
       "phase": "phase-03-stock-research",
-      "programme_status": "ready",
+      "programme_status": "in_progress",
       "status_transition": {
-        "from": "planned",
-        "review_reference": "B04 ISSUE-0099 readiness after complete ISSUE-0098 dependency review",
-        "to": "ready"
+        "from": "ready",
+        "review_reference": "B04 ISSUE-0099 bounded financial-adapter implementation hand-off",
+        "to": "in_progress"
       },
       "transition_history": [
         {
@@ -2951,9 +2961,22 @@
           "reviewer": "Codex root orchestrator",
           "to": "ready",
           "verified_commit": "d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #546 merged ISSUE-0099 ready as b1f2c065b4556b7b5200b70e05ef0aa2940bb60e with status guard and supply-chain validation passing",
+            "Checksum-approved GitHub plan d66bd2acc35adf35bb4b0b33678d2dda5ba31106df7d1d8f83c588c672b4c2bd updated only #239 and readback 86cb76eb492a78ba911634f94271ef4005f012e15ce14743676437e67ffa114d was zero action"
+          ],
+          "from": "ready",
+          "review_reference": "B04 ISSUE-0099 bounded financial-adapter implementation hand-off",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "to": "in_progress",
+          "verified_commit": "b1f2c065b4556b7b5200b70e05ef0aa2940bb60e"
         }
       ],
-      "verified_commit": "d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b",
+      "verified_commit": "b1f2c065b4556b7b5200b70e05ef0aa2940bb60e",
       "verified_date": "2026-07-28"
     },
     "ISSUE-0100": {
