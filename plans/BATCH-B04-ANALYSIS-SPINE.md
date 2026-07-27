@@ -162,6 +162,32 @@ issue #238 with semantic SHA-256
 `e9d4d3eee2d726a2614d775c8ac2f7cc4240fa36b9be82906bc6472f290b51be`.
 No dependency, scope, acceptance, policy or authority change is included.
 
+`VERIFIED` product PR #548 merged ISSUE-0099 as
+`55c41b57cc222ce365b27adcf9dadbb0742aeca3` from exact reviewed head
+`a8e07c3a2c20239b8b11fa8c65e6313efcf29e2a`. The financial-institution
+adapter now preserves typed bank, insurer and diversified-financial metrics,
+units, direction, period, reporting standard, jurisdiction, source authority,
+point-in-time classification lineage, deterministic stresses and explicit
+missing-data authority caps. Instrument Detail exposes verified read-only
+evidence and `execution_allowed=false`.
+
+Protected release run `30314202998` passed Linux and Windows package build,
+artefact, source/package parity, packaged smoke, performance, policy,
+security, privacy, legal and SBOM checks. Both full suites retained only the
+exact authorised B03 simple-score invalidation node and fingerprint; no
+ISSUE-0099 or changed-path test failed. Final-head status guard
+`30315386005` and supply-chain run `30315386015` passed; redundant
+manifest-only release run `30315386073` was cancelled.
+
+`IN_PROGRESS` the separate guarded convergence advances only ISSUE-0099
+`in_progress -> implemented_initially`. The proposed 197-record registry has
+SHA-256 `fe2ea7354395c6246853131a6dfb2f2abc97d729b43fe6f22fb743520f7609f8`.
+The reviewed GitHub plan contains exactly one Programme-status update for open
+issue #239 with semantic SHA-256
+`64f05b2fc8b4d6fe319fabe16871a0289add24c9eff9197e93a7f7aecea7c9a6`.
+No product, dependency, scope, acceptance, policy or authority change is
+included; `execution_allowed=false`.
+
 `VERIFIED` implemented-initially PR #543 merged as
 `a01c663cd10bc13057175bd128456108bfceb0c4` from reviewed head
 `01f95db5f1211ffc436e01458f78d8d0e63d123c`. Status guard run

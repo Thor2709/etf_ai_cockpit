@@ -15992,6 +15992,18 @@
           "reviewed_date": "2026-07-28",
           "reviewer": "Codex root orchestrator",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "PR #548 merged the reviewed financial-institution adapters and Instrument Detail surface as 55c41b57cc222ce365b27adcf9dadbb0742aeca3 from exact head a8e07c3a2c20239b8b11fa8c65e6313efcf29e2a",
+            "Protected release run 30314202998 passed package build, source/package parity, packaged smoke, performance, policy, security, privacy, legal and SBOM on Linux and Windows; full tests retained only the exact authorised B03 simple-score invalidation fingerprint and no ISSUE-0099 test failed",
+            "Final-head status guard 30315386005 and supply-chain 30315386015 passed; redundant manifest-only release run 30315386073 was cancelled under the evidence-only fast path",
+            "Focused evidence passed 99 domain/peer/classification/architecture tests, 84 Instrument Detail/UI contract tests and 112 control/registry/map/UI tests; execution_allowed remained false"
+          ],
+          "review_reference": "B04 ISSUE-0099 product integration review after PR #548",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "status": "implemented_initially"
         }
       ],
       "activation_dependencies": [],
@@ -16045,7 +16057,7 @@
       "package_status": "",
       "phase": "phase-03-stock-research",
       "priority": "P0/P1",
-      "programme_status": "in_progress",
+      "programme_status": "implemented_initially",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0099-issue-0102-sector-specific-stock-adapters"
@@ -16075,7 +16087,7 @@
       ],
       "title": "Implement bank, insurer and diversified-financial sector adapters",
       "ui_requirement": "Financial Institutions section with solvency and asset-quality history.",
-      "verified_commit": "b1f2c065b4556b7b5200b70e05ef0aa2940bb60e",
+      "verified_commit": "55c41b57cc222ce365b27adcf9dadbb0742aeca3",
       "verified_date": "2026-07-28",
       "why": "Banks and insurers require solvency, asset quality, underwriting and funding metrics.",
       "write_conflict_group": "stock-research"
@@ -26471,7 +26483,7 @@
   ],
   "schema_version": "2.0",
   "source_of_truth": {
-    "baseline_commit": "4647a6a466a1fe666e4860138213d169f2bddef8",
+    "baseline_commit": "55c41b57cc222ce365b27adcf9dadbb0742aeca3",
     "closed_ledger_sha256": "2dca7fd65f7a218747bcfb91b4e5c1f734af26f29114cc7dc83b071bb86838d8",
     "final_release_manifest_sha256": "dbb71ecaa2b81206ff922eec3dcc72cb08cc001121688b107e8f1c3a2372f685",
     "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -26483,7 +26495,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "138693eab8409c96d1269c1ff2bf6576b0def35715bd20b9a7edd3ac685e6ff6",
+    "programme_control_state_sha256": "80c97f7d2d9038f8fd42f33a37800a31454ebbf93eed47d352e487b265a6fedf",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
