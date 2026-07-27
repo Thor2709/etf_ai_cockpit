@@ -177,3 +177,37 @@ freshness pass; 143 focused control, programme, market-calendar and UI tests
 pass in a fresh Python 3.12 dependency environment. Ruff and diff hygiene
 pass. Because a test file changes, this PR requires the full protected Linux
 and Windows release path rather than the evidence-only fast path.
+
+`VERIFIED` PR #512 merged the ISSUE-0154→ISSUE-0085 readiness edge as
+`575ec0ab7c7e86f066c763022ea2dfaf397dd53d`. Protected run `30235711228`
+passed package build/artifacts, source-package parity, packaged smoke,
+performance, source, cache, security, privacy, legal, SBOM and per-job
+supply-chain checks on Linux and Windows. Each full suite retained only the
+exact simple-score baseline failure; status guard `30235711192` and
+supply-chain run `30235711169` passed. ISSUE-0154 remains planned and
+`execution_allowed=false`.
+
+`IN_PROGRESS` the final ISSUE-0154 readiness review records only the
+ISSUE-0154→ISSUE-0088 edge `unresolved -> partial_interface`. The reviewed
+contract supplies bitemporal, currency/unit-labelled risk-free and benchmark
+observations, checksums, transformation versions and decision-time retrieval.
+It does not claim a certified tenor, spot/par/forward curve or interpolation
+contract; ISSUE-0154 must require explicit typed curve inputs and keep missing
+or ambiguous curve evidence unavailable or quarantined. ISSUE-0154 remains
+planned. The regenerated 197-record registry has SHA-256
+`e254390f58be6fdd376d32e5ef9677088019fdda0fb0a1f3df4b23e7df789501`;
+the GitHub projection is the zero-action plan
+`66bec5f128c60b6158f0cca36aae0464f01cb12a092206c97945b66e0ee29c66`.
+No product, dependency-list, scope, acceptance, safety, status or authority
+change is authorised.
+
+`VERIFIED` the partial-interface review found no curve-tenor or interpolation
+claim in the existing source and therefore preserves that limitation
+explicitly. Decision-time vintage selection excludes later revisions;
+transformations retain source observation IDs and versions; missing
+country/currency context is explicit; execution authority remains false.
+Guard, registry and generated-document freshness pass, and 123 focused
+control, programme, bitemporal, macro-warehouse and UI tests pass. Diff hygiene
+passes. Because only deterministic dependency evidence and generated
+programme artifacts change, this proposal qualifies for the evidence-only
+fast path.
