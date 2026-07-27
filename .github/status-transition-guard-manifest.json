@@ -1,19 +1,27 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [],
-  "base_commit": "4647a6a466a1fe666e4860138213d169f2bddef8",
-  "branch": "codex/issue-0099-financial-adapters-20260728",
-  "issue_ids": [],
+  "allowed_status_transitions": [
+    {
+      "from": "in_progress",
+      "issue_id": "ISSUE-0099",
+      "to": "implemented_initially"
+    }
+  ],
+  "base_commit": "55c41b57cc222ce365b27adcf9dadbb0742aeca3",
+  "branch": "codex/issue-0099-implemented-initially-20260728",
+  "issue_ids": [
+    "ISSUE-0099"
+  ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "814aafe0626e0f1e52c82be7a8702e4797156a5eda50bad98d51e498207da3ba",
+    "base_registry_sha256": "d53a096a8cedc9e2eb1f4e3e87626d283fe5e653e373115fd73ce01af188a949",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "canonical_schema_and_intake",
-    "proposed_registry_sha256": "d53a096a8cedc9e2eb1f4e3e87626d283fe5e653e373115fd73ce01af188a949",
-    "reason": "B04 ISSUE-0099 product release base-only refresh to merged main 4647a6a466a1fe666e4860138213d169f2bddef8; all 197 records, statuses, dependencies, policies and execution_allowed=false remain unchanged.",
+    "mode": "generation_base_and_status_transitions",
+    "proposed_registry_sha256": "fe2ea7354395c6246853131a6dfb2f2abc97d729b43fe6f22fb743520f7609f8",
+    "reason": "B04 ISSUE-0099 product convergence: advance only in_progress to implemented_initially after PR #548 merged the reviewed financial-institution adapters with protected cross-platform package evidence; preserve scope, dependencies, acceptance criteria, policy and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.1"
+  "schema_version": "1.2"
 }

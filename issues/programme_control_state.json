@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "4647a6a466a1fe666e4860138213d169f2bddef8",
+    "generation_base_commit": "55c41b57cc222ce365b27adcf9dadbb0742aeca3",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -2898,6 +2898,18 @@
           "reviewed_date": "2026-07-28",
           "reviewer": "Codex root orchestrator",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "PR #548 merged the reviewed financial-institution adapters and Instrument Detail surface as 55c41b57cc222ce365b27adcf9dadbb0742aeca3 from exact head a8e07c3a2c20239b8b11fa8c65e6313efcf29e2a",
+            "Protected release run 30314202998 passed package build, source/package parity, packaged smoke, performance, policy, security, privacy, legal and SBOM on Linux and Windows; full tests retained only the exact authorised B03 simple-score invalidation fingerprint and no ISSUE-0099 test failed",
+            "Final-head status guard 30315386005 and supply-chain 30315386015 passed; redundant manifest-only release run 30315386073 was cancelled under the evidence-only fast path",
+            "Focused evidence passed 99 domain/peer/classification/architecture tests, 84 Instrument Detail/UI contract tests and 112 control/registry/map/UI tests; execution_allowed remained false"
+          ],
+          "review_reference": "B04 ISSUE-0099 product integration review after PR #548",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "status": "implemented_initially"
         }
       ],
       "dependency_edge_evidence": {
@@ -2915,11 +2927,11 @@
         }
       },
       "phase": "phase-03-stock-research",
-      "programme_status": "in_progress",
+      "programme_status": "implemented_initially",
       "status_transition": {
-        "from": "ready",
-        "review_reference": "B04 ISSUE-0099 bounded financial-adapter implementation hand-off",
-        "to": "in_progress"
+        "from": "in_progress",
+        "review_reference": "B04 ISSUE-0099 product integration review after PR #548",
+        "to": "implemented_initially"
       },
       "transition_history": [
         {
@@ -2974,9 +2986,24 @@
           "reviewer": "Codex root orchestrator",
           "to": "in_progress",
           "verified_commit": "b1f2c065b4556b7b5200b70e05ef0aa2940bb60e"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #548 merged the reviewed financial-institution adapters and Instrument Detail surface as 55c41b57cc222ce365b27adcf9dadbb0742aeca3 from exact head a8e07c3a2c20239b8b11fa8c65e6313efcf29e2a",
+            "Protected release run 30314202998 passed package build, source/package parity, packaged smoke, performance, policy, security, privacy, legal and SBOM on Linux and Windows; full tests retained only the exact authorised B03 simple-score invalidation fingerprint and no ISSUE-0099 test failed",
+            "Final-head status guard 30315386005 and supply-chain 30315386015 passed; redundant manifest-only release run 30315386073 was cancelled under the evidence-only fast path",
+            "Focused evidence passed 99 domain/peer/classification/architecture tests, 84 Instrument Detail/UI contract tests and 112 control/registry/map/UI tests; execution_allowed remained false"
+          ],
+          "from": "in_progress",
+          "review_reference": "B04 ISSUE-0099 product integration review after PR #548",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "to": "implemented_initially",
+          "verified_commit": "55c41b57cc222ce365b27adcf9dadbb0742aeca3"
         }
       ],
-      "verified_commit": "b1f2c065b4556b7b5200b70e05ef0aa2940bb60e",
+      "verified_commit": "55c41b57cc222ce365b27adcf9dadbb0742aeca3",
       "verified_date": "2026-07-28"
     },
     "ISSUE-0100": {
