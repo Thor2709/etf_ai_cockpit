@@ -303,6 +303,16 @@ append-only/revision-protected identities and explicit valuation evidence.
 Jobs use stable IDs, idempotency keys, dependency graphs and checkpoints.
 Audit/config/model/policy artefacts record schema or policy versions and hashes.
 
+Peer cohort contract `peer-cohort.v1` resolves ISSUE-0083 classification at
+the run's exact effective and decision cut-offs in the data boundary, then
+passes frozen contexts to storage-independent analysis. Its local immutable
+store authenticates one schema-versioned canonical result containing universe,
+adapter, hierarchy, exclusions, statistics and authority lineage; append and
+read paths independently rebuild calculations before accepting replay.
+Mismatched chronology, unresolved classification, corrupted lineage and
+non-canonical hashes fail closed, and every projection retains
+`execution_allowed=false`.
+
 Persisted/hashed contracts follow one rule: schema/version plus canonical
 identity participate in validation; a repeated identity with different content
 is rejected; readers support only declared compatible versions; migrations are
