@@ -50,6 +50,11 @@ from etf_cockpit.data.fixed_income_terms import (
     FixedIncomeTermsStore,
     fixed_income_terms_exists,
 )
+from etf_cockpit.data.fixed_income_market_data import (
+    FixedIncomeMarketDataSchemaError,
+    FixedIncomeMarketDataStore,
+    fixed_income_market_data_exists,
+)
 from etf_cockpit.data.classification import (
     ClassificationOverride,
     ClassificationSchemaError,
@@ -266,6 +271,52 @@ def load_fixed_income_terms_projection(
         ValueError,
     ):
         return unavailable | {"reason_codes": ["fixed_income_terms_invalid"]}
+
+
+def load_fixed_income_market_data_projection(
+    instrument_id: str,
+    *,
+    storage_root: Path | None = None,
+    effective_at: str | None = None,
+    decision_time: str | None = None,
+) -> dict[str, object]:
+    """Return read-only fixed-income market evidence for presentation."""
+
+    from datetime import datetime
+    from etf_cockpit.core.paths import ROOT
+
+    root = Path(storage_root or ROOT).resolve()
+    unavailable = {
+        "contract": "fixed-income-market-data.v1",
+        "status": "unavailable",
+        "instrument_id": str(instrument_id),
+        "reason_codes": ["fixed_income_market_data_unavailable"],
+        "observations": [],
+        "provider_coverage": {"status": "unavailable", "rows": []},
+        "precise_liquidity_available": False,
+        "execution_allowed": False,
+    }
+    try:
+        if not fixed_income_market_data_exists(root):
+            return unavailable
+        effective = (
+            datetime.fromisoformat(effective_at.replace("Z", "+00:00"))
+            if effective_at
+            else None
+        )
+        decision = (
+            datetime.fromisoformat(decision_time.replace("Z", "+00:00"))
+            if decision_time
+            else None
+        )
+        with FixedIncomeMarketDataStore(root) as store:
+            return store.resolve(
+                instrument_id,
+                effective_at=effective,
+                decision_time=decision,
+            )
+    except (FixedIncomeMarketDataSchemaError, OSError, TypeError, ValueError):
+        return unavailable
 
 
 def calculate_fixed_income_analytics_projection(

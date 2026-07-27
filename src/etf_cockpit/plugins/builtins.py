@@ -15,7 +15,17 @@ _BUILTIN_VERSIONS = {
     "builtin.local-provider": "1.0.0",
     "builtin.baseline-model": "1.0.0",
     "builtin.paper-broker": "1.0.0",
+    "fixed-income.ecb": "1.0.0",
+    "fixed-income.esma-firds-fitrs": "1.0.0",
+    "fixed-income.finra-trace": "1.0.0",
 }
+_REMOTE_FIXED_INCOME_PROVIDERS = frozenset(
+    {
+        "fixed-income.ecb",
+        "fixed-income.esma-firds-fitrs",
+        "fixed-income.finra-trace",
+    }
+)
 
 
 class _LocalProvider:
@@ -78,6 +88,26 @@ class _PaperBroker:
         return PluginHealth(status=PluginStatus.DISABLED, message="Broker adapters are disabled by execution policy.")
 
 
+class _DisabledFixedIncomeProvider:
+    """Manifest-only provider: policy prevents health/fetch invocation."""
+
+    def __init__(self, plugin_id: str) -> None:
+        self.manifest = PluginManifest(
+            plugin_id=plugin_id,
+            version="1.0.0",
+            kind="provider",
+            capabilities=("health", "fixed_income_market_data"),
+            licence="Unapproved: source-specific legal record required",
+            network_access=True,
+            quota="unavailable",
+            retention="unapproved",
+            authority="disabled",
+        )
+
+    def health(self, _context) -> PluginHealth:  # pragma: no cover - disabled policy
+        raise RuntimeError("disabled fixed-income provider must never be invoked")
+
+
 def default_plugin_registry(config_path: Path | None = None) -> PluginRegistry:
     allowlist, enabled = _load_policy(config_path or DEFAULT_PLUGIN_CONFIG)
     registry = PluginRegistry(
@@ -86,6 +116,12 @@ def default_plugin_registry(config_path: Path | None = None) -> PluginRegistry:
     registry.register(_LocalProvider(), enabled=enabled["builtin.local-provider"])
     registry.register(_BaselineModel(), enabled=enabled["builtin.baseline-model"])
     registry.register(_PaperBroker(), enabled=enabled["builtin.paper-broker"])
+    for plugin_id in (
+        "fixed-income.ecb",
+        "fixed-income.esma-firds-fitrs",
+        "fixed-income.finra-trace",
+    ):
+        registry.register(_DisabledFixedIncomeProvider(plugin_id), enabled=enabled[plugin_id])
     return registry
 
 
@@ -100,6 +136,9 @@ def _load_policy(path: Path) -> tuple[dict[str, str], dict[str, bool]]:
         "builtin.local-provider": True,
         "builtin.baseline-model": True,
         "builtin.paper-broker": False,
+        "fixed-income.ecb": False,
+        "fixed-income.esma-firds-fitrs": False,
+        "fixed-income.finra-trace": False,
     }
     try:
         payload = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -117,10 +156,15 @@ def _load_policy(path: Path) -> tuple[dict[str, str], dict[str, bool]]:
             version = str(row.get("version", "")).strip()
             if plugin_id not in _BUILTIN_VERSIONS or version != _BUILTIN_VERSIONS[plugin_id]:
                 return fallback
-            if row.get("network_access") is not False:
+            expected_network = plugin_id in _REMOTE_FIXED_INCOME_PROVIDERS
+            if row.get("network_access") is not expected_network:
                 return fallback
             allowlist[plugin_id] = version
-            enabled[plugin_id] = bool(row.get("enabled", False))
+            enabled[plugin_id] = (
+                False
+                if plugin_id in _REMOTE_FIXED_INCOME_PROVIDERS
+                else bool(row.get("enabled", False))
+            )
         if set(allowlist) != set(_BUILTIN_VERSIONS):
             return fallback
         return allowlist, enabled
