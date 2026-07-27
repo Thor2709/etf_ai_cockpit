@@ -47,3 +47,24 @@ The proposed 197-record registry has SHA-256
 `ecc1b95ae86fcf89b21c8b67b3c64135dc1e597f5f6ec77826c8d3a11be37aa2`.
 The live GitHub projection is the zero-action semantic plan
 `f51ed48ed324a3d4fbe89da65cacb8285ebd5fb59bc222efe542f4c8f8cb7dec`.
+
+`VERIFIED` PR #538 merged the first edge checkpoint as
+`4e5540b982fc370a2312d64f78a454ef652ce940` from reviewed head
+`aff8a4b947d9033eb1151a7d06ce0c039b6fdde8`. Status guard run
+`30262850204` and supply-chain run `30262850140` passed; the redundant
+evidence-only release run was cancelled. The post-merge GitHub readback
+remained the zero-action plan
+`f51ed48ed324a3d4fbe89da65cacb8285ebd5fb59bc222efe542f4c8f8cb7dec`.
+
+`IN_PROGRESS` the second readiness review records only
+ISSUE-0098→ISSUE-0083 as `complete`. The merged classification contract
+provides point-in-time sector, industry, business-model and country/currency
+context; confidence, alternatives and deterministic fallback; version and
+score-invalidation tokens; immutable replay; and fail-closed sector-adapter
+routing. ISSUE-0098 still owns cohort membership and peer statistics.
+
+ISSUE-0098 remains planned with all declared dependency interfaces now
+reviewed. The proposed registry SHA-256 is
+`4935b3dc3ad8645251a31c0629eeaa9afa528607a669c610cccfba687cc7246b`;
+the live GitHub projection remains the zero-action plan
+`f51ed48ed324a3d4fbe89da65cacb8285ebd5fb59bc222efe542f4c8f8cb7dec`.

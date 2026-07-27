@@ -5671,16 +5671,16 @@
         },
         {
           "dependency_id": "ISSUE-0083",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
+          "evidence_state": "complete",
+          "reason_code": "EDGE_EVIDENCE_COMPLETE",
+          "resolved": true
         }
       ],
       "execution_allowed": false,
       "issue_id": "ISSUE-0098",
-      "ready": false,
+      "ready": true,
       "reason_codes": [
-        "BLOCKED_UNRESOLVED_DEPENDENCY"
+        "READY_BLOCKING_EDGES_RESOLVED"
       ],
       "required_inputs": []
     },
@@ -15839,12 +15839,16 @@
           "state": "partial_interface"
         },
         "ISSUE-0083": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B04/ISSUE-0083/point-in-time-classification-context-v2",
+          "evidence_references": [
+            "PR #475 merged ISSUE-0083 classification product as 7aab4f2775e35b0af248c61f8b95930d6c50b781 after protected Linux and Windows release evidence; final convergence ad783e517be68882934300df73106891ae6e3c05",
+            "src/etf_cockpit/data/classification.py provides point-in-time InstrumentContextV2, immutable ClassificationStore, sector/industry and business-model context, confidence, alternatives, deterministic fallback, version and score-invalidation tokens, and a fail-closed sector_adapter_route",
+            "tests/test_classification.py covers labelled routing, low-confidence fallback, conflicts, historical revisions, override invalidation, immutable replay, corruption and concurrent appenders; ISSUE-0098 retains ownership of cohort membership and peer statistics"
+          ],
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         }
       },
       "downstream_issues": [
@@ -15913,7 +15917,7 @@
       ],
       "title": "Create the stock sector-adapter and peer-cohort framework",
       "ui_requirement": "Instrument page shows adapter, peer cohort and excluded metrics.",
-      "verified_commit": "aae5357fecbb52d5bcd6be141eea8ef86b23c1e4",
+      "verified_commit": "7aab4f2775e35b0af248c61f8b95930d6c50b781",
       "verified_date": "2026-07-27",
       "why": "Institutional-style analysis uses common foundations plus sector-specific economics and peer comparisons.",
       "write_conflict_group": "stock-research"
@@ -26399,7 +26403,7 @@
   ],
   "schema_version": "2.0",
   "source_of_truth": {
-    "baseline_commit": "b8eb6b4967d5655ed4e528ee9cb222690a424d57",
+    "baseline_commit": "4e5540b982fc370a2312d64f78a454ef652ce940",
     "closed_ledger_sha256": "2dca7fd65f7a218747bcfb91b4e5c1f734af26f29114cc7dc83b071bb86838d8",
     "final_release_manifest_sha256": "dbb71ecaa2b81206ff922eec3dcc72cb08cc001121688b107e8f1c3a2372f685",
     "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -26411,7 +26415,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "d7d3f1b44acd71c9f3fd9609e92257fa1bd03a2f028020b268460fe4f20a8832",
+    "programme_control_state_sha256": "84a85adbf2c42cfdf895d7b08fc13f88ba52c59ad9fbd31d64f7aa5b481c8439",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
