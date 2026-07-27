@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "b8eb6b4967d5655ed4e528ee9cb222690a424d57",
+    "generation_base_commit": "4e5540b982fc370a2312d64f78a454ef652ce940",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -2702,12 +2702,16 @@
           "state": "partial_interface"
         },
         "ISSUE-0083": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B04/ISSUE-0083/point-in-time-classification-context-v2",
+          "evidence_references": [
+            "PR #475 merged ISSUE-0083 classification product as 7aab4f2775e35b0af248c61f8b95930d6c50b781 after protected Linux and Windows release evidence; final convergence ad783e517be68882934300df73106891ae6e3c05",
+            "src/etf_cockpit/data/classification.py provides point-in-time InstrumentContextV2, immutable ClassificationStore, sector/industry and business-model context, confidence, alternatives, deterministic fallback, version and score-invalidation tokens, and a fail-closed sector_adapter_route",
+            "tests/test_classification.py covers labelled routing, low-confidence fallback, conflicts, historical revisions, override invalidation, immutable replay, corruption and concurrent appenders; ISSUE-0098 retains ownership of cohort membership and peer statistics"
+          ],
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         }
       },
       "phase": "phase-03-stock-research",
@@ -2744,9 +2748,36 @@
           "reviewed_date": "2026-07-27",
           "reviewer": "Codex root orchestrator",
           "verified_commit": "aae5357fecbb52d5bcd6be141eea8ef86b23c1e4"
+        },
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0083",
+            "evidence": {
+              "contract_reference": "B04/ISSUE-0083/point-in-time-classification-context-v2",
+              "evidence_references": [
+                "PR #475 merged ISSUE-0083 classification product as 7aab4f2775e35b0af248c61f8b95930d6c50b781 after protected Linux and Windows release evidence; final convergence ad783e517be68882934300df73106891ae6e3c05",
+                "src/etf_cockpit/data/classification.py provides point-in-time InstrumentContextV2, immutable ClassificationStore, sector/industry and business-model context, confidence, alternatives, deterministic fallback, version and score-invalidation tokens, and a fail-closed sector_adapter_route",
+                "tests/test_classification.py covers labelled routing, low-confidence fallback, conflicts, historical revisions, override invalidation, immutable replay, corruption and concurrent appenders; ISSUE-0098 retains ownership of cohort membership and peer statistics"
+              ],
+              "reviewed_date": "2026-07-27",
+              "reviewer": "Codex root orchestrator",
+              "schema_version": "1.0",
+              "state": "complete"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "PR #475 merged ISSUE-0083 classification product as 7aab4f2775e35b0af248c61f8b95930d6c50b781 after protected Linux and Windows release evidence; final convergence ad783e517be68882934300df73106891ae6e3c05",
+            "src/etf_cockpit/data/classification.py provides point-in-time InstrumentContextV2, immutable ClassificationStore, sector/industry and business-model context, confidence, alternatives, deterministic fallback, version and score-invalidation tokens, and a fail-closed sector_adapter_route",
+            "tests/test_classification.py covers labelled routing, low-confidence fallback, conflicts, historical revisions, override invalidation, immutable replay, corruption and concurrent appenders; ISSUE-0098 retains ownership of cohort membership and peer statistics"
+          ],
+          "review_reference": "B04 ISSUE-0098 classification dependency review against merged PR #475",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "verified_commit": "7aab4f2775e35b0af248c61f8b95930d6c50b781"
         }
       ],
-      "verified_commit": "aae5357fecbb52d5bcd6be141eea8ef86b23c1e4",
+      "verified_commit": "7aab4f2775e35b0af248c61f8b95930d6c50b781",
       "verified_date": "2026-07-27"
     },
     "ISSUE-0099": {
