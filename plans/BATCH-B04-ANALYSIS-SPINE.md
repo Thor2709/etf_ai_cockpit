@@ -86,3 +86,28 @@ open issue #238 with semantic SHA-256
 `68cef5b7a35b34bda5043b84ba2c3782d218a5b8a9b52b8e7f1b40b7cab4aaf2`.
 No product, dependency, scope, acceptance, policy or authority change is
 included; `execution_allowed=false`.
+
+`VERIFIED` readiness PR #540 merged ISSUE-0098 as ready in
+`b3dd4decbef105ef8eff44abc5a97820507ea64a` from reviewed head
+`5dcfddff00b74b70998759e790d1a8334018d60a`. Status guard run
+`30263595362` and supply-chain run `30263595352` passed; the redundant release
+run was cancelled. Checksum-approved GitHub plan
+`68cef5b7a35b34bda5043b84ba2c3782d218a5b8a9b52b8e7f1b40b7cab4aaf2`
+applied only #238 and zero-action readback
+`df90dd12bae8df17922cc4b913e26669ac3524548f6057c52dba5338d0349456`
+verified convergence.
+
+`IN_PROGRESS` the separate implementation hand-off advances only ISSUE-0098
+`ready -> in_progress`. The smallest usable product is a versioned local
+peer-cohort/metric contract using frozen point-in-time classification and
+universe evidence: deterministic leaf-to-parent fallback, effective sample
+size, median/MAD, weighted empirical CDF, winsorisation, hierarchical
+shrinkage, seeded bootstrap intervals, explicit members/exclusions/support,
+sector-adapter routing and read-only Instrument Detail lineage.
+
+Excluded: downstream sector-family implementations, forecasts, expected
+returns, recommendations, optimiser/order work, remote providers and live
+execution. The proposed registry SHA-256 is
+`6f7fc25da846cec6c6ee23c131bf77f918d36f17b27e0ee0f24751699394178c`;
+the reviewed one-update GitHub plan is
+`af636dec29f5aa00750f1a09bb1d30c46a3a2f08cd71cfec37b98eafb6a7426a`.

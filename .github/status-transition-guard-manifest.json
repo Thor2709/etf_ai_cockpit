@@ -3,23 +3,23 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "planned",
+      "from": "ready",
       "issue_id": "ISSUE-0098",
-      "to": "ready"
+      "to": "in_progress"
     }
   ],
-  "base_commit": "ec721a5576c3ce3a26690d906b256d94106d5db0",
-  "branch": "codex/b04-issue0098-ready-20260727",
+  "base_commit": "b3dd4decbef105ef8eff44abc5a97820507ea64a",
+  "branch": "codex/b04-issue0098-in-progress-20260727",
   "issue_ids": [
     "ISSUE-0098"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "4935b3dc3ad8645251a31c0629eeaa9afa528607a669c610cccfba687cc7246b",
+    "base_registry_sha256": "8d21b82252ad512ec05b1135b18e5e281bb8a4f2e4dffdcccf3964a3ede2d494",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "8d21b82252ad512ec05b1135b18e5e281bb8a4f2e4dffdcccf3964a3ede2d494",
-    "reason": "B04 ISSUE-0098 readiness: advance only planned to ready after both declared dependency interfaces were reviewed and merged; preserve dependencies, edge evidence, scope, acceptance criteria, policy and execution_allowed=false.",
+    "proposed_registry_sha256": "6f7fc25da846cec6c6ee23c131bf77f918d36f17b27e0ee0f24751699394178c",
+    "reason": "B04 ISSUE-0098 implementation hand-off: advance only ready to in_progress after the guarded readiness merge and checksum-controlled GitHub convergence; preserve dependencies, edge evidence, scope, acceptance criteria, policy and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },

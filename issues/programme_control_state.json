@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "ec721a5576c3ce3a26690d906b256d94106d5db0",
+    "generation_base_commit": "b3dd4decbef105ef8eff44abc5a97820507ea64a",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -2698,6 +2698,17 @@
           "reviewed_date": "2026-07-27",
           "reviewer": "Codex root orchestrator",
           "status": "ready"
+        },
+        {
+          "evidence_references": [
+            "PR #540 merged the guarded ISSUE-0098 planned-to-ready transition as b3dd4decbef105ef8eff44abc5a97820507ea64a",
+            "Checksum-approved GitHub plan 68cef5b7a35b34bda5043b84ba2c3782d218a5b8a9b52b8e7f1b40b7cab4aaf2 applied only #238 and zero-action readback df90dd12bae8df17922cc4b913e26669ac3524548f6057c52dba5338d0349456 verified convergence",
+            "Implementation remains the bounded local point-in-time peer-cohort and sector-adapter framework with deterministic fallback, read-only UI lineage and execution_allowed=false"
+          ],
+          "review_reference": "B04 ISSUE-0098 implementation hand-off after readiness and GitHub convergence",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "status": "in_progress"
         }
       ],
       "dependency_edge_evidence": {
@@ -2727,11 +2738,11 @@
         }
       },
       "phase": "phase-03-stock-research",
-      "programme_status": "ready",
+      "programme_status": "in_progress",
       "status_transition": {
-        "from": "planned",
-        "review_reference": "B04 ISSUE-0098 readiness after reviewed score and classification interfaces",
-        "to": "ready"
+        "from": "ready",
+        "review_reference": "B04 ISSUE-0098 implementation hand-off after readiness and GitHub convergence",
+        "to": "in_progress"
       },
       "transition_history": [
         {
@@ -2801,9 +2812,23 @@
           "reviewer": "Codex root orchestrator",
           "to": "ready",
           "verified_commit": "ec721a5576c3ce3a26690d906b256d94106d5db0"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #540 merged the guarded ISSUE-0098 planned-to-ready transition as b3dd4decbef105ef8eff44abc5a97820507ea64a",
+            "Checksum-approved GitHub plan 68cef5b7a35b34bda5043b84ba2c3782d218a5b8a9b52b8e7f1b40b7cab4aaf2 applied only #238 and zero-action readback df90dd12bae8df17922cc4b913e26669ac3524548f6057c52dba5338d0349456 verified convergence",
+            "Implementation remains the bounded local point-in-time peer-cohort and sector-adapter framework with deterministic fallback, read-only UI lineage and execution_allowed=false"
+          ],
+          "from": "ready",
+          "review_reference": "B04 ISSUE-0098 implementation hand-off after readiness and GitHub convergence",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "to": "in_progress",
+          "verified_commit": "b3dd4decbef105ef8eff44abc5a97820507ea64a"
         }
       ],
-      "verified_commit": "ec721a5576c3ce3a26690d906b256d94106d5db0",
+      "verified_commit": "b3dd4decbef105ef8eff44abc5a97820507ea64a",
       "verified_date": "2026-07-27"
     },
     "ISSUE-0099": {
