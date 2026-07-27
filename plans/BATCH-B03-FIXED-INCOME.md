@@ -906,3 +906,21 @@ API tests; the earlier 103 architecture/documentation/application/Instrument
 Detail checks also passed. Ruff, compileall, scoped MyPy for both new modules
 and diff hygiene pass. Repository-wide transitive MyPy remains an existing
 baseline with missing third-party stubs and unrelated historical errors.
+
+`REVISE` draft product PR #535 preserved reviewed head
+`03a0fce5cc79ffebb9dd217d6756889d02e2bb9c`. Supply-chain run
+`30257803307` passed. Protected run `30257803363` passed Linux and Windows
+package build, artefacts, source/package parity, packaged smoke, performance,
+source, cache, security, privacy, legal and SBOM checks. Full tests reproduced
+the previously authorised B03 baseline on both platforms: 18 stale-generation
+control failures plus
+`test_scoreboard_binds_classification_token_and_reader_invalidates_stale_score`.
+No ISSUE-0156 or changed-path test failed.
+
+The branch now includes only the deterministic base convergence from
+`57262943fa3fb538216a97f6b595fbbfc23024fc` to current `origin/main`
+`e9847c910080892af6fda7f420ccdb194b73e0ef`. Registry generation, completion
+documents and all 44 control/registry tests pass; 197 issue statuses and policy
+remain unchanged and `execution_allowed=false`. The exact simple-score node
+still reproduces unchanged and remains the separately tracked baseline. A fresh
+protected Linux/Windows run is required on the converged PR head.
