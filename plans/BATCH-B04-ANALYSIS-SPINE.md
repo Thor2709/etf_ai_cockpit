@@ -226,3 +226,35 @@ issue #239 with semantic SHA-256
 `d66bd2acc35adf35bb4b0b33678d2dda5ba31106df7d1d8f83c588c672b4c2bd`.
 No product, dependency, scope, acceptance, policy or authority change is
 included; `execution_allowed=false`.
+
+`VERIFIED` readiness PR #546 merged as
+`b1f2c065b4556b7b5200b70e05ef0aa2940bb60e` from reviewed head
+`12cfd39eb22c415a488692d8d18b15e1e870cf61`. Status guard run
+`30311207538` and supply-chain run `30311207583` passed; the redundant
+evidence-only release run was cancelled. Checksum-approved GitHub plan
+`d66bd2acc35adf35bb4b0b33678d2dda5ba31106df7d1d8f83c588c672b4c2bd`
+applied only #239, and zero-action readback
+`86cb76eb492a78ba911634f94271ef4005f012e15ce14743676437e67ffa114d`
+verified convergence.
+
+`IN_PROGRESS` the bounded ISSUE-0099 implementation handoff advances only
+`ready -> in_progress`. The smallest usable outcome is a typed
+financial-institution adapter framework integrated through the existing
+peer-cohort registry and Instrument Detail facade. It covers bank capital,
+funding, asset-quality and profitability evidence; insurer underwriting,
+solvency, reserve and investment evidence; and diversified-financial funding,
+credit-loss, capital and revenue-mix evidence. Every metric preserves unit,
+direction, period, reporting standard, jurisdiction, source and point-in-time
+lineage. Missing evidence remains explicit, lowers confidence and prevents
+high-authority labels. Deterministic credit-loss, funding and market shocks
+remain read-only and `execution_allowed=false`.
+
+The implementation excludes remote providers, paid dependencies, semantically
+invalid generic valuation or industrial leverage fallbacks, other sector
+children, forecasts, expected returns, recommendations, optimisation, order
+transmission and broker writes. The proposed 197-record registry has SHA-256
+`814aafe0626e0f1e52c82be7a8702e4797156a5eda50bad98d51e498207da3ba`.
+The reviewed GitHub plan contains exactly one Programme-status update for open
+issue #239 with semantic SHA-256
+`8f64d4225a23e54723f129c5a0d68893da9ebc8b7ad3e0e6c06c1285e61f0749`.
+No dependency, scope, acceptance, policy or authority change is included.
