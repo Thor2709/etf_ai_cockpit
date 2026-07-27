@@ -1,22 +1,16 @@
 from __future__ import annotations
 
 import copy
-from datetime import date
 import json
 import re
+import shutil
 import subprocess
 import sys
-import shutil
+from datetime import date
 from pathlib import Path
 
 import pytest
 
-from scripts.issue_registry_core import (
-    build_registry,
-    parse_final_release_new_issues,
-    readiness_projection,
-    validate_registry,
-)
 from scripts import (
     generate_completion_documents,
     generate_issue_registry,
@@ -27,7 +21,12 @@ from scripts import (
     validate_app,
     validate_issue_registry,
 )
-
+from scripts.issue_registry_core import (
+    build_registry,
+    parse_final_release_new_issues,
+    readiness_projection,
+    validate_registry,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE_SHA = "452d44034197cd5d837c1854603eea030e02acf6"
@@ -421,7 +420,10 @@ def test_programme_status_cannot_resolve_an_unresolved_blocking_edge(status: str
 
     assert decision["ready"] is False
     assert decision["reason_codes"] == ["BLOCKED_UNRESOLVED_DEPENDENCY"]
-    assert decision["edges"][0]["reason_code"] == "EDGE_UNRESOLVED"
+    edge = next(
+        item for item in decision["edges"] if item["dependency_id"] == "ISSUE-0153"
+    )
+    assert edge["reason_code"] == "EDGE_UNRESOLVED"
 
 
 @pytest.mark.parametrize("state", ["complete", "partial_interface", "waived"])

@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "fb0f21a36a805b4c45053bc7eab42329522f91cf",
+    "generation_base_commit": "bc2e8ad35ad4989056abe24528a04374dcf48c3c",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4401,12 +4401,17 @@
       "acceptance_evidence": [],
       "dependency_edge_evidence": {
         "ISSUE-0085": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B03/ISSUE-0085/canonical-market-calendar-schedule-v1",
+          "evidence_references": [
+            "PR #493 merged ISSUE-0085 certified market-calendar product as d7adefcb119bde9b8e4e8110e257d615b662873d after protected Linux and Windows release evidence",
+            "PRs #494 and #495 converged ISSUE-0085; final merged convergence is aafc249121ff1e284979d384821ea8d84ba0bddf",
+            "src/etf_cockpit/data/market_calendar.py MarketCalendarService supplies distinct settlement calendars, business-day adjustments, coupon/ex dates, day-count conventions and point-in-time correction lineage required by deterministic bond analytics",
+            "tests/test_market_calendar.py covers settlement/calendar separation, holidays, business-day and day-count golden fixtures, correction knowledge cutoffs and fail-closed evidence"
+          ],
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         },
         "ISSUE-0088": {
           "contract_reference": "",
@@ -4466,9 +4471,38 @@
           "reviewed_date": "2026-07-27",
           "reviewer": "Codex root orchestrator",
           "verified_commit": "fb0f21a36a805b4c45053bc7eab42329522f91cf"
+        },
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0085",
+            "evidence": {
+              "contract_reference": "B03/ISSUE-0085/canonical-market-calendar-schedule-v1",
+              "evidence_references": [
+                "PR #493 merged ISSUE-0085 certified market-calendar product as d7adefcb119bde9b8e4e8110e257d615b662873d after protected Linux and Windows release evidence",
+                "PRs #494 and #495 converged ISSUE-0085; final merged convergence is aafc249121ff1e284979d384821ea8d84ba0bddf",
+                "src/etf_cockpit/data/market_calendar.py MarketCalendarService supplies distinct settlement calendars, business-day adjustments, coupon/ex dates, day-count conventions and point-in-time correction lineage required by deterministic bond analytics",
+                "tests/test_market_calendar.py covers settlement/calendar separation, holidays, business-day and day-count golden fixtures, correction knowledge cutoffs and fail-closed evidence"
+              ],
+              "reviewed_date": "2026-07-27",
+              "reviewer": "Codex root orchestrator",
+              "schema_version": "1.0",
+              "state": "complete"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "PR #493 merged ISSUE-0085 certified market-calendar product as d7adefcb119bde9b8e4e8110e257d615b662873d after protected Linux and Windows release evidence",
+            "PRs #494 and #495 converged ISSUE-0085; final merged convergence is aafc249121ff1e284979d384821ea8d84ba0bddf",
+            "src/etf_cockpit/data/market_calendar.py MarketCalendarService supplies distinct settlement calendars, business-day adjustments, coupon/ex dates, day-count conventions and point-in-time correction lineage required by deterministic bond analytics",
+            "tests/test_market_calendar.py covers settlement/calendar separation, holidays, business-day and day-count golden fixtures, correction knowledge cutoffs and fail-closed evidence"
+          ],
+          "review_reference": "B03 ISSUE-0154 calendar dependency against integrated certified settlement and day-count interface",
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
+          "verified_commit": "bc2e8ad35ad4989056abe24528a04374dcf48c3c"
         }
       ],
-      "verified_commit": "fb0f21a36a805b4c45053bc7eab42329522f91cf",
+      "verified_commit": "bc2e8ad35ad4989056abe24528a04374dcf48c3c",
       "verified_date": "2026-07-27"
     },
     "ISSUE-0155": {

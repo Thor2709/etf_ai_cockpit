@@ -3,21 +3,21 @@
   "allow_other_status_changes": false,
   "allowed_dependency_edge_updates": [
     {
-      "dependency_id": "ISSUE-0153",
+      "dependency_id": "ISSUE-0085",
       "issue_id": "ISSUE-0154"
     }
   ],
   "allowed_status_transitions": [],
-  "base_commit": "fb0f21a36a805b4c45053bc7eab42329522f91cf",
-  "branch": "codex/issue-0154-edge-0153-20260727",
+  "base_commit": "bc2e8ad35ad4989056abe24528a04374dcf48c3c",
+  "branch": "codex/issue-0154-edge-0085-20260727",
   "issue_ids": [],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "c10fd8a55673f2553abfb400e587a18923936200d013d6d5b133651407a6ab95",
+    "base_registry_sha256": "709fb35513e9968e570a0c520e9bc60c3446525e4cc8529cc2468c5f57473fb3",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_dependency_edge_evidence",
-    "proposed_registry_sha256": "709fb35513e9968e570a0c520e9bc60c3446525e4cc8529cc2468c5f57473fb3",
-    "reason": "B03 ISSUE-0154 dependency readiness: record only the reviewed ISSUE-0153 fixed-income terms interface, keep ISSUE-0154 planned with ISSUE-0085 and ISSUE-0088 unresolved, and preserve batch composition, scope, dependencies, acceptance criteria, status semantics, policies and execution_allowed=false.",
+    "proposed_registry_sha256": "4dc9a08f949b1fca10577a8006ea3b1ac2f0413f412a0daedddd8dc0ee49739e",
+    "reason": "B03 ISSUE-0154 dependency readiness: record only the reviewed ISSUE-0085 certified market-calendar, settlement and day-count interface, keep ISSUE-0154 planned with ISSUE-0088 unresolved, and preserve batch composition, scope, dependencies, acceptance criteria, status semantics, policies and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },

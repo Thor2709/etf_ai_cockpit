@@ -146,3 +146,34 @@ constructs its own unresolved edge precondition instead of depending on live
 canonical state. Guard, freshness, registry validation, 60 focused tests, Ruff
 and diff hygiene pass. Because a test file changes, this PR follows the full
 protected release path rather than the evidence-only fast path.
+
+`VERIFIED` PR #511 merged the ISSUE-0154→ISSUE-0153 readiness edge as
+`bc2e8ad35ad4989056abe24528a04374dcf48c3c`. The full protected Linux and
+Windows jobs passed every package, parity, smoke, policy and safety check; each
+full suite retained only the exact existing simple-score baseline failure.
+The reviewed head, changed-file allowlist and absence of comments or reviews
+were unchanged at merge. ISSUE-0154 remains planned and
+`execution_allowed=false`.
+
+`IN_PROGRESS` the second ISSUE-0154 readiness review records only the
+ISSUE-0154→ISSUE-0085 edge `unresolved -> complete` against the integrated
+`market-calendar.v1` service. The contract supplies distinct settlement
+calendar evidence, business-day and coupon/ex-date adjustment, declared
+day-count conventions and point-in-time correction lineage. ISSUE-0154
+remains planned and ISSUE-0088 remains unresolved. The regenerated 197-record
+registry has SHA-256
+`4dc9a08f949b1fca10577a8006ea3b1ac2f0413f412a0daedddd8dc0ee49739e`;
+the GitHub projection is the zero-action plan
+`66bec5f128c60b6158f0cca36aae0464f01cb12a092206c97945b66e0ee29c66`.
+No product, pricing, dependency-list, scope, acceptance, safety, status or
+authority change is authorised.
+
+`VERIFIED` the edge review confirms the integrated calendar service supplies
+the exact deterministic settlement, adjustment, day-count and correction
+inputs required by ISSUE-0154. The control-plane readiness test now selects
+the intended ISSUE-0153 edge by dependency ID instead of relying on edge
+ordering as more edges become resolved. Guard, registry and generated-document
+freshness pass; 143 focused control, programme, market-calendar and UI tests
+pass in a fresh Python 3.12 dependency environment. Ruff and diff hygiene
+pass. Because a test file changes, this PR requires the full protected Linux
+and Windows release path rather than the evidence-only fast path.

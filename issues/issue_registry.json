@@ -7105,9 +7105,9 @@
       "edges": [
         {
           "dependency_id": "ISSUE-0085",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
+          "evidence_state": "complete",
+          "reason_code": "EDGE_EVIDENCE_COMPLETE",
+          "resolved": true
         },
         {
           "dependency_id": "ISSUE-0088",
@@ -21599,12 +21599,17 @@
       "dependency_conversions": [],
       "dependency_edge_evidence": {
         "ISSUE-0085": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B03/ISSUE-0085/canonical-market-calendar-schedule-v1",
+          "evidence_references": [
+            "PR #493 merged ISSUE-0085 certified market-calendar product as d7adefcb119bde9b8e4e8110e257d615b662873d after protected Linux and Windows release evidence",
+            "PRs #494 and #495 converged ISSUE-0085; final merged convergence is aafc249121ff1e284979d384821ea8d84ba0bddf",
+            "src/etf_cockpit/data/market_calendar.py MarketCalendarService supplies distinct settlement calendars, business-day adjustments, coupon/ex dates, day-count conventions and point-in-time correction lineage required by deterministic bond analytics",
+            "tests/test_market_calendar.py covers settlement/calendar separation, holidays, business-day and day-count golden fixtures, correction knowledge cutoffs and fail-closed evidence"
+          ],
+          "reviewed_date": "2026-07-27",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         },
         "ISSUE-0088": {
           "contract_reference": "",
@@ -21661,7 +21666,7 @@
       "source_record_id": "ISSUE-0154",
       "source_title": "Implement fixed-income cash-flow, clean/dirty pricing and yield/risk analytics",
       "title": "Implement fixed-income cash-flow, clean/dirty pricing and yield/risk analytics",
-      "verified_commit": "fb0f21a36a805b4c45053bc7eab42329522f91cf",
+      "verified_commit": "bc2e8ad35ad4989056abe24528a04374dcf48c3c",
       "verified_date": "2026-07-27",
       "write_conflict_group": "returns-and-risk"
     },
@@ -26215,7 +26220,7 @@
   ],
   "schema_version": "2.0",
   "source_of_truth": {
-    "baseline_commit": "fb0f21a36a805b4c45053bc7eab42329522f91cf",
+    "baseline_commit": "bc2e8ad35ad4989056abe24528a04374dcf48c3c",
     "closed_ledger_sha256": "2dca7fd65f7a218747bcfb91b4e5c1f734af26f29114cc7dc83b071bb86838d8",
     "final_release_manifest_sha256": "dbb71ecaa2b81206ff922eec3dcc72cb08cc001121688b107e8f1c3a2372f685",
     "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -26227,7 +26232,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "959938e5c2e24b4fd5f10ab8b1c23209ae52b11aa08a94b0451a59f1320dc218",
+    "programme_control_state_sha256": "15516dd28671c713164d293aeafa9a103cd98740f1659f83d3d1a0e8f456528d",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
