@@ -405,3 +405,32 @@ transport and immutable raw-object prerequisite without claiming
 provider-specific schemas or legal enablement. Seven focused bulk-cache tests
 and Ruff pass; the status guard, registry validation, generation/freshness
 checks, 108 control/programme/UI tests and diff hygiene pass.
+
+`VERIFIED` evidence-only PR #520 merged the ISSUE-0155→ISSUE-0081 bulk-cache
+edge as `06a77a2539a8b414944d380d0c39b18b29cfad7f`. Status guard run
+`30243477788` and supply-chain run `30243477858` passed; redundant release run
+`30243477813` was cancelled under programme policy. The GitHub projection
+remained the zero-action plan
+`17a2d232ab37285969da9250114747ba30a607d5c8bb9d8c9b9e2c02e50582d8`.
+
+`IN_PROGRESS` the third ISSUE-0155 readiness review records only the
+ISSUE-0155→ISSUE-0088 edge `unresolved -> partial_interface`. The existing
+macro warehouse supplies append-only bitemporal risk-free and benchmark
+observations with source terms/checksums, currency, units, frequency,
+revisions, transformations and decision-time selection. It does not supply a
+fixed-income security observation, typed curve tenor/interpolation, bid/ask,
+trade, spread, liquidity, evaluated/executable label or provider-coverage
+contract; ISSUE-0155 must define these and keep absent evidence unavailable.
+ISSUE-0155 remains planned, while ISSUE-0149 and ISSUE-0153 remain unresolved.
+The regenerated registry has SHA-256
+`28ef7b9e64ad1319b02c41e050bd049e133d2a341c059a07e8d2e9c42455725b`;
+the GitHub projection remains the zero-action plan
+`17a2d232ab37285969da9250114747ba30a607d5c8bb9d8c9b9e2c02e50582d8`.
+No product, provider, dependency-list, scope, acceptance, status, safety or
+authority change is authorised.
+
+`VERIFIED` partial-interface review preserves every absent fixed-income
+market-data field rather than overstating the macro warehouse. Nine focused
+macro/bitemporal tests and Ruff pass; the status guard, registry validation,
+generation/freshness checks, 108 control/programme/UI tests and diff hygiene
+pass.
