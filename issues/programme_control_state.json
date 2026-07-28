@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "f22abc22f5fee8f97b9ad5dc201374d0a434bfa8",
+    "generation_base_commit": "af666cf015c686a59f8fade3e3e07338a7a1b05c",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -7240,6 +7240,18 @@
           "reviewed_date": "2026-07-28",
           "reviewer": "Codex root orchestrator",
           "status": "implemented"
+        },
+        {
+          "evidence_references": [
+            "PR #585 merged exact product head with complete Linux and Windows protected release evidence: 2,081 tests per platform, zero failures/errors, status and supply-chain green",
+            "PR #586 merged exact status head f96463222b98f0403633f24048a548197779fe3d as af666cf015c686a59f8fade3e3e07338a7a1b05c with exact guard and supply-chain green",
+            "PR #586 GitHub status plan ed8a74b32eed293b017770ef9414a95b248b73aca5db5ae5c1338f5ae1f81836 applied and verified; zero-action readback c352c885b330cf314285c61b427bd9b284c9860942cc6c5a219276c8ffb7d454",
+            "No product, dependency, policy, broker-authority or execution_allowed state changed after the reviewed H-tier tree"
+          ],
+          "review_reference": "ISSUE-0177 exact-tree integration acceptance",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "status": "integrated"
         }
       ],
       "canonical_definition": {
@@ -7310,11 +7322,11 @@
       },
       "dependency_edge_evidence": {},
       "phase": "phase-09-quality-release-security",
-      "programme_status": "implemented",
+      "programme_status": "integrated",
       "status_transition": {
-        "from": "in_progress",
-        "review_reference": "ISSUE-0177 exact-tree implementation and protected-release acceptance",
-        "to": "implemented"
+        "from": "implemented",
+        "review_reference": "ISSUE-0177 exact-tree integration acceptance",
+        "to": "integrated"
       },
       "transition_history": [
         {
@@ -7344,9 +7356,24 @@
           "reviewer": "Codex root orchestrator",
           "to": "implemented",
           "verified_commit": "f22abc22f5fee8f97b9ad5dc201374d0a434bfa8"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #585 merged exact product head with complete Linux and Windows protected release evidence: 2,081 tests per platform, zero failures/errors, status and supply-chain green",
+            "PR #586 merged exact status head f96463222b98f0403633f24048a548197779fe3d as af666cf015c686a59f8fade3e3e07338a7a1b05c with exact guard and supply-chain green",
+            "PR #586 GitHub status plan ed8a74b32eed293b017770ef9414a95b248b73aca5db5ae5c1338f5ae1f81836 applied and verified; zero-action readback c352c885b330cf314285c61b427bd9b284c9860942cc6c5a219276c8ffb7d454",
+            "No product, dependency, policy, broker-authority or execution_allowed state changed after the reviewed H-tier tree"
+          ],
+          "from": "implemented",
+          "review_reference": "ISSUE-0177 exact-tree integration acceptance",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "to": "integrated",
+          "verified_commit": "af666cf015c686a59f8fade3e3e07338a7a1b05c"
         }
       ],
-      "verified_commit": "f22abc22f5fee8f97b9ad5dc201374d0a434bfa8",
+      "verified_commit": "af666cf015c686a59f8fade3e3e07338a7a1b05c",
       "verified_date": "2026-07-28"
     },
     "ISSUE-0178": {

@@ -866,3 +866,14 @@ readback is zero action at checksum
 The next action is deterministic generation, exact E-tier guards and an
 audited one-field GitHub status update; product code and
 `execution_allowed=false` remain unchanged.
+
+`MERGED` ISSUE-0177 implemented-status PR #586 at
+`af666cf015c686a59f8fade3e3e07338a7a1b05c`; its exact status guard and
+supply-chain scan passed, and the reviewed one-field GitHub plan was applied.
+Fresh readback is zero action at checksum
+`c352c885b330cf314285c61b427bd9b284c9860942cc6c5a219276c8ffb7d454`.
+`IN_PROGRESS` this evidence-only transaction advances only ISSUE-0177 from
+`implemented` to `integrated`, using the already successful PR #585
+Linux/Windows protected evidence and the audited PR #586 status transaction.
+The next action is deterministic generation, exact E-tier guards and the
+corresponding one-field GitHub status update.

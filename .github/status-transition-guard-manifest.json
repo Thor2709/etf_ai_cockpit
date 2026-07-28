@@ -3,23 +3,23 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "in_progress",
+      "from": "implemented",
       "issue_id": "ISSUE-0177",
-      "to": "implemented"
+      "to": "integrated"
     }
   ],
-  "base_commit": "f22abc22f5fee8f97b9ad5dc201374d0a434bfa8",
-  "branch": "codex/issue-0177-implemented-20260728",
+  "base_commit": "af666cf015c686a59f8fade3e3e07338a7a1b05c",
+  "branch": "codex/issue-0177-integrated-20260728",
   "issue_ids": [
     "ISSUE-0177"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "4803a0dd3db278f09d10a0b8b69d4a02bcc10ac628dd3389c73e2ccbb279c165",
+    "base_registry_sha256": "0ad61c63964ebfc0aae6d3aea200b6544b336a660a4f7d5f0bbc5ff6835b9244",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "0ad61c63964ebfc0aae6d3aea200b6544b336a660a4f7d5f0bbc5ff6835b9244",
-    "reason": "ISSUE-0177 exact-tree acceptance from fresh main f22abc22f5fee8f97b9ad5dc201374d0a434bfa8: advance only in_progress to implemented after complete Linux and Windows protected evidence; preserve dependencies, acceptance criteria, policy, broker authority and execution_allowed=false.",
+    "proposed_registry_sha256": "084ce3897b0a0e86fc96fd98b9678eeab11350ef3f9bbc23c2166701251800c3",
+    "reason": "ISSUE-0177 integration acceptance from fresh main af666cf015c686a59f8fade3e3e07338a7a1b05c: advance only implemented to integrated after the exact product tree and audited status transaction passed; preserve dependencies, acceptance criteria, policy, broker authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
