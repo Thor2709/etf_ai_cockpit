@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "ecbcfbf8b5706b19996d720a1aeaf945608e7dc9",
+    "generation_base_commit": "65d35e21c397aaca77483cacc88babebdffd0014",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -3030,7 +3030,19 @@
       "verified_date": "2026-07-28"
     },
     "ISSUE-0100": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #551 merged the sole ISSUE-0100→ISSUE-0098 dependency edge as complete in 65d35e21c397aaca77483cacc88babebdffd0014 with status guard and supply-chain validation passing",
+            "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0100 retains all REIT, utility and infrastructure implementation scope",
+            "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
+          ],
+          "review_reference": "B04 ISSUE-0100 readiness after complete ISSUE-0098 dependency review",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "status": "ready"
+        }
+      ],
       "dependency_edge_evidence": {
         "ISSUE-0098": {
           "contract_reference": "B04/ISSUE-0098/peer-cohort-adapter-contract-v1",
@@ -3046,11 +3058,11 @@
         }
       },
       "phase": "phase-03-stock-research",
-      "programme_status": "planned",
+      "programme_status": "ready",
       "status_transition": {
         "from": "planned",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "planned"
+        "review_reference": "B04 ISSUE-0100 readiness after complete ISSUE-0098 dependency review",
+        "to": "ready"
       },
       "transition_history": [
         {
@@ -3079,9 +3091,23 @@
           "reviewed_date": "2026-07-28",
           "reviewer": "Codex root orchestrator",
           "verified_commit": "fc734201b138d3f24fa68d8c07422322506d6fc5"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #551 merged the sole ISSUE-0100→ISSUE-0098 dependency edge as complete in 65d35e21c397aaca77483cacc88babebdffd0014 with status guard and supply-chain validation passing",
+            "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0100 retains all REIT, utility and infrastructure implementation scope",
+            "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
+          ],
+          "from": "planned",
+          "review_reference": "B04 ISSUE-0100 readiness after complete ISSUE-0098 dependency review",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "to": "ready",
+          "verified_commit": "65d35e21c397aaca77483cacc88babebdffd0014"
         }
       ],
-      "verified_commit": "fc734201b138d3f24fa68d8c07422322506d6fc5",
+      "verified_commit": "65d35e21c397aaca77483cacc88babebdffd0014",
       "verified_date": "2026-07-28"
     },
     "ISSUE-0101": {

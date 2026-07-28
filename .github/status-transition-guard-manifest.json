@@ -1,25 +1,27 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_dependency_edge_updates": [
+  "allowed_status_transitions": [
     {
-      "dependency_id": "ISSUE-0098",
-      "issue_id": "ISSUE-0100"
+      "from": "planned",
+      "issue_id": "ISSUE-0100",
+      "to": "ready"
     }
   ],
-  "allowed_status_transitions": [],
-  "base_commit": "ecbcfbf8b5706b19996d720a1aeaf945608e7dc9",
-  "branch": "codex/issue-0100-peer-edge-20260728",
-  "issue_ids": [],
+  "base_commit": "65d35e21c397aaca77483cacc88babebdffd0014",
+  "branch": "codex/issue-0100-ready-20260728",
+  "issue_ids": [
+    "ISSUE-0100"
+  ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "9cfe0e13df83f6fc65ac539721378d5efaa47d74a266fb3cec5a3bf6166a9766",
+    "base_registry_sha256": "fd09ae9dab75686c6a44b4d2b87364ad03a2140b0309df0dd5b517888473becf",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_dependency_edge_evidence",
-    "proposed_registry_sha256": "fd09ae9dab75686c6a44b4d2b87364ad03a2140b0309df0dd5b517888473becf",
-    "reason": "B04 ISSUE-0100 readiness review: record only the integrated ISSUE-0098 peer-cohort and adapter framework as a complete dependency interface, keep REIT, utility and infrastructure formulas, stresses and UI rationale in ISSUE-0100, leave ISSUE-0100 planned, and preserve scope, acceptance criteria, policy and execution_allowed=false.",
+    "mode": "generation_base_and_status_transitions",
+    "proposed_registry_sha256": "e0b645c78be13d62ab62fe2f5a4093835bc288895a28f7513fe7fd761929bebd",
+    "reason": "B04 ISSUE-0100 readiness: advance only planned to ready after the sole ISSUE-0098 dependency interface was reviewed and merged complete; preserve product scope, acceptance criteria, dependencies, policy and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.3"
+  "schema_version": "1.2"
 }
