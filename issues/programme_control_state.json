@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "66566a267bd1edef6dc2bf0c34d7921d35ee2c8c",
+    "generation_base_commit": "889844076e4493f55eb6330ae8a5455fa7373647",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -2419,7 +2419,17 @@
       "verified_date": "2026-07-21"
     },
     "ISSUE-0088": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #599; Release gate run 30389127702; merge 889844076e4493f55eb6330ae8a5455fa7373647"
+          ],
+          "review_reference": "PR #599 exact-head review and packaged acceptance",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex",
+          "status": "integrated"
+        }
+      ],
       "dependency_edge_evidence": {
         "ISSUE-0073": {
           "contract_reference": "",
@@ -2447,14 +2457,28 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
         "from": "implemented_initially",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "implemented_initially"
+        "review_reference": "PR #599 exact-head review and packaged acceptance",
+        "to": "integrated"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #599; Release gate run 30389127702; merge 889844076e4493f55eb6330ae8a5455fa7373647"
+          ],
+          "from": "implemented_initially",
+          "review_reference": "PR #599 exact-head review and packaged acceptance",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex",
+          "to": "integrated",
+          "verified_commit": "889844076e4493f55eb6330ae8a5455fa7373647"
+        }
+      ],
+      "verified_commit": "889844076e4493f55eb6330ae8a5455fa7373647",
+      "verified_date": "2026-07-28"
     },
     "ISSUE-0089": {
       "acceptance_evidence": [],

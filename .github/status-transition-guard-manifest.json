@@ -1,19 +1,27 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [],
-  "base_commit": "66566a267bd1edef6dc2bf0c34d7921d35ee2c8c",
-  "branch": "codex/issue-0088-review-20260728",
-  "issue_ids": [],
+  "allowed_status_transitions": [
+    {
+      "from": "implemented_initially",
+      "issue_id": "ISSUE-0088",
+      "to": "integrated"
+    }
+  ],
+  "base_commit": "889844076e4493f55eb6330ae8a5455fa7373647",
+  "branch": "codex/issue-0088-integrated-20260728",
+  "issue_ids": [
+    "ISSUE-0088"
+  ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "51dc0006e4cc45d542d57e3527e06c2109fe562bd913ae4ad2cb9cfcddbfb6a6",
+    "base_registry_sha256": "e3f449a626b4aed02318aa90b9414876b91630562395fed2a48545dbd72f1522",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "canonical_schema_and_intake",
-    "proposed_registry_sha256": "e3f449a626b4aed02318aa90b9414876b91630562395fed2a48545dbd72f1522",
-    "reason": "Refresh the deterministic generation base to merged ISSUE-0068 integration PR #598 at 66566a267bd1edef6dc2bf0c34d7921d35ee2c8c while implementing the bounded ISSUE-0088 curve and benchmark warehouse acceptance slice; all 202 canonical issue records, statuses, dependencies, broker authority and execution_allowed=false remain unchanged.",
+    "mode": "generation_base_and_status_transitions",
+    "proposed_registry_sha256": "cbcd7ddff4d159ab043c204885ac2238fcb066ab131eae919c751ab5385c181e",
+    "reason": "ISSUE-0088 protected integration acceptance from fresh main 889844076e4493f55eb6330ae8a5455fa7373647: advance only implemented_initially to integrated after exact PR #599 classifier, preflight, supply-chain, status, Linux, Windows and terminal-summary evidence; preserve dependencies, acceptance criteria, policy, broker authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.1"
+  "schema_version": "1.2"
 }
