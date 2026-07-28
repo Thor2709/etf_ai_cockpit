@@ -13,7 +13,9 @@ from etf_cockpit.parsers.esef_ixbrl import map_ifrs_fact, parse_esef_package
 FIXTURE = Path("tests/fixtures/official/esef_report_package/7245003GZ2696Y0W1X57-2026-03-31.xbri")
 
 
-def test_real_esef_package_extracts_facts_and_retains_extensions() -> None:
+def test_real_esef_package_extracts_facts_and_retains_extensions(monkeypatch) -> None:
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
+
     result = parse_esef_package(FIXTURE)
     assert result.success is True
     assert result.records
