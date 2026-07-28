@@ -95,6 +95,18 @@ def _session_timing_logger(payload: dict[str, object]) -> None:
     )
 
 
+def _timing_record_from_line(line: str) -> dict[str, object] | None:
+    try:
+        item = json.loads(line)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(item, dict):
+        return None
+    if "duration_ms" in item or item.get("event_type") == "cache":
+        return item
+    return None
+
+
 def read_timing_records(path: Path | None = None) -> list[dict[str, object]]:
     """Read valid timing/cache events while ignoring corrupt tail lines."""
     source = path or (LOG_DIR / "timings.jsonl")
@@ -104,19 +116,48 @@ def read_timing_records(path: Path | None = None) -> list[dict[str, object]]:
         return []
     records: list[dict[str, object]] = []
     for line in lines:
-        try:
-            item = json.loads(line)
-        except (TypeError, ValueError, json.JSONDecodeError):
-            continue
-        if not isinstance(item, dict):
-            continue
-        if "duration_ms" in item or item.get("event_type") == "cache":
+        item = _timing_record_from_line(line)
+        if item is not None:
             records.append(item)
     return records
 
 
+def _read_timing_tail(
+    source: Path,
+    *,
+    limit: int,
+    chunk_size: int = 64 * 1024,
+) -> list[dict[str, object]]:
+    """Read the newest valid timing/cache records without scanning full history."""
+    records: list[dict[str, object]] = []
+    try:
+        with source.open("rb") as handle:
+            handle.seek(0, 2)
+            position = handle.tell()
+            carry = b""
+            while position > 0 and len(records) < limit:
+                start = max(0, position - chunk_size)
+                handle.seek(start)
+                block = handle.read(position - start)
+                parts = (block + carry).split(b"\n")
+                if start:
+                    carry = parts.pop(0)
+                for raw_line in reversed(parts):
+                    item = _timing_record_from_line(raw_line.decode("utf-8", errors="replace"))
+                    if item is not None:
+                        records.append(item)
+                        if len(records) >= limit:
+                            break
+                position = start
+    except Exception:
+        return []
+    records.reverse()
+    return records
+
+
 def timing_summary(path: Path | None = None, *, limit: int = 50) -> dict[str, object]:
-    records = read_timing_records(path)[-max(1, int(limit)) :]
+    source = path or (LOG_DIR / "timings.jsonl")
+    records = _read_timing_tail(source, limit=max(1, int(limit)))
     durations = [float(record["duration_ms"]) for record in records if "duration_ms" in record]
     slow_steps = [record for record in records if bool(record.get("slow"))]
     cache_events = [record for record in records if record.get("event_type") == "cache"]
