@@ -582,3 +582,22 @@ deterministic convergence refreshes only the generation base to the merge
 commit before ISSUE-0026 release. No status, dependency, financial
 calculation, broker authority or `execution_allowed=false` change is
 authorised.
+
+`VERIFIED` ISSUE-0039 post-merge convergence PR #566 passed status guard and
+supply-chain validation, then merged from exact head
+`4f5e8865fa75d05f817bfc1bb199b4710c5ebf02` as
+`3b790eaeb95345ce70d9d9f6b21f28a1acd8c88e`; the redundant packaged release
+run was cancelled after the product head had passed both packaged platforms.
+
+`REVIEWED` ISSUE-0026 release from fresh main
+`3b790eaeb95345ce70d9d9f6b21f28a1acd8c88e`. The dependency-ready canonical
+record has no blocking dependencies and remains `implemented_initially`.
+The two-file macro-scenario transplant has checkpoint-identical blobs and the
+same stable patch id, `3b6da12fa44db5172726c590013e33dcd51941d9`, as the
+complete `43fbcfa..203d678` diff. Root adversarial review found period-first
+vintage selection, explicit UTC availability cutoffs, same-revision
+fail-closed handling, strict rehashed-payload verification and context-only
+authority preserved without scope expansion. All 17 focused tests pass with
+Ruff and diff hygiene. The sole current action is deterministic control
+refresh and protected release. No status, dependency, financial calculation,
+broker authority or `execution_allowed=false` change is authorised.
