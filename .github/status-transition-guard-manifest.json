@@ -1,19 +1,27 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [],
-  "base_commit": "a0e31fcfe84b343462931967571e6138117109e5",
-  "branch": "codex/throughput-converge-20260728",
-  "issue_ids": [],
+  "allowed_status_transitions": [
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0177",
+      "to": "in_progress"
+    }
+  ],
+  "base_commit": "ed3a7d0813aa930590398d93fc5fa0130f82ec19",
+  "branch": "codex/issue-0177-20260728",
+  "issue_ids": [
+    "ISSUE-0177"
+  ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "0ea9d74977098c8d7a4fdeaae8a9eb815eb9d901a49e5e825ab817f783228482",
+    "base_registry_sha256": "77275e9fa323dcf7dfacad719e2a055ccca258ec2a156fcad68afe47e7ecb716",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "canonical_schema_and_intake",
-    "proposed_registry_sha256": "77275e9fa323dcf7dfacad719e2a055ccca258ec2a156fcad68afe47e7ecb716",
-    "reason": "Post-merge convergence for throughput-control PR #578: refresh only the deterministic generation base to merged main a0e31fcfe84b343462931967571e6138117109e5; all 202 issue records, statuses, dependency evidence, acceptance criteria, policies, broker authority and execution_allowed=false remain unchanged.",
+    "mode": "generation_base_and_status_transitions",
+    "proposed_registry_sha256": "4803a0dd3db278f09d10a0b8b69d4a02bcc10ac628dd3389c73e2ccbb279c165",
+    "reason": "ISSUE-0177 implementation hand-off from fresh main ed3a7d0813aa930590398d93fc5fa0130f82ec19: advance only planned to in_progress for the bounded validation-observability and environment-preflight slice; preserve dependencies, acceptance criteria, policy, broker authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.1"
+  "schema_version": "1.2"
 }

@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "a0e31fcfe84b343462931967571e6138117109e5",
+    "generation_base_commit": "ed3a7d0813aa930590398d93fc5fa0130f82ec19",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -7218,7 +7218,18 @@
       "verified_date": "2026-07-21"
     },
     "ISSUE-0177": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Reviewed checkpoint f6ee2f47d51671ed09a4c1a3027559aa23839e5d adds protected/affected JUnit and slowest-100 durations, environment preflight, fingerprints, stage/evidence paths and clean ignored runtime artefacts",
+            "Orchestrator affected integration validation passed 29 focused tests plus Ruff, MyPy, compileall and diff hygiene; protected Linux/Windows evidence remains required before integration"
+          ],
+          "review_reference": "ISSUE-0177 reviewed implementation checkpoint",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -7287,13 +7298,28 @@
       },
       "dependency_edge_evidence": {},
       "phase": "phase-09-quality-release-security",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "2026-07-28 throughput-remediation package canonical registry migration",
-        "to": "planned"
+        "review_reference": "ISSUE-0177 reviewed implementation checkpoint",
+        "to": "in_progress"
       },
-      "verified_commit": "4eaed9c8d15212d2c9dc69bad0301eecc03e0c74",
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Reviewed checkpoint f6ee2f47d51671ed09a4c1a3027559aa23839e5d adds protected/affected JUnit and slowest-100 durations, environment preflight, fingerprints, stage/evidence paths and clean ignored runtime artefacts",
+            "Orchestrator affected integration validation passed 29 focused tests plus Ruff, MyPy, compileall and diff hygiene; protected Linux/Windows evidence remains required before integration"
+          ],
+          "from": "planned",
+          "review_reference": "ISSUE-0177 reviewed implementation checkpoint",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "to": "in_progress",
+          "verified_commit": "ed3a7d0813aa930590398d93fc5fa0130f82ec19"
+        }
+      ],
+      "verified_commit": "ed3a7d0813aa930590398d93fc5fa0130f82ec19",
       "verified_date": "2026-07-28"
     },
     "ISSUE-0178": {
