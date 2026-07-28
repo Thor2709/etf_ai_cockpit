@@ -314,6 +314,22 @@ def test_reviewed_control_extension_preserves_explicit_canonical_definition(
     }]
 
 
+def test_persisted_control_extensions_do_not_require_reauthorisation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest_path = tmp_path / "unrelated-status-manifest.json"
+    manifest_path.write_text(json.dumps({"schema_version": "1.2"}), encoding="utf-8")
+    monkeypatch.setattr(issue_registry_core, "STATUS_GUARD_MANIFEST", manifest_path)
+
+    registry = build_registry(ROOT, verify_base=False)
+
+    assert {
+        record["canonical_id"]
+        for record in registry["records"]
+        if record["source_kind"] == "control_extension"
+    } == {"ISSUE-0177", "ISSUE-0178", "ISSUE-0179", "ISSUE-0180", "ISSUE-0181"}
+
+
 @pytest.mark.parametrize("added_ids", [[], ["ISSUE-0997"], ["ISSUE-0998", "ISSUE-0997"]])
 def test_control_extension_requires_exact_manifest_ids(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, added_ids: list[str]
