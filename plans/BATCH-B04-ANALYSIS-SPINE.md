@@ -901,3 +901,15 @@ and CI-orchestration implementation; canonical control/status/generated files
 remain orchestrator-owned. The next action is worker implementation plus
 focused workflow/classifier tests, followed by orchestrator diff review and
 fresh-main integration.
+
+`REVIEWED` the single ISSUE-0178 worker checkpoint is transplanted onto fresh
+main at `cb6ba3323ca398bc260faa378c8dcd82b6e78da5`. It adds deterministic
+E/O/H/C classification, exact base/head preflight, obsolete-head
+cancellation, one automatic source scan, conditional Linux/Windows gates and
+an unconditional terminal summary. The one permitted correction made clean
+CI changed-test discovery and diff hygiene use exact refs and added the
+missing evidence-tier generator checks. Orchestrator verification passed 29
+focused tests plus Ruff, MyPy, compileall, workflow YAML parsing, H-tier
+self-classification and diff hygiene. `IN_PROGRESS` the canonical status now
+advances only `planned → in_progress`; the next action is deterministic
+generation, exact guards and the complete H-tier Linux/Windows package gate.

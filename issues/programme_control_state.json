@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "4d5f30e6ac19650030a61bec0e22a4eeb2fd57d9",
+    "generation_base_commit": "0bf098841fe14c513c6b01286973f3aa2d4d0db7",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -7377,7 +7377,20 @@
       "verified_date": "2026-07-28"
     },
     "ISSUE-0178": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Reviewed fresh-main checkpoint cb6ba3323ca398bc260faa378c8dcd82b6e78da5 implements deterministic E/O/H/C classification, concurrency cancellation, exact base/head preflight, one automatic source scan, conditional Linux/Windows gates and terminal validation-summary",
+            "Orchestrator verification passed 29 focused classifier/observability/release tests, Ruff, MyPy, compileall, YAML parsing, H-tier self-classification and diff hygiene",
+            "One focused worker correction made clean CI changed-test discovery and evidence-only generator/diff checks operate on exact base/head and fail closed on invalid refs",
+            "Complete protected Linux and Windows package evidence remains required before integration; execution_allowed=false and broker/order authority are unchanged"
+          ],
+          "review_reference": "ISSUE-0178 reviewed classifier and CI-orchestration checkpoint",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -7472,11 +7485,11 @@
         }
       },
       "phase": "phase-09-quality-release-security",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "2026-07-28 throughput-remediation package canonical registry migration",
-        "to": "planned"
+        "review_reference": "ISSUE-0178 reviewed classifier and CI-orchestration checkpoint",
+        "to": "in_progress"
       },
       "transition_history": [
         {
@@ -7505,9 +7518,24 @@
           "reviewed_date": "2026-07-28",
           "reviewer": "Codex root orchestrator",
           "verified_commit": "4d5f30e6ac19650030a61bec0e22a4eeb2fd57d9"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Reviewed fresh-main checkpoint cb6ba3323ca398bc260faa378c8dcd82b6e78da5 implements deterministic E/O/H/C classification, concurrency cancellation, exact base/head preflight, one automatic source scan, conditional Linux/Windows gates and terminal validation-summary",
+            "Orchestrator verification passed 29 focused classifier/observability/release tests, Ruff, MyPy, compileall, YAML parsing, H-tier self-classification and diff hygiene",
+            "One focused worker correction made clean CI changed-test discovery and evidence-only generator/diff checks operate on exact base/head and fail closed on invalid refs",
+            "Complete protected Linux and Windows package evidence remains required before integration; execution_allowed=false and broker/order authority are unchanged"
+          ],
+          "from": "planned",
+          "review_reference": "ISSUE-0178 reviewed classifier and CI-orchestration checkpoint",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "to": "in_progress",
+          "verified_commit": "0bf098841fe14c513c6b01286973f3aa2d4d0db7"
         }
       ],
-      "verified_commit": "4d5f30e6ac19650030a61bec0e22a4eeb2fd57d9",
+      "verified_commit": "0bf098841fe14c513c6b01286973f3aa2d4d0db7",
       "verified_date": "2026-07-28"
     },
     "ISSUE-0179": {

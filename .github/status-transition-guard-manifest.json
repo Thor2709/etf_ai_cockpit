@@ -1,25 +1,27 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_dependency_edge_updates": [
+  "allowed_status_transitions": [
     {
-      "dependency_id": "ISSUE-0177",
-      "issue_id": "ISSUE-0178"
+      "from": "planned",
+      "issue_id": "ISSUE-0178",
+      "to": "in_progress"
     }
   ],
-  "allowed_status_transitions": [],
-  "base_commit": "4d5f30e6ac19650030a61bec0e22a4eeb2fd57d9",
-  "branch": "codex/issue-0178-edge-0177-20260728",
-  "issue_ids": [],
+  "base_commit": "0bf098841fe14c513c6b01286973f3aa2d4d0db7",
+  "branch": "codex/issue-0178-20260728",
+  "issue_ids": [
+    "ISSUE-0178"
+  ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "084ce3897b0a0e86fc96fd98b9678eeab11350ef3f9bbc23c2166701251800c3",
+    "base_registry_sha256": "fad434c6fee6a77e06f97c65d8b7153b3c80997e86de01f3397dec9e4ea1154a",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_dependency_edge_evidence",
-    "proposed_registry_sha256": "fad434c6fee6a77e06f97c65d8b7153b3c80997e86de01f3397dec9e4ea1154a",
-    "reason": "ISSUE-0178 dependency readiness from fresh main 4d5f30e6ac19650030a61bec0e22a4eeb2fd57d9: update exactly ISSUE-0178 to ISSUE-0177 from unresolved to complete using the integrated validation-observability contract; preserve all statuses, other dependencies, policy, broker authority and execution_allowed=false.",
+    "mode": "generation_base_and_status_transitions",
+    "proposed_registry_sha256": "d53b0d2c126988a74298c42c8470a45b1b20ddacc2b1eb442e136391091a6b81",
+    "reason": "ISSUE-0178 implementation hand-off from fresh main 0bf098841fe14c513c6b01286973f3aa2d4d0db7: advance only planned to in_progress for the reviewed risk-tiered classifier and CI-orchestration slice; preserve dependencies, acceptance criteria, policy, broker authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.3"
+  "schema_version": "1.2"
 }
