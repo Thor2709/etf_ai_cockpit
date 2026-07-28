@@ -10,8 +10,150 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-gate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  classifier:
+    runs-on: ubuntu-latest
+    outputs:
+      tier: ${{ steps.classify.outputs.tier }}
+      package_gate_required: ${{ steps.classify.outputs.package_gate_required }}
+      base_sha: ${{ steps.classify.outputs.base_sha }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Classify validation tier
+        id: classify
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          ORDINARY_ISSUES_SINCE_FULL_GATE: ${{ vars.ORDINARY_ISSUES_SINCE_FULL_GATE || '0' }}
+        run: |
+          base="$BASE_SHA"
+          if [[ ! "$base" =~ ^[0-9a-f]{40}$ ]] || [[ "$base" == "0000000000000000000000000000000000000000" ]]; then
+            base="$(git rev-parse HEAD^ 2>/dev/null || git rev-parse HEAD)"
+          fi
+          export RESOLVED_BASE_SHA="$base"
+          python scripts/classify_validation.py \
+            --root . \
+            --base "$base" \
+            --head "${{ github.sha }}" \
+            --ordinary-issues-since-full-gate "$ORDINARY_ISSUES_SINCE_FULL_GATE" \
+            --output artifacts/validation/classifier.json
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          report = json.loads(Path("artifacts/validation/classifier.json").read_text(encoding="utf-8"))
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"tier={report['tier']}\n")
+              output.write(f"package_gate_required={str(report['package_gate_required']).lower()}\n")
+              output.write(f"base_sha={os.environ['RESOLVED_BASE_SHA']}\n")
+          PY
+
+      - name: Upload classifier report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-classifier-${{ github.sha }}
+          path: artifacts/validation/classifier.json
+          if-no-files-found: error
+
+  preflight:
+    needs: classifier
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ETF_COCKPIT_VALIDATION_BASE_SHA: ${{ needs.classifier.outputs.base_sha }}
+      ETF_COCKPIT_VALIDATION_HEAD_SHA: ${{ github.sha }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up pinned Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.10"
+          cache: pip
+          cache-dependency-path: requirements-release.txt
+
+      - name: Install validation environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --requirement requirements-release.txt
+
+      - name: Evidence and control preflight
+        if: needs.classifier.outputs.tier == 'E'
+        run: |
+          python scripts/validate_issue_registry.py --root .
+          python scripts/generate_issue_registry.py --root . --check
+          python scripts/generate_completion_documents.py --root . --check
+          python scripts/update_programme_status.py --root . --check
+          git diff --check "$ETF_COCKPIT_VALIDATION_BASE_SHA" "$ETF_COCKPIT_VALIDATION_HEAD_SHA" --
+
+      - name: Product and protected preflight
+        if: needs.classifier.outputs.tier != 'E'
+        run: |
+          python scripts/validate_app.py --root . --changed
+          python -m pytest -q tests/test_button_contracts.py tests/test_architecture_boundaries.py
+          # Legacy findings outside the protected validation surface remain
+          # tracked separately; do not turn them into an unrelated red baseline.
+          python -m ruff check scripts/classify_validation.py scripts/release_gate.py scripts/validate_app.py src/etf_cockpit/data/health.py
+          python -m mypy --ignore-missing-imports --disable-error-code=import-untyped --follow-imports=skip scripts/classify_validation.py
+          python scripts/smoke_app.py --mode offline --timeout 30
+          git diff --check "$ETF_COCKPIT_VALIDATION_BASE_SHA" "$ETF_COCKPIT_VALIDATION_HEAD_SHA" --
+
+      - name: Upload preflight evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-preflight-${{ github.sha }}
+          path: artifacts/validation
+          if-no-files-found: warn
+
+  supply-chain:
+    needs: classifier
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up pinned Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.10"
+          cache: pip
+          cache-dependency-path: requirements-release.txt
+
+      - name: Install release tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --requirement requirements-release.txt
+
+      - name: Run deterministic supply-chain scan
+        run: python scripts/supply_chain_scan.py --root . --output artifacts/supply-chain/github-${{ github.sha }}
+
+      - name: Upload supply-chain evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: supply-chain-${{ github.sha }}
+          path: artifacts/supply-chain/github-${{ github.sha }}
+          if-no-files-found: error
+
   release-gate:
+    needs: [classifier, preflight, supply-chain]
+    if: needs.classifier.outputs.package_gate_required == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -89,10 +231,8 @@ jobs:
       - name: Run lint and typing gates
         shell: bash
         run: |
-          # The repository still carries unrelated legacy Ruff findings; the
-          # release-critical implementation surface is mandatory here.
-          python -m ruff check scripts/release_gate.py scripts/validate_app.py src/etf_cockpit/data/health.py tests/test_release_gate.py tests/test_issue_0177_observability.py tests/test_data_health.py
-          python -m mypy --ignore-missing-imports --disable-error-code=import-untyped --follow-imports=skip scripts/release_gate.py src/etf_cockpit/data/health.py
+          python -m ruff check scripts/release_gate.py scripts/validate_app.py scripts/classify_validation.py src/etf_cockpit/data/health.py tests/test_release_gate.py tests/test_issue_0177_observability.py tests/test_issue_0178_validation_classifier.py tests/test_data_health.py
+          python -m mypy --ignore-missing-imports --disable-error-code=import-untyped --follow-imports=skip scripts/release_gate.py scripts/classify_validation.py src/etf_cockpit/data/health.py
 
       - name: Run protected release gate
         shell: bash
@@ -109,11 +249,6 @@ jobs:
           fi
           python scripts/release_gate.py "${arguments[@]}"
 
-      - name: Run supply-chain scan
-        if: always()
-        shell: bash
-        run: python scripts/supply_chain_scan.py --root . --output artifacts/release/github-${{ github.sha }}/${{ matrix.platform }}/supply-chain
-
       - name: Upload release evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -121,3 +256,34 @@ jobs:
           name: release-gate-${{ github.sha }}-${{ matrix.platform }}
           path: artifacts/release/github-${{ github.sha }}/${{ matrix.platform }}
           if-no-files-found: error
+
+  validation-summary:
+    if: always()
+    needs: [classifier, preflight, supply-chain, release-gate]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Evaluate required validation
+        env:
+          CLASSIFIER_RESULT: ${{ needs.classifier.result }}
+          PREFLIGHT_RESULT: ${{ needs.preflight.result }}
+          SUPPLY_CHAIN_RESULT: ${{ needs['supply-chain'].result }}
+          RELEASE_GATE_RESULT: ${{ needs['release-gate'].result }}
+          PACKAGE_GATE_REQUIRED: ${{ needs.classifier.outputs.package_gate_required }}
+        run: |
+          python - <<'PY'
+          import os
+          from scripts.classify_validation import validation_summary_failures
+
+          failures = validation_summary_failures(
+              package_gate_required=os.environ["PACKAGE_GATE_REQUIRED"] == "true",
+              classifier=os.environ["CLASSIFIER_RESULT"],
+              preflight=os.environ["PREFLIGHT_RESULT"],
+              supply_chain=os.environ["SUPPLY_CHAIN_RESULT"],
+              release_gate=os.environ["RELEASE_GATE_RESULT"],
+          )
+          if failures:
+              raise SystemExit("\n".join(failures))
+          PY

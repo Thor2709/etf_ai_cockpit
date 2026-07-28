@@ -890,30 +890,41 @@ action is deterministic generation, schema-1.3 edge guard, E-tier checks and
 an audited GitHub projection; the current dry run is already zero action
 because dependency-edge evidence is canonical-only metadata.
 
-`BLOCKED` ISSUE-0178 product PR #589 at exact product head
-`b7d7df0c859f552cc841ded15e11459634793dc3` passed classifier, preflight,
-supply-chain and the complete Linux protected release gate, but Windows
-exposed a second pre-existing nondeterministic local ESEF extraction test
-boundary. `test_parser_extracts_context_period_unit_and_decimals_and_deduplicates`
-retained its parsed facts but reported `success=false` after invoking the
-optional Arelle validator; the same node passed on Linux, and PR #570 already
-isolated the identical local-extraction contract for the real-package test.
-No retry is authorised. The next action is one bounded test-only baseline
-prerequisite that disables optional Arelle validation for this local
-extraction contract while retaining all dedicated Arelle diagnostic,
-conformance, timeout and worker coverage. PR #589 remains unmerged and
-unchanged until that prerequisite passes both packaged platforms.
-
-`REVIEWED` the first PR #590 packaged run proved the ESEF correction on
-Windows: the previously failing node did not recur. Both platforms failed
-only the expected post-PR-#588 stale-base invariant because canonical control
-still recorded `4d5f30e6ac19650030a61bec0e22a4eeb2fd57d9` while fresh
-`origin/main` is `0bf098841fe14c513c6b01286973f3aa2d4d0db7`; all other
-release nodes passed. The same bounded prerequisite now includes the missing
-fresh-main deterministic convergence, preserving all 202 issue records,
-statuses, dependency evidence, policy, broker authority and
-`execution_allowed=false`. Its audited GitHub projection remains zero action
-at checksum
+`MERGED` ISSUE-0178 dependency-edge PR #588 at
+`0bf098841fe14c513c6b01286973f3aa2d4d0db7`; the schema-1.3 edge guard and
+supply-chain scan passed, the obsolete full matrix cancelled, and post-merge
+GitHub readback remains zero action at checksum
 `865d2c698dde37c3ca3731b4297b8b7d5556c045c42f893218ac79e8700c7087`.
-The next action is exact schema-1.1 guard, generator checks and complete
-unchanged-head Linux/Windows packaged evidence; no provider write is needed.
+`IN_PROGRESS` ISSUE-0178 is now dependency-ready with status `planned` and
+`execution_allowed=false`. Exactly one Sol worker owns the bounded classifier
+and CI-orchestration implementation; canonical control/status/generated files
+remain orchestrator-owned. The next action is worker implementation plus
+focused workflow/classifier tests, followed by orchestrator diff review and
+fresh-main integration.
+
+`REVIEWED` the single ISSUE-0178 worker checkpoint is transplanted onto fresh
+main at `cb6ba3323ca398bc260faa378c8dcd82b6e78da5`. It adds deterministic
+E/O/H/C classification, exact base/head preflight, obsolete-head
+cancellation, one automatic source scan, conditional Linux/Windows gates and
+an unconditional terminal summary. The one permitted correction made clean
+CI changed-test discovery and diff hygiene use exact refs and added the
+missing evidence-tier generator checks. Orchestrator verification passed 29
+focused tests plus Ruff, MyPy, compileall, workflow YAML parsing, H-tier
+self-classification and diff hygiene. `IN_PROGRESS` the canonical status now
+advances only `planned → in_progress`; the next action is deterministic
+generation, exact guards and the complete H-tier Linux/Windows package gate.
+
+`MERGED` shared baseline prerequisite PR #590 at
+`c4be7fde98574c2a22d33d9ba21b0a3d40532c8e` after its exact schema-1.1
+guard, supply-chain scan and complete Linux/Windows packaged gates passed.
+Both platforms reported 2,081 tests with zero failures, errors or skips; the
+previously failing minimal local ESEF extraction node is now isolated from
+optional Arelle validation while dedicated validator coverage remains.
+`IN_PROGRESS` PR #589 now includes that exact prerequisite and refreshes its
+canonical generation base to merged main without changing the reviewed
+ISSUE-0178 product checkpoint. The audited GitHub plan checksum remains
+`35a3e744a36a3b3a3534c0a4471992821687c602b3d26ce64ea3c7405df4d822`
+and contains exactly the ISSUE-0178 `planned → in_progress` update. The next
+action is exact schema-1.2 guard, deterministic generator checks and a fresh
+H-tier Linux/Windows run on the new PR head; no provider write occurs before
+merge.
