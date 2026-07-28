@@ -903,3 +903,17 @@ prerequisite that disables optional Arelle validation for this local
 extraction contract while retaining all dedicated Arelle diagnostic,
 conformance, timeout and worker coverage. PR #589 remains unmerged and
 unchanged until that prerequisite passes both packaged platforms.
+
+`REVIEWED` the first PR #590 packaged run proved the ESEF correction on
+Windows: the previously failing node did not recur. Both platforms failed
+only the expected post-PR-#588 stale-base invariant because canonical control
+still recorded `4d5f30e6ac19650030a61bec0e22a4eeb2fd57d9` while fresh
+`origin/main` is `0bf098841fe14c513c6b01286973f3aa2d4d0db7`; all other
+release nodes passed. The same bounded prerequisite now includes the missing
+fresh-main deterministic convergence, preserving all 202 issue records,
+statuses, dependency evidence, policy, broker authority and
+`execution_allowed=false`. Its audited GitHub projection remains zero action
+at checksum
+`865d2c698dde37c3ca3731b4297b8b7d5556c045c42f893218ac79e8700c7087`.
+The next action is exact schema-1.1 guard, generator checks and complete
+unchanged-head Linux/Windows packaged evidence; no provider write is needed.
