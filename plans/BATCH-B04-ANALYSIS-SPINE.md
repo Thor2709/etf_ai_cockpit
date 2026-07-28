@@ -353,6 +353,33 @@ issue #240 with semantic SHA-256
 No product, dependency, scope, acceptance, policy or authority change is
 included; `execution_allowed=false`.
 
+`VERIFIED` integrated PR #556 merged ISSUE-0100 as
+`e7fd1621ac857797264ab95667b5f09a690b7a34` from reviewed head
+`7e09a9e33dc1a6bcb3db7375fae79defcac9ec42`. Status guard run
+`30319962532` and supply-chain run `30319962505` passed; the redundant
+evidence-only release run was cancelled. Checksum-approved GitHub plan
+`55a9b16f22035841235d6de82556e85f157625d6164a00874de2b83c4c418dfc`
+applied only #240, and zero-action readback
+`39f9947bc1e6a43934ab0ae69e748a13c85b63fbfaa0b33571b0b0144f104475`
+verified final ISSUE-0100 convergence.
+
+`IN_PROGRESS` the next dependency-valid B04 prerequisite reviews only
+ISSUE-0101→ISSUE-0098. The integrated `peer-cohort.v1` contract supplies
+versioned sector-adapter registration and metric-applicability lineage,
+classification-gated stock-only routing, exact-cutoff leaf-to-parent cohorts,
+explicit exclusions/support, robust peer statistics and verified replay.
+ISSUE-0101 retains all energy, materials and industrial formulas, cycle
+history, commodity/input scenarios, operational source evidence and Cyclicals
+UI rationale.
+
+Record the edge as `complete` while ISSUE-0101 remains planned. The proposed
+197-record registry has SHA-256
+`b3b4102430547c0f3cd6b0a4baf18f4c26d2fabe8ac77a2850ed30e95a624b31`;
+the live GitHub projection remains the zero-action semantic plan
+`39f9947bc1e6a43934ab0ae69e748a13c85b63fbfaa0b33571b0b0144f104475`.
+No product, status, dependency-list, scope, acceptance, policy or authority
+change is included; `execution_allowed=false`.
+
 `VERIFIED` implemented-initially PR #543 merged as
 `a01c663cd10bc13057175bd128456108bfceb0c4` from reviewed head
 `01f95db5f1211ffc436e01458f78d8d0e63d123c`. Status guard run

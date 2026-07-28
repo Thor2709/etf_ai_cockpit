@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "918a4995084c79cbc41b5c8b363625ef6a7db0eb",
+    "generation_base_commit": "e7fd1621ac857797264ab95667b5f09a690b7a34",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -3189,12 +3189,16 @@
       "acceptance_evidence": [],
       "dependency_edge_evidence": {
         "ISSUE-0098": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B04/ISSUE-0098/peer-cohort-adapter-contract-v1",
+          "evidence_references": [
+            "PR #542 merged peer-cohort.v1 as fc734201b138d3f24fa68d8c07422322506d6fc5 after protected Linux and Windows packaged evidence; final convergence 389278a6a30e5fc96ce96d2c796de2f075bb3b60",
+            "src/etf_cockpit/analysis/peer_cohorts.py provides versioned AdapterDefinition/AdapterRegistry routing, metric applicability lineage, classified-stock rejection, exact-cutoff leaf-to-parent cohorts, explicit exclusions and robust peer statistics for downstream cyclical adapters",
+            "tests/test_peer_cohorts.py and tests/test_architecture_boundaries.py cover adapter version/applicability lineage, low-confidence and unregistered fallback, wrong-asset rejection, exact-cutoff classification, deterministic replay and architecture boundaries; ISSUE-0101 retains energy, materials and industrial formulas, cycle history, scenarios and UI rationale"
+          ],
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         }
       },
       "phase": "phase-03-stock-research",
@@ -3204,8 +3208,37 @@
         "review_reference": "B00 canonical import from audited programme state",
         "to": "planned"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0098",
+            "evidence": {
+              "contract_reference": "B04/ISSUE-0098/peer-cohort-adapter-contract-v1",
+              "evidence_references": [
+                "PR #542 merged peer-cohort.v1 as fc734201b138d3f24fa68d8c07422322506d6fc5 after protected Linux and Windows packaged evidence; final convergence 389278a6a30e5fc96ce96d2c796de2f075bb3b60",
+                "src/etf_cockpit/analysis/peer_cohorts.py provides versioned AdapterDefinition/AdapterRegistry routing, metric applicability lineage, classified-stock rejection, exact-cutoff leaf-to-parent cohorts, explicit exclusions and robust peer statistics for downstream cyclical adapters",
+                "tests/test_peer_cohorts.py and tests/test_architecture_boundaries.py cover adapter version/applicability lineage, low-confidence and unregistered fallback, wrong-asset rejection, exact-cutoff classification, deterministic replay and architecture boundaries; ISSUE-0101 retains energy, materials and industrial formulas, cycle history, scenarios and UI rationale"
+              ],
+              "reviewed_date": "2026-07-28",
+              "reviewer": "Codex root orchestrator",
+              "schema_version": "1.0",
+              "state": "complete"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "PR #542 merged peer-cohort.v1 as fc734201b138d3f24fa68d8c07422322506d6fc5 after protected Linux and Windows packaged evidence; final convergence 389278a6a30e5fc96ce96d2c796de2f075bb3b60",
+            "src/etf_cockpit/analysis/peer_cohorts.py provides versioned AdapterDefinition/AdapterRegistry routing, metric applicability lineage, classified-stock rejection, exact-cutoff leaf-to-parent cohorts, explicit exclusions and robust peer statistics for downstream cyclical adapters",
+            "tests/test_peer_cohorts.py and tests/test_architecture_boundaries.py cover adapter version/applicability lineage, low-confidence and unregistered fallback, wrong-asset rejection, exact-cutoff classification, deterministic replay and architecture boundaries; ISSUE-0101 retains energy, materials and industrial formulas, cycle history, scenarios and UI rationale"
+          ],
+          "review_reference": "B04 ISSUE-0101 dependency review against merged ISSUE-0098 product PR #542",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "verified_commit": "fc734201b138d3f24fa68d8c07422322506d6fc5"
+        }
+      ],
+      "verified_commit": "fc734201b138d3f24fa68d8c07422322506d6fc5",
+      "verified_date": "2026-07-28"
     },
     "ISSUE-0102": {
       "acceptance_evidence": [],
