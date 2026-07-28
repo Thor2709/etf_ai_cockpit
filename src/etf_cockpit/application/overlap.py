@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from datetime import datetime
 from pathlib import Path
 from typing import Mapping, Sequence
 
@@ -112,6 +113,7 @@ def build_direct_overlap_view(
     focus_instrument_id: str | None = None,
     holdings: pd.DataFrame | None = None,
     root: Path = ROOT,
+    known_at: datetime | None = None,
 ) -> DirectOverlapReport:
     evidence = holdings.copy() if isinstance(holdings, pd.DataFrame) else load_direct_holdings(root=root)
     current = dict(current_weights) if current_weights is not None else _snapshot_weights(snapshot)
@@ -121,6 +123,7 @@ def build_direct_overlap_view(
         current_weights=current,
         target_weights=target_weights or {},
         focus_instrument_id=focus_instrument_id,
+        known_at=known_at,
     )
 
 
@@ -140,6 +143,8 @@ def direct_overlap_payload(report: DirectOverlapReport) -> dict[str, object]:
                 "unresolved_weight": item.unresolved_weight,
                 "source_id": item.source_id or "N/A",
                 "source_checksum": item.source_checksum or "N/A",
+                "known_at": item.known_at or "N/A",
+                "authority": item.authority or "N/A",
             }
             for item in report.coverage
         ],
@@ -165,6 +170,31 @@ def direct_overlap_payload(report: DirectOverlapReport) -> dict[str, object]:
             }
             for item in report.concentrations
         ],
+        "lookthrough": {
+            "input_weight": report.input_weight,
+            "mapped_weight": report.mapped_weight,
+            "unknown_weight": report.unknown_weight,
+            "report_hash": report.report_hash,
+            "exposures": [
+                {
+                    "dimension": item.dimension,
+                    "bucket": item.bucket,
+                    "direct_weight": item.direct_weight,
+                    "indirect_weight": item.indirect_weight,
+                    "combined_weight": item.combined_weight,
+                    "contributors": [
+                        {
+                            "root_instrument_id": contributor.root_instrument_id,
+                            "path": list(contributor.path),
+                            "ownership": contributor.ownership,
+                            "weight": contributor.weight,
+                        }
+                        for contributor in item.contributors
+                    ],
+                }
+                for item in report.exposures
+            ],
+        },
         "warnings": list(report.warnings),
         "execution_allowed": False,
     }
