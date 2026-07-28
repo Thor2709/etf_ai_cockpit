@@ -170,6 +170,15 @@ sample data; corrupt state fails closed and optional providers/models are
 unavailable rather than mandatory. **Audit:** startup diagnostics and
 `logs/session.jsonl`. This flow is **VERIFIED CURRENT**.
 
+The persisted universe store schema v3 is an additive extension of the local
+revisioned store. It adds checksum-protected, per-record `policy_profiles` with
+source, as-of, authority, coverage, classification-confidence and dependency
+evidence. Schema-v0/v2 stores remain readable and expose records as
+`legacy_unmigrated`; an ordinary edit does not automatically backfill or
+mutate those profiles. A changed policy version produces explicit
+`stale`/recompute-required evidence. Policy profiles and backfill plans retain
+`execution_allowed=false`.
+
 ### 7.2 Single-instrument analysis
 
 **Inputs:** instrument identity, horizon/profile and point-in-time prices,

@@ -985,3 +985,41 @@ remain ISSUE-0127-owned scope. The next action is a checksum-controlled
 `unresolved → partial_interface` edge update, deterministic generation and
 exact protected validation; no product or provider write is part of this
 transaction.
+
+`MERGED` ISSUE-0127 dependency-edge PR #594 at
+`f6460719ee854f5875d25428560e2dab508f3a85`; the exact status guard,
+classifier, preflight, supply-chain scan and terminal validation summary
+passed. The complete Linux and Windows package gates each reported 2,089 tests
+with zero failures, errors or skips after the single documented native-parser
+flake retry. Fresh post-merge GitHub readback is zero action at checksum
+`9709ce3b499692119f301f45338ad6033b8328cfd24b13b9078ef7be83cf3fbe`.
+`IN_PROGRESS` ISSUE-0068 remains `implemented_initially`; stale PR #562 is the
+explicit rebuild source, not a merge candidate. The current blocker is proof
+that its independently reviewed five-file product intent remains compatible
+with fresh main, point-in-time rules, policy-envelope migrations and focused
+tests. The next action is one Sol worker rebuilding only those five product
+files from `f6460719ee854f5875d25428560e2dab508f3a85`, with control/generated
+files, PR #560, PR #562, issue #241 and `execution_allowed=false` unchanged.
+
+`REVIEWED` the single ISSUE-0068 worker rebuilt the five-file product intent
+from fresh main without merging stale PR #562. The product tree matches its
+independently reviewed checkpoint except for one type-safe numeric parse that
+does not change valid serialised values. Schema-v3 policy profiles remain
+checksum-protected, point-in-time labelled, migration-explicit and unable to
+grant execution authority; legacy schema-v0/v2 edits do not silently backfill.
+The orchestrator passed all 51 affected universe, UI, guardrail and onboarding
+tests plus Ruff, compile and diff hygiene. The next action is an exact-scope
+commit, classifier/preflight review and the complete protected Linux/Windows
+package gate required for persistence and migration changes.
+
+`IN_PROGRESS` persistence-path classifier prerequisite PR #595 merged at
+`2174e2b203731bb9decb1f87c0f1605fa197cde2`; both packaged platforms passed
+2,090 tests with zero failures, errors or skips, and fresh GitHub readback is
+zero action at checksum
+`9709ce3b499692119f301f45338ad6033b8328cfd24b13b9078ef7be83cf3fbe`.
+ISSUE-0068 is refreshed onto that exact main head with deterministic programme
+evidence and no canonical status change. The integrated tree passes all 165
+affected product, classifier and control-plane tests plus Ruff, compile,
+freshness, status-guard and diff checks. The next action is the exact-head
+ISSUE-0068 PR and mandatory H-tier Linux/Windows package gate; stale PR #562,
+broker authority and `execution_allowed=false` remain unchanged.

@@ -66,10 +66,19 @@ def filter_records(records: Iterable[UniverseRecord], query: str = "", tier: str
     )
 
 
-def _table(records: Iterable[UniverseRecord], on_edit) -> ft.DataTable:
+def _table(
+    records: Iterable[UniverseRecord],
+    on_edit,
+    policy_states: dict[str, tuple[str, str]] | None = None,
+) -> ft.DataTable:
+    policy_states = policy_states or {}
     rows: list[ft.DataRow] = []
     for record in records:
         status = "disabled" if not record.enabled else "needs_verification" if record.isin_status != "verified" else "ready"
+        policy_state, policy_reason = policy_states.get(
+            record.instrument_id,
+            ("unavailable", "No versioned policy evidence is available."),
+        )
         rows.append(
             ft.DataRow(
                 cells=[
@@ -79,12 +88,31 @@ def _table(records: Iterable[UniverseRecord], on_edit) -> ft.DataTable:
                     ft.DataCell(ft.Text(record.asset_type, color=theme.MUTED)),
                     ft.DataCell(ft.Text(record.isin_status, color=theme.AMBER if record.isin_status != "verified" else theme.GREEN)),
                     ft.DataCell(ft.Text(status, color=theme.AMBER if status != "ready" else theme.GREEN)),
+                    ft.DataCell(
+                        ft.Text(
+                            policy_state,
+                            color=theme.GREEN if policy_state == "current" else theme.AMBER,
+                            tooltip=policy_reason,
+                        )
+                    ),
                     ft.DataCell(ft.Button("Edit", key=f"universe.edit.{record.instrument_id}", on_click=lambda _event, row=record: on_edit(row))),
                 ]
             )
         )
     return ft.DataTable(
-        columns=[ft.DataColumn(ft.Text(label, color=theme.TEXT)) for label in ("ID", "Name", "Yahoo ticker", "Type", "ISIN status", "Status", "Actions")],
+        columns=[
+            ft.DataColumn(ft.Text(label, color=theme.TEXT))
+            for label in (
+                "ID",
+                "Name",
+                "Yahoo ticker",
+                "Type",
+                "ISIN status",
+                "Status",
+                "Policy evidence",
+                "Actions",
+            )
+        ],
         rows=rows,
         column_spacing=16,
     )
@@ -95,6 +123,11 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
     # must fail closed if another writer changes the store meanwhile.
     snapshot = load_universe()
     records = list(snapshot.records or records_from_config(state))
+    policy_profiles = tuple(getattr(snapshot, "policy_profiles", ()))
+    policy_states = {
+        item.instrument_id: (item.state, item.reason)
+        for item in getattr(snapshot, "policy_evidence", ())
+    }
     expected_revision = snapshot.revision
     query = ft.TextField(
         label="Search universe",
@@ -102,7 +135,16 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
         dense=True,
         width=520,
     )
-    status = ft.Text("No changes pending. needs_verification and pending refresh are shown per row.", color=theme.MUTED, selectable=True)
+    integrity_errors = tuple(getattr(snapshot, "integrity_errors", ()))
+    status = ft.Text(
+        (
+            "Policy evidence requires manual_review: " + "; ".join(integrity_errors)
+            if integrity_errors
+            else "No changes pending. needs_verification and pending refresh are shown per row."
+        ),
+        color=theme.AMBER if integrity_errors else theme.MUTED,
+        selectable=True,
+    )
     allow_duplicates = ft.Checkbox(
         label="Allow cross-tier duplicate IDs/tickers/ISINs (explicit override)",
         value=snapshot.allow_cross_tier_duplicates,
@@ -283,6 +325,16 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
                 records,
                 expected_revision=expected_revision,
                 allow_cross_tier_duplicates=bool(allow_duplicates.value),
+                policy_profiles=(
+                    tuple(
+                        profile
+                        for profile in policy_profiles
+                        if profile.instrument_id
+                        in {record.instrument_id for record in records}
+                    )
+                    if getattr(snapshot, "schema_version", 0) >= 3
+                    else None
+                ),
             )
             expected_revision = result.revision
             _apply_saved_config(result.revision)
@@ -461,7 +513,7 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
         page.update()
 
     def _table_with_actions(rows: Iterable[UniverseRecord]) -> ft.DataTable:
-        table = _table(rows, edit_dialog)
+        table = _table(rows, edit_dialog, policy_states)
         for row, record in zip(table.rows, rows):
             if record.enabled:
                 action_button = ft.Button(
