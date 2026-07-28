@@ -520,7 +520,7 @@ def test_scoreboard_binds_classification_token_and_reader_invalidates_stale_scor
                 "instrument_id": "ABC",
                 "name": "ABC Test Stock",
                 "yahoo_symbol": "ABC.DE",
-                "latest_date": "2026-07-10",
+                "latest_date": pd.Timestamp.today().date().isoformat(),
                 "latest_price": 100.0,
                 "rows": 300,
                 "return_3m": 0.10,

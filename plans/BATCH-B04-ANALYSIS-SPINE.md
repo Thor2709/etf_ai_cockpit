@@ -544,3 +544,14 @@ ISSUE-0106 remains `implemented_initially`; status, acceptance, dependency
 lists, policy and authority are unchanged. ISSUE-0128 retains its unresolved
 ISSUE-0064 edge and broader low/base/high interval, liquidation, persistence,
 FX, cross-module and paper/backtest scope.
+
+`REVIEWED` shared release prerequisite for the preserved checkpoint queue:
+the ISSUE-0083 classification-invalidation regression uses fixed market date
+`2026-07-10`, which crossed the canonical ten-business-day freshness boundary
+and now fails before exercising override invalidation. No durable waiver
+authorises retention. The bounded worker changed only the fixture date to the
+current local date, preserving every classification-invalidation assertion,
+the production stale-data gate and `execution_allowed=false`. The exact
+regression and 74 focused simple-score/classification tests pass with Ruff and
+diff hygiene. Next action is a protected baseline-correction release before
+serial ISSUE-0039, ISSUE-0026, ISSUE-0022 and ISSUE-0059 checkpoint release.
