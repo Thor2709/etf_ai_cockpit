@@ -1,19 +1,27 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [],
-  "base_commit": "894451ee4c62822cb593b31b275d8bb92d785aa1",
-  "branch": "codex/issue-0089-product-20260728",
-  "issue_ids": [],
+  "allowed_status_transitions": [
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0089",
+      "to": "in_progress"
+    }
+  ],
+  "base_commit": "d69113a69c3d454ce51b4122cb07cf8fabc29537",
+  "branch": "codex/issue-0089-initial-status-20260728",
+  "issue_ids": [
+    "ISSUE-0089"
+  ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "8e58be05c15500a07483fc551f37669255838450b9f30af7e8fc8897b8afc964",
+    "base_registry_sha256": "bd3e85550e82958fecbd0681af4ce1cc0737421a183f65508df2e56f795c346c",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "canonical_schema_and_intake",
-    "proposed_registry_sha256": "bd3e85550e82958fecbd0681af4ce1cc0737421a183f65508df2e56f795c346c",
-    "reason": "Refresh the deterministic generation base to merged ISSUE-0089 dependency PR #602 at 894451ee4c62822cb593b31b275d8bb92d785aa1 while implementing the bounded ISSUE-0089 anomaly-ledger and quarantine-evidence slice; all 202 canonical issue records, statuses, dependency evidence, broker authority and execution_allowed=false remain unchanged.",
+    "mode": "generation_base_and_status_transitions",
+    "proposed_registry_sha256": "9d6efe8b59bdef93f359063c1c2d67d77d9026da0a491efaad4d0b1d56f21c84",
+    "reason": "ISSUE-0089 product convergence: advance only planned to in_progress after PR #603 merged the reviewed anomaly-ledger, quarantine and Data Health evidence with protected cross-platform package acceptance; preserve dependencies, acceptance criteria, policy, broker authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.1"
+  "schema_version": "1.2"
 }

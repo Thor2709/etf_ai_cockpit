@@ -15149,7 +15149,17 @@
         "Quality changes invalidate downstream artefacts.",
         "Data Health reports coverage, anomalies and unresolved impact."
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #603; Release gate run 30400004536; merge d69113a69c3d454ce51b4122cb07cf8fabc29537"
+          ],
+          "review_reference": "PR #603 exact-head review and packaged acceptance",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex",
+          "status": "in_progress"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [
         "ISSUE-0073",
@@ -15216,7 +15226,7 @@
       "package_status": "",
       "phase": "phase-02-data-policy-identity",
       "priority": "P0",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0089-data-anomaly-detection-quarantine-and-cross-source-reconciliation"
@@ -15246,7 +15256,7 @@
       ],
       "title": "Implement data anomaly detection, quarantine and cross-source reconciliation",
       "ui_requirement": "Data Health triage queue with diffs, sources and affected-result views.",
-      "verified_commit": "d9b0189db909dca4286432bb6e4eef311d2b2830",
+      "verified_commit": "d69113a69c3d454ce51b4122cb07cf8fabc29537",
       "verified_date": "2026-07-28",
       "why": "Institutional discipline requires bad data to be stopped before scoring or orders.",
       "write_conflict_group": "data-platform"
@@ -27405,7 +27415,7 @@
   ],
   "schema_version": "2.0",
   "source_of_truth": {
-    "baseline_commit": "894451ee4c62822cb593b31b275d8bb92d785aa1",
+    "baseline_commit": "d69113a69c3d454ce51b4122cb07cf8fabc29537",
     "closed_ledger_sha256": "2dca7fd65f7a218747bcfb91b4e5c1f734af26f29114cc7dc83b071bb86838d8",
     "final_release_manifest_sha256": "dbb71ecaa2b81206ff922eec3dcc72cb08cc001121688b107e8f1c3a2372f685",
     "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -27417,7 +27427,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "63279749cfcf06779efe7cb3da40742996567d4f6221cb8acf240b4f9d18ce04",
+    "programme_control_state_sha256": "63179dd16753ca29c3c219650d38c233a9fbd80479a8ab25f374be89b7d82551",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

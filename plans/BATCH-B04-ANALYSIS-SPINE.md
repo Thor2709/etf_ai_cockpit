@@ -1120,3 +1120,18 @@ passes, together with Ruff, compile and diff hygiene. The next action is an
 exact-scope product commit and classified H-tier validation; no provider,
 broker, network, programme-status or `execution_allowed=false` change is
 part of this checkpoint.
+
+`MERGED` ISSUE-0089 product PR #603 at
+`d69113a69c3d454ce51b4122cb07cf8fabc29537`; classifier, status guard,
+preflight, supply-chain and terminal validation summary passed. Linux and
+Windows each reported 2,122 tests with zero failures, errors or skips, and
+the PR had no comments, reviews, review requests or review threads. Fresh
+post-merge GitHub projection remains zero action at checksum
+`b394835bb4856ff3df524eeac6cdbffa8355539286cbc6602148379337455b4e`.
+`IN_PROGRESS` the first evidence-only ISSUE-0089 status transaction advances
+only `planned` to `in_progress` from the protected product and cross-platform
+acceptance evidence; the canonical validator requires
+`in_progress` before `implemented_initially`. The next action is exact schema-1.2
+validation, deterministic generation and H-tier packaged acceptance before
+the one-field provider apply/readback; dependencies, stale PR #562, broker
+authority and `execution_allowed=false` remain unchanged.

@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "894451ee4c62822cb593b31b275d8bb92d785aa1",
+    "generation_base_commit": "d69113a69c3d454ce51b4122cb07cf8fabc29537",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -2481,7 +2481,17 @@
       "verified_date": "2026-07-28"
     },
     "ISSUE-0089": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #603; Release gate run 30400004536; merge d69113a69c3d454ce51b4122cb07cf8fabc29537"
+          ],
+          "review_reference": "PR #603 exact-head review and packaged acceptance",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex",
+          "status": "in_progress"
+        }
+      ],
       "dependency_edge_evidence": {
         "ISSUE-0073": {
           "contract_reference": "ISSUE-0089 acceptance: original evidence survives correction and historical replay; ISSUE-0073 bitemporal point-in-time contract",
@@ -2507,11 +2517,11 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "planned"
+        "review_reference": "PR #603 exact-head review and packaged acceptance",
+        "to": "in_progress"
       },
       "transition_history": [
         {
@@ -2563,9 +2573,21 @@
           "reviewed_date": "2026-07-28",
           "reviewer": "Codex",
           "verified_commit": "d9b0189db909dca4286432bb6e4eef311d2b2830"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #603; Release gate run 30400004536; merge d69113a69c3d454ce51b4122cb07cf8fabc29537"
+          ],
+          "from": "planned",
+          "review_reference": "PR #603 exact-head review and packaged acceptance",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex",
+          "to": "in_progress",
+          "verified_commit": "d69113a69c3d454ce51b4122cb07cf8fabc29537"
         }
       ],
-      "verified_commit": "d9b0189db909dca4286432bb6e4eef311d2b2830",
+      "verified_commit": "d69113a69c3d454ce51b4122cb07cf8fabc29537",
       "verified_date": "2026-07-28"
     },
     "ISSUE-0090": {
