@@ -25,7 +25,12 @@ from etf_cockpit.core.config import (
     UISettings,
     UniverseConfig,
 )
-from etf_cockpit.data.universe_store import UniverseRecord, UniverseSaveResult, UniverseStoreSnapshot
+from etf_cockpit.data.universe_store import (
+    PolicyEvidence,
+    UniverseRecord,
+    UniverseSaveResult,
+    UniverseStoreSnapshot,
+)
 
 
 class _Page:
@@ -149,6 +154,93 @@ def test_override_checkbox_rehydrates_from_store_snapshot(monkeypatch) -> None:
     root = universe_manager_page(page, _state())
     checkbox = next(control for control in _walk(root) if isinstance(control, ft.Checkbox) and control.key == "universe.allow-cross-tier-duplicates")
     assert checkbox.value is True
+
+
+def test_universe_table_distinguishes_policy_evidence_states(monkeypatch) -> None:
+    records = tuple(
+        UniverseRecord(
+            instrument_id,
+            instrument_id,
+            f"NO000000000{index}",
+            "verified",
+            instrument_id,
+            "stock",
+            "primary",
+        )
+        for index, instrument_id in enumerate(
+            ("CURRENT", "STALE", "LEGACY", "UNAVAILABLE", "REVIEW"),
+            start=1,
+        )
+    )
+    states = (
+        PolicyEvidence("CURRENT", "current", "current policy", recompute_required=False),
+        PolicyEvidence("STALE", "stale", "version changed"),
+        PolicyEvidence("LEGACY", "legacy_unmigrated", "legacy profile"),
+        PolicyEvidence("UNAVAILABLE", "unavailable", "no profile"),
+        PolicyEvidence("REVIEW", "manual_review", "tampered profile"),
+    )
+    monkeypatch.setattr(
+        manager,
+        "load_universe",
+        lambda: UniverseStoreSnapshot(
+            records,
+            "revision",
+            Path("store.json"),
+            policy_evidence=states,
+            schema_version=3,
+        ),
+    )
+
+    root = universe_manager_page(_Page(), _state())
+    rendered = {
+        str(control.value): control
+        for control in _walk(root)
+        if isinstance(control, ft.Text) and control.value
+    }
+
+    for state in ("current", "stale", "legacy_unmigrated", "unavailable", "manual_review"):
+        assert state in rendered
+    assert rendered["current"].color == manager.theme.GREEN
+    assert rendered["manual_review"].color == manager.theme.AMBER
+    assert rendered["stale"].tooltip == "version changed"
+
+
+def test_universe_store_integrity_failure_is_visible_as_manual_review(
+    monkeypatch,
+) -> None:
+    record = UniverseRecord(
+        "A",
+        "Alpha",
+        "NO0000000001",
+        "verified",
+        "A",
+        "stock",
+        "primary",
+    )
+    monkeypatch.setattr(
+        manager,
+        "load_universe",
+        lambda: UniverseStoreSnapshot(
+            (record,),
+            "tampered-revision",
+            Path("store.json"),
+            policy_evidence=(
+                PolicyEvidence("A", "manual_review", "store revision checksum mismatch"),
+            ),
+            schema_version=3,
+            integrity_errors=("store revision checksum mismatch",),
+        ),
+    )
+
+    root = universe_manager_page(_Page(), _state())
+    rendered = "\n".join(
+        str(control.value)
+        for control in _walk(root)
+        if isinstance(control, ft.Text) and control.value
+    )
+
+    assert "Policy evidence requires manual_review" in rendered
+    assert "store revision checksum mismatch" in rendered
 
 
 def test_universe_identity_action_exposes_graph_conflict_review_and_authority(monkeypatch) -> None:
