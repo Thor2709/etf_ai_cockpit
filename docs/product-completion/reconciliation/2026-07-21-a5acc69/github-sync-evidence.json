@@ -1,0 +1,29 @@
+{
+  "actions": [
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Programme status"
+      ],
+      "remote_number": 241,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0101",
+      "title": "Implement energy, materials and industrial cyclical-sector adapters",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/241"
+    }
+  ],
+  "apply_authority": false,
+  "fresh_exact_plan_required_for_apply": true,
+  "plan_semantic_sha256": "9ced52643254b6df3aa223bebc70db6514d8df9c220d139f95f2418d2c686635",
+  "remote_inventory_sha256": "d32f28da26b5586497867e111e8da349930d3ee9e6286a3d5d6e63a2f8528809",
+  "repository": "Thor2709/etf_ai_cockpit",
+  "schema_version": "etf-ai-cockpit.safe-sync-evidence/1.0",
+  "summary": {
+    "blocked": 0,
+    "close": 0,
+    "create": 0,
+    "reopen": 0,
+    "update": 1
+  },
+  "transient_full_plan_file_sha256": "438892cbe56920343f901500bc4660ea43c2d0035acc3ce4b683e6565dabe89f"
+}

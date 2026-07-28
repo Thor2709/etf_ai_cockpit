@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "4469b423e18cfb04a7150d38286645d06ea0af67",
+    "generation_base_commit": "a5acc69cc6ac0eb9cb7ec86509b98eec330e6537",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -3197,6 +3197,17 @@
           "reviewed_date": "2026-07-28",
           "reviewer": "Codex root orchestrator",
           "status": "ready"
+        },
+        {
+          "evidence_references": [
+            "PR #558 merged ISSUE-0101 ready as a5acc69cc6ac0eb9cb7ec86509b98eec330e6537 with status guard and supply-chain validation passing",
+            "Checksum-approved GitHub plan 5ef2917c04a5a7568052d1a3a00585f2f2353d9f4609d7018db1830ae7a5078f updated only #241 and readback f8bf6a6a6bed3ef04cd8731ab920d8c04bd87192661dbe579ad6211dd8de239f was zero action",
+            "Implementation is bounded to local typed energy, materials/mining and non-infrastructure industrial adapters, explicit source-linked operating evidence, separate spot/normalised margins, cycle-history confidence, deterministic commodity/input/demand scenarios, read-only Cyclicals UI evidence and execution_allowed=false"
+          ],
+          "review_reference": "B04 ISSUE-0101 bounded cyclical-adapter implementation hand-off",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "status": "in_progress"
         }
       ],
       "dependency_edge_evidence": {
@@ -3214,11 +3225,11 @@
         }
       },
       "phase": "phase-03-stock-research",
-      "programme_status": "ready",
+      "programme_status": "in_progress",
       "status_transition": {
-        "from": "planned",
-        "review_reference": "B04 ISSUE-0101 readiness after complete ISSUE-0098 dependency review",
-        "to": "ready"
+        "from": "ready",
+        "review_reference": "B04 ISSUE-0101 bounded cyclical-adapter implementation hand-off",
+        "to": "in_progress"
       },
       "transition_history": [
         {
@@ -3261,9 +3272,23 @@
           "reviewer": "Codex root orchestrator",
           "to": "ready",
           "verified_commit": "4469b423e18cfb04a7150d38286645d06ea0af67"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #558 merged ISSUE-0101 ready as a5acc69cc6ac0eb9cb7ec86509b98eec330e6537 with status guard and supply-chain validation passing",
+            "Checksum-approved GitHub plan 5ef2917c04a5a7568052d1a3a00585f2f2353d9f4609d7018db1830ae7a5078f updated only #241 and readback f8bf6a6a6bed3ef04cd8731ab920d8c04bd87192661dbe579ad6211dd8de239f was zero action",
+            "Implementation is bounded to local typed energy, materials/mining and non-infrastructure industrial adapters, explicit source-linked operating evidence, separate spot/normalised margins, cycle-history confidence, deterministic commodity/input/demand scenarios, read-only Cyclicals UI evidence and execution_allowed=false"
+          ],
+          "from": "ready",
+          "review_reference": "B04 ISSUE-0101 bounded cyclical-adapter implementation hand-off",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "to": "in_progress",
+          "verified_commit": "a5acc69cc6ac0eb9cb7ec86509b98eec330e6537"
         }
       ],
-      "verified_commit": "4469b423e18cfb04a7150d38286645d06ea0af67",
+      "verified_commit": "a5acc69cc6ac0eb9cb7ec86509b98eec330e6537",
       "verified_date": "2026-07-28"
     },
     "ISSUE-0102": {
