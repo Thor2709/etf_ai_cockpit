@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "d69113a69c3d454ce51b4122cb07cf8fabc29537",
+    "generation_base_commit": "694e9619cf42d251b43e2b7f92c55419a273b4a9",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -2490,6 +2490,15 @@
           "reviewed_date": "2026-07-28",
           "reviewer": "Codex",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "PR #603 product acceptance; PR #604 status convergence; Release gate runs 30400004536 and 30402280677; merges d69113a69c3d454ce51b4122cb07cf8fabc29537 and 694e9619cf42d251b43e2b7f92c55419a273b4a9"
+          ],
+          "review_reference": "PR #603 exact-head review and packaged acceptance",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex",
+          "status": "implemented_initially"
         }
       ],
       "dependency_edge_evidence": {
@@ -2517,11 +2526,11 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "in_progress",
+      "programme_status": "implemented_initially",
       "status_transition": {
-        "from": "planned",
+        "from": "in_progress",
         "review_reference": "PR #603 exact-head review and packaged acceptance",
-        "to": "in_progress"
+        "to": "implemented_initially"
       },
       "transition_history": [
         {
@@ -2585,9 +2594,21 @@
           "reviewer": "Codex",
           "to": "in_progress",
           "verified_commit": "d69113a69c3d454ce51b4122cb07cf8fabc29537"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #603 product acceptance; PR #604 status convergence; Release gate runs 30400004536 and 30402280677; merges d69113a69c3d454ce51b4122cb07cf8fabc29537 and 694e9619cf42d251b43e2b7f92c55419a273b4a9"
+          ],
+          "from": "in_progress",
+          "review_reference": "PR #603 exact-head review and packaged acceptance",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex",
+          "to": "implemented_initially",
+          "verified_commit": "694e9619cf42d251b43e2b7f92c55419a273b4a9"
         }
       ],
-      "verified_commit": "d69113a69c3d454ce51b4122cb07cf8fabc29537",
+      "verified_commit": "694e9619cf42d251b43e2b7f92c55419a273b4a9",
       "verified_date": "2026-07-28"
     },
     "ISSUE-0090": {

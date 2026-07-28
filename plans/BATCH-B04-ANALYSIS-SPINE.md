@@ -1135,3 +1135,17 @@ acceptance evidence; the canonical validator requires
 validation, deterministic generation and H-tier packaged acceptance before
 the one-field provider apply/readback; dependencies, stale PR #562, broker
 authority and `execution_allowed=false` remain unchanged.
+
+`MERGED` ISSUE-0089 in-progress status PR #604 at
+`694e9619cf42d251b43e2b7f92c55419a273b4a9`; Linux and Windows each
+reported 2,122 tests with zero failures, errors or skips, and the PR had no
+comments, reviews, review requests or review threads. The approved provider
+plan updated only the managed Programme status field on canonical issue #229
+at checksum `a4f72a02410bcda9ce2da2922019ccb60b347095d93eedacf02eae2bc1723978`;
+fresh readback is zero action at checksum
+`ea2799e62aebd9a8fe8883abf54298f22721ff67b5ceef5461e2f98e4664fb59`.
+`IN_PROGRESS` the next evidence-only transaction advances only ISSUE-0089
+from `in_progress` to `implemented_initially`. The next action is exact
+schema-1.2 validation, deterministic generation and H-tier packaged
+acceptance before the one-field provider apply/readback; dependencies, stale
+PR #562, broker authority and `execution_allowed=false` remain unchanged.
