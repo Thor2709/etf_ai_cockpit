@@ -175,6 +175,11 @@
     "ISSUE-0174",
     "ISSUE-0175",
     "ISSUE-0176",
+    "ISSUE-0177",
+    "ISSUE-0178",
+    "ISSUE-0179",
+    "ISSUE-0180",
+    "ISSUE-0181",
     "UPDATEV2-0010",
     "UPDATEV2-0011",
     "UPDATEV2-0012",
@@ -207,20 +212,20 @@
     "implemented_initially": 58,
     "in_progress": 8,
     "integrated": 48,
-    "planned": 59,
+    "planned": 64,
     "research_only": 2
   },
   "execution_allowed": false,
   "phase_counts": {
-    "phase-01-governance-scope": 57,
-    "phase-02-data-policy-identity": 32,
+    "phase-01-governance-scope": 58,
+    "phase-02-data-policy-identity": 33,
     "phase-03-stock-research": 12,
     "phase-04-etf-research": 6,
     "phase-05-returns-risk-portfolio": 30,
     "phase-06-model-research": 8,
     "phase-07-backtest-paper-execution": 16,
     "phase-08-frontend-api": 22,
-    "phase-09-quality-release-security": 8,
+    "phase-09-quality-release-security": 11,
     "phase-10-audit-documentation-governance": 5,
     "phase-11-certification": 1
   },
@@ -4765,6 +4770,126 @@
       ],
       "edges": [],
       "execution_allowed": false,
+      "issue_id": "ISSUE-0177",
+      "ready": true,
+      "reason_codes": [
+        "READY_NO_BLOCKING_DEPENDENCIES"
+      ],
+      "required_inputs": [
+        "ISSUE-0141",
+        "ISSUE-0143"
+      ]
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0177",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0178",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": [
+        "ISSUE-0141",
+        "ISSUE-0143"
+      ]
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0178",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0179",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0177",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0180",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": [
+        "ISSUE-0038",
+        "ISSUE-0072"
+      ]
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0080",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        },
+        {
+          "dependency_id": "ISSUE-0081",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0181",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": [
+        "ISSUE-0149"
+      ]
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [],
+      "execution_allowed": false,
       "issue_id": "UPDATEV2-0010",
       "ready": false,
       "reason_codes": [
@@ -5086,6 +5211,7 @@
     "ISSUE-0152",
     "ISSUE-0153",
     "ISSUE-0154",
+    "ISSUE-0177",
     "UPDATEV2-0011",
     "UPDATEV2-0012",
     "UPDATEV2-0021",
@@ -5166,5 +5292,5 @@
     "ISSUE-0062"
   ],
   "schema_version": "1.0",
-  "source_registry_sha256": "ee3a019d49afbb4ba2319a61714ead469a3e58c5e39bac0e04bc38c37f3971ec"
+  "source_registry_sha256": "0ea9d74977098c8d7a4fdeaae8a9eb815eb9d901a49e5e825ab817f783228482"
 }

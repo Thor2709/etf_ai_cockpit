@@ -39,6 +39,10 @@ For each substantive task, the main agent must:
 
 The main agent should not write substantial product code. Small integration and generated-file corrections are allowed.
 
+The orchestrator may own one reviewed, immutable release lane while the single
+worker prepares one dependency-ready, non-overlapping product lane in a
+separate worktree. The orchestrator remains the sole integration authority.
+
 ## Worker
 
 The `sol_worker`:
@@ -84,6 +88,10 @@ Do not rerun unchanged passing tests.
 
 A documented flake may be retried once.
 
+Classify every change under the validation tiers below before broad testing.
+Reuse exact-head passing evidence only when relevant files, dependencies,
+policy and environment are unchanged.
+
 ## Stop loops
 
 After two failed attempts on the same approach without materially improved evidence, stop.
@@ -108,6 +116,62 @@ Apply GitHub issue changes only from the existing reviewed checksum-controlled p
 Require a zero-action readback after synchronisation.
 
 Never force-push, publish a release or tag, deploy or enable execution without explicit approval.
+
+## Throughput and validation tiers
+
+Classify every change before broad validation. When uncertain, select the higher-risk tier.
+
+- `E — evidence only`: canonical status, dependency-edge evidence, deterministic generated documents or documentation. Require exact guards, generators/check mode, registry/status validation, diff hygiene and the canonical source/supply policy. Do not run the Linux/Windows package matrix unless protected tooling changed.
+- `O — ordinary product`: require worker focused tests, orchestrator affected integration/UI/architecture/static checks and source smoke. Run the central full package gate after every two or three completed ordinary issues and before a release milestone.
+- `H — high risk`: persistence, schema/migration, concurrency, canonical financial calculations, security/credentials, packaging/CI/release tooling, programme-control/status-transition machinery, or broker/order authority. Require the immediate complete Linux and Windows package gate.
+- `C — certification`: B13/final release candidate. Require complete cross-platform tests, packaging, parity, smoke, performance, security, privacy, legal, SBOM/signature and final evidence.
+
+Do not use a retained red baseline. `main` must remain green. A documented flake may receive one exact unchanged-head retry only when its node and fingerprint match the approved flake record.
+
+## Frozen release lane and active worker lane
+
+“Work sequentially” means one implementation writer and one integration authority, not idle time during CI.
+
+- The orchestrator may own one reviewed, immutable release lane while the single worker prepares one next dependency-ready product lane in a separate worktree.
+- The worker lane must have a disjoint file boundary and may not edit `issues/`, `plans/`, generated programme documents, workflow files or the frozen PR's files.
+- The worker may not push, merge or update GitHub. After the prior merge, the orchestrator reviews and transplants/rebases the checkpoint onto fresh `origin/main` before integration.
+- Do not start an overlapping or dependency-invalid lane merely to create activity.
+
+## CI and observability
+
+- Every workflow run must emit a deterministic validation-tier report, per-stage timings, environment fingerprint and JUnit/slow-test artefacts where tests run.
+- Full/affected pytest runs must report the slowest 100 setup/call/teardown durations with a minimum threshold of 0.25 seconds.
+- Use workflow concurrency cancellation for obsolete PR heads. Retain final-certification runs only when policy explicitly requires every attempt.
+- Use one terminal `validation-summary` check. Conditional jobs may skip only when the classifier authorises it; the summary must fail if any tier-required job fails.
+- Run the equivalent repository/source supply-chain scan once per exact tree. Keep platform-specific package checks only where platform behaviour differs.
+- Release tests are local/offline. Do not contact Yahoo Finance or other providers in protected tests.
+- Keep full logs, JUnit, timing, screenshots, SBOM and repeated per-run reconciliation as workflow artefacts. Commit compact current state and milestone evidence only.
+
+## Mandatory preflight contracts
+
+Before an expensive full gate:
+
+- added or changed routes and controls must have `configs/ui_acceptance.yaml` coverage;
+- presentation modules must consume domain/data functionality through the application facade;
+- generated registry, status, completion, readiness, reconciliation and transition-manifest outputs must be fresh;
+- semantic text hashes must be independent of CRLF/LF checkout conversion;
+- smoke tests must use ephemeral ports;
+- tests must use isolated temporary roots and leave no SQLite, package or runtime artefacts in the worktree;
+- the selected Python environment must match the pinned validation profile and contain tier-required dependencies.
+
+## Programme generation
+
+- Update the canonical control source first and regenerate public projections; do not hand-edit `CURRENT_STATUS.json` or other generated status documents.
+- Prefer one atomic generate-and-check command covering remote summary, registry, status, completion, reconciliation, GitHub plan and transition manifest.
+- A second check-mode run must produce zero diff.
+- Apply GitHub changes only from the reviewed checksum-controlled plan and require a fresh zero-action readback.
+- Preserve issue identity, status semantics, dependency evidence, policies and `execution_allowed=false`.
+
+## Performance optimisation
+
+- Profile before parallelising pytest. Start any xdist pilot at four workers, use explicit groups for SQLite, Flet, ports, package, environment and concurrency tests, and retain a serial lane where required.
+- Track worker-completion-to-actionable-result, PR lead time, product-code PR share, PRs per integrated issue, obsolete CI minutes, full-gate p50/p95, slow tests and worker idle time.
+- Provider batching/caching is a separate runtime issue. It must preserve source policy, legal terms, adjusted-price, provenance, partial-result and fail-closed canonical-commit rules.
 
 ## Progress
 

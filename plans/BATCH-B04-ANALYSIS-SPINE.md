@@ -761,3 +761,36 @@ to refresh only the canonical generation base, regenerate and prove
 byte-fresh projections, require a zero-action GitHub readback, then install the
 reviewed throughput controls without changing product scope, authority or
 `execution_allowed=false`.
+
+`VERIFIED` post-merge convergence PR #577 passed the exact status guard and
+supply-chain scan, reused PR #576's unchanged-tree protected Linux/Windows
+evidence, and merged from reviewed head
+`b66722f33c308565a28c7fc0ab197b1c41da8b80` as
+`4eaed9c8d15212d2c9dc69bad0301eecc03e0c74`. The fresh GitHub readback
+remained zero action with semantic checksum
+`6130b9437583b7a1ae9932b5c61667b9a4d9c7b9b5d9df7a91e8948b270e654c`.
+
+`IN_PROGRESS` the bounded throughput control transaction allocates unused
+ISSUE-0177–ISSUE-0181 as planned records and installs the reviewed plan and
+delivery policy. Live generator review found the canonical control schema
+rejects every new issue ID even when the status-guard migration manifest
+authorises it. This shared programme-control prerequisite must first add
+strict manifest-gated canonical extension support; it may not modify existing
+records, statuses, dependencies, policies, authority or generated outputs.
+The next action is one Sol-worker implementation with focused adversarial
+tests, followed by orchestrator-owned record insertion, deterministic
+generation and zero-action provider readback. ISSUE-0127 remains `planned`,
+ISSUE-0072 remains unresolved and `execution_allowed=false`.
+
+`REVIEWED` the manifest-gated canonical extension prerequisite and five-record
+intake are complete in the control worktree. Unused ISSUE-0177–ISSUE-0181 are
+allocated as `planned`; their package-defined dependencies, validation tiers,
+scope, exclusions, acceptance criteria and rollback contracts are preserved.
+All pre-existing 197 record identities, statuses, dependency evidence and
+policies are unchanged. The reviewed GitHub dry run has semantic checksum
+`c5b0ec62c214b864a45486de4342d8ad09bb115b164bacf67c8711fc3cd52f6c`
+and contains exactly five creates plus seven derived downstream-link-only
+updates. The next action is exact migration guard, focused generator/control
+tests, deterministic second-pass proof and H-tier protected release because
+programme-control generator code changed. No provider write occurs before the
+control PR merges and its checksum is reverified.

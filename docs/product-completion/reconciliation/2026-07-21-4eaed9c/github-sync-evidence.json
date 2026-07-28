@@ -1,0 +1,140 @@
+{
+  "actions": [
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Downstream issues"
+      ],
+      "remote_number": 86,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0038",
+      "title": "Local database / storage migration plan",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/86"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Downstream issues"
+      ],
+      "remote_number": 212,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0072",
+      "title": "Implement the hybrid local analytical and transactional data platform",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/212"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Downstream issues"
+      ],
+      "remote_number": 220,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0080",
+      "title": "Enforce a mandatory no-subscription, no-vendor-quota local-first data policy",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/220"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Downstream issues"
+      ],
+      "remote_number": 221,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0081",
+      "title": "Build a resumable bulk downloader, content-addressed cache and delta updater",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/221"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Downstream issues"
+      ],
+      "remote_number": 281,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0141",
+      "title": "Implement hermetic CI, multi-platform build and release automation",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/281"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Downstream issues"
+      ],
+      "remote_number": 283,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0143",
+      "title": "Add visual E2E, load, soak, fault-injection and chaos test programmes",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/283"
+    },
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Downstream issues"
+      ],
+      "remote_number": 289,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0149",
+      "title": "Complete legal, data/model licence, terms, disclaimer and jurisdiction review",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/289"
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0177",
+      "title": "Restore a green deterministic baseline and add development-throughput observability",
+      "url": ""
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0178",
+      "title": "Implement risk-tiered preflight, CI cancellation and duplicate-scan elimination",
+      "url": ""
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0179",
+      "title": "Make programme generation atomic and automate post-merge convergence",
+      "url": ""
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0180",
+      "title": "Standardise local, worker and CI environments and isolate tests for safe parallelism",
+      "url": ""
+    },
+    {
+      "kind": "create",
+      "managed_field_deltas": [],
+      "remote_number": null,
+      "remote_state": "",
+      "stable_id": "ISSUE-0181",
+      "title": "Batch, cache and resume Yahoo Finance and provider retrievals",
+      "url": ""
+    }
+  ],
+  "apply_authority": false,
+  "fresh_exact_plan_required_for_apply": true,
+  "plan_semantic_sha256": "c5b0ec62c214b864a45486de4342d8ad09bb115b164bacf67c8711fc3cd52f6c",
+  "remote_inventory_sha256": "52544a0fddf793a2e740517f93e2162128238ecc31ad86522d10d6c21f5ca158",
+  "repository": "Thor2709/etf_ai_cockpit",
+  "schema_version": "etf-ai-cockpit.safe-sync-evidence/1.0",
+  "summary": {
+    "blocked": 0,
+    "close": 0,
+    "create": 5,
+    "reopen": 0,
+    "update": 7
+  },
+  "transient_full_plan_file_sha256": "b43bb580b9efd806ae051594d1b1d873d33e4fcbf556b8767feda02b9c1dfab0"
+}

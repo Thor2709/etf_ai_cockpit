@@ -202,6 +202,155 @@ def test_control_authority_accepts_exact_transition_and_rejects_extra_manual_edi
         issue_registry_core.validate_control_authority(ROOT, transitioned)
 
 
+def _extension_definition(**overrides: object) -> dict[str, object]:
+    value: dict[str, object] = {
+        "title": "Reviewed registry extension",
+        "priority": "P1",
+        "owner": "programme-governance",
+        "phase": "phase-01-governance-scope",
+        "blocking_dependencies": ["ISSUE-0001"],
+        "required_inputs": [],
+        "activation_dependencies": [],
+        "related_issues": [],
+        "capability_lane": "PROGRAMME_CONTROL",
+        "release_blocking": True,
+        "objective": "Generate the reviewed canonical intake.",
+        "scope": ["Registry generation", "Programme control"],
+        "exclusions": ["Broker writes"],
+        "acceptance_criteria": [
+            {"id": "AC-01", "text": "The canonical record is generated."}
+        ],
+        "validation": {"tests": ["focused registry generation"]},
+        "rollback": "Remove only through a later reviewed migration.",
+    }
+    value.update(overrides)
+    return value
+
+
+def _write_extension_inputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    added_ids: list[str],
+    definition: dict[str, object] | None = None,
+) -> None:
+    control = json.loads((ROOT / issue_registry_core.CONTROL_STATE_PATH).read_text(encoding="utf-8"))
+    control["records"] = {
+        issue_id: record
+        for issue_id, record in control["records"].items()
+        if "canonical_definition" not in record
+    }
+    issue_id = "ISSUE-0998"
+    canonical_definition = definition or _extension_definition()
+    control["records"][issue_id] = {
+        "programme_status": "planned",
+        "status_transition": {
+            "from": "planned",
+            "to": "planned",
+            "review_reference": "reviewed canonical import",
+        },
+        "dependency_edge_evidence": issue_registry_core._unresolved_edge_evidence(
+            canonical_definition["blocking_dependencies"]
+        ),
+        "acceptance_evidence": [],
+        "transition_history": [],
+        "verified_commit": BASE_SHA,
+        "verified_date": "2026-07-28",
+        "canonical_definition": canonical_definition,
+    }
+    control_path = tmp_path / "control.json"
+    control_path.write_text(json.dumps(control), encoding="utf-8")
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        json.dumps({
+            "schema_version": "1.1",
+            "registry_migration": {
+                "mode": "canonical_schema_and_intake",
+                "generator": "scripts/generate_issue_registry.py",
+                "added_issue_ids": added_ids,
+                "removed_issue_ids": [],
+            },
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(issue_registry_core, "CONTROL_STATE_PATH", control_path)
+    monkeypatch.setattr(issue_registry_core, "STATUS_GUARD_MANIFEST", manifest_path)
+
+
+def test_reviewed_control_extension_preserves_explicit_canonical_definition(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_extension_inputs(tmp_path, monkeypatch, added_ids=["ISSUE-0998"])
+
+    registry = build_registry(ROOT, verify_base=False)
+    record = _record(registry, "ISSUE-0998")
+
+    assert record["classification"] == "proposed_new"
+    assert record["ledger_state"] == "open"
+    assert record["programme_status"] == "planned"
+    assert record["capability_lane"] == "PROGRAMME_CONTROL"
+    assert record["release_blocking"] is True
+    assert record["objective"] == "Generate the reviewed canonical intake."
+    assert record["scope"] == ["Registry generation", "Programme control"]
+    assert record["exclusions"] == ["Broker writes"]
+    assert record["acceptance_criteria"] == [
+        {"id": "AC-01", "text": "The canonical record is generated."}
+    ]
+    assert record["validation"] == {"tests": ["focused registry generation"]}
+    assert record["rollback"] == "Remove only through a later reviewed migration."
+    assert record["blocking_dependencies"] == ["ISSUE-0001"]
+    assert record["source_kind"] == "control_extension"
+    reconciliation = [
+        item
+        for item in registry["dependency_reconciliation"]
+        if item["source_id"] == "ISSUE-0998"
+    ]
+    assert reconciliation == [{
+        "source_id": "ISSUE-0998",
+        "dependency": "ISSUE-0001",
+        "candidate_type": "blocking",
+        "resolved_as": "blocking_dependencies",
+        "reason": "proposed programme prerequisite",
+    }]
+
+
+@pytest.mark.parametrize("added_ids", [[], ["ISSUE-0997"], ["ISSUE-0998", "ISSUE-0997"]])
+def test_control_extension_requires_exact_manifest_ids(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, added_ids: list[str]
+) -> None:
+    _write_extension_inputs(tmp_path, monkeypatch, added_ids=added_ids)
+    with pytest.raises(ValueError, match="exactly match authorised"):
+        build_registry(ROOT, verify_base=False)
+
+
+@pytest.mark.parametrize(
+    ("override", "message"),
+    [
+        ({"priority": "P9"}, "invalid priority"),
+        ({"phase": "unknown-phase"}, "unknown phase"),
+        ({"blocking_dependencies": ["ISSUE-9999"]}, "unknown or self dependency"),
+        ({"scope": "not-a-list"}, "scope must be a unique string list"),
+        ({"acceptance_criteria": [{"id": "AC-01"}, {"id": "AC-01"}]}, "contains duplicates"),
+        ({"validation": []}, "validation must be an object"),
+        ({"unsupported_authority": True}, "unsupported or missing fields"),
+    ],
+)
+def test_control_extension_rejects_invalid_definition(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    override: dict[str, object],
+    message: str,
+) -> None:
+    _write_extension_inputs(
+        tmp_path,
+        monkeypatch,
+        added_ids=["ISSUE-0998"],
+        definition=_extension_definition(**override),
+    )
+    with pytest.raises(ValueError, match=message):
+        build_registry(ROOT, verify_base=False)
+
+
 def test_dependency_edge_update_keeps_status_and_acceptance_unchanged_and_replays_authority(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -636,6 +785,9 @@ def test_registry_generation_is_identical_for_lf_and_crlf_text_inputs(tmp_path: 
             ROOT / "docs" / "product-completion" / "sources",
             target / "docs" / "product-completion" / "sources",
         )
+        manifest_target = target / issue_registry_core.STATUS_GUARD_MANIFEST
+        manifest_target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / issue_registry_core.STATUS_GUARD_MANIFEST, manifest_target)
     exact = issue_registry_core.FINAL_RELEASE_SOURCE.as_posix()
     for path in crlf.rglob("*"):
         relative = path.relative_to(crlf).as_posix()

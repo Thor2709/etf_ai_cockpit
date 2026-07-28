@@ -65,6 +65,11 @@ def test_proposed_ids_and_phase_coverage_are_source_derived() -> None:
     declared = {str(row["issue_id"]) for row in package["proposed_new_issues"]} | {
         str(row["issue_id"]) for row in final_release
     }
+    declared |= {
+        str(issue_id)
+        for issue_id, record in load_control_state(ROOT)["records"].items()
+        if "canonical_definition" in record
+    }
     proposed = {
         str(record["canonical_id"])
         for record in registry["records"]
