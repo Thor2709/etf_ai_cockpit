@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import platform
@@ -48,6 +49,7 @@ class ValidationReport:
     environment: dict[str, object] = field(default_factory=dict)
     git: dict[str, object] = field(default_factory=dict)
     log_paths: list[str] = field(default_factory=list)
+    execution_evidence: dict[str, object] = field(default_factory=dict)
     scope: dict[str, object] = field(default_factory=dict)
     report_only: bool = False
 
@@ -106,7 +108,7 @@ def run_validation(
         if scope_check.required and scope_check.status != "passed":
             failures.append(f"{scope_check.name}: {scope_check.failure or scope_check.output or 'check failed'}")
 
-    for check in _checks_for_mode(root, mode, scope):
+    for check in _checks_for_mode(root, mode, scope, latest):
         result = _run_check(root, check)
         checks.append(result)
         if result.required and result.status != "passed":
@@ -130,7 +132,8 @@ def run_validation(
         unavailable_optional_components=unavailable,
         environment=_environment(root, offline_requested=mode == "offline"),
         git=_git_state(root),
-        log_paths=_existing_log_paths(root),
+        log_paths=_existing_log_paths(root, report_dir=latest),
+        execution_evidence=_execution_evidence(),
         scope=scope,
         report_only=report_only,
     )
@@ -141,7 +144,12 @@ def run_validation(
     return ValidationRun(report, report_json, report_markdown, 1 if failures else 0)
 
 
-def _checks_for_mode(root: Path, mode: str, scope: dict[str, object]) -> list[_Check]:
+def _checks_for_mode(
+    root: Path,
+    mode: str,
+    scope: dict[str, object],
+    report_dir: Path | None = None,
+) -> list[_Check]:
     python = sys.executable
     if mode == "full":
         return [
@@ -197,7 +205,22 @@ def _checks_for_mode(root: Path, mode: str, scope: dict[str, object]) -> list[_C
     if mode == "changed":
         changed_tests = _changed_test_paths(root)
         if changed_tests:
-            checks.append(_Check("changed_tests", (python, "-m", "pytest", "-q", *changed_tests)))
+            junit = (report_dir or root / REPORT_DIRECTORY / "latest") / "junit-affected.xml"
+            checks.append(
+                _Check(
+                    "changed_tests",
+                    (
+                        python,
+                        "-m",
+                        "pytest",
+                        "-q",
+                        "--durations=100",
+                        "--durations-min=0.25",
+                        f"--junitxml={junit}",
+                        *changed_tests,
+                    ),
+                )
+            )
         else:
             checks.append(_Check("changed_scope", (python, "-c", "print('No changed test paths detected')")))
     return checks
@@ -300,13 +323,33 @@ def _run_check(root: Path, check: _Check) -> CheckResult:
 
 
 def _environment(root: Path, *, offline_requested: bool = False) -> dict[str, object]:
-    return {
+    fingerprint = {
         "python": sys.version.split()[0],
         "platform": platform.platform(),
         "system": platform.system(),
         "machine": platform.machine(),
+    }
+    return {
+        **fingerprint,
+        "fingerprint_sha256": hashlib.sha256(
+            (json.dumps(fingerprint, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+        ).hexdigest(),
         "root": str(root),
         "offline_requested": offline_requested or os.getenv("ETF_COCKPIT_OFFLINE", "") == "1",
+    }
+
+
+def _execution_evidence() -> dict[str, object]:
+    return {
+        "cache": {
+            "pip_cache_dir": os.getenv("PIP_CACHE_DIR", ""),
+            "setup_python_cache_hit": os.getenv("ETF_COCKPIT_SETUP_PYTHON_CACHE_HIT", "unknown"),
+        },
+        "retry": {
+            "provider": "github-actions" if os.getenv("GITHUB_ACTIONS") == "true" else "local",
+            "run_attempt": int(os.getenv("GITHUB_RUN_ATTEMPT", "1")),
+            "automatic_test_retries": 0,
+        },
     }
 
 
@@ -319,8 +362,22 @@ def _git_state(root: Path) -> dict[str, object]:
     }
 
 
-def _existing_log_paths(root: Path) -> list[str]:
-    return [str(path.relative_to(root)) for path in (root / "logs").glob("*.jsonl") if path.is_file()]
+def _existing_log_paths(root: Path, *, report_dir: Path | None = None) -> list[str]:
+    validation_latest = report_dir or root / REPORT_DIRECTORY / "latest"
+    candidates = [
+        *(root / "logs").glob("*.jsonl"),
+        *validation_latest.glob("*.xml"),
+        *validation_latest.glob("*.log"),
+    ]
+    paths: list[str] = []
+    for path in candidates:
+        if not path.is_file():
+            continue
+        try:
+            paths.append(str(path.relative_to(root)))
+        except ValueError:
+            paths.append(str(path.resolve()))
+    return sorted(paths)
 
 
 def _changed_paths(root: Path) -> list[str]:

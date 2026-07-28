@@ -298,6 +298,34 @@ def environment_check(root: Path, policy: dict[str, object], *, allow_dirty: boo
     )
 
 
+def environment_evidence(root: Path, policy: dict[str, object]) -> dict[str, object]:
+    """Return a stable platform and dependency fingerprint plus CI run evidence."""
+
+    dependencies = dependency_snapshot(root, policy)
+    fingerprint_input = {
+        "python": platform.python_version(),
+        "implementation": platform.python_implementation(),
+        "system": platform.system(),
+        "release": platform.release(),
+        "machine": platform.machine(),
+        "lock_files": dependencies["lock_files"],
+        "installed": dependencies["installed"],
+    }
+    return {
+        **fingerprint_input,
+        "fingerprint_sha256": sha256_bytes(canonical_json(fingerprint_input)),
+        "cache": {
+            "pip_cache_dir": os.getenv("PIP_CACHE_DIR", ""),
+            "setup_python_cache_hit": os.getenv("ETF_COCKPIT_SETUP_PYTHON_CACHE_HIT", "unknown"),
+        },
+        "retry": {
+            "provider": "github-actions" if os.getenv("GITHUB_ACTIONS") == "true" else "local",
+            "run_attempt": int(os.getenv("GITHUB_RUN_ATTEMPT", "1")),
+            "automatic_test_retries": 0,
+        },
+    }
+
+
 def _command_text(command: Iterable[str]) -> str:
     return " ".join(shlex.quote(str(part)) for part in command)
 
@@ -656,7 +684,22 @@ def run_gate(
     if skip_tests:
         state.add(CheckResult("full_tests", "skipped", False, "pytest -q"))
     else:
-        state.add(run_command(root, output, "full_tests", _python_command(root, "-m", "pytest", "-q")))
+        state.add(
+            run_command(
+                root,
+                output,
+                "full_tests",
+                _python_command(
+                    root,
+                    "-m",
+                    "pytest",
+                    "-q",
+                    "--durations=100",
+                    "--durations-min=0.25",
+                    f"--junitxml={output / 'junit-full.xml'}",
+                ),
+            )
+        )
 
     if skip_package:
         state.add(CheckResult("package_build", "skipped", False, _command_text(package_command(root))))
@@ -829,6 +872,7 @@ def run_gate(
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
         "git": git_snapshot(root),
         "python": sys.version.split()[0],
+        "environment": environment_evidence(root, policy),
         "project_version": _project_version(root),
         "policy": policy,
         "source_manifest_sha256": source["manifest_sha256"],
@@ -836,6 +880,15 @@ def run_gate(
         "sbom_sha256": sbom["bom_sha256"],
         "checks": [asdict(check) for check in state.checks],
         "failures": list(state.failures),
+        "evidence_paths": {
+            "output_dir": str(output),
+            "junit": str(output / "junit-full.xml"),
+            "stage_logs": {
+                check.name: str(output / f"{check.name}.log")
+                for check in state.checks
+                if (output / f"{check.name}.log").is_file()
+            },
+        },
     }
     manifest_path = output / "release-manifest.json"
     signing_key_text = os.getenv(str(policy.get("signing_key_env", SIGNING_KEY_ENV)), "")
@@ -866,7 +919,17 @@ def run_gate(
 
 def _planned_commands(root: Path) -> list[str]:
     return [
-        _command_text(_python_command(root, "-m", "pytest", "-q")),
+        _command_text(
+            _python_command(
+                root,
+                "-m",
+                "pytest",
+                "-q",
+                "--durations=100",
+                "--durations-min=0.25",
+                "--junitxml=<output>/junit-full.xml",
+            )
+        ),
         _command_text(package_command(root)),
         "python scripts/smoke_app.py --mode offline --port <free-port> --timeout 30",
         "python scripts/check_security_policy.py --root <root> --report-dir <output>/security_policy",
@@ -884,9 +947,32 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--skip-smoke", action="store_true", help="diagnostic-only: do not launch the package")
     parser.add_argument("--allow-unsigned", action="store_true", help="allow unsigned pull-request evidence; never use for a release")
     parser.add_argument("--allow-dirty", action="store_true", help="allow a dirty worktree for local diagnostics")
+    parser.add_argument(
+        "--verify-environment",
+        action="store_true",
+        help="verify pinned Python and tier-required packages, then exit before tests",
+    )
     parser.add_argument("--dry-run", action="store_true", help="print the protected gate without executing it")
     args = parser.parse_args(argv)
     root = args.root.resolve()
+    if args.verify_environment:
+        try:
+            policy = load_policy(root)
+            check = environment_check(root, policy, allow_dirty=args.allow_dirty)
+            print(
+                json.dumps(
+                    {
+                        "check": asdict(check),
+                        "environment": environment_evidence(root, policy),
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+            return 0 if check.status == "passed" else 1
+        except (FileNotFoundError, RuntimeError, ValueError) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
     if args.dry_run:
         print(json.dumps({"schema_version": SCHEMA_VERSION, "root": str(root), "commands": _planned_commands(root)}, indent=2))
         return 0

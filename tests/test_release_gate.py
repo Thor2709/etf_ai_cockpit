@@ -75,6 +75,9 @@ def test_run_gate_writes_machine_readable_failure_evidence(tmp_path: Path, monke
     assert result.exit_code == 0
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
     assert manifest["failures"] == []
+    assert len(manifest["environment"]["fingerprint_sha256"]) == 64
+    assert manifest["environment"]["retry"]["automatic_test_retries"] == 0
+    assert manifest["evidence_paths"]["output_dir"] == str(result.output_dir)
     assert (result.output_dir / "sbom.cdx.json").exists()
     signature = json.loads((result.output_dir / "release-manifest.sig.json").read_text(encoding="utf-8"))
     assert signature["status"] == "signed"
