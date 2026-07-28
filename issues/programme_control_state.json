@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "694e9619cf42d251b43e2b7f92c55419a273b4a9",
+    "generation_base_commit": "19258f531d29090e8f574f990954feec5a966638",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -2499,6 +2499,15 @@
           "reviewed_date": "2026-07-28",
           "reviewer": "Codex",
           "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "PR #603 product acceptance; PR #604 in-progress convergence; PR #605 implemented-initially convergence; Release gate runs 30400004536, 30402280677 and 30404155703; merges d69113a69c3d454ce51b4122cb07cf8fabc29537, 694e9619cf42d251b43e2b7f92c55419a273b4a9 and 19258f531d29090e8f574f990954feec5a966638"
+          ],
+          "review_reference": "PR #603 product acceptance and PR #605 implemented-initially convergence",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex",
+          "status": "integrated"
         }
       ],
       "dependency_edge_evidence": {
@@ -2526,11 +2535,11 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
-        "from": "in_progress",
-        "review_reference": "PR #603 exact-head review and packaged acceptance",
-        "to": "implemented_initially"
+        "from": "implemented_initially",
+        "review_reference": "PR #603 product acceptance and PR #605 implemented-initially convergence",
+        "to": "integrated"
       },
       "transition_history": [
         {
@@ -2606,9 +2615,21 @@
           "reviewer": "Codex",
           "to": "implemented_initially",
           "verified_commit": "694e9619cf42d251b43e2b7f92c55419a273b4a9"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #603 product acceptance; PR #604 in-progress convergence; PR #605 implemented-initially convergence; Release gate runs 30400004536, 30402280677 and 30404155703; merges d69113a69c3d454ce51b4122cb07cf8fabc29537, 694e9619cf42d251b43e2b7f92c55419a273b4a9 and 19258f531d29090e8f574f990954feec5a966638"
+          ],
+          "from": "implemented_initially",
+          "review_reference": "PR #603 product acceptance and PR #605 implemented-initially convergence",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex",
+          "to": "integrated",
+          "verified_commit": "19258f531d29090e8f574f990954feec5a966638"
         }
       ],
-      "verified_commit": "694e9619cf42d251b43e2b7f92c55419a273b4a9",
+      "verified_commit": "19258f531d29090e8f574f990954feec5a966638",
       "verified_date": "2026-07-28"
     },
     "ISSUE-0090": {

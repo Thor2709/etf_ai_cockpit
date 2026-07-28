@@ -1,0 +1,29 @@
+{
+  "actions": [
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Programme status"
+      ],
+      "remote_number": 229,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0089",
+      "title": "Implement data anomaly detection, quarantine and cross-source reconciliation",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/229"
+    }
+  ],
+  "apply_authority": false,
+  "fresh_exact_plan_required_for_apply": true,
+  "plan_semantic_sha256": "8b5eb38970a1fc125958eaf1e18fb70d41da2030ceb9625828a139a5852be634",
+  "remote_inventory_sha256": "4433eee90b6ea18c9fcbebb7b81a029ae9ca6eb82a325a0244d05782084aa580",
+  "repository": "Thor2709/etf_ai_cockpit",
+  "schema_version": "etf-ai-cockpit.safe-sync-evidence/1.0",
+  "summary": {
+    "blocked": 0,
+    "close": 0,
+    "create": 0,
+    "reopen": 0,
+    "update": 1
+  },
+  "transient_full_plan_file_sha256": "8ad9709f9c78460171faa51229e2cba22a3f0544c5003b20c33fa1656c2d0442"
+}
