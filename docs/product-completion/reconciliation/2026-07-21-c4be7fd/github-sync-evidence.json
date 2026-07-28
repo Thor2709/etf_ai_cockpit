@@ -1,0 +1,29 @@
+{
+  "actions": [
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Programme status"
+      ],
+      "remote_number": 580,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0178",
+      "title": "Implement risk-tiered preflight, CI cancellation and duplicate-scan elimination",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/580"
+    }
+  ],
+  "apply_authority": false,
+  "fresh_exact_plan_required_for_apply": true,
+  "plan_semantic_sha256": "35a3e744a36a3b3a3534c0a4471992821687c602b3d26ce64ea3c7405df4d822",
+  "remote_inventory_sha256": "d528ad5fd210d6340084ef10d6ac44a268bec1063be11a7321a481155ab3d80a",
+  "repository": "Thor2709/etf_ai_cockpit",
+  "schema_version": "etf-ai-cockpit.safe-sync-evidence/1.0",
+  "summary": {
+    "blocked": 0,
+    "close": 0,
+    "create": 0,
+    "reopen": 0,
+    "update": 1
+  },
+  "transient_full_plan_file_sha256": "61b597342bf643b3112414ae84333c36799cf88fe64bfdc2571b2e398077eb5c"
+}

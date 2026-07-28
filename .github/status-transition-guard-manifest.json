@@ -8,18 +8,18 @@
       "to": "in_progress"
     }
   ],
-  "base_commit": "0bf098841fe14c513c6b01286973f3aa2d4d0db7",
+  "base_commit": "c4be7fde98574c2a22d33d9ba21b0a3d40532c8e",
   "branch": "codex/issue-0178-20260728",
   "issue_ids": [
     "ISSUE-0178"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "fad434c6fee6a77e06f97c65d8b7153b3c80997e86de01f3397dec9e4ea1154a",
+    "base_registry_sha256": "6f308664272cf6a6c5791cd5ea8369f6fdcd119235f7ef4949be21f054558d77",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "d53b0d2c126988a74298c42c8470a45b1b20ddacc2b1eb442e136391091a6b81",
-    "reason": "ISSUE-0178 implementation hand-off from fresh main 0bf098841fe14c513c6b01286973f3aa2d4d0db7: advance only planned to in_progress for the reviewed risk-tiered classifier and CI-orchestration slice; preserve dependencies, acceptance criteria, policy, broker authority and execution_allowed=false.",
+    "proposed_registry_sha256": "bcf107d24a3da99062c30631b6df45e31d8e2b88ecafa2402544b45883b4a4b1",
+    "reason": "ISSUE-0178 implementation hand-off from fresh main c4be7fde98574c2a22d33d9ba21b0a3d40532c8e: advance only planned to in_progress for the reviewed risk-tiered classifier and CI-orchestration slice after the merged ESEF baseline prerequisite; preserve dependencies, acceptance criteria, policy, broker authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },

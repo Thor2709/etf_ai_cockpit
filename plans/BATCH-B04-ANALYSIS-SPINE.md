@@ -913,3 +913,18 @@ focused tests plus Ruff, MyPy, compileall, workflow YAML parsing, H-tier
 self-classification and diff hygiene. `IN_PROGRESS` the canonical status now
 advances only `planned → in_progress`; the next action is deterministic
 generation, exact guards and the complete H-tier Linux/Windows package gate.
+
+`MERGED` shared baseline prerequisite PR #590 at
+`c4be7fde98574c2a22d33d9ba21b0a3d40532c8e` after its exact schema-1.1
+guard, supply-chain scan and complete Linux/Windows packaged gates passed.
+Both platforms reported 2,081 tests with zero failures, errors or skips; the
+previously failing minimal local ESEF extraction node is now isolated from
+optional Arelle validation while dedicated validator coverage remains.
+`IN_PROGRESS` PR #589 now includes that exact prerequisite and refreshes its
+canonical generation base to merged main without changing the reviewed
+ISSUE-0178 product checkpoint. The audited GitHub plan checksum remains
+`35a3e744a36a3b3a3534c0a4471992821687c602b3d26ce64ea3c7405df4d822`
+and contains exactly the ISSUE-0178 `planned → in_progress` update. The next
+action is exact schema-1.2 guard, deterministic generator checks and a fresh
+H-tier Linux/Windows run on the new PR head; no provider write occurs before
+merge.
