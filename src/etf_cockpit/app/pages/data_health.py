@@ -7,12 +7,16 @@ from etf_cockpit.app.components.cards import evidence_chip, panel, section_heade
 from etf_cockpit.app.components.flet_compat import border_all
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import ROOT
-from etf_cockpit.application.ui_facade import DataHealthReport, DataHealthRow, DataHealthStatus, build_data_health, bulk_cache_health, export_data_health, filter_data_health_rows
+from etf_cockpit.application.ui_facade import AnomalyLedger, DataHealthReport, DataHealthRow, DataHealthStatus, build_data_health, bulk_cache_health, export_data_health, filter_data_health_rows
 
 
 def data_health_page(page: ft.Page, state: AppState) -> ft.Control:
     report = build_data_health(state.snapshot.config, ROOT, as_of_date=state.snapshot.data_report.as_of_date)
     cache_report = bulk_cache_health(ROOT)
+    anomaly_summary = AnomalyLedger().summary(
+        root=ROOT,
+        decision_time=f"{state.snapshot.data_report.as_of_date}T23:59:59+00:00",
+    )
     visible_rows = list(report.rows)
 
     def row_controls(row: DataHealthRow) -> ft.Control:
@@ -125,6 +129,47 @@ def data_health_page(page: ft.Page, state: AppState) -> ft.Control:
                         ),
                     ],
                     spacing=10,
+                )
+            ),
+            panel(
+                ft.Column(
+                    [
+                        section_header(
+                            "Anomaly rules and quarantine",
+                            "Versioned local quality rules retain original findings and append-only correction/review evidence.",
+                        ),
+                        ft.Text(
+                            f"Status={anomaly_summary.get('status', 'unavailable')} | "
+                            f"rule coverage={anomaly_summary.get('rule_count', 0)} | "
+                            f"versions={', '.join(anomaly_summary.get('rule_versions', [])) or 'unavailable'}",
+                            color=theme.MUTED,
+                            selectable=True,
+                        ),
+                        ft.Text(
+                            " | ".join(
+                                f"{state_name}={anomaly_summary.get('counts', {}).get(state_name, 0)}"
+                                for state_name in ("pass", "warn", "quarantine", "block")
+                            ),
+                            color=theme.TEXT,
+                            selectable=True,
+                        ),
+                        ft.Text(
+                            f"Unresolved={anomaly_summary.get('unresolved_count', 0)} | "
+                            f"blocked downstream={anomaly_summary.get('blocked_downstream_count', 0)} | "
+                            f"corrections={anomaly_summary.get('correction_count', 0)} | "
+                            f"review state={', '.join(anomaly_summary.get('review_states', [])) or 'unavailable'} | "
+                            f"canonical eligible={anomaly_summary.get('canonical_eligible', False)}",
+                            color=theme.AMBER,
+                            selectable=True,
+                        ),
+                        ft.Text(
+                            f"Invalidation token={anomaly_summary.get('invalidation_token', 'unavailable')} | "
+                            "execution_allowed=false | network_calls=false",
+                            color=theme.MUTED,
+                            selectable=True,
+                        ),
+                    ],
+                    spacing=8,
                 )
             ),
             panel(
