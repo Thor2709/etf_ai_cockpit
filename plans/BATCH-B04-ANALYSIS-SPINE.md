@@ -713,3 +713,13 @@ scope expansion; corrected stable patch id is
 ISSUE-0059 release from fresh main
 `d4ce7a0e7f4467ab7b9f6ad65ee210e8dfb74c5f`; programme status remains
 `implemented_initially` and `execution_allowed=false`.
+
+`MERGED` corrected ISSUE-0059 PR #574 passed status guard, supply-chain and
+full Linux and Windows packaged release gates, then merged from exact head
+`37ef3fc9e18c682408ecc079fc65e85426ccee7e` as
+`80c63200e733fada6ae2d76ac67feb776f281c38`. The protected gates verified
+the corrected point-in-time chronology and common measurement-currency
+contracts. `IN_PROGRESS` the separate deterministic convergence refreshes
+only the generation base to the merge commit before the prepared ISSUE-0127
+dependency-edge transitions. No status, dependency, broker authority or
+`execution_allowed=false` change is included in this convergence.
