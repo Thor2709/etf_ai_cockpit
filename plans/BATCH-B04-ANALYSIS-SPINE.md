@@ -606,3 +606,37 @@ deterministic convergence refreshes only the generation base to the merge
 commit before ISSUE-0022 review. No status, dependency, financial
 calculation, broker authority or `execution_allowed=false` change is
 authorised.
+
+`VERIFIED` ISSUE-0026 post-merge convergence PR #568 passed status guard and
+supply-chain validation, then merged from exact head
+`c906b599e3af40c824aff156159e6dd9bcba2db1` as
+`a3ce6a04e3d023024b3c420c02b824401b21909b`; the redundant packaged release
+run was cancelled after the product head had passed both packaged platforms.
+
+`REVIEWED` ISSUE-0022 checkpoint
+`df6181deae3815f4e8af6a55c1689d1f9222c57c` changes only five overlap
+domain, application, UI and test files. Root adversarial review found
+point-in-time holdings selection, explicit stale/missing/cycle/depth
+fail-closed states, mapped-plus-unknown conservation, typed direct and
+indirect contributors, canonical report hashing and
+`execution_allowed=false` preserved. The transplanted patch has the same
+stable patch id, `618d1383baa80e8ce514f70e9a54328fec4da858`, as the approved
+checkpoint. All 27 focused and 188 affected tests passed with Ruff and diff
+hygiene.
+
+`REVISE` protected ISSUE-0022 PR #569 passed status guard, supply-chain and
+the full Linux packaged gate, but the Windows full suite exposed an unrelated
+non-deterministic baseline test boundary:
+`test_real_esef_package_extracts_facts_and_retains_extensions` invoked the
+optional bounded Arelle child validator while asserting the local extraction
+contract. The failing result retained 285 parsed records but reported
+`success=false`; the same fixture passed locally and on Linux. No durable
+flake waiver authorises retention or an automatic retry. The bounded worker
+changed only that test to make Arelle unavailable for its local-extraction
+contract; extraction assertions and all dedicated Arelle diagnostic,
+conformance, timeout and worker tests remain unchanged. The focused node
+passed five consecutive runs and the full ESEF parser file passed 20/20 in
+the worker environment with Ruff and diff hygiene. Root review approved the
+one-test correction. Next action is a separate protected baseline-correction
+release from fresh main before rebuilding ISSUE-0022; PR #569 remains
+unmerged at exact head `7f2f0bf2dd004aff28566ae8946bc23957af32ee`.
