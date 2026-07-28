@@ -529,3 +529,18 @@ The reviewed GitHub plan contains exactly one Programme-status update for open
 issue #239 with semantic SHA-256
 `8f64d4225a23e54723f129c5a0d68893da9ebc8b7ad3e0e6c06c1285e61f0749`.
 No dependency, scope, acceptance, policy or authority change is included.
+
+`IN_PROGRESS` the next dependency-valid B04 prerequisite review updates only
+ISSUE-0106→ISSUE-0128 from `unresolved` to `complete`. The consumer-specific
+contract is the immutable `CostEstimate` and deterministic
+`estimate_execution_cost` primitive with monotonic size/ADV impact, wider
+uncertainty when microstructure evidence is missing, explicit stress/capacity
+status, `execution_allowed=false`, and non-mutating realised-fill comparison.
+Focused cost-model tests cover finite components, order/listing/session inputs,
+size monotonicity and capacity, missing-data widening, fill immutability and
+shared-model use.
+
+ISSUE-0106 remains `implemented_initially`; status, acceptance, dependency
+lists, policy and authority are unchanged. ISSUE-0128 retains its unresolved
+ISSUE-0064 edge and broader low/base/high interval, liquidation, persistence,
+FX, cross-module and paper/backtest scope.
