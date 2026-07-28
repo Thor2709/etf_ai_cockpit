@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "e27209aee137804f883440053ec2a5b5f59c5da2",
+    "generation_base_commit": "90106943ea4e7cd41909ca45eab185216bb8f45f",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4030,12 +4030,16 @@
       "acceptance_evidence": [],
       "dependency_edge_evidence": {
         "ISSUE-0072": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B04/ISSUE-0072/transactional-storage-interface-v1",
+          "evidence_references": [
+            "ISSUE-0072 is canonically integrated and src/etf_cockpit/data/local_storage.py provides a versioned SQLite TransactionalStore with WAL, foreign keys, bounded locking, migrations, optimistic revisions, atomic transactions and integrity checks",
+            "tests/test_local_storage.py covers idempotent bootstrap, safe pragmas, revision conflicts, immutable atomic batches, explicit rollback, atomic export and newer-schema fail-closed behaviour",
+            "The interface is partial: account hierarchy, balanced Decimal journal entries, trial balance, full-history positions/cash rebuild, settlement states and broker/local truth reconciliation remain explicitly owned by ISSUE-0127"
+          ],
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "partial_interface"
         },
         "ISSUE-0084": {
           "contract_reference": "B02/ISSUE-0084/corporate-action-fx-ledger-input-v1",
@@ -4087,9 +4091,36 @@
           "reviewed_date": "2026-07-28",
           "reviewer": "Codex root orchestrator",
           "verified_commit": "2ca0c37113da423c06e1fcda15110b028fef74dd"
+        },
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0072",
+            "evidence": {
+              "contract_reference": "B04/ISSUE-0072/transactional-storage-interface-v1",
+              "evidence_references": [
+                "ISSUE-0072 is canonically integrated and src/etf_cockpit/data/local_storage.py provides a versioned SQLite TransactionalStore with WAL, foreign keys, bounded locking, migrations, optimistic revisions, atomic transactions and integrity checks",
+                "tests/test_local_storage.py covers idempotent bootstrap, safe pragmas, revision conflicts, immutable atomic batches, explicit rollback, atomic export and newer-schema fail-closed behaviour",
+                "The interface is partial: account hierarchy, balanced Decimal journal entries, trial balance, full-history positions/cash rebuild, settlement states and broker/local truth reconciliation remain explicitly owned by ISSUE-0127"
+              ],
+              "reviewed_date": "2026-07-28",
+              "reviewer": "Codex root orchestrator",
+              "schema_version": "1.0",
+              "state": "partial_interface"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "ISSUE-0072 is canonically integrated and src/etf_cockpit/data/local_storage.py provides a versioned SQLite TransactionalStore with WAL, foreign keys, bounded locking, migrations, optimistic revisions, atomic transactions and integrity checks",
+            "tests/test_local_storage.py covers idempotent bootstrap, safe pragmas, revision conflicts, immutable atomic batches, explicit rollback, atomic export and newer-schema fail-closed behaviour",
+            "The interface is partial: account hierarchy, balanced Decimal journal entries, trial balance, full-history positions/cash rebuild, settlement states and broker/local truth reconciliation remain explicitly owned by ISSUE-0127"
+          ],
+          "review_reference": "B04 ISSUE-0127 ledger prerequisite review: integrated generic transactional-storage interface",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "verified_commit": "90106943ea4e7cd41909ca45eab185216bb8f45f"
         }
       ],
-      "verified_commit": "2ca0c37113da423c06e1fcda15110b028fef74dd",
+      "verified_commit": "90106943ea4e7cd41909ca45eab185216bb8f45f",
       "verified_date": "2026-07-28"
     },
     "ISSUE-0128": {
