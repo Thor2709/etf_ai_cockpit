@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "86502a99f9428c0f1c916bfea3974d41f7c3f2a1",
+    "generation_base_commit": "4eaed9c8d15212d2c9dc69bad0301eecc03e0c74",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -7216,6 +7216,453 @@
       },
       "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
       "verified_date": "2026-07-21"
+    },
+    "ISSUE-0177": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "Complete Linux and Windows suites pass on main with zero retained baseline exceptions on successive exact-tree protected runs."
+          },
+          {
+            "id": "AC2",
+            "text": "Full and affected validation publish JUnit, slowest-100 setup/call/teardown durations, stage timings, platform and environment fingerprints."
+          },
+          {
+            "id": "AC3",
+            "text": "Date, port, line-ending, generated-residue, environment and documented permission/concurrency flakes are deterministic or fail with one stable actionable fingerprint."
+          },
+          {
+            "id": "AC4",
+            "text": "Local, worker and CI bootstrap verification detects missing or mismatched Python/packages before tests start."
+          },
+          {
+            "id": "AC5",
+            "text": "No application behaviour, safety rule, financial calculation, package check or execution authority is weakened."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [],
+        "capability_lane": "QUALITY_RELEASE",
+        "exclusions": [
+          "product feature changes unrelated to reproduced baseline defects",
+          "weakening assertions or accepting red main",
+          "pytest parallelism before duration/isolation evidence",
+          "provider batching"
+        ],
+        "objective": "Make every validation result actionable and restore a permanently green Linux/Windows main baseline without weakening tests.",
+        "owner": "quality-release",
+        "phase": "phase-09-quality-release-security",
+        "priority": "P0",
+        "related_issues": [
+          "ISSUE-0039"
+        ],
+        "release_blocking": true,
+        "required_inputs": [
+          "ISSUE-0141",
+          "ISSUE-0143"
+        ],
+        "rollback": "Revert telemetry/bootstrap integration only after retaining captured evidence; never restore accepted baseline failures.",
+        "scope": [
+          "pytest durations and JUnit artefacts for affected/full runs",
+          "per-stage CI timing and environment fingerprints",
+          "reproduction and repair of every retained baseline failure/flaky node",
+          "fixed clocks, ephemeral ports, canonical line-ending hashes and clean temporary roots",
+          "one authoritative local/worker/CI environment verification command",
+          "compact committed throughput baseline plus untracked/full workflow artefacts"
+        ],
+        "title": "Restore a green deterministic baseline and add development-throughput observability",
+        "validation": {
+          "required": [
+            "focused telemetry tests",
+            "baseline reproductions",
+            "Linux full package gate",
+            "Windows full package gate",
+            "supply-chain",
+            "independent review"
+          ],
+          "tier": "H"
+        }
+      },
+      "dependency_edge_evidence": {},
+      "phase": "phase-09-quality-release-security",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "2026-07-28 throughput-remediation package canonical registry migration",
+        "to": "planned"
+      },
+      "verified_commit": "4eaed9c8d15212d2c9dc69bad0301eecc03e0c74",
+      "verified_date": "2026-07-28"
+    },
+    "ISSUE-0178": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "Classifier outputs E, O, H or C with a stable JSON reason report and fails upward to H on ambiguity."
+          },
+          {
+            "id": "AC2",
+            "text": "Evidence-only fixture skips package matrix and passes the terminal summary; protected-tooling evidence changes classify H."
+          },
+          {
+            "id": "AC3",
+            "text": "Ordinary fixture runs focused/affected/UI/static/smoke and participates in the two-to-three issue central full-gate cadence."
+          },
+          {
+            "id": "AC4",
+            "text": "Persistence/concurrency/canonical-finance/security/release/control/broker fixtures require both platform package gates."
+          },
+          {
+            "id": "AC5",
+            "text": "A newer PR head cancels the obsolete workflow; no obsolete head continues consuming the complete matrix."
+          },
+          {
+            "id": "AC6",
+            "text": "One source/repository supply-chain scan exists per tree; platform package checks remain where platform-specific."
+          },
+          {
+            "id": "AC7",
+            "text": "Final validation-summary accurately fails/passes across all conditional combinations and is suitable as the required branch check."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0177"
+        ],
+        "capability_lane": "QUALITY_RELEASE",
+        "exclusions": [
+          "removal of Linux/Windows certification from high-risk/final work",
+          "path-filtered required workflows that can remain pending",
+          "automatic downgrade when classification is uncertain",
+          "provider performance work"
+        ],
+        "objective": "Apply the complete gate at the correct risk boundary while retaining one always-required terminal validation result.",
+        "owner": "quality-release",
+        "phase": "phase-09-quality-release-security",
+        "priority": "P0",
+        "related_issues": [
+          "ISSUE-0013",
+          "UPDATEV2-0029"
+        ],
+        "release_blocking": true,
+        "required_inputs": [
+          "ISSUE-0141",
+          "ISSUE-0143"
+        ],
+        "rollback": "One revert restores the previous full-matrix workflow. Preserve observability and green-baseline fixes.",
+        "scope": [
+          "deterministic E/O/H/C risk classifier",
+          "always-running preflight and validation-summary jobs",
+          "workflow concurrency cancel-in-progress for obsolete heads",
+          "conditional Linux/Windows full gates by risk/cadence",
+          "single canonical source supply-chain scan per tree",
+          "UI acceptance and architecture boundary checks before expensive CI",
+          "one-watcher and exact-head evidence-reuse rules"
+        ],
+        "title": "Implement risk-tiered preflight, CI cancellation and duplicate-scan elimination",
+        "validation": {
+          "required": [
+            "workflow contract tests",
+            "classifier fixtures",
+            "GitHub Actions syntax",
+            "Linux full package gate",
+            "Windows full package gate",
+            "supply-chain",
+            "independent review"
+          ],
+          "tier": "H"
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0177": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-09-quality-release-security",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "2026-07-28 throughput-remediation package canonical registry migration",
+        "to": "planned"
+      },
+      "verified_commit": "4eaed9c8d15212d2c9dc69bad0301eecc03e0c74",
+      "verified_date": "2026-07-28"
+    },
+    "ISSUE-0179": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "One command produces every canonical generated file and a second check-mode run is byte-clean."
+          },
+          {
+            "id": "AC2",
+            "text": "Omitting CURRENT_STATUS, PROGRESS, reconciliation, remote summary or transition manifest is impossible in tests."
+          },
+          {
+            "id": "AC3",
+            "text": "Post-merge convergence can be executed as one guarded automated transaction with exact-head and zero-action readback evidence."
+          },
+          {
+            "id": "AC4",
+            "text": "Median programme transactions per integrated product issue decreases; target at most three where dependency semantics permit."
+          },
+          {
+            "id": "AC5",
+            "text": "All 197+ existing record identities, dependencies, policies and execution authority remain intact through migration."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0178"
+        ],
+        "capability_lane": "PROGRAMME_CONTROL",
+        "exclusions": [
+          "weakening transition or dependency-edge guard",
+          "collapsing distinct status semantics",
+          "automated GitHub writes without reviewed checksum",
+          "deleting historical evidence before retention/restore proof"
+        ],
+        "objective": "Remove recurring omitted/stale generated files and reduce manual status/convergence transactions while preserving exact guards and audit history.",
+        "owner": "programme-control",
+        "phase": "phase-01-governance-scope",
+        "priority": "P1",
+        "related_issues": [
+          "ISSUE-0152"
+        ],
+        "release_blocking": false,
+        "required_inputs": [],
+        "rollback": "Restore prior generators and retain the new semantic manifest/artefacts for diagnosis; no status is rolled back without guarded transition.",
+        "scope": [
+          "single atomic generate-and-check command for remote summary, control input, registry, status, completion, reconciliation and manifest",
+          "second-run zero-diff proof",
+          "semantic manifest of every generated output",
+          "automated derivation of implemented_initially/integrated evidence from immutable merged PR and checksum-controlled GitHub readback where current status semantics allow",
+          "milestone snapshots in Git; per-run evidence in workflow artefacts"
+        ],
+        "title": "Make programme generation atomic and automate post-merge convergence",
+        "validation": {
+          "required": [
+            "generator/adversarial tests",
+            "transition/edge guards",
+            "full Linux/Windows package gate",
+            "independent review"
+          ],
+          "tier": "H"
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0178": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-01-governance-scope",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "2026-07-28 throughput-remediation package canonical registry migration",
+        "to": "planned"
+      },
+      "verified_commit": "4eaed9c8d15212d2c9dc69bad0301eecc03e0c74",
+      "verified_date": "2026-07-28"
+    },
+    "ISSUE-0180": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "The same verification command proves Python, locks, Flet, exchange-calendars, Hypothesis, MyPy/Ruff and tier-specific parser tools locally, for the worker and in CI."
+          },
+          {
+            "id": "AC2",
+            "text": "Tests leave no SQLite, port, environment or temporary-directory cross-test contamination."
+          },
+          {
+            "id": "AC3",
+            "text": "Four-worker pilot is deterministic across repeated Linux/Windows runs, with unsafe groups explicitly serialised."
+          },
+          {
+            "id": "AC4",
+            "text": "Before/after p50/p95 test-group timings show improvement with no coverage or flake regression."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0177"
+        ],
+        "capability_lane": "QUALITY_RELEASE",
+        "exclusions": [
+          "-n auto without evidence",
+          "parallelising shared-resource tests unsafely",
+          "new production dependencies without authority",
+          "masking platform-specific defects"
+        ],
+        "objective": "Eliminate environment-only failures and reduce test duration through measured, resource-safe isolation and controlled parallel execution.",
+        "owner": "quality-release",
+        "phase": "phase-09-quality-release-security",
+        "priority": "P1",
+        "related_issues": [
+          "ISSUE-0141",
+          "ISSUE-0143"
+        ],
+        "release_blocking": false,
+        "required_inputs": [
+          "ISSUE-0038",
+          "ISSUE-0072"
+        ],
+        "rollback": "Disable parallel worker count and retain grouping/profile data; keep deterministic environment verification.",
+        "scope": [
+          "bootstrap_dev_environment.py --verify or equivalent",
+          "pinned Python/package profile parity",
+          "test markers/groups for unit, UI, parser, persistence, concurrency, package and programme-control",
+          "ephemeral ports and per-test temporary roots",
+          "pytest-xdist pilot after profiling, starting at four workers",
+          "serial/xdist groups for shared SQLite, Flet, port, package and environment tests"
+        ],
+        "title": "Standardise local, worker and CI environments and isolate tests for safe parallelism",
+        "validation": {
+          "required": [
+            "environment fixtures",
+            "repeatability runs",
+            "Linux full package gate",
+            "Windows full package gate",
+            "independent review"
+          ],
+          "tier": "H"
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0177": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-09-quality-release-security",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "2026-07-28 throughput-remediation package canonical registry migration",
+        "to": "planned"
+      },
+      "verified_commit": "4eaed9c8d15212d2c9dc69bad0301eecc03e0c74",
+      "verified_date": "2026-07-28"
+    },
+    "ISSUE-0181": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "Price history uses bounded multi-symbol chunks rather than one synchronous request per instrument where yfinance supports it."
+          },
+          {
+            "id": "AC2",
+            "text": "Explicit timeout, bounded retries, jitter/backoff and per-provider concurrency limits are tested without live network dependency."
+          },
+          {
+            "id": "AC3",
+            "text": "Successful immutable observations survive a partial batch failure; failed symbols alone are retried, and incomplete canonical commit remains blocked."
+          },
+          {
+            "id": "AC4",
+            "text": "Warm-cache and cold-cache representative benchmarks record requests, p50/p95 latency, cache hit rate and result completeness."
+          },
+          {
+            "id": "AC5",
+            "text": "Source policy, legal terms, personal-use restrictions, provenance and adjusted-price rules remain enforced."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0080",
+          "ISSUE-0081"
+        ],
+        "capability_lane": "DATA_PLATFORM",
+        "exclusions": [
+          "network calls in release tests",
+          "unbounded threads",
+          "silent partial canonical commits",
+          "new paid providers",
+          "treating this as the cause of protected-CI slowness"
+        ],
+        "objective": "Reduce normal application refresh time for large universes without weakening completeness, provenance, legal, cache or fail-closed rules.",
+        "owner": "data-platform",
+        "phase": "phase-02-data-policy-identity",
+        "priority": "P1",
+        "related_issues": [
+          "ISSUE-0055"
+        ],
+        "release_blocking": false,
+        "required_inputs": [
+          "ISSUE-0149"
+        ],
+        "rollback": "Configuration switch returns to serial provider path while retaining cache/provenance; never accept incomplete canonical data during rollback.",
+        "scope": [
+          "chunked multi-symbol yfinance price downloads",
+          "bounded provider concurrency and explicit timeout/retry/backoff",
+          "per-symbol/chunk cache, immutable observations and resume",
+          "retry failed symbols only",
+          "serial-to-bounded metadata/holdings pool after provider-policy review",
+          "request, latency, cache, retry and partial/unavailable metrics"
+        ],
+        "title": "Batch, cache and resume Yahoo Finance and provider retrievals",
+        "validation": {
+          "required": [
+            "fake-provider deterministic tests",
+            "cache/resume tests",
+            "affected data/UI tests",
+            "central full gate by cadence"
+          ],
+          "tier": "O"
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0080": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0081": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "2026-07-28 throughput-remediation package canonical registry migration",
+        "to": "planned"
+      },
+      "verified_commit": "4eaed9c8d15212d2c9dc69bad0301eecc03e0c74",
+      "verified_date": "2026-07-28"
     },
     "UPDATEV2-0010": {
       "acceptance_evidence": [],

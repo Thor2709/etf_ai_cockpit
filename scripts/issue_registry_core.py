@@ -71,6 +71,7 @@ CONTROL_HIGH_STATUSES = frozenset(
     {"implemented", "implemented_initially", "hardening_required", "integrated", "closed"}
 )
 CONTROL_STATE_PATH = Path("issues/programme_control_state.json")
+STATUS_GUARD_MANIFEST = Path(".github/status-transition-guard-manifest.json")
 PACKAGE_JSON = Path("docs/product-completion/sources/2026-07-15/ETF_AI_Cockpit_Master_Issue_Registry.json")
 SOURCE_MANIFEST = Path("docs/product-completion/sources/2026-07-15/SOURCE_MANIFEST.sha256")
 FINAL_RELEASE_SOURCE = Path(
@@ -452,10 +453,14 @@ def validate_control_authority(
         raise ValueError("control metadata changed outside the generation-base refresh allowlist")
     prior_records = prior.get("records", {})
     current_records = control.get("records", {})
-    if set(prior_records) != set(current_records):
-        raise ValueError("control state changes unhanded issue IDs")
+    added_issue_ids = set(current_records) - set(prior_records)
+    removed_issue_ids = set(prior_records) - set(current_records)
+    if removed_issue_ids or (
+        added_issue_ids and added_issue_ids != _authorised_registry_additions(root)
+    ):
+        raise ValueError("control state issue IDs do not exactly match the authorised registry migration")
     changed_issue_ids: list[str] = []
-    for issue_id in sorted(current_records):
+    for issue_id in sorted(set(current_records) & set(prior_records)):
         previous = prior_records[issue_id]
         current = current_records[issue_id]
         if previous == current:
@@ -528,6 +533,33 @@ def validate_control_authority(
                 "dependency-edge manifest does not match the reviewed control event: "
                 f"{expected_issue}/{expected_dependency}"
             )
+
+
+def _authorised_registry_additions(root: Path) -> set[str]:
+    """Return the exact canonical intake authorised by the reviewed guard manifest."""
+
+    path = root / STATUS_GUARD_MANIFEST
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError("canonical control additions require a valid status-transition guard manifest") from exc
+    migration = manifest.get("registry_migration") if isinstance(manifest, dict) else None
+    if (
+        manifest.get("schema_version") != "1.1"
+        or not isinstance(migration, dict)
+        or migration.get("mode") != "canonical_schema_and_intake"
+        or migration.get("generator") != "scripts/generate_issue_registry.py"
+        or migration.get("removed_issue_ids") != []
+    ):
+        raise ValueError("canonical control additions require canonical_schema_and_intake registry migration")
+    values = migration.get("added_issue_ids")
+    if (
+        not isinstance(values, list)
+        or not all(isinstance(value, str) and ISSUE_ID_RE.fullmatch(value) for value in values)
+        or len(values) != len(set(values))
+    ):
+        raise ValueError("registry migration added_issue_ids must be unique canonical issue IDs")
+    return set(values)
 
 
 def baseline_sha(root: Path) -> str:
@@ -694,7 +726,11 @@ def _dependency_resolution(
             candidate = {
                 "source_id": source_id,
                 "dependency": dependency,
-                "candidate_type": "blocking" if source_kind in {"proposed", "final_release"} else "related",
+                "candidate_type": (
+                    "blocking"
+                    if source_kind in {"proposed", "final_release", "control_extension"}
+                    else "related"
+                ),
             }
             if dependency not in known:
                 related[source_id].append(dependency)
@@ -702,7 +738,7 @@ def _dependency_resolution(
                 candidate["reason"] = "reference is outside the package and closed index"
                 report.append(candidate)
                 continue
-            if source_kind not in {"proposed", "final_release"}:
+            if source_kind not in {"proposed", "final_release", "control_extension"}:
                 related[source_id].append(dependency)
                 candidate["resolved_as"] = "related_issues"
                 candidate["reason"] = "current-ledger dependency retained as a candidate pending explicit prerequisite review"
@@ -905,6 +941,97 @@ def build_registry(
                 "dependencies": [],
             }
         package_rows.append((issue_id, "local", row))
+    immutable_ids = {issue_id for issue_id, _, _ in package_rows}
+    overridden_ids = {
+        issue_id
+        for issue_id in immutable_ids
+        if isinstance(control["records"].get(issue_id), dict)
+        and "canonical_definition" in control["records"][issue_id]
+    }
+    if overridden_ids:
+        raise ValueError(
+            "control canonical_definition cannot override immutable issue IDs: "
+            + ", ".join(sorted(overridden_ids))
+        )
+    extension_ids = set(control["records"]) - immutable_ids
+    if extension_ids:
+        authorised_ids = _authorised_registry_additions(root)
+        if extension_ids != authorised_ids:
+            raise ValueError("control extension IDs do not exactly match authorised added_issue_ids")
+        phase_ids = {str(value["phase"]) for value in control["phase_definitions"]}
+        known_ids = immutable_ids | extension_ids
+        required_definition_keys = {
+            "title", "priority", "owner", "phase", "blocking_dependencies",
+            "required_inputs", "activation_dependencies", "related_issues",
+            "capability_lane", "release_blocking", "objective", "scope",
+            "exclusions", "acceptance_criteria", "validation", "rollback",
+        }
+        optional_definition_keys = {
+            "current_gap", "required_change", "problem", "why", "implementation",
+            "data_and_dependencies", "completion_evidence", "rollback_plan",
+            "tests_required", "ui_requirement", "security_and_audit",
+            "free_no_quota_policy", "contract_markdown",
+        }
+        for issue_id in sorted(extension_ids):
+            control_record = control["records"][issue_id]
+            definition = control_record.get("canonical_definition")
+            if (
+                not isinstance(definition, dict)
+                or not required_definition_keys.issubset(definition)
+                or set(definition) - required_definition_keys - optional_definition_keys
+            ):
+                raise ValueError(f"{issue_id}: canonical_definition has unsupported or missing fields")
+            if definition["priority"] not in PRIORITIES:
+                raise ValueError(f"{issue_id}: canonical_definition has invalid priority")
+            if definition["phase"] not in phase_ids:
+                raise ValueError(f"{issue_id}: canonical_definition has unknown phase")
+            for field in ("title", "owner", "capability_lane", "objective", "rollback"):
+                if not isinstance(definition[field], str) or not definition[field].strip():
+                    raise ValueError(f"{issue_id}: canonical_definition requires non-blank {field}")
+            if not isinstance(definition["release_blocking"], bool):
+                raise ValueError(f"{issue_id}: canonical_definition release_blocking must be boolean")
+            for field in ("scope", "exclusions"):
+                values = definition[field]
+                if (
+                    not isinstance(values, list)
+                    or not all(isinstance(value, str) and value.strip() for value in values)
+                    or len(values) != len(set(values))
+                ):
+                    raise ValueError(f"{issue_id}: canonical_definition {field} must be a unique string list")
+            if not isinstance(definition["validation"], dict):
+                raise ValueError(f"{issue_id}: canonical_definition validation must be an object")
+            for field in (
+                "blocking_dependencies", "required_inputs",
+                "activation_dependencies", "related_issues",
+            ):
+                values = definition[field]
+                if (
+                    not isinstance(values, list)
+                    or not all(isinstance(value, str) for value in values)
+                    or len(values) != len(set(values))
+                ):
+                    raise ValueError(f"{issue_id}: canonical_definition {field} must be a unique list")
+                if issue_id in values or any(value not in known_ids for value in values):
+                    raise ValueError(f"{issue_id}: canonical_definition {field} has unknown or self dependency")
+            acceptance = definition["acceptance_criteria"]
+            if not isinstance(acceptance, list) or not all(isinstance(value, dict) for value in acceptance):
+                raise ValueError(
+                    f"{issue_id}: canonical_definition acceptance_criteria must be a list of objects"
+                )
+            encoded_acceptance = [
+                json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+                for value in acceptance
+            ]
+            if len(encoded_acceptance) != len(set(encoded_acceptance)):
+                raise ValueError(
+                    f"{issue_id}: canonical_definition acceptance_criteria contains duplicates"
+                )
+            if control_record.get("programme_status") != "planned":
+                raise ValueError(f"{issue_id}: newly added canonical issue must be planned")
+            row = dict(definition)
+            row["issue_id"] = issue_id
+            row["dependencies"] = definition["blocking_dependencies"]
+            package_rows.append((issue_id, "control_extension", row))
     package_ids = {issue_id for issue_id, _, _ in package_rows}
     closed_ids = set(closed_records)
     open_ids = set(open_records)
@@ -917,6 +1044,7 @@ def build_registry(
         "proposed": "ETF_AI_Cockpit_New_Issues.csv",
         "final_release": FINAL_RELEASE_SOURCE.as_posix(),
         "local": "issues/open.md and issues/closed.md",
+        "control_extension": CONTROL_STATE_PATH.as_posix(),
     }
     for issue_id, source_kind, row in sorted(package_rows, key=lambda item: item[0]):
         is_closed_reconciled = source_kind in {"current", "local"} and issue_id in closed_ids
@@ -941,11 +1069,20 @@ def build_registry(
                 or closed_records.get(issue_id, {}).get("title")
                 or source_title
             )
-        dependency_fields = _semantic_dependency_fields(
-            issue_id,
-            blocking.get(issue_id, []),
-            related.get(issue_id, []),
-        )
+        if source_kind == "control_extension":
+            dependency_fields = {
+                field: sorted(row[field])
+                for field in (
+                    "blocking_dependencies", "required_inputs",
+                    "activation_dependencies", "related_issues",
+                )
+            }
+        else:
+            dependency_fields = _semantic_dependency_fields(
+                issue_id,
+                blocking.get(issue_id, []),
+                related.get(issue_id, []),
+            )
         source_status = source_programme_status(source_kind, row, ledger_state)
         controlled = _validated_control_record(
             issue_id,
@@ -974,7 +1111,7 @@ def build_registry(
             "dependency_conversions": conversions.get(issue_id, []),
             "normative_amendments": amendments.get(issue_id, []),
         }
-        for field in (
+        source_fields = (
             "current_gap",
             "required_change",
             "why",
@@ -986,10 +1123,24 @@ def build_registry(
             "security_and_audit",
             "free_no_quota_policy",
             "contract_markdown",
-        ):
+        )
+        if source_kind == "control_extension":
+            source_fields += (
+                "problem",
+                "objective",
+                "scope",
+                "exclusions",
+                "completion_evidence",
+                "rollback_plan",
+                "validation",
+                "rollback",
+            )
+        for field in source_fields:
             if field in row:
                 value = row.get(field)
-                record[field] = value if isinstance(value, list) else str(value or "").strip()
+                record[field] = (
+                    value if isinstance(value, (list, dict)) else str(value or "").strip()
+                )
         record["dependency_edge_evidence"] = controlled["dependency_edge_evidence"]
         record["provenance"] = {
             "schema_version": "1.0",
@@ -1003,10 +1154,16 @@ def build_registry(
         record["verified_commit"] = controlled["verified_commit"]
         record["verified_date"] = controlled["verified_date"]
         record["acceptance_evidence"] = controlled["acceptance_evidence"]
-        record["capability_lane"] = _capability_lane(issue_id, record["phase"])
-        record["release_blocking"] = record["programme_status"] not in {
-            "research_only", "rejected", "deferred"
-        }
+        record["capability_lane"] = (
+            str(row["capability_lane"])
+            if source_kind == "control_extension"
+            else _capability_lane(issue_id, record["phase"])
+        )
+        record["release_blocking"] = (
+            bool(row["release_blocking"])
+            if source_kind == "control_extension"
+            else record["programme_status"] not in {"research_only", "rejected", "deferred"}
+        )
         record["write_conflict_group"] = owner
         record["risk"] = _risk(owner, issue_id, record["priority"])
         records.append(record)
@@ -1021,6 +1178,18 @@ def build_registry(
                 downstream[str(dependency)].add(source_id)
     for record in records:
         record["downstream_issues"] = sorted(downstream.get(str(record["canonical_id"]), set()))
+
+    blocking_graph = {
+        str(record["canonical_id"]): set(record["blocking_dependencies"]) for record in records
+    }
+    for source, dependencies in blocking_graph.items():
+        for dependency in dependencies:
+            if _would_create_cycle(
+                {key: value for key, value in blocking_graph.items() if key != source},
+                source,
+                dependency,
+            ):
+                raise ValueError(f"blocking dependency cycle involving {source} and {dependency}")
 
     manifest = read_manifest(root)
     package_sha = manifest.get("ETF_AI_Cockpit_Full_Research_and_Issue_Package.zip", "")
