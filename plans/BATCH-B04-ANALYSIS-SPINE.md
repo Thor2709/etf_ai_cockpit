@@ -1054,3 +1054,19 @@ focused correction made all new authority fields structurally
 hygiene pass. The next action is an exact-scope commit and classified
 validation; no network/provider/broker write or canonical status transition
 is part of this product checkpoint.
+
+`MERGED` ISSUE-0088 product PR #599 at
+`889844076e4493f55eb6330ae8a5455fa7373647`; the exact classifier,
+status guard, preflight, supply-chain and terminal summary passed. Linux and
+Windows each reported 2,115 tests with zero failures, errors or skips, and the
+PR had no comments, reviews or unresolved threads. Fresh post-merge GitHub
+readback remains zero action at checksum
+`c19e0862839545591f4ac0a7a24ce88aab70a40e4572b9591d12515a9d3eb8bd`.
+`IN_PROGRESS` the evidence-only integration transaction advances only
+ISSUE-0088 from `implemented_initially` to `integrated`. Its reviewed GitHub
+plan contains one update for canonical issue #228 at checksum
+`f31e03bd4496f24f45fecfe4572a3f79ee04397e59c2b81a55f5467b8b22f783`.
+The next action is exact schema-1.2 validation, deterministic generation and
+H-tier packaged acceptance before the one-field provider apply/readback;
+stale PR #562, broker authority and `execution_allowed=false` remain
+unchanged.

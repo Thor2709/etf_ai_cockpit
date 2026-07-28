@@ -1,0 +1,29 @@
+{
+  "actions": [
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Programme status"
+      ],
+      "remote_number": 228,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0088",
+      "title": "Build a versioned macro, factor, risk-free and benchmark data warehouse",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/228"
+    }
+  ],
+  "apply_authority": false,
+  "fresh_exact_plan_required_for_apply": true,
+  "plan_semantic_sha256": "f31e03bd4496f24f45fecfe4572a3f79ee04397e59c2b81a55f5467b8b22f783",
+  "remote_inventory_sha256": "bdfad8932e1974b16359dc266fea8e643ea02659d314c3dd9e25315bee5447f2",
+  "repository": "Thor2709/etf_ai_cockpit",
+  "schema_version": "etf-ai-cockpit.safe-sync-evidence/1.0",
+  "summary": {
+    "blocked": 0,
+    "close": 0,
+    "create": 0,
+    "reopen": 0,
+    "update": 1
+  },
+  "transient_full_plan_file_sha256": "fb0319ca8de3b51639eafe598e0bea752426158b0a2eb57c84d74affeeafad89"
+}
