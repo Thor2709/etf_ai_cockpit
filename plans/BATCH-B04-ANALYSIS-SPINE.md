@@ -651,3 +651,20 @@ Arelle diagnostic, conformance, timeout and worker coverage remains intact.
 `IN_PROGRESS` the separate deterministic convergence refreshes only the
 generation base to the merge commit before ISSUE-0022 is rebuilt from fresh
 main. PR #569 remains unchanged and unmerged.
+
+`VERIFIED` the ESEF prerequisite post-merge convergence PR #571 passed status
+guard and supply-chain validation, then merged from exact head
+`b87b393232226c1c598bf74382bd2bac2fb6f71b` as
+`f37115cae93a2892835a5aaba5da20fbe5a3c785`; the redundant packaged release
+run was cancelled after PR #570 had passed both packaged platforms.
+
+`REVIEWED` ISSUE-0022 was rebuilt from fresh main
+`f37115cae93a2892835a5aaba5da20fbe5a3c785`. Exactly the five approved
+overlap files are checkpoint-identical to
+`df6181deae3815f4e8af6a55c1689d1f9222c57c`, and the stable patch id remains
+`618d1383baa80e8ce514f70e9a54328fec4da858`. All 27 focused and 188 affected
+tests pass with Ruff and diff hygiene. The rebuilt release includes the
+merged deterministic ESEF baseline correction and does not modify ESEF,
+status, dependency, financial calculation, broker authority or
+`execution_allowed=false` semantics. Next action is the protected ISSUE-0022
+release from this fresh base.
