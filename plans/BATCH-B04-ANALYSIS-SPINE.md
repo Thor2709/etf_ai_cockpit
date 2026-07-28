@@ -583,6 +583,26 @@ commit before ISSUE-0026 release. No status, dependency, financial
 calculation, broker authority or `execution_allowed=false` change is
 authorised.
 
+`VERIFIED` ISSUE-0026 post-merge convergence PR #568 passed status guard and
+supply-chain validation, then merged from exact head
+`c906b599b21a1867f89de736149ab17117678aa6` as
+`a3ce6a04e3d023024b3c420c02b824401b21909b`; the redundant packaged release
+run was cancelled after the product head had passed both packaged platforms.
+
+`REVIEWED` ISSUE-0022 release from fresh main
+`a3ce6a04e3d023024b3c420c02b824401b21909b`. The dependency-ready record has
+no blocking dependencies and remains `implemented_initially`. Root review of
+checkpoint `df6181deae3815f4e8af6a55c1689d1f9222c57c` found the five-file change
+bounded to overlap domain/application/UI and tests, with point-in-time
+known-at selection, explicit stale/missing/cycle/depth fail-closed paths,
+mapped-plus-unknown conservation, typed direct/indirect contributors,
+canonical report hashing and `execution_allowed=false`. The transplant has
+checkpoint-identical blobs and stable patch id
+`618d1383baa80e8ce514f70e9a54328fec4da858`; 27 focused and 188 broader
+affected regressions pass with targeted Ruff and diff hygiene. The sole
+current action is deterministic control refresh and protected release. No
+status or dependency transition is authorised.
+
 `VERIFIED` ISSUE-0039 post-merge convergence PR #566 passed status guard and
 supply-chain validation, then merged from exact head
 `4f5e8865fa75d05f817bfc1bb199b4710c5ebf02` as

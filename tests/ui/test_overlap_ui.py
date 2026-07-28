@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from datetime import date
+
 import pandas as pd
 
+from etf_cockpit.app.components.overlap import overlap_evidence_panel
 from etf_cockpit.app.pages import risk
 from etf_cockpit.app.selectors.instrument_detail import build_instrument_detail
 from etf_cockpit.app.state import AppState
 from etf_cockpit.services import build_snapshot
+from etf_cockpit.features.overlap import calculate_direct_overlap
 
 
 def _holdings() -> pd.DataFrame:
@@ -62,3 +66,20 @@ def test_instrument_detail_exposes_structured_overlap_payload() -> None:
     assert pair["observed_overlap_weight"] == 0.25
     assert pair["current_overlap_weight"] is None
     assert pair["top_overlapping_companies"] == ["Alpha (25.00%)"]
+
+
+def test_overlap_panel_shows_lookthrough_authority_checksum_and_unknown() -> None:
+    report = calculate_direct_overlap(
+        _holdings(),
+        ["VWCE", "LYP6"],
+        current_weights={"VWCE": 0.5, "LYP6": 0.5},
+        today=date(2026, 7, 18),
+    )
+    text = _text(overlap_evidence_panel(report, key="test.overlap"))
+
+    assert "look-through:" in text
+    assert "unknown/unmapped=" in text
+    assert "authority=issuer" in text
+    assert "checksum=" in text
+    assert f"report_hash={report.report_hash}" in text
+    assert "execution_allowed=false" in text
