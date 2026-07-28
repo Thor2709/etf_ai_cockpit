@@ -538,6 +538,15 @@ def _decode_v3_store(
     return tuple(records), tuple(profiles), tuple(errors)
 
 
+def _schema_version(payload: Mapping[str, object]) -> int:
+    if "schema_version" not in payload:
+        return 0
+    value = payload["schema_version"]
+    if type(value) is not int or value < 0:
+        raise ValueError("schema_version must be a non-negative integer")
+    return value
+
+
 def build_policy_backfill_plan(
     snapshot: UniverseStoreSnapshot,
     *,
@@ -599,7 +608,7 @@ def save_universe(
             if not isinstance(raw, Mapping):
                 raise ValueError("universe store root must be an object")
             current_revision = str(raw.get("revision") or "")
-            current_schema_version = int(raw.get("schema_version") or 0)
+            current_schema_version = _schema_version(raw)
             if current_schema_version >= 3:
                 _, decoded_profiles, integrity_errors = _decode_v3_store(raw)
                 if integrity_errors:
@@ -672,7 +681,30 @@ def load_universe(root: Path | None = None) -> UniverseStoreSnapshot:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, Mapping):
         raise ValueError("universe store root must be an object")
-    schema_version = int(payload.get("schema_version") or 0)
+    try:
+        schema_version = _schema_version(payload)
+    except ValueError as exc:
+        records, policy_profiles, decoded_errors = _decode_v3_store(payload)
+        integrity_errors = (str(exc),) + tuple(
+            error
+            for error in decoded_errors
+            if not error.startswith("unsupported universe store schema:")
+        )
+        return UniverseStoreSnapshot(
+            records,
+            _text(payload.get("revision")),
+            path,
+            _as_bool(payload.get("allow_cross_tier_duplicates", False)),
+            policy_profiles,
+            _policy_evidence(
+                records,
+                policy_profiles,
+                schema_version=0,
+                store_integrity_errors=integrity_errors,
+            ),
+            0,
+            integrity_errors,
+        )
     if schema_version >= 3:
         records, policy_profiles, integrity_errors = _decode_v3_store(payload)
         return UniverseStoreSnapshot(

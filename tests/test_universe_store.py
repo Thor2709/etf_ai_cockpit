@@ -420,6 +420,7 @@ def test_v3_revision_mismatch_is_manual_review_and_cannot_be_saved(
         ("malformed_profiles_collection", "policy_profiles must be a list"),
         ("malformed_profile_collection_field", "coverage must be a list of strings"),
         ("duplicate_record", "duplicate universe record: A"),
+        ("schema_boolean", "schema_version must be a non-negative integer"),
     ),
 )
 def test_v3_structural_corruption_is_deterministic_and_non_destructive(
@@ -453,6 +454,8 @@ def test_v3_structural_corruption_is_deterministic_and_non_destructive(
         payload["policy_profiles"][0]["coverage"] = {"prices": True}
     elif corruption == "duplicate_record":
         payload["records"].append(dict(payload["records"][0]))
+    elif corruption == "schema_boolean":
+        payload["schema_version"] = True
     payload["revision"] = universe_store._payload_revision(payload)
     path.write_text(json.dumps(payload), encoding="utf-8")
     before = path.read_bytes()
@@ -464,11 +467,14 @@ def test_v3_structural_corruption_is_deterministic_and_non_destructive(
     assert any(fingerprint in error for error in first.integrity_errors)
     assert first.policy_profiles == ()
     assert all(item.state == "manual_review" for item in first.policy_evidence)
-    with pytest.raises(ValueError, match="Universe store integrity failed"):
-        save_universe(
-            first.records,
-            first.revision,
-            root=tmp_path,
-            policy_profiles=(),
-        )
+    for profiles in (None, ()):
+        kwargs = {} if profiles is None else {"policy_profiles": profiles}
+        with pytest.raises(ValueError, match="Universe store"):
+            save_universe(
+                first.records,
+                first.revision,
+                root=tmp_path,
+                **kwargs,
+            )
     assert path.read_bytes() == before
+    assert not (tmp_path / "backups" / "universe").exists()
