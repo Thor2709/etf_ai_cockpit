@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, replace
+import copy
 
 import pytest
 
@@ -85,6 +86,26 @@ def test_latest_revision_available_at_cutoff_is_selected_without_future_leakage(
     assert row.value == 313.0
     assert row.revision == 1
     assert "cpi-v2" not in row.candidate_evidence_ids
+
+
+def test_latest_period_precedes_revision_number_when_selecting_vintage() -> None:
+    old_high_revision = _evidence(
+        evidence_id="old-revision-9",
+        value=300.0,
+        observation_time="2026-04-30T23:59:59Z",
+        effective_time="2026-04-01T00:00:00Z",
+        available_at="2026-07-01T00:00:00Z",
+        revision=9,
+    )
+    new_initial_release = _evidence(
+        evidence_id="new-revision-0",
+        value=312.5,
+        revision=0,
+    )
+    row = _build((old_high_revision, new_initial_release)).rows[0]
+    assert row.evidence_id == "new-revision-0"
+    assert row.revision == 0
+    assert row.candidate_evidence_ids == ("new-revision-0", "old-revision-9")
 
 
 def test_observation_and_availability_are_separate_and_timezone_boundary_is_utc() -> None:
@@ -174,6 +195,48 @@ def test_canonical_order_hash_tamper_and_nested_authority_rejection() -> None:
     unsafe["context_hash"] = macro_scenario_hash(unsafe)
     with pytest.raises(MacroScenarioError, match="verification"):
         verify_macro_scenario_context(unsafe)
+
+
+def test_verifier_rejects_rehashed_malformed_nested_and_inconsistent_payloads() -> None:
+    rate_evidence = _evidence(
+        evidence_id="rate",
+        driver="rates",
+        series_id="US-POLICY",
+        unit="percent",
+        value=4.25,
+    )
+    rate_link = _link(
+        link_id="rates",
+        scenario="rate pressure",
+        driver="rates",
+        series_id="US-POLICY",
+        unit="percent",
+    )
+    context = _build((_evidence(), rate_evidence), (_link(), rate_link))
+
+    def rejected(mutator) -> None:
+        payload = copy.deepcopy(macro_scenario_payload(context))
+        mutator(payload)
+        payload["context_hash"] = macro_scenario_hash(payload)
+        with pytest.raises(MacroScenarioError, match="verification"):
+            verify_macro_scenario_context(payload)
+
+    rejected(lambda payload: payload.__setitem__("rows", "BUY NOW"))
+    rejected(lambda payload: payload["rows"][0].__setitem__("horizon_days", True))
+    rejected(lambda payload: payload["rows"][0].__setitem__("unexpected", "field"))
+    rejected(lambda payload: payload["rows"][0].pop("unit"))
+    rejected(lambda payload: payload.__setitem__("rows", tuple(reversed(payload["rows"]))))
+    rejected(lambda payload: payload.__setitem__("status", "unavailable"))
+    rejected(lambda payload: payload.__setitem__("limitations", ("invented_reason",)))
+    rejected(lambda payload: payload["rows"][0].__setitem__("reason_codes", ("unknown",)))
+    rejected(lambda payload: payload["rows"][0].__setitem__("currency", "EUR"))
+    rejected(lambda payload: payload["rows"][0].__setitem__("confidence", 0.123))
+
+    for nonfinite in (float("nan"), float("inf")):
+        nonfinite_payload = copy.deepcopy(macro_scenario_payload(context))
+        nonfinite_payload["rows"][0]["value"] = nonfinite
+        with pytest.raises(MacroScenarioError, match="canonical JSON"):
+            macro_scenario_hash(nonfinite_payload)
 
 
 def test_all_unavailable_and_legitimate_zero_negative_values() -> None:
