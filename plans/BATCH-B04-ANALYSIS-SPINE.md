@@ -680,3 +680,36 @@ deterministic convergence refreshes only the generation base to the merge
 commit before ISSUE-0059 review. The failed first-attempt PR #569 remains
 unchanged at exact head `7f2f0bf2dd004aff28566ae8946bc23957af32ee`
 pending supersession cleanup.
+
+`VERIFIED` ISSUE-0022 post-merge convergence PR #573 passed status guard and
+supply-chain validation, then merged from exact head
+`a131c5b6c891fe97a97c41a16d973e3a1f78c8df` as
+`d4ce7a0e7f4467ab7b9f6ad65ee210e8dfb74c5f`; the duplicate packaged run was
+cancelled after PR #572 had passed both packaged platforms. Superseded PR
+#569 was closed with its exact head unchanged.
+
+`REVISE` root adversarial review rejected preserved ISSUE-0059 checkpoint
+`ff44de01814a6f29bd2abcf7521daea5c3901b2f` as submitted. Its chronology
+validator permits `effective_at` before the return period ends and
+`known_at` before `effective_at`, allowing point-in-time-invalid evidence.
+It also subtracts portfolio and benchmark returns expressed in different
+measurement currencies whenever an FX attribution row exists, although that
+row cannot convert either top-level return. The bounded correction must
+require `start_at < end_at <= effective_at <= known_at`, require matching
+top-level return currencies, retain currency/FX contribution attribution in
+the common reporting currency, and add adversarial tests. No wider redesign,
+status/dependency change or execution authority is authorised.
+
+`REVIEWED` the single bounded ISSUE-0059 correction cycle changed only the
+checkpoint source and test files. The corrected model now fails closed unless
+`start_at < end_at <= effective_at <= known_at` and unless portfolio and
+benchmark returns share one measurement currency; currency/FX contribution
+attribution remains available inside that common reporting currency. Direct
+tests cover effective-before-end, known-before-effective and mixed currencies
+even with FX evidence. The full corrected suite passes 22/22 with Ruff,
+compile and diff hygiene. Root review found the correction complete without
+scope expansion; corrected stable patch id is
+`a77c528f936d319a8d2606a08812d10f629fda85`. Next action is a protected
+ISSUE-0059 release from fresh main
+`d4ce7a0e7f4467ab7b9f6ad65ee210e8dfb74c5f`; programme status remains
+`implemented_initially` and `execution_allowed=false`.
