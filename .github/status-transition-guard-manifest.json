@@ -1,19 +1,25 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
+  "allowed_dependency_edge_updates": [
+    {
+      "dependency_id": "ISSUE-0084",
+      "issue_id": "ISSUE-0127"
+    }
+  ],
   "allowed_status_transitions": [],
-  "base_commit": "80c63200e733fada6ae2d76ac67feb776f281c38",
-  "branch": "codex/issue-0059-postmerge-convergence-20260728",
+  "base_commit": "2ca0c37113da423c06e1fcda15110b028fef74dd",
+  "branch": "codex/issue-0127-edge-0084-20260728",
   "issue_ids": [],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "a58658777a64d24e704e32a30ad011bf629f382e71c20b0246b9e82515875e4e",
+    "base_registry_sha256": "11484d3982dbd545660aaba22de99265fade5b033b94141bbd015570ed9f7e35",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "canonical_schema_and_intake",
-    "proposed_registry_sha256": "11484d3982dbd545660aaba22de99265fade5b033b94141bbd015570ed9f7e35",
-    "reason": "Post-merge convergence for corrected ISSUE-0059 benchmark-relative diagnostics: refresh only the deterministic generation base to merged main 80c63200e733fada6ae2d76ac67feb776f281c38; all 197 issue records, statuses, dependency evidence, acceptance criteria, policies, broker authority and execution_allowed=false remain unchanged.",
+    "mode": "generation_base_and_dependency_edge_evidence",
+    "proposed_registry_sha256": "d1de5c301f05f424ce23687fa359d0eca5ed7b989792ecd4c67aaa8c3fdba4ff",
+    "reason": "B04 ISSUE-0127 readiness review: refresh deterministic provenance to merged main 2ca0c37113da423c06e1fcda15110b028fef74dd and record only the integrated ISSUE-0084 corporate-action, cash-flow and dated-FX input contract as a complete consumer dependency interface; keep ISSUE-0127 planned, leave ISSUE-0072 unresolved, and preserve scope, acceptance criteria, policy, broker authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.1"
+  "schema_version": "1.3"
 }

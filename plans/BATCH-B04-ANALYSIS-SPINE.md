@@ -723,3 +723,25 @@ contracts. `IN_PROGRESS` the separate deterministic convergence refreshes
 only the generation base to the merge commit before the prepared ISSUE-0127
 dependency-edge transitions. No status, dependency, broker authority or
 `execution_allowed=false` change is included in this convergence.
+
+`VERIFIED` ISSUE-0059 post-merge convergence PR #575 passed status guard and
+supply-chain validation, then merged from exact head
+`c5c3f4ba9a9990b37737fbd9b46093514f369ddb` as
+`2ca0c37113da423c06e1fcda15110b028fef74dd`; the duplicate packaged run was
+cancelled after PR #574 passed both packaged platforms.
+
+`IN_PROGRESS` the first prepared ISSUE-0127 prerequisite review updates only
+ISSUE-0127→ISSUE-0084 from `unresolved` to `complete`. The integrated
+corporate-action and FX contract supplies append-only point-in-time action,
+coverage and dated-FX stores; explicit action/cash-flow classifications;
+source and revision lineage; replay without overwriting as-known history;
+transaction/valuation FX attribution; discrepancy quarantine; and explicit
+missing, stale and conflicted states. PR #482 passed the protected Linux and
+Windows release gate, and its post-merge 50-test product/UI suite passed.
+
+ISSUE-0127 remains `planned`; its separate ISSUE-0072 edge remains unresolved.
+No product, status, dependency-list, scope, acceptance, policy, broker or
+execution-authority change is included. There is no implementation blocker;
+the next action is the single-edge guarded control refresh, deterministic
+freshness validation, zero-action GitHub projection, and protected release
+from fresh main with `execution_allowed=false`.
