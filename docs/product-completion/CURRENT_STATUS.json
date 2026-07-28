@@ -4789,16 +4789,16 @@
       "edges": [
         {
           "dependency_id": "ISSUE-0177",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
+          "evidence_state": "complete",
+          "reason_code": "EDGE_EVIDENCE_COMPLETE",
+          "resolved": true
         }
       ],
       "execution_allowed": false,
       "issue_id": "ISSUE-0178",
-      "ready": false,
+      "ready": true,
       "reason_codes": [
-        "BLOCKED_UNRESOLVED_DEPENDENCY"
+        "READY_BLOCKING_EDGES_RESOLVED"
       ],
       "required_inputs": [
         "ISSUE-0141",
@@ -5212,6 +5212,7 @@
     "ISSUE-0153",
     "ISSUE-0154",
     "ISSUE-0177",
+    "ISSUE-0178",
     "UPDATEV2-0011",
     "UPDATEV2-0012",
     "UPDATEV2-0021",
@@ -5292,5 +5293,5 @@
     "ISSUE-0062"
   ],
   "schema_version": "1.0",
-  "source_registry_sha256": "084ce3897b0a0e86fc96fd98b9678eeab11350ef3f9bbc23c2166701251800c3"
+  "source_registry_sha256": "fad434c6fee6a77e06f97c65d8b7153b3c80997e86de01f3397dec9e4ea1154a"
 }

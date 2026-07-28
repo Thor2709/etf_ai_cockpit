@@ -877,3 +877,15 @@ Fresh readback is zero action at checksum
 Linux/Windows protected evidence and the audited PR #586 status transaction.
 The next action is deterministic generation, exact E-tier guards and the
 corresponding one-field GitHub status update.
+
+`MERGED` ISSUE-0177 integrated-status PR #587 at
+`4d5f30e6ac19650030a61bec0e22a4eeb2fd57d9`; its exact status guard and
+supply-chain scan passed, and the reviewed one-field GitHub plan was applied.
+Fresh readback is zero action at checksum
+`865d2c698dde37c3ca3731b4297b8b7d5556c045c42f893218ac79e8700c7087`.
+`IN_PROGRESS` this evidence-only transaction updates exactly the
+ISSUE-0178 → ISSUE-0177 dependency edge from `unresolved` to `complete`, using
+the integrated ISSUE-0177 contract and exact protected evidence. The next
+action is deterministic generation, schema-1.3 edge guard, E-tier checks and
+an audited GitHub projection; the current dry run is already zero action
+because dependency-edge evidence is canonical-only metadata.
