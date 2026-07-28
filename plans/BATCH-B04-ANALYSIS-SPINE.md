@@ -956,3 +956,18 @@ status payload. Its audited one-field GitHub plan remains
 The next action is exact schema-1.2 guard, deterministic generator checks and
 fresh H-tier Linux/Windows evidence on the new head before merge or provider
 write.
+
+`MERGED` ISSUE-0178 implemented-status PR #591 at
+`e27209aee137804f883440053ec2a5b5f59c5da2`. Its exact schema-1.2 guard,
+classifier, preflight, canonical supply-chain scan, Linux and Windows package
+gates and terminal summary passed at 2,089 tests per platform with zero
+failures, errors or skips. The reviewed one-field GitHub plan
+`15e0cf38d9efb275948d5ba082ba7fb3a5aa7014e1bc8ee59f4b40779ed219cd`
+was applied and verified; fresh readback is zero action at checksum
+`396429b23ed664e996aad1186c57fb5cea63dfb187ed82c8db0fb5a21dbf6055`.
+`IN_PROGRESS` this evidence-only transaction advances only ISSUE-0178 from
+`implemented` to `integrated`; its audited GitHub plan checksum is
+`a978b9ee85ab05846d53fd82f0f29439171cdb13570e00c69564120703e884af`.
+The next action is exact schema-1.2 guard, deterministic generation and fresh
+H-tier validation before the final one-field provider update. Product code,
+broker authority and `execution_allowed=false` remain unchanged.
