@@ -16,14 +16,23 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
     del page
     warehouse = MacroWarehouse()
     try:
-        summary = warehouse.summary(root=ROOT)
         price_dates = state.snapshot.prices.get("date") if hasattr(state.snapshot.prices, "get") else None
         decision_time = str(price_dates.max()) if price_dates is not None and not price_dates.empty else "9999-12-31T00:00:00+00:00"
+        summary = warehouse.summary(root=ROOT)
         context_rows = warehouse.observations_as_of(root=ROOT, decision_time=decision_time)
+        curve_coverage = warehouse.curve_benchmark_coverage(
+            root=ROOT, decision_time=decision_time
+        )
         error_text = ""
     except (MacroWarehouseError, OSError) as exc:
         summary = {"status": "unavailable", "row_count": 0}
         context_rows = []
+        curve_coverage = {
+            "status": "unavailable",
+            "issuer_credit": "unavailable",
+            "source_ids": [],
+            "methodologies": [],
+        }
         error_text = f"Manual review required: local macro warehouse could not be read ({type(exc).__name__})."
 
     status = str(summary.get("status", "unavailable"))
@@ -100,6 +109,43 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
                             selectable=True,
                         ),
                         ft.Text("Execution allowed: false", color=theme.AMBER, selectable=True),
+                    ],
+                    spacing=8,
+                )
+            ),
+            panel(
+                ft.Column(
+                    [
+                        ft.Text(
+                            "Risk-free curves and lawful benchmarks",
+                            color=theme.TEXT,
+                            weight=ft.FontWeight.BOLD,
+                        ),
+                        ft.Text(
+                            f"Coverage: {curve_coverage.get('status', 'unavailable')} | "
+                            f"curves={', '.join(curve_coverage.get('curve_ids', [])) or 'unavailable'} | "
+                            f"types={', '.join(curve_coverage.get('curve_types', [])) or 'unavailable'} | "
+                            f"currencies={', '.join(curve_coverage.get('currencies', [])) or 'unavailable'} | "
+                            f"benchmarks={', '.join(curve_coverage.get('benchmark_ids', [])) or 'unavailable'}",
+                            color=theme.TEXT
+                            if curve_coverage.get("status") == "available"
+                            else theme.MUTED,
+                            selectable=True,
+                        ),
+                        ft.Text(
+                            f"Source/methodology: {', '.join(curve_coverage.get('source_ids', [])) or 'unavailable'} / "
+                            f"{', '.join(curve_coverage.get('methodologies', [])) or 'unavailable'} | "
+                            f"decision-time vintage={curve_coverage.get('decision_time', decision_time)}",
+                            color=theme.MUTED,
+                            selectable=True,
+                        ),
+                        ft.Text(
+                            "Interpolation is declared per curve and bounded; extrapolation is unavailable. "
+                            "Currency+horizon fallbacks are explicit and never zero-filled. "
+                            f"Issuer-specific credit curves: {curve_coverage.get('issuer_credit', 'unavailable')}.",
+                            color=theme.AMBER,
+                            selectable=True,
+                        ),
                     ],
                     spacing=8,
                 )

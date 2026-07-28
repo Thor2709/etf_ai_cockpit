@@ -1038,3 +1038,19 @@ The next action is exact schema-1.2 validation, deterministic generation and
 H-tier packaged acceptance before the one-field provider apply/readback;
 stale PR #562, broker authority and `execution_allowed=false` remain
 unchanged.
+
+`MERGED` ISSUE-0068 integrated-status PR #598 at
+`66566a267bd1edef6dc2bf0c34d7921d35ee2c8c`; both packaged platforms passed
+2,104 tests with zero failures, errors or skips. The reviewed provider plan
+updated only canonical issue #140, and fresh readback is zero action at
+checksum `c19e0862839545591f4ac0a7a24ce88aab70a40e4572b9591d12515a9d3eb8bd`.
+`REVIEWED` ISSUE-0088 is the next dependency-valid Phase 2 item. Its sole
+worker added the bounded local curve/benchmark acceptance slice: latest
+then-known spot/par/forward snapshots, bounded declared interpolation,
+explicit currency/horizon proxy fallbacks, versioned lawful benchmark
+metadata, coverage UI and unsupported issuer-credit state. The orchestrator's
+focused correction made all new authority fields structurally
+`execution_allowed=false`; 35 affected tests plus Ruff, compile and diff
+hygiene pass. The next action is an exact-scope commit and classified
+validation; no network/provider/broker write or canonical status transition
+is part of this product checkpoint.
