@@ -1100,3 +1100,23 @@ selection, quarantine/block, audited-review and invalidation-token contract.
 The next action is deterministic generation and protected validation; no
 programme status, provider state, broker authority or
 `execution_allowed=false` changes in this transaction.
+
+`MERGED` second ISSUE-0089 dependency PR #602 at
+`894451ee4c62822cb593b31b275d8bb92d785aa1`; Linux and Windows each
+reported 2,115 tests with zero failures, errors or skips, and post-merge
+GitHub projection remains zero action at checksum
+`b394835bb4856ff3df524eeac6cdbffa8355539286cbc6602148379337455b4e`.
+ISSUE-0089 is now `READY_BLOCKING_EDGES_RESOLVED`.
+`REVIEWED` the sole worker's bounded ISSUE-0089 implementation adds the
+versioned local quality-rule registry, scoped anomaly evaluation,
+append-only bitemporal findings and corrections, source-conflict projection,
+downstream eligibility/invalidation evidence and Data Health coverage. The
+focused correction closes cross-asset applicability, review-only resolution,
+malformed-input and unavailable-ledger bypasses; the orchestrator's small
+integration correction makes source/asset context, finite supplied values
+and ISO schedule evidence fail closed. The 196-test affected persistence,
+conflict, fixed-income, market-adjustment, portfolio-import and UI suite
+passes, together with Ruff, compile and diff hygiene. The next action is an
+exact-scope product commit and classified H-tier validation; no provider,
+broker, network, programme-status or `execution_allowed=false` change is
+part of this checkpoint.

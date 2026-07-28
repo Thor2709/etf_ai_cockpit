@@ -1,25 +1,19 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_dependency_edge_updates": [
-    {
-      "issue_id": "ISSUE-0089",
-      "dependency_id": "UPDATEV2-0021"
-    }
-  ],
   "allowed_status_transitions": [],
-  "base_commit": "d9b0189db909dca4286432bb6e4eef311d2b2830",
-  "branch": "codex/issue-0089-conflict-edge-20260728",
+  "base_commit": "894451ee4c62822cb593b31b275d8bb92d785aa1",
+  "branch": "codex/issue-0089-product-20260728",
   "issue_ids": [],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "b01773cbca0361a726184beadf3afcb111f46b9c62ff57f75084afe24022cb97",
+    "base_registry_sha256": "8e58be05c15500a07483fc551f37669255838450b9f30af7e8fc8897b8afc964",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_dependency_edge_evidence",
-    "proposed_registry_sha256": "8e58be05c15500a07483fc551f37669255838450b9f30af7e8fc8897b8afc964",
-    "reason": "ISSUE-0089 dependency readiness from fresh main d9b0189db909dca4286432bb6e4eef311d2b2830: update exactly ISSUE-0089 to UPDATEV2-0021 from unresolved to complete using the integrated point-in-time candidate-retention, deterministic conflict-selection, quarantine/block, audited-review and invalidation-token contract; preserve all statuses, other dependencies, policy, broker authority and execution_allowed=false.",
+    "mode": "canonical_schema_and_intake",
+    "proposed_registry_sha256": "bd3e85550e82958fecbd0681af4ce1cc0737421a183f65508df2e56f795c346c",
+    "reason": "Refresh the deterministic generation base to merged ISSUE-0089 dependency PR #602 at 894451ee4c62822cb593b31b275d8bb92d785aa1 while implementing the bounded ISSUE-0089 anomaly-ledger and quarantine-evidence slice; all 202 canonical issue records, statuses, dependency evidence, broker authority and execution_allowed=false remain unchanged.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.3"
+  "schema_version": "1.1"
 }
