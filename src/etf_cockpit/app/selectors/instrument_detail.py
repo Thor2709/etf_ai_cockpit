@@ -47,6 +47,7 @@ from etf_cockpit.services import CockpitSnapshot
 from etf_cockpit.application.ui_facade import SimpleInstrumentScore
 from etf_cockpit.application.ui_facade import load_peer_cohort_projection
 from etf_cockpit.application.ui_facade import load_financial_institution_projection
+from etf_cockpit.application.ui_facade import load_real_asset_projection
 
 
 @dataclass(frozen=True)
@@ -68,6 +69,7 @@ _SECTION_NAMES = (
     "fixed_income_risk",
     "peer_cohort",
     "financial_institutions",
+    "real_assets",
     "etf_liquidity",
     "scores",
     "feature_drivers",
@@ -1227,6 +1229,7 @@ def build_instrument_detail(
     journal: pd.DataFrame | None = None,
     candidate_score: SimpleInstrumentScore | None = None,
     financial_projection: Mapping[str, object] | None = None,
+    real_asset_projection: Mapping[str, object] | None = None,
 ) -> InstrumentDetailViewModel:
     identity = next((item for item in snapshot.config.universe.etfs if item.id == instrument_id), None)
     # Configured identities remain backed by canonical snapshot stores.  The
@@ -1381,6 +1384,9 @@ def build_instrument_detail(
     financial_institutions = load_financial_institution_projection(
         instrument_id, projection=financial_projection
     )
+    real_assets = load_real_asset_projection(
+        instrument_id, projection=real_asset_projection
+    )
     return InstrumentDetailViewModel(
         instrument_id,
         display_name,
@@ -1396,6 +1402,7 @@ def build_instrument_detail(
             "fixed_income_risk": fixed_income_risk,
             "peer_cohort": peer_cohort,
             "financial_institutions": financial_institutions,
+            "real_assets": real_assets,
             "etf_liquidity": liquidity,
             "scores": _score_panel(signal, scoreboard, derived, friction),
             "feature_drivers": _feature_driver_panel(instrument_id),

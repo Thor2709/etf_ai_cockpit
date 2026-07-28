@@ -77,6 +77,12 @@ from etf_cockpit.analysis.financial_sector_adapters import (
     unavailable_financial_projection,
     verify_financial_projection,
 )
+from etf_cockpit.analysis.real_asset_sector_adapters import (
+    RealAssetAdapterError,
+    RealAssetProjection,
+    unavailable_real_asset_projection,
+    verify_real_asset_projection,
+)
 from etf_cockpit.data.manual_notes import *  # noqa: F401,F403
 from etf_cockpit.data.news_context import *  # noqa: F401,F403
 from etf_cockpit.data.oam_adapters import *  # noqa: F401,F403
@@ -551,6 +557,24 @@ def load_financial_institution_projection(
         return unavailable_financial_projection(
             instrument_id, "financial_evidence_invalid"
         )
+
+
+def load_real_asset_projection(
+    instrument_id: str,
+    *,
+    projection: RealAssetProjection | Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """Verify optional in-memory real-asset evidence; never calculate in the UI."""
+
+    if projection is None:
+        return unavailable_real_asset_projection(instrument_id)
+    try:
+        payload = verify_real_asset_projection(projection)
+        if payload.get("instrument_id") != str(instrument_id):
+            raise RealAssetAdapterError("real-asset projection identity mismatch")
+        return payload
+    except (RealAssetAdapterError, TypeError, ValueError):
+        return unavailable_real_asset_projection(instrument_id, "real_asset_evidence_invalid")
 
 
 def save_classification_overrides(

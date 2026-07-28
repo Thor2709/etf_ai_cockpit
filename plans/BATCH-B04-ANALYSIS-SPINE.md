@@ -285,6 +285,35 @@ issue #240 with semantic SHA-256
 No dependency, scope, acceptance, policy or authority change is included;
 `execution_allowed=false`.
 
+`VERIFIED` implementation-handoff PR #553 merged as
+`d5851534bb41f85d31ddc6e6bba15b7d2798e73c` from reviewed head
+`380b47ede525959b36832ada09dcac21ad3d437e`. Status guard run
+`30316774523` and supply-chain run `30316774480` passed; the redundant
+evidence-only release run was cancelled. Checksum-approved GitHub plan
+`a9067520a0e16a78bd7b62ea3dfb1dee22976bdc2aace45da921e8f236c76d59`
+applied only #240, and zero-action readback
+`e8deabbf128bbe36a24da63f2d21f24be74a95e9594aceac014074eddeb1701d`
+verified convergence.
+
+`REVIEWED PRODUCT CHECKPOINT` the bounded ISSUE-0100 implementation and its
+one focused correction are accepted for release validation. The typed
+real-assets adapter preserves sector-specific units, directions, definitions,
+period, reporting standard, jurisdiction, source authority, country/business
+variant, parent fallback and point-in-time lineage. REIT FFO/AFFO derivation
+and reconciliation keep maintenance and expansion capex distinct; occupancy,
+lease maturity, LTV, NAV, regulated-asset-base, allowed-return, capex-funding
+and tariff/regulatory evidence remain explicit. Missing or unreliable NAV/RAB
+is unavailable and status-limiting. Rate, inflation, refinancing and NAV
+sensitivity stresses are deterministic, and forged projections fail closed.
+Instrument Detail exposes only verified read-only evidence with
+`execution_allowed=false`.
+
+Independent integration evidence passed 106 domain, classification, peer,
+financial-adapter, statement, fundamentals and architecture checks; 119 stock
+research and Instrument Detail checks; and 6 accessibility/button contract
+checks, plus Ruff, compileall and diff hygiene. Protected Linux and Windows
+release gates and supply-chain validation remain required before merge.
+
 `VERIFIED` implemented-initially PR #543 merged as
 `a01c663cd10bc13057175bd128456108bfceb0c4` from reviewed head
 `01f95db5f1211ffc436e01458f78d8d0e63d123c`. Status guard run
