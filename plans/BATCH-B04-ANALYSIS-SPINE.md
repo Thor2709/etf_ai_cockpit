@@ -555,3 +555,13 @@ the production stale-data gate and `execution_allowed=false`. The exact
 regression and 74 focused simple-score/classification tests pass with Ruff and
 diff hygiene. Next action is a protected baseline-correction release before
 serial ISSUE-0039, ISSUE-0026, ISSUE-0022 and ISSUE-0059 checkpoint release.
+
+`VERIFIED` shared-prerequisite PR #563 merged as
+`b906b405dab83cea623178014b090f0c0217b6c4` from exact reviewed head
+`9275ba23e85e136e20d40ec77e0cfd1956dfd7e1`. Status guard, supply-chain,
+and full Linux and Windows packaged release gates passed. The post-merge
+classification-invalidation regression passes; production freshness policy,
+canonical programme status and GitHub issue #223 remain unchanged, with
+`execution_allowed=false`. `IN_PROGRESS` the separate deterministic
+convergence refreshes only the generation base to the merge commit before
+ISSUE-0039 release.
