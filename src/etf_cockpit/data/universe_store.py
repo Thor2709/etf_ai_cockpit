@@ -5,6 +5,7 @@ import hashlib
 import json
 import re
 from dataclasses import asdict, dataclass, replace
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Mapping
 
@@ -16,6 +17,8 @@ from etf_cockpit.core.paths import ROOT
 
 UNKNOWN_ISIN_VALUES = {"", "unknown", "needs_verification", "n/a", "na", "none"}
 TICKER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._=-]{0,31}$")
+CURRENT_INVESTABILITY_POLICY_VERSION = "investability-v1"
+POLICY_AUTHORITIES = {"official", "user_reviewed", "manual_review"}
 SPAREBANKEN_ROWS: tuple[tuple[str, str, str, str], ...] = (
     ("Aurskog Sparebank", "AURG", "AURG.OL", "needs_verification"),
     ("Helgeland Sparebank", "HELG", "HELG.OL", "NO0010029804"),
@@ -58,6 +61,51 @@ class UniverseRecord:
 
 
 @dataclass(frozen=True)
+class InvestabilityPolicyProfile:
+    instrument_id: str
+    policy_id: str
+    policy_version: str
+    source_id: str
+    as_of: str
+    authority: str
+    coverage: tuple[str, ...] = ()
+    classification_confidence: float | None = None
+    dependency_plan: tuple[str, ...] = ()
+    checksum: str = ""
+    execution_allowed: bool = False
+
+
+@dataclass(frozen=True)
+class PolicyEvidence:
+    instrument_id: str
+    state: str
+    reason: str
+    profile: InvestabilityPolicyProfile | None = None
+    recompute_required: bool = True
+    execution_allowed: bool = False
+
+
+@dataclass(frozen=True)
+class PolicyBackfillAction:
+    instrument_id: str
+    action: str
+    from_policy_version: str | None
+    to_policy_version: str
+    reason: str
+    expected_profile_checksum: str | None
+    execution_allowed: bool = False
+
+
+@dataclass(frozen=True)
+class PolicyBackfillPlan:
+    plan_id: str
+    target_policy_version: str
+    actions: tuple[PolicyBackfillAction, ...]
+    mutates_store: bool = False
+    execution_allowed: bool = False
+
+
+@dataclass(frozen=True)
 class UniverseValidationReport:
     valid: bool
     errors: tuple[str, ...]
@@ -88,6 +136,9 @@ class UniverseStoreSnapshot:
     revision: str
     path: Path
     allow_cross_tier_duplicates: bool = False
+    policy_profiles: tuple[InvestabilityPolicyProfile, ...] = ()
+    policy_evidence: tuple[PolicyEvidence, ...] = ()
+    schema_version: int = 0
 
 
 @dataclass(frozen=True)
@@ -222,12 +273,223 @@ def _payload_revision(payload: Mapping[str, object]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _policy_profile_payload(profile: InvestabilityPolicyProfile) -> dict[str, object]:
+    return {
+        "instrument_id": _text(profile.instrument_id),
+        "policy_id": _text(profile.policy_id),
+        "policy_version": _text(profile.policy_version),
+        "source_id": _text(profile.source_id),
+        "as_of": _text(profile.as_of),
+        "authority": _text(profile.authority).lower(),
+        "coverage": sorted({_text(item) for item in profile.coverage if _text(item)}),
+        "classification_confidence": profile.classification_confidence,
+        "dependency_plan": sorted({_text(item) for item in profile.dependency_plan if _text(item)}),
+        "execution_allowed": False,
+    }
+
+
+def _policy_profile_checksum(profile: InvestabilityPolicyProfile) -> str:
+    encoded = json.dumps(
+        _policy_profile_payload(profile),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _parse_as_of(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("policy profile as_of must include a timezone")
+    return parsed.astimezone(timezone.utc)
+
+
+def _validate_policy_profile(
+    profile: InvestabilityPolicyProfile,
+    *,
+    verify_checksum: bool = True,
+) -> None:
+    required = {
+        "instrument_id": profile.instrument_id,
+        "policy_id": profile.policy_id,
+        "policy_version": profile.policy_version,
+        "source_id": profile.source_id,
+        "as_of": profile.as_of,
+        "authority": profile.authority,
+    }
+    missing = sorted(name for name, value in required.items() if not _text(value))
+    if missing:
+        raise ValueError(f"policy profile missing required fields: {', '.join(missing)}")
+    _parse_as_of(profile.as_of)
+    if profile.authority not in POLICY_AUTHORITIES:
+        raise ValueError(f"unsupported policy authority: {profile.authority}")
+    if profile.execution_allowed:
+        raise ValueError("policy profiles cannot grant execution authority")
+    confidence = profile.classification_confidence
+    if confidence is not None and not 0.0 <= float(confidence) <= 1.0:
+        raise ValueError("classification_confidence must be between 0 and 1")
+    if verify_checksum and profile.checksum != _policy_profile_checksum(profile):
+        raise ValueError("policy profile checksum mismatch")
+
+
+def create_policy_profile(
+    *,
+    instrument_id: str,
+    policy_id: str,
+    policy_version: str,
+    source_id: str,
+    as_of: str,
+    authority: str,
+    coverage: Iterable[str] = (),
+    classification_confidence: float | None = None,
+    dependency_plan: Iterable[str] = (),
+) -> InvestabilityPolicyProfile:
+    profile = InvestabilityPolicyProfile(
+        instrument_id=_text(instrument_id),
+        policy_id=_text(policy_id),
+        policy_version=_text(policy_version),
+        source_id=_text(source_id),
+        as_of=_text(as_of),
+        authority=_text(authority).lower(),
+        coverage=tuple(sorted({_text(item) for item in coverage if _text(item)})),
+        classification_confidence=classification_confidence,
+        dependency_plan=tuple(sorted({_text(item) for item in dependency_plan if _text(item)})),
+    )
+    _validate_policy_profile(profile, verify_checksum=False)
+    return replace(profile, checksum=_policy_profile_checksum(profile))
+
+
+def _policy_profile_from_mapping(raw: Mapping[str, object]) -> InvestabilityPolicyProfile:
+    coverage = raw.get("coverage", ())
+    dependencies = raw.get("dependency_plan", ())
+    profile = InvestabilityPolicyProfile(
+        instrument_id=_text(raw.get("instrument_id")),
+        policy_id=_text(raw.get("policy_id")),
+        policy_version=_text(raw.get("policy_version")),
+        source_id=_text(raw.get("source_id")),
+        as_of=_text(raw.get("as_of")),
+        authority=_text(raw.get("authority")).lower(),
+        coverage=tuple(sorted(_text(item) for item in coverage if _text(item)))
+        if isinstance(coverage, (list, tuple))
+        else (),
+        classification_confidence=(
+            float(raw["classification_confidence"])
+            if raw.get("classification_confidence") is not None
+            else None
+        ),
+        dependency_plan=tuple(sorted(_text(item) for item in dependencies if _text(item)))
+        if isinstance(dependencies, (list, tuple))
+        else (),
+        checksum=_text(raw.get("checksum")),
+        execution_allowed=_as_bool(raw.get("execution_allowed", False)),
+    )
+    _validate_policy_profile(profile)
+    return profile
+
+
+def _policy_evidence(
+    records: tuple[UniverseRecord, ...],
+    profiles: tuple[InvestabilityPolicyProfile, ...],
+    *,
+    schema_version: int,
+    invalid_profiles: Mapping[str, str] | None = None,
+    current_policy_version: str = CURRENT_INVESTABILITY_POLICY_VERSION,
+) -> tuple[PolicyEvidence, ...]:
+    by_id = {profile.instrument_id: profile for profile in profiles}
+    invalid_profiles = invalid_profiles or {}
+    evidence: list[PolicyEvidence] = []
+    for record in records:
+        if record.instrument_id in invalid_profiles:
+            evidence.append(
+                PolicyEvidence(record.instrument_id, "manual_review", invalid_profiles[record.instrument_id])
+            )
+            continue
+        profile = by_id.get(record.instrument_id)
+        if profile is None:
+            state = "legacy_unmigrated" if schema_version < 3 else "unavailable"
+            reason = (
+                "legacy store has no versioned policy profile; inspect a backfill plan"
+                if state == "legacy_unmigrated"
+                else "no versioned policy profile is available"
+            )
+            evidence.append(PolicyEvidence(record.instrument_id, state, reason))
+        elif profile.policy_version != current_policy_version:
+            evidence.append(
+                PolicyEvidence(
+                    record.instrument_id,
+                    "stale",
+                    f"policy {profile.policy_version} differs from current {current_policy_version}",
+                    profile,
+                )
+            )
+        elif profile.authority == "manual_review":
+            evidence.append(
+                PolicyEvidence(
+                    record.instrument_id,
+                    "manual_review",
+                    "policy evidence requires reviewed manual confirmation",
+                    profile,
+                )
+            )
+        else:
+            evidence.append(
+                PolicyEvidence(
+                    record.instrument_id,
+                    "current",
+                    "policy profile checksum, authority and version are current",
+                    profile,
+                    recompute_required=False,
+                )
+            )
+    return tuple(evidence)
+
+
+def build_policy_backfill_plan(
+    snapshot: UniverseStoreSnapshot,
+    *,
+    target_policy_version: str = CURRENT_INVESTABILITY_POLICY_VERSION,
+) -> PolicyBackfillPlan:
+    target = _text(target_policy_version)
+    if not target:
+        raise ValueError("target_policy_version is required")
+    actions = tuple(
+        PolicyBackfillAction(
+            instrument_id=item.instrument_id,
+            action=(
+                "review_legacy"
+                if item.state == "legacy_unmigrated"
+                else "recompute"
+                if item.state == "stale"
+                else "manual_review"
+            ),
+            from_policy_version=item.profile.policy_version if item.profile else None,
+            to_policy_version=target,
+            reason=item.reason,
+            expected_profile_checksum=item.profile.checksum if item.profile else None,
+        )
+        for item in snapshot.policy_evidence
+        if item.state != "current"
+    )
+    canonical = {
+        "target_policy_version": target,
+        "actions": [asdict(item) for item in actions],
+        "mutates_store": False,
+        "execution_allowed": False,
+    }
+    plan_id = hashlib.sha256(
+        json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return PolicyBackfillPlan(plan_id, target, actions)
+
+
 def save_universe(
     records: Iterable[UniverseRecord],
     expected_revision: str,
     *,
     root: Path | None = None,
     allow_cross_tier_duplicates: bool = False,
+    policy_profiles: Iterable[InvestabilityPolicyProfile] | None = None,
 ) -> UniverseSaveResult:
     root = (root or ROOT).resolve()
     items = tuple(_normalise_record(record) for record in records)
@@ -236,10 +498,19 @@ def save_universe(
         raise ValueError("Universe validation failed: " + "; ".join(report.errors))
     path = _store_path(root)
     current_revision = ""
+    current_schema_version = 0
+    retained_profiles: tuple[InvestabilityPolicyProfile, ...] = ()
     if path.exists():
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
             current_revision = str(raw.get("revision") or "")
+            current_schema_version = int(raw.get("schema_version") or 0)
+            if policy_profiles is None:
+                retained_profiles = tuple(
+                    _policy_profile_from_mapping(item)
+                    for item in raw.get("policy_profiles", ())
+                    if isinstance(item, Mapping)
+                )
         except (OSError, ValueError, TypeError):
             current_revision = "corrupt"
     if current_revision != expected_revision:
@@ -248,12 +519,36 @@ def save_universe(
     if path.is_file():
         backup = backup_paths((path,), root / "backups" / "universe")
         backup_path = backup.manifest_path
+    selected_profiles = (
+        tuple(policy_profiles) if policy_profiles is not None else retained_profiles
+    )
+    record_ids = {item.instrument_id for item in items}
+    profile_ids: set[str] = set()
+    for profile in selected_profiles:
+        _validate_policy_profile(profile)
+        if profile.instrument_id not in record_ids:
+            raise ValueError(
+                f"policy profile references unknown instrument_id: {profile.instrument_id}"
+            )
+        if profile.instrument_id in profile_ids:
+            raise ValueError(f"duplicate policy profile: {profile.instrument_id}")
+        profile_ids.add(profile.instrument_id)
+    write_schema_version = (
+        3
+        if not path.exists() or policy_profiles is not None or selected_profiles
+        else current_schema_version
+    )
     payload: dict[str, object] = {
-        "schema_version": 2,
+        "schema_version": write_schema_version,
         "revision": "pending",
         "allow_cross_tier_duplicates": bool(allow_cross_tier_duplicates),
         "records": [asdict(item) for item in items],
     }
+    if write_schema_version >= 3:
+        payload["policy_profiles"] = [
+            {**_policy_profile_payload(item), "checksum": item.checksum}
+            for item in sorted(selected_profiles, key=lambda profile: profile.instrument_id)
+        ]
     revision = _payload_revision(payload)
     payload["revision"] = revision
     atomic_write_json(path, payload)
@@ -270,11 +565,32 @@ def load_universe(root: Path | None = None) -> UniverseStoreSnapshot:
         return UniverseStoreSnapshot((), "", path, False)
     payload = json.loads(path.read_text(encoding="utf-8"))
     records = tuple(_normalise_record(UniverseRecord(**raw)) for raw in payload.get("records", ()))
+    schema_version = int(payload.get("schema_version") or 0)
+    profiles: list[InvestabilityPolicyProfile] = []
+    invalid_profiles: dict[str, str] = {}
+    for index, raw in enumerate(payload.get("policy_profiles", ())):
+        if not isinstance(raw, Mapping):
+            invalid_profiles[f"<profile-{index}>"] = "policy profile is not an object"
+            continue
+        instrument_id = _text(raw.get("instrument_id"), f"<profile-{index}>")
+        try:
+            profiles.append(_policy_profile_from_mapping(raw))
+        except (TypeError, ValueError) as exc:
+            invalid_profiles[instrument_id] = str(exc)
+    policy_profiles = tuple(profiles)
     return UniverseStoreSnapshot(
         records,
         _text(payload.get("revision")),
         path,
         _as_bool(payload.get("allow_cross_tier_duplicates", False)),
+        policy_profiles,
+        _policy_evidence(
+            records,
+            policy_profiles,
+            schema_version=schema_version,
+            invalid_profiles=invalid_profiles,
+        ),
+        schema_version,
     )
 
 

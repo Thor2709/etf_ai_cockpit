@@ -5,12 +5,17 @@ import json
 from pathlib import Path
 
 import pytest
+import etf_cockpit.data.universe_store as universe_store
 
 from etf_cockpit.data.universe_store import (
+    CURRENT_INVESTABILITY_POLICY_VERSION,
     SPAREBANKEN_ROWS,
+    InvestabilityPolicyProfile,
     UniverseRecord,
     UniverseRevisionConflict,
     add_record,
+    build_policy_backfill_plan,
+    create_policy_profile,
     disable_record,
     edit_record,
     export_compatibility,
@@ -233,3 +238,143 @@ def test_legacy_migration_publishes_versioned_store(tmp_path: Path) -> None:
     imported, saved = migrate_legacy_universe(tmp_path)
     assert imported.records and saved.path.name == "universe_store.json"
     assert load_universe(tmp_path).revision == saved.revision
+
+
+def test_legacy_policy_backfill_plan_is_deterministic_inspectable_and_non_mutating(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "configs" / "universe_store.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "revision": "legacy-revision",
+                "records": [universe_store.asdict(_record("A"))],
+            }
+        ),
+        encoding="utf-8",
+    )
+    before = path.read_bytes()
+    snapshot = load_universe(tmp_path)
+    assert snapshot.policy_evidence[0].state == "legacy_unmigrated"
+
+    first = build_policy_backfill_plan(snapshot)
+    second = build_policy_backfill_plan(snapshot)
+
+    assert first == second
+    assert first.mutates_store is False
+    assert first.execution_allowed is False
+    assert first.actions[0].action == "review_legacy"
+    assert path.read_bytes() == before
+
+    saved = save_universe(snapshot.records, snapshot.revision, root=tmp_path)
+    after_legacy_edit = load_universe(tmp_path)
+    assert saved.revision == after_legacy_edit.revision
+    assert after_legacy_edit.schema_version == 2
+    assert after_legacy_edit.policy_evidence[0].state == "legacy_unmigrated"
+
+
+def test_policy_profile_round_trip_and_policy_version_change_marks_recompute(
+    tmp_path: Path,
+) -> None:
+    record = _record("A")
+    stale = create_policy_profile(
+        instrument_id="A",
+        policy_id="safe-long-only",
+        policy_version="investability-v0",
+        source_id="local-reviewed-policy",
+        as_of="2026-07-28T00:00:00+00:00",
+        authority="user_reviewed",
+        coverage=("prices", "classification"),
+        classification_confidence=0.9,
+        dependency_plan=("prices:A",),
+    )
+    saved = save_universe((record,), "", root=tmp_path, policy_profiles=(stale,))
+    snapshot = load_universe(tmp_path)
+
+    assert saved.revision == snapshot.revision
+    assert snapshot.policy_profiles == (stale,)
+    assert snapshot.policy_evidence[0].state == "stale"
+    assert snapshot.policy_evidence[0].recompute_required is True
+    plan = build_policy_backfill_plan(snapshot)
+    assert plan.actions[0].from_policy_version == "investability-v0"
+    assert plan.actions[0].to_policy_version == CURRENT_INVESTABILITY_POLICY_VERSION
+
+    current = create_policy_profile(
+        instrument_id="A",
+        policy_id="safe-long-only",
+        policy_version=CURRENT_INVESTABILITY_POLICY_VERSION,
+        source_id="local-reviewed-policy",
+        as_of="2026-07-28T00:00:00+00:00",
+        authority="user_reviewed",
+        coverage=("classification", "prices"),
+        classification_confidence=0.9,
+        dependency_plan=("prices:A",),
+    )
+    save_universe(
+        (record,),
+        snapshot.revision,
+        root=tmp_path,
+        policy_profiles=(current,),
+    )
+    refreshed = load_universe(tmp_path)
+    assert refreshed.policy_evidence[0].state == "current"
+    assert refreshed.policy_evidence[0].recompute_required is False
+    assert build_policy_backfill_plan(refreshed).actions == ()
+
+
+def test_tampered_or_unauthorised_policy_profile_fails_closed(tmp_path: Path) -> None:
+    profile = create_policy_profile(
+        instrument_id="A",
+        policy_id="safe-long-only",
+        policy_version=CURRENT_INVESTABILITY_POLICY_VERSION,
+        source_id="official-prospectus",
+        as_of="2026-07-28T00:00:00Z",
+        authority="official",
+    )
+    save_universe((_record("A"),), "", root=tmp_path, policy_profiles=(profile,))
+    path = tmp_path / "configs" / "universe_store.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["policy_profiles"][0]["coverage"] = ["invented"]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    snapshot = load_universe(tmp_path)
+    assert snapshot.policy_profiles == ()
+    assert snapshot.policy_evidence[0].state == "manual_review"
+    assert "checksum mismatch" in snapshot.policy_evidence[0].reason
+    assert snapshot.policy_evidence[0].execution_allowed is False
+
+    with pytest.raises(ValueError, match="unsupported policy authority"):
+        create_policy_profile(
+            instrument_id="A",
+            policy_id="unsafe",
+            policy_version=CURRENT_INVESTABILITY_POLICY_VERSION,
+            source_id="unknown",
+            as_of="2026-07-28T00:00:00Z",
+            authority="model_generated",
+        )
+    with pytest.raises(ValueError, match="checksum mismatch"):
+        save_universe(
+            (_record("A"),),
+            str(payload["revision"]),
+            root=tmp_path,
+            policy_profiles=(InvestabilityPolicyProfile(**{**universe_store.asdict(profile), "checksum": "bad"}),),
+        )
+
+
+def test_policy_profile_save_failure_leaves_prior_revision_atomic(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    saved = save_universe((_record("A"),), "", root=tmp_path)
+    path = tmp_path / "configs" / "universe_store.json"
+    before = path.read_bytes()
+
+    def fail_atomic_write(*_args, **_kwargs):
+        raise OSError("simulated publication failure")
+
+    monkeypatch.setattr(universe_store, "atomic_write_json", fail_atomic_write)
+    with pytest.raises(OSError, match="simulated publication failure"):
+        save_universe((_record("A"),), saved.revision, root=tmp_path)
+    assert path.read_bytes() == before
