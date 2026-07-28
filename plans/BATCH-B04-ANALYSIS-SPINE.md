@@ -971,3 +971,17 @@ was applied and verified; fresh readback is zero action at checksum
 The next action is exact schema-1.2 guard, deterministic generation and fresh
 H-tier validation before the final one-field provider update. Product code,
 broker authority and `execution_allowed=false` remain unchanged.
+
+`MERGED` ISSUE-0178 integrated-status PR #593 at
+`90106943ea4e7cd41909ca45eab185216bb8f45f`; both packaged platforms passed
+2,089 tests with zero failures, errors or skips. The reviewed GitHub plan was
+applied and fresh readback is zero action at checksum
+`9709ce3b499692119f301f45338ad6033b8328cfd24b13b9078ef7be83cf3fbe`.
+`IN_PROGRESS` the continuation sequence now reviews only the ISSUE-0127 →
+ISSUE-0072 dependency edge. ISSUE-0072 supplies a generic durable
+transactional-storage interface, but double-entry accounting, Decimal journal
+semantics, trial balance, inception rebuild and broker/local truth separation
+remain ISSUE-0127-owned scope. The next action is a checksum-controlled
+`unresolved → partial_interface` edge update, deterministic generation and
+exact protected validation; no product or provider write is part of this
+transaction.

@@ -6458,9 +6458,9 @@
       "edges": [
         {
           "dependency_id": "ISSUE-0072",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
+          "evidence_state": "partial_interface",
+          "reason_code": "EDGE_EVIDENCE_PARTIAL_INTERFACE",
+          "resolved": true
         },
         {
           "dependency_id": "ISSUE-0084",
@@ -6471,9 +6471,9 @@
       ],
       "execution_allowed": false,
       "issue_id": "ISSUE-0127",
-      "ready": false,
+      "ready": true,
       "reason_codes": [
-        "BLOCKED_UNRESOLVED_DEPENDENCY"
+        "READY_BLOCKING_EDGES_RESOLVED"
       ],
       "required_inputs": []
     },
@@ -19093,12 +19093,16 @@
       "dependency_conversions": [],
       "dependency_edge_evidence": {
         "ISSUE-0072": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B04/ISSUE-0072/transactional-storage-interface-v1",
+          "evidence_references": [
+            "ISSUE-0072 is canonically integrated and src/etf_cockpit/data/local_storage.py provides a versioned SQLite TransactionalStore with WAL, foreign keys, bounded locking, migrations, optimistic revisions, atomic transactions and integrity checks",
+            "tests/test_local_storage.py covers idempotent bootstrap, safe pragmas, revision conflicts, immutable atomic batches, explicit rollback, atomic export and newer-schema fail-closed behaviour",
+            "The interface is partial: account hierarchy, balanced Decimal journal entries, trial balance, full-history positions/cash rebuild, settlement states and broker/local truth reconciliation remain explicitly owned by ISSUE-0127"
+          ],
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "partial_interface"
         },
         "ISSUE-0084": {
           "contract_reference": "B02/ISSUE-0084/corporate-action-fx-ledger-input-v1",
@@ -19186,7 +19190,7 @@
       ],
       "title": "Create the double-entry portfolio, cash, FX, fee, tax and corporate-action ledger",
       "ui_requirement": "Portfolio ledger, cash, lots and reconciliation views.",
-      "verified_commit": "2ca0c37113da423c06e1fcda15110b028fef74dd",
+      "verified_commit": "90106943ea4e7cd41909ca45eab185216bb8f45f",
       "verified_date": "2026-07-28",
       "why": "Orders and fills must reconcile positions, cash, income, fees, FX and corporate actions across restarts.",
       "write_conflict_group": "trading-safety"
@@ -27375,7 +27379,7 @@
   ],
   "schema_version": "2.0",
   "source_of_truth": {
-    "baseline_commit": "e27209aee137804f883440053ec2a5b5f59c5da2",
+    "baseline_commit": "90106943ea4e7cd41909ca45eab185216bb8f45f",
     "closed_ledger_sha256": "2dca7fd65f7a218747bcfb91b4e5c1f734af26f29114cc7dc83b071bb86838d8",
     "final_release_manifest_sha256": "dbb71ecaa2b81206ff922eec3dcc72cb08cc001121688b107e8f1c3a2372f685",
     "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -27387,7 +27391,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "2fd0803e9ae234fd222bd69644b1499d3a4eb22baa889a1f51ecb362c773fce1",
+    "programme_control_state_sha256": "5e6a6e46c55bd4d0c5ed1e528dc8e5df8701de9ea69968c78d31303f841f33f2",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
