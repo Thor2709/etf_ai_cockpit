@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "80c63200e733fada6ae2d76ac67feb776f281c38",
+    "generation_base_commit": "2ca0c37113da423c06e1fcda15110b028fef74dd",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -4038,12 +4038,17 @@
           "state": "unresolved"
         },
         "ISSUE-0084": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B02/ISSUE-0084/corporate-action-fx-ledger-input-v1",
+          "evidence_references": [
+            "PR #482 merged ISSUE-0084 product as 537e800dd78e9593e7769f41aecf6d79babb75f9 after status guard, supply-chain and protected Linux/Windows release gates",
+            "src/etf_cockpit/data/market_adjustments.py CorporateActionStore, CorporateActionCoverageStore and FXObservationStore provide append-only point-in-time action, coverage and dated-FX inputs with source/revision lineage",
+            "tests/test_market_adjustments.py covers action corrections and replay, income/principal classification, provider quarantine, dated FX, transaction/valuation attribution, missing/stale/conflicted fail-closed states and concurrent writers",
+            "ISSUE-0084 is integrated; ISSUE-0127 retains double-entry accounting, Decimal journal, projection, reconciliation and broker/paper authority separation as consumer-owned scope"
+          ],
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         }
       },
       "phase": "phase-07-backtest-paper-execution",
@@ -4053,8 +4058,39 @@
         "review_reference": "B00 canonical import from audited programme state",
         "to": "planned"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0084",
+            "evidence": {
+              "contract_reference": "B02/ISSUE-0084/corporate-action-fx-ledger-input-v1",
+              "evidence_references": [
+                "PR #482 merged ISSUE-0084 product as 537e800dd78e9593e7769f41aecf6d79babb75f9 after status guard, supply-chain and protected Linux/Windows release gates",
+                "src/etf_cockpit/data/market_adjustments.py CorporateActionStore, CorporateActionCoverageStore and FXObservationStore provide append-only point-in-time action, coverage and dated-FX inputs with source/revision lineage",
+                "tests/test_market_adjustments.py covers action corrections and replay, income/principal classification, provider quarantine, dated FX, transaction/valuation attribution, missing/stale/conflicted fail-closed states and concurrent writers",
+                "ISSUE-0084 is integrated; ISSUE-0127 retains double-entry accounting, Decimal journal, projection, reconciliation and broker/paper authority separation as consumer-owned scope"
+              ],
+              "reviewed_date": "2026-07-28",
+              "reviewer": "Codex root orchestrator",
+              "schema_version": "1.0",
+              "state": "complete"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "PR #482 merged ISSUE-0084 product as 537e800dd78e9593e7769f41aecf6d79babb75f9 after status guard, supply-chain and protected Linux/Windows release gates",
+            "src/etf_cockpit/data/market_adjustments.py CorporateActionStore, CorporateActionCoverageStore and FXObservationStore provide append-only point-in-time action, coverage and dated-FX inputs with source/revision lineage",
+            "tests/test_market_adjustments.py covers action corrections and replay, income/principal classification, provider quarantine, dated FX, transaction/valuation attribution, missing/stale/conflicted fail-closed states and concurrent writers",
+            "ISSUE-0084 is integrated; ISSUE-0127 retains double-entry accounting, Decimal journal, projection, reconciliation and broker/paper authority separation as consumer-owned scope"
+          ],
+          "review_reference": "B04 ISSUE-0127 ledger prerequisite review: integrated corporate-action and dated-FX input contract",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "verified_commit": "2ca0c37113da423c06e1fcda15110b028fef74dd"
+        }
+      ],
+      "verified_commit": "2ca0c37113da423c06e1fcda15110b028fef74dd",
+      "verified_date": "2026-07-28"
     },
     "ISSUE-0128": {
       "acceptance_evidence": [],
