@@ -3,23 +3,23 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "planned",
+      "from": "in_progress",
       "issue_id": "ISSUE-0177",
-      "to": "in_progress"
+      "to": "implemented"
     }
   ],
-  "base_commit": "ed3a7d0813aa930590398d93fc5fa0130f82ec19",
-  "branch": "codex/issue-0177-20260728",
+  "base_commit": "f22abc22f5fee8f97b9ad5dc201374d0a434bfa8",
+  "branch": "codex/issue-0177-implemented-20260728",
   "issue_ids": [
     "ISSUE-0177"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "77275e9fa323dcf7dfacad719e2a055ccca258ec2a156fcad68afe47e7ecb716",
+    "base_registry_sha256": "4803a0dd3db278f09d10a0b8b69d4a02bcc10ac628dd3389c73e2ccbb279c165",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "4803a0dd3db278f09d10a0b8b69d4a02bcc10ac628dd3389c73e2ccbb279c165",
-    "reason": "ISSUE-0177 implementation hand-off from fresh main ed3a7d0813aa930590398d93fc5fa0130f82ec19: advance only planned to in_progress for the bounded validation-observability and environment-preflight slice; preserve dependencies, acceptance criteria, policy, broker authority and execution_allowed=false.",
+    "proposed_registry_sha256": "0ad61c63964ebfc0aae6d3aea200b6544b336a660a4f7d5f0bbc5ff6835b9244",
+    "reason": "ISSUE-0177 exact-tree acceptance from fresh main f22abc22f5fee8f97b9ad5dc201374d0a434bfa8: advance only in_progress to implemented after complete Linux and Windows protected evidence; preserve dependencies, acceptance criteria, policy, broker authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
