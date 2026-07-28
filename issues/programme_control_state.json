@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "dc8947e8af3049e322de1b52b9d0383864695753",
+    "generation_base_commit": "e27209aee137804f883440053ec2a5b5f59c5da2",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -7401,6 +7401,18 @@
           "reviewed_date": "2026-07-28",
           "reviewer": "Codex root orchestrator",
           "status": "implemented"
+        },
+        {
+          "evidence_references": [
+            "PR #589 merged exact reviewed head 3c7bd7ec299385d3f5b8a9204440578af8bec46a as 0c452da6b27cb5ada9e545517605a7f355485564 with classifier, preflight, canonical supply-chain, Linux, Windows and terminal validation-summary green at 2,089 tests per platform",
+            "Shared prerequisite PR #592 merged as dc8947e8af3049e322de1b52b9d0383864695753 after exact status protection and complete Linux/Windows gates passed 2,089 tests per platform with zero failures, errors or skips",
+            "Implemented-status PR #591 merged exact head 8ca4cd40ab0f34ab235333a6b6e282bdd1bf5f3c as e27209aee137804f883440053ec2a5b5f59c5da2 after schema-1.2 guard, classifier, preflight, supply-chain, Linux, Windows and terminal summary passed",
+            "GitHub implemented status applied with reviewed checksum 15e0cf38d9efb275948d5ba082ba7fb3a5aa7014e1bc8ee59f4b40779ed219cd and verified by zero-action readback 396429b23ed664e996aad1186c57fb5cea63dfb187ed82c8db0fb5a21dbf6055"
+          ],
+          "review_reference": "ISSUE-0178 implementation, status and provider convergence acceptance",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "status": "integrated"
         }
       ],
       "canonical_definition": {
@@ -7497,11 +7509,11 @@
         }
       },
       "phase": "phase-09-quality-release-security",
-      "programme_status": "implemented",
+      "programme_status": "integrated",
       "status_transition": {
-        "from": "in_progress",
-        "review_reference": "ISSUE-0178 exact-tree implementation and protected-release acceptance",
-        "to": "implemented"
+        "from": "implemented",
+        "review_reference": "ISSUE-0178 implementation, status and provider convergence acceptance",
+        "to": "integrated"
       },
       "transition_history": [
         {
@@ -7560,9 +7572,24 @@
           "reviewer": "Codex root orchestrator",
           "to": "implemented",
           "verified_commit": "0c452da6b27cb5ada9e545517605a7f355485564"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #589 merged exact reviewed head 3c7bd7ec299385d3f5b8a9204440578af8bec46a as 0c452da6b27cb5ada9e545517605a7f355485564 with classifier, preflight, canonical supply-chain, Linux, Windows and terminal validation-summary green at 2,089 tests per platform",
+            "Shared prerequisite PR #592 merged as dc8947e8af3049e322de1b52b9d0383864695753 after exact status protection and complete Linux/Windows gates passed 2,089 tests per platform with zero failures, errors or skips",
+            "Implemented-status PR #591 merged exact head 8ca4cd40ab0f34ab235333a6b6e282bdd1bf5f3c as e27209aee137804f883440053ec2a5b5f59c5da2 after schema-1.2 guard, classifier, preflight, supply-chain, Linux, Windows and terminal summary passed",
+            "GitHub implemented status applied with reviewed checksum 15e0cf38d9efb275948d5ba082ba7fb3a5aa7014e1bc8ee59f4b40779ed219cd and verified by zero-action readback 396429b23ed664e996aad1186c57fb5cea63dfb187ed82c8db0fb5a21dbf6055"
+          ],
+          "from": "implemented",
+          "review_reference": "ISSUE-0178 implementation, status and provider convergence acceptance",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "to": "integrated",
+          "verified_commit": "e27209aee137804f883440053ec2a5b5f59c5da2"
         }
       ],
-      "verified_commit": "0c452da6b27cb5ada9e545517605a7f355485564",
+      "verified_commit": "e27209aee137804f883440053ec2a5b5f59c5da2",
       "verified_date": "2026-07-28"
     },
     "ISSUE-0179": {
