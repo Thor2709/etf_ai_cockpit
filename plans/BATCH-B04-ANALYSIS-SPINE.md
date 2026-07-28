@@ -401,6 +401,38 @@ issue #241 with semantic SHA-256
 No product, dependency, scope, acceptance, policy or authority change is
 included; `execution_allowed=false`.
 
+`VERIFIED` readiness PR #558 merged ISSUE-0101 as
+`a5acc69cc6ac0eb9cb7ec86509b98eec330e6537` from reviewed head
+`c5d00b5c4c61983020ee48c84f7031f1d1a3418d`. Status guard run
+`30320441635` and supply-chain run `30320441736` passed; the redundant
+evidence-only release run was cancelled. Checksum-approved GitHub plan
+`5ef2917c04a5a7568052d1a3a00585f2f2353d9f4609d7018db1830ae7a5078f`
+applied only #241, and zero-action readback
+`f8bf6a6a6bed3ef04cd8731ab920d8c04bd87192661dbe579ad6211dd8de239f`
+verified convergence.
+
+`IN_PROGRESS` the bounded ISSUE-0101 implementation handoff advances only
+`ready -> in_progress`. The smallest usable outcome is one local typed
+cyclical adapter family for energy, materials/mining and
+non-infrastructure industrials, integrated through the existing peer-cohort
+registry and Instrument Detail facade. It keeps spot and normalised margins
+separate; requires source-linked production, cost, reserve/resource,
+sustaining-capex, decommissioning, backlog, book-to-bill, utilisation,
+working-capital and concentration evidence where applicable; reduces
+confidence when distinct-cycle history is inadequate; and exposes
+deterministic commodity-price, input-cost and demand/rate scenarios.
+
+The implementation excludes persistence, remote commodity providers,
+ISSUE-0115 stress-lab work, infrastructure routing, other sector children,
+forecasts, expected returns, recommendations, optimisation, order
+transmission and broker writes. The proposed 197-record registry has SHA-256
+`3bd5be5e907352ea0d52b6b20404fca748ffcc1fa271e3c93b4305d03451af9e`.
+The reviewed GitHub plan contains exactly one Programme-status update for open
+issue #241 with semantic SHA-256
+`9ced52643254b6df3aa223bebc70db6514d8df9c220d139f95f2418d2c686635`.
+No dependency, scope, acceptance, policy or authority change is included;
+`execution_allowed=false`.
+
 `VERIFIED` implemented-initially PR #543 merged as
 `a01c663cd10bc13057175bd128456108bfceb0c4` from reviewed head
 `01f95db5f1211ffc436e01458f78d8d0e63d123c`. Status guard run
