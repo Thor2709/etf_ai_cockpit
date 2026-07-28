@@ -1,27 +1,25 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [
+  "allowed_dependency_edge_updates": [
     {
-      "from": "implemented_initially",
-      "issue_id": "ISSUE-0088",
-      "to": "integrated"
+      "issue_id": "ISSUE-0089",
+      "dependency_id": "ISSUE-0073"
     }
   ],
-  "base_commit": "889844076e4493f55eb6330ae8a5455fa7373647",
-  "branch": "codex/issue-0088-integrated-20260728",
-  "issue_ids": [
-    "ISSUE-0088"
-  ],
+  "allowed_status_transitions": [],
+  "base_commit": "606b1a245b22393aa79a673329b968fc77537278",
+  "branch": "codex/issue-0089-deps-20260728",
+  "issue_ids": [],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "e3f449a626b4aed02318aa90b9414876b91630562395fed2a48545dbd72f1522",
+    "base_registry_sha256": "cbcd7ddff4d159ab043c204885ac2238fcb066ab131eae919c751ab5385c181e",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "cbcd7ddff4d159ab043c204885ac2238fcb066ab131eae919c751ab5385c181e",
-    "reason": "ISSUE-0088 protected integration acceptance from fresh main 889844076e4493f55eb6330ae8a5455fa7373647: advance only implemented_initially to integrated after exact PR #599 classifier, preflight, supply-chain, status, Linux, Windows and terminal-summary evidence; preserve dependencies, acceptance criteria, policy, broker authority and execution_allowed=false.",
+    "mode": "generation_base_and_dependency_edge_evidence",
+    "proposed_registry_sha256": "b01773cbca0361a726184beadf3afcb111f46b9c62ff57f75084afe24022cb97",
+    "reason": "ISSUE-0089 dependency readiness from fresh main 606b1a245b22393aa79a673329b968fc77537278: update exactly ISSUE-0089 to ISSUE-0073 from unresolved to complete using the integrated append-only bitemporal observation, decision-time as_of and vintage-manifest contract; preserve all statuses, other dependencies, policy, broker authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.2"
+  "schema_version": "1.3"
 }
