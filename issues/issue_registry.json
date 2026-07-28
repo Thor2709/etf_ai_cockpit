@@ -16131,6 +16131,17 @@
           "reviewed_date": "2026-07-28",
           "reviewer": "Codex root orchestrator",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "PR #554 merged reviewed ISSUE-0100 product head 96f6101c7f15f7d7382e64332e439f5b4bbc497e as 887b08dce427cadf05e34cccac02111c08b82495",
+            "Protected run 30318189597 completed Linux and Windows package, parity, smoke, performance, security, privacy, legal, policy and SBOM checks; its sole full-suite failure on each platform exactly matched the authorised B03 simple-score invalidation node and pd.notna(None) fingerprint from run 30314202998",
+            "Status guard run 30318189573 and supply-chain run 30318189600 passed; 231 independent affected local checks plus Ruff, compileall and diff hygiene passed; execution_allowed=false"
+          ],
+          "review_reference": "B04 ISSUE-0100 reviewed real-assets adapter product merge",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "status": "implemented_initially"
         }
       ],
       "activation_dependencies": [],
@@ -16184,7 +16195,7 @@
       "package_status": "",
       "phase": "phase-03-stock-research",
       "priority": "P1",
-      "programme_status": "in_progress",
+      "programme_status": "implemented_initially",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0099-issue-0102-sector-specific-stock-adapters"
@@ -16214,7 +16225,7 @@
       ],
       "title": "Implement REIT, utility and infrastructure sector adapters",
       "ui_requirement": "Real Assets panels with lease/regulatory and rate sensitivity.",
-      "verified_commit": "1c0a4d8a027bbce144dddaafc12c2c329a857675",
+      "verified_commit": "887b08dce427cadf05e34cccac02111c08b82495",
       "verified_date": "2026-07-28",
       "why": "Long-duration assets require asset value, contractual cash flow, leverage and regulatory analysis.",
       "write_conflict_group": "stock-research"
@@ -26520,7 +26531,7 @@
   ],
   "schema_version": "2.0",
   "source_of_truth": {
-    "baseline_commit": "d5851534bb41f85d31ddc6e6bba15b7d2798e73c",
+    "baseline_commit": "887b08dce427cadf05e34cccac02111c08b82495",
     "closed_ledger_sha256": "2dca7fd65f7a218747bcfb91b4e5c1f734af26f29114cc7dc83b071bb86838d8",
     "final_release_manifest_sha256": "dbb71ecaa2b81206ff922eec3dcc72cb08cc001121688b107e8f1c3a2372f685",
     "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -26532,7 +26543,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "ac2d11ae24c81740ff15055a17a1c6a03b88e55a6efd778bc763bcb2cbca2e36",
+    "programme_control_state_sha256": "0026ae61fe681b568e3873168c0753bd86e406af272c25b45b6a1e60a20de6b5",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

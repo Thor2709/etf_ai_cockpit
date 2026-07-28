@@ -1,19 +1,27 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [],
-  "base_commit": "d5851534bb41f85d31ddc6e6bba15b7d2798e73c",
-  "branch": "codex/issue-0100-real-assets-20260728",
-  "issue_ids": [],
+  "allowed_status_transitions": [
+    {
+      "from": "in_progress",
+      "issue_id": "ISSUE-0100",
+      "to": "implemented_initially"
+    }
+  ],
+  "base_commit": "887b08dce427cadf05e34cccac02111c08b82495",
+  "branch": "codex/issue-0100-implemented-initially-20260728",
+  "issue_ids": [
+    "ISSUE-0100"
+  ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "515c155d4c3eb480d756bc50887fce53dddffce9f97cf6d4871306088145c543",
+    "base_registry_sha256": "6b273fe63a54a99327f67f820e8eaf26210b41a106c708d6fba6de8bce6bf21e",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "canonical_schema_and_intake",
-    "proposed_registry_sha256": "6b273fe63a54a99327f67f820e8eaf26210b41a106c708d6fba6de8bce6bf21e",
-    "reason": "B04 ISSUE-0100 product release base-only refresh to merged main d5851534bb41f85d31ddc6e6bba15b7d2798e73c; all 197 records, statuses, dependencies, policies and execution_allowed=false remain unchanged.",
+    "mode": "generation_base_and_status_transitions",
+    "proposed_registry_sha256": "491c791a1abda7d43d55c05ddf3b6f86e08629da188aeb05682e5d14d12e6e6a",
+    "reason": "B04 ISSUE-0100 product convergence: advance only in_progress to implemented_initially after PR #554 merged the reviewed real-assets adapters with protected cross-platform package evidence; preserve scope, dependencies, acceptance criteria, policy and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.1"
+  "schema_version": "1.2"
 }
