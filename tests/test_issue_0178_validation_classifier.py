@@ -56,6 +56,20 @@ def test_high_risk_fixtures_require_platform_gate() -> None:
     assert all(build_report([path])["package_gate_required"] for path in fixtures)
 
 
+def test_store_modules_and_tests_require_platform_gate_without_substring_spillover() -> None:
+    for path in (
+        "src/etf_cockpit/data/universe_store.py",
+        "tests/test_universe_store.py",
+    ):
+        report = build_report([path])
+        assert report["tier"] == "H"
+        assert report["package_gate_required"] is True
+
+    boundary = build_report(["src/etf_cockpit/app/restore.py"])
+    assert boundary["tier"] == "O"
+    assert boundary["package_gate_required"] is False
+
+
 def test_terminal_summary_accepts_every_valid_conditional_combination() -> None:
     common = {"classifier": "success", "preflight": "success", "supply_chain": "success"}
 

@@ -79,13 +79,15 @@ def classify_path(value: str) -> PathClassification:
     if not path or path == "." or path.startswith("../") or PurePosixPath(path).is_absolute():
         return PathClassification(path or value, "H", "ambiguous-or-invalid-path")
     lowered = path.lower()
-    parts = set(PurePosixPath(lowered).parts)
+    parsed_path = PurePosixPath(lowered)
+    parts = set(parsed_path.parts)
     semantic_tokens = set(re.findall(r"[a-z0-9]+", lowered))
     if any(lowered.startswith(prefix) for prefix in CERTIFICATION_PREFIXES):
         return PathClassification(path, "C", "certification-evidence")
     if (
         path in HIGH_RISK_NAMES
         or any(lowered.startswith(prefix.lower()) for prefix in HIGH_RISK_PREFIXES)
+        or parsed_path.name.endswith("_store.py")
         or bool((parts | semantic_tokens) & HIGH_RISK_PARTS)
         or lowered.startswith("requirements")
     ):
