@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "0c452da6b27cb5ada9e545517605a7f355485564",
+    "generation_base_commit": "dc8947e8af3049e322de1b52b9d0383864695753",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -7389,6 +7389,18 @@
           "reviewed_date": "2026-07-28",
           "reviewer": "Codex root orchestrator",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "PR #589 merged exact reviewed head 3c7bd7ec299385d3f5b8a9204440578af8bec46a as 0c452da6b27cb5ada9e545517605a7f355485564 with classifier, preflight, status protection, canonical supply-chain and terminal validation-summary green",
+            "Linux release run 30362910795 job 90287220348 passed 2,089 tests with zero failures, errors or skips and retained complete protected evidence",
+            "Windows release run 30362910795 job 90287220784 passed 2,089 tests with zero failures, errors or skips and retained complete protected evidence",
+            "Orchestrator refreshed-head validation passed 164 affected tests plus exact guards, generators, registry, Ruff, compile, YAML and diff hygiene; execution_allowed=false"
+          ],
+          "review_reference": "ISSUE-0178 exact-tree implementation and protected-release acceptance",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "status": "implemented"
         }
       ],
       "canonical_definition": {
@@ -7485,11 +7497,11 @@
         }
       },
       "phase": "phase-09-quality-release-security",
-      "programme_status": "in_progress",
+      "programme_status": "implemented",
       "status_transition": {
-        "from": "planned",
-        "review_reference": "ISSUE-0178 reviewed classifier and CI-orchestration checkpoint",
-        "to": "in_progress"
+        "from": "in_progress",
+        "review_reference": "ISSUE-0178 exact-tree implementation and protected-release acceptance",
+        "to": "implemented"
       },
       "transition_history": [
         {
@@ -7533,9 +7545,24 @@
           "reviewer": "Codex root orchestrator",
           "to": "in_progress",
           "verified_commit": "0bf098841fe14c513c6b01286973f3aa2d4d0db7"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #589 merged exact reviewed head 3c7bd7ec299385d3f5b8a9204440578af8bec46a as 0c452da6b27cb5ada9e545517605a7f355485564 with classifier, preflight, status protection, canonical supply-chain and terminal validation-summary green",
+            "Linux release run 30362910795 job 90287220348 passed 2,089 tests with zero failures, errors or skips and retained complete protected evidence",
+            "Windows release run 30362910795 job 90287220784 passed 2,089 tests with zero failures, errors or skips and retained complete protected evidence",
+            "Orchestrator refreshed-head validation passed 164 affected tests plus exact guards, generators, registry, Ruff, compile, YAML and diff hygiene; execution_allowed=false"
+          ],
+          "from": "in_progress",
+          "review_reference": "ISSUE-0178 exact-tree implementation and protected-release acceptance",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "to": "implemented",
+          "verified_commit": "0c452da6b27cb5ada9e545517605a7f355485564"
         }
       ],
-      "verified_commit": "0bf098841fe14c513c6b01286973f3aa2d4d0db7",
+      "verified_commit": "0c452da6b27cb5ada9e545517605a7f355485564",
       "verified_date": "2026-07-28"
     },
     "ISSUE-0179": {

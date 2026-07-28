@@ -929,25 +929,30 @@ action is exact schema-1.2 guard, deterministic generator checks and a fresh
 H-tier Linux/Windows run on the new PR head; no provider write occurs before
 merge.
 
-`BLOCKED` the ISSUE-0178 implemented-status PR #591 H-tier run
-`30365177071` passed Linux with 2,089 tests but Windows reported one failure
-in `test_state_import_persists_esef_facts_and_official_inventory`. The local
-fixture followed optional Arelle discovery and therefore produced validator
-findings that are outside the state-persistence contract; all other 2,088
-Windows tests passed. A separate fresh-main, test-only baseline prerequisite
-owns deterministic isolation of that fixture while dedicated Arelle tests
-remain unchanged. The next action is the smallest focused test correction,
-targeted ESEF verification and an exact protected gate before PR #591 is
-refreshed; no product, execution or provider state changes are authorised.
-
-`REVIEWED` PR #592 run `30367261244` passed the affected 20-test ESEF file,
-including the isolated state-persistence node, and passed its classifier and
-supply-chain scan. Preflight then exposed only the expected post-PR-#589
-generation-base invariant: canonical control still recorded `c4be7fd` while
-fresh `origin/main` is `0c452da`. The prerequisite now includes deterministic
-fresh-main convergence with all 202 records, statuses, dependency evidence,
-policy, broker authority and `execution_allowed=false` unchanged. GitHub
-readback is zero action at checksum
+`MERGED` ISSUE-0178 product PR #589 at
+`0c452da6b27cb5ada9e545517605a7f355485564`. Exact classifier, preflight,
+status protection, the single canonical supply-chain scan, Linux and Windows
+package gates and terminal `validation-summary` passed. Both platforms
+reported 2,089 tests with zero failures, errors or skips. The reviewed GitHub
+plan `35a3e744a36a3b3a3534c0a4471992821687c602b3d26ce64ea3c7405df4d822`
+was applied and verified; fresh readback is zero action at checksum
 `9c0a69053ad330c875b37cafe7c2b1d50c3a8fc16ac9a9a9ddfcec5864e34af3`.
-The next action is exact schema-1.1 guard, generator checks and the
-classifier-selected protected validation on the unchanged test fix.
+`IN_PROGRESS` this evidence-only transaction advances only ISSUE-0178 from
+`in_progress` to `implemented`, using the exact protected product evidence.
+The next action is deterministic generation, exact classifier and
+schema-1.2 guards, then the audited one-field GitHub status update;
+`execution_allowed=false` and all product files remain unchanged.
+
+`MERGED` shared baseline prerequisite PR #592 at
+`dc8947e8af3049e322de1b52b9d0383864695753` after exact schema-1.1 status
+protection, classifier, supply-chain, preflight and complete Linux/Windows
+package gates passed. Both platforms reported 2,089 tests with zero failures,
+errors or skips; the Windows-only state-persistence fixture no longer follows
+optional Arelle discovery, while dedicated validator coverage is unchanged.
+`IN_PROGRESS` PR #591 now includes that exact prerequisite and refreshes its
+generation base to merged main without changing the reviewed ISSUE-0178
+status payload. Its audited one-field GitHub plan remains
+`15e0cf38d9efb275948d5ba082ba7fb3a5aa7014e1bc8ee59f4b40779ed219cd`.
+The next action is exact schema-1.2 guard, deterministic generator checks and
+fresh H-tier Linux/Windows evidence on the new head before merge or provider
+write.
