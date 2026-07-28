@@ -169,6 +169,7 @@ class AppState:
     selected_instrument_score: SimpleInstrumentScore | None = None
     financial_projection: dict[str, object] | None = None
     real_asset_projection: dict[str, object] | None = None
+    cyclical_projection: dict[str, object] | None = None
     evidence_mode: str = "default"
     application_api: LocalApplicationApi = field(init=False, repr=False)
 
