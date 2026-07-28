@@ -3,23 +3,23 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "in_progress",
+      "from": "implemented_initially",
       "issue_id": "ISSUE-0100",
-      "to": "implemented_initially"
+      "to": "integrated"
     }
   ],
-  "base_commit": "887b08dce427cadf05e34cccac02111c08b82495",
-  "branch": "codex/issue-0100-implemented-initially-20260728",
+  "base_commit": "918a4995084c79cbc41b5c8b363625ef6a7db0eb",
+  "branch": "codex/issue-0100-integrated-20260728",
   "issue_ids": [
     "ISSUE-0100"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "6b273fe63a54a99327f67f820e8eaf26210b41a106c708d6fba6de8bce6bf21e",
+    "base_registry_sha256": "491c791a1abda7d43d55c05ddf3b6f86e08629da188aeb05682e5d14d12e6e6a",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "491c791a1abda7d43d55c05ddf3b6f86e08629da188aeb05682e5d14d12e6e6a",
-    "reason": "B04 ISSUE-0100 product convergence: advance only in_progress to implemented_initially after PR #554 merged the reviewed real-assets adapters with protected cross-platform package evidence; preserve scope, dependencies, acceptance criteria, policy and execution_allowed=false.",
+    "proposed_registry_sha256": "ba2827fa2a21ebb7cf76d735878dd1700708399921048ab254f9607677e3bee2",
+    "reason": "B04 ISSUE-0100 final convergence: advance only implemented_initially to integrated after PR #555 merged the guarded evidence and the checksum-approved GitHub update produced a zero-action readback; preserve scope, dependencies, acceptance criteria, policy and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },

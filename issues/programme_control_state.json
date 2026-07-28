@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "887b08dce427cadf05e34cccac02111c08b82495",
+    "generation_base_commit": "918a4995084c79cbc41b5c8b363625ef6a7db0eb",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -3063,6 +3063,17 @@
           "reviewed_date": "2026-07-28",
           "reviewer": "Codex root orchestrator",
           "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "PR #555 merged the guarded ISSUE-0100 implemented-initially evidence as 918a4995084c79cbc41b5c8b363625ef6a7db0eb from exact reviewed head 9ac1e5c3baa4da3127e6d1d3f3f0dc2f7a709094",
+            "Status guard run 30319740434 and supply-chain run 30319740471 passed; the redundant evidence-only release run was cancelled under the documented fast path",
+            "Checksum-approved GitHub plan f920f83ebc49cbd50126b42d67c536263357c4c5f627178f24b42fbfc3d34d57 updated only #240 and zero-action readback 0146929cb4be49f4de90fa6545ad294f0eda858a369c61ba5e4d788fc7b0263f verified convergence; execution_allowed=false"
+          ],
+          "review_reference": "B04 ISSUE-0100 final integrated convergence",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "status": "integrated"
         }
       ],
       "dependency_edge_evidence": {
@@ -3080,11 +3091,11 @@
         }
       },
       "phase": "phase-03-stock-research",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
-        "from": "in_progress",
-        "review_reference": "B04 ISSUE-0100 reviewed real-assets adapter product merge",
-        "to": "implemented_initially"
+        "from": "implemented_initially",
+        "review_reference": "B04 ISSUE-0100 final integrated convergence",
+        "to": "integrated"
       },
       "transition_history": [
         {
@@ -3155,9 +3166,23 @@
           "reviewer": "Codex root orchestrator",
           "to": "implemented_initially",
           "verified_commit": "887b08dce427cadf05e34cccac02111c08b82495"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #555 merged the guarded ISSUE-0100 implemented-initially evidence as 918a4995084c79cbc41b5c8b363625ef6a7db0eb from exact reviewed head 9ac1e5c3baa4da3127e6d1d3f3f0dc2f7a709094",
+            "Status guard run 30319740434 and supply-chain run 30319740471 passed; the redundant evidence-only release run was cancelled under the documented fast path",
+            "Checksum-approved GitHub plan f920f83ebc49cbd50126b42d67c536263357c4c5f627178f24b42fbfc3d34d57 updated only #240 and zero-action readback 0146929cb4be49f4de90fa6545ad294f0eda858a369c61ba5e4d788fc7b0263f verified convergence; execution_allowed=false"
+          ],
+          "from": "implemented_initially",
+          "review_reference": "B04 ISSUE-0100 final integrated convergence",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "to": "integrated",
+          "verified_commit": "918a4995084c79cbc41b5c8b363625ef6a7db0eb"
         }
       ],
-      "verified_commit": "887b08dce427cadf05e34cccac02111c08b82495",
+      "verified_commit": "918a4995084c79cbc41b5c8b363625ef6a7db0eb",
       "verified_date": "2026-07-28"
     },
     "ISSUE-0101": {
