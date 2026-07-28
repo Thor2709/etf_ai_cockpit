@@ -139,6 +139,7 @@ class UniverseStoreSnapshot:
     policy_profiles: tuple[InvestabilityPolicyProfile, ...] = ()
     policy_evidence: tuple[PolicyEvidence, ...] = ()
     schema_version: int = 0
+    integrity_errors: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -363,6 +364,14 @@ def create_policy_profile(
 def _policy_profile_from_mapping(raw: Mapping[str, object]) -> InvestabilityPolicyProfile:
     coverage = raw.get("coverage", ())
     dependencies = raw.get("dependency_plan", ())
+    if not isinstance(coverage, (list, tuple)) or any(
+        not isinstance(item, str) for item in coverage
+    ):
+        raise ValueError("coverage must be a list of strings")
+    if not isinstance(dependencies, (list, tuple)) or any(
+        not isinstance(item, str) for item in dependencies
+    ):
+        raise ValueError("dependency_plan must be a list of strings")
     profile = InvestabilityPolicyProfile(
         instrument_id=_text(raw.get("instrument_id")),
         policy_id=_text(raw.get("policy_id")),
@@ -370,17 +379,15 @@ def _policy_profile_from_mapping(raw: Mapping[str, object]) -> InvestabilityPoli
         source_id=_text(raw.get("source_id")),
         as_of=_text(raw.get("as_of")),
         authority=_text(raw.get("authority")).lower(),
-        coverage=tuple(sorted(_text(item) for item in coverage if _text(item)))
-        if isinstance(coverage, (list, tuple))
-        else (),
+        coverage=tuple(sorted(_text(item) for item in coverage if _text(item))),
         classification_confidence=(
             float(raw["classification_confidence"])
             if raw.get("classification_confidence") is not None
             else None
         ),
-        dependency_plan=tuple(sorted(_text(item) for item in dependencies if _text(item)))
-        if isinstance(dependencies, (list, tuple))
-        else (),
+        dependency_plan=tuple(
+            sorted(_text(item) for item in dependencies if _text(item))
+        ),
         checksum=_text(raw.get("checksum")),
         execution_allowed=_as_bool(raw.get("execution_allowed", False)),
     )
@@ -395,11 +402,22 @@ def _policy_evidence(
     schema_version: int,
     invalid_profiles: Mapping[str, str] | None = None,
     current_policy_version: str = CURRENT_INVESTABILITY_POLICY_VERSION,
+    store_integrity_errors: Iterable[str] = (),
 ) -> tuple[PolicyEvidence, ...]:
     by_id = {profile.instrument_id: profile for profile in profiles}
     invalid_profiles = invalid_profiles or {}
+    integrity_errors = tuple(store_integrity_errors)
     evidence: list[PolicyEvidence] = []
     for record in records:
+        if integrity_errors:
+            evidence.append(
+                PolicyEvidence(
+                    record.instrument_id,
+                    "manual_review",
+                    "universe store integrity failed: " + "; ".join(integrity_errors),
+                )
+            )
+            continue
         if record.instrument_id in invalid_profiles:
             evidence.append(
                 PolicyEvidence(record.instrument_id, "manual_review", invalid_profiles[record.instrument_id])
@@ -443,6 +461,81 @@ def _policy_evidence(
                 )
             )
     return tuple(evidence)
+
+
+def _decode_v3_store(
+    payload: Mapping[str, object],
+) -> tuple[
+    tuple[UniverseRecord, ...],
+    tuple[InvestabilityPolicyProfile, ...],
+    tuple[str, ...],
+]:
+    errors: list[str] = []
+    if payload.get("schema_version") != 3:
+        errors.append(f"unsupported universe store schema: {payload.get('schema_version')}")
+    persisted_revision = _text(payload.get("revision"))
+    if not persisted_revision or persisted_revision != _payload_revision(payload):
+        errors.append("store revision checksum mismatch")
+
+    raw_records = payload.get("records")
+    records: list[UniverseRecord] = []
+    record_ids: set[str] = set()
+    if not isinstance(raw_records, list):
+        errors.append("records must be a list")
+        raw_records = []
+    for index, raw in enumerate(raw_records):
+        if not isinstance(raw, Mapping):
+            errors.append(f"record {index} must be an object")
+            continue
+        try:
+            record = _normalise_record(UniverseRecord(**raw))
+        except (TypeError, ValueError) as exc:
+            errors.append(f"record {index} is malformed: {exc}")
+            continue
+        if record.instrument_id in record_ids:
+            errors.append(f"duplicate universe record: {record.instrument_id}")
+            continue
+        record_ids.add(record.instrument_id)
+        records.append(record)
+    allow_duplicates = payload.get("allow_cross_tier_duplicates", False)
+    if not isinstance(allow_duplicates, bool):
+        errors.append("allow_cross_tier_duplicates must be a boolean")
+    else:
+        report = validate_universe(
+            records,
+            allow_cross_tier_duplicates=allow_duplicates,
+        )
+        errors.extend(f"invalid universe record: {error}" for error in report.errors)
+
+    raw_profiles = payload.get("policy_profiles")
+    profiles: list[InvestabilityPolicyProfile] = []
+    profile_ids: set[str] = set()
+    if not isinstance(raw_profiles, list):
+        errors.append("policy_profiles must be a list")
+        raw_profiles = []
+    for index, raw in enumerate(raw_profiles):
+        if not isinstance(raw, Mapping):
+            errors.append(f"policy profile {index} must be an object")
+            continue
+        instrument_id = _text(raw.get("instrument_id"))
+        if instrument_id in profile_ids:
+            errors.append(f"duplicate policy profile: {instrument_id or '<missing>'}")
+            continue
+        profile_ids.add(instrument_id)
+        try:
+            profile = _policy_profile_from_mapping(raw)
+        except (TypeError, ValueError) as exc:
+            errors.append(f"policy profile {index} is malformed: {exc}")
+            continue
+        if profile.instrument_id not in record_ids:
+            errors.append(
+                f"policy profile references unknown instrument_id: {profile.instrument_id}"
+            )
+            continue
+        profiles.append(profile)
+    if errors:
+        profiles = []
+    return tuple(records), tuple(profiles), tuple(errors)
 
 
 def build_policy_backfill_plan(
@@ -503,16 +596,29 @@ def save_universe(
     if path.exists():
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(raw, Mapping):
+                raise ValueError("universe store root must be an object")
             current_revision = str(raw.get("revision") or "")
             current_schema_version = int(raw.get("schema_version") or 0)
-            if policy_profiles is None:
+            if current_schema_version >= 3:
+                _, decoded_profiles, integrity_errors = _decode_v3_store(raw)
+                if integrity_errors:
+                    raise ValueError(
+                        "Universe store integrity failed: "
+                        + "; ".join(integrity_errors)
+                    )
+                if policy_profiles is None:
+                    retained_profiles = decoded_profiles
+            elif policy_profiles is None:
                 retained_profiles = tuple(
                     _policy_profile_from_mapping(item)
                     for item in raw.get("policy_profiles", ())
                     if isinstance(item, Mapping)
                 )
-        except (OSError, ValueError, TypeError):
-            current_revision = "corrupt"
+        except OSError:
+            raise
+        except (ValueError, TypeError) as exc:
+            raise ValueError(f"Universe store is corrupt: {exc}") from exc
     if current_revision != expected_revision:
         raise UniverseRevisionConflict(f"Expected revision {expected_revision or '<empty>'}, found {current_revision or '<empty>'}")
     backup_path: Path | None = None
@@ -564,8 +670,31 @@ def load_universe(root: Path | None = None) -> UniverseStoreSnapshot:
     if not path.exists():
         return UniverseStoreSnapshot((), "", path, False)
     payload = json.loads(path.read_text(encoding="utf-8"))
-    records = tuple(_normalise_record(UniverseRecord(**raw)) for raw in payload.get("records", ()))
+    if not isinstance(payload, Mapping):
+        raise ValueError("universe store root must be an object")
     schema_version = int(payload.get("schema_version") or 0)
+    if schema_version >= 3:
+        records, policy_profiles, integrity_errors = _decode_v3_store(payload)
+        return UniverseStoreSnapshot(
+            records,
+            _text(payload.get("revision")),
+            path,
+            _as_bool(payload.get("allow_cross_tier_duplicates", False)),
+            policy_profiles,
+            _policy_evidence(
+                records,
+                policy_profiles,
+                schema_version=schema_version,
+                store_integrity_errors=integrity_errors,
+            ),
+            schema_version,
+            integrity_errors,
+        )
+
+    records = tuple(
+        _normalise_record(UniverseRecord(**raw))
+        for raw in payload.get("records", ())
+    )
     profiles: list[InvestabilityPolicyProfile] = []
     invalid_profiles: dict[str, str] = {}
     for index, raw in enumerate(payload.get("policy_profiles", ())):
@@ -591,6 +720,7 @@ def load_universe(root: Path | None = None) -> UniverseStoreSnapshot:
             invalid_profiles=invalid_profiles,
         ),
         schema_version,
+        (),
     )
 
 

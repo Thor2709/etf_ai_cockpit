@@ -205,6 +205,44 @@ def test_universe_table_distinguishes_policy_evidence_states(monkeypatch) -> Non
     assert rendered["stale"].tooltip == "version changed"
 
 
+def test_universe_store_integrity_failure_is_visible_as_manual_review(
+    monkeypatch,
+) -> None:
+    record = UniverseRecord(
+        "A",
+        "Alpha",
+        "NO0000000001",
+        "verified",
+        "A",
+        "stock",
+        "primary",
+    )
+    monkeypatch.setattr(
+        manager,
+        "load_universe",
+        lambda: UniverseStoreSnapshot(
+            (record,),
+            "tampered-revision",
+            Path("store.json"),
+            policy_evidence=(
+                PolicyEvidence("A", "manual_review", "store revision checksum mismatch"),
+            ),
+            schema_version=3,
+            integrity_errors=("store revision checksum mismatch",),
+        ),
+    )
+
+    root = universe_manager_page(_Page(), _state())
+    rendered = "\n".join(
+        str(control.value)
+        for control in _walk(root)
+        if isinstance(control, ft.Text) and control.value
+    )
+
+    assert "Policy evidence requires manual_review" in rendered
+    assert "store revision checksum mismatch" in rendered
+
+
 def test_universe_identity_action_exposes_graph_conflict_review_and_authority(monkeypatch) -> None:
     record = UniverseRecord("A", "Alpha", "NO0000000001", "verified", "A", "stock", "primary", "", True, "daily", "EUR", "NO", "", "", "")
     monkeypatch.setattr(manager, "load_universe", lambda: UniverseStoreSnapshot((record,), "revision", Path("store.json")))

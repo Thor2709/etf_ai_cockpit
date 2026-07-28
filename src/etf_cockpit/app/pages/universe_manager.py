@@ -135,7 +135,16 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
         dense=True,
         width=520,
     )
-    status = ft.Text("No changes pending. needs_verification and pending refresh are shown per row.", color=theme.MUTED, selectable=True)
+    integrity_errors = tuple(getattr(snapshot, "integrity_errors", ()))
+    status = ft.Text(
+        (
+            "Policy evidence requires manual_review: " + "; ".join(integrity_errors)
+            if integrity_errors
+            else "No changes pending. needs_verification and pending refresh are shown per row."
+        ),
+        color=theme.AMBER if integrity_errors else theme.MUTED,
+        selectable=True,
+    )
     allow_duplicates = ft.Checkbox(
         label="Allow cross-tier duplicate IDs/tickers/ISINs (explicit override)",
         value=snapshot.allow_cross_tier_duplicates,

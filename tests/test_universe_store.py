@@ -354,7 +354,7 @@ def test_tampered_or_unauthorised_policy_profile_fails_closed(tmp_path: Path) ->
             as_of="2026-07-28T00:00:00Z",
             authority="model_generated",
         )
-    with pytest.raises(ValueError, match="checksum mismatch"):
+    with pytest.raises(ValueError, match="integrity failed"):
         save_universe(
             (_record("A"),),
             str(payload["revision"]),
@@ -377,4 +377,98 @@ def test_policy_profile_save_failure_leaves_prior_revision_atomic(
     monkeypatch.setattr(universe_store, "atomic_write_json", fail_atomic_write)
     with pytest.raises(OSError, match="simulated publication failure"):
         save_universe((_record("A"),), saved.revision, root=tmp_path)
+    assert path.read_bytes() == before
+
+
+def _valid_v3_payload(tmp_path: Path) -> tuple[Path, dict[str, object]]:
+    profile = create_policy_profile(
+        instrument_id="A",
+        policy_id="safe-long-only",
+        policy_version=CURRENT_INVESTABILITY_POLICY_VERSION,
+        source_id="official-prospectus",
+        as_of="2026-07-28T00:00:00Z",
+        authority="official",
+    )
+    save_universe((_record("A"),), "", root=tmp_path, policy_profiles=(profile,))
+    path = tmp_path / "configs" / "universe_store.json"
+    return path, json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_v3_revision_mismatch_is_manual_review_and_cannot_be_saved(
+    tmp_path: Path,
+) -> None:
+    path, payload = _valid_v3_payload(tmp_path)
+    payload["records"][0]["name"] = "tampered"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    before = path.read_bytes()
+
+    snapshot = load_universe(tmp_path)
+
+    assert snapshot.integrity_errors == ("store revision checksum mismatch",)
+    assert snapshot.policy_evidence[0].state == "manual_review"
+    with pytest.raises(ValueError, match="store revision checksum mismatch"):
+        save_universe(snapshot.records, snapshot.revision, root=tmp_path)
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("corruption", "fingerprint"),
+    (
+        ("duplicate_profile", "duplicate policy profile: A"),
+        ("non_object_profile", "policy profile 1 must be an object"),
+        ("unknown_profile", "unknown instrument_id: B"),
+        ("malformed_profiles_collection", "policy_profiles must be a list"),
+        ("malformed_profile_collection_field", "coverage must be a list of strings"),
+        ("duplicate_record", "duplicate universe record: A"),
+    ),
+)
+def test_v3_structural_corruption_is_deterministic_and_non_destructive(
+    tmp_path: Path,
+    corruption: str,
+    fingerprint: str,
+) -> None:
+    path, payload = _valid_v3_payload(tmp_path)
+    if corruption == "duplicate_profile":
+        payload["policy_profiles"].append(dict(payload["policy_profiles"][0]))
+    elif corruption == "non_object_profile":
+        payload["policy_profiles"].append("not-an-object")
+    elif corruption == "unknown_profile":
+        unknown = create_policy_profile(
+            instrument_id="B",
+            policy_id="safe-long-only",
+            policy_version=CURRENT_INVESTABILITY_POLICY_VERSION,
+            source_id="official-prospectus",
+            as_of="2026-07-28T00:00:00Z",
+            authority="official",
+        )
+        payload["policy_profiles"].append(
+            {
+                **universe_store._policy_profile_payload(unknown),
+                "checksum": unknown.checksum,
+            }
+        )
+    elif corruption == "malformed_profiles_collection":
+        payload["policy_profiles"] = {"A": payload["policy_profiles"][0]}
+    elif corruption == "malformed_profile_collection_field":
+        payload["policy_profiles"][0]["coverage"] = {"prices": True}
+    elif corruption == "duplicate_record":
+        payload["records"].append(dict(payload["records"][0]))
+    payload["revision"] = universe_store._payload_revision(payload)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    before = path.read_bytes()
+
+    first = load_universe(tmp_path)
+    second = load_universe(tmp_path)
+
+    assert first.integrity_errors == second.integrity_errors
+    assert any(fingerprint in error for error in first.integrity_errors)
+    assert first.policy_profiles == ()
+    assert all(item.state == "manual_review" for item in first.policy_evidence)
+    with pytest.raises(ValueError, match="Universe store integrity failed"):
+        save_universe(
+            first.records,
+            first.revision,
+            root=tmp_path,
+            policy_profiles=(),
+        )
     assert path.read_bytes() == before
