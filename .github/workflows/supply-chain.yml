@@ -1,9 +1,9 @@
 name: Supply-chain scan
 
+# The release-gate workflow owns the one automatic scan for each PR/push tree.
+# This entry point is retained for an explicitly requested diagnostic scan.
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read

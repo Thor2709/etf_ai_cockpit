@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import socket
 import subprocess
 import sys
@@ -14,7 +15,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, cast
 
 
 SCHEMA_VERSION = "1.0"
@@ -97,7 +98,7 @@ def run_validation(
     started_clock = time.perf_counter()
     checks: list[CheckResult] = []
     failures: list[str] = []
-    scope = {
+    scope: dict[str, object] = {
         "issue_ids": sorted({str(value) for value in issue_ids if str(value).strip()}),
         "phase_ids": sorted({str(value) for value in phase_ids if str(value).strip()}),
     }
@@ -237,7 +238,7 @@ def _validate_scope(root: Path, mode: str, scope: dict[str, object]) -> CheckRes
         issue_ids = {str(record.get("canonical_id")) for record in records}
         phase_ids = {str(phase.get("phase")) for phase in registry.get("roadmap_phases", [])}
         selected = scope["issue_ids"] if mode == "issue" else scope["phase_ids"]
-        selected_values = [str(value) for value in selected]  # type: ignore[union-attr]
+        selected_values = [str(value) for value in cast(Iterable[object], selected)]
         if not selected_values:
             raise ValueError(f"{mode} mode requires at least one --{mode} value")
         valid_values = issue_ids if mode == "issue" else phase_ids
@@ -382,7 +383,25 @@ def _existing_log_paths(root: Path, *, report_dir: Path | None = None) -> list[s
 
 def _changed_paths(root: Path) -> list[str]:
     output = _git(root, "status", "--porcelain")
-    return [line[3:] for line in output.splitlines() if len(line) > 3]
+    if output:
+        return [line[3:] for line in output.splitlines() if len(line) > 3]
+    base = os.getenv("ETF_COCKPIT_VALIDATION_BASE_SHA", "").strip()
+    head = os.getenv("ETF_COCKPIT_VALIDATION_HEAD_SHA", "").strip()
+    if not base and not head:
+        return []
+    if not re.fullmatch(r"[0-9a-f]{40}", base) or not re.fullmatch(r"[0-9a-f]{40}", head):
+        raise ValueError("explicit validation base/head must both be 40-character lowercase Git SHAs")
+    try:
+        completed = subprocess.run(
+            ["git", "diff", "--name-only", "--diff-filter=ACMRTUXB", base, head, "--"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ValueError(f"cannot resolve explicit validation base/head: {base}..{head}") from exc
+    return completed.stdout.splitlines()
 
 
 def _changed_test_paths(root: Path) -> list[str]:

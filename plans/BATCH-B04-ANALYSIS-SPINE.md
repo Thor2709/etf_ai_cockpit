@@ -889,3 +889,15 @@ the integrated ISSUE-0177 contract and exact protected evidence. The next
 action is deterministic generation, schema-1.3 edge guard, E-tier checks and
 an audited GitHub projection; the current dry run is already zero action
 because dependency-edge evidence is canonical-only metadata.
+
+`MERGED` ISSUE-0178 dependency-edge PR #588 at
+`0bf098841fe14c513c6b01286973f3aa2d4d0db7`; the schema-1.3 edge guard and
+supply-chain scan passed, the obsolete full matrix cancelled, and post-merge
+GitHub readback remains zero action at checksum
+`865d2c698dde37c3ca3731b4297b8b7d5556c045c42f893218ac79e8700c7087`.
+`IN_PROGRESS` ISSUE-0178 is now dependency-ready with status `planned` and
+`execution_allowed=false`. Exactly one Sol worker owns the bounded classifier
+and CI-orchestration implementation; canonical control/status/generated files
+remain orchestrator-owned. The next action is worker implementation plus
+focused workflow/classifier tests, followed by orchestrator diff review and
+fresh-main integration.
