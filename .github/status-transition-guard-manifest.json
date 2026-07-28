@@ -1,27 +1,19 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [
-    {
-      "from": "planned",
-      "issue_id": "ISSUE-0178",
-      "to": "in_progress"
-    }
-  ],
-  "base_commit": "c4be7fde98574c2a22d33d9ba21b0a3d40532c8e",
-  "branch": "codex/issue-0178-20260728",
-  "issue_ids": [
-    "ISSUE-0178"
-  ],
+  "allowed_status_transitions": [],
+  "base_commit": "0c452da6b27cb5ada9e545517605a7f355485564",
+  "branch": "codex/esef-state-isolation-20260728",
+  "issue_ids": [],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "6f308664272cf6a6c5791cd5ea8369f6fdcd119235f7ef4949be21f054558d77",
+    "base_registry_sha256": "bcf107d24a3da99062c30631b6df45e31d8e2b88ecafa2402544b45883b4a4b1",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "bcf107d24a3da99062c30631b6df45e31d8e2b88ecafa2402544b45883b4a4b1",
-    "reason": "ISSUE-0178 implementation hand-off from fresh main c4be7fde98574c2a22d33d9ba21b0a3d40532c8e: advance only planned to in_progress for the reviewed risk-tiered classifier and CI-orchestration slice after the merged ESEF baseline prerequisite; preserve dependencies, acceptance criteria, policy, broker authority and execution_allowed=false.",
+    "mode": "canonical_schema_and_intake",
+    "proposed_registry_sha256": "2306c9ef16955768b33e6263df86a0d14ee323003a60594f56e23974c03ea7b3",
+    "reason": "Fresh-main convergence for the ESEF state-fixture isolation prerequisite: refresh only the deterministic generation base to merged main 0c452da6b27cb5ada9e545517605a7f355485564; all 202 issue records, statuses, dependency evidence, acceptance criteria, policies, broker authority and execution_allowed=false remain unchanged.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.2"
+  "schema_version": "1.1"
 }
