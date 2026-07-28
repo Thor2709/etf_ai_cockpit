@@ -276,6 +276,7 @@ def test_state_import_persists_esef_facts_and_official_inventory(tmp_path: Path,
     from etf_cockpit.app import state as state_module
     import pandas as pd
 
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
     monkeypatch.setattr(state_module, "STATEMENT_FACTS_PATH", tmp_path / "statement_facts.parquet")
     monkeypatch.setattr(state_module, "FILINGS_STATEMENTS_PATH", tmp_path / "filings_statements.parquet")
     monkeypatch.setattr(state_module, "RAW_DIR", tmp_path / "raw")
