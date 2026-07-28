@@ -188,6 +188,25 @@ issue #239 with semantic SHA-256
 No product, dependency, scope, acceptance, policy or authority change is
 included; `execution_allowed=false`.
 
+`VERIFIED` implemented-initially PR #549 merged ISSUE-0099 as
+`b41a43dccf28512eaee19618341db4b3f34c6d5c` from reviewed head
+`6f6c9950ddc0ed6f69c607bc731b84873817f094`. Status guard run
+`30315660329` and supply-chain run `30315660332` passed; the redundant
+evidence-only release run was cancelled. Checksum-approved GitHub plan
+`64f05b2fc8b4d6fe319fabe16871a0289add24c9eff9197e93a7f7aecea7c9a6`
+applied only #239, and zero-action readback
+`3fc8ff2c316b28e94671bb0521b3eed4310955d0c856b3edaede3fd625113227`
+verified convergence.
+
+`IN_PROGRESS` the final separate convergence advances only ISSUE-0099
+`implemented_initially -> integrated`. The proposed 197-record registry has
+SHA-256 `9cfe0e13df83f6fc65ac539721378d5efaa47d74a266fb3cec5a3bf6166a9766`.
+The reviewed GitHub plan contains exactly one Programme-status update for open
+issue #239 with semantic SHA-256
+`f9e546349595ee9df28e47585e027f790dd0b5b4bf9f3ad1fb13e1eddcaee978`.
+No product, dependency, scope, acceptance, policy or authority change is
+included; `execution_allowed=false`.
+
 `VERIFIED` implemented-initially PR #543 merged as
 `a01c663cd10bc13057175bd128456108bfceb0c4` from reviewed head
 `01f95db5f1211ffc436e01458f78d8d0e63d123c`. Status guard run
