@@ -330,6 +330,25 @@ def test_persisted_control_extensions_do_not_require_reauthorisation(
     } == {"ISSUE-0177", "ISSUE-0178", "ISSUE-0179", "ISSUE-0180", "ISSUE-0181"}
 
 
+def test_persisted_control_extension_accepts_reviewed_lifecycle_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    control = json.loads((ROOT / issue_registry_core.CONTROL_STATE_PATH).read_text(encoding="utf-8"))
+    control["records"]["ISSUE-0178"]["programme_status"] = "in_progress"
+    control["records"]["ISSUE-0178"]["status_transition"] = {
+        "from": "planned",
+        "to": "in_progress",
+        "review_reference": "reviewed persisted-extension lifecycle",
+    }
+    control_path = tmp_path / "control.json"
+    control_path.write_text(json.dumps(control), encoding="utf-8")
+    monkeypatch.setattr(issue_registry_core, "CONTROL_STATE_PATH", control_path)
+
+    registry = build_registry(ROOT, verify_base=False)
+
+    assert _record(registry, "ISSUE-0178")["programme_status"] == "in_progress"
+
+
 @pytest.mark.parametrize("added_ids", [[], ["ISSUE-0997"], ["ISSUE-0998", "ISSUE-0997"]])
 def test_control_extension_requires_exact_manifest_ids(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, added_ids: list[str]

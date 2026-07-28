@@ -88,6 +88,7 @@ screenshot-*.png
 # Stable validation-report contract; runtime payloads are intentionally local.
 artifacts/validation/latest/*
 !artifacts/validation/latest/.gitkeep
+artifacts/release/**
 
 # Generated market data and local catalogues
 data/raw/

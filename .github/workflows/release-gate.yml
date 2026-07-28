@@ -49,6 +49,7 @@ jobs:
           test "$(git rev-parse origin/main)" = "$REVIEWED_BASE_SHA"
 
       - name: Set up pinned Python
+        id: setup-python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12.10"
@@ -79,12 +80,18 @@ jobs:
           python -m pip install --requirement requirements-release.txt
           python -m pip install --requirement requirements-release-parsers.txt
 
+      - name: Verify protected environment
+        shell: bash
+        env:
+          ETF_COCKPIT_SETUP_PYTHON_CACHE_HIT: ${{ steps.setup-python.outputs.cache-hit }}
+        run: python scripts/release_gate.py --root . --verify-environment
+
       - name: Run lint and typing gates
         shell: bash
         run: |
           # The repository still carries unrelated legacy Ruff findings; the
           # release-critical implementation surface is mandatory here.
-          python -m ruff check scripts/release_gate.py src/etf_cockpit/data/health.py tests/test_release_gate.py tests/test_data_health.py
+          python -m ruff check scripts/release_gate.py scripts/validate_app.py src/etf_cockpit/data/health.py tests/test_release_gate.py tests/test_issue_0177_observability.py tests/test_data_health.py
           python -m mypy --ignore-missing-imports --disable-error-code=import-untyped --follow-imports=skip scripts/release_gate.py src/etf_cockpit/data/health.py
 
       - name: Run protected release gate
@@ -93,6 +100,7 @@ jobs:
           ETF_COCKPIT_RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
           ETF_COCKPIT_RELEASE_SIGNING_KEY_ID: ${{ vars.RELEASE_SIGNING_KEY_ID }}
           ETF_COCKPIT_RELEASE_BUILD: "1"
+          ETF_COCKPIT_SETUP_PYTHON_CACHE_HIT: ${{ steps.setup-python.outputs.cache-hit }}
         run: |
           output="artifacts/release/github-${{ github.sha }}/${{ matrix.platform }}"
           arguments=(--root . --output "$output")

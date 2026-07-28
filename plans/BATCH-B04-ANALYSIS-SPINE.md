@@ -828,3 +828,27 @@ must exactly authorise every new ID. A post-intake adversarial test now proves
 unrelated later manifests retain ISSUE-0177–ISSUE-0181 without
 re-authorisation. Because programme-control code changed, the convergence
 transaction is validation tier H and requires fresh Linux and Windows gates.
+
+`MERGED` convergence PR #584 at
+`ed3a7d0813aa930590398d93fc5fa0130f82ec19` after exact-head status,
+supply-chain and complete Linux/Windows release gates passed. The registry
+retains all 202 canonical records and the GitHub projection remains zero
+action at checksum
+`f3813a75fab0a13ee936fe0e77c6350f78d8377c7f450b4983b9c1e9d8633883`.
+
+`IN_PROGRESS` ISSUE-0177 now owns the bounded validation-observability slice.
+One Sol worker prepared the disjoint checkpoint; orchestrator review required
+one correction so an isolated `report_root` cannot leak JUnit output into the
+source worktree. The fresh-main transplant adds protected and affected JUnit,
+slowest-100 setup/call/teardown durations, deterministic environment/cache/
+retry fingerprints, stage and evidence paths, an authoritative pre-test
+environment verifier and ignored runtime release artefacts. Focused
+orchestrator validation passed 29 tests plus Ruff, MyPy, compileall and diff
+hygiene. The canonical status advances only `planned → in_progress`; the
+reviewed GitHub dry-run checksum
+`db8fd5368dd3665d76a8310be7da0714aadb8c7d3b0c147d302b32852537ab3d`
+contains exactly the corresponding ISSUE-0177 status update. A persisted
+extension lifecycle defect discovered by this first transition is fixed with
+a regression test: only genuinely new extension IDs are forced to begin
+`planned`. The next action is exact guards, affected validation and complete
+H-tier Linux/Windows evidence; no provider write occurs before merge.

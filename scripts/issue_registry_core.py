@@ -1047,7 +1047,7 @@ def build_registry(
                 raise ValueError(
                     f"{issue_id}: canonical_definition acceptance_criteria contains duplicates"
                 )
-            if control_record.get("programme_status") != "planned":
+            if issue_id in new_extension_ids and control_record.get("programme_status") != "planned":
                 raise ValueError(f"{issue_id}: newly added canonical issue must be planned")
             row = dict(definition)
             row["issue_id"] = issue_id
