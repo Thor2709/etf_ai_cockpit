@@ -1166,3 +1166,20 @@ The next action is exact schema-1.2 validation, deterministic generation and
 H-tier packaged acceptance before the one-field provider apply/readback;
 dependencies, stale PR #562, broker authority and `execution_allowed=false`
 remain unchanged.
+
+`MERGED` ISSUE-0089 integrated-status PR #606 at
+`2e63a813f8c835a2e488cb88f91bfeaab8ae665a`; Linux and Windows each
+reported 2,122 tests with zero failures, errors or skips, and the PR had no
+comments, reviews, review requests or review threads. The approved provider
+plan updated only the managed Programme status field on canonical issue #229
+at checksum `8b5eb38970a1fc125958eaf1e18fb70d41da2030ceb9625828a139a5852be634`;
+fresh readback is zero action at checksum
+`23cff2eee691649a17d83f0e8ff5c2833c7b19303f57a2a182f1e75db354d143`.
+`BLOCKED` ISSUE-0090 is the next Phase 2 record until its two declared
+dependency edges are reviewed. The current evidence-only transaction reviews
+only ISSUE-0090→ISSUE-0072 against the integrated hybrid local-platform,
+immutable analytical-generation, transactional migration, integrity,
+backup/restore and recovery contract. After protected merge, a second
+transaction will review ISSUE-0090→ISSUE-0075. No product status, provider
+state, broker authority or `execution_allowed=false` changes in either
+dependency transaction.
