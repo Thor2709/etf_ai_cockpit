@@ -41,7 +41,11 @@ def test_ifrs_mapping_is_explicit() -> None:
     assert map_ifrs_fact("hollandcolours:CustomMetric") is None
 
 
-def test_parser_extracts_context_period_unit_and_decimals_and_deduplicates(tmp_path: Path) -> None:
+def test_parser_extracts_context_period_unit_and_decimals_and_deduplicates(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
+
     package = tmp_path / "minimal.xbri"
     xhtml = """<?xml version='1.0'?>
     <html xmlns='http://www.w3.org/1999/xhtml' xmlns:ix='http://www.xbrl.org/2013/inlineXBRL'

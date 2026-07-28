@@ -889,3 +889,17 @@ the integrated ISSUE-0177 contract and exact protected evidence. The next
 action is deterministic generation, schema-1.3 edge guard, E-tier checks and
 an audited GitHub projection; the current dry run is already zero action
 because dependency-edge evidence is canonical-only metadata.
+
+`BLOCKED` ISSUE-0178 product PR #589 at exact product head
+`b7d7df0c859f552cc841ded15e11459634793dc3` passed classifier, preflight,
+supply-chain and the complete Linux protected release gate, but Windows
+exposed a second pre-existing nondeterministic local ESEF extraction test
+boundary. `test_parser_extracts_context_period_unit_and_decimals_and_deduplicates`
+retained its parsed facts but reported `success=false` after invoking the
+optional Arelle validator; the same node passed on Linux, and PR #570 already
+isolated the identical local-extraction contract for the real-package test.
+No retry is authorised. The next action is one bounded test-only baseline
+prerequisite that disables optional Arelle validation for this local
+extraction contract while retaining all dedicated Arelle diagnostic,
+conformance, timeout and worker coverage. PR #589 remains unmerged and
+unchanged until that prerequisite passes both packaged platforms.
