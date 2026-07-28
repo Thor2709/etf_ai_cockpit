@@ -8,20 +8,20 @@
       "to": "implemented"
     }
   ],
-  "base_commit": "0c452da6b27cb5ada9e545517605a7f355485564",
+  "base_commit": "dc8947e8af3049e322de1b52b9d0383864695753",
   "branch": "codex/issue-0178-implemented-20260728",
   "issue_ids": [
     "ISSUE-0178"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "bcf107d24a3da99062c30631b6df45e31d8e2b88ecafa2402544b45883b4a4b1",
+    "base_registry_sha256": "2306c9ef16955768b33e6263df86a0d14ee323003a60594f56e23974c03ea7b3",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "4f8647dcd5972752f8136e1cfb74f912faf5b1357d4b2d116a3e731f4d93263d",
-    "reason": "ISSUE-0178 protected implementation acceptance from fresh main 0c452da6b27cb5ada9e545517605a7f355485564: advance only in_progress to implemented after exact classifier, preflight, supply-chain, status, Linux, Windows and terminal-summary evidence; preserve dependencies, acceptance criteria, policy, broker authority and execution_allowed=false.",
+    "proposed_registry_sha256": "734a1d873760f3de34cdc7f300b3bce28b539eb09c0d6deceb1e73f7bb3e3abf",
+    "reason": "ISSUE-0178 protected implementation acceptance from fresh main dc8947e8af3049e322de1b52b9d0383864695753: advance only in_progress to implemented after exact PR #589 classifier, preflight, supply-chain, status, Linux, Windows and terminal-summary evidence plus the merged PR #592 ESEF state-fixture isolation prerequisite; preserve dependencies, acceptance criteria, policy, broker authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.1"
+  "schema_version": "1.2"
 }

@@ -942,3 +942,17 @@ was applied and verified; fresh readback is zero action at checksum
 The next action is deterministic generation, exact classifier and
 schema-1.2 guards, then the audited one-field GitHub status update;
 `execution_allowed=false` and all product files remain unchanged.
+
+`MERGED` shared baseline prerequisite PR #592 at
+`dc8947e8af3049e322de1b52b9d0383864695753` after exact schema-1.1 status
+protection, classifier, supply-chain, preflight and complete Linux/Windows
+package gates passed. Both platforms reported 2,089 tests with zero failures,
+errors or skips; the Windows-only state-persistence fixture no longer follows
+optional Arelle discovery, while dedicated validator coverage is unchanged.
+`IN_PROGRESS` PR #591 now includes that exact prerequisite and refreshes its
+generation base to merged main without changing the reviewed ISSUE-0178
+status payload. Its audited one-field GitHub plan remains
+`15e0cf38d9efb275948d5ba082ba7fb3a5aa7014e1bc8ee59f4b40779ed219cd`.
+The next action is exact schema-1.2 guard, deterministic generator checks and
+fresh H-tier Linux/Windows evidence on the new head before merge or provider
+write.
