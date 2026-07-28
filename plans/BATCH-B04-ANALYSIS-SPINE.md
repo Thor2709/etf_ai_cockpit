@@ -928,3 +928,17 @@ and contains exactly the ISSUE-0178 `planned → in_progress` update. The next
 action is exact schema-1.2 guard, deterministic generator checks and a fresh
 H-tier Linux/Windows run on the new PR head; no provider write occurs before
 merge.
+
+`MERGED` ISSUE-0178 product PR #589 at
+`0c452da6b27cb5ada9e545517605a7f355485564`. Exact classifier, preflight,
+status protection, the single canonical supply-chain scan, Linux and Windows
+package gates and terminal `validation-summary` passed. Both platforms
+reported 2,089 tests with zero failures, errors or skips. The reviewed GitHub
+plan `35a3e744a36a3b3a3534c0a4471992821687c602b3d26ce64ea3c7405df4d822`
+was applied and verified; fresh readback is zero action at checksum
+`9c0a69053ad330c875b37cafe7c2b1d50c3a8fc16ac9a9a9ddfcec5864e34af3`.
+`IN_PROGRESS` this evidence-only transaction advances only ISSUE-0178 from
+`in_progress` to `implemented`, using the exact protected product evidence.
+The next action is deterministic generation, exact classifier and
+schema-1.2 guards, then the audited one-field GitHub status update;
+`execution_allowed=false` and all product files remain unchanged.

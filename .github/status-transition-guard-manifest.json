@@ -3,23 +3,23 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "planned",
+      "from": "in_progress",
       "issue_id": "ISSUE-0178",
-      "to": "in_progress"
+      "to": "implemented"
     }
   ],
-  "base_commit": "c4be7fde98574c2a22d33d9ba21b0a3d40532c8e",
-  "branch": "codex/issue-0178-20260728",
+  "base_commit": "0c452da6b27cb5ada9e545517605a7f355485564",
+  "branch": "codex/issue-0178-implemented-20260728",
   "issue_ids": [
     "ISSUE-0178"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "6f308664272cf6a6c5791cd5ea8369f6fdcd119235f7ef4949be21f054558d77",
+    "base_registry_sha256": "bcf107d24a3da99062c30631b6df45e31d8e2b88ecafa2402544b45883b4a4b1",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "bcf107d24a3da99062c30631b6df45e31d8e2b88ecafa2402544b45883b4a4b1",
-    "reason": "ISSUE-0178 implementation hand-off from fresh main c4be7fde98574c2a22d33d9ba21b0a3d40532c8e: advance only planned to in_progress for the reviewed risk-tiered classifier and CI-orchestration slice after the merged ESEF baseline prerequisite; preserve dependencies, acceptance criteria, policy, broker authority and execution_allowed=false.",
+    "proposed_registry_sha256": "4f8647dcd5972752f8136e1cfb74f912faf5b1357d4b2d116a3e731f4d93263d",
+    "reason": "ISSUE-0178 protected implementation acceptance from fresh main 0c452da6b27cb5ada9e545517605a7f355485564: advance only in_progress to implemented after exact classifier, preflight, supply-chain, status, Linux, Windows and terminal-summary evidence; preserve dependencies, acceptance criteria, policy, broker authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
