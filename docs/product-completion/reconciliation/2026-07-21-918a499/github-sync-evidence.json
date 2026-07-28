@@ -1,0 +1,29 @@
+{
+  "actions": [
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Programme status"
+      ],
+      "remote_number": 240,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0100",
+      "title": "Implement REIT, utility and infrastructure sector adapters",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/240"
+    }
+  ],
+  "apply_authority": false,
+  "fresh_exact_plan_required_for_apply": true,
+  "plan_semantic_sha256": "55a9b16f22035841235d6de82556e85f157625d6164a00874de2b83c4c418dfc",
+  "remote_inventory_sha256": "4907acdc199b347b4dfb1876a977b92398e06f1078349af308e58dfdcf3dd182",
+  "repository": "Thor2709/etf_ai_cockpit",
+  "schema_version": "etf-ai-cockpit.safe-sync-evidence/1.0",
+  "summary": {
+    "blocked": 0,
+    "close": 0,
+    "create": 0,
+    "reopen": 0,
+    "update": 1
+  },
+  "transient_full_plan_file_sha256": "424f761942846eeb43dd9af92891c5a6f718e42ea0de2dae0e5da25c14329d63"
+}
