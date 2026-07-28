@@ -1183,3 +1183,15 @@ backup/restore and recovery contract. After protected merge, a second
 transaction will review ISSUE-0090→ISSUE-0075. No product status, provider
 state, broker authority or `execution_allowed=false` changes in either
 dependency transaction.
+
+`MERGED` first ISSUE-0090 dependency PR #607 at
+`2337f6959719a9a4ae1b8ec9efb3927ade2acc7d`; Linux and Windows each
+reported 2,122 tests with zero failures, errors or skips, and post-merge
+GitHub projection remains zero action at checksum
+`23cff2eee691649a17d83f0e8ff5c2833c7b19303f57a2a182f1e75db354d143`.
+`IN_PROGRESS` the second evidence-only transaction reviews only
+ISSUE-0090→ISSUE-0075 against the integrated immutable formula, feature,
+dataset, model and policy version registry, dependency-manifest, compatibility,
+migration and deterministic invalidation contract. No product status,
+provider state, broker authority or `execution_allowed=false` changes in this
+transaction.
