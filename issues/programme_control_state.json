@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "65d35e21c397aaca77483cacc88babebdffd0014",
+    "generation_base_commit": "1c0a4d8a027bbce144dddaafc12c2c329a857675",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -3041,6 +3041,17 @@
           "reviewed_date": "2026-07-28",
           "reviewer": "Codex root orchestrator",
           "status": "ready"
+        },
+        {
+          "evidence_references": [
+            "PR #552 merged ISSUE-0100 ready as 1c0a4d8a027bbce144dddaafc12c2c329a857675 with status guard and supply-chain validation passing",
+            "Checksum-approved GitHub plan d826061bf3c605d2d282fdafcfb623c9fa06a788845f079c22d0da78cbda792e updated only #240 and readback e9853f722be8f15bad77559ad8c770e858c98b7433e67305c94c97ab59d3c539 was zero action",
+            "Implementation remains bounded to local typed REIT, utility and infrastructure metrics, formula registry, explicit NAV/RAB unavailability, statement reconciliation, deterministic rate/inflation/refinancing stresses, read-only Real Assets UI evidence and execution_allowed=false"
+          ],
+          "review_reference": "B04 ISSUE-0100 bounded real-assets adapter implementation hand-off",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "status": "in_progress"
         }
       ],
       "dependency_edge_evidence": {
@@ -3058,11 +3069,11 @@
         }
       },
       "phase": "phase-03-stock-research",
-      "programme_status": "ready",
+      "programme_status": "in_progress",
       "status_transition": {
-        "from": "planned",
-        "review_reference": "B04 ISSUE-0100 readiness after complete ISSUE-0098 dependency review",
-        "to": "ready"
+        "from": "ready",
+        "review_reference": "B04 ISSUE-0100 bounded real-assets adapter implementation hand-off",
+        "to": "in_progress"
       },
       "transition_history": [
         {
@@ -3105,9 +3116,23 @@
           "reviewer": "Codex root orchestrator",
           "to": "ready",
           "verified_commit": "65d35e21c397aaca77483cacc88babebdffd0014"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #552 merged ISSUE-0100 ready as 1c0a4d8a027bbce144dddaafc12c2c329a857675 with status guard and supply-chain validation passing",
+            "Checksum-approved GitHub plan d826061bf3c605d2d282fdafcfb623c9fa06a788845f079c22d0da78cbda792e updated only #240 and readback e9853f722be8f15bad77559ad8c770e858c98b7433e67305c94c97ab59d3c539 was zero action",
+            "Implementation remains bounded to local typed REIT, utility and infrastructure metrics, formula registry, explicit NAV/RAB unavailability, statement reconciliation, deterministic rate/inflation/refinancing stresses, read-only Real Assets UI evidence and execution_allowed=false"
+          ],
+          "from": "ready",
+          "review_reference": "B04 ISSUE-0100 bounded real-assets adapter implementation hand-off",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "to": "in_progress",
+          "verified_commit": "1c0a4d8a027bbce144dddaafc12c2c329a857675"
         }
       ],
-      "verified_commit": "65d35e21c397aaca77483cacc88babebdffd0014",
+      "verified_commit": "1c0a4d8a027bbce144dddaafc12c2c329a857675",
       "verified_date": "2026-07-28"
     },
     "ISSUE-0101": {

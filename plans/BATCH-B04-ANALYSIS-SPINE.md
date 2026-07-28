@@ -253,6 +253,38 @@ issue #240 with semantic SHA-256
 No product, dependency, scope, acceptance, policy or authority change is
 included; `execution_allowed=false`.
 
+`VERIFIED` readiness PR #552 merged as
+`1c0a4d8a027bbce144dddaafc12c2c329a857675` from reviewed head
+`560dbf6d0af199eba1688e39fe514691ec0a9f91`. Status guard run
+`30316550340` and supply-chain run `30316550327` passed; the redundant
+evidence-only release run was cancelled. Checksum-approved GitHub plan
+`d826061bf3c605d2d282fdafcfb623c9fa06a788845f079c22d0da78cbda792e`
+applied only #240, and zero-action readback
+`e9853f722be8f15bad77559ad8c770e858c98b7433e67305c94c97ab59d3c539`
+verified convergence.
+
+`IN_PROGRESS` the bounded ISSUE-0100 implementation handoff advances only
+`ready -> in_progress`. The smallest usable outcome is a typed local
+real-assets adapter integrated through the existing peer-cohort registry and
+Instrument Detail facade. It covers REIT FFO/AFFO, occupancy, lease maturity,
+LTV, interest cover and explicit NAV sensitivity; utility/infrastructure RAB,
+allowed returns, capex funding, sector-specific leverage/coverage and
+tariff/regulatory exposure. Maintenance and expansion capex assumptions,
+statement reconciliation, country/business variants, parent fallback, source
+lineage and deterministic rate/inflation/refinancing stresses must stay
+explicit. Missing reliable NAV or RAB inputs remain unavailable.
+
+The implementation excludes remote providers, paid dependencies, generic P/E
+or industrial leverage/FCF fallbacks, other sector children, forecasts,
+expected returns, recommendations, optimisation, order transmission and
+broker writes. The proposed 197-record registry has SHA-256
+`515c155d4c3eb480d756bc50887fce53dddffce9f97cf6d4871306088145c543`.
+The reviewed GitHub plan contains exactly one Programme-status update for open
+issue #240 with semantic SHA-256
+`a9067520a0e16a78bd7b62ea3dfb1dee22976bdc2aace45da921e8f236c76d59`.
+No dependency, scope, acceptance, policy or authority change is included;
+`execution_allowed=false`.
+
 `VERIFIED` implemented-initially PR #543 merged as
 `a01c663cd10bc13057175bd128456108bfceb0c4` from reviewed head
 `01f95db5f1211ffc436e01458f78d8d0e63d123c`. Status guard run

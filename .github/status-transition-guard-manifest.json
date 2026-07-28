@@ -3,23 +3,23 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "planned",
+      "from": "ready",
       "issue_id": "ISSUE-0100",
-      "to": "ready"
+      "to": "in_progress"
     }
   ],
-  "base_commit": "65d35e21c397aaca77483cacc88babebdffd0014",
-  "branch": "codex/issue-0100-ready-20260728",
+  "base_commit": "1c0a4d8a027bbce144dddaafc12c2c329a857675",
+  "branch": "codex/issue-0100-in-progress-20260728",
   "issue_ids": [
     "ISSUE-0100"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "fd09ae9dab75686c6a44b4d2b87364ad03a2140b0309df0dd5b517888473becf",
+    "base_registry_sha256": "e0b645c78be13d62ab62fe2f5a4093835bc288895a28f7513fe7fd761929bebd",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "e0b645c78be13d62ab62fe2f5a4093835bc288895a28f7513fe7fd761929bebd",
-    "reason": "B04 ISSUE-0100 readiness: advance only planned to ready after the sole ISSUE-0098 dependency interface was reviewed and merged complete; preserve product scope, acceptance criteria, dependencies, policy and execution_allowed=false.",
+    "proposed_registry_sha256": "515c155d4c3eb480d756bc50887fce53dddffce9f97cf6d4871306088145c543",
+    "reason": "B04 ISSUE-0100 implementation handoff: advance only ready to in_progress for the bounded local REIT, utility and infrastructure adapter, formula, stress, statement-reconciliation and read-only Real Assets UI slice; preserve dependencies, acceptance criteria, policy and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
