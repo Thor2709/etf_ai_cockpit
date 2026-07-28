@@ -640,3 +640,14 @@ the worker environment with Ruff and diff hygiene. Root review approved the
 one-test correction. Next action is a separate protected baseline-correction
 release from fresh main before rebuilding ISSUE-0022; PR #569 remains
 unmerged at exact head `7f2f0bf2dd004aff28566ae8946bc23957af32ee`.
+
+`VERIFIED` shared ESEF test-isolation prerequisite PR #570 passed status
+guard, supply-chain and full Linux and Windows packaged release gates, then
+merged from exact reviewed head
+`53e56f15750ab171b444acd2b7135f79c38cb7b8` as
+`0c3a086d504d19751e8b1ab87784623c98d7f715`. The protected Windows run
+verified the previously failing real-package local-extraction test. Dedicated
+Arelle diagnostic, conformance, timeout and worker coverage remains intact.
+`IN_PROGRESS` the separate deterministic convergence refreshes only the
+generation base to the merge commit before ISSUE-0022 is rebuilt from fresh
+main. PR #569 remains unchanged and unmerged.
