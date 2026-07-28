@@ -233,6 +233,26 @@ the live GitHub projection remains the zero-action semantic plan
 No product, status, dependency-list, scope, acceptance, policy or authority
 change is included; `execution_allowed=false`.
 
+`VERIFIED` peer-framework edge PR #551 merged as
+`65d35e21c397aaca77483cacc88babebdffd0014` from reviewed head
+`27b82c5c714861d8a03165c8560ab15f08e0b653`. Status guard run
+`30316338360` and supply-chain run `30316338359` passed; the redundant
+evidence-only release run was cancelled. The live GitHub projection remained
+the zero-action plan
+`79c8c3ca0be0675b4718247c8f16767a85ccc7a744a6899a4c456350b2a14fc6`.
+
+`IN_PROGRESS` the separate guarded readiness transition advances only
+ISSUE-0100 `planned -> ready`. Its sole blocking dependency interface is
+reviewed complete while all REIT, utility and infrastructure formulas, source
+evidence, rate/inflation/refinancing stresses and Real Assets UI rationale
+remain unimplemented ISSUE-0100 scope. The proposed 197-record registry has
+SHA-256 `e0b645c78be13d62ab62fe2f5a4093835bc288895a28f7513fe7fd761929bebd`.
+The reviewed GitHub plan contains exactly one Programme-status update for open
+issue #240 with semantic SHA-256
+`d826061bf3c605d2d282fdafcfb623c9fa06a788845f079c22d0da78cbda792e`.
+No product, dependency, scope, acceptance, policy or authority change is
+included; `execution_allowed=false`.
+
 `VERIFIED` implemented-initially PR #543 merged as
 `a01c663cd10bc13057175bd128456108bfceb0c4` from reviewed head
 `01f95db5f1211ffc436e01458f78d8d0e63d123c`. Status guard run

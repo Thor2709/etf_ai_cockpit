@@ -16109,7 +16109,19 @@
         "Rate/inflation stress effects are visible.",
         "Payout and leverage checks reconcile to statements."
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #551 merged the sole ISSUE-0100→ISSUE-0098 dependency edge as complete in 65d35e21c397aaca77483cacc88babebdffd0014 with status guard and supply-chain validation passing",
+            "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0100 retains all REIT, utility and infrastructure implementation scope",
+            "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
+          ],
+          "review_reference": "B04 ISSUE-0100 readiness after complete ISSUE-0098 dependency review",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "status": "ready"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [
         "ISSUE-0098"
@@ -16161,7 +16173,7 @@
       "package_status": "",
       "phase": "phase-03-stock-research",
       "priority": "P1",
-      "programme_status": "planned",
+      "programme_status": "ready",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0099-issue-0102-sector-specific-stock-adapters"
@@ -16191,7 +16203,7 @@
       ],
       "title": "Implement REIT, utility and infrastructure sector adapters",
       "ui_requirement": "Real Assets panels with lease/regulatory and rate sensitivity.",
-      "verified_commit": "fc734201b138d3f24fa68d8c07422322506d6fc5",
+      "verified_commit": "65d35e21c397aaca77483cacc88babebdffd0014",
       "verified_date": "2026-07-28",
       "why": "Long-duration assets require asset value, contractual cash flow, leverage and regulatory analysis.",
       "write_conflict_group": "stock-research"
@@ -26497,7 +26509,7 @@
   ],
   "schema_version": "2.0",
   "source_of_truth": {
-    "baseline_commit": "ecbcfbf8b5706b19996d720a1aeaf945608e7dc9",
+    "baseline_commit": "65d35e21c397aaca77483cacc88babebdffd0014",
     "closed_ledger_sha256": "2dca7fd65f7a218747bcfb91b4e5c1f734af26f29114cc7dc83b071bb86838d8",
     "final_release_manifest_sha256": "dbb71ecaa2b81206ff922eec3dcc72cb08cc001121688b107e8f1c3a2372f685",
     "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -26509,7 +26521,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "36c6b8638403ca8b587878fb08b0b1b0020b95aad007dd8a61cd191af75a4b4d",
+    "programme_control_state_sha256": "0d91358ebdf16cf240445cc5d54c817ff6f8795544383ff1f5520db50c0b793e",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
