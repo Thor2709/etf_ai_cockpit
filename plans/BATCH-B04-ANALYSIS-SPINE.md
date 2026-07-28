@@ -380,6 +380,27 @@ the live GitHub projection remains the zero-action semantic plan
 No product, status, dependency-list, scope, acceptance, policy or authority
 change is included; `execution_allowed=false`.
 
+`VERIFIED` peer-framework edge PR #557 merged as
+`4469b423e18cfb04a7150d38286645d06ea0af67` from reviewed head
+`f4b7d74b8df3e2f461d533ca45db651ce16f7fea`. Status guard run
+`30320222055` and supply-chain run `30320222112` passed; the redundant
+evidence-only release run was cancelled. The live GitHub projection remained
+the zero-action plan
+`39f9947bc1e6a43934ab0ae69e748a13c85b63fbfaa0b33571b0b0144f104475`.
+
+`IN_PROGRESS` the separate guarded readiness transition advances only
+ISSUE-0101 `planned -> ready`. Its sole blocking dependency interface is
+reviewed complete while energy, materials and industrial formulas,
+operational source evidence, cycle-history requirements, commodity/input
+scenarios and Cyclicals UI rationale remain unimplemented ISSUE-0101 scope.
+The proposed 197-record registry has SHA-256
+`f747b8bc045a1eafc41f59fef4bc402a3a3b0b0c4ad3639224b965b7747c3f57`.
+The reviewed GitHub plan contains exactly one Programme-status update for open
+issue #241 with semantic SHA-256
+`5ef2917c04a5a7568052d1a3a00585f2f2353d9f4609d7018db1830ae7a5078f`.
+No product, dependency, scope, acceptance, policy or authority change is
+included; `execution_allowed=false`.
+
 `VERIFIED` implemented-initially PR #543 merged as
 `a01c663cd10bc13057175bd128456108bfceb0c4` from reviewed head
 `01f95db5f1211ffc436e01458f78d8d0e63d123c`. Status guard run

@@ -1,25 +1,27 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_dependency_edge_updates": [
+  "allowed_status_transitions": [
     {
-      "dependency_id": "ISSUE-0098",
-      "issue_id": "ISSUE-0101"
+      "from": "planned",
+      "issue_id": "ISSUE-0101",
+      "to": "ready"
     }
   ],
-  "allowed_status_transitions": [],
-  "base_commit": "e7fd1621ac857797264ab95667b5f09a690b7a34",
-  "branch": "codex/issue-0101-peer-edge-20260728",
-  "issue_ids": [],
+  "base_commit": "4469b423e18cfb04a7150d38286645d06ea0af67",
+  "branch": "codex/issue-0101-ready-20260728",
+  "issue_ids": [
+    "ISSUE-0101"
+  ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "ba2827fa2a21ebb7cf76d735878dd1700708399921048ab254f9607677e3bee2",
+    "base_registry_sha256": "b3b4102430547c0f3cd6b0a4baf18f4c26d2fabe8ac77a2850ed30e95a624b31",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_dependency_edge_evidence",
-    "proposed_registry_sha256": "b3b4102430547c0f3cd6b0a4baf18f4c26d2fabe8ac77a2850ed30e95a624b31",
-    "reason": "B04 ISSUE-0101 readiness review: record only the integrated ISSUE-0098 peer-cohort and adapter framework as a complete dependency interface, keep energy, materials and industrial formulas, cycle history, scenarios and UI rationale in ISSUE-0101, leave ISSUE-0101 planned, and preserve scope, acceptance criteria, policy and execution_allowed=false.",
+    "mode": "generation_base_and_status_transitions",
+    "proposed_registry_sha256": "f747b8bc045a1eafc41f59fef4bc402a3a3b0b0c4ad3639224b965b7747c3f57",
+    "reason": "B04 ISSUE-0101 readiness convergence: advance only planned to ready after PR #557 merged the reviewed complete ISSUE-0098 peer-framework dependency edge; preserve implementation scope, dependencies, acceptance criteria, policy and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.3"
+  "schema_version": "1.2"
 }
