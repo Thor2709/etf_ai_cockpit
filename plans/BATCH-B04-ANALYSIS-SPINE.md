@@ -804,3 +804,27 @@ generator-owned inventory shape. No product or policy assertion failed. The
 bounded correction is to regenerate that one canonical inventory, rerun its
 offline freshness test and publish a new exact head; the obsolete head must
 not merge.
+
+`MERGED` corrected PR #578 at `a0e31fcfe84b343462931967571e6138117109e5`
+after exact-head status, supply-chain and complete Linux/Windows release gates
+passed. The reviewed GitHub plan checksum
+`c5b0ec62c214b864a45486de4342d8ad09bb115b164bacf67c8711fc3cd52f6c`
+was applied and verified, creating ISSUE-0177–ISSUE-0181 as issues #579–#583;
+fresh readback is zero action at checksum
+`f3813a75fab0a13ee936fe0e77c6350f78d8377c7f450b4983b9c1e9d8633883`.
+`IN_PROGRESS` this evidence-only convergence refreshes the canonical
+generation base and remote summary from fresh `origin/main` without changing
+any issue semantics, status, dependency evidence, policy or product file.
+The next action is exact guards and deterministic check mode, then merge the
+small convergence transaction before ISSUE-0177 implementation begins.
+
+`REVIEWED` convergence found that the initial extension generator required
+the intake manifest to re-authorise already-canonical control extensions on
+every later generation. That made the first zero-addition post-merge
+convergence fail closed. The bounded fix distinguishes persisted extensions
+in the checked-in registry from genuinely new IDs, while authoritative
+control comparison still rejects removals and the migration manifest still
+must exactly authorise every new ID. A post-intake adversarial test now proves
+unrelated later manifests retain ISSUE-0177–ISSUE-0181 without
+re-authorisation. Because programme-control code changed, the convergence
+transaction is validation tier H and requires fresh Linux and Windows gates.

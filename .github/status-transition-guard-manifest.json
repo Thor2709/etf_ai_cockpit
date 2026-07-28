@@ -2,22 +2,16 @@
   "allow_downgrades": false,
   "allow_other_status_changes": false,
   "allowed_status_transitions": [],
-  "base_commit": "4eaed9c8d15212d2c9dc69bad0301eecc03e0c74",
-  "branch": "codex/throughput-policy-20260728",
+  "base_commit": "a0e31fcfe84b343462931967571e6138117109e5",
+  "branch": "codex/throughput-converge-20260728",
   "issue_ids": [],
   "registry_migration": {
-    "added_issue_ids": [
-      "ISSUE-0177",
-      "ISSUE-0178",
-      "ISSUE-0179",
-      "ISSUE-0180",
-      "ISSUE-0181"
-    ],
-    "base_registry_sha256": "ee3a019d49afbb4ba2319a61714ead469a3e58c5e39bac0e04bc38c37f3971ec",
+    "added_issue_ids": [],
+    "base_registry_sha256": "0ea9d74977098c8d7a4fdeaae8a9eb815eb9d901a49e5e825ab817f783228482",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "canonical_schema_and_intake",
-    "proposed_registry_sha256": "0ea9d74977098c8d7a4fdeaae8a9eb815eb9d901a49e5e825ab817f783228482",
-    "reason": "Canonical throughput-remediation intake from fresh main 4eaed9c8d15212d2c9dc69bad0301eecc03e0c74: add only planned ISSUE-0177 through ISSUE-0181 with reviewed dependency, validation and rollback contracts; preserve every existing issue record, status, dependency edge, acceptance criterion, policy, broker authority and execution_allowed=false.",
+    "proposed_registry_sha256": "77275e9fa323dcf7dfacad719e2a055ccca258ec2a156fcad68afe47e7ecb716",
+    "reason": "Post-merge convergence for throughput-control PR #578: refresh only the deterministic generation base to merged main a0e31fcfe84b343462931967571e6138117109e5; all 202 issue records, statuses, dependency evidence, acceptance criteria, policies, broker authority and execution_allowed=false remain unchanged.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },

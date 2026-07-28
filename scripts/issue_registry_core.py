@@ -562,6 +562,26 @@ def _authorised_registry_additions(root: Path) -> set[str]:
     return set(values)
 
 
+def _persisted_control_extension_ids(root: Path) -> set[str]:
+    """Return control extensions already present in the canonical registry."""
+
+    path = root / REGISTRY_PATH
+    try:
+        registry = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return set()
+    records = registry.get("records") if isinstance(registry, dict) else None
+    if not isinstance(records, list):
+        return set()
+    return {
+        str(record["canonical_id"])
+        for record in records
+        if isinstance(record, dict)
+        and record.get("source_kind") == "control_extension"
+        and isinstance(record.get("canonical_id"), str)
+    }
+
+
 def baseline_sha(root: Path) -> str:
     """Return the reviewed, explicitly refreshed generation base."""
     return str(load_control_state(root)["metadata"]["generation_base_commit"])
@@ -955,8 +975,9 @@ def build_registry(
         )
     extension_ids = set(control["records"]) - immutable_ids
     if extension_ids:
-        authorised_ids = _authorised_registry_additions(root)
-        if extension_ids != authorised_ids:
+        persisted_ids = _persisted_control_extension_ids(root) & extension_ids
+        new_extension_ids = extension_ids - persisted_ids
+        if new_extension_ids and new_extension_ids != _authorised_registry_additions(root):
             raise ValueError("control extension IDs do not exactly match authorised added_issue_ids")
         phase_ids = {str(value["phase"]) for value in control["phase_definitions"]}
         known_ids = immutable_ids | extension_ids
