@@ -1011,3 +1011,15 @@ The orchestrator passed all 51 affected universe, UI, guardrail and onboarding
 tests plus Ruff, compile and diff hygiene. The next action is an exact-scope
 commit, classifier/preflight review and the complete protected Linux/Windows
 package gate required for persistence and migration changes.
+
+`IN_PROGRESS` persistence-path classifier prerequisite PR #595 merged at
+`2174e2b203731bb9decb1f87c0f1605fa197cde2`; both packaged platforms passed
+2,090 tests with zero failures, errors or skips, and fresh GitHub readback is
+zero action at checksum
+`9709ce3b499692119f301f45338ad6033b8328cfd24b13b9078ef7be83cf3fbe`.
+ISSUE-0068 is refreshed onto that exact main head with deterministic programme
+evidence and no canonical status change. The integrated tree passes all 165
+affected product, classifier and control-plane tests plus Ruff, compile,
+freshness, status-guard and diff checks. The next action is the exact-head
+ISSUE-0068 PR and mandatory H-tier Linux/Windows package gate; stale PR #562,
+broker authority and `execution_allowed=false` remain unchanged.
