@@ -1,5 +1,7 @@
 {
+  "closed_issue_count": 93,
   "inventory_sha256": "52544a0fddf793a2e740517f93e2162128238ecc31ad86522d10d6c21f5ca158",
+  "issue_count": 273,
   "issues": [
     {
       "number": 5,
@@ -1913,7 +1915,9 @@
       "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/455"
     }
   ],
-  "privacy": "stable identifiers and issue metadata only; bodies excluded",
-  "repository": "Thor2709/etf_ai_cockpit",
-  "schema_version": "etf-ai-cockpit.safe-remote-inventory/1.0"
+  "open_issue_count": 180,
+  "open_pull_request_count": 0,
+  "pull_request_count": 0,
+  "read_only_collection": true,
+  "repository": "Thor2709/etf_ai_cockpit"
 }

@@ -794,3 +794,13 @@ updates. The next action is exact migration guard, focused generator/control
 tests, deterministic second-pass proof and H-tier protected release because
 programme-control generator code changed. No provider write occurs before the
 control PR merges and its checksum is reverified.
+
+`FAILED` PR #578 head `338996336761da1064366ee1fdc525bdd43fb9d7`
+completed the Linux full suite with one freshness failure:
+`github-inventory.json` had been rewritten by the final read-only GitHub dry
+run after the last completion-document check. The protected test correctly
+detected that the safe sync inventory shape was not the canonical
+generator-owned inventory shape. No product or policy assertion failed. The
+bounded correction is to regenerate that one canonical inventory, rerun its
+offline freshness test and publish a new exact head; the obsolete head must
+not merge.
