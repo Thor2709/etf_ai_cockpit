@@ -207,6 +207,32 @@ issue #239 with semantic SHA-256
 No product, dependency, scope, acceptance, policy or authority change is
 included; `execution_allowed=false`.
 
+`VERIFIED` integrated PR #550 merged ISSUE-0099 as
+`ecbcfbf8b5706b19996d720a1aeaf945608e7dc9` from reviewed head
+`88a4084987c334060bdbd1ccdcc40d6d958a51e1`. Status guard run
+`30316036205` and supply-chain run `30316036204` passed; the redundant
+evidence-only release run was cancelled. Checksum-approved GitHub plan
+`f9e546349595ee9df28e47585e027f790dd0b5b4bf9f3ad1fb13e1eddcaee978`
+applied only #239, and zero-action readback
+`79c8c3ca0be0675b4718247c8f16767a85ccc7a744a6899a4c456350b2a14fc6`
+verified final ISSUE-0099 convergence.
+
+`IN_PROGRESS` the next dependency-valid B04 prerequisite reviews only
+ISSUE-0100→ISSUE-0098. The integrated `peer-cohort.v1` contract supplies
+versioned sector-adapter registration and metric-applicability lineage,
+classification-gated stock-only routing, exact-cutoff leaf-to-parent cohorts,
+explicit exclusions/support, robust peer statistics and verified replay.
+ISSUE-0100 retains all REIT, utility and infrastructure formulas, source
+evidence, rate/inflation/refinancing stresses and Real Assets UI rationale.
+
+Record the edge as `complete` while ISSUE-0100 remains planned. The proposed
+197-record registry has SHA-256
+`fd09ae9dab75686c6a44b4d2b87364ad03a2140b0309df0dd5b517888473becf`;
+the live GitHub projection remains the zero-action semantic plan
+`79c8c3ca0be0675b4718247c8f16767a85ccc7a744a6899a4c456350b2a14fc6`.
+No product, status, dependency-list, scope, acceptance, policy or authority
+change is included; `execution_allowed=false`.
+
 `VERIFIED` implemented-initially PR #543 merged as
 `a01c663cd10bc13057175bd128456108bfceb0c4` from reviewed head
 `01f95db5f1211ffc436e01458f78d8d0e63d123c`. Status guard run
