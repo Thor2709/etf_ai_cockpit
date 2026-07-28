@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "ed3a7d0813aa930590398d93fc5fa0130f82ec19",
+    "generation_base_commit": "f22abc22f5fee8f97b9ad5dc201374d0a434bfa8",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -7228,6 +7228,18 @@
           "reviewed_date": "2026-07-28",
           "reviewer": "Codex root orchestrator",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "PR #585 merged exact reviewed head 0b576100912258362818de462548b1b3f98d62c0 as f22abc22f5fee8f97b9ad5dc201374d0a434bfa8 with status and supply-chain checks green",
+            "Linux release run 30352881693 job 90254266403 passed 2,081 tests with zero failures/errors and retained JUnit, slowest-100, environment fingerprint, cache/retry and per-stage evidence",
+            "Windows release run 30352881693 job 90254266252 passed 2,081 tests with zero failures/errors and retained JUnit, slowest-100, environment fingerprint, cache/retry and per-stage evidence",
+            "Orchestrator affected validation passed 134 tests plus exact guard, generators, registry, Ruff, MyPy, compile, YAML and diff hygiene; execution_allowed=false"
+          ],
+          "review_reference": "ISSUE-0177 exact-tree implementation and protected-release acceptance",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "status": "implemented"
         }
       ],
       "canonical_definition": {
@@ -7298,11 +7310,11 @@
       },
       "dependency_edge_evidence": {},
       "phase": "phase-09-quality-release-security",
-      "programme_status": "in_progress",
+      "programme_status": "implemented",
       "status_transition": {
-        "from": "planned",
-        "review_reference": "ISSUE-0177 reviewed implementation checkpoint",
-        "to": "in_progress"
+        "from": "in_progress",
+        "review_reference": "ISSUE-0177 exact-tree implementation and protected-release acceptance",
+        "to": "implemented"
       },
       "transition_history": [
         {
@@ -7317,9 +7329,24 @@
           "reviewer": "Codex root orchestrator",
           "to": "in_progress",
           "verified_commit": "ed3a7d0813aa930590398d93fc5fa0130f82ec19"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #585 merged exact reviewed head 0b576100912258362818de462548b1b3f98d62c0 as f22abc22f5fee8f97b9ad5dc201374d0a434bfa8 with status and supply-chain checks green",
+            "Linux release run 30352881693 job 90254266403 passed 2,081 tests with zero failures/errors and retained JUnit, slowest-100, environment fingerprint, cache/retry and per-stage evidence",
+            "Windows release run 30352881693 job 90254266252 passed 2,081 tests with zero failures/errors and retained JUnit, slowest-100, environment fingerprint, cache/retry and per-stage evidence",
+            "Orchestrator affected validation passed 134 tests plus exact guard, generators, registry, Ruff, MyPy, compile, YAML and diff hygiene; execution_allowed=false"
+          ],
+          "from": "in_progress",
+          "review_reference": "ISSUE-0177 exact-tree implementation and protected-release acceptance",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "to": "implemented",
+          "verified_commit": "f22abc22f5fee8f97b9ad5dc201374d0a434bfa8"
         }
       ],
-      "verified_commit": "ed3a7d0813aa930590398d93fc5fa0130f82ec19",
+      "verified_commit": "f22abc22f5fee8f97b9ad5dc201374d0a434bfa8",
       "verified_date": "2026-07-28"
     },
     "ISSUE-0178": {

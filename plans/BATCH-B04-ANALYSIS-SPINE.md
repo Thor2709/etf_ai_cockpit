@@ -852,3 +852,17 @@ extension lifecycle defect discovered by this first transition is fixed with
 a regression test: only genuinely new extension IDs are forced to begin
 `planned`. The next action is exact guards, affected validation and complete
 H-tier Linux/Windows evidence; no provider write occurs before merge.
+
+`MERGED` ISSUE-0177 product PR #585 at
+`f22abc22f5fee8f97b9ad5dc201374d0a434bfa8` after the exact-head status,
+supply-chain and complete Linux/Windows release gates passed. Both platform
+jobs reported 2,081 tests with zero failures or errors and retained JUnit,
+slowest-100 timings, environment fingerprints, cache/retry and per-stage
+evidence. The reviewed GitHub status plan was applied and verified; fresh
+readback is zero action at checksum
+`187dd923cdb7251e85f14b1d1ef43ff3903537b2572f5268982b182d74f692e8`.
+`IN_PROGRESS` this evidence-only transaction advances only ISSUE-0177 from
+`in_progress` to `implemented`, reusing the exact-tree protected evidence.
+The next action is deterministic generation, exact E-tier guards and an
+audited one-field GitHub status update; product code and
+`execution_allowed=false` remain unchanged.
