@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "d5851534bb41f85d31ddc6e6bba15b7d2798e73c",
+    "generation_base_commit": "887b08dce427cadf05e34cccac02111c08b82495",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -3052,6 +3052,17 @@
           "reviewed_date": "2026-07-28",
           "reviewer": "Codex root orchestrator",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "PR #554 merged reviewed ISSUE-0100 product head 96f6101c7f15f7d7382e64332e439f5b4bbc497e as 887b08dce427cadf05e34cccac02111c08b82495",
+            "Protected run 30318189597 completed Linux and Windows package, parity, smoke, performance, security, privacy, legal, policy and SBOM checks; its sole full-suite failure on each platform exactly matched the authorised B03 simple-score invalidation node and pd.notna(None) fingerprint from run 30314202998",
+            "Status guard run 30318189573 and supply-chain run 30318189600 passed; 231 independent affected local checks plus Ruff, compileall and diff hygiene passed; execution_allowed=false"
+          ],
+          "review_reference": "B04 ISSUE-0100 reviewed real-assets adapter product merge",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "status": "implemented_initially"
         }
       ],
       "dependency_edge_evidence": {
@@ -3069,11 +3080,11 @@
         }
       },
       "phase": "phase-03-stock-research",
-      "programme_status": "in_progress",
+      "programme_status": "implemented_initially",
       "status_transition": {
-        "from": "ready",
-        "review_reference": "B04 ISSUE-0100 bounded real-assets adapter implementation hand-off",
-        "to": "in_progress"
+        "from": "in_progress",
+        "review_reference": "B04 ISSUE-0100 reviewed real-assets adapter product merge",
+        "to": "implemented_initially"
       },
       "transition_history": [
         {
@@ -3130,9 +3141,23 @@
           "reviewer": "Codex root orchestrator",
           "to": "in_progress",
           "verified_commit": "1c0a4d8a027bbce144dddaafc12c2c329a857675"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #554 merged reviewed ISSUE-0100 product head 96f6101c7f15f7d7382e64332e439f5b4bbc497e as 887b08dce427cadf05e34cccac02111c08b82495",
+            "Protected run 30318189597 completed Linux and Windows package, parity, smoke, performance, security, privacy, legal, policy and SBOM checks; its sole full-suite failure on each platform exactly matched the authorised B03 simple-score invalidation node and pd.notna(None) fingerprint from run 30314202998",
+            "Status guard run 30318189573 and supply-chain run 30318189600 passed; 231 independent affected local checks plus Ruff, compileall and diff hygiene passed; execution_allowed=false"
+          ],
+          "from": "in_progress",
+          "review_reference": "B04 ISSUE-0100 reviewed real-assets adapter product merge",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex root orchestrator",
+          "to": "implemented_initially",
+          "verified_commit": "887b08dce427cadf05e34cccac02111c08b82495"
         }
       ],
-      "verified_commit": "1c0a4d8a027bbce144dddaafc12c2c329a857675",
+      "verified_commit": "887b08dce427cadf05e34cccac02111c08b82495",
       "verified_date": "2026-07-28"
     },
     "ISSUE-0101": {

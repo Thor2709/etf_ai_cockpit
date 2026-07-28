@@ -37,7 +37,7 @@ Deliver the bounded stock statements, fundamentals, valuation and sectors work w
 ## Blockers, dependencies and related links
 
 - Resolve only `blocking_dependencies` as prerequisites; `required_inputs` are policy/evidence inputs and do not block readiness. `downstream_issues` are generated reverse links and `related_issues` are context only.
-- The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-21-d585153/dependency-reconciliation.csv`.
+- The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-21-887b08d/dependency-reconciliation.csv`.
 
 ## Issue coverage
 
@@ -52,6 +52,6 @@ Deliver the bounded stock statements, fundamentals, valuation and sectors work w
 | `ISSUE-0097` | `P1` | `implemented_initially` | `stock-research` | `ISSUE-0091`, `ISSUE-0092` | - | - | - |
 | `ISSUE-0098` | `P0` | `integrated` | `stock-research` | `ISSUE-0074`, `ISSUE-0083` | - | `ISSUE-0099`, `ISSUE-0100`, `ISSUE-0101`, `ISSUE-0102`, `ISSUE-0157`, `ISSUE-0172` | - |
 | `ISSUE-0099` | `P0/P1` | `integrated` | `stock-research` | `ISSUE-0098` | - | - | - |
-| `ISSUE-0100` | `P1` | `in_progress` | `stock-research` | `ISSUE-0098` | - | - | - |
+| `ISSUE-0100` | `P1` | `implemented_initially` | `stock-research` | `ISSUE-0098` | - | - | - |
 | `ISSUE-0101` | `P1` | `planned` | `stock-research` | `ISSUE-0098` | - | - | - |
 | `ISSUE-0102` | `P1` | `planned` | `stock-research` | `ISSUE-0098` | - | - | - |

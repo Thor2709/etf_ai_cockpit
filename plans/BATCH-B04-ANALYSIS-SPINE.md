@@ -314,6 +314,26 @@ research and Instrument Detail checks; and 6 accessibility/button contract
 checks, plus Ruff, compileall and diff hygiene. Protected Linux and Windows
 release gates and supply-chain validation remain required before merge.
 
+`IN_PROGRESS` product PR #554 merged ISSUE-0100 as
+`887b08dce427cadf05e34cccac02111c08b82495` from exact reviewed head
+`96f6101c7f15f7d7382e64332e439f5b4bbc497e`. Protected release run
+`30318189597` passed Linux and Windows package build, artefact,
+source/package parity, packaged smoke, performance, policy, security, privacy,
+legal and SBOM checks. Both full suites retained only the exact authorised
+B03 simple-score invalidation node and `pd.notna(None)` fingerprint from
+protected run `30314202998`; no ISSUE-0100 or changed-path test failed.
+Status guard run `30318189573` and supply-chain run `30318189600` passed;
+`execution_allowed=false`.
+
+The separate guarded convergence advances only ISSUE-0100
+`in_progress -> implemented_initially`. The proposed 197-record registry has
+SHA-256 `491c791a1abda7d43d55c05ddf3b6f86e08629da188aeb05682e5d14d12e6e6a`.
+The reviewed GitHub plan contains exactly one Programme-status update for open
+issue #240 with semantic SHA-256
+`f920f83ebc49cbd50126b42d67c536263357c4c5f627178f24b42fbfc3d34d57`.
+No product, dependency, scope, acceptance, policy or authority change is
+included; `execution_allowed=false`.
+
 `VERIFIED` implemented-initially PR #543 merged as
 `a01c663cd10bc13057175bd128456108bfceb0c4` from reviewed head
 `01f95db5f1211ffc436e01458f78d8d0e63d123c`. Status guard run
