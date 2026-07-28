@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date
+from dataclasses import replace
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
 import pandas as pd
@@ -8,7 +9,7 @@ import numpy as np
 import pytest
 
 from etf_cockpit.application.overlap import _snapshot_weights, load_direct_holdings
-from etf_cockpit.features.overlap import calculate_direct_overlap
+from etf_cockpit.features.overlap import calculate_direct_overlap, verify_overlap_report
 
 
 def _rows() -> pd.DataFrame:
@@ -78,6 +79,8 @@ def test_stale_overlap_is_dated_evidence_not_current_overlap() -> None:
     technology = next(item for item in report.concentrations if item.dimension == "sector" and item.bucket == "Technology")
     assert technology.current_weight == pytest.approx(0.3)
     assert report.current_resolved_weight == pytest.approx(0.5)
+    assert report.mapped_weight == pytest.approx(0.5)
+    assert report.unknown_weight == pytest.approx(0.5)
     assert "current overlap is unavailable" in " ".join(report.warnings).lower()
 
 
@@ -227,3 +230,106 @@ def test_concentrations_reconcile_only_resolved_direct_exposure() -> None:
     assert technology.target_weight == pytest.approx(0.425)
     assert report.current_resolved_weight == pytest.approx(1.0)
     assert report.target_resolved_weight == pytest.approx(1.0)
+
+
+def _nested_rows() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {"instrument_id": "ROOT", "security": "Alpha", "isin": "GB0002634946", "weight": 0.3, "as_of": "2026-07-01", "known_at": "2026-07-02T00:00:00Z", "source_id": "root", "authority": "issuer", "completeness": "full", "exposure_type": "security", "issuer": "Alpha Issuer", "sector": "Technology", "country": "GB", "currency": "GBP", "factor": "Quality", "cap_bucket": "Large", "index_family": "Global"},
+            {"instrument_id": "ROOT", "security": "Nested ETF", "identity_type": "fund", "identity_namespace": "canonical", "identity_value": "NESTED", "nested_instrument_id": "NESTED", "weight": 0.5, "as_of": "2026-07-01", "known_at": "2026-07-02T00:00:00Z", "source_id": "root", "authority": "issuer", "completeness": "full", "exposure_type": "fund"},
+            {"instrument_id": "ROOT", "security": "Cash", "weight": 0.1, "as_of": "2026-07-01", "known_at": "2026-07-02T00:00:00Z", "source_id": "root", "authority": "issuer", "completeness": "full", "exposure_type": "cash", "currency": "EUR"},
+            {"instrument_id": "ROOT", "security": "Future", "identity_type": "derivative", "identity_namespace": "issuer", "identity_value": "future-1", "weight": 0.1, "as_of": "2026-07-01", "known_at": "2026-07-02T00:00:00Z", "source_id": "root", "authority": "issuer", "completeness": "full", "exposure_type": "derivative"},
+            {"instrument_id": "NESTED", "security": "Alpha renamed", "isin": "GB0002634946", "weight": 0.4, "as_of": "2026-06-30", "known_at": "2026-07-01T00:00:00Z", "source_id": "nested", "authority": "issuer", "completeness": "partial", "exposure_type": "security", "issuer": "Alpha Issuer"},
+            {"instrument_id": "NESTED", "security": "Index future", "identity_type": "derivative", "identity_namespace": "issuer", "identity_value": "future-2", "underlying_identity": "index:canonical:world", "weight": 0.2, "as_of": "2026-06-30", "known_at": "2026-07-01T00:00:00Z", "source_id": "nested", "authority": "issuer", "completeness": "partial", "exposure_type": "derivative"},
+        ]
+    )
+
+
+def test_nested_lookthrough_conserves_unknown_and_preserves_lineage() -> None:
+    report = calculate_direct_overlap(
+        _nested_rows(),
+        ["ROOT"],
+        current_weights={"ROOT": 1.0},
+        today=date(2026, 7, 18),
+    )
+
+    assert report.input_weight == 1.0
+    assert report.mapped_weight == pytest.approx(0.7)
+    assert report.unknown_weight == pytest.approx(0.3)
+    assert report.mapped_weight + report.unknown_weight == pytest.approx(report.input_weight)
+    alpha = next(
+        item for item in report.exposures if item.dimension == "security" and item.bucket == "isin:GB0002634946"
+    )
+    assert alpha.direct_weight == pytest.approx(0.3)
+    assert alpha.indirect_weight == pytest.approx(0.2)
+    assert alpha.combined_weight == pytest.approx(0.5)
+    assert {item.ownership for item in alpha.contributors} == {"direct", "indirect"}
+    assert any("NESTED" in item.path for item in alpha.contributors)
+    assert report.execution_allowed is False
+
+
+def test_nested_missing_snapshot_and_cycle_conserve_value_as_unknown() -> None:
+    missing = _nested_rows().loc[lambda frame: frame["instrument_id"].eq("ROOT")]
+    report = calculate_direct_overlap(
+        missing, ["ROOT"], current_weights={"ROOT": 1.0}, today=date(2026, 7, 18)
+    )
+    assert report.mapped_weight + report.unknown_weight == pytest.approx(1.0)
+    assert report.unknown_weight == pytest.approx(0.6)
+
+    cycle = _nested_rows()
+    cycle.loc[cycle["instrument_id"].eq("NESTED"), "exposure_type"] = "fund"
+    cycle.loc[cycle["instrument_id"].eq("NESTED"), "nested_instrument_id"] = "ROOT"
+    cycled = calculate_direct_overlap(
+        cycle, ["ROOT"], current_weights={"ROOT": 1.0}, today=date(2026, 7, 18)
+    )
+    assert cycled.mapped_weight + cycled.unknown_weight == pytest.approx(1.0)
+    assert "cycle" in " ".join(cycled.warnings).lower()
+
+
+def test_pit_selection_uses_effective_and_timezone_aware_known_cutoff() -> None:
+    rows = _rows()
+    older = rows.loc[rows["instrument_id"].eq("ETF-A")].copy()
+    older["as_of"] = "2026-06-01"
+    older["known_at"] = "2026-06-02T09:00:00+10:00"
+    older["source_id"] = "older-known"
+    newer = rows.loc[rows["instrument_id"].eq("ETF-A")].copy()
+    newer["as_of"] = "2026-07-01"
+    newer["known_at"] = "2026-07-19T00:00:00Z"
+    newer["source_id"] = "newer-future"
+    other = rows.loc[rows["instrument_id"].eq("ETF-B")].copy()
+    other["known_at"] = "2026-07-02T00:00:00Z"
+    evidence = pd.concat([older, newer, other], ignore_index=True)
+
+    report = calculate_direct_overlap(
+        evidence,
+        ["ETF-A", "ETF-B"],
+        today=date(2026, 7, 18),
+        known_at=datetime(2026, 7, 18, 10, tzinfo=timezone.utc),
+    )
+    assert report.coverage[0].source_id == "older-known"
+    assert report.coverage[0].known_at == "2026-06-01T23:00:00+00:00"
+    with pytest.raises(ValueError, match="timezone-aware"):
+        calculate_direct_overlap(evidence, ["ETF-A"], known_at=datetime(2026, 7, 18))
+
+
+def test_checksum_report_identity_order_and_tamper_are_fail_closed() -> None:
+    first = calculate_direct_overlap(
+        _nested_rows(), ["ROOT"], current_weights={"ROOT": 1.0}, today=date(2026, 7, 18)
+    )
+    second = calculate_direct_overlap(
+        _nested_rows().sample(frac=1, random_state=9),
+        ["ROOT"],
+        current_weights={"ROOT": 1.0},
+        today=date(2026, 7, 18),
+    )
+    assert first.report_hash == second.report_hash
+    assert verify_overlap_report(first)
+    assert not verify_overlap_report(replace(first, unknown_weight=0.0))
+
+    checked = _nested_rows().copy()
+    checked.loc[checked["instrument_id"].eq("ROOT"), "source_checksum"] = "0" * 64
+    invalid = calculate_direct_overlap(
+        checked, ["ROOT"], current_weights={"ROOT": 1.0}, today=date(2026, 7, 18)
+    )
+    assert invalid.coverage[0].status == "missing"
+    assert "checksum" in " ".join(invalid.coverage[0].warnings).lower()

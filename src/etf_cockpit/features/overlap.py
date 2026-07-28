@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import date, timedelta
+from dataclasses import asdict, dataclass, replace
+from datetime import date, datetime, time, timedelta, timezone
 import hashlib
+import hmac
 import json
 import math
 import re
@@ -29,6 +30,12 @@ class DirectHolding:
     country: str | None = None
     region: str | None = None
     currency: str | None = None
+    factor: str | None = None
+    cap_bucket: str | None = None
+    index_family: str | None = None
+    exposure_type: Literal["security", "fund", "cash", "derivative", "unknown"] = "security"
+    nested_instrument_id: str | None = None
+    derivative_underlying_identity: str | None = None
 
 
 @dataclass(frozen=True)
@@ -43,6 +50,8 @@ class HoldingsCoverage:
     unresolved_weight: float
     holdings: tuple[DirectHolding, ...]
     warnings: tuple[str, ...] = ()
+    known_at: str | None = None
+    authority: str | None = None
 
 
 @dataclass(frozen=True)
@@ -75,6 +84,24 @@ class OverlapConcentration:
 
 
 @dataclass(frozen=True)
+class ExposureContributor:
+    root_instrument_id: str
+    path: tuple[str, ...]
+    ownership: Literal["direct", "indirect", "unknown"]
+    weight: float
+
+
+@dataclass(frozen=True)
+class LookThroughExposure:
+    dimension: str
+    bucket: str
+    direct_weight: float
+    indirect_weight: float
+    combined_weight: float
+    contributors: tuple[ExposureContributor, ...]
+
+
+@dataclass(frozen=True)
 class DirectOverlapReport:
     status: Literal["full", "dated_lower_bound", "missing"]
     pairs: tuple[PairwiseOverlap, ...]
@@ -85,6 +112,11 @@ class DirectOverlapReport:
     warnings: tuple[str, ...]
     methodology: str = "direct_exact_identity_weighted_min_v1"
     execution_allowed: Literal[False] = False
+    exposures: tuple[LookThroughExposure, ...] = ()
+    input_weight: float = 0.0
+    mapped_weight: float = 0.0
+    unknown_weight: float = 0.0
+    report_hash: str = ""
 
 
 def overlap_warning() -> str:
@@ -99,6 +131,8 @@ def calculate_direct_overlap(
     target_weights: Mapping[str, float] | None = None,
     focus_instrument_id: str | None = None,
     today: date | None = None,
+    known_at: datetime | None = None,
+    max_depth: int = 8,
 ) -> DirectOverlapReport:
     """Calculate direct exact-identity overlap from canonical decimal holdings.
 
@@ -109,8 +143,9 @@ def calculate_direct_overlap(
     ids = tuple(sorted({str(item).strip() for item in instrument_ids if str(item).strip()}))
     current = _portfolio_weights(current_weights or {}, "current_weights")
     target = _portfolio_weights(target_weights or {}, "target_weights")
-    effective_today = today or date.today()
-    coverage = tuple(_select_snapshot(holdings, item, effective_today) for item in ids)
+    cutoff = _normalise_cutoff(known_at, today)
+    effective_today = today or cutoff.date()
+    coverage = tuple(_select_snapshot(holdings, item, effective_today, cutoff) for item in ids)
     by_id = {item.instrument_id: item for item in coverage}
 
     pairs: list[PairwiseOverlap] = []
@@ -134,7 +169,11 @@ def calculate_direct_overlap(
         warnings.append("Observed overlap is a dated lower bound; unresolved exposure is not renormalised.")
     if any(item.freshness == "stale" for item in coverage):
         warnings.append("At least one selected snapshot is stale; current overlap is unavailable.")
-    return DirectOverlapReport(
+    exposures, input_weight, mapped_weight, unknown_weight, lookthrough_warnings = _lookthrough_exposures(
+        holdings, ids, current, coverage, effective_today, cutoff, max_depth
+    )
+    warnings.extend(lookthrough_warnings)
+    report = DirectOverlapReport(
         status=status,
         pairs=tuple(pairs),
         concentrations=concentrations,
@@ -142,7 +181,12 @@ def calculate_direct_overlap(
         current_resolved_weight=_resolved_portfolio_weight(coverage, current),
         target_resolved_weight=_resolved_portfolio_weight(coverage, target),
         warnings=tuple(dict.fromkeys(warnings)),
+        exposures=exposures,
+        input_weight=input_weight,
+        mapped_weight=mapped_weight,
+        unknown_weight=unknown_weight,
     )
+    return _bind_report_hash(report)
 
 
 def _portfolio_weights(values: Mapping[str, float], label: str) -> dict[str, float]:
@@ -158,7 +202,9 @@ def _portfolio_weights(values: Mapping[str, float], label: str) -> dict[str, flo
     return result
 
 
-def _select_snapshot(frame: pd.DataFrame, instrument_id: str, today: date) -> HoldingsCoverage:
+def _select_snapshot(
+    frame: pd.DataFrame, instrument_id: str, today: date, known_at: datetime | None = None
+) -> HoldingsCoverage:
     if frame is None or frame.empty:
         return _missing(instrument_id, "No holdings evidence is available.")
     parent_column = next((name for name in ("instrument_id", "etf_id") if name in frame.columns), None)
@@ -169,19 +215,37 @@ def _select_snapshot(frame: pd.DataFrame, instrument_id: str, today: date) -> Ho
     if rows.empty:
         return _missing(instrument_id, "No holdings snapshot is available for this instrument.")
     dates = pd.to_datetime(rows[date_column], errors="coerce", utc=True)
-    valid = dates.notna() & dates.dt.date.le(today)
+    cutoff = known_at or datetime.combine(today, time.max, tzinfo=timezone.utc)
+    known_column = next((name for name in ("known_at", "available_at") if name in rows.columns), None)
+    availability = (
+        pd.to_datetime(rows[known_column], errors="coerce", utc=True)
+        if known_column
+        else dates
+    )
+    valid = dates.notna() & availability.notna() & dates.dt.date.le(today) & availability.le(cutoff)
     rows = rows.loc[valid].copy()
     dates = dates.loc[valid]
+    availability = availability.loc[valid]
     if rows.empty:
         return _missing(instrument_id, "All holdings dates are invalid or in the future.")
     latest = dates.max()
-    rows = rows.loc[dates.eq(latest)].copy()
+    latest_known = availability.loc[dates.eq(latest)].max()
+    selected_mask = dates.eq(latest) & availability.eq(latest_known)
+    rows = rows.loc[selected_mask].copy()
     source_groups = _source_groups(rows)
     selected, warning = _choose_source_group(source_groups)
     if selected is None:
         return _missing(instrument_id, warning or "Conflicting holdings snapshots are unavailable.")
     source_id, selected_rows = selected
-    return _normalise_snapshot(instrument_id, latest.date().isoformat(), source_id, selected_rows, warning, today)
+    return _normalise_snapshot(
+        instrument_id,
+        latest.date().isoformat(),
+        source_id,
+        selected_rows,
+        warning,
+        today,
+        known_at=latest_known.isoformat(),
+    )
 
 
 def _source_groups(rows: pd.DataFrame) -> list[tuple[str, pd.DataFrame]]:
@@ -216,6 +280,8 @@ def _normalise_snapshot(
     rows: pd.DataFrame,
     selection_warning: str | None,
     today: date,
+    *,
+    known_at: str | None = None,
 ) -> HoldingsCoverage:
     warnings: list[str] = [selection_warning] if selection_warning else []
     grouped: dict[str, list[tuple[float, pd.Series]]] = {}
@@ -247,6 +313,15 @@ def _normalise_snapshot(
                 country=_consistent_dimension(rows_for_id, "country", warnings, identity),
                 region=_consistent_dimension(rows_for_id, "region", warnings, identity),
                 currency=_consistent_dimension(rows_for_id, "currency", warnings, identity),
+                factor=_consistent_dimension(rows_for_id, "factor", warnings, identity),
+                cap_bucket=_consistent_dimension(rows_for_id, "cap_bucket", warnings, identity),
+                index_family=_consistent_dimension(rows_for_id, "index_family", warnings, identity),
+                exposure_type=_exposure_type(rows_for_id),
+                nested_instrument_id=_consistent_dimension(
+                    rows_for_id, "nested_instrument_id", warnings, identity
+                )
+                or _consistent_dimension(rows_for_id, "holding_instrument_id", warnings, identity),
+                derivative_underlying_identity=_derivative_underlying(rows_for_id),
             )
         )
     resolved_weight = math.fsum(item.weight for item in direct)
@@ -283,6 +358,12 @@ def _normalise_snapshot(
                 "country": item.country,
                 "region": item.region,
                 "currency": item.currency,
+                "factor": item.factor,
+                "cap_bucket": item.cap_bucket,
+                "index_family": item.index_family,
+                "exposure_type": item.exposure_type,
+                "nested_instrument_id": item.nested_instrument_id,
+                "derivative_underlying_identity": item.derivative_underlying_identity,
             }
             for item in direct
         ],
@@ -294,6 +375,18 @@ def _normalise_snapshot(
     checksum = hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
     ).hexdigest()
+    supplied_checksums = (
+        sorted({_text(value).lower() for value in rows["source_checksum"] if _text(value)})
+        if "source_checksum" in rows.columns
+        else []
+    )
+    if supplied_checksums and (len(supplied_checksums) != 1 or supplied_checksums[0] != checksum):
+        return _missing(
+            instrument_id,
+            "Snapshot checksum verification failed.",
+            as_of=as_of,
+            source_id=source_id or None,
+        )
     return HoldingsCoverage(
         instrument_id=instrument_id,
         status=status,
@@ -305,10 +398,16 @@ def _normalise_snapshot(
         unresolved_weight=round(max(0.0, 1.0 - resolved_weight), 12),
         holdings=tuple(direct),
         warnings=tuple(dict.fromkeys(warnings)),
+        known_at=known_at,
+        authority=authority,
     )
 
 
 def _typed_identity(row: pd.Series) -> str | None:
+    exposure_type = _text(row.get("exposure_type", row.get("asset_type"))).lower()
+    if exposure_type == "cash":
+        currency = _text(row.get("currency")).upper()
+        return f"cash:{currency}" if currency else None
     isin = _text(row.get("isin")).upper()
     if isin:
         return f"isin:{isin}" if _valid_isin(isin) else None
@@ -328,6 +427,26 @@ def _typed_identity(row: pd.Series) -> str | None:
         if value and namespace:
             return f"{kind}:{namespace}:{value.casefold()}"
     return None
+
+
+def _exposure_type(rows: list[pd.Series]) -> Literal["security", "fund", "cash", "derivative", "unknown"]:
+    values = {
+        _text(row.get("exposure_type", row.get("asset_type"))).lower()
+        for row in rows
+        if _text(row.get("exposure_type", row.get("asset_type")))
+    }
+    aliases = {"etf": "fund", "mutual_fund": "fund", "stock": "security", "equity": "security"}
+    value = aliases.get(next(iter(values)), next(iter(values))) if len(values) == 1 else "unknown"
+    return value if value in {"security", "fund", "cash", "derivative"} else "unknown"
+
+
+def _derivative_underlying(rows: list[pd.Series]) -> str | None:
+    values = {
+        _text(row.get("underlying_identity"))
+        for row in rows
+        if _text(row.get("underlying_identity"))
+    }
+    return next(iter(values)) if len(values) == 1 else None
 
 
 def _unresolved_fields(row: pd.Series) -> dict[str, str]:
@@ -429,6 +548,203 @@ def _resolved_portfolio_weight(coverage: tuple[HoldingsCoverage, ...], weights: 
         ),
         12,
     )
+
+
+def _normalise_cutoff(known_at: datetime | None, today: date | None) -> datetime:
+    if known_at is None:
+        return datetime.combine(today or date.today(), time.max, tzinfo=timezone.utc)
+    if known_at.tzinfo is None or known_at.utcoffset() is None:
+        raise ValueError("known_at must be timezone-aware")
+    return known_at.astimezone(timezone.utc)
+
+
+def _lookthrough_exposures(
+    frame: pd.DataFrame,
+    instrument_ids: tuple[str, ...],
+    weights: Mapping[str, float],
+    root_coverage: tuple[HoldingsCoverage, ...],
+    today: date,
+    cutoff: datetime,
+    max_depth: int,
+) -> tuple[tuple[LookThroughExposure, ...], float, float, float, list[str]]:
+    if max_depth < 1 or max_depth > 32:
+        raise ValueError("max_depth must be between 1 and 32")
+    input_weight = round(math.fsum(weights.get(item, 0.0) for item in instrument_ids), 12)
+    if input_weight == 0:
+        return (), 0.0, 0.0, 0.0, []
+    snapshots = {item.instrument_id: item for item in root_coverage}
+    values: dict[tuple[str, str], list[object]] = {}
+    mapped_security = 0.0
+    unknown_security = 0.0
+    warnings: list[str] = []
+    dimensions = (
+        "security",
+        "issuer",
+        "company",
+        "sector",
+        "country",
+        "region",
+        "currency",
+        "factor",
+        "cap_bucket",
+        "index_family",
+        "exposure_type",
+        "fund",
+    )
+
+    def add(
+        dimension: str,
+        bucket: str,
+        amount: float,
+        ownership: Literal["direct", "indirect", "unknown"],
+        root: str,
+        path: tuple[str, ...],
+    ) -> None:
+        key = (dimension, bucket)
+        entry = values.setdefault(key, [0.0, 0.0, []])
+        if ownership == "direct":
+            entry[0] = float(entry[0]) + amount
+        elif ownership == "indirect":
+            entry[1] = float(entry[1]) + amount
+        entry[2].append(ExposureContributor(root, path, ownership, round(amount, 12)))
+
+    def combined(entry: list[object]) -> float:
+        return float(entry[0]) + float(entry[1]) + math.fsum(
+            contributor.weight
+            for contributor in entry[2]
+            if contributor.ownership == "unknown"
+        )
+
+    def snapshot(instrument_id: str) -> HoldingsCoverage:
+        if instrument_id not in snapshots:
+            snapshots[instrument_id] = _select_snapshot(frame, instrument_id, today, cutoff)
+        return snapshots[instrument_id]
+
+    def expand(root: str, fund: str, amount: float, depth: int, path: tuple[str, ...]) -> None:
+        nonlocal mapped_security, unknown_security
+        selected = snapshot(fund)
+        if (
+            selected.status == "missing"
+            or selected.freshness != "fresh"
+            or not selected.source_id
+            or not selected.source_checksum
+            or selected.authority not in {"issuer", "vendor", "manual_unverified"}
+        ):
+            unknown_security += amount
+            add("security", "Unknown/Unmapped", amount, "unknown", root, path)
+            warnings.append(f"Nested holdings for {fund} are unavailable or stale; exposure remains unknown.")
+            return
+        unresolved = amount * selected.unresolved_weight
+        if unresolved > _TOLERANCE:
+            unknown_security += unresolved
+            add("security", "Unknown/Unmapped", unresolved, "unknown", root, path)
+        for holding in selected.holdings:
+            child_amount = amount * holding.weight
+            child_path = (*path, holding.nested_instrument_id or holding.identity)
+            ownership: Literal["direct", "indirect"] = "direct" if depth == 0 else "indirect"
+            if depth == 0 and holding.exposure_type == "fund":
+                add("fund", holding.identity, child_amount, "direct", root, child_path)
+            if holding.exposure_type == "fund":
+                nested = holding.nested_instrument_id
+                if not nested or nested in path or depth + 1 >= max_depth:
+                    unknown_security += child_amount
+                    add("security", "Unknown/Unmapped", child_amount, "unknown", root, child_path)
+                    reason = "cycle" if nested in path else "depth/missing link"
+                    warnings.append(f"Nested fund {holding.display_name} stopped at {reason}; value was conserved as unknown.")
+                else:
+                    expand(root, nested, child_amount, depth + 1, (*path, nested))
+                continue
+            if holding.exposure_type == "derivative" and not holding.derivative_underlying_identity:
+                unknown_security += child_amount
+                add("security", "Unknown/Unmapped", child_amount, "unknown", root, child_path)
+                add("exposure_type", "derivative", child_amount, ownership, root, child_path)
+                warnings.append("A derivative lacked explicit underlying evidence and remains unresolved.")
+                continue
+            mapped_security += child_amount
+            dimensions_for_holding = _holding_dimensions(holding)
+            if holding.derivative_underlying_identity:
+                dimensions_for_holding["security"] = holding.derivative_underlying_identity
+            for dimension, bucket in dimensions_for_holding.items():
+                add(dimension, bucket, child_amount, ownership, root, child_path)
+
+    for root in instrument_ids:
+        amount = weights.get(root, 0.0)
+        if amount > 0:
+            expand(root, root, amount, 0, (root,))
+
+    # Every combined dimension conserves the same input value without proportional filling.
+    for dimension in dimensions:
+        known = math.fsum(
+            combined(entry)
+            for (entry_dimension, bucket), entry in values.items()
+            if entry_dimension == dimension and bucket != "Unknown/Unmapped"
+        )
+        missing = max(0.0, input_weight - known)
+        existing_unknown = math.fsum(
+            combined(entry)
+            for (entry_dimension, bucket), entry in values.items()
+            if entry_dimension == dimension and bucket == "Unknown/Unmapped"
+        )
+        if missing > existing_unknown + _TOLERANCE:
+            add(dimension, "Unknown/Unmapped", missing - existing_unknown, "unknown", "portfolio", ("portfolio",))
+    result = tuple(
+        LookThroughExposure(
+            dimension=dimension,
+            bucket=bucket,
+            direct_weight=round(float(entry[0]), 12),
+            indirect_weight=round(float(entry[1]), 12),
+            combined_weight=round(combined(entry), 12),
+            contributors=tuple(
+                sorted(entry[2], key=lambda item: (item.root_instrument_id, item.path, item.ownership, item.weight))
+            ),
+        )
+        for (dimension, bucket), entry in sorted(values.items())
+    )
+    mapped = round(min(input_weight, mapped_security), 12)
+    unknown = round(max(0.0, input_weight - mapped), 12)
+    if abs(input_weight - mapped - unknown) > _TOLERANCE:
+        raise ValueError("Look-through exposure failed conservation")
+    return result, input_weight, mapped, unknown, warnings
+
+
+def _holding_dimensions(holding: DirectHolding) -> dict[str, str]:
+    result = {
+        "security": holding.identity,
+        "exposure_type": holding.exposure_type,
+    }
+    for dimension in (
+        "issuer",
+        "company",
+        "sector",
+        "country",
+        "region",
+        "currency",
+        "factor",
+        "cap_bucket",
+        "index_family",
+    ):
+        value = getattr(holding, dimension)
+        if value:
+            result[dimension] = value
+    return result
+
+
+def _bind_report_hash(report: DirectOverlapReport) -> DirectOverlapReport:
+    payload = asdict(report)
+    payload["report_hash"] = ""
+    digest = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    ).hexdigest()
+    return replace(report, report_hash=digest)
+
+
+def verify_overlap_report(report: DirectOverlapReport) -> bool:
+    """Strictly verify the deterministic identity of an in-memory report."""
+
+    if not report.report_hash or report.execution_allowed is not False:
+        return False
+    expected = _bind_report_hash(replace(report, report_hash="")).report_hash
+    return hmac.compare_digest(report.report_hash, expected)
 
 
 def _valid_isin(value: str) -> bool:
