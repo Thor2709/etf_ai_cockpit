@@ -1023,3 +1023,18 @@ affected product, classifier and control-plane tests plus Ruff, compile,
 freshness, status-guard and diff checks. The next action is the exact-head
 ISSUE-0068 PR and mandatory H-tier Linux/Windows package gate; stale PR #562,
 broker authority and `execution_allowed=false` remain unchanged.
+
+`MERGED` ISSUE-0068 product PR #597 at
+`4119de77e0bbc9d30939855945247223443c8e19`; the exact status guard,
+classifier, preflight, supply-chain and terminal summary passed, and Linux and
+Windows each reported 2,104 tests with zero failures, errors or skips. Fresh
+post-merge GitHub readback remains zero action at checksum
+`9709ce3b499692119f301f45338ad6033b8328cfd24b13b9078ef7be83cf3fbe`.
+`IN_PROGRESS` the evidence-only integration transaction advances only
+ISSUE-0068 from `implemented_initially` to `integrated`. Its reviewed GitHub
+plan contains one update for canonical issue #140 at checksum
+`96e6426266e23802fecb93b4423a79869a1929aa88341546594bdef0976b369f`.
+The next action is exact schema-1.2 validation, deterministic generation and
+H-tier packaged acceptance before the one-field provider apply/readback;
+stale PR #562, broker authority and `execution_allowed=false` remain
+unchanged.

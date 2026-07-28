@@ -1,19 +1,27 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [],
-  "base_commit": "2174e2b203731bb9decb1f87c0f1605fa197cde2",
-  "branch": "codex/issue-0068-rebuild-20260728",
-  "issue_ids": [],
+  "allowed_status_transitions": [
+    {
+      "from": "implemented_initially",
+      "issue_id": "ISSUE-0068",
+      "to": "integrated"
+    }
+  ],
+  "base_commit": "4119de77e0bbc9d30939855945247223443c8e19",
+  "branch": "codex/issue-0068-integrated-20260728",
+  "issue_ids": [
+    "ISSUE-0068"
+  ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "2ba8f13540f25574574f1c0d9339fcdf99944a22c1c9e9b8fed4fa18017cf4e7",
+    "base_registry_sha256": "63394909f34690f27f8ca4a199910b0d5b8d86725bf42b3f299b1db07496ae56",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "canonical_schema_and_intake",
-    "proposed_registry_sha256": "63394909f34690f27f8ca4a199910b0d5b8d86725bf42b3f299b1db07496ae56",
-    "reason": "Refresh the deterministic generation base to merged classifier prerequisite PR #595 at 2174e2b203731bb9decb1f87c0f1605fa197cde2 while rebuilding ISSUE-0068 versioned investability policy profiles; all 202 canonical issue records, statuses, dependency evidence, acceptance criteria, broker authority and execution_allowed=false remain unchanged.",
+    "mode": "generation_base_and_status_transitions",
+    "proposed_registry_sha256": "51dc0006e4cc45d542d57e3527e06c2109fe562bd913ae4ad2cb9cfcddbfb6a6",
+    "reason": "ISSUE-0068 protected integration acceptance from fresh main 4119de77e0bbc9d30939855945247223443c8e19: advance only implemented_initially to integrated after exact PR #597 classifier, preflight, supply-chain, status, Linux, Windows and terminal-summary evidence; preserve dependencies, acceptance criteria, policy, broker authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.1"
+  "schema_version": "1.2"
 }
