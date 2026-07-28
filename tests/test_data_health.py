@@ -84,6 +84,11 @@ def test_data_health_ui_names_cache_provenance_and_failure_columns() -> None:
     assert "Bulk source cache" in values
     assert any("network_calls=false" in value for value in values)
     assert {"Filter status", "Filter dataset", "Filter provider", "Provider status", "Filings", "ETF", "Errors"} <= values
+    assert "Anomaly rules and quarantine" in values
+    assert any("rule coverage=" in value for value in values)
+    assert any("pass=" in value and "quarantine=" in value and "block=" in value for value in values)
+    assert any("blocked downstream=" in value and "corrections=" in value for value in values)
+    assert any("execution_allowed=false" in value for value in values)
 
 
 def test_health_inventory_exposes_explicit_migration_status(tmp_path: Path) -> None:
