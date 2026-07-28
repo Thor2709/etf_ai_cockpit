@@ -668,3 +668,15 @@ merged deterministic ESEF baseline correction and does not modify ESEF,
 status, dependency, financial calculation, broker authority or
 `execution_allowed=false` semantics. Next action is the protected ISSUE-0022
 release from this fresh base.
+
+`MERGED` rebuilt ISSUE-0022 replacement PR #572 passed status guard,
+supply-chain and full Linux and Windows packaged release gates, then merged
+from exact head `80a6df8204c16d916d9ccc22663272d5709f02ae` as
+`92dbc823129ae69ad2facdbf17309379e3f8cb43`. The Windows run verified the
+previously failing ESEF regression and all packaged checks. The five-file
+product patch retained stable patch id
+`618d1383baa80e8ce514f70e9a54328fec4da858`. `IN_PROGRESS` the separate
+deterministic convergence refreshes only the generation base to the merge
+commit before ISSUE-0059 review. The failed first-attempt PR #569 remains
+unchanged at exact head `7f2f0bf2dd004aff28566ae8946bc23957af32ee`
+pending supersession cleanup.
