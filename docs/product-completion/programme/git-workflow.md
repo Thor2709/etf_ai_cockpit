@@ -1,6 +1,6 @@
 # Git workflow
 
-- Base: `2ca0c37113da423c06e1fcda15110b028fef74dd` (`origin/main`).
+- Base: `86502a99f9428c0f1c916bfea3974d41f7c3f2a1` (`origin/main`).
 - Keep the primary checkout and its unrelated untracked files untouched.
 - Review `git diff`, run targeted checks, commit the focused change, then use capability-based GitHub checks before any push or issue apply.
 - Do not commit the supplied ZIP; commit the archived extracted members, manifest, registry, documents, scripts and tests.

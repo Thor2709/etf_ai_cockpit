@@ -745,3 +745,19 @@ execution-authority change is included. There is no implementation blocker;
 the next action is the single-edge guarded control refresh, deterministic
 freshness validation, zero-action GitHub projection, and protected release
 from fresh main with `execution_allowed=false`.
+
+`VERIFIED` ISSUE-0127 dependency-edge PR #576 remained unchanged at reviewed
+head `bdf759761e9e8aee33ee57197b888a9af1fb2e1d`, with base
+`2ca0c37113da423c06e1fcda15110b028fef74dd`, no reviews or comments, and
+successful status-guard, supply-chain, Linux and Windows protected checks. It
+merged with expected-head protection as
+`86502a99f9428c0f1c916bfea3974d41f7c3f2a1`.
+
+`IN_PROGRESS` the current shared prerequisite is deterministic post-merge
+convergence from that exact `main` SHA, followed by the bounded throughput
+control and P0 remediation programme. ISSUE-0127 remains `planned`; its
+ISSUE-0072 edge is the explicit unresolved product blocker. The next action is
+to refresh only the canonical generation base, regenerate and prove
+byte-fresh projections, require a zero-action GitHub readback, then install the
+reviewed throughput controls without changing product scope, authority or
+`execution_allowed=false`.
