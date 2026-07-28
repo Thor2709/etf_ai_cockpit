@@ -1149,3 +1149,20 @@ from `in_progress` to `implemented_initially`. The next action is exact
 schema-1.2 validation, deterministic generation and H-tier packaged
 acceptance before the one-field provider apply/readback; dependencies, stale
 PR #562, broker authority and `execution_allowed=false` remain unchanged.
+
+`MERGED` ISSUE-0089 implemented-initially status PR #605 at
+`19258f531d29090e8f574f990954feec5a966638`; Linux and Windows each
+reported 2,122 tests with zero failures, errors or skips, and the PR had no
+comments, reviews, review requests or review threads. The approved provider
+plan updated only the managed Programme status field on canonical issue #229
+at checksum `9a2ac652356dfc12284e6e1fec0c34ee209cd1be39851e4d49d3ea4e444b607f`;
+fresh readback is zero action at checksum
+`06ab2ec48cf7190b38dfb88fa33917ad22ba50eec90ab52e663ed26842609728`.
+`IN_PROGRESS` the final evidence-only transaction advances only ISSUE-0089
+from `implemented_initially` to `integrated`. Its reviewed GitHub plan contains
+one update for canonical issue #229 at checksum
+`8b5eb38970a1fc125958eaf1e18fb70d41da2030ceb9625828a139a5852be634`.
+The next action is exact schema-1.2 validation, deterministic generation and
+H-tier packaged acceptance before the one-field provider apply/readback;
+dependencies, stale PR #562, broker authority and `execution_allowed=false`
+remain unchanged.
