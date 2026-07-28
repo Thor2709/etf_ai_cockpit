@@ -1,25 +1,19 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_dependency_edge_updates": [
-    {
-      "dependency_id": "ISSUE-0072",
-      "issue_id": "ISSUE-0127"
-    }
-  ],
   "allowed_status_transitions": [],
-  "base_commit": "90106943ea4e7cd41909ca45eab185216bb8f45f",
-  "branch": "codex/issue-0127-edge-0072-20260728",
+  "base_commit": "f6460719ee854f5875d25428560e2dab508f3a85",
+  "branch": "codex/post-pr594-convergence-20260728",
   "issue_ids": [],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "a38eabbdbf3c3be5d0a8328763a1be7f3f4302ed4eb6b76bebb3a829e1e3f5b5",
+    "base_registry_sha256": "214b63a9a5c9fba27c3e53d68a6248ef45022b55fc105ae7d08bec5eb5a32662",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_dependency_edge_evidence",
-    "proposed_registry_sha256": "214b63a9a5c9fba27c3e53d68a6248ef45022b55fc105ae7d08bec5eb5a32662",
-    "reason": "ISSUE-0127 dependency readiness from fresh main 90106943ea4e7cd41909ca45eab185216bb8f45f: update exactly ISSUE-0127 to ISSUE-0072 from unresolved to partial_interface using the integrated generic transactional-storage contract while retaining double-entry accounting and reconciliation as consumer-owned scope; preserve all statuses, other dependencies, policy, broker authority and execution_allowed=false.",
+    "mode": "canonical_schema_and_intake",
+    "proposed_registry_sha256": "421cb8006c9f0fe2124bddf953c2508940bdce4e5c9614a0516e7821130294b6",
+    "reason": "Post-merge convergence for ISSUE-0127 dependency-edge PR #594: refresh only the deterministic generation base to merged main f6460719ee854f5875d25428560e2dab508f3a85; all 202 issue records, statuses, dependency evidence, acceptance criteria, policies, broker authority and execution_allowed=false remain unchanged.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.3"
+  "schema_version": "1.1"
 }
