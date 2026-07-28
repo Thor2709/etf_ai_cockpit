@@ -1070,3 +1070,20 @@ The next action is exact schema-1.2 validation, deterministic generation and
 H-tier packaged acceptance before the one-field provider apply/readback;
 stale PR #562, broker authority and `execution_allowed=false` remain
 unchanged.
+
+`MERGED` ISSUE-0088 integrated-status PR #600 at
+`606b1a245b22393aa79a673329b968fc77537278`; Linux and Windows each
+reported 2,115 tests with zero failures, errors or skips. The approved
+checksum updated only canonical issue #228, and fresh readback is zero action
+at checksum `b394835bb4856ff3df524eeac6cdbffa8355539286cbc6602148379337455b4e`.
+`BLOCKED` ISSUE-0089 is the next Phase 2 candidate until its two declared
+dependency edges are reviewed. Targeted inspection confirms ISSUE-0073
+provides append-only decision-time vintages and UPDATEV2-0021 provides
+candidate retention, deterministic conflict selection, quarantine/block
+states, audited review and downstream invalidation identity; their 23 focused
+tests pass. Repository control requires each dependency decision to advance
+and merge independently. The current evidence-only transaction changes only
+ISSUE-0089→ISSUE-0073 from `unresolved` to `complete`; after protected merge,
+a second transaction will review ISSUE-0089→UPDATEV2-0021. No product status,
+provider state, broker authority or `execution_allowed=false` changes in
+either dependency transaction.
