@@ -1087,3 +1087,16 @@ ISSUE-0089→ISSUE-0073 from `unresolved` to `complete`; after protected merge,
 a second transaction will review ISSUE-0089→UPDATEV2-0021. No product status,
 provider state, broker authority or `execution_allowed=false` changes in
 either dependency transaction.
+
+`MERGED` first ISSUE-0089 dependency PR #601 at
+`d9b0189db909dca4286432bb6e4eef311d2b2830`; Linux and Windows each
+reported 2,115 tests with zero failures, errors or skips, and post-merge
+GitHub projection remains zero action at checksum
+`b394835bb4856ff3df524eeac6cdbffa8355539286cbc6602148379337455b4e`.
+`IN_PROGRESS` the second evidence-only transaction changes only
+ISSUE-0089→UPDATEV2-0021 from `unresolved` to `complete`, based on the
+integrated point-in-time candidate-retention, deterministic conflict
+selection, quarantine/block, audited-review and invalidation-token contract.
+The next action is deterministic generation and protected validation; no
+programme status, provider state, broker authority or
+`execution_allowed=false` changes in this transaction.

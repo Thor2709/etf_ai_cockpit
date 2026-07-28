@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "606b1a245b22393aa79a673329b968fc77537278",
+    "generation_base_commit": "d9b0189db909dca4286432bb6e4eef311d2b2830",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -2495,12 +2495,15 @@
           "state": "complete"
         },
         "UPDATEV2-0021": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "ISSUE-0089 implementation: retain candidates, apply deterministic source selection, and preserve human review and resolution records",
+          "evidence_references": [
+            "src/etf_cockpit/data/source_conflicts.py: point-in-time candidate retention, deterministic selection, pass/warn/quarantine/block states, audited review decisions and invalidation tokens",
+            "tests/test_source_conflicts.py: candidate, tolerance, quarantine, historical review and invalidation coverage; focused dependency suite passed 23 tests on 2026-07-28"
+          ],
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         }
       },
       "phase": "phase-02-data-policy-identity",
@@ -2535,9 +2538,34 @@
           "reviewed_date": "2026-07-28",
           "reviewer": "Codex",
           "verified_commit": "606b1a245b22393aa79a673329b968fc77537278"
+        },
+        {
+          "dependency_edge": {
+            "dependency": "UPDATEV2-0021",
+            "evidence": {
+              "contract_reference": "ISSUE-0089 implementation: retain candidates, apply deterministic source selection, and preserve human review and resolution records",
+              "evidence_references": [
+                "src/etf_cockpit/data/source_conflicts.py: point-in-time candidate retention, deterministic selection, pass/warn/quarantine/block states, audited review decisions and invalidation tokens",
+                "tests/test_source_conflicts.py: candidate, tolerance, quarantine, historical review and invalidation coverage; focused dependency suite passed 23 tests on 2026-07-28"
+              ],
+              "reviewed_date": "2026-07-28",
+              "reviewer": "Codex",
+              "schema_version": "1.0",
+              "state": "complete"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "src/etf_cockpit/data/source_conflicts.py: point-in-time candidate retention, deterministic selection, pass/warn/quarantine/block states, audited review decisions and invalidation tokens",
+            "tests/test_source_conflicts.py: candidate, tolerance, quarantine, historical review and invalidation coverage; focused dependency suite passed 23 tests on 2026-07-28"
+          ],
+          "review_reference": "ISSUE-0089 source-conflict dependency review at merged main d9b0189db909dca4286432bb6e4eef311d2b2830",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex",
+          "verified_commit": "d9b0189db909dca4286432bb6e4eef311d2b2830"
         }
       ],
-      "verified_commit": "606b1a245b22393aa79a673329b968fc77537278",
+      "verified_commit": "d9b0189db909dca4286432bb6e4eef311d2b2830",
       "verified_date": "2026-07-28"
     },
     "ISSUE-0090": {

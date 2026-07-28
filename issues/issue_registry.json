@@ -5466,16 +5466,16 @@
         },
         {
           "dependency_id": "UPDATEV2-0021",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
+          "evidence_state": "complete",
+          "reason_code": "EDGE_EVIDENCE_COMPLETE",
+          "resolved": true
         }
       ],
       "execution_allowed": false,
       "issue_id": "ISSUE-0089",
-      "ready": false,
+      "ready": true,
       "reason_codes": [
-        "BLOCKED_UNRESOLVED_DEPENDENCY"
+        "READY_BLOCKING_EDGES_RESOLVED"
       ],
       "required_inputs": []
     },
@@ -15180,12 +15180,15 @@
           "state": "complete"
         },
         "UPDATEV2-0021": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "ISSUE-0089 implementation: retain candidates, apply deterministic source selection, and preserve human review and resolution records",
+          "evidence_references": [
+            "src/etf_cockpit/data/source_conflicts.py: point-in-time candidate retention, deterministic selection, pass/warn/quarantine/block states, audited review decisions and invalidation tokens",
+            "tests/test_source_conflicts.py: candidate, tolerance, quarantine, historical review and invalidation coverage; focused dependency suite passed 23 tests on 2026-07-28"
+          ],
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         }
       },
       "downstream_issues": [
@@ -15243,7 +15246,7 @@
       ],
       "title": "Implement data anomaly detection, quarantine and cross-source reconciliation",
       "ui_requirement": "Data Health triage queue with diffs, sources and affected-result views.",
-      "verified_commit": "606b1a245b22393aa79a673329b968fc77537278",
+      "verified_commit": "d9b0189db909dca4286432bb6e4eef311d2b2830",
       "verified_date": "2026-07-28",
       "why": "Institutional discipline requires bad data to be stopped before scoring or orders.",
       "write_conflict_group": "data-platform"
@@ -27402,7 +27405,7 @@
   ],
   "schema_version": "2.0",
   "source_of_truth": {
-    "baseline_commit": "606b1a245b22393aa79a673329b968fc77537278",
+    "baseline_commit": "d9b0189db909dca4286432bb6e4eef311d2b2830",
     "closed_ledger_sha256": "2dca7fd65f7a218747bcfb91b4e5c1f734af26f29114cc7dc83b071bb86838d8",
     "final_release_manifest_sha256": "dbb71ecaa2b81206ff922eec3dcc72cb08cc001121688b107e8f1c3a2372f685",
     "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -27414,7 +27417,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "3ad3dfc06138fa707354833ad64c4f6a73ac50755f611fdcad92662dec40f9e2",
+    "programme_control_state_sha256": "6a702f43f49c2218d5469f647c18e3d8044ed70f393d1dc34b840d6fa96d5551",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
