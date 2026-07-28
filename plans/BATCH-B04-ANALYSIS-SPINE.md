@@ -928,3 +928,14 @@ and contains exactly the ISSUE-0178 `planned → in_progress` update. The next
 action is exact schema-1.2 guard, deterministic generator checks and a fresh
 H-tier Linux/Windows run on the new PR head; no provider write occurs before
 merge.
+
+`BLOCKED` the ISSUE-0178 implemented-status PR #591 H-tier run
+`30365177071` passed Linux with 2,089 tests but Windows reported one failure
+in `test_state_import_persists_esef_facts_and_official_inventory`. The local
+fixture followed optional Arelle discovery and therefore produced validator
+findings that are outside the state-persistence contract; all other 2,088
+Windows tests passed. A separate fresh-main, test-only baseline prerequisite
+owns deterministic isolation of that fixture while dedicated Arelle tests
+remain unchanged. The next action is the smallest focused test correction,
+targeted ESEF verification and an exact protected gate before PR #591 is
+refreshed; no product, execution or provider state changes are authorised.
