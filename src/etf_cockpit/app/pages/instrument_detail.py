@@ -386,6 +386,7 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
         selected,
         candidate_score=getattr(state, "selected_instrument_score", None),
         financial_projection=getattr(state, "financial_projection", None),
+        real_asset_projection=getattr(state, "real_asset_projection", None),
     )
     vintage_history = bitemporal_history_summary(selected) if selected else {"status": "unavailable", "message": "No instrument selected."}
     export_status = ft.Text(
@@ -478,6 +479,12 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
             model.sections.get("financial_institutions"),
             subtitle="Bank, insurer and diversified-financial solvency, asset quality, stress, rationale, lineage and limitations; unavailable inputs stay explicit.",
             key="instrument-detail.financial-institutions",
+        ),
+        _render_evidence_section(
+            "Real Assets",
+            model.sections.get("real_assets"),
+            subtitle="REIT, utility and infrastructure cash-flow definitions, NAV/RAB availability, payout, leverage, coverage, deterministic stresses and point-in-time lineage; execution_allowed=false.",
+            key="instrument-detail.real-assets",
         ),
         _render_evidence_section("Risk and feature evidence", model.sections.get("risk"), subtitle="Momentum, trend, relative strength, volatility, drawdown and liquidity/cost."),
         _render_evidence_section("Alpha, beta and correlation", model.sections.get("attribution")),
