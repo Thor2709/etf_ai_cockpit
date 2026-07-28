@@ -1,0 +1,29 @@
+{
+  "actions": [
+    {
+      "kind": "update",
+      "managed_field_deltas": [
+        "Programme status"
+      ],
+      "remote_number": 140,
+      "remote_state": "open",
+      "stable_id": "ISSUE-0068",
+      "title": "Two-tier universe manager and provider policy editor",
+      "url": "https://github.com/Thor2709/etf_ai_cockpit/issues/140"
+    }
+  ],
+  "apply_authority": false,
+  "fresh_exact_plan_required_for_apply": true,
+  "plan_semantic_sha256": "96e6426266e23802fecb93b4423a79869a1929aa88341546594bdef0976b369f",
+  "remote_inventory_sha256": "41f1d74d049210c954a6a1c17cf7bbd3b4ddebf335a4ab9a662f226d01ec2498",
+  "repository": "Thor2709/etf_ai_cockpit",
+  "schema_version": "etf-ai-cockpit.safe-sync-evidence/1.0",
+  "summary": {
+    "blocked": 0,
+    "close": 0,
+    "create": 0,
+    "reopen": 0,
+    "update": 1
+  },
+  "transient_full_plan_file_sha256": "4e5c7c16460b80d1aedde4fb650be7af864789c2f1d7d906f876163050308bdd"
+}
