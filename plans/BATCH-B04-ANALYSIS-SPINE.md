@@ -566,14 +566,19 @@ canonical programme status and GitHub issue #223 remain unchanged, with
 convergence refreshes only the generation base to the merge commit before
 ISSUE-0039 release.
 
-`REVIEWED` ISSUE-0039 release from fresh main
+`MERGED` ISSUE-0039 release from fresh main
 `b80bf9bda85559b5d82e74c7db0ef458bec544bd`. The independently approved
 checkpoint `2c72ac3b2ad394dec9509e3d2f0fe9f7c8253252` changes only timing-tail
 reading and focused performance-contract tests; benchmark evidence showed
 approximately 1,182x p50 improvement. The transplanted product patch has the
 same stable patch id, `166500812524cc02bf3f076a1b2897abb79a8ac1`, as the
 approved checkpoint. Root adversarial review found no scope expansion; all 6
-focused performance-contract tests pass with Ruff and diff hygiene. The sole
-current action is the normal deterministic control refresh and full protected
-gates. No status, dependency, financial calculation, broker authority or
-`execution_allowed=false` change is authorised.
+focused performance-contract tests pass with Ruff and diff hygiene. PR #565
+passed status guard, supply-chain and full Linux and Windows packaged release
+gates, then merged from exact head
+`8fa82c29d13e8b70d3865b7c060fe600a2e8662b` as
+`db554b1b1502224801a28677550b7ff7c7920657`. `IN_PROGRESS` the separate
+deterministic convergence refreshes only the generation base to the merge
+commit before ISSUE-0026 release. No status, dependency, financial
+calculation, broker authority or `execution_allowed=false` change is
+authorised.
