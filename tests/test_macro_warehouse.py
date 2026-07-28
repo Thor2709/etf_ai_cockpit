@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 from etf_cockpit.data.macro_warehouse import (
+    BenchmarkMetadata,
+    CurvePoint,
+    CurveSnapshot,
     MacroObservation,
     MacroWarehouse,
+    MacroWarehouseError,
+    RiskFreeProxyMapping,
+    interpolate_curve,
     parse_csv_records,
     parse_world_bank_records,
     transform_observations,
 )
+import pytest
 
 
 def _row(**updates: object) -> MacroObservation:
@@ -91,3 +98,324 @@ def test_missing_country_and_currency_are_explicitly_unavailable(tmp_path) -> No
     report = MacroWarehouse().summary(root=tmp_path)
     assert report["status"] == "available"
     assert report["missing_country_or_currency_count"] == 1
+
+
+def _curve(
+    *,
+    curve_id: str = "aud-official-spot",
+    version: str = "v1",
+    effective_at: str = "2025-01-01T00:00:00+00:00",
+    available_at: str = "2025-01-02T00:00:00+00:00",
+    revision: int = 1,
+    rates: tuple[float, float] = (-0.01, 0.01),
+) -> CurveSnapshot:
+    return CurveSnapshot(
+        curve_id=curve_id,
+        curve_version=version,
+        curve_type="spot",
+        currency="AUD",
+        effective_at=effective_at,
+        available_at=available_at,
+        ingested_at=available_at,
+        source_id="official-central-bank-local-snapshot",
+        source_checksum=("a" if revision == 1 else "b") * 64,
+        source_terms="official_publication_terms_reviewed",
+        methodology="Official decimal zero-rate curve",
+        interpolation="linear",
+        points=(
+            CurvePoint(tenor_years=1.0, rate=rates[0]),
+            CurvePoint(tenor_years=3.0, rate=rates[1]),
+        ),
+        revision=revision,
+    )
+
+
+def test_curve_interpolation_is_declared_bounded_and_supports_negative_rates() -> None:
+    points = _curve().points
+
+    assert interpolate_curve(points, 2.0, policy="linear") == 0.0
+    assert interpolate_curve(points, 1.0, policy="none") == -0.01
+    with pytest.raises(MacroWarehouseError, match="outside observed coverage"):
+        interpolate_curve(points, 4.0, policy="linear")
+    with pytest.raises(MacroWarehouseError, match="without interpolation"):
+        interpolate_curve(points, 2.0, policy="none")
+    with pytest.raises(MacroWarehouseError, match="extrapolation"):
+        interpolate_curve(points, 2.0, policy="linear", extrapolation_allowed=True)
+
+
+@pytest.mark.parametrize("curve_type", ("spot", "par", "forward"))
+def test_official_curve_snapshot_types_are_retained(tmp_path, curve_type: str) -> None:
+    warehouse = MacroWarehouse()
+    snapshot = _curve().model_copy(update={"curve_type": curve_type})
+
+    warehouse.ingest_curve(snapshot, root=tmp_path)
+    selected = warehouse.curve_rate(
+        root=tmp_path,
+        curve_id=snapshot.curve_id,
+        tenor_years=1.0,
+        decision_time="2025-02-01T00:00:00+00:00",
+    )
+
+    assert selected["curve_type"] == curve_type
+    assert selected["source_id"] == "official-central-bank-local-snapshot"
+    assert selected["methodology"] == "Official decimal zero-rate curve"
+
+
+def test_curve_and_benchmark_decision_time_versions_are_point_in_time(tmp_path) -> None:
+    warehouse = MacroWarehouse()
+    warehouse.ingest_curve(_curve(), root=tmp_path)
+    warehouse.ingest_curve(
+        _curve(
+            version="v2",
+            available_at="2025-02-01T00:00:00+00:00",
+            revision=2,
+            rates=(0.02, 0.04),
+        ),
+        root=tmp_path,
+    )
+    old = warehouse.curve_rate(
+        root=tmp_path,
+        curve_id="aud-official-spot",
+        tenor_years=2.0,
+        decision_time="2025-01-15T00:00:00+00:00",
+    )
+    new = warehouse.curve_rate(
+        root=tmp_path,
+        curve_id="aud-official-spot",
+        tenor_years=2.0,
+        decision_time="2025-03-01T00:00:00+00:00",
+    )
+
+    assert (old["curve_version"], old["rate"]) == ("v1", 0.0)
+    assert (new["curve_version"], new["rate"]) == ("v2", 0.03)
+
+    base = {
+        "benchmark_id": "au-sovereign-duration",
+        "category": "sovereign",
+        "currency": "AUD",
+        "effective_at": "2025-01-01T00:00:00+00:00",
+        "source_id": "official-index-methodology",
+        "source_terms": "lawful_local_metadata_only",
+        "methodology": "Australian sovereign duration benchmark",
+        "coverage": ("sovereign", "duration"),
+    }
+    warehouse.ingest_benchmark(
+        BenchmarkMetadata(
+            **base,
+            version="2025.1",
+            available_at="2025-01-02T00:00:00+00:00",
+            ingested_at="2025-01-02T00:00:00+00:00",
+            source_checksum="c" * 64,
+        ),
+        root=tmp_path,
+    )
+    warehouse.ingest_benchmark(
+        BenchmarkMetadata(
+            **base,
+            version="2025.2",
+            available_at="2025-02-02T00:00:00+00:00",
+            ingested_at="2025-02-02T00:00:00+00:00",
+            source_checksum="d" * 64,
+            revision=2,
+        ),
+        root=tmp_path,
+    )
+    historical = warehouse.as_of(
+        root=tmp_path,
+        dataset_id="benchmark:au-sovereign-duration",
+        decision_time="2025-01-15T00:00:00+00:00",
+    )
+    current = warehouse.as_of(
+        root=tmp_path,
+        dataset_id="benchmark:au-sovereign-duration",
+        decision_time="2025-03-01T00:00:00+00:00",
+    )
+    assert historical["benchmark_version"].tolist() == ["2025.1"]
+    assert current["benchmark_version"].tolist() == ["2025.2"]
+
+
+def test_latest_then_known_effective_curve_and_benchmark_snapshots_are_selected(
+    tmp_path,
+) -> None:
+    warehouse = MacroWarehouse()
+    warehouse.ingest_curve(_curve(), root=tmp_path)
+    later = _curve(
+        version="v2-effective",
+        effective_at="2025-02-01T00:00:00+00:00",
+        available_at="2025-02-02T00:00:00+00:00",
+        rates=(0.03, 0.05),
+    ).model_copy(
+        update={
+            "points": (
+                CurvePoint(tenor_years=2.0, rate=0.03),
+                CurvePoint(tenor_years=4.0, rate=0.05),
+            )
+        }
+    )
+    warehouse.ingest_curve(later, root=tmp_path)
+
+    before = warehouse.curve_rate(
+        root=tmp_path,
+        curve_id="aud-official-spot",
+        tenor_years=1.0,
+        decision_time="2025-01-15T00:00:00+00:00",
+    )
+    after = warehouse.curve_rate(
+        root=tmp_path,
+        curve_id="aud-official-spot",
+        tenor_years=3.0,
+        decision_time="2025-03-01T00:00:00+00:00",
+    )
+    old_tenor_after = warehouse.curve_rate(
+        root=tmp_path,
+        curve_id="aud-official-spot",
+        tenor_years=1.0,
+        decision_time="2025-03-01T00:00:00+00:00",
+    )
+
+    assert before["curve_version"] == "v1"
+    assert after["curve_version"] == "v2-effective"
+    assert after["rate"] == 0.04
+    assert old_tenor_after["status"] == "unavailable"
+    assert old_tenor_after["coverage"] == [2.0, 4.0]
+
+    common = {
+        "benchmark_id": "aud-aggregate",
+        "category": "aggregate",
+        "currency": "AUD",
+        "source_id": "official-index-owner",
+        "source_terms": "lawful_local_metadata_only",
+        "methodology": "Published aggregate benchmark methodology",
+    }
+    warehouse.ingest_benchmark(
+        BenchmarkMetadata(
+            **common,
+            version="v1",
+            effective_at="2025-01-01T00:00:00+00:00",
+            available_at="2025-01-02T00:00:00+00:00",
+            ingested_at="2025-01-02T00:00:00+00:00",
+            source_checksum="e" * 64,
+        ),
+        root=tmp_path,
+    )
+    warehouse.ingest_benchmark(
+        BenchmarkMetadata(
+            **common,
+            version="v2",
+            effective_at="2025-02-01T00:00:00+00:00",
+            available_at="2025-02-02T00:00:00+00:00",
+            ingested_at="2025-02-02T00:00:00+00:00",
+            source_checksum="f" * 64,
+        ),
+        root=tmp_path,
+    )
+    old_coverage = warehouse.curve_benchmark_coverage(
+        root=tmp_path, decision_time="2025-01-15T00:00:00+00:00"
+    )
+    new_coverage = warehouse.curve_benchmark_coverage(
+        root=tmp_path, decision_time="2025-03-01T00:00:00+00:00"
+    )
+    assert old_coverage["benchmark_versions"] == ["v1"]
+    assert new_coverage["benchmark_versions"] == ["v2"]
+
+
+@pytest.mark.parametrize(
+    ("update", "message"),
+    (
+        ({"benchmark_id": ""}, "missing required fields"),
+        ({"source_checksum": "not-a-checksum"}, "SHA-256"),
+        ({"available_at": "not-a-time"}, "Invalid isoformat"),
+        ({"execution_allowed": True}, "Input should be False"),
+    ),
+)
+def test_invalid_benchmark_metadata_fails_closed(tmp_path, update, message) -> None:
+    values = {
+        "benchmark_id": "aud-sovereign",
+        "version": "v1",
+        "category": "sovereign",
+        "currency": "AUD",
+        "effective_at": "2025-01-01T00:00:00+00:00",
+        "available_at": "2025-01-02T00:00:00+00:00",
+        "ingested_at": "2025-01-02T00:00:00+00:00",
+        "source_id": "official-index-owner",
+        "source_checksum": "a" * 64,
+        "source_terms": "lawful_local_metadata_only",
+        "methodology": "Published benchmark methodology",
+    }
+    values.update(update)
+
+    with pytest.raises((MacroWarehouseError, ValueError), match=message):
+        MacroWarehouse().ingest_benchmark(
+            BenchmarkMetadata.model_validate(values), root=tmp_path
+        )
+
+
+def test_currency_horizon_mapping_fallbacks_and_unsupported_credit_are_explicit(
+    tmp_path,
+) -> None:
+    warehouse = MacroWarehouse()
+    warehouse.ingest_curve(_curve(curve_id="aud-fallback"), root=tmp_path)
+    mapping = RiskFreeProxyMapping(
+        currency="AUD",
+        minimum_horizon_years=1.0,
+        maximum_horizon_years=3.0,
+        curve_id="aud-primary-missing",
+        fallback_curve_ids=("aud-fallback",),
+        methodology="Official cash proxy mapping v1",
+    )
+
+    selected = warehouse.risk_free_rate(
+        root=tmp_path,
+        mappings=(mapping,),
+        currency="AUD",
+        horizon_years=2.0,
+        decision_time="2025-02-01T00:00:00+00:00",
+    )
+    unsupported_currency = warehouse.risk_free_rate(
+        root=tmp_path,
+        mappings=(mapping,),
+        currency="EUR",
+        horizon_years=2.0,
+        decision_time="2025-02-01T00:00:00+00:00",
+    )
+    outside_curve = warehouse.risk_free_rate(
+        root=tmp_path,
+        mappings=(mapping,),
+        currency="AUD",
+        horizon_years=3.5,
+        decision_time="2025-02-01T00:00:00+00:00",
+    )
+    credit = warehouse.issuer_credit_curve(
+        issuer_id="issuer-1", decision_time="2025-02-01T00:00:00+00:00"
+    )
+
+    assert selected["status"] == "available"
+    assert selected["fallback"] is True
+    assert selected["fallback_from"] == "aud-primary-missing"
+    assert unsupported_currency["status"] == "unavailable"
+    assert "mapping" in str(unsupported_currency["reason"])
+    assert outside_curve["status"] == "unavailable"
+    assert credit == {
+        "status": "unavailable",
+        "reason": "issuer-specific credit curves are unsupported",
+        "issuer_id": "issuer-1",
+        "decision_time": "2025-02-01T00:00:00+00:00",
+        "execution_allowed": False,
+    }
+
+    overlapping = RiskFreeProxyMapping(
+        currency="AUD",
+        minimum_horizon_years=0.5,
+        maximum_horizon_years=2.5,
+        curve_id="aud-fallback",
+        methodology="Conflicting mapping fixture",
+    )
+    ambiguous = warehouse.risk_free_rate(
+        root=tmp_path,
+        mappings=(mapping, overlapping),
+        currency="AUD",
+        horizon_years=2.0,
+        decision_time="2025-02-01T00:00:00+00:00",
+    )
+    assert ambiguous["status"] == "unavailable"
+    assert "overlap" in str(ambiguous["reason"])

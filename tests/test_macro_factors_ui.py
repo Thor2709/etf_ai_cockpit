@@ -18,6 +18,11 @@ def test_macro_factors_workspace_is_registered_and_declares_safe_boundaries() ->
         "Inflation/rates context:",
         "context_only=true",
         "score_eligible=false",
+        "Risk-free curves and lawful benchmarks",
+        "Interpolation is declared per curve and bounded",
+        "Currency+horizon fallbacks are explicit",
+        "Issuer-specific credit curves:",
+        "decision-time vintage=",
     ):
         assert label in source
     assert "remote fetch" in source
