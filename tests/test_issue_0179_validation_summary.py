@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import copy
+import json
+from pathlib import Path
 
+from scripts import validation_summary
 from scripts.validation_summary import validate_summary
 
 
@@ -65,3 +68,54 @@ def test_terminal_summary_rejects_missing_and_forged_artifacts() -> None:
     absent_results = _summary("E")
     absent_results.pop("job_results")
     assert "terminal summary job results are inconsistent" in validate_summary(absent_results)
+
+
+def test_terminal_collection_preserves_platform_artifact_directories(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    artifacts = tmp_path / "validation-evidence"
+    classifier = artifacts / "validation-classifier-head" / "classifier.json"
+    classifier.parent.mkdir(parents=True)
+    classifier.write_text(
+        json.dumps(
+            {
+                "tier": "H",
+                "package_gate_required": True,
+                "reasons": ["protected-control"],
+                "evidence_reuse": {"authorized": False},
+            }
+        ),
+        encoding="utf-8",
+    )
+    for platform in ("linux", "windows"):
+        junit = artifacts / f"release-gate-head-{platform}" / "junit-full.xml"
+        junit.parent.mkdir(parents=True)
+        junit.write_text('<testsuite tests="3" />\n', encoding="utf-8")
+    monkeypatch.setattr(validation_summary, "_tree_identity", lambda *_args: "d" * 64)
+
+    report = validation_summary.collect_summary(
+        tmp_path,
+        artifacts,
+        base="a" * 40,
+        head="b" * 40,
+        job_results={
+            "classifier": "success",
+            "preflight": "success",
+            "supply_chain": "success",
+            "release": "success",
+        },
+    )
+
+    assert report["platform_junit"] == {"windows": 3, "linux": 3}
+    assert validate_summary(report) == []
+
+
+def test_workflow_keeps_artifact_names_and_writes_failed_terminal_evidence() -> None:
+    workflow = (
+        Path(__file__).resolve().parents[1] / ".github" / "workflows" / "release-gate.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "merge-multiple: true" not in workflow
+    build_step = workflow.index("- name: Build and validate authoritative terminal evidence")
+    assert "if: always()" in workflow[build_step : build_step + 120]

@@ -275,7 +275,6 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: validation-evidence
-          merge-multiple: true
 
       - name: Evaluate required validation
         env:
@@ -301,6 +300,7 @@ jobs:
           PY
 
       - name: Build and validate authoritative terminal evidence
+        if: always()
         env:
           BASE_SHA: ${{ needs.classifier.outputs.base_sha }}
           HEAD_SHA: ${{ github.sha }}
