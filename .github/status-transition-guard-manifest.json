@@ -1,27 +1,33 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [
+  "allowed_dependency_edge_updates": [
     {
-      "from": "planned",
-      "issue_id": "ISSUE-0179",
-      "to": "integrated"
+      "dependency_id": "ISSUE-0177",
+      "issue_id": "ISSUE-0180"
+    },
+    {
+      "dependency_id": "ISSUE-0080",
+      "issue_id": "ISSUE-0181"
+    },
+    {
+      "dependency_id": "ISSUE-0081",
+      "issue_id": "ISSUE-0181"
     }
   ],
-  "base_commit": "586ad7f3bb2deb7e6a3470e6e397c563c9fe10ba",
-  "branch": "codex/issue-0179-lifecycle-e-20260729",
-  "issue_ids": [
-    "ISSUE-0179"
-  ],
+  "allowed_status_transitions": [],
+  "base_commit": "fae2042f636f61b70f1640f53ce360cb6162c350",
+  "branch": "codex/issue-0180-multiedge-e-20260730",
+  "issue_ids": [],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "199fedadc5ebf35b82e9343cca82e306552fb4c1e810809cca8f68c619d9601d",
+    "base_registry_sha256": "d6015833efd78664acd14a7eedf8c037672abef6ca65b4c8d3f7fe312e42e220",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "d6015833efd78664acd14a7eedf8c037672abef6ca65b4c8d3f7fe312e42e220",
-    "reason": "ISSUE-0179 compact lifecycle E transaction from reviewed repair main 586ad7f3bb2deb7e6a3470e6e397c563c9fe10ba: replay distinct planned to in_progress, implemented_initially and integrated events against immutable PR #609 product head d72c07d199ad069a3c8fc3c63f614ec91f4b8b7e, protected H runs 30420622584 and 30451275797, and exact-main zero-action convergence run 30452879033; preserve all dependencies, acceptance criteria, policies, broker authority and execution_allowed=false.",
+    "mode": "generation_base_and_dependency_edge_evidence",
+    "proposed_registry_sha256": "a314473815ea711047b1a3278b7b00b7063850eea2c80f932bb16dc75d4fd6a9",
+    "reason": "Record three independent reviewed dependency-edge decisions on immutable base fae2042f636f61b70f1640f53ce360cb6162c350: ISSUE-0180 to ISSUE-0177 deterministic validation observability and environment evidence, ISSUE-0181 to ISSUE-0080 local-first provider-policy evidence, and ISSUE-0181 to ISSUE-0081 resumable content-addressed cache evidence; preserve planned lifecycle state, policy, broker authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.2"
+  "schema_version": "1.3"
 }
