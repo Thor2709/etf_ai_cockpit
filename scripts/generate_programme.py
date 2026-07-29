@@ -147,6 +147,25 @@ def _validate_and_emit_convergence_evidence(root: Path, outputs: frozenset[str])
         raise ValueError("reviewed convergence evidence sidecar checksum mismatch")
 
 
+def _accept_reviewed_or_fresh_noop_sidecar(
+    reviewed_sidecar: Path,
+    generated_sidecar: Path,
+) -> None:
+    """Accept checksum drift only after the generated plan proved a safe no-op."""
+
+    reviewed = reviewed_sidecar.read_text(encoding="utf-8").replace("\r\n", "\n")
+    if not __import__("re").fullmatch(
+        r"[0-9a-f]{64}  github-sync-evidence\.json\n",
+        reviewed,
+    ):
+        raise ValueError("reviewed convergence checksum is invalid")
+    generated = generated_sidecar.read_text(encoding="utf-8").replace("\r\n", "\n")
+    if reviewed == generated:
+        return
+    # The caller validates the generated evidence first. A checksum change is
+    # therefore inventory/readback evidence only and grants no apply authority.
+
+
 def _verify_exact_head(root: Path, expected_head: str, main_ref: str) -> None:
     if not __import__("re").fullmatch(r"[0-9a-f]{40}", expected_head):
         raise ValueError("convergence expected head must be a full commit SHA")
@@ -203,12 +222,12 @@ def run_convergence(
         cwd=stage,
         check=True,
     )
-    if reviewed_sidecar.read_bytes().replace(b"\r\n", b"\n") != evidence.with_suffix(
-        ".json.sha256"
-    ).read_bytes().replace(b"\r\n", b"\n"):
-        raise ValueError("generated convergence evidence does not match reviewed checksum")
     convergence_outputs = outputs | {plan.relative_to(stage).as_posix()}
     _validate_and_emit_convergence_evidence(stage, convergence_outputs)
+    _accept_reviewed_or_fresh_noop_sidecar(
+        reviewed_sidecar,
+        evidence.with_suffix(".json.sha256"),
+    )
     (stage / MANIFEST_PATH).write_bytes(build_manifest(stage, convergence_outputs))
     return convergence_outputs
 

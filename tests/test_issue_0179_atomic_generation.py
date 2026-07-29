@@ -158,6 +158,19 @@ def test_convergence_evidence_requires_zero_action_and_separate_authority(
     with pytest.raises(ValueError, match="must not grant GitHub apply authority"):
         generate_programme._validate_and_emit_convergence_evidence(tmp_path, outputs)
 
+    evidence["apply_authority"] = False
+    evidence["summary"]["update"] = 1
+    evidence["actions"] = [{"kind": "update", "stable_id": "ISSUE-0179"}]
+    payload = json.dumps(evidence).encode()
+    _write(tmp_path, f"{prefix}/github-sync-evidence.json", payload)
+    _write(
+        tmp_path,
+        f"{prefix}/github-sync-evidence.json.sha256",
+        f"{__import__('hashlib').sha256(payload).hexdigest()}  github-sync-evidence.json\n".encode(),
+    )
+    with pytest.raises(ValueError, match="mandatory zero-action"):
+        generate_programme._validate_and_emit_convergence_evidence(tmp_path, outputs)
+
 
 def test_convergence_rejects_empty_summary_and_mismatched_exact_head(
     tmp_path: Path,
@@ -201,6 +214,38 @@ def test_convergence_rejects_empty_summary_and_mismatched_exact_head(
         generate_programme._verify_exact_head(tmp_path, "a" * 40, "origin/main")
 
 
+def test_fresh_zero_action_readback_accepts_inventory_checksum_drift(
+    tmp_path: Path,
+) -> None:
+    reviewed = tmp_path / "reviewed.sha256"
+    generated = tmp_path / "generated.sha256"
+    reviewed.write_text(f"{'a' * 64}  github-sync-evidence.json\n", encoding="utf-8")
+    generated.write_text(f"{'b' * 64}  github-sync-evidence.json\n", encoding="utf-8")
+
+    generate_programme._accept_reviewed_or_fresh_noop_sidecar(reviewed, generated)
+
+    reviewed.write_text("not-a-reviewed-checksum\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="reviewed convergence checksum is invalid"):
+        generate_programme._accept_reviewed_or_fresh_noop_sidecar(reviewed, generated)
+
+
+def test_consecutive_main_advances_each_use_their_fresh_exact_head(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = "a" * 40
+    second = "b" * 40
+    observed = iter((first, first, second, second))
+    monkeypatch.setattr(
+        generate_programme.subprocess,
+        "check_output",
+        lambda *_args, **_kwargs: next(observed) + "\n",
+    )
+
+    generate_programme._verify_exact_head(tmp_path, first, "origin/main")
+    generate_programme._verify_exact_head(tmp_path, second, "origin/main")
+
+
 def test_post_merge_workflow_is_read_only_exact_head_and_reviewable() -> None:
     workflow = (
         Path(__file__).resolve().parents[1]
@@ -213,5 +258,7 @@ def test_post_merge_workflow_is_read_only_exact_head_and_reviewable() -> None:
     assert "--reviewed-sidecar" in workflow
     assert "GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}" in workflow
     assert "actions/upload-artifact@v4" in workflow
+    assert "post-merge-control-candidate.json" in workflow
+    assert "--control-candidate" in workflow
     assert "--apply" not in workflow
     assert "git push" not in workflow

@@ -13,6 +13,10 @@ on:
         description: Repository-relative reviewed safe-evidence checksum
         required: true
         type: string
+      control_candidate:
+        description: Repository-relative reviewed post-merge control candidate
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -64,6 +68,13 @@ jobs:
             args+=(--remote-snapshot "$snapshot")
           else
             args+=(--live-read)
+          fi
+          candidate="${{ inputs.control_candidate }}"
+          if [[ -z "$candidate" && -f ".github/issue-transitions/post-merge-control-candidate.json" ]]; then
+            candidate=".github/issue-transitions/post-merge-control-candidate.json"
+          fi
+          if [[ -n "$candidate" ]]; then
+            args+=(--control-candidate "$candidate")
           fi
           python scripts/generate_programme.py "${args[@]}"
       - name: Produce reviewable patch only
