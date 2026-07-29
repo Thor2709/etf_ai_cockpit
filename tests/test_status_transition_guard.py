@@ -595,7 +595,10 @@ def test_git_commit_ancestry_verifier_requires_existing_ancestor(tmp_path: Path)
         ("invalid_verified_date", "transition verified_date must match reviewed evidence: ISSUE-0008"),
         ("unexpected_top_level", "non-allowlisted registry change: top-level registry data"),
         ("unexpected_source_truth", "non-allowlisted source_of_truth change: package_sha256"),
-        ("wrong_generation_base", "proposed registry generation base does not match manifest base"),
+        (
+            "wrong_generation_base",
+            "proposed registry generation base must retain provenance or match manifest base",
+        ),
     ],
 )
 def test_generation_base_transition_mode_rejects_unreviewed_mutation(
@@ -952,6 +955,16 @@ def test_dependency_edge_mode_accepts_exactly_one_edge_without_status_or_accepta
     assert _errors(base, proposed, manifest) == []
     assert proposed["records"][0]["programme_status"] == base["records"][0]["programme_status"]
     assert proposed["records"][0]["acceptance_evidence"] == base["records"][0]["acceptance_evidence"]
+
+
+def test_dependency_edge_mode_accepts_unchanged_reachable_generation_provenance() -> None:
+    base, proposed, manifest = _edge_only_proposal()
+    proposed["source_of_truth"]["baseline_commit"] = base["source_of_truth"]["baseline_commit"]
+    manifest["registry_migration"]["proposed_registry_sha256"] = hashlib.sha256(
+        deterministic_json(proposed)
+    ).hexdigest()
+
+    assert _errors(base, proposed, manifest) == []
 
 
 def test_dependency_edge_mode_accepts_two_independent_reviewed_edges() -> None:

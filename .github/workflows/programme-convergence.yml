@@ -38,7 +38,19 @@ jobs:
         run: |
           sidecar="${{ inputs.reviewed_sidecar }}"
           if [[ -z "$sidecar" ]]; then
-            sidecar="$(find docs/product-completion/reconciliation -name github-sync-evidence.json.sha256 -print | sort | tail -1)"
+            sidecar="$(python - <<'PY'
+          from pathlib import Path
+          from scripts.generate_programme import required_outputs
+
+          matches = sorted(
+              path for path in required_outputs(Path("."))
+              if path.endswith("/github-sync-evidence.json.sha256")
+          )
+          if len(matches) != 1:
+              raise SystemExit("expected exactly one canonical sync-evidence sidecar")
+          print(matches[0])
+          PY
+          )"
           fi
           args=(--root . --converge
             --expected-head "${{ github.sha }}"

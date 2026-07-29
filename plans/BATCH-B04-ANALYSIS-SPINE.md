@@ -19,14 +19,16 @@ the sole authorised worker implements ISSUE-0179 from fresh main.
 PR #562 and open issue #241 remain unchanged.
 
 ISSUE-0179's sole declared prerequisite, ISSUE-0178, is integrated at
-`90106943ea4e7cd41909ca45eab185216bb8f45f`, but the canonical
-ISSUE-0179→ISSUE-0178 dependency-evidence field is still `unresolved`.
-The dependency contract is therefore implementation-ready by merged evidence
-but not yet projected as ready. Its independently verifiable edge evidence
-will be included in the same guarded ISSUE-0179 product transaction; no
-separate full-gate readiness PR will be created. The exact next action is the
-single bounded worker implementation with canonical control/generated files
-reserved to the orchestrator.
+`90106943ea4e7cd41909ca45eab185216bb8f45f`. The sole ISSUE-0179 worker and
+its one focused correction are accepted at local commits `be6422e8` and
+`286e3799`. Orchestrator integration atomically records the independently
+verified ISSUE-0179→ISSUE-0178 edge as `complete`, leaves programme status
+`planned`, and preserves `execution_allowed=false`. One command now publishes
+the 39-file closed canonical projection and the second run is byte-clean; the
+schema-1.3 guard passes while historical generation provenance remains
+reachable and no new reconciliation tree is created. The exact next action is
+the durable integration commit, exact-head H classification, draft PR and
+complete Linux/Windows packaged gate.
 
 ## Authority and outcome
 

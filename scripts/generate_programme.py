@@ -270,7 +270,7 @@ def stage_generation(
         if '"execution_allowed": true' in json.dumps(candidate).lower():
             raise ValueError("reviewed control candidate must preserve execution_allowed=false")
         (stage / "issues/programme_control_state.json").write_bytes(
-            (json.dumps(candidate, indent=2, sort_keys=True) + "\n").encode("utf-8")
+            (json.dumps(candidate, indent=2, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8")
         )
     _run_generators(stage)
     outputs = required_outputs(stage)

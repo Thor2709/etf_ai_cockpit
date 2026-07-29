@@ -592,8 +592,15 @@ def _validate_base_refresh_top_level(
     for key in sorted(set(base_source) | set(proposed_source)):
         if key not in BASE_REFRESH_SOURCE_FIELDS and base_source.get(key) != proposed_source.get(key):
             _error(errors, f"non-allowlisted source_of_truth change: {key}")
-    if proposed_source.get("baseline_commit") != manifest_base:
-        _error(errors, "proposed registry generation base does not match manifest base")
+    proposed_baseline = proposed_source.get("baseline_commit")
+    if proposed_baseline not in {
+        base_source.get("baseline_commit"),
+        manifest_base,
+    }:
+        _error(
+            errors,
+            "proposed registry generation base must retain provenance or match manifest base",
+        )
     proposed_control_sha = proposed_source.get("programme_control_state_sha256")
     if not isinstance(proposed_control_sha, str) or not SHA256_RE.fullmatch(proposed_control_sha):
         _error(errors, "proposed programme control-state checksum is invalid")

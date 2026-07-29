@@ -217,8 +217,8 @@ def test_workflow_has_unconditional_bookends_and_single_source_scan() -> None:
     assert "if: always()" in workflow
     assert "needs.classifier.outputs.package_gate_required == 'true'" in workflow
     assert "scripts/validate_app.py --root . --changed" in workflow
-    assert "scripts/generate_issue_registry.py --root . --check" in workflow
-    assert "scripts/generate_completion_documents.py --root . --check" in workflow
+    assert workflow.count("scripts/generate_programme.py --root . --check") == 2
+    assert ".github/issue-transitions/reuse-evidence.json" in workflow
     assert 'git diff --check "$ETF_COCKPIT_VALIDATION_BASE_SHA" "$ETF_COCKPIT_VALIDATION_HEAD_SHA" --' in workflow
     assert "tests/test_button_contracts.py tests/test_architecture_boundaries.py" in workflow
     assert "scripts/smoke_app.py --mode offline --timeout 30" in workflow

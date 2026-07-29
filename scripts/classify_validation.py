@@ -163,7 +163,12 @@ def derive_trusted_evidence(
             "requirements-release-parsers.txt",
         ),
         "product_tree_sha256": ("src", "configs"),
-        "policy_sha256": ("AGENTS.md", ".github/workflows", "configs"),
+        "policy_sha256": (
+            "AGENTS.md",
+            ".github/workflows",
+            "configs",
+            artifact_manifest,
+        ),
         "environment_sha256": ("pyproject.toml", "requirements-release.txt", "requirements-release-parsers.txt"),
     }
     try:
@@ -275,7 +280,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ordinary-issues-since-full-gate", type=int, default=0)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--reuse-evidence", type=Path)
-    parser.add_argument("--artifact-manifest", default="artifacts/validation/reuse-manifest.json")
+    parser.add_argument(
+        "--artifact-manifest",
+        default=".github/issue-transitions/protected-evidence-manifest.json",
+    )
     args = parser.parse_args(argv)
 
     paths = list(args.changed_file)
