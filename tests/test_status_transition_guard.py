@@ -673,6 +673,100 @@ def _base_refresh_registry(status: str) -> dict:
     return base
 
 
+def _three_event_status_replay() -> tuple[dict, dict, dict]:
+    base = _base_refresh_registry("planned")
+    proposed = copy.deepcopy(base)
+    for previous, target in (
+        ("planned", "in_progress"),
+        ("in_progress", "implemented_initially"),
+        ("implemented_initially", "integrated"),
+    ):
+        _apply_reviewed_transition(
+            proposed,
+            "ISSUE-0008",
+            previous=previous,
+            proposed=target,
+        )
+    proposed["source_of_truth"]["baseline_commit"] = BASE_COMMIT
+    proposed["source_of_truth"]["programme_control_state_sha256"] = "2" * 64
+    manifest = _base_refresh_transition_manifest(
+        base,
+        proposed,
+        ("ISSUE-0008", "planned", "integrated"),
+    )
+    return base, proposed, manifest
+
+
+def test_generation_base_transition_mode_accepts_three_event_status_replay() -> None:
+    base, proposed, manifest = _three_event_status_replay()
+
+    assert _errors(base, proposed, manifest) == []
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["missing", "mismatched", "reordered", "extra"],
+)
+def test_generation_base_transition_mode_rejects_invalid_multi_event_acceptance_delta(
+    mutation: str,
+) -> None:
+    base, proposed, manifest = _three_event_status_replay()
+    evidence = proposed["records"][0]["acceptance_evidence"]
+    if mutation == "missing":
+        del evidence[1]
+    elif mutation == "mismatched":
+        evidence[1]["status"] = "integrated"
+    elif mutation == "reordered":
+        evidence[0], evidence[1] = evidence[1], evidence[0]
+    elif mutation == "extra":
+        evidence.append(copy.deepcopy(evidence[-1]))
+    manifest["registry_migration"]["proposed_registry_sha256"] = _registry_sha256(proposed)
+
+    errors = _errors(base, proposed, manifest)
+
+    assert any("invalid reviewed transition evidence" in error for error in errors)
+
+
+def test_generation_base_transition_mode_rejects_multi_event_dependency_edge_change() -> None:
+    base, proposed, manifest = _three_event_status_replay()
+    base_record = base["records"][0]
+    proposed_record = proposed["records"][0]
+    base_record["blocking_dependencies"] = ["ISSUE-0001"]
+    base_record["dependency_edge_evidence"] = {"ISSUE-0001": {"state": "unresolved"}}
+    proposed_record["blocking_dependencies"] = ["ISSUE-0001"]
+    proposed_record["dependency_edge_evidence"] = {
+        "ISSUE-0001": {
+            "schema_version": "1.0",
+            "state": "complete",
+            "evidence_references": ["PR #458 release gates and post-merge smoke"],
+            "contract_reference": "contracts/dependency-interface-v1",
+            "reviewer": "Codex independent reviewer",
+            "reviewed_date": "2026-07-21",
+        }
+    }
+    base["readiness"] = readiness_projection(base)
+    proposed["readiness"] = readiness_projection(proposed)
+    manifest["registry_migration"]["base_registry_sha256"] = _registry_sha256(base)
+    manifest["registry_migration"]["proposed_registry_sha256"] = _registry_sha256(proposed)
+
+    errors = _errors(base, proposed, manifest)
+
+    assert (
+        "multi-event status replay cannot include a dependency-edge change: ISSUE-0008"
+        in errors
+    )
+
+
+def test_generation_base_transition_mode_rejects_forged_multi_event_evidence() -> None:
+    base, proposed, manifest = _three_event_status_replay()
+    proposed["records"][0]["acceptance_evidence"][1]["evidence_references"] = []
+    manifest["registry_migration"]["proposed_registry_sha256"] = _registry_sha256(proposed)
+
+    errors = _errors(base, proposed, manifest)
+
+    assert any("transition requires non-blank evidence references" in error for error in errors)
+
+
 def test_generation_base_transition_mode_rejects_added_or_removed_issue() -> None:
     base = _base_refresh_registry("planned")
     proposed = copy.deepcopy(base)
