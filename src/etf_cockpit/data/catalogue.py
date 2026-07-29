@@ -294,6 +294,127 @@ class DataCatalogue:
             "execution_allowed": False,
         }
 
+    def upstream_snapshot_graph(self, snapshot_id: str) -> dict[str, object]:
+        """Return the complete registered upstream graph, failing closed on gaps."""
+
+        snapshot_id = str(snapshot_id).strip()
+        if snapshot_id not in self._snapshots:
+            raise DataCatalogueError(f"snapshot is not registered: {snapshot_id}")
+        included: set[str] = set()
+        missing: set[str] = set()
+        edges: set[tuple[str, str, str]] = set()
+        queue = deque([snapshot_id])
+        while queue:
+            current_id = queue.popleft()
+            if current_id in included:
+                continue
+            included.add(current_id)
+            current = self._snapshots[current_id]
+            for dependency_id in sorted(set(current.dependency_snapshot_ids)):
+                edges.add((dependency_id, current_id, "derived_from"))
+                if dependency_id not in self._snapshots:
+                    missing.add(dependency_id)
+                elif dependency_id not in included:
+                    queue.append(dependency_id)
+
+        nodes = [self._snapshot_node(item) for item in sorted(included)]
+        stale_snapshot_ids = [str(item["snapshot_id"]) for item in nodes if item["stale"]]
+        incompatible_snapshot_ids = [
+            str(item["snapshot_id"]) for item in nodes if not item["schema_compatible"]
+        ]
+        cycle_snapshot_ids = self._cycle_snapshot_ids(included, edges)
+        failure_reasons = []
+        if missing:
+            failure_reasons.append("missing upstream snapshots")
+        if incompatible_snapshot_ids:
+            failure_reasons.append("schema-incompatible snapshots")
+        if cycle_snapshot_ids:
+            failure_reasons.append("lineage cycle detected")
+        complete = not failure_reasons
+        return {
+            "target_snapshot_id": snapshot_id,
+            "status": "failed" if not complete else "degraded" if stale_snapshot_ids else "passed",
+            "complete": complete,
+            "nodes": nodes,
+            "edges": [LineageEdge(*edge).as_dict() for edge in sorted(edges)],
+            "missing_upstream_snapshot_ids": sorted(missing),
+            "stale_snapshot_ids": stale_snapshot_ids,
+            "incompatible_snapshot_ids": incompatible_snapshot_ids,
+            "cycle_snapshot_ids": cycle_snapshot_ids,
+            "failure_reasons": failure_reasons,
+            "execution_allowed": False,
+        }
+
+    def downstream_impact(
+        self,
+        *,
+        dataset_id: str | None = None,
+        source_id: str | None = None,
+    ) -> dict[str, object]:
+        """Project deterministic downstream impact from one dataset or source."""
+
+        if (dataset_id is None) == (source_id is None):
+            raise DataCatalogueError("exactly one of dataset_id or source_id must be provided")
+        if dataset_id is not None:
+            reference_id = str(dataset_id).strip()
+            if reference_id not in self._datasets:
+                raise DataCatalogueError(f"dataset is not registered: {reference_id}")
+            reference_type = "dataset"
+            direct_dataset_ids = {reference_id}
+        else:
+            reference_id = str(source_id).strip()
+            direct_dataset_ids = {
+                item.dataset_id for item in self.datasets if item.source_id == reference_id
+            }
+            if not direct_dataset_ids:
+                raise DataCatalogueError(f"source is not registered: {reference_id}")
+            reference_type = "source"
+
+        direct_snapshot_ids = {
+            item.snapshot_id for item in self.snapshots if item.dataset_id in direct_dataset_ids
+        }
+        downstream: dict[str, set[str]] = {}
+        for upstream, downstream_id, _relation in self._edges:
+            downstream.setdefault(upstream, set()).add(downstream_id)
+        affected: set[str] = set()
+        queue = deque(sorted(direct_snapshot_ids))
+        while queue:
+            for child in sorted(downstream.get(queue.popleft(), ())):
+                if child in self._snapshots and child not in affected:
+                    affected.add(child)
+                    queue.append(child)
+        affected_dataset_ids = {self._snapshots[item].dataset_id for item in affected}
+        involved = direct_snapshot_ids | affected
+        stale_snapshot_ids = sorted(item for item in involved if self._snapshots[item].stale)
+        orphan_snapshot_ids = sorted(
+            item for item in involved if self._snapshots[item].dataset_id not in self._datasets
+        )
+        incompatible_snapshot_ids = sorted(
+            item
+            for item in involved
+            if (dataset := self._datasets.get(self._snapshots[item].dataset_id)) is not None
+            and dataset.schema_sha256 != self._snapshots[item].schema_sha256
+        )
+        return {
+            "reference_type": reference_type,
+            "reference_id": reference_id,
+            "direct_dataset_ids": sorted(direct_dataset_ids),
+            "direct_snapshot_ids": sorted(direct_snapshot_ids),
+            "affected_snapshot_ids": sorted(affected),
+            "affected_dataset_ids": sorted(affected_dataset_ids),
+            "status": (
+                "failed"
+                if incompatible_snapshot_ids or orphan_snapshot_ids
+                else "degraded"
+                if stale_snapshot_ids
+                else "passed"
+            ),
+            "stale_snapshot_ids": stale_snapshot_ids,
+            "incompatible_snapshot_ids": incompatible_snapshot_ids,
+            "orphan_snapshot_ids": orphan_snapshot_ids,
+            "execution_allowed": False,
+        }
+
     def provenance_for(self, instrument_id: str) -> dict[str, object]:
         instrument_id = str(instrument_id or "").strip()
         direct = [snapshot.snapshot_id for snapshot in self.snapshots if instrument_id in snapshot.coverage_ids]
@@ -420,6 +541,48 @@ class DataCatalogue:
 
     def _signature(self) -> str:
         return _hash_payload(self._payload())
+
+    def _snapshot_node(self, snapshot_id: str) -> dict[str, object]:
+        snapshot = self._snapshots[snapshot_id]
+        dataset = self._datasets.get(snapshot.dataset_id)
+        return {
+            "snapshot_id": snapshot.snapshot_id,
+            "dataset_id": snapshot.dataset_id,
+            "stale": snapshot.stale,
+            "schema_compatible": dataset is not None and dataset.schema_sha256 == snapshot.schema_sha256,
+        }
+
+    @staticmethod
+    def _cycle_snapshot_ids(
+        node_ids: set[str],
+        edges: set[tuple[str, str, str]],
+    ) -> list[str]:
+        upstream: dict[str, set[str]] = {}
+        for dependency_id, downstream_id, _relation in edges:
+            if dependency_id in node_ids:
+                upstream.setdefault(downstream_id, set()).add(dependency_id)
+        visiting: list[str] = []
+        active: set[str] = set()
+        visited: set[str] = set()
+        cycle_ids: set[str] = set()
+
+        def visit(node_id: str) -> None:
+            if node_id in active:
+                cycle_ids.update(visiting[visiting.index(node_id) :])
+                return
+            if node_id in visited:
+                return
+            active.add(node_id)
+            visiting.append(node_id)
+            for dependency_id in sorted(upstream.get(node_id, ())):
+                visit(dependency_id)
+            visiting.pop()
+            active.remove(node_id)
+            visited.add(node_id)
+
+        for node_id in sorted(node_ids):
+            visit(node_id)
+        return sorted(cycle_ids)
 
     def _cycle_errors(self) -> list[str]:
         children: dict[str, set[str]] = {}

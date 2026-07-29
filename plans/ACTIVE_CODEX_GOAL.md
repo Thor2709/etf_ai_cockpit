@@ -2,18 +2,18 @@
 
 ## Current checkpoint
 
-- Current UTC timestamp: `2026-07-29T13:32:23Z`
-- Current `origin/main`: `1d4b390935bf050625d8a704ae31a87487fb7bb9`
-- Active worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\fast-path-fixtures-completion-20260729`
-- Active branch: `codex/fast-path-fixtures-completion-20260729`
-- Exact base SHA: `1d4b390935bf050625d8a704ae31a87487fb7bb9`
-- Exact reviewed implementation head before this checkpoint update: `3873d889ed0fb374b218293c9727a7d33581a755`
-- Current PR and state: no fixture/convergence-repair PR exists yet. Sole-worker commits `fc648623` and focused correction `3873d889` are clean and independently reviewed.
-- Current issue: the final representative fixture/status-completion prerequisite is active. ISSUE-0090 product work remains paused until this H-tier repair merges and exact-main automatic convergence passes.
-- Completed work: PRs #608–#614 are merged. PR #613 proved a live tier-E ISSUE-0179 lifecycle with exact reuse and skipped packages; ISSUE-0179 is integrated locally and on GitHub. PR #614 merged ISSUE-0180 exact head `ed314167` as `1d4b3909` after H run `30453850014` passed Linux/Windows `2169/2169`. The representative E/O/H/C, multi-edge and consecutive-head fixtures pass locally.
-- Required checks: commit the reviewed fixture/metrics checkpoint, publish an immutable draft H-tier PR, require truthful Linux/Windows packaged evidence and clean review surfaces, merge exact head, and require automatic exact-main zero-action convergence before resuming ISSUE-0090.
-- Blocker: none. The worker's 145-test affected suite, Ruff, protected MyPy, compile and diff hygiene pass independently. The repair keeps convergence read-only, accepts sidecar drift only after a fresh zero-action/inventory-bound validation, rejects nonzero actions, and consumes a default completion candidate only on the merge that changed it.
-- Exact next action: finish and commit the durable metrics/plan checkpoint, classify the exact head, then publish the immutable H-tier repair PR.
+- Current UTC timestamp: `2026-07-29T14:15:23Z`
+- Current `origin/main`: `97d1e364b46364baef7c23b5ba46af74a8a53e5a`
+- Active worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\issue0090-resume-20260730`
+- Active branch: `codex/issue-0090-resume-20260730`
+- Exact base SHA: `97d1e364b46364baef7c23b5ba46af74a8a53e5a`
+- Exact reviewed product head before this checkpoint update: `f238130d5ea4fa13f8d8b055a6f92ded94489f1f`
+- Current PR and state: no ISSUE-0090 continuation PR exists. The fresh isolated branch is unpushed.
+- Current issue: ISSUE-0090 product continuation has resumed after fast-path proof. The first bounded deterministic, fail-closed upstream graph and dataset/source impact slice is implemented and locally reviewed.
+- Completed work: PR #615 passed H run `30456636457` at truthful Linux/Windows `2171/2171` and merged exact head `c5befb5a` as `97d1e364`. Automatic exact-main convergence run `30458709210` then passed in 25 seconds with create/update/close/reopen/blocked all zero. PRs #608–#615, ISSUE-0179, ISSUE-0180, representative fixtures and truthful metrics are integrated.
+- Required checks: commit this reviewed checkpoint, push an immutable draft PR, require the exact H-classified Linux/Windows package gate and clean review surfaces, then merge only the reviewed head and require automatic exact-main zero-action convergence.
+- Blocker: none. Sole-worker commits `9ad7912d` and focused correction `f238130d` pass 10 catalogue/UI tests, 40 audit/export tests, Ruff, compile, diff hygiene and issue-scoped registry/compile/source smoke. Raw module MyPy retains its pre-existing unprotected baseline errors; no new-method errors were reported. ISSUE-0090 remains `implemented_initially`; PR #560, PR #562 and issue #241 remain untouched. `execution_allowed=false` and broker/provider authority are unchanged.
+- Exact next action: commit this checkpoint, reclassify the exact final head, then publish the immutable H-tier draft PR.
 
 ## Objective
 
