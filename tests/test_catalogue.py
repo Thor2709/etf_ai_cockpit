@@ -5,13 +5,15 @@ import pytest
 from etf_cockpit.data.catalogue import DataCatalogue, DataCatalogueError, DatasetDefinition, DatasetSnapshot
 
 
-def _definition(dataset_id: str, *, layer: str = "raw") -> DatasetDefinition:
+def _definition(
+    dataset_id: str, *, layer: str = "raw", source_id: str = "local-fixture"
+) -> DatasetDefinition:
     return DatasetDefinition(
         dataset_id=dataset_id,
         layer=layer,
         schema={"instrument_id": "string", "value": "number"},
         owner="data-platform",
-        source_id="local-fixture",
+        source_id=source_id,
         licence="fixture",
         update_schedule="manual",
         partitions=("2024",),
@@ -87,3 +89,122 @@ def test_orphan_and_schema_drift_are_flagged_without_becoming_authority(tmp_path
 
     with pytest.raises(DataCatalogueError):
         catalogue.register_dataset(_definition("derived", layer="clean"))
+
+
+def test_complete_upstream_graph_is_deterministic_and_exposes_state(tmp_path) -> None:
+    catalogue = DataCatalogue(tmp_path)
+    raw = catalogue.register_dataset(_definition("raw"))
+    clean = catalogue.register_dataset(_definition("clean", layer="clean"))
+    result = catalogue.register_dataset(_definition("result", layer="derived"))
+    raw_snapshot = catalogue.register_rows(
+        "raw", [{"instrument_id": "AAA", "value": 1.0}], schema=raw.schema, stale=True
+    )
+    clean_snapshot = catalogue.register_rows(
+        "clean",
+        [{"instrument_id": "AAA", "value": 1.0}],
+        schema=clean.schema,
+        dependency_snapshot_ids=(raw_snapshot.snapshot_id,),
+    )
+    result_snapshot = catalogue.register_rows(
+        "result",
+        [{"instrument_id": "AAA", "value": 1.0}],
+        schema=result.schema,
+        dependency_snapshot_ids=(clean_snapshot.snapshot_id, raw_snapshot.snapshot_id),
+    )
+
+    graph = catalogue.upstream_snapshot_graph(result_snapshot.snapshot_id)
+
+    assert [node["snapshot_id"] for node in graph["nodes"]] == sorted(
+        [raw_snapshot.snapshot_id, clean_snapshot.snapshot_id, result_snapshot.snapshot_id]
+    )
+    assert graph["edges"] == sorted(
+        graph["edges"],
+        key=lambda item: (
+            item["upstream_snapshot_id"],
+            item["downstream_snapshot_id"],
+            item["relation"],
+        ),
+    )
+    assert graph["status"] == "degraded"
+    assert graph["complete"] is True
+    assert graph["stale_snapshot_ids"] == [raw_snapshot.snapshot_id]
+    assert graph["incompatible_snapshot_ids"] == []
+    assert graph["execution_allowed"] is False
+
+
+def test_upstream_graph_fails_closed_for_missing_and_incompatible_dependencies(tmp_path) -> None:
+    catalogue = DataCatalogue(tmp_path)
+    dataset = catalogue.register_dataset(_definition("result", layer="derived"))
+    snapshot = catalogue.register_snapshot(
+        DatasetSnapshot(
+            dataset_id=dataset.dataset_id,
+            snapshot_id="result:" + "a" * 24 + ":" + "b" * 16,
+            content_sha256="a" * 64,
+            schema_sha256="b" * 64,
+            row_count=1,
+            dependency_snapshot_ids=("missing:upstream",),
+        )
+    )
+
+    graph = catalogue.upstream_snapshot_graph(snapshot.snapshot_id)
+
+    assert graph["status"] == "failed"
+    assert graph["complete"] is False
+    assert graph["missing_upstream_snapshot_ids"] == ["missing:upstream"]
+    assert graph["incompatible_snapshot_ids"] == [snapshot.snapshot_id]
+    assert graph["execution_allowed"] is False
+
+
+def test_dataset_and_source_downstream_impact_include_transitive_results(tmp_path) -> None:
+    catalogue = DataCatalogue(tmp_path)
+    raw = catalogue.register_dataset(_definition("raw"))
+    peer = catalogue.register_dataset(_definition("peer"))
+    clean = catalogue.register_dataset(
+        _definition("clean", layer="clean", source_id="transformation")
+    )
+    result = catalogue.register_dataset(
+        _definition("result", layer="derived", source_id="calculation")
+    )
+    raw_snapshot = catalogue.register_rows("raw", [{"instrument_id": "A", "value": 1}], schema=raw.schema)
+    catalogue.register_rows("peer", [{"instrument_id": "B", "value": 1}], schema=peer.schema)
+    clean_snapshot = catalogue.register_rows(
+        "clean",
+        [{"instrument_id": "A", "value": 1}],
+        schema=clean.schema,
+        dependency_snapshot_ids=(raw_snapshot.snapshot_id,),
+    )
+    result_snapshot = catalogue.register_rows(
+        "result",
+        [{"instrument_id": "A", "value": 1}],
+        schema=result.schema,
+        dependency_snapshot_ids=(clean_snapshot.snapshot_id,),
+    )
+
+    dataset_impact = catalogue.downstream_impact(dataset_id="raw")
+    source_impact = catalogue.downstream_impact(source_id="local-fixture")
+
+    assert dataset_impact["direct_snapshot_ids"] == [raw_snapshot.snapshot_id]
+    assert dataset_impact["affected_snapshot_ids"] == sorted(
+        [clean_snapshot.snapshot_id, result_snapshot.snapshot_id]
+    )
+    assert dataset_impact["affected_dataset_ids"] == ["clean", "result"]
+    assert source_impact["direct_dataset_ids"] == ["peer", "raw"]
+    assert source_impact["affected_snapshot_ids"] == sorted(
+        [clean_snapshot.snapshot_id, result_snapshot.snapshot_id]
+    )
+    assert source_impact["affected_dataset_ids"] == ["clean", "result"]
+    assert source_impact["execution_allowed"] is False
+
+
+def test_downstream_impact_rejects_unknown_and_ambiguous_references(tmp_path) -> None:
+    catalogue = DataCatalogue(tmp_path)
+    catalogue.register_dataset(_definition("raw"))
+
+    with pytest.raises(DataCatalogueError, match="exactly one"):
+        catalogue.downstream_impact()
+    with pytest.raises(DataCatalogueError, match="exactly one"):
+        catalogue.downstream_impact(dataset_id="raw", source_id="local-fixture")
+    with pytest.raises(DataCatalogueError, match="dataset is not registered"):
+        catalogue.downstream_impact(dataset_id="missing")
+    with pytest.raises(DataCatalogueError, match="source is not registered"):
+        catalogue.downstream_impact(source_id="missing")
