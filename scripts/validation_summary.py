@@ -117,6 +117,15 @@ def _tree_identity(root: Path, ref: str, paths: list[str]) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _junit_tests(node: ET.Element) -> int:
+    child_suites = [
+        child for child in node if child.tag.rsplit("}", 1)[-1] == "testsuite"
+    ]
+    if child_suites:
+        return sum(_junit_tests(child) for child in child_suites)
+    return int(node.attrib.get("tests", 0))
+
+
 def collect_summary(
     root: Path,
     artifacts_root: Path,
@@ -145,7 +154,7 @@ def collect_summary(
         platform = "windows" if "windows" in path.as_posix().lower() else "linux"
         try:
             root_node = ET.parse(path).getroot()
-            junit[platform] += int(root_node.attrib.get("tests", 0))
+            junit[platform] += _junit_tests(root_node)
         except (ET.ParseError, ValueError):
             continue
     groups = {

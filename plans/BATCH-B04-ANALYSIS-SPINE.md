@@ -42,9 +42,14 @@ summary could not attribute the flattened Linux and Windows artifact names.
 The bounded correction at `ab188759` preserves artifact-name directories and
 runs terminal-evidence construction under `always()` so a failed terminal
 state remains auditable. The focused 126-test control suite, Ruff, MyPy,
-compile, YAML, atomic freshness and exact schema-1.3 guard pass. The failed
-runs are not retried; the next action is one new exact head and fresh complete
-H-tier gate.
+compile, YAML, atomic freshness and exact schema-1.3 guard pass. Run
+`30417788249` then passed both packaged platforms at 2,144 tests each but
+exposed that pytest's JUnit count is nested below a `<testsuites>` root. Its
+failed terminal summary was retained as intended. The bounded correction
+recursively counts suites and propagates the immutable PR head rather than the
+synthetic merge SHA; replay against the actual retained artifacts validates at
+Linux/Windows `2144/2144`. The failed runs are not retried; the next action is
+one new exact head and fresh complete H-tier gate.
 
 ## Authority and outcome
 

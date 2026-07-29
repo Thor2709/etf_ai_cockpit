@@ -91,7 +91,10 @@ def test_terminal_collection_preserves_platform_artifact_directories(
     for platform in ("linux", "windows"):
         junit = artifacts / f"release-gate-head-{platform}" / "junit-full.xml"
         junit.parent.mkdir(parents=True)
-        junit.write_text('<testsuite tests="3" />\n', encoding="utf-8")
+        junit.write_text(
+            '<testsuites><testsuite tests="3" /></testsuites>\n',
+            encoding="utf-8",
+        )
     monkeypatch.setattr(validation_summary, "_tree_identity", lambda *_args: "d" * 64)
 
     report = validation_summary.collect_summary(
@@ -117,5 +120,7 @@ def test_workflow_keeps_artifact_names_and_writes_failed_terminal_evidence() -> 
     ).read_text(encoding="utf-8")
 
     assert "merge-multiple: true" not in workflow
+    assert "head_sha: ${{ steps.classify.outputs.head_sha }}" in workflow
+    assert "HEAD_SHA: ${{ needs.classifier.outputs.head_sha }}" in workflow
     build_step = workflow.index("- name: Build and validate authoritative terminal evidence")
     assert "if: always()" in workflow[build_step : build_step + 120]

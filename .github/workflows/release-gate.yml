@@ -21,6 +21,7 @@ jobs:
       tier: ${{ steps.classify.outputs.tier }}
       package_gate_required: ${{ steps.classify.outputs.package_gate_required }}
       base_sha: ${{ steps.classify.outputs.base_sha }}
+      head_sha: ${{ steps.classify.outputs.head_sha }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -32,6 +33,7 @@ jobs:
         shell: bash
         env:
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           ORDINARY_ISSUES_SINCE_FULL_GATE: ${{ vars.ORDINARY_ISSUES_SINCE_FULL_GATE || '0' }}
         run: |
           base="$BASE_SHA"
@@ -42,7 +44,7 @@ jobs:
           arguments=(
             --root .
             --base "$base"
-            --head "${{ github.sha }}"
+            --head "$HEAD_SHA"
             --ordinary-issues-since-full-gate "$ORDINARY_ISSUES_SINCE_FULL_GATE"
             --output artifacts/validation/classifier.json
           )
@@ -61,6 +63,7 @@ jobs:
               output.write(f"tier={report['tier']}\n")
               output.write(f"package_gate_required={str(report['package_gate_required']).lower()}\n")
               output.write(f"base_sha={os.environ['RESOLVED_BASE_SHA']}\n")
+              output.write(f"head_sha={os.environ['HEAD_SHA']}\n")
           PY
 
       - name: Upload classifier report
@@ -77,7 +80,7 @@ jobs:
     timeout-minutes: 20
     env:
       ETF_COCKPIT_VALIDATION_BASE_SHA: ${{ needs.classifier.outputs.base_sha }}
-      ETF_COCKPIT_VALIDATION_HEAD_SHA: ${{ github.sha }}
+      ETF_COCKPIT_VALIDATION_HEAD_SHA: ${{ needs.classifier.outputs.head_sha }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -303,7 +306,7 @@ jobs:
         if: always()
         env:
           BASE_SHA: ${{ needs.classifier.outputs.base_sha }}
-          HEAD_SHA: ${{ github.sha }}
+          HEAD_SHA: ${{ needs.classifier.outputs.head_sha }}
           CLASSIFIER_RESULT: ${{ needs.classifier.result }}
           PREFLIGHT_RESULT: ${{ needs.preflight.result }}
           SUPPLY_RESULT: ${{ needs['supply-chain'].result }}
