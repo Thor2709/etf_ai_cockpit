@@ -151,7 +151,15 @@ def collect_summary(
     ]
     junit = {"windows": 0, "linux": 0}
     for path in artifacts_root.rglob("*.xml"):
-        platform = "windows" if "windows" in path.as_posix().lower() else "linux"
+        artifact_name = path.relative_to(artifacts_root).parts[0].lower()
+        if not artifact_name.startswith("release-gate-"):
+            continue
+        if "windows" in artifact_name:
+            platform = "windows"
+        elif "linux" in artifact_name:
+            platform = "linux"
+        else:
+            continue
         try:
             root_node = ET.parse(path).getroot()
             junit[platform] += _junit_tests(root_node)

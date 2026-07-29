@@ -95,6 +95,9 @@ def test_terminal_collection_preserves_platform_artifact_directories(
             '<testsuites><testsuite tests="3" /></testsuites>\n',
             encoding="utf-8",
         )
+    preflight = artifacts / "validation-preflight-head" / "junit-affected.xml"
+    preflight.parent.mkdir(parents=True)
+    preflight.write_text('<testsuite tests="126" />\n', encoding="utf-8")
     monkeypatch.setattr(validation_summary, "_tree_identity", lambda *_args: "d" * 64)
 
     report = validation_summary.collect_summary(

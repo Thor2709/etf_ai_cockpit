@@ -48,8 +48,13 @@ exposed that pytest's JUnit count is nested below a `<testsuites>` root. Its
 failed terminal summary was retained as intended. The bounded correction
 recursively counts suites and propagates the immutable PR head rather than the
 synthetic merge SHA; replay against the actual retained artifacts validates at
-Linux/Windows `2144/2144`. The failed runs are not retried; the next action is
-one new exact head and fresh complete H-tier gate.
+Linux/Windows `2144/2144`. Run `30419312173` passed all required jobs, but an
+audit found its nominally green summary had added the 126-test preflight JUnit
+to Linux, reporting `2270/2144`. The bounded correction counts only XML under
+explicitly named Linux/Windows release artifacts; replay against the full
+retained artifact set now validates truthfully at `2144/2144`. Prior runs are
+not retried; the next action is one new exact head and fresh complete H-tier
+gate.
 
 ## Authority and outcome
 

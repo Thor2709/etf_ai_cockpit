@@ -2,18 +2,18 @@
 
 ## Current checkpoint
 
-- Current UTC timestamp: `2026-07-29T03:15:52Z`
+- Current UTC timestamp: `2026-07-29T03:48:50Z`
 - Current `origin/main`: `b11b1d6783438df03847d7a1b45c3a4d7c1f2385`
 - Active worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\atomic-fast-path-20260729`
 - Active branch: `codex/atomic-fast-path-20260729`
 - Exact base SHA: `b11b1d6783438df03847d7a1b45c3a4d7c1f2385`
-- Exact last committed control head before this checkpoint update: `30abd8a4b3cff44e4c459a2360e789ea5b0746a6`
-- Current PR and state: draft PR #609 run `30417788249` passed classifier, schema-1.3 status guard, preflight, supply-chain and the complete Linux (`19m56s`) and Windows (`22m40s`) packaged gates at 2,144 tests per platform. Only `validation-summary` failed because pytest nests the count below a `<testsuites>` root; the retained failed summary correctly uploaded. The bounded uncommitted correction recursively counts suites and propagates the immutable PR head instead of GitHub's synthetic pull-request merge SHA. Replaying it against the actual retained artifacts produces a valid summary with Linux/Windows `2144/2144` and head `30abd8a4b3cff44e4c459a2360e789ea5b0746a6`.
+- Exact last committed control head before this checkpoint update: `77d189052679885625424ab54fe648f604d886f4`
+- Current PR and state: draft PR #609 run `30419312173` passed classifier, schema-1.3 status guard, preflight, supply-chain, Linux (`18m34s`), Windows (`23m34s`) and terminal summary. Audit of the green summary found Linux `2270` versus Windows `2144` because preflight's 126 affected tests were incorrectly added to Linux. The bounded uncommitted correction counts only XML beneath explicitly named Linux/Windows release artifacts. Replay against the full retained artifact set, including preflight, validates at Linux/Windows `2144/2144` with exact PR head `77d189052679885625424ab54fe648f604d886f4`.
 - Current issue: ISSUE-0179 is the primary implementation lane; ISSUE-0090 product work is paused until the atomic fast path is proven.
 - Completed work: PR #608 is merged and converged. The sole ISSUE-0179 worker and correction are accepted. Atomic publication, interruption recovery, closed mandatory output manifest, append-only events, independent multi-edge validation, reachable generation provenance, exact E reuse identities, terminal evidence validation and read-only exact-head convergence are implemented. ISSUE-0179→ISSUE-0178 is complete while status remains `planned`; `execution_allowed=false`. Semantic UTF-8 hashes are CRLF/LF stable while binary bytes remain exact; recursive JUnit counting and exact PR-head propagation are covered by the complete 126-test affected suite with atomic second-run freshness, Ruff, MyPy and diff hygiene.
-- Required checks: commit the parser/head correction and this checkpoint, then push a new exact head; require fresh classifier, schema-1.3 guard, preflight, supply-chain, complete Linux and Windows packaged H-tier gate and terminal summary before merge.
+- Required checks: commit the artifact-scope correction and this checkpoint, then push a new exact head; require fresh classifier, schema-1.3 guard, preflight, supply-chain, complete Linux and Windows packaged H-tier gate and truthful terminal summary before merge.
 - Blocker: none. The previous UTC-midnight fixture failure is documented as run `30409555828` attempt 1 and resolved only by the permitted exact unchanged-head retry.
-- Exact next action: commit the correction and failure checkpoint, push the new exact PR #609 head, and use one watcher for the fresh H-tier run; do not retry failed runs `30416010061`, `30416340531` or `30417788249`.
+- Exact next action: commit the correction and audit checkpoint, push the new exact PR #609 head, and use one watcher for the fresh H-tier run; do not retry prior runs.
 
 ## Objective
 
