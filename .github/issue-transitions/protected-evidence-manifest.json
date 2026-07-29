@@ -1,0 +1,13 @@
+{
+  "artifact_identity": {
+    "linux_junit_tests": 2122,
+    "release_gate_attempt": 2,
+    "release_gate_run_id": 30409555828,
+    "reviewed_head_sha": "937ec382dfab7acc74ad16e7e706b795c88e63a2",
+    "terminal_result": "success",
+    "windows_junit_tests": 2122
+  },
+  "execution_allowed": false,
+  "policy": "Reuse is allowed only when the classifier independently proves protected source, dependency, product-tree, environment, workflow and policy identities are unchanged from the exact base.",
+  "schema_version": "protected-evidence-manifest.v1"
+}

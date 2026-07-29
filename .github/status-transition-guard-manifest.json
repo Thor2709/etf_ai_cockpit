@@ -3,21 +3,21 @@
   "allow_other_status_changes": false,
   "allowed_dependency_edge_updates": [
     {
-      "issue_id": "ISSUE-0090",
-      "dependency_id": "ISSUE-0075"
+      "issue_id": "ISSUE-0179",
+      "dependency_id": "ISSUE-0178"
     }
   ],
   "allowed_status_transitions": [],
-  "base_commit": "2337f6959719a9a4ae1b8ec9efb3927ade2acc7d",
-  "branch": "codex/issue-0090-version-dependency-20260728",
+  "base_commit": "b11b1d6783438df03847d7a1b45c3a4d7c1f2385",
+  "branch": "codex/atomic-fast-path-20260729",
   "issue_ids": [],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "7eb767c50e94be47851809cfea3ecaf59e3daca577ac4b14bf074e18119f0758",
+    "base_registry_sha256": "ad4fbdd71f9bddc9b0d3e513699fbb1e17ccbb145faa86eeba7547d204f44143",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_dependency_edge_evidence",
-    "proposed_registry_sha256": "ad4fbdd71f9bddc9b0d3e513699fbb1e17ccbb145faa86eeba7547d204f44143",
-    "reason": "ISSUE-0090 dependency readiness from fresh main 2337f6959719a9a4ae1b8ec9efb3927ade2acc7d: update exactly ISSUE-0090 to ISSUE-0075 from unresolved to complete using the integrated immutable version registry, exact run dependency graph, compatibility, forward migration and deterministic invalidation contract; preserve all statuses, other dependencies, policy, broker authority and execution_allowed=false.",
+    "proposed_registry_sha256": "199fedadc5ebf35b82e9343cca82e306552fb4c1e810809cca8f68c619d9601d",
+    "reason": "ISSUE-0179 readiness from fresh main b11b1d6783438df03847d7a1b45c3a4d7c1f2385: update exactly ISSUE-0179 to ISSUE-0178 from unresolved to complete using the integrated deterministic E/O/H/C classifier, exact-head preflight, conditional Linux/Windows gates, terminal validation summary and checksum-controlled evidence-reuse contract; preserve all statuses, other dependencies, policies, broker authority and execution_allowed=false while the same H-tier product transaction installs atomic programme generation.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },

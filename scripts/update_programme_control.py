@@ -13,6 +13,7 @@ import os
 import re
 import subprocess
 import tempfile
+from copy import deepcopy
 from pathlib import Path
 
 try:
@@ -232,6 +233,61 @@ def apply_dependency_edge_update(
     history.append(event)
     record["verified_commit"] = verified_commit
     record["verified_date"] = reviewed_date
+    return value
+
+
+def apply_dependency_edge_updates(
+    value: dict[str, object],
+    *,
+    issue_id: str,
+    updates: list[dict[str, object]],
+    verified_commit: str,
+) -> dict[str, object]:
+    """Append an independently reviewed same-consumer edge batch atomically."""
+
+    records = value.get("records")
+    if not isinstance(records, dict) or not isinstance(records.get(issue_id), dict):
+        raise ValueError(f"unknown controlled issue ID: {issue_id}")
+    record = records[issue_id]
+    predecessor = deepcopy(record)
+    dependencies = [str(update.get("dependency_id", "")) for update in updates]
+    if not updates or len(dependencies) != len(set(dependencies)):
+        raise ValueError("dependency-edge batch must contain unique declared edges")
+    events: list[dict[str, object]] = []
+    for update, dependency_id in zip(updates, dependencies, strict=True):
+        evidence = predecessor.get("dependency_edge_evidence")
+        if not isinstance(evidence, dict) or dependency_id not in evidence:
+            raise ValueError(f"{issue_id}: non-declared dependency edge {dependency_id}")
+        edge = {
+            "schema_version": "1.0",
+            "state": update["edge_state"],
+            "evidence_references": update["evidence_references"],
+            "contract_reference": update["contract_reference"],
+            "reviewer": update["reviewer"],
+            "reviewed_date": update["reviewed_date"],
+        }
+        event = {
+            "event_type": "dependency_edge_update",
+            "dependency_edge": {"dependency": dependency_id, "evidence": edge},
+            "review_reference": update["review_reference"],
+            "evidence_references": update["evidence_references"],
+            "reviewer": update["reviewer"],
+            "reviewed_date": update["reviewed_date"],
+            "verified_commit": verified_commit,
+        }
+        validate_control_transition_event(issue_id, predecessor, event)
+        events.append(event)
+    history = record.setdefault("transition_history", [])
+    evidence = record.get("dependency_edge_evidence")
+    if not isinstance(history, list) or not isinstance(evidence, dict):
+        raise ValueError(f"{issue_id}: invalid event projection")
+    for event in events:
+        change = event["dependency_edge"]
+        assert isinstance(change, dict)
+        evidence[str(change["dependency"])] = change["evidence"]
+        history.append(event)
+    record["verified_commit"] = verified_commit
+    record["verified_date"] = events[-1]["reviewed_date"]
     return value
 
 

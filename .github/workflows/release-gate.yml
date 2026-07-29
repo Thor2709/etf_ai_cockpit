@@ -21,6 +21,7 @@ jobs:
       tier: ${{ steps.classify.outputs.tier }}
       package_gate_required: ${{ steps.classify.outputs.package_gate_required }}
       base_sha: ${{ steps.classify.outputs.base_sha }}
+      head_sha: ${{ steps.classify.outputs.head_sha }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -32,6 +33,7 @@ jobs:
         shell: bash
         env:
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           ORDINARY_ISSUES_SINCE_FULL_GATE: ${{ vars.ORDINARY_ISSUES_SINCE_FULL_GATE || '0' }}
         run: |
           base="$BASE_SHA"
@@ -39,12 +41,18 @@ jobs:
             base="$(git rev-parse HEAD^ 2>/dev/null || git rev-parse HEAD)"
           fi
           export RESOLVED_BASE_SHA="$base"
-          python scripts/classify_validation.py \
-            --root . \
-            --base "$base" \
-            --head "${{ github.sha }}" \
-            --ordinary-issues-since-full-gate "$ORDINARY_ISSUES_SINCE_FULL_GATE" \
+          arguments=(
+            --root .
+            --base "$base"
+            --head "$HEAD_SHA"
+            --ordinary-issues-since-full-gate "$ORDINARY_ISSUES_SINCE_FULL_GATE"
             --output artifacts/validation/classifier.json
+          )
+          reuse_evidence=".github/issue-transitions/reuse-evidence.json"
+          if [[ -f "$reuse_evidence" ]]; then
+            arguments+=(--reuse-evidence "$reuse_evidence")
+          fi
+          python scripts/classify_validation.py "${arguments[@]}"
           python - <<'PY'
           import json
           import os
@@ -55,6 +63,7 @@ jobs:
               output.write(f"tier={report['tier']}\n")
               output.write(f"package_gate_required={str(report['package_gate_required']).lower()}\n")
               output.write(f"base_sha={os.environ['RESOLVED_BASE_SHA']}\n")
+              output.write(f"head_sha={os.environ['HEAD_SHA']}\n")
           PY
 
       - name: Upload classifier report
@@ -71,7 +80,7 @@ jobs:
     timeout-minutes: 20
     env:
       ETF_COCKPIT_VALIDATION_BASE_SHA: ${{ needs.classifier.outputs.base_sha }}
-      ETF_COCKPIT_VALIDATION_HEAD_SHA: ${{ github.sha }}
+      ETF_COCKPIT_VALIDATION_HEAD_SHA: ${{ needs.classifier.outputs.head_sha }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -93,21 +102,19 @@ jobs:
       - name: Evidence and control preflight
         if: needs.classifier.outputs.tier == 'E'
         run: |
-          python scripts/validate_issue_registry.py --root .
-          python scripts/generate_issue_registry.py --root . --check
-          python scripts/generate_completion_documents.py --root . --check
-          python scripts/update_programme_status.py --root . --check
+          python scripts/generate_programme.py --root . --check
           git diff --check "$ETF_COCKPIT_VALIDATION_BASE_SHA" "$ETF_COCKPIT_VALIDATION_HEAD_SHA" --
 
       - name: Product and protected preflight
         if: needs.classifier.outputs.tier != 'E'
         run: |
+          python scripts/generate_programme.py --root . --check
           python scripts/validate_app.py --root . --changed
           python -m pytest -q tests/test_button_contracts.py tests/test_architecture_boundaries.py
           # Legacy findings outside the protected validation surface remain
           # tracked separately; do not turn them into an unrelated red baseline.
-          python -m ruff check scripts/classify_validation.py scripts/release_gate.py scripts/validate_app.py src/etf_cockpit/data/health.py
-          python -m mypy --ignore-missing-imports --disable-error-code=import-untyped --follow-imports=skip scripts/classify_validation.py
+          python -m ruff check scripts/classify_validation.py scripts/generate_programme.py scripts/validation_summary.py scripts/release_gate.py scripts/validate_app.py src/etf_cockpit/data/health.py
+          python -m mypy --ignore-missing-imports --disable-error-code=import-untyped --follow-imports=skip scripts/classify_validation.py scripts/generate_programme.py scripts/validation_summary.py
           python scripts/smoke_app.py --mode offline --timeout 30
           git diff --check "$ETF_COCKPIT_VALIDATION_BASE_SHA" "$ETF_COCKPIT_VALIDATION_HEAD_SHA" --
 
@@ -231,8 +238,8 @@ jobs:
       - name: Run lint and typing gates
         shell: bash
         run: |
-          python -m ruff check scripts/release_gate.py scripts/validate_app.py scripts/classify_validation.py src/etf_cockpit/data/health.py tests/test_release_gate.py tests/test_issue_0177_observability.py tests/test_issue_0178_validation_classifier.py tests/test_data_health.py
-          python -m mypy --ignore-missing-imports --disable-error-code=import-untyped --follow-imports=skip scripts/release_gate.py scripts/classify_validation.py src/etf_cockpit/data/health.py
+          python -m ruff check scripts/release_gate.py scripts/validate_app.py scripts/classify_validation.py scripts/generate_programme.py scripts/validation_summary.py src/etf_cockpit/data/health.py tests/test_release_gate.py tests/test_issue_0177_observability.py tests/test_issue_0178_validation_classifier.py tests/test_issue_0179_atomic_generation.py tests/test_issue_0179_validation_summary.py tests/test_data_health.py
+          python -m mypy --ignore-missing-imports --disable-error-code=import-untyped --follow-imports=skip scripts/release_gate.py scripts/classify_validation.py scripts/generate_programme.py scripts/validation_summary.py src/etf_cockpit/data/health.py
 
       - name: Run protected release gate
         shell: bash
@@ -264,6 +271,13 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download exact validation artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: validation-evidence
 
       - name: Evaluate required validation
         env:
@@ -287,3 +301,32 @@ jobs:
           if failures:
               raise SystemExit("\n".join(failures))
           PY
+
+      - name: Build and validate authoritative terminal evidence
+        if: always()
+        env:
+          BASE_SHA: ${{ needs.classifier.outputs.base_sha }}
+          HEAD_SHA: ${{ needs.classifier.outputs.head_sha }}
+          CLASSIFIER_RESULT: ${{ needs.classifier.result }}
+          PREFLIGHT_RESULT: ${{ needs.preflight.result }}
+          SUPPLY_RESULT: ${{ needs['supply-chain'].result }}
+          RELEASE_RESULT: ${{ needs['release-gate'].result }}
+        run: |
+          python scripts/validation_summary.py \
+            --root . \
+            --artifacts-root validation-evidence \
+            --base "$BASE_SHA" \
+            --head "$HEAD_SHA" \
+            --job-result "classifier=$CLASSIFIER_RESULT" \
+            --job-result "preflight=$PREFLIGHT_RESULT" \
+            --job-result "supply_chain=$SUPPLY_RESULT" \
+            --job-result "release=$RELEASE_RESULT" \
+            --output validation-evidence/terminal-summary.json
+
+      - name: Upload terminal validation summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-summary-${{ github.sha }}
+          path: validation-evidence/terminal-summary.json
+          if-no-files-found: error

@@ -1,5 +1,8 @@
 # ETF AI Cockpit — Codex Rules
 
+Before selecting or continuing work, read the durable active objective and
+checkpoint in `plans/ACTIVE_CODEX_GOAL.md`.
+
 ## Goal
 
 Complete the canonical implementation plan correctly and efficiently.

@@ -439,6 +439,71 @@ def test_dependency_edge_update_keeps_status_and_acceptance_unchanged_and_replay
             allowed_dependency_edge_update=("ISSUE-0154", "ISSUE-0153"),
         )
 
+
+def test_control_authority_replays_two_same_consumer_edges_from_one_immutable_batch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prior = json.loads((ROOT / issue_registry_core.CONTROL_STATE_PATH).read_text(encoding="utf-8"))
+    record = prior["records"]["ISSUE-0154"]
+    record["blocking_dependencies"] = ["ISSUE-0153", "ISSUE-0001"]
+    record["dependency_edge_evidence"] = {
+        dependency: {
+            "contract_reference": "",
+            "evidence_references": [],
+            "reviewed_date": "",
+            "reviewer": "",
+            "schema_version": "1.0",
+            "state": "unresolved",
+        }
+        for dependency in record["blocking_dependencies"]
+    }
+    updated = update_programme_control.apply_dependency_edge_updates(
+        copy.deepcopy(prior),
+        issue_id="ISSUE-0154",
+        updates=[
+            {
+                "dependency_id": dependency,
+                "edge_state": "partial_interface",
+                "review_reference": f"B00-R/{dependency}",
+                "evidence_references": [f"tests/contracts/{dependency}.json"],
+                "contract_reference": f"contracts/{dependency}",
+                "reviewer": "independent-reviewer",
+                "reviewed_date": "2026-07-22",
+            }
+            for dependency in record["blocking_dependencies"]
+        ],
+        verified_commit="ad783e517be68882934300df73106891ae6e3c05",
+    )
+
+    monkeypatch.setattr(
+        issue_registry_core.subprocess,
+        "check_output",
+        lambda *args, **kwargs: json.dumps(prior).encode("utf-8"),
+    )
+
+    issue_registry_core.validate_control_authority(
+        ROOT,
+        updated,
+        allowed_dependency_edge_update=[
+            ("ISSUE-0154", "ISSUE-0153"),
+            ("ISSUE-0154", "ISSUE-0001"),
+        ],
+    )
+
+    forged = copy.deepcopy(updated)
+    forged["records"]["ISSUE-0154"]["transition_history"][-1]["dependency_edge"][
+        "dependency"
+    ] = "ISSUE-0002"
+    with pytest.raises(ValueError):
+        issue_registry_core.validate_control_authority(
+            ROOT,
+            forged,
+            allowed_dependency_edge_update=[
+                ("ISSUE-0154", "ISSUE-0153"),
+                ("ISSUE-0154", "ISSUE-0001"),
+            ],
+        )
+
     metadata_drift = copy.deepcopy(updated)
     metadata_drift["metadata"]["unreviewed_operator"] = "forged"
     with pytest.raises(ValueError, match="metadata changed outside"):
@@ -478,6 +543,45 @@ def test_dependency_edge_update_keeps_status_and_acceptance_unchanged_and_replay
             extra_event,
             allowed_dependency_edge_update=("ISSUE-0154", "ISSUE-0153"),
         )
+
+
+def test_one_merged_head_replays_distinct_lifecycle_events_to_integrated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prior = _planned_issue0154_control()
+    merged = copy.deepcopy(prior)
+    commit = "ad783e517be68882934300df73106891ae6e3c05"
+    for source, target in (
+        ("planned", "in_progress"),
+        ("in_progress", "implemented_initially"),
+        ("implemented_initially", "integrated"),
+    ):
+        merged = update_programme_control.apply_transition(
+            merged,
+            issue_id="ISSUE-0154",
+            expected_from=source,
+            to_status=target,
+            review_reference=f"post-merge/{source}-to-{target}",
+            evidence_references=[f"merged-head:{commit}", "ci:protected-gate"],
+            reviewer="convergence-automation-read-only",
+            reviewed_date="2026-07-22",
+            verified_commit=commit,
+        )
+    monkeypatch.setattr(
+        issue_registry_core.subprocess,
+        "check_output",
+        lambda *args, **kwargs: json.dumps(prior).encode("utf-8"),
+    )
+
+    issue_registry_core.validate_control_authority(ROOT, merged)
+    record = merged["records"]["ISSUE-0154"]
+    assert record["programme_status"] == "integrated"
+    assert [event["to"] for event in record["transition_history"][-3:]] == [
+        "in_progress",
+        "implemented_initially",
+        "integrated",
+    ]
+    assert '"execution_allowed": true' not in json.dumps(merged).lower()
 
 
 def _handcrafted_control_transition(
@@ -579,12 +683,12 @@ def test_registry_entrypoint_rejects_handcrafted_invalid_transition_events(
     assert validate_issue_registry.main(["--root", str(ROOT)]) == 1
 
 
-def test_stale_generation_base_fails_every_canonical_check(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_unreachable_generation_base_fails_every_canonical_check(monkeypatch: pytest.MonkeyPatch) -> None:
     real = issue_registry_core.subprocess.check_output
 
     def stale(command, *args, **kwargs):
-        if list(command[:2]) == ["git", "rev-parse"]:
-            return "f" * 40 + ("\n" if kwargs.get("text") else "")
+        if list(command[:3]) == ["git", "merge-base", "--is-ancestor"]:
+            raise subprocess.CalledProcessError(1, command)
         return real(command, *args, **kwargs)
 
     monkeypatch.setattr(issue_registry_core.subprocess, "check_output", stale)
@@ -592,6 +696,27 @@ def test_stale_generation_base_fails_every_canonical_check(monkeypatch: pytest.M
     assert validate_issue_registry.main(["--root", str(ROOT)]) == 1
     assert generate_completion_documents.main(["--root", str(ROOT), "--check"]) == 1
     assert update_programme_status.main(["--root", str(ROOT), "--check"]) == 1
+
+
+def test_generation_base_remains_valid_after_two_consecutive_main_advances(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def reachable(command, *args, **kwargs):
+        calls.append(tuple(command))
+        return ""
+
+    monkeypatch.setattr(issue_registry_core.subprocess, "check_output", reachable)
+    control = issue_registry_core.load_control_state(ROOT)
+    issue_registry_core.verify_generation_base(ROOT, control)
+    issue_registry_core.verify_generation_base(ROOT, control)
+
+    expected = control["metadata"]["generation_base_commit"]
+    assert calls == [
+        ("git", "merge-base", "--is-ancestor", expected, "origin/main"),
+        ("git", "merge-base", "--is-ancestor", expected, "origin/main"),
+    ]
 
 
 def test_every_record_has_typed_final_release_contract_fields() -> None:

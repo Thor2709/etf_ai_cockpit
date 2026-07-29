@@ -1,0 +1,77 @@
+name: Programme convergence evidence
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      remote_snapshot:
+        description: Repository-relative immutable GitHub issue snapshot
+        required: true
+        type: string
+      reviewed_sidecar:
+        description: Repository-relative reviewed safe-evidence checksum
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: read
+
+concurrency:
+  group: programme-convergence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dry-run-convergence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Guard exact fresh main head
+        run: |
+          git fetch --no-tags origin main
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+          test "$(git rev-parse origin/main)" = "${{ github.sha }}"
+      - name: Stage one read-only convergence transaction
+        run: |
+          sidecar="${{ inputs.reviewed_sidecar }}"
+          if [[ -z "$sidecar" ]]; then
+            sidecar="$(python - <<'PY'
+          from pathlib import Path
+          from scripts.generate_programme import required_outputs
+
+          matches = sorted(
+              path for path in required_outputs(Path("."))
+              if path.endswith("/github-sync-evidence.json.sha256")
+          )
+          if len(matches) != 1:
+              raise SystemExit("expected exactly one canonical sync-evidence sidecar")
+          print(matches[0])
+          PY
+          )"
+          fi
+          args=(--root . --converge
+            --expected-head "${{ github.sha }}"
+            --main-ref origin/main
+            --reviewed-sidecar "$sidecar"
+            --stage-output artifacts/programme-convergence)
+          snapshot="${{ inputs.remote_snapshot }}"
+          if [[ -n "$snapshot" ]]; then
+            args+=(--remote-snapshot "$snapshot")
+          else
+            args+=(--live-read)
+          fi
+          python scripts/generate_programme.py "${args[@]}"
+      - name: Produce reviewable patch only
+        run: git diff --no-index --binary /dev/null artifacts/programme-convergence > programme-convergence.patch || test $? = 1
+      - name: Upload staged evidence and patch
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: programme-convergence-${{ github.sha }}
+          path: |
+            programme-convergence.patch
+            artifacts/programme-convergence
+          if-no-files-found: warn

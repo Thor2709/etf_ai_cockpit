@@ -1,5 +1,8 @@
 # ETF AI Cockpit Initial Integration Programme
 
+The detailed active fast-path objective and current handoff are maintained in
+`plans/ACTIVE_CODEX_GOAL.md`; read it before continuing this programme.
+
 ## Summary
 
 Implement the accepted completion programme from fresh `origin/main` in small,

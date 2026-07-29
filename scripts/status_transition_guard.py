@@ -157,7 +157,7 @@ def _manifest_errors(
     set[str],
     dict[str, dict[str, str]],
     dict[str, Any] | None,
-    tuple[str, str] | None,
+    tuple[tuple[str, str], ...],
 ]:
     errors: list[str] = []
     if set(manifest) - MANIFEST_KEYS:
@@ -229,16 +229,18 @@ def _manifest_errors(
         if transition["from"] not in PROGRAMME_STATUSES or transition["to"] not in PROGRAMME_STATUSES:
             _error(errors, f"manifest transition has an unknown status: {issue_id}")
 
-    edge_declaration: tuple[str, str] | None = None
+    edge_declarations: list[tuple[str, str]] = []
     edge_updates_value = manifest.get("allowed_dependency_edge_updates")
     if schema_version == "1.3":
-        if not isinstance(edge_updates_value, list) or len(edge_updates_value) != 1:
-            _error(errors, "manifest schema_version 1.3 requires exactly one dependency-edge update")
+        if not isinstance(edge_updates_value, list) or not edge_updates_value:
+            _error(errors, "manifest schema_version 1.3 requires dependency-edge updates")
         else:
-            update = edge_updates_value[0]
-            if not isinstance(update, dict) or set(update) != DEPENDENCY_EDGE_UPDATE_KEYS:
-                _error(errors, "manifest dependency-edge update must contain only issue_id and dependency_id")
-            else:
+            seen: set[tuple[str, str]] = set()
+            target_ids: set[str] = set()
+            for update in edge_updates_value:
+                if not isinstance(update, dict) or set(update) != DEPENDENCY_EDGE_UPDATE_KEYS:
+                    _error(errors, "manifest dependency-edge update must contain only issue_id and dependency_id")
+                    continue
                 issue_id = update.get("issue_id")
                 dependency_id = update.get("dependency_id")
                 if not all(
@@ -246,8 +248,16 @@ def _manifest_errors(
                     for value in (issue_id, dependency_id)
                 ):
                     _error(errors, "manifest dependency-edge update contains an invalid issue ID")
-                else:
-                    edge_declaration = (str(issue_id), str(dependency_id))
+                    continue
+                declaration = (str(issue_id), str(dependency_id))
+                if declaration in seen:
+                    _error(errors, f"manifest dependency-edge updates contain duplicate edge: {issue_id}/{dependency_id}")
+                    continue
+                seen.add(declaration)
+                target_ids.add(str(issue_id))
+                edge_declarations.append(declaration)
+            if any(dependency in target_ids for issue_id, dependency in edge_declarations):
+                _error(errors, "manifest dependency-edge batch must contain independent edges")
         if issue_ids or transitions:
             _error(errors, "manifest dependency-edge mode cannot authorize status transitions")
     elif "allowed_dependency_edge_updates" in manifest:
@@ -322,13 +332,13 @@ def _manifest_errors(
         if mode == BASE_REFRESH_EDGE_MODE:
             if migration_ids["added_issue_ids"] or migration_ids["removed_issue_ids"]:
                 _error(errors, "dependency-edge mode requires empty added and removed issue IDs")
-            if edge_declaration is None:
-                _error(errors, "dependency-edge mode requires one declared dependency edge")
+            if not edge_declarations:
+                _error(errors, "dependency-edge mode requires declared dependency edges")
         if manifest.get("allow_downgrade", False) is not False:
             _error(errors, "manifest registry_migration cannot allow a downgrade")
         if not any(error.startswith("manifest registry_migration") for error in errors):
             registry_migration = candidate
-    return errors, issue_ids, transitions, registry_migration, edge_declaration
+    return errors, issue_ids, transitions, registry_migration, tuple(edge_declarations)
 
 
 def _dependency_edge_transition(
@@ -476,23 +486,32 @@ def _validate_transition_record(
 
 def _validate_dependency_edge_record(
     issue_id: str,
-    dependency_id: str,
+    dependency_ids: frozenset[str],
     base_record: Mapping[str, Any],
     proposed_record: Mapping[str, Any],
     errors: list[str],
     verified_commit_is_ancestor: Callable[[str], bool] | None,
 ) -> None:
-    edge_change, edge_changed = _dependency_edge_transition(
-        issue_id, base_record, proposed_record, errors
-    )
-    if not edge_changed or edge_change is None:
-        _error(errors, f"dependency-edge declaration has no matching change: {issue_id}/{dependency_id}")
+    base_edges = base_record.get("dependency_edge_evidence", {})
+    proposed_edges = proposed_record.get("dependency_edge_evidence", {})
+    if not isinstance(base_edges, dict) or not isinstance(proposed_edges, dict):
+        _error(errors, f"transition dependency-edge evidence must remain an object: {issue_id}")
         return
-    if edge_change["dependency"] != dependency_id:
+    if set(base_edges) != set(proposed_edges):
+        _error(errors, f"transition cannot add or remove dependency edges: {issue_id}")
+        return
+    changed = frozenset(
+        dependency
+        for dependency in base_edges
+        if base_edges[dependency] != proposed_edges[dependency]
+    )
+    if changed != dependency_ids:
+        changed_label = "/".join(sorted(changed)) or "<none>"
         _error(
             errors,
-            f"dependency-edge declaration does not match the changed edge: {issue_id}/{edge_change['dependency']}",
+            f"dependency-edge declaration does not match the changed edge: {issue_id}/{changed_label}",
         )
+        return
     if base_record.get("programme_status") != proposed_record.get("programme_status"):
         _error(errors, f"dependency-edge mode cannot change programme_status: {issue_id}")
     if base_record.get("acceptance_evidence") != proposed_record.get("acceptance_evidence"):
@@ -505,24 +524,28 @@ def _validate_dependency_edge_record(
         _error(errors, f"non-allowlisted registry change: {issue_id}")
     verified_commit = proposed_record.get("verified_commit")
     verified_date = proposed_record.get("verified_date")
-    edge = edge_change["evidence"]
-    event = {
-        "event_type": "dependency_edge_update",
-        "dependency_edge": edge_change,
-        "review_reference": edge.get("contract_reference") if isinstance(edge, dict) else None,
-        "evidence_references": edge.get("evidence_references") if isinstance(edge, dict) else None,
-        "reviewer": edge.get("reviewer") if isinstance(edge, dict) else None,
-        "reviewed_date": edge.get("reviewed_date") if isinstance(edge, dict) else None,
-        "verified_commit": verified_commit,
-    }
-    if verified_date != event["reviewed_date"]:
-        _error(errors, f"dependency-edge verified_date must match reviewed evidence: {issue_id}")
+    for dependency_id in sorted(dependency_ids):
+        edge = proposed_edges[dependency_id]
+        if not isinstance(edge, dict):
+            _error(errors, f"transition dependency-edge evidence is invalid: {issue_id}/{dependency_id}")
+            continue
+        event = {
+            "event_type": "dependency_edge_update",
+            "dependency_edge": {"dependency": dependency_id, "evidence": edge},
+            "review_reference": edge.get("contract_reference"),
+            "evidence_references": edge.get("evidence_references"),
+            "reviewer": edge.get("reviewer"),
+            "reviewed_date": edge.get("reviewed_date"),
+            "verified_commit": verified_commit,
+        }
+        if verified_date != event["reviewed_date"]:
+            _error(errors, f"dependency-edge verified_date must match reviewed evidence: {issue_id}")
+        try:
+            validate_control_transition_event(issue_id, dict(base_record), event)
+        except ValueError as exc:
+            _error(errors, f"invalid reviewed dependency-edge evidence: {issue_id}: {exc}")
     if verified_commit == base_record.get("verified_commit"):
         _error(errors, f"dependency-edge verified_commit must advance reviewed evidence: {issue_id}")
-    try:
-        validate_control_transition_event(issue_id, dict(base_record), event)
-    except ValueError as exc:
-        _error(errors, f"invalid reviewed dependency-edge evidence: {issue_id}: {exc}")
     if verified_commit_is_ancestor is None:
         _error(errors, f"dependency-edge verified_commit ancestry validator is required: {issue_id}")
     elif not isinstance(verified_commit, str) or not verified_commit_is_ancestor(verified_commit):
@@ -531,7 +554,8 @@ def _validate_dependency_edge_record(
             f"dependency-edge verified_commit is not an ancestor of the reviewed generation base: {issue_id}",
         )
     expected = deepcopy(dict(base_record))
-    expected["dependency_edge_evidence"][dependency_id] = edge
+    for dependency_id in dependency_ids:
+        expected["dependency_edge_evidence"][dependency_id] = proposed_edges[dependency_id]
     expected["verified_commit"] = verified_commit
     expected["verified_date"] = verified_date
     if expected != proposed_record:
@@ -568,8 +592,15 @@ def _validate_base_refresh_top_level(
     for key in sorted(set(base_source) | set(proposed_source)):
         if key not in BASE_REFRESH_SOURCE_FIELDS and base_source.get(key) != proposed_source.get(key):
             _error(errors, f"non-allowlisted source_of_truth change: {key}")
-    if proposed_source.get("baseline_commit") != manifest_base:
-        _error(errors, "proposed registry generation base does not match manifest base")
+    proposed_baseline = proposed_source.get("baseline_commit")
+    if proposed_baseline not in {
+        base_source.get("baseline_commit"),
+        manifest_base,
+    }:
+        _error(
+            errors,
+            "proposed registry generation base must retain provenance or match manifest base",
+        )
     proposed_control_sha = proposed_source.get("programme_control_state_sha256")
     if not isinstance(proposed_control_sha, str) or not SHA256_RE.fullmatch(proposed_control_sha):
         _error(errors, "proposed programme control-state checksum is invalid")
@@ -601,7 +632,7 @@ def guard_proposal(
         manifest_issue_ids,
         transitions,
         registry_migration,
-        edge_declaration,
+        edge_declarations,
     ) = _manifest_errors(manifest)
     requested_migration = manifest.get("registry_migration")
     migration_requested = isinstance(requested_migration, dict)
@@ -668,6 +699,12 @@ def guard_proposal(
     if manifest_issue_ids - base_ids:
         for issue_id in sorted(manifest_issue_ids - base_ids):
             _error(errors, f"manifest references missing issue ID: {issue_id}")
+    for issue_id, dependency_id in edge_declarations:
+        if issue_id not in base_ids:
+            _error(
+                errors,
+                f"dependency-edge declaration references missing issue ID: {issue_id}/{dependency_id}",
+            )
 
     changed_statuses: dict[str, tuple[str, str]] = {}
     edge_transition_count = 0
@@ -697,10 +734,13 @@ def guard_proposal(
             elif base_record != proposed_record:
                 _error(errors, f"non-allowlisted registry change: {issue_id}")
         elif migration_mode == BASE_REFRESH_EDGE_MODE:
-            if edge_declaration is not None and issue_id == edge_declaration[0]:
+            dependencies = frozenset(
+                dependency for target, dependency in edge_declarations if target == issue_id
+            )
+            if dependencies:
                 _validate_dependency_edge_record(
                     issue_id,
-                    edge_declaration[1],
+                    dependencies,
                     base_record,
                     proposed_record,
                     errors,

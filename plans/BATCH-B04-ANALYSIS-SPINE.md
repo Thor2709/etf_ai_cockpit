@@ -1,5 +1,61 @@
 # B04 Analysis Spine
 
+The durable active objective, protected boundaries and exact continuation
+checkpoint are maintained in `plans/ACTIVE_CODEX_GOAL.md`; read it before
+continuing this batch.
+
+## Active fast-path checkpoint
+
+`MERGED` immutable dependency-only PR #608 from exact head
+`937ec382dfab7acc74ad16e7e706b795c88e63a2` as
+`b11b1d6783438df03847d7a1b45c3a4d7c1f2385`. Its single documented
+unchanged-head retry passed Linux and Windows at 2,122 tests with zero
+failures, errors or skips, and fresh-main GitHub readback is zero action at
+checksum `23cff2eee691649a17d83f0e8ff5c2833c7b19303f57a2a182f1e75db354d143`.
+ISSUE-0090 remains `implemented_initially`, both blocking edges are complete
+and readiness is true. `IN_PROGRESS` ISSUE-0090 product work is paused while
+the sole authorised worker implements ISSUE-0179 from fresh main.
+`execution_allowed=false`, source/broker authority, PR #560, stale unmerged
+PR #562 and open issue #241 remain unchanged.
+
+ISSUE-0179's sole declared prerequisite, ISSUE-0178, is integrated at
+`90106943ea4e7cd41909ca45eab185216bb8f45f`. The sole ISSUE-0179 worker and
+its one focused correction are accepted at local commits `be6422e8` and
+`286e3799`. Orchestrator integration atomically records the independently
+verified ISSUE-0179→ISSUE-0178 edge as `complete`, leaves programme status
+`planned`, and preserves `execution_allowed=false`. One command now publishes
+the 39-file closed canonical projection and the second run is byte-clean; the
+schema-1.3 guard passes while historical generation provenance remains
+reachable and no new reconciliation tree is created. The exact next action is
+the durable integration commit, exact-head H classification, draft PR and
+complete Linux/Windows packaged gate.
+
+`CORRECTED` draft PR #609 run `30416010061` passed classifier, schema-1.3
+status guard and supply-chain but failed preflight before packages because the
+new generation manifest hashed raw Windows CRLF bytes and was stale on Linux
+LF checkout. The bounded correction at `877f39b4` normalises UTF-8 text line
+endings while retaining exact binary bytes; an adversarial CRLF/LF fixture and
+the complete 124-test affected suite pass. The failed run is not retried. The
+next exact run `30416340531` passed classifier, schema-1.3 status guard,
+preflight, supply-chain and both complete packaged platforms, but its terminal
+summary could not attribute the flattened Linux and Windows artifact names.
+The bounded correction at `ab188759` preserves artifact-name directories and
+runs terminal-evidence construction under `always()` so a failed terminal
+state remains auditable. The focused 126-test control suite, Ruff, MyPy,
+compile, YAML, atomic freshness and exact schema-1.3 guard pass. Run
+`30417788249` then passed both packaged platforms at 2,144 tests each but
+exposed that pytest's JUnit count is nested below a `<testsuites>` root. Its
+failed terminal summary was retained as intended. The bounded correction
+recursively counts suites and propagates the immutable PR head rather than the
+synthetic merge SHA; replay against the actual retained artifacts validates at
+Linux/Windows `2144/2144`. Run `30419312173` passed all required jobs, but an
+audit found its nominally green summary had added the 126-test preflight JUnit
+to Linux, reporting `2270/2144`. The bounded correction counts only XML under
+explicitly named Linux/Windows release artifacts; replay against the full
+retained artifact set now validates truthfully at `2144/2144`. Prior runs are
+not retried; the next action is one new exact head and fresh complete H-tier
+gate.
+
 ## Authority and outcome
 
 Base revision: `b8eb6b4967d5655ed4e528ee9cb222690a424d57`

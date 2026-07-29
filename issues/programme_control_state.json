@@ -7917,12 +7917,18 @@
       },
       "dependency_edge_evidence": {
         "ISSUE-0178": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "Integrated ISSUE-0178 deterministic E/O/H/C classifier, exact-head preflight, conditional Linux/Windows gates, terminal validation summary and checksum-controlled evidence-reuse contract",
+          "evidence_references": [
+            "scripts/classify_validation.py",
+            ".github/workflows/release-gate.yml",
+            "tests/test_issue_0178_validation_classifier.py",
+            "PR #589 exact protected product evidence",
+            "PR #593 integrated convergence evidence"
+          ],
+          "reviewed_date": "2026-07-29",
+          "reviewer": "Codex",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         }
       },
       "phase": "phase-01-governance-scope",
@@ -7932,8 +7938,41 @@
         "review_reference": "2026-07-28 throughput-remediation package canonical registry migration",
         "to": "planned"
       },
-      "verified_commit": "4eaed9c8d15212d2c9dc69bad0301eecc03e0c74",
-      "verified_date": "2026-07-28"
+      "transition_history": [
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0178",
+            "evidence": {
+              "contract_reference": "Integrated ISSUE-0178 deterministic E/O/H/C classifier, exact-head preflight, conditional Linux/Windows gates, terminal validation summary and checksum-controlled evidence-reuse contract",
+              "evidence_references": [
+                "scripts/classify_validation.py",
+                ".github/workflows/release-gate.yml",
+                "tests/test_issue_0178_validation_classifier.py",
+                "PR #589 exact protected product evidence",
+                "PR #593 integrated convergence evidence"
+              ],
+              "reviewed_date": "2026-07-29",
+              "reviewer": "Codex",
+              "schema_version": "1.0",
+              "state": "complete"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "scripts/classify_validation.py",
+            ".github/workflows/release-gate.yml",
+            "tests/test_issue_0178_validation_classifier.py",
+            "PR #589 exact protected product evidence",
+            "PR #593 integrated convergence evidence"
+          ],
+          "review_reference": "ISSUE-0179 atomic programme generation and convergence implementation readiness",
+          "reviewed_date": "2026-07-29",
+          "reviewer": "Codex",
+          "verified_commit": "90106943ea4e7cd41909ca45eab185216bb8f45f"
+        }
+      ],
+      "verified_commit": "90106943ea4e7cd41909ca45eab185216bb8f45f",
+      "verified_date": "2026-07-29"
     },
     "ISSUE-0180": {
       "acceptance_evidence": [],
