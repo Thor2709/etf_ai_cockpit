@@ -25401,7 +25401,50 @@
           "text": "All 197+ existing record identities, dependencies, policies and execution authority remain intact through migration."
         }
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #609 exact product head d72c07d199ad069a3c8fc3c63f614ec91f4b8b7e",
+            "PR #609 merge cfcf6e784fd36ae3eabb8c6d6fd3b4047137cbe1",
+            "Release run 30420622584 H-tier terminal summary Linux/Windows 2144/2144",
+            "Status guard run 30420622618",
+            "PR #610 merge 0573d489bc48c7fd20127087c09b586ae0fd082a",
+            "Automatic convergence run 30444182563 exact-main zero-byte patch and zero-action checksum 23cff2eee691649a17d83f0e8ff5c2833c7b19303f57a2a182f1e75db354d143"
+          ],
+          "review_reference": "ISSUE-0179 merged implementation start verified against immutable PR #609 product evidence",
+          "reviewed_date": "2026-07-29",
+          "reviewer": "Codex independent reviewer",
+          "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "PR #609 exact product head d72c07d199ad069a3c8fc3c63f614ec91f4b8b7e",
+            "PR #609 merge cfcf6e784fd36ae3eabb8c6d6fd3b4047137cbe1",
+            "Release run 30420622584 H-tier terminal summary Linux/Windows 2144/2144",
+            "Status guard run 30420622618",
+            "PR #610 merge 0573d489bc48c7fd20127087c09b586ae0fd082a",
+            "Automatic convergence run 30444182563 exact-main zero-byte patch and zero-action checksum 23cff2eee691649a17d83f0e8ff5c2833c7b19303f57a2a182f1e75db354d143"
+          ],
+          "review_reference": "ISSUE-0179 initial implementation acceptance verified by exact protected H evidence for PR #609",
+          "reviewed_date": "2026-07-29",
+          "reviewer": "Codex independent reviewer",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "PR #609 exact product head d72c07d199ad069a3c8fc3c63f614ec91f4b8b7e",
+            "PR #609 merge cfcf6e784fd36ae3eabb8c6d6fd3b4047137cbe1",
+            "Release run 30420622584 H-tier terminal summary Linux/Windows 2144/2144",
+            "Status guard run 30420622618",
+            "PR #610 merge 0573d489bc48c7fd20127087c09b586ae0fd082a",
+            "Automatic convergence run 30444182563 exact-main zero-byte patch and zero-action checksum 23cff2eee691649a17d83f0e8ff5c2833c7b19303f57a2a182f1e75db354d143"
+          ],
+          "review_reference": "ISSUE-0179 integration acceptance verified by PR #610 and automatic exact-main zero-action convergence",
+          "reviewed_date": "2026-07-29",
+          "reviewer": "Codex independent reviewer",
+          "status": "integrated"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [
         "ISSUE-0178"
@@ -25445,7 +25488,7 @@
       "package_status": "",
       "phase": "phase-01-governance-scope",
       "priority": "P1",
-      "programme_status": "planned",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -25484,7 +25527,7 @@
         ],
         "tier": "H"
       },
-      "verified_commit": "90106943ea4e7cd41909ca45eab185216bb8f45f",
+      "verified_commit": "d72c07d199ad069a3c8fc3c63f614ec91f4b8b7e",
       "verified_date": "2026-07-29",
       "write_conflict_group": "programme-control"
     },
@@ -27457,7 +27500,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "6897b8ff6fd39386e216c500e65ea4548e622f5f767e147623677c2d994d493d",
+    "programme_control_state_sha256": "9b325fa529474ac94b5fda234355f7ff711e2625d14e785f7b03a5e6373fa838",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

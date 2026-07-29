@@ -88,7 +88,7 @@ Deliver the bounded governance, scope and completion contract work with local-fi
 | `ISSUE-0077` | `P0` | `integrated` | `platform-and-operations` | `ISSUE-0072`, `ISSUE-0075` | - | `ISSUE-0078`, `ISSUE-0081`, `ISSUE-0165`, `ISSUE-0175` | - |
 | `ISSUE-0078` | `P0/P1` | `integrated` | `platform-and-operations` | `ISSUE-0077` | - | `ISSUE-0151`, `ISSUE-0175` | - |
 | `ISSUE-0079` | `P0` | `hardening_required` | `security-and-release` | `ISSUE-0145`, `ISSUE-0149` | - | `ISSUE-0085` | - |
-| `ISSUE-0179` | `P1` | `planned` | `programme-control` | `ISSUE-0178` | - | - | `ISSUE-0152` |
+| `ISSUE-0179` | `P1` | `integrated` | `programme-control` | `ISSUE-0178` | - | - | `ISSUE-0152` |
 | `UPDATEV2-0010` | `P3` | `closed` | `data-and-evidence` | - | - | - | - |
 | `UPDATEV2-0012` | `P0` | `implemented_initially` | `programme-governance` | - | - | `ISSUE-0087`, `ISSUE-0091` | `ISSUE-0073`, `ISSUE-0081`, `ISSUE-0091` |
 | `UPDATEV2-0013` | `P3` | `closed` | `data-and-evidence` | - | - | - | - |

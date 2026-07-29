@@ -7852,7 +7852,50 @@
       "verified_date": "2026-07-28"
     },
     "ISSUE-0179": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #609 exact product head d72c07d199ad069a3c8fc3c63f614ec91f4b8b7e",
+            "PR #609 merge cfcf6e784fd36ae3eabb8c6d6fd3b4047137cbe1",
+            "Release run 30420622584 H-tier terminal summary Linux/Windows 2144/2144",
+            "Status guard run 30420622618",
+            "PR #610 merge 0573d489bc48c7fd20127087c09b586ae0fd082a",
+            "Automatic convergence run 30444182563 exact-main zero-byte patch and zero-action checksum 23cff2eee691649a17d83f0e8ff5c2833c7b19303f57a2a182f1e75db354d143"
+          ],
+          "review_reference": "ISSUE-0179 merged implementation start verified against immutable PR #609 product evidence",
+          "reviewed_date": "2026-07-29",
+          "reviewer": "Codex independent reviewer",
+          "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "PR #609 exact product head d72c07d199ad069a3c8fc3c63f614ec91f4b8b7e",
+            "PR #609 merge cfcf6e784fd36ae3eabb8c6d6fd3b4047137cbe1",
+            "Release run 30420622584 H-tier terminal summary Linux/Windows 2144/2144",
+            "Status guard run 30420622618",
+            "PR #610 merge 0573d489bc48c7fd20127087c09b586ae0fd082a",
+            "Automatic convergence run 30444182563 exact-main zero-byte patch and zero-action checksum 23cff2eee691649a17d83f0e8ff5c2833c7b19303f57a2a182f1e75db354d143"
+          ],
+          "review_reference": "ISSUE-0179 initial implementation acceptance verified by exact protected H evidence for PR #609",
+          "reviewed_date": "2026-07-29",
+          "reviewer": "Codex independent reviewer",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "PR #609 exact product head d72c07d199ad069a3c8fc3c63f614ec91f4b8b7e",
+            "PR #609 merge cfcf6e784fd36ae3eabb8c6d6fd3b4047137cbe1",
+            "Release run 30420622584 H-tier terminal summary Linux/Windows 2144/2144",
+            "Status guard run 30420622618",
+            "PR #610 merge 0573d489bc48c7fd20127087c09b586ae0fd082a",
+            "Automatic convergence run 30444182563 exact-main zero-byte patch and zero-action checksum 23cff2eee691649a17d83f0e8ff5c2833c7b19303f57a2a182f1e75db354d143"
+          ],
+          "review_reference": "ISSUE-0179 integration acceptance verified by PR #610 and automatic exact-main zero-action convergence",
+          "reviewed_date": "2026-07-29",
+          "reviewer": "Codex independent reviewer",
+          "status": "integrated"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -7932,11 +7975,11 @@
         }
       },
       "phase": "phase-01-governance-scope",
-      "programme_status": "planned",
+      "programme_status": "integrated",
       "status_transition": {
-        "from": "planned",
-        "review_reference": "2026-07-28 throughput-remediation package canonical registry migration",
-        "to": "planned"
+        "from": "implemented_initially",
+        "review_reference": "ISSUE-0179 integration acceptance verified by PR #610 and automatic exact-main zero-action convergence",
+        "to": "integrated"
       },
       "transition_history": [
         {
@@ -7969,9 +8012,60 @@
           "reviewed_date": "2026-07-29",
           "reviewer": "Codex",
           "verified_commit": "90106943ea4e7cd41909ca45eab185216bb8f45f"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #609 exact product head d72c07d199ad069a3c8fc3c63f614ec91f4b8b7e",
+            "PR #609 merge cfcf6e784fd36ae3eabb8c6d6fd3b4047137cbe1",
+            "Release run 30420622584 H-tier terminal summary Linux/Windows 2144/2144",
+            "Status guard run 30420622618",
+            "PR #610 merge 0573d489bc48c7fd20127087c09b586ae0fd082a",
+            "Automatic convergence run 30444182563 exact-main zero-byte patch and zero-action checksum 23cff2eee691649a17d83f0e8ff5c2833c7b19303f57a2a182f1e75db354d143"
+          ],
+          "from": "planned",
+          "review_reference": "ISSUE-0179 merged implementation start verified against immutable PR #609 product evidence",
+          "reviewed_date": "2026-07-29",
+          "reviewer": "Codex independent reviewer",
+          "to": "in_progress",
+          "verified_commit": "d72c07d199ad069a3c8fc3c63f614ec91f4b8b7e"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #609 exact product head d72c07d199ad069a3c8fc3c63f614ec91f4b8b7e",
+            "PR #609 merge cfcf6e784fd36ae3eabb8c6d6fd3b4047137cbe1",
+            "Release run 30420622584 H-tier terminal summary Linux/Windows 2144/2144",
+            "Status guard run 30420622618",
+            "PR #610 merge 0573d489bc48c7fd20127087c09b586ae0fd082a",
+            "Automatic convergence run 30444182563 exact-main zero-byte patch and zero-action checksum 23cff2eee691649a17d83f0e8ff5c2833c7b19303f57a2a182f1e75db354d143"
+          ],
+          "from": "in_progress",
+          "review_reference": "ISSUE-0179 initial implementation acceptance verified by exact protected H evidence for PR #609",
+          "reviewed_date": "2026-07-29",
+          "reviewer": "Codex independent reviewer",
+          "to": "implemented_initially",
+          "verified_commit": "d72c07d199ad069a3c8fc3c63f614ec91f4b8b7e"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #609 exact product head d72c07d199ad069a3c8fc3c63f614ec91f4b8b7e",
+            "PR #609 merge cfcf6e784fd36ae3eabb8c6d6fd3b4047137cbe1",
+            "Release run 30420622584 H-tier terminal summary Linux/Windows 2144/2144",
+            "Status guard run 30420622618",
+            "PR #610 merge 0573d489bc48c7fd20127087c09b586ae0fd082a",
+            "Automatic convergence run 30444182563 exact-main zero-byte patch and zero-action checksum 23cff2eee691649a17d83f0e8ff5c2833c7b19303f57a2a182f1e75db354d143"
+          ],
+          "from": "implemented_initially",
+          "review_reference": "ISSUE-0179 integration acceptance verified by PR #610 and automatic exact-main zero-action convergence",
+          "reviewed_date": "2026-07-29",
+          "reviewer": "Codex independent reviewer",
+          "to": "integrated",
+          "verified_commit": "d72c07d199ad069a3c8fc3c63f614ec91f4b8b7e"
         }
       ],
-      "verified_commit": "90106943ea4e7cd41909ca45eab185216bb8f45f",
+      "verified_commit": "d72c07d199ad069a3c8fc3c63f614ec91f4b8b7e",
       "verified_date": "2026-07-29"
     },
     "ISSUE-0180": {
