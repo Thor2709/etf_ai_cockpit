@@ -2,7 +2,7 @@
   "metadata": {
     "bootstrap": false,
     "bootstrap_reason": "",
-    "generation_base_commit": "2e63a813f8c835a2e488cb88f91bfeaab8ae665a",
+    "generation_base_commit": "2337f6959719a9a4ae1b8ec9efb3927ade2acc7d",
     "generation_base_ref": "origin/main",
     "verified_date": "2026-07-21"
   },
@@ -2647,12 +2647,15 @@
           "state": "complete"
         },
         "ISSUE-0075": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "ISSUE-0090 lineage and impact acceptance: ISSUE-0075 immutable version registry, exact run dependency graph, compatibility, forward migration and deterministic invalidation contract",
+          "evidence_references": [
+            "src/etf_cockpit/core/versioning.py: content-addressed formula, feature, dataset, model and policy registry; immutable exact-dependency run manifests; compatibility, migration and cache invalidation evidence",
+            "tests/test_versioning.py, tests/test_settings_bundle.py, tests/test_settings_run_publication.py, tests/test_run_changes.py and tests/test_complete_audit_packet.py: focused dependency suite passed 50 tests on 2026-07-28"
+          ],
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         }
       },
       "phase": "phase-02-data-policy-identity",
@@ -2687,9 +2690,34 @@
           "reviewed_date": "2026-07-28",
           "reviewer": "Codex",
           "verified_commit": "2e63a813f8c835a2e488cb88f91bfeaab8ae665a"
+        },
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0075",
+            "evidence": {
+              "contract_reference": "ISSUE-0090 lineage and impact acceptance: ISSUE-0075 immutable version registry, exact run dependency graph, compatibility, forward migration and deterministic invalidation contract",
+              "evidence_references": [
+                "src/etf_cockpit/core/versioning.py: content-addressed formula, feature, dataset, model and policy registry; immutable exact-dependency run manifests; compatibility, migration and cache invalidation evidence",
+                "tests/test_versioning.py, tests/test_settings_bundle.py, tests/test_settings_run_publication.py, tests/test_run_changes.py and tests/test_complete_audit_packet.py: focused dependency suite passed 50 tests on 2026-07-28"
+              ],
+              "reviewed_date": "2026-07-28",
+              "reviewer": "Codex",
+              "schema_version": "1.0",
+              "state": "complete"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "src/etf_cockpit/core/versioning.py: content-addressed formula, feature, dataset, model and policy registry; immutable exact-dependency run manifests; compatibility, migration and cache invalidation evidence",
+            "tests/test_versioning.py, tests/test_settings_bundle.py, tests/test_settings_run_publication.py, tests/test_run_changes.py and tests/test_complete_audit_packet.py: focused dependency suite passed 50 tests on 2026-07-28"
+          ],
+          "review_reference": "ISSUE-0090 version-registry dependency review at merged main 2337f6959719a9a4ae1b8ec9efb3927ade2acc7d",
+          "reviewed_date": "2026-07-28",
+          "reviewer": "Codex",
+          "verified_commit": "2337f6959719a9a4ae1b8ec9efb3927ade2acc7d"
         }
       ],
-      "verified_commit": "2e63a813f8c835a2e488cb88f91bfeaab8ae665a",
+      "verified_commit": "2337f6959719a9a4ae1b8ec9efb3927ade2acc7d",
       "verified_date": "2026-07-28"
     },
     "ISSUE-0091": {

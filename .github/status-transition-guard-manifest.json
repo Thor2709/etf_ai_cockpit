@@ -4,20 +4,20 @@
   "allowed_dependency_edge_updates": [
     {
       "issue_id": "ISSUE-0090",
-      "dependency_id": "ISSUE-0072"
+      "dependency_id": "ISSUE-0075"
     }
   ],
   "allowed_status_transitions": [],
-  "base_commit": "2e63a813f8c835a2e488cb88f91bfeaab8ae665a",
-  "branch": "codex/issue-0090-audit-20260728",
+  "base_commit": "2337f6959719a9a4ae1b8ec9efb3927ade2acc7d",
+  "branch": "codex/issue-0090-version-dependency-20260728",
   "issue_ids": [],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "da1e88376303f7e504b8d07594048b0c718158b43e158703581d94650f1a3a75",
+    "base_registry_sha256": "7eb767c50e94be47851809cfea3ecaf59e3daca577ac4b14bf074e18119f0758",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_dependency_edge_evidence",
-    "proposed_registry_sha256": "7eb767c50e94be47851809cfea3ecaf59e3daca577ac4b14bf074e18119f0758",
-    "reason": "ISSUE-0090 dependency readiness from fresh main 2e63a813f8c835a2e488cb88f91bfeaab8ae665a: update exactly ISSUE-0090 to ISSUE-0072 from unresolved to complete using the integrated immutable analytical-generation, stable run identity, transactional migration, integrity, backup/restore and recovery contract; preserve all statuses, other dependencies, policy, broker authority and execution_allowed=false.",
+    "proposed_registry_sha256": "ad4fbdd71f9bddc9b0d3e513699fbb1e17ccbb145faa86eeba7547d204f44143",
+    "reason": "ISSUE-0090 dependency readiness from fresh main 2337f6959719a9a4ae1b8ec9efb3927ade2acc7d: update exactly ISSUE-0090 to ISSUE-0075 from unresolved to complete using the integrated immutable version registry, exact run dependency graph, compatibility, forward migration and deterministic invalidation contract; preserve all statuses, other dependencies, policy, broker authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
