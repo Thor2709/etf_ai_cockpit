@@ -253,8 +253,8 @@ jobs:
       - name: Run lint and typing gates
         shell: bash
         run: |
-          python -m ruff check scripts/release_gate.py scripts/validate_app.py scripts/classify_validation.py scripts/generate_programme.py scripts/validation_summary.py src/etf_cockpit/data/health.py tests/test_release_gate.py tests/test_issue_0177_observability.py tests/test_issue_0178_validation_classifier.py tests/test_issue_0179_atomic_generation.py tests/test_issue_0179_validation_summary.py tests/test_data_health.py
-          python -m mypy --ignore-missing-imports --disable-error-code=import-untyped --follow-imports=skip scripts/release_gate.py scripts/classify_validation.py scripts/generate_programme.py scripts/validation_summary.py src/etf_cockpit/data/health.py
+          python -m ruff check scripts/release_gate.py scripts/profile_parallel_pytest.py scripts/validate_app.py scripts/classify_validation.py scripts/generate_programme.py scripts/validation_summary.py src/etf_cockpit/data/health.py tests/test_release_gate.py tests/test_issue_0177_observability.py tests/test_issue_0178_validation_classifier.py tests/test_issue_0179_atomic_generation.py tests/test_issue_0179_validation_summary.py tests/test_issue_0180_parallel_pilot.py tests/test_data_health.py
+          python -m mypy --ignore-missing-imports --disable-error-code=import-untyped --follow-imports=skip scripts/release_gate.py scripts/profile_parallel_pytest.py scripts/classify_validation.py scripts/generate_programme.py scripts/validation_summary.py src/etf_cockpit/data/health.py
 
       - name: Run protected release gate
         shell: bash
@@ -277,6 +277,60 @@ jobs:
         with:
           name: release-gate-${{ github.sha }}-${{ matrix.platform }}
           path: artifacts/release/github-${{ github.sha }}/${{ matrix.platform }}
+          if-no-files-found: error
+
+  parallel-pilot:
+    name: Parallel pilot (${{ matrix.platform }})
+    needs: classifier
+    if: needs.classifier.outputs.package_gate_required == 'true'
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            os: ubuntu-latest
+          - platform: windows
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up pinned Python and cache
+        id: setup-python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.10"
+          cache: pip
+          cache-dependency-path: |
+            requirements-release.txt
+            requirements-release-parsers.txt
+
+      - name: Install pinned pilot environment
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --requirement requirements-release.txt
+          python -m pip install --requirement requirements-release-parsers.txt
+
+      - name: Run repeated report-only four-worker pilot
+        shell: bash
+        env:
+          ETF_COCKPIT_SETUP_PYTHON_CACHE_HIT: ${{ steps.setup-python.outputs.cache-hit }}
+        run: |
+          python scripts/profile_parallel_pytest.py \
+            --root . \
+            --output "artifacts/parallel-pilot/${{ matrix.platform }}" \
+            --repetitions 2
+
+      - name: Upload parallel pilot evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parallel-pilot-${{ github.sha }}-${{ matrix.platform }}
+          path: artifacts/parallel-pilot/${{ matrix.platform }}
           if-no-files-found: error
 
   validation-summary:
