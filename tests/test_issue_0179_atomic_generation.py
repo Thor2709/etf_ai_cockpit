@@ -81,6 +81,15 @@ def test_manifest_is_byte_clean_and_rejects_any_mandatory_omission(tmp_path: Pat
         generate_programme.build_manifest(tmp_path, outputs)
 
 
+def test_manifest_text_hashes_are_independent_of_checkout_line_endings(tmp_path: Path) -> None:
+    outputs = frozenset({"status.txt"})
+    _write(tmp_path, "status.txt", b"first\r\nsecond\r\n")
+    windows_manifest = generate_programme.build_manifest(tmp_path, outputs)
+    _write(tmp_path, "status.txt", b"first\nsecond\n")
+
+    assert generate_programme.build_manifest(tmp_path, outputs) == windows_manifest
+
+
 def test_closed_manifest_covers_status_readiness_reconciliation_remote_and_sync_evidence(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

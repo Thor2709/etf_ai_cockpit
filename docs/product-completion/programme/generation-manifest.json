@@ -3,7 +3,7 @@
   "outputs": [
     {
       "path": ".github/status-transition-guard-manifest.json",
-      "sha256": "9719e7792761e6e69f41b319b51a7b089dce2180e35842eb5e963c813c78f1db"
+      "sha256": "8494997285cde5b8ce16bf5dd0912826d98325c826533dca907d70bc6a7cb9ae"
     },
     {
       "path": "CHANGELOG.md",
@@ -151,7 +151,7 @@
     },
     {
       "path": "issues/open.md",
-      "sha256": "fa9ebb3c5d0d6327e099c497677ad34fe1cdad90fea61c1876ec4c683ef9aac0"
+      "sha256": "007cda4d2649a383c596ed23a21658b73f279baad38798007cc7ff0f7be3900c"
     },
     {
       "path": "issues/programme_control_state.json",

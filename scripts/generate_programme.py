@@ -80,7 +80,14 @@ def required_outputs(root: Path) -> frozenset[str]:
 
 
 def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    payload = path.read_bytes()
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError:
+        canonical = payload
+    else:
+        canonical = text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
 
 
 def build_manifest(root: Path, outputs: frozenset[str]) -> bytes:
