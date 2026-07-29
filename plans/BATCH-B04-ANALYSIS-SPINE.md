@@ -78,6 +78,22 @@ without allowing arbitrary programme or plan files. The accepted head passes
 H classification. Next is an immutable H repair PR head, followed by one
 sidecar-only bootstrap commit bound to that reviewed head and a final H run.
 
+`IN_FLIGHT/SECOND PREREQUISITE` draft PR #611 first passed immutable H head
+`db52ec14` in run `30445604844` at truthful Linux/Windows `2154/2154`. The
+reviewed identities are now anchored in the base-visible sidecar at exact
+final head `7c7f9367`; run `30447413859` is the pending final H gate. A live
+classifier-authorised E projection then exposed that the status guard assumed
+exactly one appended acceptance record and could not validate ISSUE-0179's
+required three distinct lifecycle events. The sole bounded worker repair at
+`9dbda8e6` replays every appended record through the canonical transition
+validator and rejects malformed, reordered, forged, extra or dependency-edge
+mixed replays. Independent review passes 109 focused tests, Ruff, protected
+MyPy, compile, diff hygiene and exact H classification; the real three-event
+ISSUE-0179 projection passes with zero guard errors under status-only schema
+1.2. Next is PR #611's exact-head merge, then transplant this protected-source
+repair to fresh main and repeat the reviewed-head sidecar bootstrap before the
+single live E lifecycle transaction.
+
 ## Authority and outcome
 
 Base revision: `b8eb6b4967d5655ed4e528ee9cb222690a424d57`
