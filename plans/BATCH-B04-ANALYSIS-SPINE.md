@@ -151,6 +151,21 @@ registry/compile/source smoke. The exact branch classifies H because the
 required durable plans/SDD fail upward; next is an immutable draft PR and the
 complete Linux/Windows gate.
 
+`MERGED/VERIFIED` ISSUE-0090 continuation PR #616 passed H run `30460043778`
+at truthful Linux/Windows `2177/2177` and merged exact head `0c99f3f8` as
+`ba0c5850432bf20e40d8a660923ac126c834bf4e`. Automatic convergence run
+`30461814321` passed exact main in 27 seconds with every managed action count
+zero. Normal dependency-valid product work has therefore resumed and
+integrated under the new workflow.
+
+`AUDIT GAP` the optional post-merge completion candidate is staged but cannot
+complete a genuine status transition: the convergence validator rejects every
+nonzero plan and its workflow token has `issues: read`. The remaining bounded
+prerequisite is an exact-main, committed-checksum-controlled, status-only apply
+path that keeps ordinary convergence read-only, rejects any unreviewed or
+non-status action, performs an idempotent zero-action readback and retains
+`execution_allowed=false`. No broader GitHub write authority is accepted.
+
 ## Authority and outcome
 
 Base revision: `b8eb6b4967d5655ed4e528ee9cb222690a424d57`
