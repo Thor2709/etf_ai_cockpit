@@ -60,9 +60,28 @@ def test_run_gate_writes_machine_readable_failure_evidence(tmp_path: Path, monke
         "schema_version: '1.0'\npython_version: '3.12.10'\ndependency_lock: requirements-release.txt\nartifact_roots: [build]\nsigning_key_env: TEST_RELEASE_KEY\n",
         encoding="utf-8",
     )
-    (tmp_path / "requirements-release.txt").write_text("pytest==9.1.1\n", encoding="utf-8")
+    locked_versions = {
+        "exchange-calendars": "4.13.2",
+        "flet": "0.85.3",
+        "hypothesis": "6.156.6",
+        "mypy": "1.20.2",
+        "pytest": "9.1.1",
+        "ruff": "0.15.20",
+    }
+    (tmp_path / "requirements-release.txt").write_text(
+        "".join(f"{name}=={version}\n" for name, version in locked_versions.items()),
+        encoding="utf-8",
+    )
     monkeypatch.setenv("TEST_RELEASE_KEY", "a sufficiently long test signing key")
     monkeypatch.setattr(release_gate, "git_snapshot", lambda _root: {"branch": "test", "head": "abc", "origin_main": "abc", "dirty": False})
+
+    def installed_version(name: str) -> str:
+        try:
+            return locked_versions[name]
+        except KeyError as exc:
+            raise release_gate.importlib.metadata.PackageNotFoundError(name) from exc
+
+    monkeypatch.setattr(release_gate.importlib.metadata, "version", installed_version)
 
     result = release_gate.run_gate(
         tmp_path,
@@ -215,6 +234,96 @@ def test_dependency_snapshot_accepts_exact_parser_lock(tmp_path: Path, monkeypat
     ]
     assert snapshot["missing"] == []
     assert snapshot["mismatched"] == []
+    assert snapshot["profiles"]["release"]["packages"] == ["pytest"]
+    assert snapshot["profiles"]["parsers"] == {
+        "required": True,
+        "status": "required",
+        "lock_path": "requirements-release-parsers.txt",
+        "packages": ["defusedxml"],
+    }
+
+
+def test_dependency_snapshot_reports_optional_parser_tier_unavailable(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / "requirements-release.txt").write_text("pytest==9.1.1\n", encoding="utf-8")
+    monkeypatch.setattr(release_gate.importlib.metadata, "version", lambda _name: "9.1.1")
+
+    snapshot = release_gate.dependency_snapshot(tmp_path, {"dependency_lock": "requirements-release.txt"})
+
+    assert snapshot["profiles"]["parsers"] == {
+        "required": False,
+        "status": "unavailable",
+        "lock_path": None,
+        "packages": [],
+    }
+
+
+def test_environment_check_fails_when_named_tooling_is_absent_without_parser_lock(
+    tmp_path: Path, monkeypatch
+) -> None:
+    (tmp_path / "requirements-release.txt").write_text("pytest==9.1.1\n", encoding="utf-8")
+    monkeypatch.setattr(release_gate.platform, "python_version", lambda: "3.12.10")
+    monkeypatch.setattr(release_gate.importlib.metadata, "version", lambda _name: "9.1.1")
+    monkeypatch.setattr(release_gate, "git_snapshot", lambda _root: {"dirty": False})
+
+    check = release_gate.environment_check(
+        tmp_path,
+        {
+            "python_version": "3.12.10",
+            "dependency_lock": "requirements-release.txt",
+        },
+        allow_dirty=False,
+    )
+
+    assert check.status == "failed"
+    assert "required tooling absent from lock profile" in check.failure
+    assert "flet" in check.failure
+
+
+def test_environment_verification_emits_structured_failure_for_missing_lock(
+    tmp_path: Path, capsys
+) -> None:
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs" / "release_policy.yaml").write_text(
+        "python_version: '3.12.10'\ndependency_lock: missing.txt\n",
+        encoding="utf-8",
+    )
+
+    exit_code = release_gate.main(["--root", str(tmp_path), "--verify-environment"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 2
+    assert payload["check"]["status"] == "failed"
+    assert payload["check"]["exit_code"] == 2
+    assert "dependency lock is missing" in payload["check"]["failure"]
+    assert payload["environment"] is None
+
+
+def test_parallel_pilot_is_report_only_when_xdist_is_unavailable(monkeypatch) -> None:
+    def missing(_name: str) -> str:
+        raise release_gate.importlib.metadata.PackageNotFoundError
+
+    monkeypatch.setattr(release_gate.importlib.metadata, "version", missing)
+
+    evidence = release_gate.parallel_pilot_evidence()
+
+    assert evidence["status"] == "unavailable"
+    assert evidence["mode"] == "report_only"
+    assert evidence["authority"] == "serial"
+    assert evidence["workers"] == 4
+    assert evidence["collection_parity"] == {
+        "required": True,
+        "comparison": "ordered_nodeids",
+        "status": "not_run",
+    }
+    assert "-n 4 --dist loadgroup --collect-only" in evidence["commands"]["pilot_collection"]
+    assert evidence["serial_groups"] == [
+        "concurrency",
+        "environment",
+        "flet",
+        "package",
+        "ports",
+        "sqlite",
+    ]
 
 
 def test_git_snapshot_ignores_only_generated_release_evidence(monkeypatch) -> None:

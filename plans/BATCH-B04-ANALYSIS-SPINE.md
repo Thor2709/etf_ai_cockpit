@@ -94,6 +94,23 @@ ISSUE-0179 projection passes with zero guard errors under status-only schema
 repair to fresh main and repeat the reviewed-head sidecar bootstrap before the
 single live E lifecycle transaction.
 
+`VERIFIED` PR #612 merged the protected multi-event guard repair after exact
+H runs `30449330177` and `30451275797`; final Linux/Windows counts were
+`2161/2161`. PR #613 then proved the complete ISSUE-0179 lifecycle at tier E:
+reuse was authorised by exact identities, status guard and preflight passed,
+and both package jobs were skipped in run `30453340819`. Exact head
+`b005da9a` merged as `0e9195a2`. Checksum-approved plan `d468f6b4` applied
+only ISSUE-0179/#581's managed status update to `integrated`; fresh readback
+`673223ef` is zero action and preserves the open issue and
+`execution_allowed=false`.
+
+`IN_PROGRESS` ISSUE-0180's reviewed checkpoint transplanted cleanly to fresh
+main as `6ed0dd3a`. A two-line integration correction at `567682d9` narrows
+release requirement evidence for protected MyPy. The 29 focused tests, Ruff,
+MyPy, compile and diff hygiene pass; exact classification is H. Next is the
+remaining affected validation, immutable draft PR, and complete truthful
+Linux/Windows packaged gate.
+
 ## Authority and outcome
 
 Base revision: `b8eb6b4967d5655ed4e528ee9cb222690a424d57`

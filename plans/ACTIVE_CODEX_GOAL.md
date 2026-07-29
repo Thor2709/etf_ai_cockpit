@@ -2,18 +2,18 @@
 
 ## Current checkpoint
 
-- Current UTC timestamp: `2026-07-29T11:36:28Z`
-- Current `origin/main`: `0573d489bc48c7fd20127087c09b586ae0fd082a`
-- Active worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\issue0179-multievent-guard-20260729`
-- Active branch: `codex/issue-0179-multievent-guard-20260729`
-- Exact base SHA: `7c7f9367857546a19bb6e4c42f9407785fd0605a`
-- Exact last committed control head before this checkpoint update: `9dbda8e651615057eeb093c5399028fa1dbb02c8`
-- Current PR and state: draft PR #611 carries the accepted reusable-evidence repair. Its first immutable H head `db52ec14ff7e1e32d8a9de721569da9bdd1e52d7` passed run `30445604844` at truthful Linux/Windows `2154/2154`; the exact reviewed identities were then anchored in the base-visible sidecar at final head `7c7f9367857546a19bb6e4c42f9407785fd0605a`. Final H run `30447413859` is in progress at that exact head. A local live E proof is classifier-authorised with packages skipped, but correctly exposed that the status guard only accepted one projected lifecycle event.
-- Current issue: ISSUE-0179 is the primary implementation lane; ISSUE-0090 product work is paused until the atomic fast path is proven.
-- Completed work: PRs #608, #609 and #610 are merged. Atomic generation and authenticated exact-main zero-action convergence are proven. PR #611's accepted repair and base-anchored reviewed sidecar are published. The sole bounded multi-event guard worker is accepted at `9dbda8e651615057eeb093c5399028fa1dbb02c8`: 109 focused tests, Ruff, protected MyPy, compile, diff hygiene and exact H classification pass. The real three-event ISSUE-0179 projection passes the repaired guard with zero errors under the correct status-only schema 1.2. `execution_allowed=false` and broker/provider authority remain unchanged.
-- Required checks: require PR #611's complete Linux/Windows H gate and truthful terminal summary, clean review surfaces and expected-head merge. From fresh main, publish the accepted multi-event guard repair under an immutable H-reviewed head, anchor a fresh base-visible reuse sidecar because protected source changed, require its final H run, merge, then regenerate and integrate the preserved ISSUE-0179 lifecycle as a live E transaction with packages skipped.
-- Blocker: sequencing only. PR #611 final H run `30447413859` must finish before the multi-event guard repair can be transplanted to fresh main; the guard change then requires its own two-head H bootstrap because it changes protected source identity.
-- Exact next action: when the detached watcher completes, verify PR #611's exact-head terminal evidence and clean review surfaces, mark ready and merge only `7c7f9367857546a19bb6e4c42f9407785fd0605a`; fetch fresh main and transplant the accepted guard repair.
+- Current UTC timestamp: `2026-07-29T12:56:35Z`
+- Current `origin/main`: `0e9195a2700e26038d910cd66d57d273149990ce`
+- Active worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\issue0180-environment-integrate-20260729`
+- Active branch: `codex/issue-0180-environment-integrate-20260729`
+- Exact base SHA: `0e9195a2700e26038d910cd66d57d273149990ce`
+- Exact last committed product head before this checkpoint update: `567682d9`
+- Current PR and state: no ISSUE-0180 PR exists yet. The reviewed product checkpoint `00b8d54f6a899e7cdab389150988eedf3bf9316e` transplanted cleanly as `6ed0dd3a`; the separate integration typing correction is `567682d9`.
+- Current issue: ISSUE-0180 is the active integration lane. ISSUE-0090 product work remains paused until representative fixtures and measured fast-path evidence are complete.
+- Completed work: PRs #608–#613 are merged. PR #612 proved the protected multi-event repair at Linux/Windows `2161/2161`; PR #613 proved a live tier-E ISSUE-0179 lifecycle with exact reuse authorised and both package jobs skipped. Checksum `d468f6b4f45f512dce83e4dab3f4170227ff454a13c959af31f38217d02019a4` applied exactly one #581 managed status update; readback `673223ef4828d7411b9dc854dac6b3b8184ac340eafec127d8ed358979b5bbbe` is zero action. ISSUE-0179 is integrated locally and on GitHub, #581 remains open, and `execution_allowed=false`.
+- Required checks: complete ISSUE-0180 affected validation and exact H classification, publish an immutable draft PR, require truthful Linux/Windows packaged evidence and clean review surfaces, merge exact head, then finish representative E/O/H/C fixtures and metrics before resuming ISSUE-0090.
+- Blocker: none. ISSUE-0180 focused tests, Ruff, protected MyPy, compile and diff hygiene pass after a two-line iterable-narrowing integration correction.
+- Exact next action: commit this checkpoint, run any remaining affected ISSUE-0180 validation, then publish the exact reviewed head as a draft H-tier PR.
 
 ## Objective
 
