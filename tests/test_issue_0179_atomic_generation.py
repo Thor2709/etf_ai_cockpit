@@ -260,5 +260,8 @@ def test_post_merge_workflow_is_read_only_exact_head_and_reviewable() -> None:
     assert "actions/upload-artifact@v4" in workflow
     assert "post-merge-control-candidate.json" in workflow
     assert "--control-candidate" in workflow
+    assert 'git rev-parse HEAD^ 2>/dev/null' in workflow
+    assert 'git diff --quiet "$parent" HEAD -- "$default_candidate"' in workflow
+    assert 'git ls-tree -r --name-only HEAD -- "$default_candidate"' in workflow
     assert "--apply" not in workflow
     assert "git push" not in workflow

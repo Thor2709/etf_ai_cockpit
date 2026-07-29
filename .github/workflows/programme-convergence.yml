@@ -71,7 +71,14 @@ jobs:
           fi
           candidate="${{ inputs.control_candidate }}"
           if [[ -z "$candidate" && -f ".github/issue-transitions/post-merge-control-candidate.json" ]]; then
-            candidate=".github/issue-transitions/post-merge-control-candidate.json"
+            default_candidate=".github/issue-transitions/post-merge-control-candidate.json"
+            if parent="$(git rev-parse HEAD^ 2>/dev/null)"; then
+              if ! git diff --quiet "$parent" HEAD -- "$default_candidate"; then
+                candidate="$default_candidate"
+              fi
+            elif git ls-tree -r --name-only HEAD -- "$default_candidate" | grep -Fxq "$default_candidate"; then
+              candidate="$default_candidate"
+            fi
           fi
           if [[ -n "$candidate" ]]; then
             args+=(--control-candidate "$candidate")
