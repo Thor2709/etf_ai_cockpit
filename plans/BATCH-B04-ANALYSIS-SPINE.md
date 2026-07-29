@@ -1,5 +1,20 @@
 # B04 Analysis Spine
 
+The durable active objective, protected boundaries and exact continuation
+checkpoint are maintained in `plans/ACTIVE_CODEX_GOAL.md`; read it before
+continuing this batch.
+
+## Active fast-path checkpoint
+
+`IN_PROGRESS` complete immutable dependency-only PR #608 at exact head
+`937ec382dfab7acc74ad16e7e706b795c88e63a2`, then pause ISSUE-0090 product
+work and implement ISSUE-0179. The first package run exposed one identical
+Linux/Windows midnight fixture race in three fund-document future-date
+parameters; every other package and policy node passed. The exact next action
+is the single documented unchanged-head failed-job retry, clean review/thread
+readback and exact-head merge if green. `execution_allowed=false`, broker
+authority, PR #560, stale PR #562 and issue #241 remain unchanged.
+
 ## Authority and outcome
 
 Base revision: `b8eb6b4967d5655ed4e528ee9cb222690a424d57`
