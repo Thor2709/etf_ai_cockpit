@@ -1,33 +1,27 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_dependency_edge_updates": [
+  "allowed_status_transitions": [
     {
-      "dependency_id": "ISSUE-0177",
-      "issue_id": "ISSUE-0180"
-    },
-    {
-      "dependency_id": "ISSUE-0080",
-      "issue_id": "ISSUE-0181"
-    },
-    {
-      "dependency_id": "ISSUE-0081",
-      "issue_id": "ISSUE-0181"
+      "from": "planned",
+      "issue_id": "ISSUE-0180",
+      "to": "implemented_initially"
     }
   ],
-  "allowed_status_transitions": [],
-  "base_commit": "fae2042f636f61b70f1640f53ce360cb6162c350",
-  "branch": "codex/issue-0180-multiedge-e-20260730",
-  "issue_ids": [],
+  "base_commit": "376127910455295ba91e78b8c4240426655f2036",
+  "branch": "codex/issue-0180-lifecycle-e-20260730",
+  "issue_ids": [
+    "ISSUE-0180"
+  ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "d6015833efd78664acd14a7eedf8c037672abef6ca65b4c8d3f7fe312e42e220",
+    "base_registry_sha256": "a314473815ea711047b1a3278b7b00b7063850eea2c80f932bb16dc75d4fd6a9",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_dependency_edge_evidence",
-    "proposed_registry_sha256": "a314473815ea711047b1a3278b7b00b7063850eea2c80f932bb16dc75d4fd6a9",
-    "reason": "Record three independent reviewed dependency-edge decisions on immutable base fae2042f636f61b70f1640f53ce360cb6162c350: ISSUE-0180 to ISSUE-0177 deterministic validation observability and environment evidence, ISSUE-0181 to ISSUE-0080 local-first provider-policy evidence, and ISSUE-0181 to ISSUE-0081 resumable content-addressed cache evidence; preserve planned lifecycle state, policy, broker authority and execution_allowed=false.",
+    "mode": "generation_base_and_status_transitions",
+    "proposed_registry_sha256": "ee3d65e8cad0aee640c99037950cc75a4a4e6c4feda80bf8cbea3412181bbb56",
+    "reason": "Replay ISSUE-0180 planned to in_progress and implemented_initially on immutable base 376127910455295ba91e78b8c4240426655f2036 using exact PR #614 H-tier environment-isolation evidence and the live PR #620 tier-E dependency fixture; keep parallel timing proof outstanding, preserve all dependencies, policies, broker authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.3"
+  "schema_version": "1.2"
 }
