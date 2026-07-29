@@ -54,7 +54,7 @@ Do not declare the performance target met from one favourable run.
 
 ## Fast-path implementation and proof wave
 
-Captured on `2026-07-29` for PRs #609–#614. This is a repair/bootstrap wave,
+Captured on `2026-07-29` for PRs #609–#616. This is a repair/bootstrap wave,
 not a normal steady-state sample.
 
 | PR | Purpose | Lead time (min) | Files | Additions | Deletions |
@@ -65,18 +65,22 @@ not a normal steady-state sample.
 | 612 | Multi-event status guard | 51.17 | 5 | 170 | 59 |
 | 613 | ISSUE-0179 compact E lifecycle | 5.98 | 10 | 178 | 39 |
 | 614 | ISSUE-0180 environment product work | 24.35 | 8 | 325 | 15 |
+| 615 | Convergence fixture repairs | 25.82 | 7 | 220 | 16 |
+| 616 | ISSUE-0090 catalogue product continuation | 21.33 | 7 | 391 | 22 |
 
 PR #610 includes an intentional laptop-unplugged pause and is not treated as
-runner or active-work time. Four of these six PRs were control/evidence repair
-transactions, so the observed non-product share is `66.7%`; the target below
-`30%` is not met by this bootstrap wave. ISSUE-0179 required five PRs
+runner or active-work time. Five of these eight PRs were control/evidence
+repair transactions, so the observed non-product share is `62.5%`; the target
+below `30%` is not met by this bootstrap wave. ISSUE-0179 required five PRs
 (#609–#613), also above the normal issue target. These facts are retained
 rather than presenting the repair wave as steady-state improvement.
 
 ### Representative workflow transactions
 
-Run-level queue time was `0 min` for every row below. Dependency waits inside a
-workflow are included in duration and are not reclassified as queue time.
+Run-level queue time was observed as `0 min` for the earlier rows below.
+Run `30461814321` records its separately observable `0.15 min` queue before
+the `0.45 min` job execution. Dependency waits inside a workflow are included
+in duration and are not reclassified as queue time.
 
 | Run | Result/tier | Duration (min) | Exact evidence |
 |---:|---|---:|---|
@@ -97,12 +101,14 @@ workflow are included in duration and are not reclassified as queue time.
 | 30455673946 | failed convergence | 0.47 | zero-action sidecar rotation gap |
 | 30456636457 | success H | 24.62 | Linux/Windows `2171/2171` |
 | 30458709210 | success convergence | 0.48 | exact-main zero action after sidecar rotation |
+| 30460043778 | success H | 20.32 | Linux/Windows `2177/2177` |
+| 30461814321 | success convergence | 0.45 | exact-main zero action; `0.15 min` queue |
 
-The nine E/convergence transactions have execution p50 `0.47 min` and p95
-nearest-rank `2.18 min`, inside the provisional timing target, but there are
-fewer than ten qualifying transactions. The target is therefore promising,
-not certified. Successful H runs remain approximately `22–26 min`, with the
-full Linux/Windows coverage unchanged.
+The ten E/convergence transactions have execution p50 `0.46 min` and p95
+nearest-rank `2.18 min`, inside the timing target across the required sample
+size. This measures workflow execution, not end-to-end issue throughput.
+Successful H runs remain approximately `20–26 min`, with the full
+Linux/Windows coverage unchanged.
 
 ### Fixture and invariant evidence
 
@@ -117,9 +123,11 @@ full Linux/Windows coverage unchanged.
 - Consecutive merges: exact-head fixtures cover two fresh main advances; PR
   #615 then merged on the immediately prior PR #614 main and automatic
   convergence passed without a stale base or manual convergence PR.
-- Status completion: the read-only workflow stages a reviewed product-merge
-  completion candidate only on the merge that introduced it; live proof
-  remains outstanding.
+- Status completion: the earlier read-only staging design was found incapable
+  of applying a genuine nonzero status update. The bounded status-only apply
+  repair is locally implemented and validated with exact checksum, inventory,
+  PR-head, fresh-main, canonical-transition and zero-readback fixtures; its
+  protected H integration and post-merge proof remain outstanding.
 
 No accepted baseline failures or environment mismatches were introduced.
 Financial, point-in-time, revision, security, supply-chain, broker/provider and

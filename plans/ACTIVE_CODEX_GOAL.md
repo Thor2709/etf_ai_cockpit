@@ -2,18 +2,18 @@
 
 ## Current checkpoint
 
-- Current UTC timestamp: `2026-07-29T14:42:32Z`
+- Current UTC timestamp: `2026-07-29T14:55:12Z`
 - Current `origin/main`: `ba0c5850432bf20e40d8a660923ac126c834bf4e`
 - Active worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\status-completion-automation-20260730`
 - Active branch: `codex/status-completion-automation-20260730`
 - Exact base SHA: `ba0c5850432bf20e40d8a660923ac126c834bf4e`
-- Exact last committed head before this checkpoint update: `ba0c5850432bf20e40d8a660923ac126c834bf4e`
+- Exact last committed head before this checkpoint update: `1cbe5d747757076ca5090222ab89cc3cbb09f8d4`
 - Current PR and state: no status-completion repair PR exists. The fresh isolated branch is unpushed.
-- Current issue: the final status-completion acceptance prerequisite is active after the goal audit found the staged candidate could not perform a genuine nonzero GitHub transition.
-- Completed work: PR #616 passed H run `30460043778` at truthful Linux/Windows `2177/2177`, merged exact head `0c99f3f8` as `ba0c5850`, and automatic convergence run `30461814321` passed in 27 seconds with all action counts zero. ISSUE-0090 normal product continuation is therefore integrated. PRs #608–#616, ISSUE-0179 and ISSUE-0180 are merged.
-- Required checks: implement one exact-head, reviewed-checksum, status-only automatic completion path; prove non-reviewed/non-status actions fail closed; retain ordinary convergence read-only; run the complete H gate; then exercise the representative fixture before final goal closure.
-- Blocker: the current default completion candidate is only staged. `run_convergence` rejects every nonzero action and the workflow grants only `issues: read`, so a real product status transition cannot automatically reach GitHub-integrated zero-action readback.
-- Exact next action: commit this audit checkpoint, then give one sole worker the bounded status-completion automation repair and focused tests.
+- Current issue: the final status-completion acceptance prerequisite is implemented and independently validated locally; protected H-tier integration is next.
+- Completed work: PR #616 passed H run `30460043778` at truthful Linux/Windows `2177/2177`, merged exact head `0c99f3f8` as `ba0c5850`, and automatic convergence run `30461814321` passed with all action counts zero. ISSUE-0090 normal product continuation is therefore integrated. The sole status-completion worker commits `c8a6c645` and correction `1cbe5d74` add a path-scoped `issues: write` workflow that accepts only one checksum-bound canonical direct transition to `integrated`, preserves ordinary convergence as read-only, verifies exact fresh main and zero-action readback, and emits privacy-safe evidence. Independent validation passes 195 affected tests, Ruff, protected MyPy, YAML parsing, compile and diff hygiene.
+- Required checks: update the durable plan and metrics, classify the exact branch H, open an immutable draft PR, run the complete Linux/Windows gate, merge only its expected head, require automatic exact-main zero-action convergence, and audit the representative status-completion fixture before final closure.
+- Blocker: no implementation blocker remains. The new workflow is not yet merged or proven by the protected H gate.
+- Exact next action: commit the reviewed implementation checkpoint, classify it H, then push and open the immutable repair PR.
 
 ## Objective
 

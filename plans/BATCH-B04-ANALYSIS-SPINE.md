@@ -166,6 +166,23 @@ path that keeps ordinary convergence read-only, rejects any unreviewed or
 non-status action, performs an idempotent zero-action readback and retains
 `execution_allowed=false`. No broader GitHub write authority is accepted.
 
+`REVIEWED/LOCAL PREREQUISITE` sole-worker commits `c8a6c645` and focused
+correction `1cbe5d74` implement that bounded path. Ordinary convergence now
+defers only the merge that changes the canonical candidate and retains
+`contents: read`/`issues: read`; a separate path-scoped main-push workflow has
+`contents: read`/`issues: write` and no contents authority. Premerge validation
+binds the canonical candidate bytes to the exact reviewed PR head, expected
+base, live remote inventory and semantic plan. Postmerge apply requires exact
+fresh main and a direct parent, permits exactly one status-only canonical
+transition to `integrated`, uses the existing approved-plan checksum guard and
+requires an idempotent zero-action readback. Success and failure evidence omit
+remote bodies. Independent validation passes 195 affected tests, Ruff,
+protected MyPy, YAML parsing, compile and diff hygiene. No product, financial,
+provider, broker or execution authority changed; `execution_allowed=false`.
+Next is the durable metrics/checkpoint commit, exact H classification,
+immutable draft PR, complete Linux/Windows gate, expected-head merge and
+automatic exact-main convergence proof.
+
 ## Authority and outcome
 
 Base revision: `b8eb6b4967d5655ed4e528ee9cb222690a424d57`
