@@ -331,11 +331,12 @@ def environment_check(root: Path, policy: dict[str, object], *, allow_dirty: boo
     if actual_python != expected_python:
         messages.append(f"python {actual_python} does not match pinned {expected_python}")
     snapshot = dependency_snapshot(root, policy)
+    required = snapshot.get("required", [])
     required_names = {
         str(row["name"]).lower().replace("_", "-")
-        for row in snapshot.get("required", [])
+        for row in required
         if isinstance(row, dict) and "name" in row
-    }
+    } if isinstance(required, list) else set()
     absent_from_lock = sorted(set(_REQUIRED_RELEASE_TOOLS) - required_names)
     if absent_from_lock:
         messages.append("required tooling absent from lock profile: " + ", ".join(absent_from_lock))
