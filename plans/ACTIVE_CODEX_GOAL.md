@@ -2,18 +2,18 @@
 
 ## Current checkpoint
 
-- Current UTC timestamp: `2026-07-29T10:54:33Z`
+- Current UTC timestamp: `2026-07-29T11:36:28Z`
 - Current `origin/main`: `0573d489bc48c7fd20127087c09b586ae0fd082a`
-- Active worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\issue0179-e-reuse-repair-20260729`
-- Active branch: `codex/issue-0179-e-reuse-repair-20260729`
-- Exact base SHA: `0573d489bc48c7fd20127087c09b586ae0fd082a`
-- Exact last committed control head before this checkpoint update: `136c6eb3ef01767af303dd380a211fd46ef029a5`
-- Current PR and state: PR #610 merged exact reviewed head `44c9ce5f15faf2f39b7edc11132221509c8cacf7` as `0573d489bc48c7fd20127087c09b586ae0fd082a`. H run `30421980682` passed at truthful Linux/Windows `2144/2144`; automatic convergence run `30444182563` passed exact main with a zero-byte patch and zero-action checksum `23cff2eee691649a17d83f0e8ff5c2833c7b19303f57a2a182f1e75db354d143`. The first live lifecycle E projection then exposed an impossible current-commit self-reference in the reusable-evidence sidecar. The sole bounded repair worker and its one focused correction are accepted at local head `136c6eb3ef01767af303dd380a211fd46ef029a5`; no PR exists yet.
+- Active worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\issue0179-multievent-guard-20260729`
+- Active branch: `codex/issue-0179-multievent-guard-20260729`
+- Exact base SHA: `7c7f9367857546a19bb6e4c42f9407785fd0605a`
+- Exact last committed control head before this checkpoint update: `9dbda8e651615057eeb093c5399028fa1dbb02c8`
+- Current PR and state: draft PR #611 carries the accepted reusable-evidence repair. Its first immutable H head `db52ec14ff7e1e32d8a9de721569da9bdd1e52d7` passed run `30445604844` at truthful Linux/Windows `2154/2154`; the exact reviewed identities were then anchored in the base-visible sidecar at final head `7c7f9367857546a19bb6e4c42f9407785fd0605a`. Final H run `30447413859` is in progress at that exact head. A local live E proof is classifier-authorised with packages skipped, but correctly exposed that the status guard only accepted one projected lifecycle event.
 - Current issue: ISSUE-0179 is the primary implementation lane; ISSUE-0090 product work is paused until the atomic fast path is proven.
-- Completed work: PRs #608, #609 and #610 are merged. Atomic generation and authenticated exact-main zero-action convergence are proven. The E repair now treats sidecar base/head as an immutable earlier H-reviewed range, requires reviewed-head ancestry into the current E base, independently matches all protected identities through the current head, loads identical sidecar bytes from the immutable base, and retains `execution_allowed=false`. The deterministic generator's complete closed projections are allowlisted without allowing arbitrary programme or plan files. Independent affected validation passes: 136 tests, Ruff, protected MyPy, compile, atomic freshness, diff hygiene and exact H classification.
-- Required checks: commit the orchestrator checkpoint, publish the repair as one draft PR, require the complete Linux/Windows H gate and truthful terminal summary at an immutable head, then anchor that exact H-reviewed head in a base-visible reuse sidecar under a final H run before merge. Regenerate the preserved ISSUE-0179 lifecycle transaction from fresh main and require live E with packages skipped.
-- Blocker: no implementation blocker. The reuse sidecar cannot be safely published until the repair's first immutable H-reviewed head exists; this is an intentional two-head evidence bootstrap, not a self-reference.
-- Exact next action: commit the checkpoint, push the exact repair head and open a draft PR; after its first exact H terminal pass, append only the base-visible sidecar derived from that reviewed head and require a final exact H pass.
+- Completed work: PRs #608, #609 and #610 are merged. Atomic generation and authenticated exact-main zero-action convergence are proven. PR #611's accepted repair and base-anchored reviewed sidecar are published. The sole bounded multi-event guard worker is accepted at `9dbda8e651615057eeb093c5399028fa1dbb02c8`: 109 focused tests, Ruff, protected MyPy, compile, diff hygiene and exact H classification pass. The real three-event ISSUE-0179 projection passes the repaired guard with zero errors under the correct status-only schema 1.2. `execution_allowed=false` and broker/provider authority remain unchanged.
+- Required checks: require PR #611's complete Linux/Windows H gate and truthful terminal summary, clean review surfaces and expected-head merge. From fresh main, publish the accepted multi-event guard repair under an immutable H-reviewed head, anchor a fresh base-visible reuse sidecar because protected source changed, require its final H run, merge, then regenerate and integrate the preserved ISSUE-0179 lifecycle as a live E transaction with packages skipped.
+- Blocker: sequencing only. PR #611 final H run `30447413859` must finish before the multi-event guard repair can be transplanted to fresh main; the guard change then requires its own two-head H bootstrap because it changes protected source identity.
+- Exact next action: when the detached watcher completes, verify PR #611's exact-head terminal evidence and clean review surfaces, mark ready and merge only `7c7f9367857546a19bb6e4c42f9407785fd0605a`; fetch fresh main and transplant the accepted guard repair.
 
 ## Objective
 

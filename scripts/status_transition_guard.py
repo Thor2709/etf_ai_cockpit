@@ -399,12 +399,15 @@ def _validate_transition_record(
     if (
         not isinstance(base_evidence, list)
         or not isinstance(proposed_evidence, list)
-        or len(proposed_evidence) != len(base_evidence) + 1
         or proposed_evidence[: len(base_evidence)] != base_evidence
+        or len(proposed_evidence) == len(base_evidence)
     ):
         _error(errors, f"transition acceptance evidence must append exactly one entry: {issue_id}")
         return int(edge_changed)
-    evidence = proposed_evidence[-1]
+    appended_evidence = proposed_evidence[len(base_evidence) :]
+    if edge_changed and len(appended_evidence) != 1:
+        _error(errors, f"multi-event status replay cannot include a dependency-edge change: {issue_id}")
+        return int(edge_changed)
     evidence_keys = {
         "status",
         "evidence_references",
@@ -412,7 +415,10 @@ def _validate_transition_record(
         "reviewer",
         "reviewed_date",
     }
-    if not isinstance(evidence, dict) or set(evidence) != evidence_keys:
+    if any(
+        not isinstance(evidence, dict) or set(evidence) != evidence_keys
+        for evidence in appended_evidence
+    ):
         _error(errors, f"transition acceptance evidence is malformed: {issue_id}")
         return int(edge_changed)
 
@@ -423,62 +429,57 @@ def _validate_transition_record(
     if verified_commit == base_record.get("verified_commit"):
         _error(errors, f"transition verified_commit must advance reviewed evidence: {issue_id}")
 
+    final_evidence = appended_evidence[-1]
     verified_date = proposed_record.get("verified_date")
-    if verified_date != evidence.get("reviewed_date"):
+    if verified_date != final_evidence.get("reviewed_date"):
         _error(errors, f"transition verified_date must match reviewed evidence: {issue_id}")
-
-    event = {
-        "from": base_record.get("programme_status"),
-        "to": proposed_record.get("programme_status"),
-        "review_reference": evidence.get("review_reference"),
-        "evidence_references": evidence.get("evidence_references"),
-        "reviewer": evidence.get("reviewer"),
-        "reviewed_date": evidence.get("reviewed_date"),
-        "verified_commit": verified_commit,
-        "allow_downgrade": False,
-    }
-    if edge_change is not None:
-        event["dependency_edge"] = edge_change
-
-    if evidence.get("status") != proposed_record.get("programme_status"):
-        _error(errors, f"transition acceptance evidence status mismatch: {issue_id}")
-    try:
-        validate_control_transition_event(issue_id, dict(base_record), event)
-    except ValueError as exc:
-        _error(errors, f"invalid reviewed transition evidence: {issue_id}: {exc}")
-        return int(edge_changed)
 
     if verified_commit_is_ancestor is None:
         _error(errors, f"transition verified_commit ancestry validator is required: {issue_id}")
-    elif not verified_commit_is_ancestor(verified_commit):
-        _error(
-            errors,
-            f"transition verified_commit is not an ancestor of the reviewed generation base: {issue_id}",
-        )
 
     expected = deepcopy(dict(base_record))
-    expected["programme_status"] = event["to"]
-    expected["verified_commit"] = verified_commit
-    expected["verified_date"] = event["reviewed_date"]
     expected_acceptance = expected.setdefault("acceptance_evidence", [])
     if not isinstance(expected_acceptance, list):
         _error(errors, f"authoritative acceptance evidence is invalid: {issue_id}")
         return int(edge_changed)
-    expected_acceptance.append(
-        {
-            "status": event["to"],
-            "evidence_references": event["evidence_references"],
-            "review_reference": event["review_reference"],
-            "reviewer": event["reviewer"],
-            "reviewed_date": event["reviewed_date"],
+    for index, evidence in enumerate(appended_evidence):
+        event = {
+            "from": expected.get("programme_status"),
+            "to": evidence.get("status"),
+            "review_reference": evidence.get("review_reference"),
+            "evidence_references": evidence.get("evidence_references"),
+            "reviewer": evidence.get("reviewer"),
+            "reviewed_date": evidence.get("reviewed_date"),
+            "verified_commit": verified_commit,
+            "allow_downgrade": False,
         }
-    )
-    if edge_change is not None:
-        expected_edges = expected.get("dependency_edge_evidence")
-        if not isinstance(expected_edges, dict):
-            _error(errors, f"authoritative dependency-edge evidence is invalid: {issue_id}")
+        if edge_change is not None:
+            event["dependency_edge"] = edge_change
+        try:
+            validate_control_transition_event(issue_id, expected, event)
+        except ValueError as exc:
+            _error(errors, f"invalid reviewed transition evidence: {issue_id}: {exc}")
             return int(edge_changed)
-        expected_edges[edge_change["dependency"]] = edge_change["evidence"]
+        if verified_commit_is_ancestor is not None and not verified_commit_is_ancestor(
+            verified_commit
+        ):
+            _error(
+                errors,
+                "transition verified_commit is not an ancestor of the reviewed "
+                f"generation base: {issue_id}",
+            )
+        expected["programme_status"] = event["to"]
+        expected["verified_commit"] = verified_commit
+        expected["verified_date"] = event["reviewed_date"]
+        expected_acceptance.append(deepcopy(evidence))
+        if edge_change is not None:
+            expected_edges = expected.get("dependency_edge_evidence")
+            if not isinstance(expected_edges, dict):
+                _error(errors, f"authoritative dependency-edge evidence is invalid: {issue_id}")
+                return int(edge_changed)
+            expected_edges[edge_change["dependency"]] = edge_change["evidence"]
+        if index + 1 < len(appended_evidence):
+            edge_change = None
     if expected != proposed_record:
         _error(errors, f"transition record does not match the canonical registry projection: {issue_id}")
     return int(edge_changed)
