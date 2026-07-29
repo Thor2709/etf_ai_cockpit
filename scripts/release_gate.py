@@ -265,8 +265,62 @@ def dependency_snapshot(root: Path, policy: dict[str, object]) -> dict[str, obje
         "installed": dict(sorted(installed.items())),
         "missing": sorted(missing),
         "mismatched": sorted(mismatched),
+        "profiles": {
+            "release": {
+                "required": True,
+                "lock_path": lock_paths[0],
+                "packages": sorted(
+                    name for lock_path, name, _version in requirements if lock_path == lock_paths[0]
+                ),
+            },
+            "parsers": {
+                "required": bool(parser_lock),
+                "status": "required" if parser_lock else "unavailable",
+                "lock_path": str(parser_lock) if parser_lock else None,
+                "packages": sorted(
+                    name for lock_path, name, _version in requirements if parser_lock and lock_path == str(parser_lock)
+                ),
+            },
+        },
     }
     return payload
+
+
+_REQUIRED_RELEASE_TOOLS = (
+    "exchange-calendars",
+    "flet",
+    "hypothesis",
+    "mypy",
+    "pytest",
+    "ruff",
+)
+
+
+def parallel_pilot_evidence() -> dict[str, object]:
+    """Describe the non-authoritative xdist pilot without executing it."""
+
+    try:
+        version = importlib.metadata.version("pytest-xdist")
+    except importlib.metadata.PackageNotFoundError:
+        version = None
+    return {
+        "mode": "report_only",
+        "authority": "serial",
+        "available": version is not None,
+        "status": "available" if version is not None else "unavailable",
+        "version": version,
+        "workers": 4,
+        "commands": {
+            "serial_collection": "python -m pytest --collect-only -q",
+            "pilot_collection": "python -m pytest -n 4 --dist loadgroup --collect-only -q",
+        },
+        "collection_parity": {
+            "required": True,
+            "comparison": "ordered_nodeids",
+            "status": "not_run",
+        },
+        "serial_groups": ["concurrency", "environment", "flet", "package", "ports", "sqlite"],
+    }
 
 
 def environment_check(root: Path, policy: dict[str, object], *, allow_dirty: bool) -> CheckResult:
@@ -277,6 +331,14 @@ def environment_check(root: Path, policy: dict[str, object], *, allow_dirty: boo
     if actual_python != expected_python:
         messages.append(f"python {actual_python} does not match pinned {expected_python}")
     snapshot = dependency_snapshot(root, policy)
+    required_names = {
+        str(row["name"]).lower().replace("_", "-")
+        for row in snapshot.get("required", [])
+        if isinstance(row, dict) and "name" in row
+    }
+    absent_from_lock = sorted(set(_REQUIRED_RELEASE_TOOLS) - required_names)
+    if absent_from_lock:
+        messages.append("required tooling absent from lock profile: " + ", ".join(absent_from_lock))
     missing = snapshot.get("missing", [])
     mismatched = snapshot.get("mismatched", [])
     if isinstance(missing, list) and missing:
@@ -323,6 +385,7 @@ def environment_evidence(root: Path, policy: dict[str, object]) -> dict[str, obj
             "run_attempt": int(os.getenv("GITHUB_RUN_ATTEMPT", "1")),
             "automatic_test_retries": 0,
         },
+        "parallel_pilot": parallel_pilot_evidence(),
     }
 
 
@@ -971,7 +1034,22 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0 if check.status == "passed" else 1
         except (FileNotFoundError, RuntimeError, ValueError) as exc:
-            print(f"ERROR: {exc}", file=sys.stderr)
+            print(
+                json.dumps(
+                    {
+                        "check": {
+                            "name": "pinned_environment",
+                            "status": "failed",
+                            "required": True,
+                            "exit_code": 2,
+                            "failure": str(exc),
+                        },
+                        "environment": None,
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
             return 2
     if args.dry_run:
         print(json.dumps({"schema_version": SCHEMA_VERSION, "root": str(root), "commands": _planned_commands(root)}, indent=2))

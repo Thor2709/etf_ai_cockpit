@@ -61,3 +61,7 @@ where = ["src"]
 pythonpath = ["src"]
 testpaths = ["tests"]
 addopts = "-q -p no:cacheprovider"
+markers = [
+  "serial: test is unsafe for parallel execution and remains in the authoritative serial lane",
+  "xdist_group(name): resource group used only by the report-only xdist pilot"
+]

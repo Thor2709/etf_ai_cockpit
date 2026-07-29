@@ -85,3 +85,24 @@ def test_validation_environment_fingerprint_and_junit_path_are_recorded(tmp_path
 
     assert len(str(environment["fingerprint_sha256"])) == 64
     assert paths == [str(junit.resolve())]
+
+
+def test_release_environment_evidence_keeps_parallel_pilot_report_only(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        release_gate,
+        "dependency_snapshot",
+        lambda _root, _policy: {"lock_files": [], "installed": {}},
+    )
+    monkeypatch.setattr(
+        release_gate,
+        "parallel_pilot_evidence",
+        lambda: {"mode": "report_only", "authority": "serial", "workers": 4},
+    )
+
+    environment = release_gate.environment_evidence(tmp_path, {})
+
+    assert environment["parallel_pilot"] == {
+        "mode": "report_only",
+        "authority": "serial",
+        "workers": 4,
+    }

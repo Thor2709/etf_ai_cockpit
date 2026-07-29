@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-import sys
 import os
+import shutil
+import socket
+import sys
 import tempfile
 import uuid
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -30,4 +33,47 @@ tempfile.tempdir = str(PYTEST_TEMP)
 def tmp_path(request: pytest.FixtureRequest) -> Path:
     path = PYTEST_TEMP / "cases" / f"case_{uuid.uuid4().hex}"
     path.mkdir(parents=True, exist_ok=False)
+    request.addfinalizer(lambda: shutil.rmtree(path, ignore_errors=True))
     return path
+
+
+@pytest.fixture
+def isolated_runtime_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Opt-in isolation for mutable application state used by integration tests."""
+
+    runtime_root = tmp_path / "runtime"
+    for name in ("cache", "logs", "artifacts", "data"):
+        path = runtime_root / name
+        path.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv(f"ETF_COCKPIT_{name.upper()}_DIR", str(path))
+    monkeypatch.setenv("TZ", "UTC")
+    monkeypatch.setenv("ETF_COCKPIT_OFFLINE", "1")
+    monkeypatch.delenv("YAHOO_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    return runtime_root
+
+
+@pytest.fixture
+def reserved_tcp_port() -> Iterator[socket.socket]:
+    """Keep an ephemeral loopback port reserved until fixture teardown."""
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reservation:
+        reservation.bind(("127.0.0.1", 0))
+        yield reservation
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    groups = {
+        "environment": ("environment", "dependency", "lock"),
+        "sqlite": ("sqlite", "database", "db_"),
+        "flet": ("flet", "ui_", "smoke_app"),
+        "ports": ("port", "socket"),
+        "package": ("package", "wheel", "release_gate"),
+        "concurrency": ("concurrency", "thread", "atomic"),
+    }
+    for item in items:
+        nodeid = item.nodeid.lower()
+        matched = next((name for name, tokens in groups.items() if any(token in nodeid for token in tokens)), None)
+        if matched is not None:
+            item.add_marker(pytest.mark.serial)
+            item.add_marker(pytest.mark.xdist_group(matched))
