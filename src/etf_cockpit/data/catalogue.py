@@ -322,7 +322,15 @@ class DataCatalogue:
         incompatible_snapshot_ids = [
             str(item["snapshot_id"]) for item in nodes if not item["schema_compatible"]
         ]
-        complete = not missing and not incompatible_snapshot_ids
+        cycle_snapshot_ids = self._cycle_snapshot_ids(included, edges)
+        failure_reasons = []
+        if missing:
+            failure_reasons.append("missing upstream snapshots")
+        if incompatible_snapshot_ids:
+            failure_reasons.append("schema-incompatible snapshots")
+        if cycle_snapshot_ids:
+            failure_reasons.append("lineage cycle detected")
+        complete = not failure_reasons
         return {
             "target_snapshot_id": snapshot_id,
             "status": "failed" if not complete else "degraded" if stale_snapshot_ids else "passed",
@@ -332,6 +340,8 @@ class DataCatalogue:
             "missing_upstream_snapshot_ids": sorted(missing),
             "stale_snapshot_ids": stale_snapshot_ids,
             "incompatible_snapshot_ids": incompatible_snapshot_ids,
+            "cycle_snapshot_ids": cycle_snapshot_ids,
+            "failure_reasons": failure_reasons,
             "execution_allowed": False,
         }
 
@@ -370,19 +380,20 @@ class DataCatalogue:
         queue = deque(sorted(direct_snapshot_ids))
         while queue:
             for child in sorted(downstream.get(queue.popleft(), ())):
-                if child in self._snapshots and child not in direct_snapshot_ids and child not in affected:
+                if child in self._snapshots and child not in affected:
                     affected.add(child)
                     queue.append(child)
-        affected_dataset_ids = {
-            self._snapshots[item].dataset_id for item in affected
-        } - direct_dataset_ids
+        affected_dataset_ids = {self._snapshots[item].dataset_id for item in affected}
         involved = direct_snapshot_ids | affected
         stale_snapshot_ids = sorted(item for item in involved if self._snapshots[item].stale)
+        orphan_snapshot_ids = sorted(
+            item for item in involved if self._snapshots[item].dataset_id not in self._datasets
+        )
         incompatible_snapshot_ids = sorted(
             item
             for item in involved
-            if self._datasets[self._snapshots[item].dataset_id].schema_sha256
-            != self._snapshots[item].schema_sha256
+            if (dataset := self._datasets.get(self._snapshots[item].dataset_id)) is not None
+            and dataset.schema_sha256 != self._snapshots[item].schema_sha256
         )
         return {
             "reference_type": reference_type,
@@ -391,9 +402,16 @@ class DataCatalogue:
             "direct_snapshot_ids": sorted(direct_snapshot_ids),
             "affected_snapshot_ids": sorted(affected),
             "affected_dataset_ids": sorted(affected_dataset_ids),
-            "status": "failed" if incompatible_snapshot_ids else "degraded" if stale_snapshot_ids else "passed",
+            "status": (
+                "failed"
+                if incompatible_snapshot_ids or orphan_snapshot_ids
+                else "degraded"
+                if stale_snapshot_ids
+                else "passed"
+            ),
             "stale_snapshot_ids": stale_snapshot_ids,
             "incompatible_snapshot_ids": incompatible_snapshot_ids,
+            "orphan_snapshot_ids": orphan_snapshot_ids,
             "execution_allowed": False,
         }
 
@@ -533,6 +551,38 @@ class DataCatalogue:
             "stale": snapshot.stale,
             "schema_compatible": dataset is not None and dataset.schema_sha256 == snapshot.schema_sha256,
         }
+
+    @staticmethod
+    def _cycle_snapshot_ids(
+        node_ids: set[str],
+        edges: set[tuple[str, str, str]],
+    ) -> list[str]:
+        upstream: dict[str, set[str]] = {}
+        for dependency_id, downstream_id, _relation in edges:
+            if dependency_id in node_ids:
+                upstream.setdefault(downstream_id, set()).add(dependency_id)
+        visiting: list[str] = []
+        active: set[str] = set()
+        visited: set[str] = set()
+        cycle_ids: set[str] = set()
+
+        def visit(node_id: str) -> None:
+            if node_id in active:
+                cycle_ids.update(visiting[visiting.index(node_id) :])
+                return
+            if node_id in visited:
+                return
+            active.add(node_id)
+            visiting.append(node_id)
+            for dependency_id in sorted(upstream.get(node_id, ())):
+                visit(dependency_id)
+            visiting.pop()
+            active.remove(node_id)
+            visited.add(node_id)
+
+        for node_id in sorted(node_ids):
+            visit(node_id)
+        return sorted(cycle_ids)
 
     def _cycle_errors(self) -> list[str]:
         children: dict[str, set[str]] = {}

@@ -155,6 +155,41 @@ def test_upstream_graph_fails_closed_for_missing_and_incompatible_dependencies(t
     assert graph["execution_allowed"] is False
 
 
+def test_upstream_graph_fails_closed_for_reachable_cycle(tmp_path) -> None:
+    catalogue = DataCatalogue(tmp_path)
+    first = catalogue.register_dataset(_definition("first", layer="derived"))
+    second = catalogue.register_dataset(_definition("second", layer="derived"))
+    first_id = "first:" + "a" * 24 + ":" + first.schema_sha256[:16]
+    second_id = "second:" + "b" * 24 + ":" + second.schema_sha256[:16]
+    catalogue.register_snapshot(
+        DatasetSnapshot(
+            dataset_id="first",
+            snapshot_id=first_id,
+            content_sha256="a" * 64,
+            schema_sha256=first.schema_sha256,
+            row_count=1,
+            dependency_snapshot_ids=(second_id,),
+        )
+    )
+    catalogue.register_snapshot(
+        DatasetSnapshot(
+            dataset_id="second",
+            snapshot_id=second_id,
+            content_sha256="b" * 64,
+            schema_sha256=second.schema_sha256,
+            row_count=1,
+            dependency_snapshot_ids=(first_id,),
+        )
+    )
+
+    graph = catalogue.upstream_snapshot_graph(first_id)
+
+    assert graph["status"] == "failed"
+    assert graph["complete"] is False
+    assert graph["cycle_snapshot_ids"] == sorted([first_id, second_id])
+    assert graph["failure_reasons"] == ["lineage cycle detected"]
+
+
 def test_dataset_and_source_downstream_impact_include_transitive_results(tmp_path) -> None:
     catalogue = DataCatalogue(tmp_path)
     raw = catalogue.register_dataset(_definition("raw"))
@@ -194,6 +229,26 @@ def test_dataset_and_source_downstream_impact_include_transitive_results(tmp_pat
     )
     assert source_impact["affected_dataset_ids"] == ["clean", "result"]
     assert source_impact["execution_allowed"] is False
+
+
+def test_dataset_impact_retains_same_dataset_descendant(tmp_path) -> None:
+    catalogue = DataCatalogue(tmp_path)
+    dataset = catalogue.register_dataset(_definition("prices", layer="clean"))
+    first = catalogue.register_rows(
+        "prices", [{"instrument_id": "A", "value": 1}], schema=dataset.schema
+    )
+    second = catalogue.register_rows(
+        "prices",
+        [{"instrument_id": "A", "value": 2}],
+        schema=dataset.schema,
+        dependency_snapshot_ids=(first.snapshot_id,),
+    )
+
+    impact = catalogue.downstream_impact(dataset_id="prices")
+
+    assert impact["direct_snapshot_ids"] == sorted([first.snapshot_id, second.snapshot_id])
+    assert impact["affected_snapshot_ids"] == [second.snapshot_id]
+    assert impact["affected_dataset_ids"] == ["prices"]
 
 
 def test_downstream_impact_rejects_unknown_and_ambiguous_references(tmp_path) -> None:

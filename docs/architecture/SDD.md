@@ -112,9 +112,9 @@ and atomic files support transactional state. Older file-backed stores remain
 **LEGACY/transitional**, not an alternative architecture authority.
 The local metadata catalogue projects deterministically sorted, transitive
 upstream snapshot graphs and dataset/source downstream impact. Missing
-upstreams and schema incompatibility fail closed, stale state remains explicit,
-unknown or ambiguous references are rejected, and every projection keeps
-`execution_allowed=false`.
+upstreams, lineage cycles and schema incompatibility fail closed, stale state
+remains explicit, unknown or ambiguous references are rejected, and every
+projection keeps `execution_allowed=false`.
 
 ```mermaid
 flowchart LR
