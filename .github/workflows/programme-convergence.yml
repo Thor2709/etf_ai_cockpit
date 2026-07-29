@@ -13,6 +13,10 @@ on:
         description: Repository-relative reviewed safe-evidence checksum
         required: true
         type: string
+      control_candidate:
+        description: Repository-relative reviewed post-merge control candidate
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -64,6 +68,20 @@ jobs:
             args+=(--remote-snapshot "$snapshot")
           else
             args+=(--live-read)
+          fi
+          candidate="${{ inputs.control_candidate }}"
+          if [[ -z "$candidate" && -f ".github/issue-transitions/post-merge-control-candidate.json" ]]; then
+            default_candidate=".github/issue-transitions/post-merge-control-candidate.json"
+            if parent="$(git rev-parse HEAD^ 2>/dev/null)"; then
+              if ! git diff --quiet "$parent" HEAD -- "$default_candidate"; then
+                candidate="$default_candidate"
+              fi
+            elif git ls-tree -r --name-only HEAD -- "$default_candidate" | grep -Fxq "$default_candidate"; then
+              candidate="$default_candidate"
+            fi
+          fi
+          if [[ -n "$candidate" ]]; then
+            args+=(--control-candidate "$candidate")
           fi
           python scripts/generate_programme.py "${args[@]}"
       - name: Produce reviewable patch only
