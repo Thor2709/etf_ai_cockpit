@@ -33,4 +33,12 @@ jobs:
             --expected-parent "$parent" \
             --expected-head "${{ github.sha }}" \
             --main-ref origin/main \
+            --evidence-out artifacts/programme-status-completion/evidence.json \
             --apply
+      - name: Upload status-completion evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: programme-status-completion-${{ github.sha }}
+          path: artifacts/programme-status-completion/evidence.json
+          if-no-files-found: error
