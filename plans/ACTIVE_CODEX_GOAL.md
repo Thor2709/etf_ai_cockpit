@@ -2,13 +2,13 @@
 
 ## Current checkpoint
 
-- Current UTC timestamp: `2026-07-30T00:30:00Z`
+- Current UTC timestamp: `2026-07-29T22:13:33Z`
 - Current `origin/main`: `9bb8826a87e582d1c2fc876b24294935c908af4f`
 - Active worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\postmerge-release-gate-repair-20260730`
 - Active branch: `codex/postmerge-release-gate-repair-20260730`
 - Exact base SHA: `9bb8826a87e582d1c2fc876b24294935c908af4f`
 - Exact last committed head before this checkpoint update: `9bb8826a87e582d1c2fc876b24294935c908af4f`
-- Current PR and state: no repair PR exists; this fresh isolated branch is unpushed.
+- Current PR and state: draft PR #618 is open at reviewed product/control head `773f344e909375a721fedb958e91d5e6e72c2f4e`; protected H CI is pending.
 - Current issue: necessary shared prerequisite — stop ordinary `main` merges from rerunning the signed release gate after the exact PR head already passed H.
 - Completed work: the full GitHub audit through PR #617 proved the latest `main` push run `30465742029` passed all `2191/2191` tests and every mandatory Linux/Windows check except signature; `RELEASE_SIGNING_KEY` is intentionally absent outside a real release. Seven duplicate push matrices consumed `291.90` runner-minutes. The bounded repair removes only the ordinary `main` push trigger, retaining pull-request H, both platforms, read-only permissions, signing-secret wiring and fail-closed signed-release behavior. Seventy affected tests, Ruff, protected MyPy, programme byte-clean generation, compile, YAML parsing and diff hygiene pass.
 - Required checks: commit the reviewed repair, classify the exact head H, then integrate only after the protected Linux/Windows PR gate passes and verify that its merge produces convergence without another Release Gate push run.
