@@ -53,8 +53,14 @@ audit found its nominally green summary had added the 126-test preflight JUnit
 to Linux, reporting `2270/2144`. The bounded correction counts only XML under
 explicitly named Linux/Windows release artifacts; replay against the full
 retained artifact set now validates truthfully at `2144/2144`. Prior runs are
-not retried; the next action is one new exact head and fresh complete H-tier
-gate.
+not retried. Final run `30420622584` passed the complete H tier and truthful
+terminal summary at `2144/2144`; PR #609 merged exact head `d72c07d1` as
+`cfcf6e78`. Automatic convergence run `30421830231` passed its fresh-main
+guard and atomic generation but live GitHub readback exited 4 because the
+read-only workflow did not export its granted token to `gh`. The fresh-main
+repair changes only token wiring plus its workflow assertion; permissions
+remain read-only. The next action is focused validation and a protected H-tier
+repair release, followed by automatic zero-action convergence evidence.
 
 ## Authority and outcome
 

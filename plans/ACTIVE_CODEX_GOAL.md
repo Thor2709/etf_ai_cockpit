@@ -2,18 +2,18 @@
 
 ## Current checkpoint
 
-- Current UTC timestamp: `2026-07-29T03:48:50Z`
-- Current `origin/main`: `b11b1d6783438df03847d7a1b45c3a4d7c1f2385`
-- Active worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\atomic-fast-path-20260729`
-- Active branch: `codex/atomic-fast-path-20260729`
-- Exact base SHA: `b11b1d6783438df03847d7a1b45c3a4d7c1f2385`
-- Exact last committed control head before this checkpoint update: `77d189052679885625424ab54fe648f604d886f4`
-- Current PR and state: draft PR #609 run `30419312173` passed classifier, schema-1.3 status guard, preflight, supply-chain, Linux (`18m34s`), Windows (`23m34s`) and terminal summary. Audit of the green summary found Linux `2270` versus Windows `2144` because preflight's 126 affected tests were incorrectly added to Linux. The bounded uncommitted correction counts only XML beneath explicitly named Linux/Windows release artifacts. Replay against the full retained artifact set, including preflight, validates at Linux/Windows `2144/2144` with exact PR head `77d189052679885625424ab54fe648f604d886f4`.
+- Current UTC timestamp: `2026-07-29T04:17:50Z`
+- Current `origin/main`: `cfcf6e784fd36ae3eabb8c6d6fd3b4047137cbe1`
+- Active worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\issue0179-convergence-auth-20260729`
+- Active branch: `codex/issue-0179-convergence-auth-20260729`
+- Exact base SHA: `cfcf6e784fd36ae3eabb8c6d6fd3b4047137cbe1`
+- Exact last committed control head before this checkpoint update: `cfcf6e784fd36ae3eabb8c6d6fd3b4047137cbe1`
+- Current PR and state: PR #609 merged exact reviewed head `d72c07d199ad069a3c8fc3c63f614ec91f4b8b7e` as `cfcf6e784fd36ae3eabb8c6d6fd3b4047137cbe1`. Run `30420622584` passed H-tier classifier, preflight, supply-chain, Linux (`20m02s`), Windows (`23m18s`) and truthful terminal summary at `2144/2144`; schema-1.3 run `30420622618` passed. Post-merge convergence run `30421830231` then failed only live readback because the read-only workflow did not export its granted GitHub token to `gh`.
 - Current issue: ISSUE-0179 is the primary implementation lane; ISSUE-0090 product work is paused until the atomic fast path is proven.
-- Completed work: PR #608 is merged and converged. The sole ISSUE-0179 worker and correction are accepted. Atomic publication, interruption recovery, closed mandatory output manifest, append-only events, independent multi-edge validation, reachable generation provenance, exact E reuse identities, terminal evidence validation and read-only exact-head convergence are implemented. ISSUE-0179→ISSUE-0178 is complete while status remains `planned`; `execution_allowed=false`. Semantic UTF-8 hashes are CRLF/LF stable while binary bytes remain exact; recursive JUnit counting and exact PR-head propagation are covered by the complete 126-test affected suite with atomic second-run freshness, Ruff, MyPy and diff hygiene.
-- Required checks: commit the artifact-scope correction and this checkpoint, then push a new exact head; require fresh classifier, schema-1.3 guard, preflight, supply-chain, complete Linux and Windows packaged H-tier gate and truthful terminal summary before merge.
-- Blocker: none. The previous UTC-midnight fixture failure is documented as run `30409555828` attempt 1 and resolved only by the permitted exact unchanged-head retry.
-- Exact next action: commit the correction and audit checkpoint, push the new exact PR #609 head, and use one watcher for the fresh H-tier run; do not retry prior runs.
+- Completed work: PRs #608 and #609 are merged. Atomic publication, interruption recovery, closed mandatory output manifest, append-only events, independent multi-edge validation, reachable generation provenance, exact E reuse identities, truthful terminal evidence and read-only exact-head convergence are implemented. ISSUE-0179→ISSUE-0178 is complete while status remains `planned`; `execution_allowed=false`. The fresh main repair adds only `GH_TOKEN` wiring to the read-only convergence step plus an assertion; workflow permissions remain `contents: read`, `issues: read`, with no push or apply authority.
+- Required checks: run focused workflow/generator tests, YAML, Ruff, MyPy, atomic freshness and exact H classification; commit, push and merge the small workflow repair only after the complete Linux/Windows H gate and truthful terminal summary pass.
+- Blocker: post-merge live readback cannot run until the read-only workflow exports its granted GitHub token. No product, provider-write, broker or execution-authority blocker exists.
+- Exact next action: validate and publish the fresh-main convergence-auth repair, merge with expected-head protection, then require the automatic exact-main zero-action convergence artifact before creating the single E lifecycle transaction.
 
 ## Objective
 
