@@ -62,6 +62,22 @@ repair changes only token wiring plus its workflow assertion; permissions
 remain read-only. The next action is focused validation and a protected H-tier
 repair release, followed by automatic zero-action convergence evidence.
 
+`MERGED/PROVEN` PR #610 passed complete H-tier run `30421980682` at truthful
+Linux/Windows `2144/2144` and merged exact head `44c9ce5f` as `0573d489`.
+Automatic convergence run `30444182563` passed exact main with a zero-byte
+patch and zero GitHub actions at checksum `23cff2ee`.
+
+`FOUND/REPAIRED LOCALLY` the first live E lifecycle projection exposed that
+the committed reuse sidecar had been required to contain its own future
+commit SHA. Sole worker commit `a6ee2a18` replaces that impossible contract
+with immutable prior-H ancestry plus exact protected identities and
+base-anchored, head-identical sidecar bytes. Its sole correction `136c6eb3`
+completes the closed deterministic projection allowlist across all phases
+without allowing arbitrary programme or plan files. The accepted head passes
+136 affected tests, Ruff, protected MyPy, compile, atomic freshness and exact
+H classification. Next is an immutable H repair PR head, followed by one
+sidecar-only bootstrap commit bound to that reviewed head and a final H run.
+
 ## Authority and outcome
 
 Base revision: `b8eb6b4967d5655ed4e528ee9cb222690a424d57`
