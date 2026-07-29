@@ -16,8 +16,11 @@ TIER_ORDER = {tier: index for index, tier in enumerate(TIERS)}
 
 EVIDENCE_PREFIXES = (
     ".github/issue-transitions/",
-    "docs/",
-    "plans/",
+    "docs/product-completion/current_status.json",
+    "docs/product-completion/progress.md",
+    "docs/product-completion/programme/readiness.json",
+    "docs/product-completion/programme/generation-manifest.json",
+    "docs/product-completion/reconciliation/",
 )
 ORDINARY_PREFIXES = ("src/", "tests/", "configs/ui_acceptance.yaml")
 HIGH_RISK_PARTS = {
@@ -58,6 +61,19 @@ CERTIFICATION_PREFIXES = (
     "docs/product-completion/certification/",
     "artifacts/certification/",
 )
+REUSABLE_EVIDENCE_KEYS = frozenset(
+    {
+        "base_sha",
+        "head_sha",
+        "source_sha256",
+        "dependency_sha256",
+        "product_tree_sha256",
+        "policy_sha256",
+        "artifact_manifest_sha256",
+        "environment_sha256",
+        "execution_allowed",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -92,20 +108,47 @@ def classify_path(value: str) -> PathClassification:
         or lowered.startswith("requirements")
     ):
         return PathClassification(path, "H", "protected-or-high-risk-surface")
-    if any(lowered.startswith(prefix.lower()) for prefix in EVIDENCE_PREFIXES) or lowered.endswith(".md"):
+    if any(lowered.startswith(prefix.lower()) for prefix in EVIDENCE_PREFIXES):
         return PathClassification(path, "E", "evidence-only-surface")
     if any(lowered.startswith(prefix.lower()) for prefix in ORDINARY_PREFIXES):
         return PathClassification(path, "O", "ordinary-product-surface")
     return PathClassification(path, "H", "unknown-surface-fails-upward")
 
 
-def build_report(paths: list[str], *, ordinary_issues_since_full_gate: int = 0) -> dict[str, object]:
+def _valid_reusable_evidence(
+    value: object, expected: dict[str, object] | None
+) -> bool:
+    if not isinstance(value, dict) or set(value) != REUSABLE_EVIDENCE_KEYS:
+        return False
+    if value.get("execution_allowed") is not False:
+        return False
+    for key in REUSABLE_EVIDENCE_KEYS - {"execution_allowed"}:
+        width = 40 if key in {"base_sha", "head_sha"} else 64
+        if not isinstance(value.get(key), str) or not re.fullmatch(
+            rf"[0-9a-f]{{{width}}}", str(value[key])
+        ):
+            return False
+    return expected is not None and value == expected
+
+
+def build_report(
+    paths: list[str],
+    *,
+    ordinary_issues_since_full_gate: int = 0,
+    reusable_evidence: dict[str, object] | None = None,
+    expected_evidence: dict[str, object] | None = None,
+) -> dict[str, object]:
     classified = sorted((classify_path(path) for path in paths), key=lambda item: item.path)
     if not classified:
         classified = [PathClassification("<no-changes>", "H", "empty-change-set-fails-upward")]
     tier = max((item.tier for item in classified), key=TIER_ORDER.__getitem__)
     cadence_due = tier == "O" and ordinary_issues_since_full_gate >= 2
-    package_gate_required = tier in {"H", "C"} or cadence_due
+    evidence_reuse_authorized = tier == "E" and _valid_reusable_evidence(
+        reusable_evidence, expected_evidence
+    )
+    package_gate_required = tier in {"H", "C"} or cadence_due or (
+        tier == "E" and not evidence_reuse_authorized
+    )
     return {
         "schema_version": SCHEMA_VERSION,
         "tier": tier,
@@ -120,6 +163,14 @@ def build_report(paths: list[str], *, ordinary_issues_since_full_gate: int = 0) 
             for item in classified
         ],
         "reasons": sorted({item.reason for item in classified}),
+        "evidence_reuse": {
+            "authorized": evidence_reuse_authorized,
+            "reason": (
+                "exact-identities-validated"
+                if evidence_reuse_authorized
+                else "absent-incomplete-or-inconsistent"
+            ),
+        },
     }
 
 
@@ -170,6 +221,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--changed-file", action="append", default=[])
     parser.add_argument("--ordinary-issues-since-full-gate", type=int, default=0)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--reuse-evidence", type=Path)
+    parser.add_argument("--expected-evidence", type=Path)
     args = parser.parse_args(argv)
 
     paths = list(args.changed_file)
@@ -182,9 +235,23 @@ def main(argv: list[str] | None = None) -> int:
         except (OSError, subprocess.CalledProcessError, ValueError) as exc:
             classification_error = str(exc)
             paths = ["<classification-error>"]
+    reusable_evidence = None
+    if args.reuse_evidence:
+        try:
+            reusable_evidence = json.loads(args.reuse_evidence.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            reusable_evidence = None
+    expected_evidence = None
+    if args.expected_evidence:
+        try:
+            expected_evidence = json.loads(args.expected_evidence.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            expected_evidence = None
     report = build_report(
         paths,
         ordinary_issues_since_full_gate=max(0, args.ordinary_issues_since_full_gate),
+        reusable_evidence=reusable_evidence,
+        expected_evidence=expected_evidence,
     )
     if classification_error:
         report["classification_error"] = classification_error

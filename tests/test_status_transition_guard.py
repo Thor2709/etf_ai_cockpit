@@ -954,6 +954,89 @@ def test_dependency_edge_mode_accepts_exactly_one_edge_without_status_or_accepta
     assert proposed["records"][0]["acceptance_evidence"] == base["records"][0]["acceptance_evidence"]
 
 
+def test_dependency_edge_mode_accepts_two_independent_reviewed_edges() -> None:
+    base, proposed, manifest = _edge_only_proposal()
+    second = copy.deepcopy(base["records"][0])
+    second["canonical_id"] = "ISSUE-0009"
+    second["blocking_dependencies"] = ["ISSUE-0002"]
+    second["dependency_edge_evidence"] = {"ISSUE-0002": {"state": "unresolved"}}
+    base["records"].append(second)
+    proposed_second = copy.deepcopy(second)
+    proposed_second["dependency_edge_evidence"]["ISSUE-0002"] = {
+        "schema_version": "1.0",
+        "state": "complete",
+        "evidence_references": ["tests/contracts/second-interface.json"],
+        "contract_reference": "B02/second-interface-v1",
+        "reviewer": "Codex independent reviewer",
+        "reviewed_date": "2026-07-22",
+    }
+    proposed_second["verified_commit"] = BASE_COMMIT
+    proposed_second["verified_date"] = "2026-07-22"
+    proposed["records"].append(proposed_second)
+    base["readiness"] = readiness_projection(base)
+    proposed["readiness"] = readiness_projection(proposed)
+    manifest["allowed_dependency_edge_updates"].append(
+        {"issue_id": "ISSUE-0009", "dependency_id": "ISSUE-0002"}
+    )
+    manifest["registry_migration"]["base_registry_sha256"] = hashlib.sha256(
+        deterministic_json(base)
+    ).hexdigest()
+    manifest["registry_migration"]["proposed_registry_sha256"] = hashlib.sha256(
+        deterministic_json(proposed)
+    ).hexdigest()
+
+    assert _errors(base, proposed, manifest) == []
+
+
+def test_dependency_edge_mode_accepts_two_independent_edges_on_one_consumer() -> None:
+    base, proposed, manifest = _edge_only_proposal()
+    base_record = base["records"][0]
+    proposed_record = proposed["records"][0]
+    base_record["blocking_dependencies"].append("ISSUE-0002")
+    base_record["dependency_edge_evidence"]["ISSUE-0002"] = {"state": "unresolved"}
+    proposed_record["blocking_dependencies"].append("ISSUE-0002")
+    proposed_record["dependency_edge_evidence"]["ISSUE-0002"] = {
+        "schema_version": "1.0",
+        "state": "complete",
+        "evidence_references": ["tests/contracts/second-interface.json"],
+        "contract_reference": "B02/second-interface-v1",
+        "reviewer": "Codex independent reviewer",
+        "reviewed_date": "2026-07-22",
+    }
+    base["readiness"] = readiness_projection(base)
+    proposed["readiness"] = readiness_projection(proposed)
+    manifest["allowed_dependency_edge_updates"].append(
+        {"issue_id": "ISSUE-0008", "dependency_id": "ISSUE-0002"}
+    )
+    manifest["registry_migration"]["base_registry_sha256"] = hashlib.sha256(
+        deterministic_json(base)
+    ).hexdigest()
+    manifest["registry_migration"]["proposed_registry_sha256"] = hashlib.sha256(
+        deterministic_json(proposed)
+    ).hexdigest()
+
+    assert _errors(base, proposed, manifest) == []
+
+
+def test_dependency_edge_mode_rejects_dependent_and_forged_batches() -> None:
+    base, proposed, manifest = _edge_only_proposal()
+    manifest["allowed_dependency_edge_updates"].append(
+        {"issue_id": "ISSUE-0001", "dependency_id": "ISSUE-0002"}
+    )
+    errors = _errors(base, proposed, manifest)
+    assert "manifest dependency-edge batch must contain independent edges" in errors
+
+    manifest["allowed_dependency_edge_updates"][1] = {
+        "issue_id": "ISSUE-0009",
+        "dependency_id": "ISSUE-0002",
+    }
+    errors = _errors(base, proposed, manifest)
+    assert (
+        "dependency-edge declaration references missing issue ID: ISSUE-0009/ISSUE-0002"
+        in errors
+    )
+
+
 @pytest.mark.parametrize(
     ("mutation", "expected_error"),
     [

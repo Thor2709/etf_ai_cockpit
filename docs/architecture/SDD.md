@@ -450,6 +450,33 @@ downgrade or file; GitHub issue apply requires a reviewed checksum and final
 zero-action readback. See [validation protocol](validation-protocol.md),
 [release gate](release-gate.md) and [release certification](release-certification.md).
 
+### 12.1 Atomic programme-control projection
+
+The programme control plane uses `scripts/generate_programme.py` as its single
+authoritative projection command. It creates a complete staging tree, runs the
+registry, status, readiness/completion and reconciliation generators there,
+validates a closed manifest of every output, and only then replaces the public
+set. A failed replacement restores the complete predecessor. Check mode
+compares the staged bytes and manifest without mutating public files.
+
+The committed `generation_base_commit` is historical provenance and must remain
+reachable from the configured ref; it is not an equality lock on moving
+`origin/main`. Runtime validation records exact base/head identities separately.
+Compact `transition_history` entries are the append-only semantic event stream
+for lifecycle and dependency decisions. Projection replay accepts historical
+records and can replay an independently reviewed batch of dependency edges,
+including multiple prerequisites of one consumer, while rejecting duplicate,
+ordered/dependent or undeclared batches.
+
+Validation tier E is fail-closed: package evidence is reusable only when exact
+base/head, source, dependency, product-tree, policy, artifact and environment
+hashes are present and `execution_allowed=false`. Changes to generators,
+guards, classifiers, workflows, schemas or authority remain tier H.
+Post-merge convergence consumes an immutable remote snapshot and
+checksum-controlled dry-run evidence. Ordinary generation has no GitHub apply
+authority and requires a zero-action readback; external writes remain a
+separate explicitly authorised operation.
+
 ## 13. Current state, gaps, risks and technical debt
 
 At commit `6525429d56160167fbeb023636f8b00b05e28336` on 2026-07-27, the canonical

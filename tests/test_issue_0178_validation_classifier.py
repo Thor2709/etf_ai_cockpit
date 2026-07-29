@@ -11,7 +11,7 @@ from scripts.classify_validation import build_report, validation_summary_failure
 
 
 def test_classifier_tiers_and_stable_reason_report() -> None:
-    evidence = build_report(["docs/review/evidence.md"])
+    evidence = build_report(["docs/product-completion/PROGRESS.md"])
     ordinary = build_report(["src/etf_cockpit/app/page.py"])
     high = build_report(["src/etf_cockpit/data/migrations/v2.py"])
     certification = build_report(["docs/product-completion/certification/final.json"])
@@ -23,7 +23,7 @@ def test_classifier_tiers_and_stable_reason_report() -> None:
         "C",
     ]
     assert json.dumps(evidence, sort_keys=True) == json.dumps(
-        build_report(["docs/review/evidence.md"]), sort_keys=True
+        build_report(["docs/product-completion/PROGRESS.md"]), sort_keys=True
     )
 
 
@@ -54,6 +54,47 @@ def test_high_risk_fixtures_require_platform_gate() -> None:
         "src/etf_cockpit/broker/orders.py",
     ]
     assert all(build_report([path])["package_gate_required"] for path in fixtures)
+
+
+def test_evidence_tier_skips_packages_only_with_exact_reusable_identities() -> None:
+    hashes = {
+        "base_sha": "a" * 40,
+        "head_sha": "b" * 40,
+        "source_sha256": "c" * 64,
+        "dependency_sha256": "d" * 64,
+        "product_tree_sha256": "e" * 64,
+        "policy_sha256": "f" * 64,
+        "artifact_manifest_sha256": "1" * 64,
+        "environment_sha256": "2" * 64,
+        "execution_allowed": False,
+    }
+    path = "docs/product-completion/PROGRESS.md"
+    exact = build_report(
+        [path], reusable_evidence=hashes, expected_evidence=hashes
+    )
+    missing = build_report([path])
+    forged = build_report(
+        [path],
+        reusable_evidence={**hashes, "execution_allowed": True},
+        expected_evidence=hashes,
+    )
+
+    assert exact["package_gate_required"] is False
+    assert exact["evidence_reuse"]["authorized"] is True
+    assert missing["package_gate_required"] is True
+    assert forged["package_gate_required"] is True
+
+    wrong_hash = {**hashes, "product_tree_sha256": "0" * 64}
+    mismatch = build_report(
+        [path], reusable_evidence=wrong_hash, expected_evidence=hashes
+    )
+    assert mismatch["package_gate_required"] is True
+
+
+def test_evidence_tier_is_a_closed_projection_allowlist() -> None:
+    assert build_report(["docs/product-completion/PROGRESS.md"])["tier"] == "E"
+    assert build_report(["docs/architecture/SDD.md"])["tier"] == "H"
+    assert build_report(["plans/BATCH.md"])["tier"] == "H"
 
 
 def test_store_modules_and_tests_require_platform_gate_without_substring_spillover() -> None:

@@ -579,12 +579,12 @@ def test_registry_entrypoint_rejects_handcrafted_invalid_transition_events(
     assert validate_issue_registry.main(["--root", str(ROOT)]) == 1
 
 
-def test_stale_generation_base_fails_every_canonical_check(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_unreachable_generation_base_fails_every_canonical_check(monkeypatch: pytest.MonkeyPatch) -> None:
     real = issue_registry_core.subprocess.check_output
 
     def stale(command, *args, **kwargs):
-        if list(command[:2]) == ["git", "rev-parse"]:
-            return "f" * 40 + ("\n" if kwargs.get("text") else "")
+        if list(command[:3]) == ["git", "merge-base", "--is-ancestor"]:
+            raise subprocess.CalledProcessError(1, command)
         return real(command, *args, **kwargs)
 
     monkeypatch.setattr(issue_registry_core.subprocess, "check_output", stale)
@@ -592,6 +592,27 @@ def test_stale_generation_base_fails_every_canonical_check(monkeypatch: pytest.M
     assert validate_issue_registry.main(["--root", str(ROOT)]) == 1
     assert generate_completion_documents.main(["--root", str(ROOT), "--check"]) == 1
     assert update_programme_status.main(["--root", str(ROOT), "--check"]) == 1
+
+
+def test_generation_base_remains_valid_after_two_consecutive_main_advances(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def reachable(command, *args, **kwargs):
+        calls.append(tuple(command))
+        return ""
+
+    monkeypatch.setattr(issue_registry_core.subprocess, "check_output", reachable)
+    control = issue_registry_core.load_control_state(ROOT)
+    issue_registry_core.verify_generation_base(ROOT, control)
+    issue_registry_core.verify_generation_base(ROOT, control)
+
+    expected = control["metadata"]["generation_base_commit"]
+    assert calls == [
+        ("git", "merge-base", "--is-ancestor", expected, "origin/main"),
+        ("git", "merge-base", "--is-ancestor", expected, "origin/main"),
+    ]
 
 
 def test_every_record_has_typed_final_release_contract_fields() -> None:
