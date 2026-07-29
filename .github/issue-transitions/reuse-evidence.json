@@ -1,0 +1,11 @@
+{
+  "artifact_manifest_sha256": "48bf864943ffc8fcdeffdd39536872472a98de525b5eb5a833d84cd55d22c39e",
+  "base_sha": "0573d489bc48c7fd20127087c09b586ae0fd082a",
+  "dependency_sha256": "825352201f6b7e0211c3df0a3200bfc355eb6a406b4688cb46d0d8f145c27035",
+  "environment_sha256": "825352201f6b7e0211c3df0a3200bfc355eb6a406b4688cb46d0d8f145c27035",
+  "execution_allowed": false,
+  "head_sha": "db52ec14ff7e1e32d8a9de721569da9bdd1e52d7",
+  "policy_sha256": "9cda865a278cb04522266d5c3c95fda7ed7db7c632cdc7695f096488ccb043fd",
+  "product_tree_sha256": "917ad2943b97da032a24508d0aec8386663262c9314dfd620b9b0cf78abd498e",
+  "source_sha256": "da855d1d2059d80d36c734dc091a6394892dd6d5d84d4f1978f0441ea90c5518"
+}
