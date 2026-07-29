@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  issues: read
 
 concurrency:
   group: release-gate-${{ github.event.pull_request.number || github.ref }}
@@ -117,6 +118,22 @@ jobs:
           python -m mypy --ignore-missing-imports --disable-error-code=import-untyped --follow-imports=skip scripts/classify_validation.py scripts/generate_programme.py scripts/validation_summary.py
           python scripts/smoke_app.py --mode offline --timeout 30
           git diff --check "$ETF_COCKPIT_VALIDATION_BASE_SHA" "$ETF_COCKPIT_VALIDATION_HEAD_SHA" --
+
+      - name: Validate reviewed status-completion candidate
+        if: needs.classifier.outputs.tier == 'H'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          candidate=".github/issue-transitions/post-merge-control-candidate.json"
+          if git diff --quiet "$ETF_COCKPIT_VALIDATION_BASE_SHA" "$ETF_COCKPIT_VALIDATION_HEAD_SHA" -- "$candidate"; then
+            exit 0
+          fi
+          python scripts/apply_reviewed_status_completion.py \
+            --root . \
+            --candidate "$candidate" \
+            --expected-parent "$ETF_COCKPIT_VALIDATION_BASE_SHA" \
+            --expected-head "$ETF_COCKPIT_VALIDATION_HEAD_SHA" \
+            --evidence-out artifacts/validation/status-completion-candidate.json
 
       - name: Upload preflight evidence
         if: always()

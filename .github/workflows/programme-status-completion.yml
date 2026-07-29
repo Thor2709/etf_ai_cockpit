@@ -1,0 +1,44 @@
+name: Programme status completion
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/issue-transitions/post-merge-control-candidate.json
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: programme-status-completion-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  apply-reviewed-status:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Guard and apply reviewed status completion
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git fetch --no-tags origin main
+          parent="$(git rev-parse HEAD^)"
+          python scripts/apply_reviewed_status_completion.py \
+            --root . \
+            --candidate .github/issue-transitions/post-merge-control-candidate.json \
+            --expected-parent "$parent" \
+            --expected-head "${{ github.sha }}" \
+            --main-ref origin/main \
+            --evidence-out artifacts/programme-status-completion/evidence.json \
+            --apply
+      - name: Upload status-completion evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: programme-status-completion-${{ github.sha }}
+          path: artifacts/programme-status-completion/evidence.json
+          if-no-files-found: error

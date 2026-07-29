@@ -2,18 +2,18 @@
 
 ## Current checkpoint
 
-- Current UTC timestamp: `2026-07-29T14:15:23Z`
-- Current `origin/main`: `97d1e364b46364baef7c23b5ba46af74a8a53e5a`
-- Active worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\issue0090-resume-20260730`
-- Active branch: `codex/issue-0090-resume-20260730`
-- Exact base SHA: `97d1e364b46364baef7c23b5ba46af74a8a53e5a`
-- Exact reviewed product head before this checkpoint update: `f238130d5ea4fa13f8d8b055a6f92ded94489f1f`
-- Current PR and state: no ISSUE-0090 continuation PR exists. The fresh isolated branch is unpushed.
-- Current issue: ISSUE-0090 product continuation has resumed after fast-path proof. The first bounded deterministic, fail-closed upstream graph and dataset/source impact slice is implemented and locally reviewed.
-- Completed work: PR #615 passed H run `30456636457` at truthful Linux/Windows `2171/2171` and merged exact head `c5befb5a` as `97d1e364`. Automatic exact-main convergence run `30458709210` then passed in 25 seconds with create/update/close/reopen/blocked all zero. PRs #608–#615, ISSUE-0179, ISSUE-0180, representative fixtures and truthful metrics are integrated.
-- Required checks: commit this reviewed checkpoint, push an immutable draft PR, require the exact H-classified Linux/Windows package gate and clean review surfaces, then merge only the reviewed head and require automatic exact-main zero-action convergence.
-- Blocker: none. Sole-worker commits `9ad7912d` and focused correction `f238130d` pass 10 catalogue/UI tests, 40 audit/export tests, Ruff, compile, diff hygiene and issue-scoped registry/compile/source smoke. Raw module MyPy retains its pre-existing unprotected baseline errors; no new-method errors were reported. ISSUE-0090 remains `implemented_initially`; PR #560, PR #562 and issue #241 remain untouched. `execution_allowed=false` and broker/provider authority are unchanged.
-- Exact next action: commit this checkpoint, reclassify the exact final head, then publish the immutable H-tier draft PR.
+- Current UTC timestamp: `2026-07-29T14:55:12Z`
+- Current `origin/main`: `ba0c5850432bf20e40d8a660923ac126c834bf4e`
+- Active worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\status-completion-automation-20260730`
+- Active branch: `codex/status-completion-automation-20260730`
+- Exact base SHA: `ba0c5850432bf20e40d8a660923ac126c834bf4e`
+- Exact last committed head before this checkpoint update: `1cbe5d747757076ca5090222ab89cc3cbb09f8d4`
+- Current PR and state: no status-completion repair PR exists. The fresh isolated branch is unpushed.
+- Current issue: the final status-completion acceptance prerequisite is implemented and independently validated locally; protected H-tier integration is next.
+- Completed work: PR #616 passed H run `30460043778` at truthful Linux/Windows `2177/2177`, merged exact head `0c99f3f8` as `ba0c5850`, and automatic convergence run `30461814321` passed with all action counts zero. ISSUE-0090 normal product continuation is therefore integrated. The sole status-completion worker commits `c8a6c645` and correction `1cbe5d74` add a path-scoped `issues: write` workflow that accepts only one checksum-bound canonical direct transition to `integrated`, preserves ordinary convergence as read-only, verifies exact fresh main and zero-action readback, and emits privacy-safe evidence. Independent validation passes 195 affected tests, Ruff, protected MyPy, YAML parsing, compile and diff hygiene.
+- Required checks: update the durable plan and metrics, classify the exact branch H, open an immutable draft PR, run the complete Linux/Windows gate, merge only its expected head, require automatic exact-main zero-action convergence, and audit the representative status-completion fixture before final closure.
+- Blocker: no implementation blocker remains. The new workflow is not yet merged or proven by the protected H gate.
+- Exact next action: commit the reviewed implementation checkpoint, classify it H, then push and open the immutable repair PR.
 
 ## Objective
 
