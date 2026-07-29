@@ -35,6 +35,8 @@ jobs:
           test "$(git rev-parse HEAD)" = "${{ github.sha }}"
           test "$(git rev-parse origin/main)" = "${{ github.sha }}"
       - name: Stage one read-only convergence transaction
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           sidecar="${{ inputs.reviewed_sidecar }}"
           if [[ -z "$sidecar" ]]; then

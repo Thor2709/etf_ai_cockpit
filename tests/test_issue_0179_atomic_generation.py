@@ -211,6 +211,7 @@ def test_post_merge_workflow_is_read_only_exact_head_and_reviewable() -> None:
     assert "git rev-parse origin/main" in workflow
     assert "--converge" in workflow
     assert "--reviewed-sidecar" in workflow
+    assert "GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}" in workflow
     assert "actions/upload-artifact@v4" in workflow
     assert "--apply" not in workflow
     assert "git push" not in workflow
