@@ -54,7 +54,7 @@ Do not declare the performance target met from one favourable run.
 
 ## Fast-path implementation and proof wave
 
-Captured on `2026-07-29` for PRs #609–#616. This is a repair/bootstrap wave,
+Captured on `2026-07-29` for PRs #609–#617. This is a repair/bootstrap wave,
 not a normal steady-state sample.
 
 | PR | Purpose | Lead time (min) | Files | Additions | Deletions |
@@ -67,11 +67,12 @@ not a normal steady-state sample.
 | 614 | ISSUE-0180 environment product work | 24.35 | 8 | 325 | 15 |
 | 615 | Convergence fixture repairs | 25.82 | 7 | 220 | 16 |
 | 616 | ISSUE-0090 catalogue product continuation | 21.33 | 7 | 391 | 22 |
+| 617 | Reviewed status-completion automation | 26.58 | 9 | 717 | 49 |
 
 PR #610 includes an intentional laptop-unplugged pause and is not treated as
-runner or active-work time. Five of these eight PRs were control/evidence
-repair transactions, so the observed non-product share is `62.5%`; the target
-below `30%` is not met by this bootstrap wave. ISSUE-0179 required five PRs
+runner or active-work time. Six of these nine PRs were control/evidence repair
+transactions, so the observed non-product share is `66.7%`; the target below
+`30%` is not met by this bootstrap wave. ISSUE-0179 required five PRs
 (#609–#613), also above the normal issue target. These facts are retained
 rather than presenting the repair wave as steady-state improvement.
 
@@ -103,8 +104,10 @@ in duration and are not reclassified as queue time.
 | 30458709210 | success convergence | 0.48 | exact-main zero action after sidecar rotation |
 | 30460043778 | success H | 20.32 | Linux/Windows `2177/2177` |
 | 30461814321 | success convergence | 0.45 | exact-main zero action; `0.15 min` queue |
+| 30463554978 | success H | 25.53 | Linux/Windows `2191/2191` |
+| 30465742045 | success convergence | 0.35 | exact-main zero action; `0.05 min` queue |
 
-The ten E/convergence transactions have execution p50 `0.46 min` and p95
+The eleven E/convergence transactions have execution p50 `0.45 min` and p95
 nearest-rank `2.18 min`, inside the timing target across the required sample
 size. This measures workflow execution, not end-to-end issue throughput.
 Successful H runs remain approximately `20–26 min`, with the full
@@ -124,10 +127,13 @@ Linux/Windows coverage unchanged.
   #615 then merged on the immediately prior PR #614 main and automatic
   convergence passed without a stale base or manual convergence PR.
 - Status completion: the earlier read-only staging design was found incapable
-  of applying a genuine nonzero status update. The bounded status-only apply
-  repair is locally implemented and validated with exact checksum, inventory,
-  PR-head, fresh-main, canonical-transition and zero-readback fixtures; its
-  protected H integration and post-merge proof remain outstanding.
+  of applying a genuine nonzero status update. PR #617 integrates the bounded
+  status-only apply path after H `2191/2191`; the deterministic fixture proves
+  exact checksum, inventory, PR-head, fresh-main, canonical
+  `implemented_initially → integrated`, privacy-safe apply and zero-readback
+  behavior. Post-merge run `30465742045` proves ordinary candidate-free
+  convergence remains exact-main and zero action. No ineligible live issue was
+  transitioned merely to manufacture a write.
 
 No accepted baseline failures or environment mismatches were introduced.
 Financial, point-in-time, revision, security, supply-chain, broker/provider and

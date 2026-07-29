@@ -183,6 +183,20 @@ Next is the durable metrics/checkpoint commit, exact H classification,
 immutable draft PR, complete Linux/Windows gate, expected-head merge and
 automatic exact-main convergence proof.
 
+`MERGED/PROVEN` status-completion automation PR #617 passed exact H run
+`30463554978` at truthful Linux/Windows `2191/2191` and merged reviewed head
+`862dacf7` as `9bb8826a87e582d1c2fc876b24294935c908af4f`. Automatic read-only
+convergence run `30465742045` then passed exact main with
+create/update/close/reopen/blocked all zero at plan checksum `673223ef`. The
+candidate-free repair merge correctly did not invoke the path-scoped write
+workflow. The deterministic status-completion fixture proves one reviewed
+`implemented_initially → integrated` update, approved semantic checksum,
+privacy-safe evidence and idempotent zero-action readback while rejecting
+stale, mismatched, non-status, noncanonical, multiple and broader actions.
+No ineligible live issue was changed to manufacture evidence. The atomic
+delivery goal is acceptance-complete; the next dependency-valid product action
+is the next bounded ISSUE-0090 catalogue completeness slice from fresh main.
+
 ## Authority and outcome
 
 Base revision: `b8eb6b4967d5655ed4e528ee9cb222690a424d57`

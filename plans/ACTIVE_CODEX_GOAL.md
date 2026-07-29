@@ -2,18 +2,18 @@
 
 ## Current checkpoint
 
-- Current UTC timestamp: `2026-07-29T14:55:12Z`
-- Current `origin/main`: `ba0c5850432bf20e40d8a660923ac126c834bf4e`
+- Current UTC timestamp: `2026-07-29T15:26:43Z`
+- Current `origin/main`: `9bb8826a87e582d1c2fc876b24294935c908af4f`
 - Active worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\status-completion-automation-20260730`
 - Active branch: `codex/status-completion-automation-20260730`
 - Exact base SHA: `ba0c5850432bf20e40d8a660923ac126c834bf4e`
-- Exact last committed head before this checkpoint update: `1cbe5d747757076ca5090222ab89cc3cbb09f8d4`
-- Current PR and state: no status-completion repair PR exists. The fresh isolated branch is unpushed.
-- Current issue: the final status-completion acceptance prerequisite is implemented and independently validated locally; protected H-tier integration is next.
-- Completed work: PR #616 passed H run `30460043778` at truthful Linux/Windows `2177/2177`, merged exact head `0c99f3f8` as `ba0c5850`, and automatic convergence run `30461814321` passed with all action counts zero. ISSUE-0090 normal product continuation is therefore integrated. The sole status-completion worker commits `c8a6c645` and correction `1cbe5d74` add a path-scoped `issues: write` workflow that accepts only one checksum-bound canonical direct transition to `integrated`, preserves ordinary convergence as read-only, verifies exact fresh main and zero-action readback, and emits privacy-safe evidence. Independent validation passes 195 affected tests, Ruff, protected MyPy, YAML parsing, compile and diff hygiene.
-- Required checks: update the durable plan and metrics, classify the exact branch H, open an immutable draft PR, run the complete Linux/Windows gate, merge only its expected head, require automatic exact-main zero-action convergence, and audit the representative status-completion fixture before final closure.
-- Blocker: no implementation blocker remains. The new workflow is not yet merged or proven by the protected H gate.
-- Exact next action: commit the reviewed implementation checkpoint, classify it H, then push and open the immutable repair PR.
+- Exact last integrated product/control head: `862dacf7d9839c8b2d1b29e1ca4da1b05651d10e`
+- Current PR and state: PR #617 merged exact reviewed head as `9bb8826a87e582d1c2fc876b24294935c908af4f`.
+- Current issue: the atomic-delivery goal is acceptance-complete; normal product continuation remains ISSUE-0090 at `implemented_initially`.
+- Completed work: PR #617 passed H run `30463554978` at truthful Linux/Windows `2191/2191`, merged exact head `862dacf7` as `9bb8826a`, and automatic convergence run `30465742045` passed exact main with create/update/close/reopen/blocked all zero at plan checksum `673223ef`. The status-completion fixture now exercises exact reviewed checksum, inventory, PR-head and fresh-main bindings, one canonical `implemented_initially → integrated` action, checksum-approved apply, privacy-safe evidence and zero-action readback. Ordinary convergence remains read-only; the write workflow is path-scoped and did not run for this candidate-free repair merge.
+- Required checks: none for the completed atomic-delivery goal. A genuine live status write remains intentionally unexercised until an eligible product issue truthfully reaches a direct transition to `integrated`; the deterministic fixture covers that path without fabricating programme state.
+- Blocker: none. Financial, point-in-time, revision, security, supply-chain, provider, broker and package authority remain unchanged; `execution_allowed=false`.
+- Exact next action: continue ISSUE-0090 from fresh main with the next bounded catalogue completeness slice, prioritising generated dataset dictionaries and explicit raw/clean/derived coverage while preserving the merged upstream graph and impact path.
 
 ## Objective
 
