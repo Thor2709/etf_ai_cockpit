@@ -4,8 +4,6 @@ name: Release gate
 # mutate release aliases, publish releases, or change protected state.
 on:
   pull_request:
-  push:
-    branches: [main]
 
 permissions:
   contents: read

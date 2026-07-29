@@ -344,7 +344,10 @@ def test_git_snapshot_ignores_only_generated_release_evidence(monkeypatch) -> No
 def test_release_workflow_is_matrixed_isolated_and_read_only() -> None:
     root = Path(__file__).resolve().parents[1]
     workflow = (root / ".github" / "workflows" / "release-gate.yml").read_text(encoding="utf-8")
+    trigger = workflow.split("permissions:", maxsplit=1)[0]
 
+    assert "\n  pull_request:\n" in trigger
+    assert "\n  push:" not in trigger
     assert "windows-latest" in workflow
     assert "ubuntu-latest" in workflow
     assert "fail-fast: false" in workflow
@@ -357,6 +360,9 @@ def test_release_workflow_is_matrixed_isolated_and_read_only() -> None:
     assert 'test "$(git rev-parse origin/main)" = "$REVIEWED_BASE_SHA"' in workflow
     assert "requirements-release-parsers.txt" in workflow
     assert "ETF_COCKPIT_RELEASE_BUILD: \"1\"" in workflow
+    assert "ETF_COCKPIT_RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}" in workflow
+    assert 'if [[ "${{ github.event_name }}" == "pull_request" ]]; then' in workflow
+    assert "arguments+=(--allow-unsigned)" in workflow
     assert "name: release-gate-${{ github.sha }}-${{ matrix.platform }}" in workflow
     assert "contents: read" in workflow
     assert "issues: write" not in workflow

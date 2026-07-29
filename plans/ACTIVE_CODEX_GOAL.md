@@ -2,18 +2,18 @@
 
 ## Current checkpoint
 
-- Current UTC timestamp: `2026-07-29T14:55:12Z`
-- Current `origin/main`: `ba0c5850432bf20e40d8a660923ac126c834bf4e`
-- Active worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\status-completion-automation-20260730`
-- Active branch: `codex/status-completion-automation-20260730`
-- Exact base SHA: `ba0c5850432bf20e40d8a660923ac126c834bf4e`
-- Exact last committed head before this checkpoint update: `1cbe5d747757076ca5090222ab89cc3cbb09f8d4`
-- Current PR and state: no status-completion repair PR exists. The fresh isolated branch is unpushed.
-- Current issue: the final status-completion acceptance prerequisite is implemented and independently validated locally; protected H-tier integration is next.
-- Completed work: PR #616 passed H run `30460043778` at truthful Linux/Windows `2177/2177`, merged exact head `0c99f3f8` as `ba0c5850`, and automatic convergence run `30461814321` passed with all action counts zero. ISSUE-0090 normal product continuation is therefore integrated. The sole status-completion worker commits `c8a6c645` and correction `1cbe5d74` add a path-scoped `issues: write` workflow that accepts only one checksum-bound canonical direct transition to `integrated`, preserves ordinary convergence as read-only, verifies exact fresh main and zero-action readback, and emits privacy-safe evidence. Independent validation passes 195 affected tests, Ruff, protected MyPy, YAML parsing, compile and diff hygiene.
-- Required checks: update the durable plan and metrics, classify the exact branch H, open an immutable draft PR, run the complete Linux/Windows gate, merge only its expected head, require automatic exact-main zero-action convergence, and audit the representative status-completion fixture before final closure.
-- Blocker: no implementation blocker remains. The new workflow is not yet merged or proven by the protected H gate.
-- Exact next action: commit the reviewed implementation checkpoint, classify it H, then push and open the immutable repair PR.
+- Current UTC timestamp: `2026-07-30T00:30:00Z`
+- Current `origin/main`: `9bb8826a87e582d1c2fc876b24294935c908af4f`
+- Active worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\postmerge-release-gate-repair-20260730`
+- Active branch: `codex/postmerge-release-gate-repair-20260730`
+- Exact base SHA: `9bb8826a87e582d1c2fc876b24294935c908af4f`
+- Exact last committed head before this checkpoint update: `9bb8826a87e582d1c2fc876b24294935c908af4f`
+- Current PR and state: no repair PR exists; this fresh isolated branch is unpushed.
+- Current issue: necessary shared prerequisite — stop ordinary `main` merges from rerunning the signed release gate after the exact PR head already passed H.
+- Completed work: the full GitHub audit through PR #617 proved the latest `main` push run `30465742029` passed all `2191/2191` tests and every mandatory Linux/Windows check except signature; `RELEASE_SIGNING_KEY` is intentionally absent outside a real release. Seven duplicate push matrices consumed `291.90` runner-minutes. The bounded repair removes only the ordinary `main` push trigger, retaining pull-request H, both platforms, read-only permissions, signing-secret wiring and fail-closed signed-release behavior. Seventy affected tests, Ruff, protected MyPy, programme byte-clean generation, compile, YAML parsing and diff hygiene pass.
+- Required checks: commit the reviewed repair, classify the exact head H, then integrate only after the protected Linux/Windows PR gate passes and verify that its merge produces convergence without another Release Gate push run.
+- Blocker: none. The repair must not weaken PR validation, release signing, financial or execution authority.
+- Exact next action: commit the reviewed repair and open an immutable draft PR for the required H gate.
 
 ## Objective
 
