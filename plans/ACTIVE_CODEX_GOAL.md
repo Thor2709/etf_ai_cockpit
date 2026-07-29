@@ -2,13 +2,13 @@
 
 ## Current checkpoint
 
-- Current UTC timestamp: `2026-07-29T02:03:45Z`
+- Current UTC timestamp: `2026-07-29T02:06:49Z`
 - Current `origin/main`: `b11b1d6783438df03847d7a1b45c3a4d7c1f2385`
 - Active worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\atomic-fast-path-20260729`
 - Active branch: `codex/atomic-fast-path-20260729`
 - Exact base SHA: `b11b1d6783438df03847d7a1b45c3a4d7c1f2385`
-- Exact last committed control head before this checkpoint update: `286e3799816ffcfd533d467b487c1689e23e22da`
-- Current PR and state: PR #608 is merged and verified. ISSUE-0179 has no PR yet; the accepted worker commits `be6422e84110fc0c0287b241703d81a287557dcd` and `286e3799816ffcfd533d467b487c1689e23e22da` plus orchestrator integration are staged in the local control worktree.
+- Exact last committed control head before this checkpoint update: `e285ee87ee6d91eef150e9e849f8aeae811f48b4`
+- Current PR and state: PR #608 is merged and verified. ISSUE-0179 has no PR yet; the accepted worker commits `be6422e84110fc0c0287b241703d81a287557dcd` and `286e3799816ffcfd533d467b487c1689e23e22da` plus orchestrator integration are committed locally through `e285ee87ee6d91eef150e9e849f8aeae811f48b4`.
 - Current issue: ISSUE-0179 is the primary implementation lane; ISSUE-0090 product work is paused until the atomic fast path is proven.
 - Completed work: PR #608's single documented unchanged-head midnight-fixture retry passed 2,122 tests with zero failures, errors or skips on each platform; reviews/comments/threads were clean; the exact head merged; fresh-main GitHub dry-run returned zero actions at checksum `23cff2eee691649a17d83f0e8ff5c2833c7b19303f57a2a182f1e75db354d143`. The sole ISSUE-0179 worker and its one correction are accepted and transplanted. Atomic publication, interruption recovery, closed mandatory output manifest, append-only events, independent multi-edge validation, reachable generation provenance, exact E reuse identities, terminal evidence validation and read-only exact-head convergence are implemented. Orchestrator wiring uses the atomic preflight, checked-in protected evidence manifest and canonical sidecar; ISSUE-0179→ISSUE-0178 is complete while status remains `planned`; a second generation is byte-clean and the exact schema-1.3 guard passes. `execution_allowed=false`.
 - Required checks: rerun the complete 123-test affected control-plane suite and static/YAML checks on the final local tree; commit it; prove exact-head H classification; push an immutable draft PR; require the complete Linux and Windows packaged H-tier gate and terminal summary before merge.
