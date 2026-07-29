@@ -140,10 +140,16 @@ main `97d1e364`. It remains `implemented_initially`; ISSUE-0072 and ISSUE-0075
 are complete, readiness is true and `execution_allowed=false`. The first
 bounded slice adds a deterministic fail-closed complete upstream snapshot
 graph and dataset/source impact projection to the existing local catalogue.
-It must not fetch providers, delete or compact data, change canonical status,
-touch PR #560/PR #562/issue #241, or grant execution/broker authority. Next is
-one sole worker, focused catalogue tests, orchestrator review and exact
-validation classification.
+It does not fetch providers, delete or compact data, change canonical status,
+touch PR #560/PR #562/issue #241, or grant execution/broker authority.
+Sole-worker commits `9ad7912d` and focused correction `f238130d` now expose
+deterministically sorted transitive upstream nodes/edges, missing/stale/schema
+and cycle state, plus dataset/source downstream impact including same-dataset
+descendants. Independent validation passes 10 catalogue/UI tests, 40
+audit/export tests, Ruff, compile, diff hygiene and issue-scoped
+registry/compile/source smoke. The exact branch classifies H because the
+required durable plans/SDD fail upward; next is an immutable draft PR and the
+complete Linux/Windows gate.
 
 ## Authority and outcome
 

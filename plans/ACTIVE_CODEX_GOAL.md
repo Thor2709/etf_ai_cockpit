@@ -2,18 +2,18 @@
 
 ## Current checkpoint
 
-- Current UTC timestamp: `2026-07-29T14:00:50Z`
+- Current UTC timestamp: `2026-07-29T14:15:23Z`
 - Current `origin/main`: `97d1e364b46364baef7c23b5ba46af74a8a53e5a`
 - Active worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\issue0090-resume-20260730`
 - Active branch: `codex/issue-0090-resume-20260730`
 - Exact base SHA: `97d1e364b46364baef7c23b5ba46af74a8a53e5a`
-- Exact last committed head before this checkpoint update: `97d1e364b46364baef7c23b5ba46af74a8a53e5a`
+- Exact reviewed product head before this checkpoint update: `f238130d5ea4fa13f8d8b055a6f92ded94489f1f`
 - Current PR and state: no ISSUE-0090 continuation PR exists. The fresh isolated branch is unpushed.
-- Current issue: ISSUE-0090 product continuation has resumed after fast-path proof. The first bounded slice is a deterministic, fail-closed complete upstream snapshot graph plus dataset/source impact projection.
+- Current issue: ISSUE-0090 product continuation has resumed after fast-path proof. The first bounded deterministic, fail-closed upstream graph and dataset/source impact slice is implemented and locally reviewed.
 - Completed work: PR #615 passed H run `30456636457` at truthful Linux/Windows `2171/2171` and merged exact head `c5befb5a` as `97d1e364`. Automatic exact-main convergence run `30458709210` then passed in 25 seconds with create/update/close/reopen/blocked all zero. PRs #608–#615, ISSUE-0179, ISSUE-0180, representative fixtures and truthful metrics are integrated.
-- Required checks: checkpoint this issue selection, spawn exactly one sole worker, review its complete diff and focused tests, classify the exact change, run affected integration/static/UI checks, and publish only if the bounded product slice is evidenced.
-- Blocker: none. ISSUE-0090 remains `implemented_initially`; both blocking edges are complete and readiness is true. PR #560, PR #562 and issue #241 remain untouched. `execution_allowed=false` and broker/provider authority are unchanged.
-- Exact next action: commit this plan checkpoint, then give one `sol_worker` ownership of the bounded catalogue/lineage implementation and focused tests.
+- Required checks: commit this reviewed checkpoint, push an immutable draft PR, require the exact H-classified Linux/Windows package gate and clean review surfaces, then merge only the reviewed head and require automatic exact-main zero-action convergence.
+- Blocker: none. Sole-worker commits `9ad7912d` and focused correction `f238130d` pass 10 catalogue/UI tests, 40 audit/export tests, Ruff, compile, diff hygiene and issue-scoped registry/compile/source smoke. Raw module MyPy retains its pre-existing unprotected baseline errors; no new-method errors were reported. ISSUE-0090 remains `implemented_initially`; PR #560, PR #562 and issue #241 remain untouched. `execution_allowed=false` and broker/provider authority are unchanged.
+- Exact next action: commit this checkpoint, reclassify the exact final head, then publish the immutable H-tier draft PR.
 
 ## Objective
 
