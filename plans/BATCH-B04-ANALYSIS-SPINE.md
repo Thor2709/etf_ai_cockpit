@@ -18,6 +18,16 @@ the sole authorised worker implements ISSUE-0179 from fresh main.
 `execution_allowed=false`, source/broker authority, PR #560, stale unmerged
 PR #562 and open issue #241 remain unchanged.
 
+ISSUE-0179's sole declared prerequisite, ISSUE-0178, is integrated at
+`90106943ea4e7cd41909ca45eab185216bb8f45f`, but the canonical
+ISSUE-0179→ISSUE-0178 dependency-evidence field is still `unresolved`.
+The dependency contract is therefore implementation-ready by merged evidence
+but not yet projected as ready. Its independently verifiable edge evidence
+will be included in the same guarded ISSUE-0179 product transaction; no
+separate full-gate readiness PR will be created. The exact next action is the
+single bounded worker implementation with canonical control/generated files
+reserved to the orchestrator.
+
 ## Authority and outcome
 
 Base revision: `b8eb6b4967d5655ed4e528ee9cb222690a424d57`
