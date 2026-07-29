@@ -111,8 +111,20 @@ def test_evidence_tier_is_a_closed_projection_allowlist() -> None:
     assert build_report(["docs/product-completion/programme/roadmap.md"])["tier"] == "E"
     assert build_report(
         ["docs/product-completion/programme/phases/phase-02-data.md"]
-    )["tier"] == "H"
+    )["tier"] == "E"
+    for generated_path in (
+        "docs/product-completion/programme/git-workflow.md",
+        "docs/product-completion/programme/implementation-order.md",
+        "docs/product-completion/programme/prompt-2-handoff.md",
+        "docs/product-completion/programme/test-and-performance-strategy.md",
+        "README.md",
+        "CHANGELOG.md",
+        "issues/open.md",
+    ):
+        assert build_report([generated_path])["tier"] == "E"
     assert build_report(["docs/product-completion/programme/notes.md"])["tier"] == "H"
+    assert build_report(["docs/product-completion/programme/roadmap.md.bak"])["tier"] == "H"
+    assert build_report(["plans/ACTIVE_CODEX_GOAL.md"])["tier"] == "H"
 
 
 def test_identical_forged_head_files_cannot_authorize_e_reuse(

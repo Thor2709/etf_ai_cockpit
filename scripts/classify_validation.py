@@ -14,17 +14,26 @@ SCHEMA_VERSION = "validation-classifier.v1"
 TIERS = ("E", "O", "H", "C")
 TIER_ORDER = {tier: index for index, tier in enumerate(TIERS)}
 
-EVIDENCE_PREFIXES = (
-    ".github/issue-transitions/",
+EVIDENCE_PATHS = {
     ".github/status-transition-guard-manifest.json",
+    "changelog.md",
     "issues/programme_control_state.json",
     "issues/issue_registry.json",
+    "issues/open.md",
     "docs/product-completion/current_status.json",
     "docs/product-completion/progress.md",
-    "docs/product-completion/programme/readiness.json",
     "docs/product-completion/programme/generation-manifest.json",
-    "docs/product-completion/programme/phases/phase-01-governance-scope.md",
+    "docs/product-completion/programme/git-workflow.md",
+    "docs/product-completion/programme/implementation-order.md",
+    "docs/product-completion/programme/prompt-2-handoff.md",
+    "docs/product-completion/programme/readiness.json",
     "docs/product-completion/programme/roadmap.md",
+    "docs/product-completion/programme/test-and-performance-strategy.md",
+    "readme.md",
+}
+EVIDENCE_PREFIXES = (
+    ".github/issue-transitions/",
+    "docs/product-completion/programme/phases/",
     "docs/product-completion/reconciliation/",
 )
 ORDINARY_PREFIXES = ("src/", "tests/", "configs/ui_acceptance.yaml")
@@ -105,7 +114,9 @@ def classify_path(value: str) -> PathClassification:
     semantic_tokens = set(re.findall(r"[a-z0-9]+", lowered))
     if any(lowered.startswith(prefix) for prefix in CERTIFICATION_PREFIXES):
         return PathClassification(path, "C", "certification-evidence")
-    if any(lowered.startswith(prefix.lower()) for prefix in EVIDENCE_PREFIXES):
+    if lowered in EVIDENCE_PATHS or any(
+        lowered.startswith(prefix.lower()) for prefix in EVIDENCE_PREFIXES
+    ):
         return PathClassification(path, "E", "allowlisted-semantic-event-or-projection")
     if (
         path in HIGH_RISK_NAMES
