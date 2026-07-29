@@ -67,10 +67,11 @@ not a normal steady-state sample.
 | 614 | ISSUE-0180 environment product work | 24.35 | 8 | 325 | 15 |
 | 615 | Convergence fixture repairs | 25.82 | 7 | 220 | 16 |
 | 616 | ISSUE-0090 catalogue product continuation | 21.33 | 7 | 391 | 22 |
+| 617 | Reviewed status-completion automation | 26.58 | 9 | 717 | 49 |
 
 PR #610 includes an intentional laptop-unplugged pause and is not treated as
-runner or active-work time. Five of these eight PRs were control/evidence
-repair transactions, so the observed non-product share is `62.5%`; the target
+runner or active-work time. Six of these nine PRs were control/evidence
+repair transactions, so the observed non-product share is `66.7%`; the target
 below `30%` is not met by this bootstrap wave. ISSUE-0179 required five PRs
 (#609–#613), also above the normal issue target. These facts are retained
 rather than presenting the repair wave as steady-state improvement.
@@ -103,8 +104,10 @@ in duration and are not reclassified as queue time.
 | 30458709210 | success convergence | 0.48 | exact-main zero action after sidecar rotation |
 | 30460043778 | success H | 20.32 | Linux/Windows `2177/2177` |
 | 30461814321 | success convergence | 0.45 | exact-main zero action; `0.15 min` queue |
+| 30463554978 | success H | 25.53 | Linux/Windows `2191/2191` |
+| 30465742045 | success convergence | 0.35 | exact-main zero action; `0.05 min` queue |
 
-The ten E/convergence transactions have execution p50 `0.46 min` and p95
+The eleven E/convergence transactions have execution p50 `0.45 min` and p95
 nearest-rank `2.18 min`, inside the timing target across the required sample
 size. This measures workflow execution, not end-to-end issue throughput.
 Successful H runs remain approximately `20–26 min`, with the full
@@ -124,10 +127,30 @@ Linux/Windows coverage unchanged.
   #615 then merged on the immediately prior PR #614 main and automatic
   convergence passed without a stale base or manual convergence PR.
 - Status completion: the earlier read-only staging design was found incapable
-  of applying a genuine nonzero status update. The bounded status-only apply
-  repair is locally implemented and validated with exact checksum, inventory,
-  PR-head, fresh-main, canonical-transition and zero-readback fixtures; its
-  protected H integration and post-merge proof remain outstanding.
+  of applying a genuine nonzero status update. PR #617 integrated the bounded
+  status-only apply path after H `2191/2191`; deterministic tests cover exact
+  checksum, inventory, PR-head, fresh-main, canonical-transition and
+  zero-readback behavior. The candidate-free post-merge convergence run did
+  not invoke that write workflow, so a truthful live product-status write
+  remains outstanding.
+
+### Post-merge release-gate defect found by completion audit
+
+The completion audit found that each ordinary H-reviewed merge also launched
+the full signed Release Gate on `push` to `main`. The release gate correctly
+requires `RELEASE_SIGNING_KEY` outside pull-request evidence, but an ordinary
+merge is not a release and the key is intentionally absent. Seven post-merge
+runs through `30465742029` therefore reran the complete Linux/Windows package
+matrix and failed only at signature after all tests and other mandatory checks
+passed.
+
+The fourteen duplicate platform jobs consumed `291.90` runner-minutes:
+`135.45` Linux and `156.45` Windows. The final pair each passed `2191/2191`
+tests before failing at the missing signature. This is accepted neither as a
+baseline failure nor as necessary release evidence; the active repair removes
+ordinary `main` pushes from the signed Release Gate while retaining the exact
+pull-request H matrix and fail-closed signing behavior for an explicitly
+invoked release.
 
 No accepted baseline failures or environment mismatches were introduced.
 Financial, point-in-time, revision, security, supply-chain, broker/provider and
