@@ -95,8 +95,10 @@ workflow are included in duration and are not reclassified as queue time.
 | 30453521074 | failed convergence | 0.43 | zero-action sidecar rotation gap |
 | 30453850014 | success H | 23.65 | Linux/Windows `2169/2169` |
 | 30455673946 | failed convergence | 0.47 | zero-action sidecar rotation gap |
+| 30456636457 | success H | 24.62 | Linux/Windows `2171/2171` |
+| 30458709210 | success convergence | 0.48 | exact-main zero action after sidecar rotation |
 
-The eight E/convergence transactions have execution p50 `0.45 min` and p95
+The nine E/convergence transactions have execution p50 `0.47 min` and p95
 nearest-rank `2.18 min`, inside the provisional timing target, but there are
 fewer than ten qualifying transactions. The target is therefore promising,
 not certified. Successful H runs remain approximately `22–26 min`, with the
@@ -112,8 +114,9 @@ full Linux/Windows coverage unchanged.
   checks and apply the central full-gate cadence separately.
 - H: persistence and canonical-finance fixtures require both packaged
   platforms.
-- Consecutive merges: exact-head fixtures cover two fresh main advances; live
-  proof awaits the fixture-repair merge and its automatic convergence run.
+- Consecutive merges: exact-head fixtures cover two fresh main advances; PR
+  #615 then merged on the immediately prior PR #614 main and automatic
+  convergence passed without a stale base or manual convergence PR.
 - Status completion: the read-only workflow stages a reviewed product-merge
   completion candidate only on the merge that introduced it; live proof
   remains outstanding.

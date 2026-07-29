@@ -216,11 +216,11 @@ stale candidate.
 Representative fixture coverage now includes E reuse/package skipping, batched
 independent edges, ordinary O selection, mandatory two-platform H selection,
 two fresh sequential main heads and staged product-merge completion evidence.
-The implementation remains H until its complete Linux/Windows gate and live
-post-merge zero-action convergence pass. Detailed measurements and unmet
-sample-size/PR-share targets are recorded in
-`plans/ATOMIC_FAST_PATH_METRICS.md`; ISSUE-0090 remains paused until that live
-proof completes.
+The implementation passed H run `30456636457` at Linux/Windows `2171/2171`
+and merged as `97d1e364`; live exact-main zero-action convergence passed in
+run `30458709210`. Detailed measurements and unmet sample-size/PR-share targets
+are recorded in `plans/ATOMIC_FAST_PATH_METRICS.md`. ISSUE-0090 product work
+therefore resumes from that fresh main under the new validation policy.
 
 ### Required continuation after P0 merge
 
