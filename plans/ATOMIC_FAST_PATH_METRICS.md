@@ -51,3 +51,76 @@ time. Track:
   `execution_allowed=false` invariants.
 
 Do not declare the performance target met from one favourable run.
+
+## Fast-path implementation and proof wave
+
+Captured on `2026-07-29` for PRs #609–#614. This is a repair/bootstrap wave,
+not a normal steady-state sample.
+
+| PR | Purpose | Lead time (min) | Files | Additions | Deletions |
+|---:|---|---:|---:|---:|---:|
+| 609 | Atomic generation/control implementation | 128.55 | 27 | 2,487 | 174 |
+| 610 | Convergence token wiring | 374.30 | 4 | 22 | 13 |
+| 611 | Exact-tree E reuse repair | 54.90 | 5 | 412 | 30 |
+| 612 | Multi-event status guard | 51.17 | 5 | 170 | 59 |
+| 613 | ISSUE-0179 compact E lifecycle | 5.98 | 10 | 178 | 39 |
+| 614 | ISSUE-0180 environment product work | 24.35 | 8 | 325 | 15 |
+
+PR #610 includes an intentional laptop-unplugged pause and is not treated as
+runner or active-work time. Four of these six PRs were control/evidence repair
+transactions, so the observed non-product share is `66.7%`; the target below
+`30%` is not met by this bootstrap wave. ISSUE-0179 required five PRs
+(#609–#613), also above the normal issue target. These facts are retained
+rather than presenting the repair wave as steady-state improvement.
+
+### Representative workflow transactions
+
+Run-level queue time was `0 min` for every row below. Dependency waits inside a
+workflow are included in duration and are not reclassified as queue time.
+
+| Run | Result/tier | Duration (min) | Exact evidence |
+|---:|---|---:|---|
+| 30420622584 | success H | 25.72 | Linux/Windows `2144/2144` |
+| 30421830231 | failed convergence | 0.38 | missing `GH_TOKEN` wiring |
+| 30421980682 | success H | 24.38 | Linux/Windows `2144/2144` |
+| 30444182563 | success convergence | 0.48 | exact-main zero action |
+| 30445604844 | success H | 25.85 | first reviewed PR #611 head |
+| 30447413859 | success H | 26.48 | Linux/Windows `2154/2154` |
+| 30449179032 | success convergence | 0.35 | exact-main zero action |
+| 30449330177 | success H | 26.08 | first reviewed PR #612 head |
+| 30451275797 | success H | 22.17 | Linux/Windows `2161/2161` |
+| 30452879033 | success convergence | 0.43 | exact-main zero action |
+| 30453070300 | failed E | 2.18 | stale generation manifest; packages skipped |
+| 30453340819 | success E | 1.73 | reuse authorised; packages skipped |
+| 30453521074 | failed convergence | 0.43 | zero-action sidecar rotation gap |
+| 30453850014 | success H | 23.65 | Linux/Windows `2169/2169` |
+| 30455673946 | failed convergence | 0.47 | zero-action sidecar rotation gap |
+
+The eight E/convergence transactions have execution p50 `0.45 min` and p95
+nearest-rank `2.18 min`, inside the provisional timing target, but there are
+fewer than ten qualifying transactions. The target is therefore promising,
+not certified. Successful H runs remain approximately `22–26 min`, with the
+full Linux/Windows coverage unchanged.
+
+### Fixture and invariant evidence
+
+- E: run `30453340819` passed terminal summary, reused exact product evidence
+  and skipped Linux/Windows packages.
+- Independent dependency edges: the schema-1.3 status guard fixture validates
+  two unrelated integrated edges in one transaction.
+- O: classifier fixtures require focused/affected/UI/architecture/static/source
+  checks and apply the central full-gate cadence separately.
+- H: persistence and canonical-finance fixtures require both packaged
+  platforms.
+- Consecutive merges: exact-head fixtures cover two fresh main advances; live
+  proof awaits the fixture-repair merge and its automatic convergence run.
+- Status completion: the read-only workflow stages a reviewed product-merge
+  completion candidate only on the merge that introduced it; live proof
+  remains outstanding.
+
+No accepted baseline failures or environment mismatches were introduced.
+Financial, point-in-time, revision, security, supply-chain, broker/provider and
+package authority are unchanged; `execution_allowed=false`. Foreground waiting
+and polling reduction were not instrumented accurately enough in this wave, so
+no reduction is claimed. Detached watchers reduced the need to hold a local
+watcher open, but that observation is not a measured result.

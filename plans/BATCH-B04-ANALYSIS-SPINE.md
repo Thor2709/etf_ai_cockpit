@@ -111,6 +111,24 @@ MyPy, compile and diff hygiene pass; exact classification is H. Next is the
 remaining affected validation, immutable draft PR, and complete truthful
 Linux/Windows packaged gate.
 
+`MERGED/VERIFIED` ISSUE-0180 PR #614 passed H run `30453850014` at truthful
+Linux/Windows `2169/2169` and merged exact head `ed314167` as
+`1d4b390935bf050625d8a704ae31a87487fb7bb9`.
+
+`REVIEWED/LOCAL PREREQUISITE` automatic convergence runs `30453521074` and
+`30455673946` each generated a legitimate fresh zero-action plan but failed
+because the committed reviewed sidecar necessarily described the earlier
+remote inventory. Sole-worker commit `fc648623` moves checksum comparison
+after mandatory zero-action, no-authority, schema and inventory validation;
+nonzero actions remain rejected. Its single focused correction `3873d889`
+makes the optional reviewed completion candidate one-shot by using it only
+when the current main commit changed its exact path. The workflow retains
+read-only contents/issues permissions and cannot apply, push or mutate GitHub.
+Independent review passes 145 affected tests, Ruff, protected MyPy, compile
+and diff hygiene. Next is the durable plan/metrics commit, exact H
+classification, immutable draft PR, full Linux/Windows package gate, exact-head
+merge and automatic fresh-main zero-action proof. ISSUE-0090 remains paused.
+
 ## Authority and outcome
 
 Base revision: `b8eb6b4967d5655ed4e528ee9cb222690a424d57`
