@@ -36,7 +36,15 @@ new generation manifest hashed raw Windows CRLF bytes and was stale on Linux
 LF checkout. The bounded correction at `877f39b4` normalises UTF-8 text line
 endings while retaining exact binary bytes; an adversarial CRLF/LF fixture and
 the complete 124-test affected suite pass. The failed run is not retried. The
-next action is a new exact head and fresh complete H-tier gate.
+next exact run `30416340531` passed classifier, schema-1.3 status guard,
+preflight, supply-chain and both complete packaged platforms, but its terminal
+summary could not attribute the flattened Linux and Windows artifact names.
+The bounded correction at `ab188759` preserves artifact-name directories and
+runs terminal-evidence construction under `always()` so a failed terminal
+state remains auditable. The focused 126-test control suite, Ruff, MyPy,
+compile, YAML, atomic freshness and exact schema-1.3 guard pass. The failed
+runs are not retried; the next action is one new exact head and fresh complete
+H-tier gate.
 
 ## Authority and outcome
 

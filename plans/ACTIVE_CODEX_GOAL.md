@@ -2,18 +2,18 @@
 
 ## Current checkpoint
 
-- Current UTC timestamp: `2026-07-29T02:14:13Z`
+- Current UTC timestamp: `2026-07-29T02:46:35Z`
 - Current `origin/main`: `b11b1d6783438df03847d7a1b45c3a4d7c1f2385`
 - Active worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\atomic-fast-path-20260729`
 - Active branch: `codex/atomic-fast-path-20260729`
 - Exact base SHA: `b11b1d6783438df03847d7a1b45c3a4d7c1f2385`
-- Exact last committed control head before this checkpoint update: `877f39b4c68b013d90214efb8b781369c32f4161`
-- Current PR and state: draft PR #609 run `30416010061` failed only Product and protected preflight because `generation-manifest.json` hashed raw Windows CRLF bytes and was stale on Linux LF checkout. Classifier, schema-1.3 status guard and supply-chain passed; the package matrix was correctly skipped after preflight failure. The bounded correction is committed at `877f39b4c68b013d90214efb8b781369c32f4161`.
+- Exact last committed control head before this checkpoint update: `ab188759c2a9c2b31481682b6c0deb60eaca6000`
+- Current PR and state: draft PR #609 run `30416340531` passed classifier, schema-1.3 status guard, preflight, supply-chain and the complete Linux and Windows packaged gates. Only `validation-summary` failed because `download-artifact` flattened the exact platform artifact names, so the collector could not attribute JUnit counts or artifacts. The bounded correction at `ab188759c2a9c2b31481682b6c0deb60eaca6000` preserves artifact-name directories and runs the terminal-evidence build under `always()` so failed terminal state is retained.
 - Current issue: ISSUE-0179 is the primary implementation lane; ISSUE-0090 product work is paused until the atomic fast path is proven.
 - Completed work: PR #608 is merged and converged. The sole ISSUE-0179 worker and correction are accepted. Atomic publication, interruption recovery, closed mandatory output manifest, append-only events, independent multi-edge validation, reachable generation provenance, exact E reuse identities, terminal evidence validation and read-only exact-head convergence are implemented. ISSUE-0179→ISSUE-0178 is complete while status remains `planned`; `execution_allowed=false`. The CRLF/LF defect now uses semantic UTF-8 line-ending-normalised hashes while binary bytes remain exact; the adversarial test and complete 124-test affected suite pass with atomic second-run freshness, Ruff, MyPy and diff hygiene.
-- Required checks: push the corrected exact head; require fresh classifier, schema-1.3 guard, preflight, supply-chain, complete Linux and Windows packaged H-tier gate and terminal summary before merge.
+- Required checks: commit this checkpoint and push the corrected exact head; require fresh classifier, schema-1.3 guard, preflight, supply-chain, complete Linux and Windows packaged H-tier gate and terminal summary before merge.
 - Blocker: none. The previous UTC-midnight fixture failure is documented as run `30409555828` attempt 1 and resolved only by the permitted exact unchanged-head retry.
-- Exact next action: commit this failure/correction checkpoint, push the new exact PR #609 head, and use one watcher for the fresh H-tier run; do not retry failed run `30416010061`.
+- Exact next action: commit this failure/correction checkpoint, push the new exact PR #609 head, and use one watcher for the fresh H-tier run; do not retry failed runs `30416010061` or `30416340531`.
 
 ## Objective
 
