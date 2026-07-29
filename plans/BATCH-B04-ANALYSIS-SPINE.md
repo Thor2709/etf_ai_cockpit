@@ -6,14 +6,17 @@ continuing this batch.
 
 ## Active fast-path checkpoint
 
-`IN_PROGRESS` complete immutable dependency-only PR #608 at exact head
-`937ec382dfab7acc74ad16e7e706b795c88e63a2`, then pause ISSUE-0090 product
-work and implement ISSUE-0179. The first package run exposed one identical
-Linux/Windows midnight fixture race in three fund-document future-date
-parameters; every other package and policy node passed. The exact next action
-is the single documented unchanged-head failed-job retry, clean review/thread
-readback and exact-head merge if green. `execution_allowed=false`, broker
-authority, PR #560, stale PR #562 and issue #241 remain unchanged.
+`MERGED` immutable dependency-only PR #608 from exact head
+`937ec382dfab7acc74ad16e7e706b795c88e63a2` as
+`b11b1d6783438df03847d7a1b45c3a4d7c1f2385`. Its single documented
+unchanged-head retry passed Linux and Windows at 2,122 tests with zero
+failures, errors or skips, and fresh-main GitHub readback is zero action at
+checksum `23cff2eee691649a17d83f0e8ff5c2833c7b19303f57a2a182f1e75db354d143`.
+ISSUE-0090 remains `implemented_initially`, both blocking edges are complete
+and readiness is true. `IN_PROGRESS` ISSUE-0090 product work is paused while
+the sole authorised worker implements ISSUE-0179 from fresh main.
+`execution_allowed=false`, source/broker authority, PR #560, stale unmerged
+PR #562 and open issue #241 remain unchanged.
 
 ## Authority and outcome
 

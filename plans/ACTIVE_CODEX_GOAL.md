@@ -2,18 +2,18 @@
 
 ## Current checkpoint
 
-- Current UTC timestamp: `2026-07-29T00:40:47Z`
-- Current `origin/main`: `2337f6959719a9a4ae1b8ec9efb3927ade2acc7d`
+- Current UTC timestamp: `2026-07-29T01:08:01Z`
+- Current `origin/main`: `b11b1d6783438df03847d7a1b45c3a4d7c1f2385`
 - Active worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\atomic-fast-path-20260729`
 - Active branch: `codex/atomic-fast-path-20260729`
-- Exact base SHA: `2337f6959719a9a4ae1b8ec9efb3927ade2acc7d`
-- Exact head SHA: `2337f6959719a9a4ae1b8ec9efb3927ade2acc7d`
-- Current PR and state: PR #608, draft/open/mergeable, base `2337f6959719a9a4ae1b8ec9efb3927ade2acc7d`, immutable dependency-only head `937ec382dfab7acc74ad16e7e706b795c88e63a2`; classifier, status guard, preflight and supply-chain passed; Linux, Windows and terminal summary failed.
-- Current issue: complete PR #608 and its post-merge convergence; ISSUE-0179 is the next implementation issue and ISSUE-0090 product work is paused.
-- Completed work: replacement global/project instructions read; latest `origin/main` fetched; PR metadata, comments, reviews, review requests, exact local/upstream head and worktree cleanliness verified; failed artifacts downloaded and inspected.
-- Required checks: one exact unchanged-head retry of failed PR #608 jobs; both packaged platforms and terminal summary must pass; comments, reviews, requests and unresolved threads must remain clean; exact-head merge; post-merge zero-action GitHub readback and protected-boundary verification.
-- Blocker: both package suites crossed UTC midnight between collection and execution. The three `tests/test_fund_documents.py::test_document_registry_rejects_future_dates_fail_closed` parameters computed `2026-07-29` as tomorrow at collection, but `_normalise_date()` correctly evaluated it as today after midnight. This exact newly documented fixture-clock fingerprint is the only failure on both platforms. All package, smoke, performance, source, bulk-cache, security, privacy, legal, SBOM and signing-policy nodes otherwise passed.
-- Exact next action: commit this durable checkpoint and pointers locally, verify unresolved PR threads, start the single authorised unchanged-head failed-job retry for run `30409555828`, and use one watcher. Do not alter PR #608 while the retry runs.
+- Exact base SHA: `b11b1d6783438df03847d7a1b45c3a4d7c1f2385`
+- Exact last committed control head before this checkpoint update: `a686e99b286362698bdd2665950ca32f970ee6b8`
+- Current PR and state: PR #608 merged with expected-head protection from immutable dependency-only head `937ec382dfab7acc74ad16e7e706b795c88e63a2` as exact merge commit `b11b1d6783438df03847d7a1b45c3a4d7c1f2385`; run `30409555828` attempt 2 passed classifier, status guard, preflight, supply-chain, Linux, Windows and terminal summary.
+- Current issue: ISSUE-0179 is the primary implementation lane; ISSUE-0090 product work is paused until the atomic fast path is proven.
+- Completed work: PR #608's single documented unchanged-head midnight-fixture retry passed 2,122 tests with zero failures, errors or skips on each platform; reviews/comments/threads were clean; the exact head merged; fresh-main GitHub dry-run returned zero actions at checksum `23cff2eee691649a17d83f0e8ff5c2833c7b19303f57a2a182f1e75db354d143`. ISSUE-0090 remains `implemented_initially`, both dependency edges are `complete`, readiness is true, `execution_allowed=false`, and source/workflow/broker authority is unchanged. PR #560, stale unmerged PR #562 and open issue #241 exactly match their pre-merge states. The durable control commit was rebased cleanly onto fresh main.
+- Required checks: define the bounded ISSUE-0179 worker contract; review its complete diff and focused evidence; prove atomic generation/check mode, compact append-only event migration, independent multi-edge validation, runtime-derived generation base, exact E constraints, terminal evidence and guarded post-merge convergence; then run the complete Linux and Windows packaged H-tier gate.
+- Blocker: none. The previous UTC-midnight fixture failure is documented as run `30409555828` attempt 1 and resolved only by the permitted exact unchanged-head retry.
+- Exact next action: spawn exactly one `sol_worker` for the bounded ISSUE-0179 implementation in a fresh isolated worktree from `b11b1d6783438df03847d7a1b45c3a4d7c1f2385`; the worker must not edit canonical `issues/`, `plans/` or generated programme state and must not push or mutate GitHub.
 
 ## Objective
 
