@@ -14,15 +14,26 @@ SCHEMA_VERSION = "validation-classifier.v1"
 TIERS = ("E", "O", "H", "C")
 TIER_ORDER = {tier: index for index, tier in enumerate(TIERS)}
 
-EVIDENCE_PREFIXES = (
-    ".github/issue-transitions/",
+EVIDENCE_PATHS = {
     ".github/status-transition-guard-manifest.json",
+    "changelog.md",
     "issues/programme_control_state.json",
     "issues/issue_registry.json",
+    "issues/open.md",
     "docs/product-completion/current_status.json",
     "docs/product-completion/progress.md",
-    "docs/product-completion/programme/readiness.json",
     "docs/product-completion/programme/generation-manifest.json",
+    "docs/product-completion/programme/git-workflow.md",
+    "docs/product-completion/programme/implementation-order.md",
+    "docs/product-completion/programme/prompt-2-handoff.md",
+    "docs/product-completion/programme/readiness.json",
+    "docs/product-completion/programme/roadmap.md",
+    "docs/product-completion/programme/test-and-performance-strategy.md",
+    "readme.md",
+}
+EVIDENCE_PREFIXES = (
+    ".github/issue-transitions/",
+    "docs/product-completion/programme/phases/",
     "docs/product-completion/reconciliation/",
 )
 ORDINARY_PREFIXES = ("src/", "tests/", "configs/ui_acceptance.yaml")
@@ -103,7 +114,9 @@ def classify_path(value: str) -> PathClassification:
     semantic_tokens = set(re.findall(r"[a-z0-9]+", lowered))
     if any(lowered.startswith(prefix) for prefix in CERTIFICATION_PREFIXES):
         return PathClassification(path, "C", "certification-evidence")
-    if any(lowered.startswith(prefix.lower()) for prefix in EVIDENCE_PREFIXES):
+    if lowered in EVIDENCE_PATHS or any(
+        lowered.startswith(prefix.lower()) for prefix in EVIDENCE_PREFIXES
+    ):
         return PathClassification(path, "E", "allowlisted-semantic-event-or-projection")
     if (
         path in HIGH_RISK_NAMES
@@ -150,10 +163,23 @@ def derive_trusted_evidence(
     base: str,
     head: str,
     artifact_manifest: str,
+    reusable_evidence: dict[str, object] | None = None,
 ) -> dict[str, object] | None:
-    """Recompute protected identities; unchanged exact evidence alone may reuse."""
+    """Validate prior reviewed evidence against the current E change."""
 
     if not re.fullmatch(r"[0-9a-f]{40}", base) or not re.fullmatch(r"[0-9a-f]{40}", head):
+        return None
+    if not isinstance(reusable_evidence, dict):
+        return None
+    reviewed_base = reusable_evidence.get("base_sha")
+    reviewed_head = reusable_evidence.get("head_sha")
+    if not isinstance(reviewed_base, str) or not re.fullmatch(
+        r"[0-9a-f]{40}", reviewed_base
+    ):
+        return None
+    if not isinstance(reviewed_head, str) or not re.fullmatch(
+        r"[0-9a-f]{40}", reviewed_head
+    ):
         return None
     groups = {
         "source_sha256": ("src", "scripts"),
@@ -172,19 +198,49 @@ def derive_trusted_evidence(
         "environment_sha256": ("pyproject.toml", "requirements-release.txt", "requirements-release-parsers.txt"),
     }
     try:
-        identities: dict[str, object] = {"base_sha": base, "head_sha": head}
-        for key, paths in groups.items():
-            base_digest = _git_identity(root, base, paths)
-            head_digest = _git_identity(root, head, paths)
-            if base_digest != head_digest:
-                return None
-            identities[key] = head_digest
-        artifact = subprocess.check_output(
-            ["git", "show", f"{base}:{artifact_manifest}"], cwd=root
+        subprocess.run(
+            ["git", "merge-base", "--is-ancestor", reviewed_base, reviewed_head],
+            cwd=root,
+            check=True,
+            capture_output=True,
         )
+        subprocess.run(
+            ["git", "merge-base", "--is-ancestor", reviewed_head, base],
+            cwd=root,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "merge-base", "--is-ancestor", base, head],
+            cwd=root,
+            check=True,
+            capture_output=True,
+        )
+        identities: dict[str, object] = {
+            "base_sha": reviewed_base,
+            "head_sha": reviewed_head,
+        }
+        for key, paths in groups.items():
+            digests = {
+                _git_identity(root, ref, paths)
+                for ref in (reviewed_head, base, head)
+            }
+            if len(digests) != 1:
+                return None
+            identities[key] = digests.pop()
+        artifacts = [
+            subprocess.check_output(
+                ["git", "show", f"{ref}:{artifact_manifest}"], cwd=root
+            )
+            for ref in (reviewed_head, base, head)
+        ]
+        if len(set(artifacts)) != 1:
+            return None
     except (OSError, subprocess.CalledProcessError):
         return None
-    identities["artifact_manifest_sha256"] = __import__("hashlib").sha256(artifact).hexdigest()
+    identities["artifact_manifest_sha256"] = (
+        __import__("hashlib").sha256(artifacts[0]).hexdigest()
+    )
     identities["execution_allowed"] = False
     return identities
 
@@ -271,6 +327,26 @@ def _git_changed_paths(root: Path, base: str, head: str) -> list[str]:
     return result.stdout.splitlines()
 
 
+def _load_base_reusable_evidence(
+    root: Path, *, base: str, head: str, path: Path
+) -> dict[str, object] | None:
+    try:
+        candidate = path if path.is_absolute() else root / path
+        relative = candidate.resolve().relative_to(root).as_posix()
+        base_payload = subprocess.check_output(
+            ["git", "show", f"{base}:{relative}"], cwd=root
+        )
+        head_payload = subprocess.check_output(
+            ["git", "show", f"{head}:{relative}"], cwd=root
+        )
+        if base_payload != head_payload:
+            return None
+        value = json.loads(base_payload)
+    except (OSError, ValueError, json.JSONDecodeError, subprocess.CalledProcessError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd())
@@ -297,11 +373,13 @@ def main(argv: list[str] | None = None) -> int:
             classification_error = str(exc)
             paths = ["<classification-error>"]
     reusable_evidence = None
-    if args.reuse_evidence:
-        try:
-            reusable_evidence = json.loads(args.reuse_evidence.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            reusable_evidence = None
+    if args.reuse_evidence and args.base:
+        reusable_evidence = _load_base_reusable_evidence(
+            args.root.resolve(),
+            base=args.base,
+            head=args.head,
+            path=args.reuse_evidence,
+        )
     expected_evidence = None
     if args.base and reusable_evidence:
         expected_evidence = derive_trusted_evidence(
@@ -309,6 +387,7 @@ def main(argv: list[str] | None = None) -> int:
             base=args.base,
             head=args.head,
             artifact_manifest=args.artifact_manifest,
+            reusable_evidence=reusable_evidence,
         )
     report = build_report(
         paths,

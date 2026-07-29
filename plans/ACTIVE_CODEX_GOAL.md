@@ -2,18 +2,18 @@
 
 ## Current checkpoint
 
-- Current UTC timestamp: `2026-07-29T04:17:50Z`
-- Current `origin/main`: `cfcf6e784fd36ae3eabb8c6d6fd3b4047137cbe1`
-- Active worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\issue0179-convergence-auth-20260729`
-- Active branch: `codex/issue-0179-convergence-auth-20260729`
-- Exact base SHA: `cfcf6e784fd36ae3eabb8c6d6fd3b4047137cbe1`
-- Exact last committed control head before this checkpoint update: `cfcf6e784fd36ae3eabb8c6d6fd3b4047137cbe1`
-- Current PR and state: PR #609 merged exact reviewed head `d72c07d199ad069a3c8fc3c63f614ec91f4b8b7e` as `cfcf6e784fd36ae3eabb8c6d6fd3b4047137cbe1`. Run `30420622584` passed H-tier classifier, preflight, supply-chain, Linux (`20m02s`), Windows (`23m18s`) and truthful terminal summary at `2144/2144`; schema-1.3 run `30420622618` passed. Post-merge convergence run `30421830231` then failed only live readback because the read-only workflow did not export its granted GitHub token to `gh`.
+- Current UTC timestamp: `2026-07-29T10:54:33Z`
+- Current `origin/main`: `0573d489bc48c7fd20127087c09b586ae0fd082a`
+- Active worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\issue0179-e-reuse-repair-20260729`
+- Active branch: `codex/issue-0179-e-reuse-repair-20260729`
+- Exact base SHA: `0573d489bc48c7fd20127087c09b586ae0fd082a`
+- Exact last committed control head before this checkpoint update: `136c6eb3ef01767af303dd380a211fd46ef029a5`
+- Current PR and state: PR #610 merged exact reviewed head `44c9ce5f15faf2f39b7edc11132221509c8cacf7` as `0573d489bc48c7fd20127087c09b586ae0fd082a`. H run `30421980682` passed at truthful Linux/Windows `2144/2144`; automatic convergence run `30444182563` passed exact main with a zero-byte patch and zero-action checksum `23cff2eee691649a17d83f0e8ff5c2833c7b19303f57a2a182f1e75db354d143`. The first live lifecycle E projection then exposed an impossible current-commit self-reference in the reusable-evidence sidecar. The sole bounded repair worker and its one focused correction are accepted at local head `136c6eb3ef01767af303dd380a211fd46ef029a5`; no PR exists yet.
 - Current issue: ISSUE-0179 is the primary implementation lane; ISSUE-0090 product work is paused until the atomic fast path is proven.
-- Completed work: PRs #608 and #609 are merged. Atomic publication, interruption recovery, closed mandatory output manifest, append-only events, independent multi-edge validation, reachable generation provenance, exact E reuse identities, truthful terminal evidence and read-only exact-head convergence are implemented. ISSUE-0179→ISSUE-0178 is complete while status remains `planned`; `execution_allowed=false`. The fresh main repair adds only `GH_TOKEN` wiring to the read-only convergence step plus an assertion; workflow permissions remain `contents: read`, `issues: read`, with no push or apply authority.
-- Required checks: run focused workflow/generator tests, YAML, Ruff, MyPy, atomic freshness and exact H classification; commit, push and merge the small workflow repair only after the complete Linux/Windows H gate and truthful terminal summary pass.
-- Blocker: post-merge live readback cannot run until the read-only workflow exports its granted GitHub token. No product, provider-write, broker or execution-authority blocker exists.
-- Exact next action: validate and publish the fresh-main convergence-auth repair, merge with expected-head protection, then require the automatic exact-main zero-action convergence artifact before creating the single E lifecycle transaction.
+- Completed work: PRs #608, #609 and #610 are merged. Atomic generation and authenticated exact-main zero-action convergence are proven. The E repair now treats sidecar base/head as an immutable earlier H-reviewed range, requires reviewed-head ancestry into the current E base, independently matches all protected identities through the current head, loads identical sidecar bytes from the immutable base, and retains `execution_allowed=false`. The deterministic generator's complete closed projections are allowlisted without allowing arbitrary programme or plan files. Independent affected validation passes: 136 tests, Ruff, protected MyPy, compile, atomic freshness, diff hygiene and exact H classification.
+- Required checks: commit the orchestrator checkpoint, publish the repair as one draft PR, require the complete Linux/Windows H gate and truthful terminal summary at an immutable head, then anchor that exact H-reviewed head in a base-visible reuse sidecar under a final H run before merge. Regenerate the preserved ISSUE-0179 lifecycle transaction from fresh main and require live E with packages skipped.
+- Blocker: no implementation blocker. The reuse sidecar cannot be safely published until the repair's first immutable H-reviewed head exists; this is an intentional two-head evidence bootstrap, not a self-reference.
+- Exact next action: commit the checkpoint, push the exact repair head and open a draft PR; after its first exact H terminal pass, append only the base-visible sidecar derived from that reviewed head and require a final exact H pass.
 
 ## Objective
 

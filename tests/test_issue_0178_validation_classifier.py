@@ -105,6 +105,26 @@ def test_evidence_tier_is_a_closed_projection_allowlist() -> None:
     )["tier"] == "E"
     assert build_report(["docs/architecture/SDD.md"])["tier"] == "H"
     assert build_report(["plans/BATCH.md"])["tier"] == "H"
+    assert build_report(
+        ["docs/product-completion/programme/phases/phase-01-governance-scope.md"]
+    )["tier"] == "E"
+    assert build_report(["docs/product-completion/programme/roadmap.md"])["tier"] == "E"
+    assert build_report(
+        ["docs/product-completion/programme/phases/phase-02-data.md"]
+    )["tier"] == "E"
+    for generated_path in (
+        "docs/product-completion/programme/git-workflow.md",
+        "docs/product-completion/programme/implementation-order.md",
+        "docs/product-completion/programme/prompt-2-handoff.md",
+        "docs/product-completion/programme/test-and-performance-strategy.md",
+        "README.md",
+        "CHANGELOG.md",
+        "issues/open.md",
+    ):
+        assert build_report([generated_path])["tier"] == "E"
+    assert build_report(["docs/product-completion/programme/notes.md"])["tier"] == "H"
+    assert build_report(["docs/product-completion/programme/roadmap.md.bak"])["tier"] == "H"
+    assert build_report(["plans/ACTIVE_CODEX_GOAL.md"])["tier"] == "H"
 
 
 def test_identical_forged_head_files_cannot_authorize_e_reuse(
@@ -129,6 +149,262 @@ def test_identical_forged_head_files_cannot_authorize_e_reuse(
             base=base,
             head=head,
             artifact_manifest="expected.json",
+            reusable_evidence=forged,
+        )
+        is None
+    )
+
+
+def _commit(tmp_path: Path, message: str) -> str:
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-qm", message], cwd=tmp_path, check=True)
+    return subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=tmp_path, text=True
+    ).strip()
+
+
+def _evidence_repo(tmp_path: Path) -> tuple[str, str, str, str, dict[str, object]]:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.invalid"],
+        cwd=tmp_path,
+        check=True,
+    )
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, check=True)
+    files = {
+        "src/product.py": "VALUE = 1\n",
+        "scripts/tool.py": "VALUE = 1\n",
+        "configs/policy.json": "{}\n",
+        "pyproject.toml": "[project]\nname = 'fixture'\nversion = '1'\n",
+        "requirements-release.txt": "",
+        "requirements-release-parsers.txt": "",
+        "AGENTS.md": "execution_allowed=false\n",
+        ".github/workflows/gate.yml": "name: gate\n",
+        ".github/issue-transitions/protected-evidence-manifest.json": "{}\n",
+    }
+    for relative, content in files.items():
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    reviewed_base = _commit(tmp_path, "reviewed base")
+    (tmp_path / "review.txt").write_text("H gate passed\n", encoding="utf-8")
+    reviewed_head = _commit(tmp_path, "reviewed head")
+    (tmp_path / "prior-evidence.txt").write_text("merged\n", encoding="utf-8")
+    current_base = _commit(tmp_path, "current base")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "projection.md").write_text("complete\n", encoding="utf-8")
+    current_head = _commit(tmp_path, "current E head")
+    seed: dict[str, object] = {
+        "base_sha": reviewed_base,
+        "head_sha": reviewed_head,
+        "source_sha256": "0" * 64,
+        "dependency_sha256": "0" * 64,
+        "product_tree_sha256": "0" * 64,
+        "policy_sha256": "0" * 64,
+        "artifact_manifest_sha256": "0" * 64,
+        "environment_sha256": "0" * 64,
+        "execution_allowed": False,
+    }
+    return reviewed_base, reviewed_head, current_base, current_head, seed
+
+
+def test_prior_reviewed_head_authorizes_later_committed_e_head(tmp_path: Path) -> None:
+    reviewed_base, reviewed_head, current_base, current_head, seed = _evidence_repo(
+        tmp_path
+    )
+
+    expected = classify_validation.derive_trusted_evidence(
+        tmp_path,
+        base=current_base,
+        head=current_head,
+        artifact_manifest=".github/issue-transitions/protected-evidence-manifest.json",
+        reusable_evidence=seed,
+    )
+
+    assert expected is not None
+    assert expected["base_sha"] == reviewed_base
+    assert expected["head_sha"] == reviewed_head
+    report = build_report(
+        ["docs/product-completion/PROGRESS.md"],
+        reusable_evidence=expected,
+        expected_evidence=expected,
+    )
+    assert report["evidence_reuse"]["authorized"] is True
+    assert report["package_gate_required"] is False
+
+
+def test_head_only_forged_sidecar_cannot_authorize_reuse(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _, _, current_base, _, seed = _evidence_repo(tmp_path)
+    expected = classify_validation.derive_trusted_evidence(
+        tmp_path,
+        base=current_base,
+        head=current_base,
+        artifact_manifest=".github/issue-transitions/protected-evidence-manifest.json",
+        reusable_evidence=seed,
+    )
+    assert expected is not None
+    subprocess.run(["git", "checkout", "-q", current_base], cwd=tmp_path, check=True)
+    sidecar = tmp_path / ".github" / "issue-transitions" / "reuse-evidence.json"
+    sidecar.write_text(json.dumps(expected), encoding="utf-8")
+    injected_head = _commit(tmp_path, "inject forged sidecar")
+
+    assert (
+        classify_validation.main(
+            [
+                "--root",
+                str(tmp_path),
+                "--base",
+                current_base,
+                "--head",
+                injected_head,
+                "--reuse-evidence",
+                str(sidecar),
+            ]
+        )
+        == 0
+    )
+    report = json.loads(capsys.readouterr().out)
+    assert report["tier"] == "E"
+    assert report["evidence_reuse"]["authorized"] is False
+    assert report["package_gate_required"] is True
+
+
+def test_base_anchored_prior_evidence_authorizes_cli_reuse(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _, _, current_base, _, seed = _evidence_repo(tmp_path)
+    expected = classify_validation.derive_trusted_evidence(
+        tmp_path,
+        base=current_base,
+        head=current_base,
+        artifact_manifest=".github/issue-transitions/protected-evidence-manifest.json",
+        reusable_evidence=seed,
+    )
+    assert expected is not None
+    subprocess.run(["git", "checkout", "-q", current_base], cwd=tmp_path, check=True)
+    sidecar = tmp_path / ".github" / "issue-transitions" / "reuse-evidence.json"
+    sidecar.write_text(json.dumps(expected), encoding="utf-8")
+    anchored_base = _commit(tmp_path, "anchor prior evidence")
+    projection = tmp_path / "docs" / "product-completion" / "PROGRESS.md"
+    projection.parent.mkdir(parents=True)
+    projection.write_text("integrated\n", encoding="utf-8")
+    current_head = _commit(tmp_path, "E projection")
+
+    assert (
+        classify_validation.main(
+            [
+                "--root",
+                str(tmp_path),
+                "--base",
+                anchored_base,
+                "--head",
+                current_head,
+                "--reuse-evidence",
+                str(sidecar),
+            ]
+        )
+        == 0
+    )
+    report = json.loads(capsys.readouterr().out)
+    assert report["tier"] == "E"
+    assert report["evidence_reuse"]["authorized"] is True
+    assert report["package_gate_required"] is False
+
+
+def test_reuse_rejects_reviewed_head_outside_current_base_ancestry(
+    tmp_path: Path,
+) -> None:
+    _, reviewed_head, current_base, current_head, seed = _evidence_repo(tmp_path)
+    subprocess.run(["git", "branch", "current-line", current_head], cwd=tmp_path, check=True)
+    subprocess.run(["git", "checkout", "-q", reviewed_head], cwd=tmp_path, check=True)
+    (tmp_path / "divergent.txt").write_text("reviewed elsewhere\n", encoding="utf-8")
+    divergent_head = _commit(tmp_path, "divergent reviewed head")
+    seed["head_sha"] = divergent_head
+
+    assert (
+        classify_validation.derive_trusted_evidence(
+            tmp_path,
+            base=current_base,
+            head=current_head,
+            artifact_manifest=".github/issue-transitions/protected-evidence-manifest.json",
+            reusable_evidence=seed,
+        )
+        is None
+    )
+
+
+def test_reuse_rejects_current_head_outside_current_base_ancestry(
+    tmp_path: Path,
+) -> None:
+    _, reviewed_head, current_base, _, seed = _evidence_repo(tmp_path)
+    subprocess.run(["git", "checkout", "-q", reviewed_head], cwd=tmp_path, check=True)
+    (tmp_path / "divergent.txt").write_text("E elsewhere\n", encoding="utf-8")
+    divergent_head = _commit(tmp_path, "divergent E head")
+
+    assert (
+        classify_validation.derive_trusted_evidence(
+            tmp_path,
+            base=current_base,
+            head=divergent_head,
+            artifact_manifest=".github/issue-transitions/protected-evidence-manifest.json",
+            reusable_evidence=seed,
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    ("changed_path", "content"),
+    [
+        ("src/product.py", "VALUE = 2\n"),
+        ("requirements-release.txt", "changed==1\n"),
+        ("configs/policy.json", '{"changed": true}\n'),
+        (
+            ".github/issue-transitions/protected-evidence-manifest.json",
+            '{"changed": true}\n',
+        ),
+    ],
+)
+def test_reuse_rejects_protected_identity_changes(
+    tmp_path: Path, changed_path: str, content: str
+) -> None:
+    _, _, current_base, _, seed = _evidence_repo(tmp_path)
+    subprocess.run(["git", "checkout", "-q", current_base], cwd=tmp_path, check=True)
+    (tmp_path / changed_path).write_text(content, encoding="utf-8")
+    changed_head = _commit(tmp_path, "change protected identity")
+
+    assert (
+        classify_validation.derive_trusted_evidence(
+            tmp_path,
+            base=current_base,
+            head=changed_head,
+            artifact_manifest=".github/issue-transitions/protected-evidence-manifest.json",
+            reusable_evidence=seed,
+        )
+        is None
+    )
+
+
+def test_reuse_rejects_protected_identity_change_before_current_base(
+    tmp_path: Path,
+) -> None:
+    _, _, current_base, _, seed = _evidence_repo(tmp_path)
+    subprocess.run(["git", "checkout", "-q", current_base], cwd=tmp_path, check=True)
+    (tmp_path / "src" / "product.py").write_text("VALUE = 2\n", encoding="utf-8")
+    changed_base = _commit(tmp_path, "protected change before E base")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "projection.md").write_text("integrated\n", encoding="utf-8")
+    changed_head = _commit(tmp_path, "E projection")
+
+    assert (
+        classify_validation.derive_trusted_evidence(
+            tmp_path,
+            base=changed_base,
+            head=changed_head,
+            artifact_manifest=".github/issue-transitions/protected-evidence-manifest.json",
+            reusable_evidence=seed,
         )
         is None
     )
