@@ -8069,7 +8069,36 @@
       "verified_date": "2026-07-29"
     },
     "ISSUE-0180": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "ISSUE-0180 reviewed preparation commit 5df2c44dde368bdfaec6777aa072f717425158b6",
+            "PR #614 exact product head ed314167a0ab8390ed72fcda9326c37d27aae81f",
+            "PR #614 merge 1d4b390935bf050625d8a704ae31a87487fb7bb9",
+            "Release run 30453850014 H-tier terminal summary Linux/Windows 2169/2169",
+            "29 focused release, environment and observability tests plus Ruff, protected MyPy, compile and diff hygiene passed",
+            "PR #620 merged the independently reviewed ISSUE-0180 to ISSUE-0177 edge in one tier-E multi-edge transaction with both package platforms skipped"
+          ],
+          "review_reference": "ISSUE-0180 implementation start verified against the reviewed environment-isolation checkpoint",
+          "reviewed_date": "2026-07-30",
+          "reviewer": "Codex root orchestrator",
+          "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "PR #614 exact product head ed314167a0ab8390ed72fcda9326c37d27aae81f",
+            "PR #614 merge 1d4b390935bf050625d8a704ae31a87487fb7bb9",
+            "Release run 30453850014 H-tier terminal summary Linux/Windows 2169/2169",
+            "The authoritative environment verifier, isolated mutable runtime state, reserved-port fixture, explicit serial groups and report-only four-worker pilot contract are integrated",
+            "Serial validation remains authoritative; no automatic retries, production dependency, provider/broker authority or execution permission was introduced",
+            "PR #620 live tier-E multi-edge run 30499913599 authorised exact evidence reuse and skipped Linux/Windows packages"
+          ],
+          "review_reference": "ISSUE-0180 initial environment-isolation implementation accepted with parallel timing proof still outstanding",
+          "reviewed_date": "2026-07-30",
+          "reviewer": "Codex root orchestrator",
+          "status": "implemented_initially"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -8149,11 +8178,11 @@
         }
       },
       "phase": "phase-09-quality-release-security",
-      "programme_status": "planned",
+      "programme_status": "implemented_initially",
       "status_transition": {
-        "from": "planned",
-        "review_reference": "2026-07-28 throughput-remediation package canonical registry migration",
-        "to": "planned"
+        "from": "in_progress",
+        "review_reference": "ISSUE-0180 initial environment-isolation implementation accepted with parallel timing proof still outstanding",
+        "to": "implemented_initially"
       },
       "transition_history": [
         {
@@ -8182,9 +8211,43 @@
           "reviewed_date": "2026-07-30",
           "reviewer": "Codex root orchestrator",
           "verified_commit": "4d5f30e6ac19650030a61bec0e22a4eeb2fd57d9"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "ISSUE-0180 reviewed preparation commit 5df2c44dde368bdfaec6777aa072f717425158b6",
+            "PR #614 exact product head ed314167a0ab8390ed72fcda9326c37d27aae81f",
+            "PR #614 merge 1d4b390935bf050625d8a704ae31a87487fb7bb9",
+            "Release run 30453850014 H-tier terminal summary Linux/Windows 2169/2169",
+            "29 focused release, environment and observability tests plus Ruff, protected MyPy, compile and diff hygiene passed",
+            "PR #620 merged the independently reviewed ISSUE-0180 to ISSUE-0177 edge in one tier-E multi-edge transaction with both package platforms skipped"
+          ],
+          "from": "planned",
+          "review_reference": "ISSUE-0180 implementation start verified against the reviewed environment-isolation checkpoint",
+          "reviewed_date": "2026-07-30",
+          "reviewer": "Codex root orchestrator",
+          "to": "in_progress",
+          "verified_commit": "ed314167a0ab8390ed72fcda9326c37d27aae81f"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #614 exact product head ed314167a0ab8390ed72fcda9326c37d27aae81f",
+            "PR #614 merge 1d4b390935bf050625d8a704ae31a87487fb7bb9",
+            "Release run 30453850014 H-tier terminal summary Linux/Windows 2169/2169",
+            "The authoritative environment verifier, isolated mutable runtime state, reserved-port fixture, explicit serial groups and report-only four-worker pilot contract are integrated",
+            "Serial validation remains authoritative; no automatic retries, production dependency, provider/broker authority or execution permission was introduced",
+            "PR #620 live tier-E multi-edge run 30499913599 authorised exact evidence reuse and skipped Linux/Windows packages"
+          ],
+          "from": "in_progress",
+          "review_reference": "ISSUE-0180 initial environment-isolation implementation accepted with parallel timing proof still outstanding",
+          "reviewed_date": "2026-07-30",
+          "reviewer": "Codex root orchestrator",
+          "to": "implemented_initially",
+          "verified_commit": "ed314167a0ab8390ed72fcda9326c37d27aae81f"
         }
       ],
-      "verified_commit": "4d5f30e6ac19650030a61bec0e22a4eeb2fd57d9",
+      "verified_commit": "ed314167a0ab8390ed72fcda9326c37d27aae81f",
       "verified_date": "2026-07-30"
     },
     "ISSUE-0181": {

@@ -25550,7 +25550,36 @@
           "text": "Before/after p50/p95 test-group timings show improvement with no coverage or flake regression."
         }
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "ISSUE-0180 reviewed preparation commit 5df2c44dde368bdfaec6777aa072f717425158b6",
+            "PR #614 exact product head ed314167a0ab8390ed72fcda9326c37d27aae81f",
+            "PR #614 merge 1d4b390935bf050625d8a704ae31a87487fb7bb9",
+            "Release run 30453850014 H-tier terminal summary Linux/Windows 2169/2169",
+            "29 focused release, environment and observability tests plus Ruff, protected MyPy, compile and diff hygiene passed",
+            "PR #620 merged the independently reviewed ISSUE-0180 to ISSUE-0177 edge in one tier-E multi-edge transaction with both package platforms skipped"
+          ],
+          "review_reference": "ISSUE-0180 implementation start verified against the reviewed environment-isolation checkpoint",
+          "reviewed_date": "2026-07-30",
+          "reviewer": "Codex root orchestrator",
+          "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "PR #614 exact product head ed314167a0ab8390ed72fcda9326c37d27aae81f",
+            "PR #614 merge 1d4b390935bf050625d8a704ae31a87487fb7bb9",
+            "Release run 30453850014 H-tier terminal summary Linux/Windows 2169/2169",
+            "The authoritative environment verifier, isolated mutable runtime state, reserved-port fixture, explicit serial groups and report-only four-worker pilot contract are integrated",
+            "Serial validation remains authoritative; no automatic retries, production dependency, provider/broker authority or execution permission was introduced",
+            "PR #620 live tier-E multi-edge run 30499913599 authorised exact evidence reuse and skipped Linux/Windows packages"
+          ],
+          "review_reference": "ISSUE-0180 initial environment-isolation implementation accepted with parallel timing proof still outstanding",
+          "reviewed_date": "2026-07-30",
+          "reviewer": "Codex root orchestrator",
+          "status": "implemented_initially"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [
         "ISSUE-0177"
@@ -25592,7 +25621,7 @@
       "package_status": "",
       "phase": "phase-09-quality-release-security",
       "priority": "P1",
-      "programme_status": "planned",
+      "programme_status": "implemented_initially",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -25637,7 +25666,7 @@
         ],
         "tier": "H"
       },
-      "verified_commit": "4d5f30e6ac19650030a61bec0e22a4eeb2fd57d9",
+      "verified_commit": "ed314167a0ab8390ed72fcda9326c37d27aae81f",
       "verified_date": "2026-07-30",
       "write_conflict_group": "quality-release"
     },
@@ -27512,7 +27541,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "8bf984ad4017e238b7ad596f3ca05fdf5ab1eb540ceeff6aeea7e18c23210bb4",
+    "programme_control_state_sha256": "7e7dec5f4d5d30cf17e4b6a52668640059c065a5d1c7bf02300a5026d85f172f",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
