@@ -30,6 +30,14 @@ reachable and no new reconciliation tree is created. The exact next action is
 the durable integration commit, exact-head H classification, draft PR and
 complete Linux/Windows packaged gate.
 
+`CORRECTED` draft PR #609 run `30416010061` passed classifier, schema-1.3
+status guard and supply-chain but failed preflight before packages because the
+new generation manifest hashed raw Windows CRLF bytes and was stale on Linux
+LF checkout. The bounded correction at `877f39b4` normalises UTF-8 text line
+endings while retaining exact binary bytes; an adversarial CRLF/LF fixture and
+the complete 124-test affected suite pass. The failed run is not retried. The
+next action is a new exact head and fresh complete H-tier gate.
+
 ## Authority and outcome
 
 Base revision: `b8eb6b4967d5655ed4e528ee9cb222690a424d57`
