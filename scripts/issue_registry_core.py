@@ -498,7 +498,12 @@ def validate_control_authority(
                     raise ValueError(f"{issue_id}: dependency-edge update changed authoritative status")
             elif event.get("from") != expected.get("programme_status"):
                 raise ValueError(f"{issue_id}: transition history does not match authoritative prior state")
-            validate_control_transition_event(issue_id, expected, event)
+            # Every edge in one reviewed batch shares its immutable commit/date.
+            # Validate each semantic event against the same authoritative
+            # predecessor, then replay it into the projection.
+            validation_prior = deepcopy(expected)
+            validation_prior["verified_commit"] = previous.get("verified_commit")
+            validate_control_transition_event(issue_id, validation_prior, event)
             expected_history.append(event)
             expected["verified_commit"] = event.get("verified_commit")
             expected["verified_date"] = event.get("reviewed_date")

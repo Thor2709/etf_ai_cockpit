@@ -456,7 +456,9 @@ The programme control plane uses `scripts/generate_programme.py` as its single
 authoritative projection command. It creates a complete staging tree, runs the
 registry, status, readiness/completion and reconciliation generators there,
 validates a closed manifest of every output, and only then replaces the public
-set. A failed replacement restores the complete predecessor. Check mode
+set, including a separately reviewed control-state candidate when supplied.
+Publication uses the core durable grouped-write journal; the next writer
+recovers an interrupted predecessor before another commit. Check mode
 compares the staged bytes and manifest without mutating public files.
 
 The committed `generation_base_commit` is historical provenance and must remain
@@ -476,6 +478,15 @@ Post-merge convergence consumes an immutable remote snapshot and
 checksum-controlled dry-run evidence. Ordinary generation has no GitHub apply
 authority and requires a zero-action readback; external writes remain a
 separate explicitly authorised operation.
+
+The read-only programme-convergence workflow guards `HEAD == origin/main`,
+uses concurrency cancellation and uploads only staged evidence and a patch. It
+cannot push, merge, open a PR or apply provider changes. Guarded convergence
+regenerates inventory, plan, review and safe evidence through
+`sync_github_issues.py` dry-run mode and verifies the pre-reviewed sidecar.
+The terminal `validation-summary.v1` report downloads exact job artifacts and
+fails closed on missing identities, hashes, required platform JUnit counts,
+guards, freshness or read-only authority.
 
 ## 13. Current state, gaps, risks and technical debt
 

@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -18,6 +17,12 @@ try:
 except ModuleNotFoundError:
     from issue_registry_core import load_control_state
 
+SRC = Path(__file__).resolve().parents[1] / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+from etf_cockpit.core import atomic_io  # noqa: E402,F401
+from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group  # noqa: E402
+
 
 SCHEMA_VERSION = "programme-generation.v1"
 STATIC_REQUIRED_OUTPUTS = frozenset(
@@ -26,6 +31,7 @@ STATIC_REQUIRED_OUTPUTS = frozenset(
         "CHANGELOG.md",
         "issues/open.md",
         "issues/issue_registry.json",
+        "issues/programme_control_state.json",
         "docs/product-completion/CURRENT_STATUS.json",
         "docs/product-completion/PROGRESS.md",
         "docs/product-completion/programme/readiness.json",
@@ -106,23 +112,98 @@ def _validate_and_emit_convergence_evidence(root: Path, outputs: frozenset[str])
         raise ValueError("convergence evidence must require a fresh checksum-controlled plan")
     summary = evidence.get("summary")
     actions = evidence.get("actions")
+    required_summary = {"create", "update", "close", "reopen", "blocked"}
     if (
         not isinstance(summary, dict)
+        or set(summary) != required_summary
         or any(value != 0 for value in summary.values())
         or not isinstance(actions, list)
         or actions
     ):
         raise ValueError("convergence evidence must contain mandatory zero-action readback")
+    if evidence.get("repository") != "Thor2709/etf_ai_cockpit":
+        raise ValueError("convergence evidence repository mismatch")
+    if evidence.get("schema_version") != "etf-ai-cockpit.safe-sync-evidence/1.0":
+        raise ValueError("convergence evidence schema mismatch")
+    semantic = evidence.get("plan_semantic_sha256")
+    if not isinstance(semantic, str) or not __import__("re").fullmatch(
+        r"[0-9a-f]{64}", semantic
+    ):
+        raise ValueError("convergence semantic plan checksum is invalid")
     if evidence.get("remote_inventory_sha256") != remote.get("inventory_sha256"):
         raise ValueError("convergence evidence does not match the immutable remote snapshot")
-    remote_path.write_bytes((json.dumps(remote, indent=2, sort_keys=True) + "\n").encode("utf-8"))
-    evidence_bytes = (json.dumps(evidence, indent=2, sort_keys=True) + "\n").encode("utf-8")
-    evidence_path.write_bytes(evidence_bytes)
-    sidecar_path.write_text(
-        f"{hashlib.sha256(evidence_bytes).hexdigest()}  github-sync-evidence.json\n",
-        encoding="utf-8",
-        newline="\n",
+    evidence_bytes = evidence_path.read_bytes()
+    expected_sidecar = (
+        f"{hashlib.sha256(evidence_bytes).hexdigest()}  github-sync-evidence.json\n"
+    ).encode()
+    if sidecar_path.read_bytes().replace(b"\r\n", b"\n") != expected_sidecar:
+        raise ValueError("reviewed convergence evidence sidecar checksum mismatch")
+
+
+def _verify_exact_head(root: Path, expected_head: str, main_ref: str) -> None:
+    if not __import__("re").fullmatch(r"[0-9a-f]{40}", expected_head):
+        raise ValueError("convergence expected head must be a full commit SHA")
+    head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    main = subprocess.check_output(["git", "rev-parse", main_ref], cwd=root, text=True).strip()
+    if head != expected_head or main != expected_head:
+        raise ValueError("convergence exact head does not equal HEAD and fresh main")
+
+
+def run_convergence(
+    root: Path,
+    stage: Path,
+    *,
+    expected_head: str,
+    main_ref: str,
+    remote_snapshot: Path | None,
+    reviewed_sidecar: Path,
+    control_candidate: Path | None = None,
+) -> frozenset[str]:
+    """Run one read-only sync plan into the staged programme transaction."""
+
+    _verify_exact_head(root, expected_head, main_ref)
+    outputs = stage_generation(
+        root,
+        stage,
+        control_candidate=control_candidate,
+        validate_convergence=False,
     )
+    recon = next(
+        (stage / path).parent
+        for path in outputs
+        if path.endswith("/github-remote-summary.json")
+    )
+    plan = recon / "github-sync-plan.json"
+    evidence = recon / "github-sync-evidence.json"
+    command = [
+            sys.executable,
+            "scripts/sync_github_issues.py",
+            "--root",
+            str(stage),
+            "--plan-out",
+            str(plan),
+            "--inventory-out",
+            str(recon / "github-remote-summary.json"),
+            "--review-out",
+            str(recon / "github-sync-review.md"),
+            "--safe-evidence-out",
+            str(evidence),
+        ]
+    if remote_snapshot is not None:
+        command.extend(["--remote-snapshot", str(remote_snapshot.resolve())])
+    subprocess.run(
+        command,
+        cwd=stage,
+        check=True,
+    )
+    if reviewed_sidecar.read_bytes().replace(b"\r\n", b"\n") != evidence.with_suffix(
+        ".json.sha256"
+    ).read_bytes().replace(b"\r\n", b"\n"):
+        raise ValueError("generated convergence evidence does not match reviewed checksum")
+    convergence_outputs = outputs | {plan.relative_to(stage).as_posix()}
+    _validate_and_emit_convergence_evidence(stage, convergence_outputs)
+    (stage / MANIFEST_PATH).write_bytes(build_manifest(stage, convergence_outputs))
+    return convergence_outputs
 
 
 def atomic_publish(
@@ -130,47 +211,22 @@ def atomic_publish(
     staged_root: Path,
     outputs: frozenset[str],
     *,
-    replace: Callable[[Path, Path], None] = os.replace,
+    lifecycle_hook: Callable[[str, Path], None] | None = None,
 ) -> None:
-    """Publish a validated set and restore the complete predecessor on failure."""
+    """Publish through the repository's durable grouped-write journal."""
 
-    transaction = Path(tempfile.mkdtemp(prefix=".programme-publish-", dir=root))
-    backups = transaction / "backups"
-    incoming = transaction / "incoming"
-    existed: set[str] = set()
-    try:
-        for relative in sorted(outputs | {MANIFEST_PATH.as_posix()}):
-            source = (
-                staged_root / relative
-                if relative != MANIFEST_PATH.as_posix()
-                else staged_root / MANIFEST_PATH
+    requests = []
+    for relative in sorted(outputs | {MANIFEST_PATH.as_posix()}):
+        destination = root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        requests.append(
+            AtomicWriteRequest(
+                destination=destination,
+                payload=(staged_root / relative).read_bytes(),
+                validator=lambda path: path.read_bytes(),
             )
-            destination = root / relative
-            staged = incoming / relative
-            staged.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, staged)
-            if destination.exists():
-                backup = backups / relative
-                backup.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(destination, backup)
-                existed.add(relative)
-        published: list[str] = []
-        try:
-            for relative in sorted(outputs | {MANIFEST_PATH.as_posix()}):
-                destination = root / relative
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                replace(incoming / relative, destination)
-                published.append(relative)
-        except BaseException:
-            for relative in reversed(published):
-                destination = root / relative
-                if relative in existed:
-                    replace(backups / relative, destination)
-                elif destination.exists():
-                    destination.unlink()
-            raise
-    finally:
-        shutil.rmtree(transaction, ignore_errors=True)
+        )
+    atomic_write_group(requests, lifecycle_hook=lifecycle_hook)
 
 
 def _copy_tracked_tree(root: Path, stage: Path) -> None:
@@ -201,11 +257,25 @@ def _run_generators(stage: Path) -> None:
         )
 
 
-def stage_generation(root: Path, stage: Path) -> frozenset[str]:
+def stage_generation(
+    root: Path,
+    stage: Path,
+    *,
+    control_candidate: Path | None = None,
+    validate_convergence: bool = True,
+) -> frozenset[str]:
     _copy_tracked_tree(root, stage)
+    if control_candidate is not None:
+        candidate = json.loads(control_candidate.read_text(encoding="utf-8"))
+        if '"execution_allowed": true' in json.dumps(candidate).lower():
+            raise ValueError("reviewed control candidate must preserve execution_allowed=false")
+        (stage / "issues/programme_control_state.json").write_bytes(
+            (json.dumps(candidate, indent=2, sort_keys=True) + "\n").encode("utf-8")
+        )
     _run_generators(stage)
     outputs = required_outputs(stage)
-    _validate_and_emit_convergence_evidence(stage, outputs)
+    if validate_convergence:
+        _validate_and_emit_convergence_evidence(stage, outputs)
     (stage / MANIFEST_PATH).parent.mkdir(parents=True, exist_ok=True)
     (stage / MANIFEST_PATH).write_bytes(build_manifest(stage, outputs))
     return outputs
@@ -215,12 +285,41 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--converge", action="store_true")
+    parser.add_argument("--expected-head")
+    parser.add_argument("--main-ref", default="origin/main")
+    parser.add_argument("--remote-snapshot", type=Path)
+    parser.add_argument("--reviewed-sidecar", type=Path)
+    parser.add_argument("--control-candidate", type=Path)
+    parser.add_argument("--live-read", action="store_true")
+    parser.add_argument("--stage-output", type=Path)
     args = parser.parse_args(argv)
     root = args.root.resolve()
     with tempfile.TemporaryDirectory(prefix=".programme-stage-", dir=root) as value:
         stage = Path(value)
         try:
-            outputs = stage_generation(root, stage)
+            if args.converge:
+                if (
+                    not args.expected_head
+                    or (not args.remote_snapshot and not args.live_read)
+                    or not args.reviewed_sidecar
+                ):
+                    raise ValueError(
+                        "--converge requires --expected-head, one remote input mode, and --reviewed-sidecar"
+                    )
+                outputs = run_convergence(
+                    root,
+                    stage,
+                    expected_head=args.expected_head,
+                    main_ref=args.main_ref,
+                    remote_snapshot=args.remote_snapshot,
+                    reviewed_sidecar=args.reviewed_sidecar,
+                    control_candidate=args.control_candidate,
+                )
+            else:
+                outputs = stage_generation(
+                    root, stage, control_candidate=args.control_candidate
+                )
             expected = outputs | {MANIFEST_PATH.as_posix()}
             stale = sorted(
                 path
@@ -228,6 +327,15 @@ def main(argv: list[str] | None = None) -> int:
                 if not (root / path).is_file()
                 or (root / path).read_bytes() != (stage / path).read_bytes()
             )
+            if args.stage_output:
+                destination = args.stage_output.resolve()
+                destination.mkdir(parents=True, exist_ok=True)
+                for relative in sorted(outputs | {MANIFEST_PATH.as_posix()}):
+                    target = destination / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(stage / relative, target)
+                print(f"STAGED: {destination}")
+                return 0
             if args.check:
                 if stale:
                     print("STALE: " + ", ".join(stale))

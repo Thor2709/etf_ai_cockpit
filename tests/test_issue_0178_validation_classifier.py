@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from scripts import validate_app
+from scripts import classify_validation
 from scripts.classify_validation import build_report, validation_summary_failures
 
 
@@ -93,8 +94,44 @@ def test_evidence_tier_skips_packages_only_with_exact_reusable_identities() -> N
 
 def test_evidence_tier_is_a_closed_projection_allowlist() -> None:
     assert build_report(["docs/product-completion/PROGRESS.md"])["tier"] == "E"
+    assert build_report(
+        [
+            "issues/programme_control_state.json",
+            "issues/issue_registry.json",
+            ".github/status-transition-guard-manifest.json",
+            "docs/product-completion/CURRENT_STATUS.json",
+        ],
+        reusable_evidence=None,
+    )["tier"] == "E"
     assert build_report(["docs/architecture/SDD.md"])["tier"] == "H"
     assert build_report(["plans/BATCH.md"])["tier"] == "H"
+
+
+def test_identical_forged_head_files_cannot_authorize_e_reuse(
+    tmp_path: Path,
+) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, check=True)
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "product.py").write_text("VALUE = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-qm", "base"], cwd=tmp_path, check=True)
+    base = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=tmp_path, text=True).strip()
+    head = base
+    forged = {"base_sha": base, "head_sha": head}
+    (tmp_path / "reuse.json").write_text(json.dumps(forged), encoding="utf-8")
+    (tmp_path / "expected.json").write_text(json.dumps(forged), encoding="utf-8")
+
+    assert (
+        classify_validation.derive_trusted_evidence(
+            tmp_path,
+            base=base,
+            head=head,
+            artifact_manifest="expected.json",
+        )
+        is None
+    )
 
 
 def test_store_modules_and_tests_require_platform_gate_without_substring_spillover() -> None:

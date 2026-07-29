@@ -16,6 +16,9 @@ TIER_ORDER = {tier: index for index, tier in enumerate(TIERS)}
 
 EVIDENCE_PREFIXES = (
     ".github/issue-transitions/",
+    ".github/status-transition-guard-manifest.json",
+    "issues/programme_control_state.json",
+    "issues/issue_registry.json",
     "docs/product-completion/current_status.json",
     "docs/product-completion/progress.md",
     "docs/product-completion/programme/readiness.json",
@@ -100,6 +103,8 @@ def classify_path(value: str) -> PathClassification:
     semantic_tokens = set(re.findall(r"[a-z0-9]+", lowered))
     if any(lowered.startswith(prefix) for prefix in CERTIFICATION_PREFIXES):
         return PathClassification(path, "C", "certification-evidence")
+    if any(lowered.startswith(prefix.lower()) for prefix in EVIDENCE_PREFIXES):
+        return PathClassification(path, "E", "allowlisted-semantic-event-or-projection")
     if (
         path in HIGH_RISK_NAMES
         or any(lowered.startswith(prefix.lower()) for prefix in HIGH_RISK_PREFIXES)
@@ -108,8 +113,6 @@ def classify_path(value: str) -> PathClassification:
         or lowered.startswith("requirements")
     ):
         return PathClassification(path, "H", "protected-or-high-risk-surface")
-    if any(lowered.startswith(prefix.lower()) for prefix in EVIDENCE_PREFIXES):
-        return PathClassification(path, "E", "evidence-only-surface")
     if any(lowered.startswith(prefix.lower()) for prefix in ORDINARY_PREFIXES):
         return PathClassification(path, "O", "ordinary-product-surface")
     return PathClassification(path, "H", "unknown-surface-fails-upward")
@@ -129,6 +132,56 @@ def _valid_reusable_evidence(
         ):
             return False
     return expected is not None and value == expected
+
+
+def _git_identity(root: Path, ref: str, paths: tuple[str, ...]) -> str:
+    result = subprocess.run(
+        ["git", "ls-tree", "-r", "--full-tree", ref, "--", *paths],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+    return __import__("hashlib").sha256(result.stdout).hexdigest()
+
+
+def derive_trusted_evidence(
+    root: Path,
+    *,
+    base: str,
+    head: str,
+    artifact_manifest: str,
+) -> dict[str, object] | None:
+    """Recompute protected identities; unchanged exact evidence alone may reuse."""
+
+    if not re.fullmatch(r"[0-9a-f]{40}", base) or not re.fullmatch(r"[0-9a-f]{40}", head):
+        return None
+    groups = {
+        "source_sha256": ("src", "scripts"),
+        "dependency_sha256": (
+            "pyproject.toml",
+            "requirements-release.txt",
+            "requirements-release-parsers.txt",
+        ),
+        "product_tree_sha256": ("src", "configs"),
+        "policy_sha256": ("AGENTS.md", ".github/workflows", "configs"),
+        "environment_sha256": ("pyproject.toml", "requirements-release.txt", "requirements-release-parsers.txt"),
+    }
+    try:
+        identities: dict[str, object] = {"base_sha": base, "head_sha": head}
+        for key, paths in groups.items():
+            base_digest = _git_identity(root, base, paths)
+            head_digest = _git_identity(root, head, paths)
+            if base_digest != head_digest:
+                return None
+            identities[key] = head_digest
+        artifact = subprocess.check_output(
+            ["git", "show", f"{base}:{artifact_manifest}"], cwd=root
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    identities["artifact_manifest_sha256"] = __import__("hashlib").sha256(artifact).hexdigest()
+    identities["execution_allowed"] = False
+    return identities
 
 
 def build_report(
@@ -222,7 +275,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ordinary-issues-since-full-gate", type=int, default=0)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--reuse-evidence", type=Path)
-    parser.add_argument("--expected-evidence", type=Path)
+    parser.add_argument("--artifact-manifest", default="artifacts/validation/reuse-manifest.json")
     args = parser.parse_args(argv)
 
     paths = list(args.changed_file)
@@ -242,11 +295,13 @@ def main(argv: list[str] | None = None) -> int:
         except (OSError, json.JSONDecodeError):
             reusable_evidence = None
     expected_evidence = None
-    if args.expected_evidence:
-        try:
-            expected_evidence = json.loads(args.expected_evidence.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            expected_evidence = None
+    if args.base and reusable_evidence:
+        expected_evidence = derive_trusted_evidence(
+            args.root.resolve(),
+            base=args.base,
+            head=args.head,
+            artifact_manifest=args.artifact_manifest,
+        )
     report = build_report(
         paths,
         ordinary_issues_since_full_gate=max(0, args.ordinary_issues_since_full_gate),

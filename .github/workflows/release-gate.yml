@@ -264,6 +264,14 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download exact validation artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: validation-evidence
+          merge-multiple: true
 
       - name: Evaluate required validation
         env:
@@ -287,3 +295,31 @@ jobs:
           if failures:
               raise SystemExit("\n".join(failures))
           PY
+
+      - name: Build and validate authoritative terminal evidence
+        env:
+          BASE_SHA: ${{ needs.classifier.outputs.base_sha }}
+          HEAD_SHA: ${{ github.sha }}
+          CLASSIFIER_RESULT: ${{ needs.classifier.result }}
+          PREFLIGHT_RESULT: ${{ needs.preflight.result }}
+          SUPPLY_RESULT: ${{ needs['supply-chain'].result }}
+          RELEASE_RESULT: ${{ needs['release-gate'].result }}
+        run: |
+          python scripts/validation_summary.py \
+            --root . \
+            --artifacts-root validation-evidence \
+            --base "$BASE_SHA" \
+            --head "$HEAD_SHA" \
+            --job-result "classifier=$CLASSIFIER_RESULT" \
+            --job-result "preflight=$PREFLIGHT_RESULT" \
+            --job-result "supply_chain=$SUPPLY_RESULT" \
+            --job-result "release=$RELEASE_RESULT" \
+            --output validation-evidence/terminal-summary.json
+
+      - name: Upload terminal validation summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-summary-${{ github.sha }}
+          path: validation-evidence/terminal-summary.json
+          if-no-files-found: error
