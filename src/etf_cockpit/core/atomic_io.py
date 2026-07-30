@@ -457,6 +457,11 @@ def _acquire_group_locks(
                 descriptor: int | None = None
                 try:
                     descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                except (FileExistsError, PermissionError):
+                    # On Windows an exclusive open against an existing lock
+                    # can surface as a sharing-denied PermissionError.
+                    pass
+                else:
                     payload = json.dumps(
                         {
                             "owner_pid": os.getpid(),
@@ -486,14 +491,6 @@ def _acquire_group_locks(
                     descriptor = None
                     locks.append(lock)
                     break
-                except FileExistsError:
-                    pass
-                except PermissionError:
-                    # On Windows an exclusive open against an existing lock
-                    # can surface as a sharing-denied PermissionError.  The
-                    # open is contention; ownership-write PermissionError is
-                    # handled above and remains fatal.
-                    pass
                 if _recover_lock(lock):
                     continue
                 if time.monotonic() >= deadline:

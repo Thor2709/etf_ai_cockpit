@@ -126,6 +126,8 @@ def test_mark_transaction_ready_rejects_transaction_id_outside_supplied_root(tmp
     assert outside_journal.read_text(encoding="utf-8") == "must-not-be-read-or-written"
 
 
+@pytest.mark.serial
+@pytest.mark.xdist_group("concurrency")
 def test_group_reader_cannot_observe_mixed_generation_during_activation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -247,6 +249,69 @@ def test_concurrent_writer_times_out_without_changing_previous_value(tmp_path: P
         atomic_io.wait_for_atomic_group(destination, timeout_seconds=0.01)
 
     assert destination.read_bytes() == b"old"
+
+
+def test_group_lock_retries_one_shot_windows_open_sharing_violation(tmp_path: Path, monkeypatch) -> None:
+    parent = tmp_path / "data"
+    real_open = atomic_io.os.open
+    calls = 0
+
+    def flaky_open(path, flags, mode=0o777):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise PermissionError("sharing violation")
+        return real_open(path, flags, mode)
+
+    monkeypatch.setattr(atomic_io.os, "open", flaky_open)
+    locks = atomic_io._acquire_group_locks((parent,), None, timeout_seconds=1)
+    assert calls == 2
+    for lock in locks:
+        lock.unlink(missing_ok=True)
+
+
+def test_group_lock_persistent_open_sharing_violation_times_out(tmp_path: Path, monkeypatch) -> None:
+    parent = tmp_path / "data"
+    ticks = iter((10.0, 16.0))
+    monkeypatch.setattr(atomic_io.time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(
+        atomic_io.os,
+        "open",
+        lambda *_args: (_ for _ in ()).throw(PermissionError("sharing violation")),
+    )
+    with pytest.raises(TimeoutError):
+        atomic_io._acquire_group_locks((parent,), None, timeout_seconds=5)
+
+
+def test_group_lock_ownership_write_failure_cleans_owned_lock(tmp_path: Path, monkeypatch) -> None:
+    parent = tmp_path / "data"
+    monkeypatch.setattr(
+        atomic_io.os,
+        "write",
+        lambda *_args: (_ for _ in ()).throw(PermissionError("denied")),
+    )
+    with pytest.raises(PermissionError):
+        atomic_io._acquire_group_locks((parent,), None, timeout_seconds=1)
+    assert not (parent / ".atomic-write-group.lock").exists()
+
+
+@pytest.mark.parametrize(
+    ("payload", "alive", "reclaimed"),
+    [
+        ({"owner_pid": 999999, "lock_type": "reader"}, False, True),
+        ({"owner_pid": 999999, "lock_type": "reader"}, True, False),
+        ({"owner_pid": "999999", "lock_type": "reader"}, False, False),
+        ({"owner_pid": 999999, "lock_type": "reader", "journal_path": "forged"}, False, False),
+    ],
+)
+def test_reader_lock_recovery_requires_exact_dead_owner_evidence(
+    tmp_path: Path, monkeypatch, payload: dict[str, object], alive: bool, reclaimed: bool
+) -> None:
+    lock = tmp_path / ".atomic-write-group.lock"
+    lock.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(atomic_io, "_pid_alive", lambda _pid: alive)
+    assert atomic_io._recover_lock(lock) is reclaimed
+    assert lock.exists() is not reclaimed
 
 
 def test_stale_lock_cannot_recover_a_journal_outside_its_recovery_root(tmp_path: Path) -> None:
