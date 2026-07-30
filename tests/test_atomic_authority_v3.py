@@ -46,6 +46,14 @@ def test_schema3_authority_is_immutable_and_lifecycle_is_complete(tmp_path: Path
     assert payload["protocol"] == "destination-authority-v1"
     assert payload["authority_sha256"] == hashlib.sha256(authority_raw).hexdigest()
     assert payload["lock_paths"] == []
+    expected_markers = {
+        str((first.parent / ".atomic-write-group.lock").resolve()),
+        str((second.parent / ".atomic-write-group.lock").resolve()),
+        str((tmp_path / ".atomic-write-group.lock").resolve()),
+    }
+    assert set(payload["marker_paths"]) == expected_markers
+    assert set(payload["marker_tokens"]) == expected_markers
+    assert all(Path(marker).exists() for marker in expected_markers)
     assert states == ["memory", "authority_published", "markers_publishing", "armed"]
     original = authority_raw
     with pytest.raises((FileExistsError, atomic_io.QuarantineError, OSError)):
@@ -79,6 +87,42 @@ def test_schema3_authority_tamper_quarantines_without_mutation(tmp_path: Path) -
     assert journal.read_bytes() == journal_before
 
 
+def test_schema3_marker_aba_quarantines_without_unlink(tmp_path: Path) -> None:
+    destination = tmp_path / "data" / "value.bin"
+    destination.parent.mkdir(parents=True)
+    destination.write_bytes(b"old")
+    with pytest.raises(atomic_io.AtomicWriteInterrupted):
+        atomic_io.atomic_write_group((_request(destination, b"new"),), lifecycle_hook=_interrupt_at("armed"))
+    journal = next(tmp_path.rglob("journal.json"))
+    payload = json.loads(journal.read_text(encoding="utf-8"))
+    marker = destination.parent / ".atomic-write-group.lock"
+    marker_payload = json.loads(marker.read_text(encoding="utf-8"))
+    marker_payload["token"] = "foreign-token"
+    marker.write_text(json.dumps(marker_payload, sort_keys=True, separators=(",", ":")), encoding="utf-8")
+    journal_before = journal.read_bytes()
+    result = recover_incomplete_transactions(tmp_path, event_path=tmp_path / "events.json")[0]
+    assert result.state == "quarantined"
+    assert destination.read_bytes() == b"old"
+    assert marker.exists() and journal.read_bytes() == journal_before
+    assert payload["marker_tokens"][str(marker.resolve())] != "foreign-token"
+
+
+def test_schema3_marker_publication_flushes_parent_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    destination = tmp_path / "data" / "value.bin"
+    destination.parent.mkdir(parents=True)
+    flushed: list[Path] = []
+    original_fsync_directory = atomic_io._fsync_directory
+
+    def record_fsync(path: Path) -> None:
+        flushed.append(Path(path).resolve())
+        original_fsync_directory(path)
+
+    monkeypatch.setattr(atomic_io, "_fsync_directory", record_fsync)
+    atomic_io.atomic_write_group((_request(destination, b"new"),))
+    assert destination.parent.resolve() in flushed
+    assert any(path.name == ".atomic-transactions" for path in flushed)
+
+
 def test_atomic_group_reader_publishes_no_reader_markers(tmp_path: Path) -> None:
     first = tmp_path / "data" / "a.bin"
     second = tmp_path / "configs" / "b.bin"
@@ -89,3 +133,72 @@ def test_atomic_group_reader_publishes_no_reader_markers(tmp_path: Path) -> None
     assert atomic_io.read_atomic_group((first, second)) == (b"a", b"b")
     assert not list(tmp_path.rglob(".atomic-write-group.lock"))
 
+
+@pytest.mark.parametrize(
+    "state",
+    ["authority_published", "markers_publishing", "armed", "preparing", "prepared", "committing", "committed", "cleaned"],
+)
+def test_crash_boundary_is_recoverable_or_preserves_commit(tmp_path: Path, state: str) -> None:
+    destination = tmp_path / "data" / f"{state}.bin"
+    destination.parent.mkdir(parents=True)
+    destination.write_bytes(b"old")
+    with pytest.raises(atomic_io.AtomicWriteInterrupted):
+        atomic_io.atomic_write_group(
+            (_request(destination, b"new"),),
+            lifecycle_hook=_interrupt_at(state),
+        )
+    result = recover_incomplete_transactions(tmp_path, event_path=tmp_path / f"{state}.events")[0]
+    assert result.state == "committed" if state in {"committed", "cleaned"} else result.state == "rolled_back"
+    assert destination.read_bytes() == (b"new" if state in {"committed", "cleaned"} else b"old")
+    assert not list(tmp_path.rglob(".atomic-transactions/*"))
+
+
+def test_committing_third_party_destination_is_quarantined(tmp_path: Path) -> None:
+    destination = tmp_path / "data" / "value.bin"
+    destination.parent.mkdir(parents=True)
+    destination.write_bytes(b"old")
+    with pytest.raises(atomic_io.AtomicWriteInterrupted):
+        atomic_io.atomic_write_group(
+            (_request(destination, b"new"),),
+            lifecycle_hook=_interrupt_at("committing"),
+        )
+    journal = next(tmp_path.rglob("journal.json"))
+    destination.write_bytes(b"third-party")
+    journal_before = journal.read_bytes()
+    result = recover_incomplete_transactions(tmp_path, event_path=tmp_path / "events.json")[0]
+    assert result.state == "quarantined"
+    assert destination.read_bytes() == b"third-party"
+    assert journal.exists() and journal.read_bytes() == journal_before
+
+
+def test_rollback_terminal_state_survives_cleanup_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    destination = tmp_path / "data" / "value.bin"
+    destination.parent.mkdir(parents=True)
+    destination.write_bytes(b"old")
+    with pytest.raises(atomic_io.AtomicWriteInterrupted):
+        atomic_io.atomic_write_group(
+            (_request(destination, b"new"),),
+            lifecycle_hook=_interrupt_at("committing"),
+        )
+    journal = next(tmp_path.rglob("journal.json"))
+    cleanup = atomic_io._cleanup_schema3_transaction
+    failed = False
+
+    def fail_once(payload: dict[str, object], journal_path: Path) -> None:
+        nonlocal failed
+        if not failed:
+            failed = True
+            raise OSError("simulated cleanup interruption")
+        cleanup(payload, journal_path)
+
+    monkeypatch.setattr(atomic_io, "_cleanup_schema3_transaction", fail_once)
+    first = recover_incomplete_transactions(tmp_path, event_path=tmp_path / "first.events")[0]
+    assert first.state == "recovery_required"
+    durable = json.loads(journal.read_text(encoding="utf-8"))
+    assert durable["state"] == "rolled_back"
+    assert durable["status"] == "rolled_back"
+    assert destination.read_bytes() == b"old"
+    monkeypatch.setattr(atomic_io, "_cleanup_schema3_transaction", cleanup)
+    second = recover_incomplete_transactions(tmp_path, event_path=tmp_path / "second.events")[0]
+    assert second.state == "rolled_back"
+    assert not list(tmp_path.rglob(".atomic-transactions/*"))

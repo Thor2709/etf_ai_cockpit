@@ -178,12 +178,7 @@ def _publish_authority(
     finally:
         if descriptor is not None:
             os.close(descriptor)
-    if os.name != "nt":
-        directory_fd = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
+    _fsync_directory(path.parent)
     return DestinationAuthority(
         transaction_id=transaction_id,
         transaction_nonce=nonce,
@@ -334,6 +329,60 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _fsync_directory(path: Path) -> None:
+    """Durably flush a local directory entry on POSIX and Windows NTFS."""
+    resolved = Path(path).resolve()
+    if os.name != "nt":
+        descriptor = os.open(resolved, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        return
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = [
+        wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+        ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
+    ]
+    create_file.restype = wintypes.HANDLE
+    flush = kernel32.FlushFileBuffers
+    flush.argtypes = [wintypes.HANDLE]
+    flush.restype = wintypes.BOOL
+    close = kernel32.CloseHandle
+    close.argtypes = [wintypes.HANDLE]
+    close.restype = wintypes.BOOL
+    handle = create_file(
+        str(resolved),
+        0x40000000,  # GENERIC_WRITE (required by FlushFileBuffers for directories)
+        0x00000001 | 0x00000002 | 0x00000004,  # share read/write/delete
+        None,
+        3,  # OPEN_EXISTING
+        0x02000000,  # FILE_FLAG_BACKUP_SEMANTICS (directory handle)
+        None,
+    )
+    invalid = wintypes.HANDLE(-1).value
+    if handle == invalid:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        if not flush(handle):
+            raise ctypes.WinError(ctypes.get_last_error())
+    finally:
+        close(handle)
+
+
+def _fsync_file(path: Path) -> None:
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+    descriptor = os.open(path, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 def _replace_destination_with_retry(source: Path, destination: Path) -> None:
     """Retry only documented Windows sharing violations from read handles."""
     for attempt in range(3):
@@ -370,6 +419,7 @@ def atomic_write_bytes(
             os.fsync(handle.fileno())
         validator(temp_path)
         _replace_destination_with_retry(temp_path, destination)
+        _fsync_directory(destination.parent)
         return AtomicWriteResult(
             destination=destination,
             sha256=hashlib.sha256(payload).hexdigest(),
@@ -394,6 +444,7 @@ def _stage_request(request: AtomicWriteRequest, *, validate: bool = True) -> Pat
         handle.write(request.payload)
         handle.flush()
         os.fsync(handle.fileno())
+    _fsync_directory(request.destination.parent)
     if validate:
         try:
             request.validator(path)
@@ -756,9 +807,38 @@ def _marker_closure(marker: Path) -> tuple[tuple[Path, ...], bool]:
     journal_payload = _read_object(journal)
     if journal_payload is None:
         return (), False
+    if journal_payload.get("schema_version") == 2:
+        # The only compatibility path is sealed-v1 with a complete immutable
+        # absolute affected destination set and token-bound marker identity.
+        if journal_payload.get("guard_protocol") != _GROUP_GUARD_PROTOCOL:
+            return (), False
+        affected = journal_payload.get("affected_dataset_ids")
+        lock_values = journal_payload.get("lock_paths")
+        token_values = journal_payload.get("lock_tokens")
+        if not isinstance(affected, list) or not affected or any(
+            not isinstance(value, str) or not Path(value).is_absolute() for value in affected
+        ) or not isinstance(lock_values, list) or not isinstance(token_values, dict):
+            return (), False
+        destinations = tuple(Path(value).resolve(strict=False) for value in affected)
+        if tuple(str(path) for path in destinations) != tuple(affected) or _canonical_paths(destinations) != destinations:
+            return (), False
+        expected_locks = _expected_group_lock_paths_from_payload(journal_payload)
+        actual_locks = tuple(Path(value).resolve() for value in lock_values if isinstance(value, str))
+        if expected_locks is None or actual_locks != expected_locks:
+            return (), False
+        marker_token = token_values.get(str(marker.resolve()))
+        if not isinstance(marker_token, str) or not marker_token:
+            return (), False
+        if payload.get("token") != marker_token:
+            return (), False
+        return _canonical_paths(_expected_group_lock_parents(destinations)), True
     if journal_payload.get("schema_version") != _ATOMIC_SCHEMA_VERSION:
-        # Legacy markers have no immutable destination authority and cannot
-        # participate in live closure/reclamation.
+        return (), False
+    if set(payload) != {
+        "schema_version", "marker_protocol", "owner_pid", "lock_type",
+        "token", "journal_path", "transaction_id", "transaction_nonce",
+        "authority_sha256",
+    }:
         return (), False
     if journal_payload.get("schema_version") == _ATOMIC_SCHEMA_VERSION:
         try:
@@ -766,7 +846,12 @@ def _marker_closure(marker: Path) -> tuple[tuple[Path, ...], bool]:
         except QuarantineError:
             return (), False
         marker_authority = payload.get("authority_sha256")
-        if marker_authority != authority.sha256:
+        if (
+            marker_authority != authority.sha256
+            or payload.get("lock_type") != "writer"
+            or payload.get("transaction_id") != authority.transaction_id
+            or payload.get("transaction_nonce") != authority.transaction_nonce
+        ):
             return (), False
     parents = _guard_parents_from_payload(journal_payload)
     if not parents or marker.resolve().parent not in parents:
@@ -1077,12 +1162,40 @@ def _validate_recovery_payload_paths(payload: dict[str, object], journal_path: P
 
 _SCHEMA3_STATES = {
     "authority_published", "markers_publishing", "armed", "preparing",
-    "prepared", "committing", "committed", "cleaned", "recovery_required", "quarantined",
+    "prepared", "committing", "committed", "rolled_back", "cleaned", "recovery_required", "quarantined",
 }
 
 
 def _validate_schema3_payload(payload: dict[str, object], journal_path: Path) -> bool:
     """Validate schema3 without allowing mutable journal lists to create authority."""
+    required_fields = {
+        "schema_version", "protocol", "transaction_id", "transaction_nonce",
+        "authority_path", "authority_sha256", "authority_fingerprint", "owner_pid",
+        "state", "status", "affected_dataset_ids", "entries", "staged_paths",
+        "final_paths", "lock_paths", "marker_paths", "marker_tokens",
+        "expected_checksums", "created_at", "started_at", "updated_at",
+        "committed_at", "recovery_instructions",
+    }
+    allowed_fields = required_fields | {"rollback_completed_at", "recovery_error"}
+    if set(payload) - allowed_fields or not required_fields.issubset(payload):
+        return False
+    if payload.get("protocol") != _AUTHORITY_PROTOCOL or payload.get("schema_version") != _ATOMIC_SCHEMA_VERSION:
+        return False
+    if not isinstance(payload.get("transaction_nonce"), str) or not payload["transaction_nonce"]:
+        return False
+    for timestamp_field in ("created_at", "started_at", "updated_at"):
+        if not isinstance(payload.get(timestamp_field), str) or not payload[timestamp_field]:
+            return False
+    state_value = payload.get("state")
+    committed_at = payload.get("committed_at")
+    if state_value in {"committed", "cleaned"} and not isinstance(committed_at, str):
+        return False
+    if state_value not in {"committed", "cleaned"} and committed_at is not None:
+        return False
+    if state_value == "rolled_back" and not isinstance(payload.get("rollback_completed_at"), str):
+        return False
+    if state_value != "rolled_back" and "rollback_completed_at" in payload:
+        return False
     roots = _recovery_root_for_journal(journal_path)
     if roots is None:
         return False
@@ -1176,13 +1289,19 @@ def _validate_schema3_payload(payload: dict[str, object], journal_path: Path) ->
     complete = complete and tuple(str(path) for path in staged_values) == tuple(str(path) for path in entry_staged)
     complete = complete and tuple(str(path) for path in final_values) == tuple(str(path) for path in entry_destinations)
     complete = complete and checksums == {str(path): str(entry["expected_sha256"]) for path, entry in zip(entry_destinations, entries, strict=True)}
-    if state in {"prepared", "committing", "committed", "cleaned"} and not complete:
+    if state in {"prepared", "committing", "committed", "rolled_back", "cleaned"} and not complete:
         return False
-    if state == "committed":
+    if state in {"committed", "rolled_back", "cleaned"}:
         for destination, entry in zip(entry_destinations, entries, strict=True):
-            if not destination.is_file() or sha256_file(destination) != entry["expected_sha256"]:
+            if state in {"committed", "cleaned"}:
+                if not destination.is_file() or sha256_file(destination) != entry["expected_sha256"]:
+                    return False
+            elif entry.get("backup_path") is None:
+                if destination.exists():
+                    return False
+            elif not destination.is_file() or sha256_file(destination) != entry.get("previous_sha256"):
                 return False
-    if state in {"armed", "prepared", "committing", "committed", "cleaned"}:
+    if state in {"armed", "prepared", "committing", "committed", "rolled_back", "cleaned"}:
         # Once armed, every marker must carry the authority digest and token;
         # PID liveness is intentionally irrelevant to schema3 authority.
         tokens = payload.get("marker_tokens")
@@ -1194,9 +1313,22 @@ def _validate_schema3_payload(payload: dict[str, object], journal_path: Path) ->
             marker = Path(marker_value)
             if marker.is_file():
                 marker_payload = _read_object(marker)
-                if marker_payload is None or marker_payload.get("schema_version") != _ATOMIC_SCHEMA_VERSION:
+                if marker_payload is None or set(marker_payload) != {
+                    "schema_version", "marker_protocol", "owner_pid", "lock_type",
+                    "token", "journal_path", "transaction_id", "transaction_nonce",
+                    "authority_sha256",
+                }:
                     return False
-                if marker_payload.get("token") != token or marker_payload.get("authority_sha256") != authority.sha256:
+                if (
+                    marker_payload.get("schema_version") != _ATOMIC_SCHEMA_VERSION
+                    or marker_payload.get("marker_protocol") != _AUTHORITY_PROTOCOL
+                    or marker_payload.get("owner_pid") != payload.get("owner_pid")
+                    or marker_payload.get("lock_type") != "writer"
+                    or marker_payload.get("token") != token
+                    or marker_payload.get("authority_sha256") != authority.sha256
+                    or marker_payload.get("transaction_id") != authority.transaction_id
+                    or marker_payload.get("transaction_nonce") != authority.transaction_nonce
+                ):
                     return False
                 if marker_payload.get("journal_path") != str(journal_path.resolve()):
                     return False
@@ -1234,6 +1366,7 @@ def _cleanup_schema3_transaction(payload: dict[str, object], journal_path: Path)
         if not isinstance(value, str):
             raise QuarantineError("schema3 staged path is invalid")
         _retry_unlink(Path(value))
+        _fsync_directory(Path(value).parent)
     marker_values = payload.get("marker_paths", [])
     tokens = payload.get("marker_tokens", {})
     if not isinstance(marker_values, list) or not isinstance(tokens, dict):
@@ -1248,6 +1381,11 @@ def _cleanup_schema3_transaction(payload: dict[str, object], journal_path: Path)
         expected_token = tokens.get(str(marker))
         if (
             marker_payload is None
+            or set(marker_payload) != {
+                "schema_version", "marker_protocol", "owner_pid", "lock_type",
+                "token", "journal_path", "transaction_id", "transaction_nonce",
+                "authority_sha256",
+            }
             or marker_payload.get("schema_version") != _ATOMIC_SCHEMA_VERSION
             or marker_payload.get("marker_protocol") != _AUTHORITY_PROTOCOL
             or marker_payload.get("lock_type") != "writer"
@@ -1262,7 +1400,10 @@ def _cleanup_schema3_transaction(payload: dict[str, object], journal_path: Path)
         marker.unlink()
         if marker.exists():
             raise OSError(f"schema3 marker remained after cleanup: {marker}")
-    shutil.rmtree(journal_path.parent, ignore_errors=False)
+        _fsync_directory(marker.parent)
+    transaction_root = journal_path.parent
+    shutil.rmtree(transaction_root, ignore_errors=False)
+    _fsync_directory(transaction_root.parent)
 
 
 def _recover_schema3_journal(
@@ -1307,7 +1448,7 @@ def _recover_schema3_journal(
             return False
         entries = payload.get("entries")
         assert isinstance(entries, list)
-        if state == "committed" or state == "cleaned":
+        if state in {"committed", "rolled_back", "cleaned"}:
             # Validation already proved every destination is the committed
             # generation.  Never roll it back based on owner PID.
             _cleanup_schema3_transaction(payload, journal_path)
@@ -1331,11 +1472,18 @@ def _recover_schema3_journal(
                     if not destination.is_file() or sha256_file(destination) != expected:
                         raise QuarantineError("schema3 new destination has ambiguous content")
                     _retry_unlink(destination)
+                    _fsync_directory(destination.parent)
                 continue
             backup = Path(str(backup_value))
             previous = str(entry["previous_sha256"])
-            if destination.is_file() and sha256_file(destination) == previous:
-                continue
+            if destination.is_file():
+                current = sha256_file(destination)
+                if current == previous:
+                    continue
+                if current != expected:
+                    raise QuarantineError("schema3 destination has ambiguous content")
+            else:
+                raise QuarantineError("schema3 prior destination disappeared")
             original = backup.read_bytes()
 
             def validate(path: Path, checksum: str = previous) -> None:
@@ -1343,6 +1491,11 @@ def _recover_schema3_journal(
                     raise OSError(f"schema3 rollback checksum mismatch: {path}")
 
             atomic_write_bytes(destination, original, validate)
+        payload["state"] = "rolled_back"
+        payload["status"] = "rolled_back"
+        payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+        payload["rollback_completed_at"] = payload["updated_at"]
+        _write_journal(journal_path, payload)
         _cleanup_schema3_transaction(payload, journal_path)
         return True
     finally:
@@ -1689,6 +1842,7 @@ def _acquire_group_locks(
                         written = os.write(descriptor, payload)
                         if written != len(payload):
                             raise OSError("atomic write lock ownership write was incomplete")
+                        os.fsync(descriptor)
                     except BaseException:
                         # The lock was created by this process.  Close the
                         # descriptor before removing the partial ownership
@@ -1701,6 +1855,7 @@ def _acquire_group_locks(
                         raise
                     os.close(descriptor)
                     descriptor = None
+                    _fsync_directory(parent)
                     locks.append(lock)
                     if tokens_out is not None:
                         tokens_out[lock.resolve()] = token
@@ -1885,6 +2040,7 @@ def atomic_write_group(
                     handle.write(original)
                     handle.flush()
                     os.fsync(handle.fileno())
+                _fsync_directory(transaction_root)
             staged_path = _stage_request(request, validate=False)
             staged[destination] = staged_path
             expected = hashlib.sha256(request.payload).hexdigest()
@@ -1922,8 +2078,24 @@ def atomic_write_group(
         journal_payload["updated_at"] = datetime.now(timezone.utc).isoformat()
         _write_journal(journal_path, journal_payload)
         hook("committing")
+        expected_checksums = journal_payload.get("expected_checksums")
+        if not isinstance(expected_checksums, dict):
+            raise QuarantineError("schema3 expected checksum evidence is missing")
         for destination in destinations:
-            staged[destination].replace(destination)
+            request = by_destination[destination]
+            staged_path = staged[destination]
+            expected_value = expected_checksums.get(str(destination))
+            if not isinstance(expected_value, str):
+                raise QuarantineError("schema3 expected checksum evidence is incomplete")
+            expected = expected_value
+            if not staged_path.is_file() or sha256_file(staged_path) != expected:
+                raise OSError(f"staged payload checksum mismatch: {staged_path}")
+            request.validator(staged_path)
+            if sha256_file(staged_path) != expected:
+                raise OSError(f"staged payload checksum mismatch: {staged_path}")
+            _replace_destination_with_retry(staged[destination], destination)
+        for parent in _canonical_paths(destination.parent for destination in destinations):
+            _fsync_directory(parent)
         journal_payload["state"] = "committed"
         journal_payload["status"] = "committed"
         journal_payload["committed_at"] = datetime.now(timezone.utc).isoformat()
@@ -1962,20 +2134,31 @@ def atomic_write_group(
         raise
     finally:
         primary_error = sys.exc_info()[1]
+        cleanup_error: BaseException | None = None
         if not interrupted and not recovery_pending and journal_path.is_file() and journal_payload is not None:
             try:
                 _cleanup_schema3_transaction(journal_payload, journal_path)
-            except BaseException as cleanup_error:
-                if primary_error is not None:
-                    raise primary_error from cleanup_error
-                raise
+            except BaseException as error:
+                cleanup_error = error
+        release_error: BaseException | None = None
         if guards is not None:
             try:
-                guards.close(primary_error=primary_error)
-            except BaseException as release_error:
-                if primary_error is not None:
-                    raise primary_error from release_error
-                raise
+                guards.close()
+            except BaseException as error:
+                release_error = error
+        if primary_error is not None:
+            if cleanup_error is not None:
+                if release_error is not None:
+                    cleanup_error.__context__ = release_error
+                raise primary_error from cleanup_error
+            if release_error is not None:
+                raise primary_error from release_error
+        if cleanup_error is not None:
+            if release_error is not None:
+                raise cleanup_error from release_error
+            raise cleanup_error
+        if release_error is not None:
+            raise release_error
 
 def atomic_write_json(destination: Path, payload: object) -> AtomicWriteResult:
     encoded = (json.dumps(payload, indent=2, default=str) + "\n").encode("utf-8")

@@ -520,6 +520,8 @@ def _validate_v2_auto_recovery(payload: dict[str, object], journal: Path) -> str
     if actual != expected_locks:
         return "schema2 sealed journal guard set is incomplete"
     state = payload.get("state")
+    if not isinstance(state, str):
+        return "schema2 state must be a string"
     if state in {"validating", "ready_to_commit", "committing", "manifest_publish", "committed"}:
         entries = payload.get("entries")
         staged = payload.get("staged_paths")
@@ -682,12 +684,26 @@ def recover_incomplete_transactions(
                 journal,
                 transaction_id,
                 f"journal state {journal_state!r} requires manual review",
+                state="quarantined" if journal_state == "quarantined" else "recovery_required",
             )
             results.append(result)
             _emit_recovery_event(result, resolved_event_path)
             continue
         try:
             recovered = atomic_io._recover_journal(journal, force=True)
+        except atomic_io.QuarantineError as exc:
+            # An immutable-authority conflict or ambiguous destination is not
+            # a retryable rollback failure.  Preserve the journal and report
+            # quarantine so operators cannot mistake it for a transient retry.
+            result = _required_result(
+                journal,
+                transaction_id,
+                f"rollback quarantined: {exc}",
+                state="quarantined",
+            )
+            results.append(result)
+            _emit_recovery_event(result, resolved_event_path)
+            continue
         except (OSError, KeyError, TypeError, ValueError, ValidationError) as exc:
             result = _required_result(journal, transaction_id, f"rollback failed: {exc}")
             results.append(result)
@@ -698,7 +714,7 @@ def recover_incomplete_transactions(
             results.append(result)
             _emit_recovery_event(result, resolved_event_path)
             continue
-        result_state = "committed" if journal_state == "committed" else "rolled_back"
+        result_state = "committed" if journal_state in {"committed", "cleaned"} else "rolled_back"
         reason = (
             "verified committed generation retained"
             if result_state == "committed"

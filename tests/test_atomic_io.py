@@ -174,11 +174,16 @@ def test_stale_group_lock_recovers_prepared_transaction(tmp_path):
         encoding="utf-8",
     )
 
-    wait_for_atomic_group(destination)
+    with pytest.raises(TimeoutError):
+        wait_for_atomic_group(destination, timeout_seconds=0.01)
 
-    assert destination.read_bytes() == b"old"
-    assert not lock.exists()
-    assert not transaction_root.exists()
+    from etf_cockpit.operations.recovery import recover_incomplete_transactions
+
+    outcome = recover_incomplete_transactions(tmp_path, event_path=tmp_path / "events.json")[0]
+    assert outcome.state == "quarantined"
+    assert destination.read_bytes() == b"new"
+    assert lock.exists()
+    assert transaction_root.exists()
 
 
 def test_group_failure_removes_newly_created_first_destination(tmp_path, monkeypatch):

@@ -37,17 +37,19 @@ def _interrupted_transaction(tmp_path: Path, state: str, *, corrupt_payload: boo
     staged.write_bytes(b"corrupt" if corrupt_payload else b"new")
     if state in {"committing", "manifest_publish"}:
         destination.write_bytes(b"new")
+    marker = (destination.parent / ".atomic-write-group.lock").resolve()
     journal = transaction_root / "journal.json"
     journal.write_text(
         json.dumps(
             {
                 "schema_version": 2,
+                "guard_protocol": "sealed-v1",
                 "transaction_id": f"tx-{state}",
                 "workflow_run_id": "workflow-1",
                 "transaction_type": "canonical_refresh",
                 "owner_pid": 999999,
                 "state": state,
-                "affected_dataset_ids": ["canonical"],
+                "affected_dataset_ids": [str(destination.resolve())],
                 "base_generation_ids": {"canonical": "generation-old"},
                 "entries": [
                     {
@@ -60,7 +62,8 @@ def _interrupted_transaction(tmp_path: Path, state: str, *, corrupt_payload: boo
                 ],
                 "staged_paths": [str(staged.resolve())],
                 "final_paths": [str(destination.resolve())],
-                "lock_paths": [],
+                "lock_paths": [str(marker)],
+                "lock_tokens": {str(marker): "fixture-token"},
                 "expected_checksums": {
                     str(destination.resolve()): hashlib.sha256(b"new").hexdigest()
                 },
@@ -114,7 +117,7 @@ def test_explicit_manual_review_state_is_preserved_without_payload_mutation(
 
     outcome = _recover(tmp_path)
 
-    assert outcome[0].state == "recovery_required"
+    assert outcome[0].state == manual_state
     assert outcome[0].startup_mode == "read_only"
     assert "manual" in outcome[0].reason.lower()
     assert destination.read_bytes() == before_destination
@@ -219,7 +222,7 @@ def test_corrupt_or_incomplete_transaction_is_not_promoted(tmp_path: Path, damag
     assert transaction_root.exists()
 
 
-def test_legacy_v1_prepared_journal_remains_recoverable(tmp_path: Path) -> None:
+def test_legacy_v1_prepared_journal_is_quarantined_without_mutation(tmp_path: Path) -> None:
     destination = tmp_path / "data" / "legacy.bin"
     destination.parent.mkdir(parents=True)
     destination.write_bytes(b"new")
@@ -248,8 +251,9 @@ def test_legacy_v1_prepared_journal_remains_recoverable(tmp_path: Path) -> None:
 
     outcome = _recover(tmp_path)
 
-    assert outcome[0].state == "rolled_back"
-    assert destination.read_bytes() == b"old"
+    assert outcome[0].state == "quarantined"
+    assert destination.read_bytes() == b"new"
+    assert (root / "journal.json").exists()
 
 
 def test_legacy_journal_does_not_cleanup_unowned_lock_path(tmp_path: Path) -> None:
@@ -286,7 +290,7 @@ def test_legacy_journal_does_not_cleanup_unowned_lock_path(tmp_path: Path) -> No
 
     outcome = _recover(tmp_path)
 
-    assert outcome[0].state == "recovery_required"
+    assert outcome[0].state == "quarantined"
     assert outcome[0].startup_mode == "read_only"
     assert destination.read_bytes() == b"new"
     assert important.read_bytes() == b"keep"
@@ -328,7 +332,7 @@ def test_legacy_journal_does_not_cleanup_unowned_staged_path(tmp_path: Path) -> 
 
     outcome = _recover(tmp_path)
 
-    assert outcome[0].state == "recovery_required"
+    assert outcome[0].state == "quarantined"
     assert outcome[0].startup_mode == "read_only"
     assert destination.read_bytes() == b"new"
     assert important.read_bytes() == b"new"
@@ -376,7 +380,7 @@ def test_v2_journal_does_not_cleanup_canonical_lock_outside_writer_group(
 
     outcome = _recover(tmp_path)
 
-    assert outcome[0].state == "recovery_required"
+    assert outcome[0].state == "quarantined"
     assert outcome[0].startup_mode == "read_only"
     assert Path(str(payload["entries"][0]["destination"])).read_bytes() == b"new"
     assert unrelated_lock.exists()
@@ -448,7 +452,7 @@ def test_migration_recovers_real_nested_writer_and_emits_authoritative_event(tmp
     destination.write_bytes(b"old")
 
     def interrupt(state: str, _journal: Path) -> None:
-        if state == "manifest_publish":
+        if state == "committing":
             raise atomic_io.AtomicWriteInterrupted(state)
 
     with pytest.raises(atomic_io.AtomicWriteInterrupted):
@@ -478,14 +482,16 @@ def _valid_v2_payload(root: Path, transaction_id: str = "valid") -> tuple[Path, 
     staged = destination.parent / ".current.bin.valid.group.tmp"
     staged.write_bytes(b"new")
     expected = hashlib.sha256(b"new").hexdigest()
+    marker = (destination.parent / ".atomic-write-group.lock").resolve()
     payload: dict[str, object] = {
         "schema_version": 2,
+        "guard_protocol": "sealed-v1",
         "transaction_id": transaction_id,
         "workflow_run_id": "workflow-1",
         "transaction_type": "canonical_refresh",
         "owner_pid": 999999,
         "state": "committing",
-        "affected_dataset_ids": ["canonical"],
+        "affected_dataset_ids": [str(destination.resolve())],
         "base_generation_ids": {"canonical": "generation-old"},
         "entries": [{
             "destination": str(destination.resolve()),
@@ -496,7 +502,8 @@ def _valid_v2_payload(root: Path, transaction_id: str = "valid") -> tuple[Path, 
         }],
         "staged_paths": [str(staged.resolve())],
         "final_paths": [str(destination.resolve())],
-        "lock_paths": [],
+        "lock_paths": [str(marker)],
+        "lock_tokens": {str(marker): "fixture-token"},
         "expected_checksums": {str(destination.resolve()): expected},
         "started_at": "2026-07-11T00:00:00+00:00",
         "updated_at": "2026-07-11T00:00:01+00:00",
@@ -539,7 +546,8 @@ def test_structurally_invalid_v2_journal_is_preserved_for_manual_review(
 
     result = _recover(tmp_path)[0]
 
-    assert result.state == "recovery_required"
+    expected_state = "quarantined" if damage == "contradictory_maps" else "recovery_required"
+    assert result.state == expected_state
     assert result.startup_mode == "read_only"
     assert expected_reason in result.reason.lower()
     assert journal.exists()
@@ -556,7 +564,7 @@ def test_non_hashable_v2_state_is_preserved_for_manual_review(tmp_path: Path) ->
     except BaseException as exc:  # pragma: no cover - regression assertion below
         pytest.fail(f"non-hashable v2 state escaped recovery: {exc!r}")
 
-    assert result.state == "recovery_required"
+    assert result.state == "quarantined"
     assert result.startup_mode == "read_only"
     assert "state" in result.reason.lower()
     assert journal.exists()
@@ -618,9 +626,9 @@ def test_v2_journal_cannot_mutate_a_path_outside_supplied_recovery_root(tmp_path
 
     result = _recover(root)[0]
 
-    assert result.state == "recovery_required"
+    assert result.state == "quarantined"
     assert result.startup_mode == "read_only"
-    assert "outside recovery root" in result.reason.lower()
+    assert "guard set" in result.reason.lower()
     assert outside.read_bytes() == b"do-not-touch"
     assert journal.exists()
 

@@ -15,7 +15,7 @@ import time
 import uuid
 
 from etf_cockpit.application.screening import ScreenQuery, ScreenResult
-from etf_cockpit.core.atomic_io import atomic_write_bytes
+from etf_cockpit.core.atomic_io import _fsync_directory, atomic_write_bytes
 from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.paths import DATA_DIR
 from etf_cockpit.core.process import pid_is_alive as _pid_alive
@@ -274,6 +274,7 @@ def _revision_lock_body(directory: Path, *, deadline: float | None = None):
                 written = os.write(descriptor, payload)
                 if written != len(payload):
                     raise OSError("saved screen revision lock ownership write was incomplete")
+                os.fsync(descriptor)
             except BaseException as write_error:
                 # The newly-created lock is ours even when ownership evidence
                 # cannot be written.  Remove it before propagating the write
@@ -286,6 +287,7 @@ def _revision_lock_body(directory: Path, *, deadline: float | None = None):
                 descriptor = None
                 try:
                     lock.unlink(missing_ok=True)
+                    _fsync_directory(lock.parent)
                     if lock.exists():
                         raise OSError(f"saved screen revision lock remained: {lock}")
                 except BaseException as cleanup_error:
@@ -302,6 +304,7 @@ def _revision_lock_body(directory: Path, *, deadline: float | None = None):
                     raise close_error from cleanup_error
                 raise
             descriptor = None
+            _fsync_directory(lock.parent)
             break
         if lock.exists():
             try:
@@ -331,6 +334,7 @@ def _revision_lock_body(directory: Path, *, deadline: float | None = None):
                         raise ValueError("malformed saved screen lock ownership")
                     if not _pid_alive(owner_pid):
                         lock.unlink(missing_ok=True)
+                        _fsync_directory(lock.parent)
                         if lock.exists():
                             raise OSError(f"saved screen revision lock remained: {lock}")
                         continue
@@ -369,13 +373,18 @@ def _remove_owned_revision_lock(lock: Path, token: str) -> bool:
         raise OSError(f"cannot verify saved screen lock ownership: {lock}") from error
     except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
         return False
+    owner_pid = payload.get("owner_pid") if isinstance(payload, dict) else None
     if (
         isinstance(payload, dict)
+        and set(payload) == {"schema_version", "lock_type", "owner_pid", "token"}
         and payload.get("schema_version") == _REVISION_LOCK_SCHEMA_VERSION
         and payload.get("lock_type") == "screen_revision"
+        and type(owner_pid) is int
+        and owner_pid > 0
         and payload.get("token") == token
     ):
         lock.unlink(missing_ok=True)
+        _fsync_directory(lock.parent)
         if lock.exists():
             raise OSError(f"saved screen revision lock remained: {lock}")
         return True

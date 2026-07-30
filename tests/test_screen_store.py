@@ -162,7 +162,12 @@ def test_revision_lock_retries_one_shot_windows_open_sharing_violation(
 
     monkeypatch.setattr(screen_store.os, "open", flaky_open)
     with screen_store._revision_lock(directory):
-        assert (directory / ".revision.lock").read_text(encoding="ascii").strip() == str(os.getpid())
+        marker = json.loads((directory / ".revision.lock").read_text(encoding="ascii"))
+        assert set(marker) == {"schema_version", "lock_type", "owner_pid", "token"}
+        assert marker["schema_version"] == screen_store._REVISION_LOCK_SCHEMA_VERSION
+        assert marker["lock_type"] == "screen_revision"
+        assert marker["owner_pid"] == os.getpid()
+        assert isinstance(marker["token"], str) and marker["token"]
     assert calls == 2
     assert not (directory / ".revision.lock").exists()
 
@@ -260,7 +265,12 @@ def test_revision_lock_reclaims_only_dead_stale_owner(tmp_path, monkeypatch) -> 
     os.utime(lock, (stale, stale))
     monkeypatch.setattr(screen_store, "_pid_alive", lambda pid: pid != 999999)
     with screen_store._revision_lock(directory):
-        assert lock.read_text(encoding="ascii").strip() == str(os.getpid())
+        marker = json.loads(lock.read_text(encoding="ascii"))
+        assert set(marker) == {"schema_version", "lock_type", "owner_pid", "token"}
+        assert marker["schema_version"] == screen_store._REVISION_LOCK_SCHEMA_VERSION
+        assert marker["lock_type"] == "screen_revision"
+        assert marker["owner_pid"] == os.getpid()
+        assert isinstance(marker["token"], str) and marker["token"]
 
 
 def test_revision_lock_ownership_write_failure_cleans_owned_lock(tmp_path, monkeypatch) -> None:
