@@ -1097,7 +1097,8 @@ def _validate_schema3_payload(payload: dict[str, object], journal_path: Path) ->
         return False
     if payload.get("status", state) != state:
         return False
-    if type(payload.get("owner_pid")) is not int or int(payload["owner_pid"]) <= 0:
+    owner_pid = payload.get("owner_pid")
+    if type(owner_pid) is not int or owner_pid <= 0:
         return False
     for field in ("entries", "staged_paths", "final_paths", "marker_paths", "expected_checksums"):
         if field not in payload:
@@ -1161,6 +1162,16 @@ def _validate_schema3_payload(payload: dict[str, object], journal_path: Path) ->
         entry_staged.append(staged)
         if staged.is_file() and sha256_file(staged) != expected:
             return False
+    if any(not isinstance(value, str) or not _path_is_contained(value, roots[0]) for value in staged_values):
+        return False
+    resolved_staged_values = tuple(Path(value).resolve(strict=False) for value in staged_values)
+    if len(set(resolved_staged_values)) != len(resolved_staged_values) or set(resolved_staged_values) != set(entry_staged):
+        return False
+    if any(not isinstance(value, str) or not Path(value).is_absolute() for value in final_values):
+        return False
+    resolved_final_values = tuple(Path(value).resolve(strict=False) for value in final_values)
+    if any(path not in authority.destinations for path in resolved_final_values):
+        return False
     complete = tuple(entry_destinations) == authority.destinations and len(entries) == len(authority.destinations)
     complete = complete and tuple(str(path) for path in staged_values) == tuple(str(path) for path in entry_staged)
     complete = complete and tuple(str(path) for path in final_values) == tuple(str(path) for path in entry_destinations)
@@ -1271,9 +1282,10 @@ def _recover_schema3_journal(
                 return False
             guards, payload = discovered
         else:
-            payload = _read_object(journal_path)
-            if payload is None:
+            reread_payload = _read_object(journal_path)
+            if reread_payload is None:
                 return False
+            payload = reread_payload
             required = _guard_parents_from_payload(payload)
             if not required:
                 return False
@@ -1890,10 +1902,14 @@ def atomic_write_group(
             expected_checksums[str(destination)] = expected
             journal_payload["updated_at"] = datetime.now(timezone.utc).isoformat()
             _write_journal(journal_path, journal_payload)
+        assert journal_payload is not None
+        expected_checksums_final = journal_payload.get("expected_checksums")
+        if not isinstance(expected_checksums_final, dict):
+            raise QuarantineError("schema3 expected checksum evidence is missing")
         for destination in destinations:
             request = by_destination[destination]
             request.validator(staged[destination])
-            expected = str(journal_payload["expected_checksums"][str(destination)])
+            expected = str(expected_checksums_final[str(destination)])
             if sha256_file(staged[destination]) != expected:
                 raise OSError(f"staged payload checksum mismatch: {staged[destination]}")
         journal_payload["state"] = "prepared"
