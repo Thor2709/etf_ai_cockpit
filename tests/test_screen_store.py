@@ -3,10 +3,13 @@ from __future__ import annotations
 import csv
 from concurrent.futures import ThreadPoolExecutor
 import json
+import os
+import time
 
 import pytest
 
 from etf_cockpit.application.screening import ScreenFilter, ScreenQuery, bind_query, run_screen
+from etf_cockpit.data import screen_store
 from etf_cockpit.data.screen_store import export_screen_csv, list_saved_screens, load_screen, save_screen
 
 
@@ -137,3 +140,75 @@ def test_saved_screen_rejects_oversized_deep_or_boolean_revision_records(tmp_pat
     path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError, match="invalid types"):
         load_screen("boolean revision", directory=tmp_path)
+
+
+def test_revision_lock_retries_one_shot_windows_open_sharing_violation(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    directory = tmp_path / "screen"
+    directory.mkdir()
+    real_open = screen_store.os.open
+    calls = 0
+
+    def flaky_open(path, flags, mode=0o777):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise PermissionError("sharing violation")
+        return real_open(path, flags, mode)
+
+    monkeypatch.setattr(screen_store.os, "open", flaky_open)
+    with screen_store._revision_lock(directory):
+        assert (directory / ".revision.lock").read_text(encoding="ascii").strip() == str(os.getpid())
+    assert calls == 2
+    assert not (directory / ".revision.lock").exists()
+
+
+def test_revision_lock_persistent_open_sharing_violation_times_out(tmp_path, monkeypatch) -> None:
+    directory = tmp_path / "screen"
+    directory.mkdir()
+    monkeypatch.setattr(screen_store, "_pid_alive", lambda _pid: True)
+    ticks = iter((10.0, 15.0))
+    monkeypatch.setattr(screen_store.time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(screen_store.os, "open", lambda *_args: (_ for _ in ()).throw(PermissionError("sharing violation")))
+    with pytest.raises(TimeoutError):
+        with screen_store._revision_lock(directory):
+            pass
+
+
+@pytest.mark.parametrize("owner_text", ["not-a-pid", str(os.getpid())])
+def test_revision_lock_does_not_reclaim_malformed_or_live_stale_owner(tmp_path, owner_text: str, monkeypatch) -> None:
+    directory = tmp_path / "screen"
+    directory.mkdir()
+    lock = directory / ".revision.lock"
+    lock.write_text(owner_text + "\n", encoding="ascii")
+    stale = time.time() - 60
+    os.utime(lock, (stale, stale))
+    ticks = iter((10.0, 15.0))
+    monkeypatch.setattr(screen_store.time, "monotonic", lambda: next(ticks))
+    with pytest.raises(TimeoutError):
+        with screen_store._revision_lock(directory):
+            pass
+    assert lock.exists()
+
+
+def test_revision_lock_reclaims_only_dead_stale_owner(tmp_path, monkeypatch) -> None:
+    directory = tmp_path / "screen"
+    directory.mkdir()
+    lock = directory / ".revision.lock"
+    lock.write_text("999999\n", encoding="ascii")
+    stale = time.time() - 60
+    os.utime(lock, (stale, stale))
+    monkeypatch.setattr(screen_store, "_pid_alive", lambda pid: pid != 999999)
+    with screen_store._revision_lock(directory):
+        assert lock.read_text(encoding="ascii").strip() == str(os.getpid())
+
+
+def test_revision_lock_ownership_write_failure_cleans_owned_lock(tmp_path, monkeypatch) -> None:
+    directory = tmp_path / "screen"
+    directory.mkdir()
+    monkeypatch.setattr(screen_store.os, "write", lambda *_args: (_ for _ in ()).throw(PermissionError("denied")))
+    with pytest.raises(PermissionError):
+        with screen_store._revision_lock(directory):
+            pass
+    assert not (directory / ".revision.lock").exists()

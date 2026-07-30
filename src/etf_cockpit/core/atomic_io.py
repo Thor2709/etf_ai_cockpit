@@ -336,9 +336,8 @@ def _recover_journal(journal_path: Path, *, force: bool = False) -> bool:
     state = payload.get("state")
     if not isinstance(state, str) or state in {"recovery_required", "quarantined"}:
         return False
-    try:
-        owner_pid = int(payload.get("owner_pid", 0))
-    except (TypeError, ValueError):
+    owner_pid = payload.get("owner_pid")
+    if type(owner_pid) is not int or owner_pid <= 0:
         return False
     if not force and _pid_alive(owner_pid):
         return False
@@ -373,7 +372,24 @@ def _recover_lock(lock: Path) -> bool:
         lock_payload = json.loads(lock.read_text(encoding="utf-8"))
         if not isinstance(lock_payload, dict):
             return False
-        if lock_payload.get("lock_type") == "reader":
+        lock_type = lock_payload.get("lock_type", "writer")
+        lock_owner = lock_payload.get("owner_pid")
+        if type(lock_owner) is not int or lock_owner <= 0:
+            return False
+        # Reader locks have no journal to recover.  They are reclaimable only
+        # with exact ownership evidence and a confirmed dead owner; malformed
+        # and live reader locks remain contention.
+        if lock_type == "reader":
+            if set(lock_payload) != {"owner_pid", "lock_type"}:
+                return False
+            if _pid_alive(lock_owner):
+                return False
+            try:
+                lock.unlink(missing_ok=True)
+            except OSError:
+                return False
+            return True
+        if lock_type != "writer":
             return False
         journal_value = lock_payload["journal_path"]
         if not isinstance(journal_value, str) or not Path(journal_value).is_absolute():
@@ -386,9 +402,6 @@ def _recover_lock(lock: Path) -> bool:
         try:
             resolved_lock.parent.relative_to(recovery_root.resolve())
         except ValueError:
-            return False
-        lock_owner = lock_payload.get("owner_pid")
-        if type(lock_owner) is not int:
             return False
         # A live owner still has the journal open for atomic replacement.  Do
         # not read it while the writer is publishing a lifecycle state: on
@@ -441,31 +454,51 @@ def _acquire_group_locks(
             parent.mkdir(parents=True, exist_ok=True)
             lock = parent / ".atomic-write-group.lock"
             while True:
+                descriptor: int | None = None
                 try:
                     descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                    os.write(
-                        descriptor,
-                        json.dumps(
-                            {
-                                "owner_pid": os.getpid(),
-                                "lock_type": lock_type,
-                                **(
-                                    {"journal_path": str(journal_path.resolve())}
-                                    if journal_path is not None
-                                    else {}
-                                ),
-                            }
-                        ).encode("utf-8"),
-                    )
+                    payload = json.dumps(
+                        {
+                            "owner_pid": os.getpid(),
+                            "lock_type": lock_type,
+                            **(
+                                {"journal_path": str(journal_path.resolve())}
+                                if journal_path is not None
+                                else {}
+                            ),
+                        }
+                    ).encode("utf-8")
+                    try:
+                        written = os.write(descriptor, payload)
+                        if written != len(payload):
+                            raise OSError("atomic write lock ownership write was incomplete")
+                    except BaseException:
+                        # The lock was created by this process.  Close the
+                        # descriptor before removing the partial ownership
+                        # evidence and propagate the original write failure.
+                        try:
+                            os.close(descriptor)
+                        finally:
+                            descriptor = None
+                            lock.unlink(missing_ok=True)
+                        raise
                     os.close(descriptor)
+                    descriptor = None
                     locks.append(lock)
                     break
                 except FileExistsError:
-                    if _recover_lock(lock):
-                        continue
-                    if time.monotonic() >= deadline:
-                        raise TimeoutError(f"timed out waiting for atomic write lock: {lock}")
-                    time.sleep(0.025)
+                    pass
+                except PermissionError:
+                    # On Windows an exclusive open against an existing lock
+                    # can surface as a sharing-denied PermissionError.  The
+                    # open is contention; ownership-write PermissionError is
+                    # handled above and remains fatal.
+                    pass
+                if _recover_lock(lock):
+                    continue
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"timed out waiting for atomic write lock: {lock}")
+                time.sleep(0.025)
         return tuple(locks)
     except Exception:
         for lock in locks:

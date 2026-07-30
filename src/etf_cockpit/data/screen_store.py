@@ -24,6 +24,21 @@ _FORMULA_PREFIXES = ("=", "+", "-", "@")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
+def _pid_alive(pid: int) -> bool:
+    """Return whether *pid* is currently alive, conservatively."""
+
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        # Access denied means the process exists but is not inspectable.
+        return True
+    except OSError:
+        return False
+    return True
+
+
 def save_screen(
     name: str,
     query: ScreenQuery,
@@ -213,26 +228,57 @@ def _validate_record_file(path: Path) -> None:
 def _revision_lock(directory: Path):
     lock = directory / ".revision.lock"
     deadline = time.monotonic() + 5.0
-    descriptor: int | None = None
-    while descriptor is None:
+    while True:
+        descriptor: int | None = None
         try:
             descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            os.write(descriptor, f"{os.getpid()}\n".encode("ascii"))
+            payload = f"{os.getpid()}\n".encode("ascii")
+            try:
+                written = os.write(descriptor, payload)
+                if written != len(payload):
+                    raise OSError("saved screen revision lock ownership write was incomplete")
+            except BaseException:
+                # The newly-created lock is ours even when ownership evidence
+                # cannot be written.  Remove it before propagating the write
+                # failure; leaving a partial lock would deny all future saves.
+                try:
+                    os.close(descriptor)
+                finally:
+                    descriptor = None
+                    lock.unlink(missing_ok=True)
+                raise
+            else:
+                os.close(descriptor)
+                descriptor = None
+                break
         except FileExistsError:
+            pass
+        except PermissionError:
+            # Windows can report an exclusive-open sharing violation as
+            # PermissionError rather than FileExistsError.  Treat only the
+            # open attempt as contention; ownership-write failures above
+            # remain fatal and clean up our partial lock.
+            pass
+        if lock.exists():
             try:
                 if time.time() - lock.stat().st_mtime > 30:
-                    lock.unlink(missing_ok=True)
-                    continue
-            except OSError:
+                    owner_text = lock.read_text(encoding="ascii").strip()
+                    owner_pid = int(owner_text)
+                    if str(owner_pid) != owner_text or owner_pid <= 0:
+                        raise ValueError("malformed saved screen lock ownership")
+                    if not _pid_alive(owner_pid):
+                        lock.unlink(missing_ok=True)
+                        continue
+            except (OSError, UnicodeDecodeError, ValueError):
+                # Malformed or currently inaccessible ownership evidence is
+                # fail-closed.  Never reclaim based on age alone.
                 pass
-            if time.monotonic() >= deadline:
-                raise TimeoutError(f"timed out waiting for saved screen revision lock: {lock}")
-            time.sleep(0.01)
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"timed out waiting for saved screen revision lock: {lock}")
+        time.sleep(0.01)
     try:
         yield
     finally:
-        if descriptor is not None:
-            os.close(descriptor)
         lock.unlink(missing_ok=True)
 
 
