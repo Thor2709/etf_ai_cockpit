@@ -177,6 +177,34 @@ def _report_is_valid(label: str, report: Mapping[str, object]) -> bool:
             full_count = lanes["full_serial"][field][index]
             if safe_count + unsafe_count != combined_count or combined_count != full_count:
                 return False
+        if (
+            lanes["full_serial"]["collection_fingerprints"][index]
+            != lanes["candidate_combined"]["collection_fingerprints"][index]
+            or lanes["full_serial"]["result_fingerprints"][index]
+            != lanes["candidate_combined"]["result_fingerprints"][index]
+        ):
+            return False
+        safe_seconds = float(lanes["candidate_safe"]["timings"]["samples_seconds"][index])
+        unsafe_seconds = float(
+            lanes["candidate_unsafe"]["timings"]["samples_seconds"][index]
+        )
+        combined_seconds = float(
+            lanes["candidate_combined"]["timings"]["samples_seconds"][index]
+        )
+        wall_seconds = float(wall_samples[index])
+        if abs(combined_seconds - (safe_seconds + unsafe_seconds)) > 0.001:
+            return False
+        if wall_seconds + 0.002 < safe_seconds + unsafe_seconds:
+            return False
+    if any(
+        len(set(lanes[lane]["collection_fingerprints"])) != 1 for lane in _LANES
+    ):
+        return False
+    if any(
+        len(set(lanes[lane]["result_fingerprints"])) != 1
+        for lane in ("full_serial", "candidate_combined")
+    ):
+        return False
     expected_order = [
         ["full_serial", "candidate"] if index % 2 == 0 else ["candidate", "full_serial"]
         for index in range(sample_count)

@@ -266,6 +266,7 @@ def _pilot_report(*, status: str = "passed", result_suffix: str = "") -> dict[st
     }
     lanes: dict[str, dict[str, object]] = {}
     for lane, count in lane_shapes.items():
+        duration = 2.0 if lane == "candidate_combined" else 1.0
         lanes[lane] = {
             "collection_counts": [count, count],
             "result_counts": [count, count],
@@ -278,9 +279,9 @@ def _pilot_report(*, status: str = "passed", result_suffix: str = "") -> dict[st
                 ("b" if not result_suffix else "c") * 64,
             ],
             "timings": {
-                "samples_seconds": [1.0, 1.0],
-                "p50_seconds": 1.0,
-                "p95_seconds": 1.0,
+                "samples_seconds": [duration, duration],
+                "p50_seconds": duration,
+                "p95_seconds": duration,
             },
         }
     return {
@@ -321,9 +322,9 @@ def _pilot_report(*, status: str = "passed", result_suffix: str = "") -> dict[st
         "timings": {
             **{lane: value["timings"] for lane, value in lanes.items()},
             "candidate_wall": {
-                "samples_seconds": [1.0, 1.0],
-                "p50_seconds": 1.0,
-                "p95_seconds": 1.0,
+                "samples_seconds": [2.0, 2.0],
+                "p50_seconds": 2.0,
+                "p95_seconds": 2.0,
             },
         },
         "run_order": [["full_serial", "candidate"], ["candidate", "full_serial"]],
@@ -428,6 +429,49 @@ def test_cross_platform_aggregation_rejects_nonzero_exit_codes(tmp_path: Path) -
 
     assert report["status"] == "divergent"
     assert report["differences"]["windows_validity"] is False
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("impossible_wall", "nonrepeatable_collection", "result_mismatch"),
+)
+def test_cross_platform_aggregation_rejects_semantic_contradictions(
+    tmp_path: Path, mutation: str
+) -> None:
+    linux = tmp_path / "linux.json"
+    windows = tmp_path / "windows.json"
+    windows_report = _pilot_report()
+    if mutation == "impossible_wall":
+        windows_report["timings"]["candidate_wall"] = {
+            "samples_seconds": [0.0, 0.0],
+            "p50_seconds": 0.0,
+            "p95_seconds": 0.0,
+        }
+    elif mutation == "nonrepeatable_collection":
+        windows_report["lanes"]["candidate_safe"]["collection_fingerprints"][1] = (
+            "d" * 64
+        )
+        windows_report["lane_fingerprints"]["candidate_safe"]["collection"][1] = (
+            "d" * 64
+        )
+    else:
+        windows_report["lanes"]["candidate_combined"]["result_fingerprints"] = [
+            "e" * 64,
+            "e" * 64,
+        ]
+        windows_report["lane_fingerprints"]["candidate_combined"]["results"] = [
+            "e" * 64,
+            "e" * 64,
+        ]
+    _write_platform_reports(
+        linux,
+        windows,
+        windows_report=windows_report,
+    )
+
+    report = aggregate_parallel_pilot.compare_reports(linux, windows)
+
+    assert report["status"] == "divergent"
     assert report["differences"]["windows_validity"] is False
 
 
