@@ -181,10 +181,13 @@ def test_workflow_isolates_pilot_and_keeps_aggregation_non_authoritative() -> No
     )[0]
 
     assert pilot.index("Configure isolated user profile") < pilot.index("Verify protected environment")
-    assert pilot.index("Verify protected environment") < pilot.index("Run repeated report-only four-worker pilot")
+    assert pilot.index("Verify protected environment") < pilot.index("Prepare pilot evidence directory")
+    assert pilot.index("Prepare pilot evidence directory") < pilot.index(
+        "Run repeated report-only four-worker pilot"
+    )
     assert "python scripts/release_gate.py --root . --verify-environment" in pilot
     assert "ETF_COCKPIT_RELEASE_SIGNING_KEY" not in pilot
-    assert "Prepare pilot evidence directory" in pilot
+    assert "Ensure pilot evidence directory for upload" in pilot
     assert "parallel-pilot-aggregate:" in workflow
     assert "actions/download-artifact@v4" in aggregate
     assert "scripts/aggregate_parallel_pilot.py" in aggregate

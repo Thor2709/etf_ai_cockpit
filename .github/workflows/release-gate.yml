@@ -298,10 +298,6 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Prepare pilot evidence directory
-        shell: bash
-        run: mkdir -p "artifacts/parallel-pilot/${{ matrix.platform }}"
-
       - name: Set up pinned Python and cache
         id: setup-python
         uses: actions/setup-python@v5
@@ -340,6 +336,10 @@ jobs:
           ETF_COCKPIT_SETUP_PYTHON_CACHE_HIT: ${{ steps.setup-python.outputs.cache-hit }}
         run: python scripts/release_gate.py --root . --verify-environment
 
+      - name: Prepare pilot evidence directory
+        shell: bash
+        run: mkdir -p "artifacts/parallel-pilot/${{ matrix.platform }}"
+
       - name: Run repeated report-only four-worker pilot
         shell: bash
         env:
@@ -350,6 +350,16 @@ jobs:
             --root . \
             --output "artifacts/parallel-pilot/${{ matrix.platform }}" \
             --repetitions 2
+
+      - name: Ensure pilot evidence directory for upload
+        if: always()
+        shell: bash
+        run: |
+          evidence="artifacts/parallel-pilot/${{ matrix.platform }}"
+          mkdir -p "$evidence"
+          if [[ ! -e "$evidence/parallel-pilot.json" ]]; then
+            printf 'pilot did not produce a report before failure\n' > "$evidence/pilot-failure.marker"
+          fi
 
       - name: Upload parallel pilot evidence
         if: always()
