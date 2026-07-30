@@ -157,6 +157,19 @@ def test_cross_platform_aggregation_rejects_result_and_status_divergence(tmp_pat
     assert json.loads(output.read_text(encoding="utf-8"))["status"] == "divergent"
 
 
+def test_cross_platform_aggregation_accepts_matching_reports(tmp_path: Path) -> None:
+    linux = tmp_path / "linux.json"
+    windows = tmp_path / "windows.json"
+    payload = json.dumps(_pilot_report())
+    linux.write_text(payload, encoding="utf-8")
+    windows.write_text(payload, encoding="utf-8")
+
+    report = aggregate_parallel_pilot.compare_reports(linux, windows)
+
+    assert report["status"] == "passed"
+    assert report["differences"] == {}
+
+
 def test_workflow_isolates_pilot_and_keeps_aggregation_non_authoritative() -> None:
     root = Path(__file__).resolve().parents[1]
     workflow = (root / ".github" / "workflows" / "release-gate.yml").read_text(encoding="utf-8")
