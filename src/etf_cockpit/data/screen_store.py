@@ -232,6 +232,12 @@ def _revision_lock(directory: Path):
         descriptor: int | None = None
         try:
             descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except (FileExistsError, PermissionError):
+            # Windows can report an exclusive open against an existing lock
+            # as a sharing-denied PermissionError.  The open itself is
+            # contention; ownership-write failures below remain fatal.
+            pass
+        else:
             payload = f"{os.getpid()}\n".encode("ascii")
             try:
                 written = os.write(descriptor, payload)
@@ -247,18 +253,14 @@ def _revision_lock(directory: Path):
                     descriptor = None
                     lock.unlink(missing_ok=True)
                 raise
-            else:
+            try:
                 os.close(descriptor)
+            except BaseException:
                 descriptor = None
-                break
-        except FileExistsError:
-            pass
-        except PermissionError:
-            # Windows can report an exclusive-open sharing violation as
-            # PermissionError rather than FileExistsError.  Treat only the
-            # open attempt as contention; ownership-write failures above
-            # remain fatal and clean up our partial lock.
-            pass
+                lock.unlink(missing_ok=True)
+                raise
+            descriptor = None
+            break
         if lock.exists():
             try:
                 if time.time() - lock.stat().st_mtime > 30:
