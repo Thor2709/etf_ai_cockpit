@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -56,7 +57,10 @@ def test_profile_records_repeated_serial_parallel_parity_and_timings(
         return subprocess.CompletedProcess(command, 0, "", ""), 4.0
 
     monkeypatch.setattr(profile_parallel_pytest, "_run", completed)
-    report = profile_parallel_pytest.profile(root, tmp_path / "evidence", 2)
+    ticks = iter((100.0, 108.0, 200.0, 208.0))
+    report = profile_parallel_pytest.profile(
+        root, tmp_path / "evidence", 2, clock=lambda: next(ticks)
+    )
 
     assert report["status"] == "passed"
     assert report["mode"] == "report_only"
@@ -73,7 +77,7 @@ def test_profile_records_repeated_serial_parallel_parity_and_timings(
     assert len(report["lane_fingerprints"]["full_serial"]["collection"]) == 2
     assert report["lane_counts"]["candidate_combined"] == {"collection": [2, 2], "results": [2, 2]}
     assert report["lane_codes"]["candidate_safe"]["collection"] == [0, 0]
-    assert report["timings"]["candidate_combined"]["p50_seconds"] == 8.0
+    assert report["timings"]["candidate_wall"]["p50_seconds"] == 2.0
     assert len(report["cache"]["key_sha256"]) == 64
     assert (tmp_path / "evidence" / "collection-full_serial-1.stdout.log").is_file()
     assert (tmp_path / "evidence" / "tests-unsafe-2.stderr.log").is_file()
@@ -142,6 +146,58 @@ def test_duplicate_junit_identity_is_rejected(tmp_path: Path) -> None:
         profile_parallel_pytest._junit_results(junit)
 
 
+def test_real_pytest_manifest_is_post_deselection_and_disjoint(tmp_path: Path) -> None:
+    root = Path(__file__).resolve().parents[1]
+    selected: dict[str, set[str]] = {}
+    for label, selector in (
+        ("full", []),
+        ("safe", ["-m", "not serial"]),
+        ("unsafe", ["-m", "serial"]),
+    ):
+        manifest = tmp_path / f"{label}.json"
+        environment = os.environ.copy()
+        environment["ETF_COCKPIT_PILOT_NODEID_MANIFEST"] = str(manifest)
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "tests/test_screen_store.py::test_saved_screen_revisions_are_immutable_and_replayable",
+                "tests/operations/test_transactions.py::test_group_reader_cannot_observe_mixed_generation_during_activation",
+                *selector,
+                "--collect-only",
+                "-q",
+            ],
+            cwd=root,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr
+        selected[label] = set(json.loads(manifest.read_text(encoding="utf-8")))
+    assert selected["full"]
+    assert selected["safe"]
+    assert selected["unsafe"]
+    assert selected["safe"].isdisjoint(selected["unsafe"])
+    assert selected["safe"] | selected["unsafe"] == selected["full"]
+
+
+def test_aggregate_rejects_forged_projection_and_timing_evidence(tmp_path: Path) -> None:
+    linux = tmp_path / "linux.json"
+    windows = tmp_path / "windows.json"
+    payload = _pilot_report()
+    payload["lane_counts"]["full_serial"]["collection"][0] += 1
+    payload["timings"]["candidate_wall"]["samples_seconds"][0] = -1.0
+    windows_payload = _pilot_report()
+    windows_payload["platform"] = "windows"
+    linux.write_text(json.dumps(payload), encoding="utf-8")
+    windows.write_text(json.dumps(windows_payload), encoding="utf-8")
+    report = aggregate_parallel_pilot.compare_reports(linux, windows)
+    assert report["status"] == "divergent"
+    assert report["differences"]["linux_validity"] is False
+
+
 def test_empty_collection_summary_cannot_pass_with_matching_junit(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -203,21 +259,24 @@ def test_profile_rejects_less_than_two_samples(tmp_path: Path) -> None:
 
 def _pilot_report(*, status: str = "passed", result_suffix: str = "") -> dict[str, object]:
     lane_shapes = {
-        "full_serial": (3, "serial"),
-        "candidate_safe": (1, "safe"),
-        "candidate_unsafe": (2, "unsafe"),
-        "candidate_combined": (3, "combined"),
+        "full_serial": 3,
+        "candidate_safe": 1,
+        "candidate_unsafe": 2,
+        "candidate_combined": 3,
     }
     lanes: dict[str, dict[str, object]] = {}
-    for lane, (count, identity) in lane_shapes.items():
+    for lane, count in lane_shapes.items():
         lanes[lane] = {
             "collection_counts": [count, count],
             "result_counts": [count, count],
             "collection_exit_codes": [0, 0],
             "exit_codes": [0, 0],
             "junit_present": [True, True],
-            "collection_fingerprints": [f"collection-{identity}", f"collection-{identity}"],
-            "result_fingerprints": [f"result{result_suffix}", f"result{result_suffix}"],
+            "collection_fingerprints": ["a" * 64, "a" * 64],
+            "result_fingerprints": [
+                ("b" if not result_suffix else "c") * 64,
+                ("b" if not result_suffix else "c") * 64,
+            ],
             "timings": {
                 "samples_seconds": [1.0, 1.0],
                 "p50_seconds": 1.0,
@@ -244,6 +303,7 @@ def _pilot_report(*, status: str = "passed", result_suffix: str = "") -> dict[st
         "collection_evidence_valid": True,
         "result_parity": True,
         "repeatable_results": True,
+        "repeatable_collections": True,
         "manifest_valid": {lane: [True, True] for lane in lane_shapes},
         "lanes": lanes,
         "lane_counts": {
@@ -258,7 +318,14 @@ def _pilot_report(*, status: str = "passed", result_suffix: str = "") -> dict[st
             lane: {"collection": value["collection_fingerprints"], "results": value["result_fingerprints"]}
             for lane, value in lanes.items()
         },
-        "timings": {lane: value["timings"] for lane, value in lanes.items()},
+        "timings": {
+            **{lane: value["timings"] for lane, value in lanes.items()},
+            "candidate_wall": {
+                "samples_seconds": [1.0, 1.0],
+                "p50_seconds": 1.0,
+                "p95_seconds": 1.0,
+            },
+        },
         "run_order": [["full_serial", "candidate"], ["candidate", "full_serial"]],
         "status": status,
     }

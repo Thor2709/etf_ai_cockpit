@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
+import re
 from typing import Mapping, Sequence
 
 
@@ -20,6 +22,7 @@ _COMPARED_FIELDS = (
     "collection_evidence_valid",
     "result_parity",
     "repeatable_results",
+    "repeatable_collections",
     "sample_count",
     "run_order",
     "manifest_valid",
@@ -29,6 +32,17 @@ _COMPARED_FIELDS = (
 )
 _LANES = ("full_serial", "candidate_safe", "candidate_unsafe", "candidate_combined")
 _UNSAFE_GROUPS = ["concurrency", "environment", "flet", "package", "ports", "sqlite"]
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _percentile(values: list[float], percentile: float) -> float:
+    ordered = sorted(values)
+    position = (len(ordered) - 1) * percentile
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return ordered[lower]
+    return ordered[lower] + (ordered[upper] - ordered[lower]) * (position - lower)
 
 
 def _read_report(path: Path) -> Mapping[str, object]:
@@ -62,15 +76,19 @@ def _report_is_valid(label: str, report: Mapping[str, object]) -> bool:
         or report.get("collection_evidence_valid") is not True
         or report.get("result_parity") is not True
         or report.get("repeatable_results") is not True
+        or report.get("repeatable_collections") is not True
         or report.get("status") != "passed"
     ):
         return False
     lanes = report.get("lanes")
     manifest_valid = report.get("manifest_valid")
-    for field in ("lane_counts", "lane_codes", "lane_fingerprints", "timings"):
+    for field in ("lane_counts", "lane_codes", "lane_fingerprints"):
         field_value = report.get(field)
         if not isinstance(field_value, dict) or set(field_value) != set(_LANES):
             return False
+    timing_projection = report.get("timings")
+    if not isinstance(timing_projection, dict) or set(timing_projection) != {*_LANES, "candidate_wall"}:
+        return False
     if (
         not isinstance(lanes, dict)
         or set(lanes) != set(_LANES)
@@ -105,15 +123,60 @@ def _report_is_valid(label: str, report: Mapping[str, object]) -> bool:
             return False
         if not all(code == 0 for key in ("collection_exit_codes", "exit_codes") for code in record[key]):
             return False
+        if not all(type(value) is int for key in ("collection_counts", "result_counts", "collection_exit_codes", "exit_codes") for value in record[key]):
+            return False
+        if not all(isinstance(value, str) and _SHA256_RE.fullmatch(value) for key in ("collection_fingerprints", "result_fingerprints") for value in record[key]):
+            return False
         validity = manifest_valid[lane]
         timing = record["timings"]
         if not isinstance(timing, dict):
             return False
         samples = timing.get("samples_seconds")
-        if not isinstance(samples, list) or len(samples) != sample_count:
+        if not isinstance(samples, list) or len(samples) != sample_count or not all(isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0 for value in samples):
             return False
+        for percentile, key in ((0.50, "p50_seconds"), (0.95, "p95_seconds")):
+            expected = round(_percentile([float(value) for value in samples], percentile), 3)
+            actual = timing.get(key)
+            if not isinstance(actual, (int, float)) or isinstance(actual, bool) or not math.isfinite(actual) or actual != expected:
+                return False
         if not isinstance(validity, list) or len(validity) != sample_count or not all(value is True for value in validity):
             return False
+    expected_counts = {
+        lane: {"collection": lanes[lane]["collection_counts"], "results": lanes[lane]["result_counts"]}
+        for lane in _LANES
+    }
+    expected_codes = {
+        lane: {"collection": lanes[lane]["collection_exit_codes"], "tests": lanes[lane]["exit_codes"]}
+        for lane in _LANES
+    }
+    expected_fingerprints = {
+        lane: {"collection": lanes[lane]["collection_fingerprints"], "results": lanes[lane]["result_fingerprints"]}
+        for lane in _LANES
+    }
+    if report.get("lane_counts") != expected_counts or report.get("lane_codes") != expected_codes or report.get("lane_fingerprints") != expected_fingerprints:
+        return False
+    assert isinstance(timing_projection, dict)
+    if report.get("timings") != {**{lane: lanes[lane]["timings"] for lane in _LANES}, "candidate_wall": timing_projection["candidate_wall"]}:
+        return False
+    candidate_wall = timing_projection.get("candidate_wall")
+    if not isinstance(candidate_wall, dict):
+        return False
+    wall_samples = candidate_wall.get("samples_seconds")
+    if not isinstance(wall_samples, list) or len(wall_samples) != sample_count or not all(isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0 for value in wall_samples):
+        return False
+    for percentile, key in ((0.50, "p50_seconds"), (0.95, "p95_seconds")):
+        expected = round(_percentile([float(value) for value in wall_samples], percentile), 3)
+        actual = candidate_wall.get(key)
+        if not isinstance(actual, (int, float)) or isinstance(actual, bool) or not math.isfinite(actual) or actual != expected:
+            return False
+    for index in range(sample_count):
+        for field in ("collection_counts", "result_counts"):
+            safe_count = lanes["candidate_safe"][field][index]
+            unsafe_count = lanes["candidate_unsafe"][field][index]
+            combined_count = lanes["candidate_combined"][field][index]
+            full_count = lanes["full_serial"][field][index]
+            if safe_count + unsafe_count != combined_count or combined_count != full_count:
+                return False
     expected_order = [
         ["full_serial", "candidate"] if index % 2 == 0 else ["candidate", "full_serial"]
         for index in range(sample_count)

@@ -15,7 +15,7 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Sequence
+from typing import Callable, Sequence
 
 
 def _percentile(values: list[float], percentile: float) -> float:
@@ -65,6 +65,10 @@ def _collection_count(summary: list[str]) -> int:
 def _fingerprint(value: object) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _canonical_nodeids(nodeids: list[str]) -> list[str]:
+    return sorted(set(nodeids))
 
 
 def _run(root: Path, command: Sequence[str]) -> tuple[subprocess.CompletedProcess[str], float]:
@@ -144,7 +148,9 @@ def _lane_record(
         "collection_exit_codes": collection_codes,
         "exit_codes": exit_codes,
         "junit_present": junit_present,
-        "collection_fingerprints": [_fingerprint(value) for value in collections],
+        "collection_fingerprints": [
+            _fingerprint(_canonical_nodeids(value)) for value in collections
+        ],
         "result_fingerprints": [_fingerprint(value) for value in results],
         "timings": _timing_summary(durations),
     }
@@ -177,7 +183,13 @@ def cache_evidence(root: Path) -> dict[str, object]:
     }
 
 
-def profile(root: Path, output: Path, repetitions: int) -> dict[str, object]:
+def profile(
+    root: Path,
+    output: Path,
+    repetitions: int,
+    *,
+    clock: Callable[[], float] = time.perf_counter,
+) -> dict[str, object]:
     if repetitions < 2:
         raise ValueError("repetitions must be at least 2")
     output.mkdir(parents=True, exist_ok=True)
@@ -190,11 +202,14 @@ def profile(root: Path, output: Path, repetitions: int) -> dict[str, object]:
     junit_present: dict[str, list[bool]] = {name: [] for name in lanes}
     manifest_valid: dict[str, list[bool]] = {name: [] for name in lanes}
     run_order: list[list[str]] = []
+    candidate_wall_durations: list[float] = []
 
     for repetition in range(repetitions):
         order = ["full_serial", "candidate"] if repetition % 2 == 0 else ["candidate", "full_serial"]
         run_order.append(order)
         for lane in order:
+            candidate_started: float | None = None
+            candidate_collection_elapsed = 0.0
             phases: tuple[tuple[str, list[str], str], ...]
             if lane == "full_serial":
                 phases = (("full_serial", [], "full_serial"),)
@@ -206,11 +221,13 @@ def profile(root: Path, output: Path, repetitions: int) -> dict[str, object]:
             for mode, mode_args, phase in phases:
                 stem = f"{phase}-{repetition + 1}"
                 collection_manifest = output / f"manifest-collection-{stem}.json"
-                collection, _ = _run_with_manifest(
+                collection, collection_duration = _run_with_manifest(
                     root,
                     [sys.executable, "-m", "pytest", *mode_args[:2], "--collect-only", "-q"],
                     collection_manifest,
                 )
+                if lane == "candidate" and phase == "unsafe":
+                    candidate_collection_elapsed += collection_duration
                 _write_diagnostics(output, f"collection-{stem}", collection)
                 collection_exit_codes[mode].append(collection.returncode)
                 try:
@@ -224,6 +241,10 @@ def profile(root: Path, output: Path, repetitions: int) -> dict[str, object]:
                     manifest_valid[mode].append(False)
                 junit = output / f"junit-{phase}-{repetition + 1}.xml"
                 run_manifest = output / f"manifest-run-{stem}.json"
+                if lane == "candidate" and phase == "safe":
+                    # Start after safe collection; collection is evidence,
+                    # not part of candidate execution wall time.
+                    candidate_started = clock()
                 completed, duration = _run_with_manifest(
                     root,
                     [
@@ -252,6 +273,12 @@ def profile(root: Path, output: Path, repetitions: int) -> dict[str, object]:
                     manifest_valid[mode][-1] = False
                     parsed = {}
                 results[mode].append(parsed)
+
+            if lane == "candidate":
+                assert candidate_started is not None
+                candidate_wall_durations.append(
+                    round(clock() - candidate_started - candidate_collection_elapsed, 3)
+                )
 
         safe = collections["candidate_safe"][-1]
         unsafe = collections["candidate_unsafe"][-1]
@@ -285,8 +312,13 @@ def profile(root: Path, output: Path, repetitions: int) -> dict[str, object]:
     serial_results = results["full_serial"]
     candidate_results = results["candidate_combined"]
     collection_parity = bool(serial_collections) and all(
-        serial_collections[index] == candidate_collections[index]
+        _canonical_nodeids(serial_collections[index])
+        == _canonical_nodeids(candidate_collections[index])
         for index in range(repetitions)
+    )
+    repeatable_collections = all(
+        len({_fingerprint(_canonical_nodeids(run)) for run in collections[lane]}) == 1
+        for lane in ("full_serial", "candidate_safe", "candidate_unsafe", "candidate_combined")
     )
     result_parity = bool(serial_results) and all(
         candidate_results[index] == serial_results[index] for index in range(repetitions)
@@ -349,6 +381,7 @@ def profile(root: Path, output: Path, repetitions: int) -> dict[str, object]:
         "collection_evidence_valid": collection_evidence_valid,
         "result_parity": result_parity,
         "repeatable_results": repeatable,
+        "repeatable_collections": repeatable_collections,
         "manifest_valid": manifest_valid,
         "lanes": lane_reports,
         "lane_counts": {
@@ -366,13 +399,17 @@ def profile(root: Path, output: Path, repetitions: int) -> dict[str, object]:
             }
             for lane in lanes
         },
-        "timings": {lane: lane_reports[lane]["timings"] for lane in lanes},
+        "timings": {
+            **{lane: lane_reports[lane]["timings"] for lane in lanes},
+            "candidate_wall": _timing_summary(candidate_wall_durations),
+        },
         "cache": cache_evidence(root),
         "status": "passed"
         if collection_parity
         and collection_evidence_valid
         and result_parity
         and repeatable
+        and repeatable_collections
         and all_junit_present
         and all_codes_zero
         else "divergent",
