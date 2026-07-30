@@ -83,7 +83,10 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     # not emit it for ordinary test runs, and avoid concurrent worker writes:
     # xdist's controller performs collection on the authoritative item list.
     manifest_value = os.getenv("ETF_COCKPIT_PILOT_NODEID_MANIFEST")
-    if not manifest_value or hasattr(config, "workerinput"):
+    worker_input = getattr(config, "workerinput", None)
+    if not manifest_value or (
+        worker_input is not None and worker_input.get("workerid") != "gw0"
+    ):
         return
     nodeids = [item.nodeid.replace("\\", "/") for item in items]
     if len(nodeids) != len(set(nodeids)):
