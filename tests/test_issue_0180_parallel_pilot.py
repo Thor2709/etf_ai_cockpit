@@ -4,6 +4,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from scripts import aggregate_parallel_pilot
 from scripts import profile_parallel_pytest
 
@@ -36,6 +38,7 @@ def test_profile_records_repeated_serial_parallel_parity_and_timings(
     assert report["sample_counts"] == {"serial": 2, "parallel": 2}
     assert report["run_order"] == [["serial", "parallel"], ["parallel", "serial"]]
     assert report["collection_parity"] is True
+    assert report["collection_evidence_valid"] is True
     assert report["result_parity"] is True
     assert len(report["collection_fingerprints"]["serial"]) == 2
     assert report["collection_counts"] == {"serial": [1, 1], "parallel": [1, 1]}
@@ -97,6 +100,43 @@ def test_collection_summary_normalises_platform_paths_and_counts() -> None:
     assert profile_parallel_pytest._collection_count(summary) == 9
 
 
+def test_duplicate_junit_identity_is_rejected(tmp_path: Path) -> None:
+    junit = tmp_path / "duplicate.xml"
+    junit.write_text(
+        "<testsuite>"
+        '<testcase classname="tests.test_one" name="test_ok"/>'
+        '<testcase classname="tests.test_one" name="test_ok"/>'
+        "</testsuite>",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="duplicate JUnit testcase identity"):
+        profile_parallel_pytest._junit_results(junit)
+
+
+def test_empty_collection_summary_cannot_pass_with_matching_junit(
+    tmp_path: Path, monkeypatch
+) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+
+    def completed(_root: Path, command: list[str]):
+        if "--collect-only" in command:
+            return subprocess.CompletedProcess(command, 0, "2200 tests collected\n", ""), 1.0
+        junit_arg = next(value for value in command if value.startswith("--junitxml="))
+        Path(junit_arg.partition("=")[2]).write_text(
+            '<testsuite><testcase classname="tests.test_one" name="test_ok"/></testsuite>',
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 0, "", ""), 1.0
+
+    monkeypatch.setattr(profile_parallel_pytest, "_run", completed)
+    report = profile_parallel_pytest.profile(root, tmp_path / "evidence", 2)
+
+    assert report["collection_evidence_valid"] is False
+    assert report["status"] == "divergent"
+
+
 def test_main_returns_nonzero_for_divergence_and_writes_json(tmp_path: Path, monkeypatch) -> None:
     report = {"status": "divergent", "mode": "report_only"}
     monkeypatch.setattr(profile_parallel_pytest, "profile", lambda *_args: report)
@@ -133,32 +173,68 @@ def test_profile_rejects_less_than_two_samples(tmp_path: Path) -> None:
 
 def _pilot_report(*, status: str = "passed", result_suffix: str = "") -> dict[str, object]:
     return {
+        "schema_version": "pytest-parallel-pilot.v1",
         "mode": "report_only",
         "authority": "serial_release_gate",
-        "collection_fingerprints": {"serial": ["collection"], "parallel": ["collection"]},
-        "collection_counts": {"serial": [3], "parallel": [3]},
-        "result_fingerprints": {"serial": [f"result{result_suffix}"], "parallel": [f"result{result_suffix}"]},
-        "result_counts": {"serial": [3], "parallel": [3]},
-        "junit_present": {"serial": [True], "parallel": [True]},
-        "sample_count": 1,
-        "sample_counts": {"serial": 1, "parallel": 1},
-        "run_order": [["serial", "parallel"]],
+        "platform": "linux",
+        "workers": 4,
+        "repetitions": 2,
+        "unsafe_groups": ["concurrency", "environment", "flet", "package", "ports", "sqlite"],
+        "collection_parity": True,
+        "collection_evidence_valid": True,
+        "result_parity": True,
+        "repeatable_results": True,
+        "collection_fingerprints": {
+            "serial": ["collection", "collection"],
+            "parallel": ["collection", "collection"],
+        },
+        "collection_counts": {"serial": [3, 3], "parallel": [3, 3]},
+        "result_fingerprints": {
+            "serial": [f"result{result_suffix}", f"result{result_suffix}"],
+            "parallel": [f"result{result_suffix}", f"result{result_suffix}"],
+        },
+        "result_counts": {"serial": [3, 3], "parallel": [3, 3]},
+        "junit_present": {"serial": [True, True], "parallel": [True, True]},
+        "collection_exit_codes": {"serial": [0, 0], "parallel": [0, 0]},
+        "exit_codes": {"serial": [0, 0], "parallel": [0, 0]},
+        "sample_count": 2,
+        "sample_counts": {"serial": 2, "parallel": 2},
+        "run_order": [["serial", "parallel"], ["parallel", "serial"]],
         "status": status,
     }
+
+
+def _write_platform_reports(
+    linux: Path,
+    windows: Path,
+    *,
+    linux_report: dict[str, object] | None = None,
+    windows_report: dict[str, object] | None = None,
+) -> None:
+    linux_payload = linux_report or _pilot_report()
+    windows_payload = windows_report or _pilot_report()
+    windows_payload["platform"] = "windows"
+    linux.write_text(json.dumps(linux_payload), encoding="utf-8")
+    windows.write_text(json.dumps(windows_payload), encoding="utf-8")
 
 
 def test_cross_platform_aggregation_rejects_result_and_status_divergence(tmp_path: Path) -> None:
     linux = tmp_path / "linux.json"
     windows = tmp_path / "windows.json"
-    linux.write_text(json.dumps(_pilot_report()), encoding="utf-8")
-    windows.write_text(json.dumps(_pilot_report(result_suffix="-windows")), encoding="utf-8")
+    _write_platform_reports(
+        linux,
+        windows,
+        windows_report=_pilot_report(result_suffix="-windows"),
+    )
 
     report = aggregate_parallel_pilot.compare_reports(linux, windows)
 
     assert report["status"] == "divergent"
     assert "result_fingerprints" in report["differences"]
 
-    windows.write_text(json.dumps(_pilot_report(status="divergent")), encoding="utf-8")
+    divergent_windows = _pilot_report(status="divergent")
+    divergent_windows["platform"] = "windows"
+    windows.write_text(json.dumps(divergent_windows), encoding="utf-8")
     report = aggregate_parallel_pilot.compare_reports(linux, windows)
 
     assert report["status"] == "divergent"
@@ -184,9 +260,7 @@ def test_cross_platform_aggregation_rejects_result_and_status_divergence(tmp_pat
 def test_cross_platform_aggregation_accepts_matching_reports(tmp_path: Path) -> None:
     linux = tmp_path / "linux.json"
     windows = tmp_path / "windows.json"
-    payload = json.dumps(_pilot_report())
-    linux.write_text(payload, encoding="utf-8")
-    windows.write_text(payload, encoding="utf-8")
+    _write_platform_reports(linux, windows)
 
     report = aggregate_parallel_pilot.compare_reports(linux, windows)
 
@@ -199,14 +273,35 @@ def test_cross_platform_aggregation_rejects_missing_evidence_fields(tmp_path: Pa
     windows = tmp_path / "windows.json"
     payload = _pilot_report()
     payload.pop("junit_present")
-    encoded = json.dumps(payload)
-    linux.write_text(encoded, encoding="utf-8")
-    windows.write_text(encoded, encoding="utf-8")
+    windows_payload = dict(payload)
+    windows_payload["platform"] = "windows"
+    linux.write_text(json.dumps(payload), encoding="utf-8")
+    windows.write_text(json.dumps(windows_payload), encoding="utf-8")
 
     report = aggregate_parallel_pilot.compare_reports(linux, windows)
 
     assert report["status"] == "divergent"
     assert "junit_present" in report["differences"]
+
+
+def test_cross_platform_aggregation_rejects_nonzero_exit_codes(tmp_path: Path) -> None:
+    linux = tmp_path / "linux.json"
+    windows = tmp_path / "windows.json"
+    linux_report = _pilot_report()
+    windows_report = _pilot_report()
+    windows_report["exit_codes"] = {"serial": [0, 0], "parallel": [1, 0]}
+    _write_platform_reports(
+        linux,
+        windows,
+        linux_report=linux_report,
+        windows_report=windows_report,
+    )
+
+    report = aggregate_parallel_pilot.compare_reports(linux, windows)
+
+    assert report["status"] == "divergent"
+    assert "exit_codes" in report["differences"]
+    assert report["differences"]["windows_validity"] is False
 
 
 def test_workflow_isolates_pilot_and_keeps_aggregation_non_authoritative() -> None:

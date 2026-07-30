@@ -32,6 +32,8 @@ def _junit_results(path: Path) -> dict[str, str]:
     results: dict[str, str] = {}
     for case in ET.parse(path).iter("testcase"):
         nodeid = f"{case.attrib.get('classname', '')}::{case.attrib.get('name', '')}"
+        if nodeid in results:
+            raise ValueError(f"duplicate JUnit testcase identity: {nodeid}")
         outcome = "passed"
         for status in ("failure", "error", "skipped"):
             if case.find(status) is not None:
@@ -188,6 +190,11 @@ def profile(root: Path, output: Path, repetitions: int) -> dict[str, object]:
         for mode, runs in collections.items()
     }
     result_counts = {mode: [len(run) for run in runs] for mode, runs in results.items()}
+    collection_evidence_valid = all(
+        collected_count > 0 and collected_count == result_counts[mode][index]
+        for mode, counts in collection_counts.items()
+        for index, collected_count in enumerate(counts)
+    )
     timings = {
         mode: {
             "samples_seconds": samples,
@@ -208,6 +215,7 @@ def profile(root: Path, output: Path, repetitions: int) -> dict[str, object]:
         "platform": os.getenv("ETF_COCKPIT_PLATFORM", platform.system().lower()),
         "unsafe_groups": ["concurrency", "environment", "flet", "package", "ports", "sqlite"],
         "collection_parity": collection_parity,
+        "collection_evidence_valid": collection_evidence_valid,
         "result_parity": result_parity,
         "repeatable_results": repeatable,
         "collection_fingerprints": collection_fingerprints,
@@ -221,6 +229,7 @@ def profile(root: Path, output: Path, repetitions: int) -> dict[str, object]:
         "cache": cache_evidence(root),
         "status": "passed"
         if collection_parity
+        and collection_evidence_valid
         and result_parity
         and repeatable
         and all(all(present for present in flags) for flags in junit_present.values())
