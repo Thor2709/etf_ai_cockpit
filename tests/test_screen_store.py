@@ -205,6 +205,29 @@ def test_revision_lock_persistent_absent_permission_error_propagates_with_bound(
     assert calls == screen_store._ABSENT_PERMISSION_RETRY_LIMIT
 
 
+def test_revision_lock_slow_absent_permission_preserves_original_before_deadline(
+    tmp_path, monkeypatch
+) -> None:
+    directory = tmp_path / "screen"
+    directory.mkdir()
+    error = PermissionError("slow ACL denied")
+    calls = 0
+    ticks = iter((10.0, 16.0))
+
+    def slow_open(*_args):
+        nonlocal calls
+        calls += 1
+        raise error
+
+    monkeypatch.setattr(screen_store.time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(screen_store.os, "open", slow_open)
+    with pytest.raises(PermissionError, match="slow ACL denied") as caught:
+        with screen_store._revision_lock(directory):
+            pass
+    assert caught.value is error
+    assert calls == 1
+
+
 @pytest.mark.parametrize(
     "owner_text",
     ["not-a-pid", str(os.getpid())],

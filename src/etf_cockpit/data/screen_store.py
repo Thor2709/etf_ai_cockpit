@@ -280,6 +280,8 @@ def _revision_lock(directory: Path):
                 # fail-closed.  Never reclaim based on age alone.
                 pass
         if time.monotonic() >= deadline:
+            if first_absent_permission is not None:
+                raise first_absent_permission
             raise TimeoutError(f"timed out waiting for saved screen revision lock: {lock}")
         time.sleep(0.01)
     try:
