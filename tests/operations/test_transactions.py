@@ -507,6 +507,8 @@ def test_activation_rollback_failure_preserves_recovery_evidence(
     assert journals[0].exists()
 
 
+@pytest.mark.serial
+@pytest.mark.xdist_group("concurrency")
 def test_recovery_of_interrupted_second_real_writer_preserves_first_commit(tmp_path: Path) -> None:
     from etf_cockpit.operations.recovery import recover_incomplete_transactions
 

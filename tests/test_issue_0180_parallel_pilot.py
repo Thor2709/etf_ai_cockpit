@@ -163,7 +163,9 @@ def test_real_pytest_manifest_is_post_deselection_and_disjoint(tmp_path: Path) -
                 "-m",
                 "pytest",
                 "tests/test_screen_store.py::test_saved_screen_revisions_are_immutable_and_replayable",
+                "tests/test_screen_store.py::test_revision_lock_does_not_reclaim_malformed_or_live_stale_owner",
                 "tests/operations/test_transactions.py::test_group_reader_cannot_observe_mixed_generation_during_activation",
+                "tests/operations/test_transactions.py::test_recovery_of_interrupted_second_real_writer_preserves_first_commit",
                 *selector,
                 "--collect-only",
                 "-q",
@@ -181,6 +183,11 @@ def test_real_pytest_manifest_is_post_deselection_and_disjoint(tmp_path: Path) -
     assert selected["unsafe"]
     assert selected["safe"].isdisjoint(selected["unsafe"])
     assert selected["safe"] | selected["unsafe"] == selected["full"]
+    assert {
+        "tests/test_screen_store.py::test_revision_lock_does_not_reclaim_malformed_or_live_stale_owner[malformed-owner]",
+        "tests/test_screen_store.py::test_revision_lock_does_not_reclaim_malformed_or_live_stale_owner[live-owner]",
+        "tests/operations/test_transactions.py::test_recovery_of_interrupted_second_real_writer_preserves_first_commit",
+    } <= selected["unsafe"]
 
 
 def test_aggregate_rejects_forged_projection_and_timing_evidence(tmp_path: Path) -> None:

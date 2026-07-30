@@ -176,8 +176,15 @@ def test_revision_lock_persistent_open_sharing_violation_times_out(tmp_path, mon
             pass
 
 
-@pytest.mark.parametrize("owner_text", ["not-a-pid", str(os.getpid())])
-def test_revision_lock_does_not_reclaim_malformed_or_live_stale_owner(tmp_path, owner_text: str, monkeypatch) -> None:
+@pytest.mark.parametrize(
+    "owner_text",
+    ["not-a-pid", str(os.getpid())],
+    ids=["malformed-owner", "live-owner"],
+)
+def test_revision_lock_does_not_reclaim_malformed_or_live_stale_owner(
+    tmp_path, owner_text: str, monkeypatch, request: pytest.FixtureRequest
+) -> None:
+    assert str(os.getpid()) not in request.node.nodeid
     directory = tmp_path / "screen"
     directory.mkdir()
     lock = directory / ".revision.lock"
