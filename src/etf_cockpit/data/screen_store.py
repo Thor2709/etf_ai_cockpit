@@ -16,27 +16,13 @@ import time
 from etf_cockpit.application.screening import ScreenQuery, ScreenResult
 from etf_cockpit.core.atomic_io import atomic_write_bytes
 from etf_cockpit.core.paths import DATA_DIR
+from etf_cockpit.core.process import pid_is_alive as _pid_alive
 
 
 SCREENS_DIR = DATA_DIR / "screens"
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _-]{0,79}$")
 _FORMULA_PREFIXES = ("=", "+", "-", "@")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
-
-
-def _pid_alive(pid: int) -> bool:
-    """Return whether *pid* is currently alive, conservatively."""
-
-    if pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-    except PermissionError:
-        # Access denied means the process exists but is not inspectable.
-        return True
-    except OSError:
-        return False
-    return True
 
 
 def save_screen(
