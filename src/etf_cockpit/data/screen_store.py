@@ -23,6 +23,7 @@ SCREENS_DIR = DATA_DIR / "screens"
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _-]{0,79}$")
 _FORMULA_PREFIXES = ("=", "+", "-", "@")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_ABSENT_PERMISSION_RETRY_LIMIT = 3
 
 
 def save_screen(
@@ -214,19 +215,32 @@ def _validate_record_file(path: Path) -> None:
 def _revision_lock(directory: Path):
     lock = directory / ".revision.lock"
     deadline = time.monotonic() + 5.0
+    absent_permission_errors = 0
+    first_absent_permission: PermissionError | None = None
     while True:
         descriptor: int | None = None
         try:
             descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
             # An existing lock is ordinary contention.
+            absent_permission_errors = 0
+            first_absent_permission = None
             pass
-        except PermissionError:
-            # Retry a sharing-denied open only when an existing lock proves
-            # contention; propagate absent-lock ACL/filesystem failures.
-            if not lock.exists():
-                raise
-            pass
+        except PermissionError as error:
+            # A sharing-denied open normally means an existing lock, but on
+            # Windows another thread can create and remove it between the
+            # failed open and this existence check.  Retry that absent-lock
+            # race a few times, while preserving persistent ACL failures.
+            if lock.exists():
+                absent_permission_errors = 0
+                first_absent_permission = None
+            else:
+                absent_permission_errors += 1
+                if first_absent_permission is None:
+                    first_absent_permission = error
+                if absent_permission_errors >= _ABSENT_PERMISSION_RETRY_LIMIT:
+                    assert first_absent_permission is not None
+                    raise first_absent_permission
         else:
             payload = f"{os.getpid()}\n".encode("ascii")
             try:
