@@ -44,18 +44,33 @@ def compare_reports(linux_path: Path, windows_path: Path) -> dict[str, object]:
     if len(reports) == 2:
         linux = reports["linux"]
         windows = reports["windows"]
-        for field in _COMPARED_FIELDS:
+        for field in (*_COMPARED_FIELDS, "status"):
+            if field not in linux or field not in windows:
+                differences[field] = {
+                    "linux_present": field in linux,
+                    "windows_present": field in windows,
+                }
+                continue
             if linux.get(field) != windows.get(field):
                 differences[field] = {"linux": linux.get(field), "windows": windows.get(field)}
         statuses = {"linux": linux.get("status"), "windows": windows.get("status")}
         if len(set(statuses.values())) != 1 or any(value != "passed" for value in statuses.values()):
             differences["status"] = statuses
+        authority = {
+            label: {"mode": report.get("mode"), "authority": report.get("authority")}
+            for label, report in reports.items()
+        }
+        if any(
+            details != {"mode": "report_only", "authority": "serial_release_gate"}
+            for details in authority.values()
+        ):
+            differences["authority"] = authority
 
     return {
         "schema_version": "pytest-parallel-pilot-cross-platform.v1",
         "mode": "report_only",
         "authority": "serial_release_gate",
-        "compared_fields": list(_COMPARED_FIELDS) + ["status"],
+        "compared_fields": list(_COMPARED_FIELDS) + ["status", "authority"],
         "platform_reports": {label: str(path) for label, path in (("linux", linux_path), ("windows", windows_path))},
         "differences": differences,
         "status": "passed" if not differences else "divergent",

@@ -112,10 +112,13 @@ def test_profile_rejects_less_than_two_samples(tmp_path: Path) -> None:
 
 def _pilot_report(*, status: str = "passed", result_suffix: str = "") -> dict[str, object]:
     return {
+        "mode": "report_only",
+        "authority": "serial_release_gate",
         "collection_fingerprints": {"serial": ["collection"], "parallel": ["collection"]},
         "collection_counts": {"serial": [3], "parallel": [3]},
         "result_fingerprints": {"serial": [f"result{result_suffix}"], "parallel": [f"result{result_suffix}"]},
         "result_counts": {"serial": [3], "parallel": [3]},
+        "junit_present": {"serial": [True], "parallel": [True]},
         "sample_count": 1,
         "sample_counts": {"serial": 1, "parallel": 1},
         "run_order": [["serial", "parallel"]],
@@ -168,6 +171,21 @@ def test_cross_platform_aggregation_accepts_matching_reports(tmp_path: Path) -> 
 
     assert report["status"] == "passed"
     assert report["differences"] == {}
+
+
+def test_cross_platform_aggregation_rejects_missing_evidence_fields(tmp_path: Path) -> None:
+    linux = tmp_path / "linux.json"
+    windows = tmp_path / "windows.json"
+    payload = _pilot_report()
+    payload.pop("junit_present")
+    encoded = json.dumps(payload)
+    linux.write_text(encoded, encoding="utf-8")
+    windows.write_text(encoded, encoding="utf-8")
+
+    report = aggregate_parallel_pilot.compare_reports(linux, windows)
+
+    assert report["status"] == "divergent"
+    assert "junit_present" in report["differences"]
 
 
 def test_workflow_isolates_pilot_and_keeps_aggregation_non_authoritative() -> None:
