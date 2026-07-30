@@ -440,9 +440,16 @@ def _acquire_group_locks(
                 descriptor: int | None = None
                 try:
                     descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                except (FileExistsError, PermissionError):
+                except FileExistsError:
                     # On Windows an exclusive open against an existing lock
-                    # can surface as a sharing-denied PermissionError.
+                    # is ordinary contention.
+                    pass
+                except PermissionError:
+                    # A sharing-denied open is retryable only when the lock
+                    # already exists.  Absent-lock ACL/filesystem failures
+                    # must remain visible to the caller.
+                    if not lock.exists():
+                        raise
                     pass
                 else:
                     payload = json.dumps(

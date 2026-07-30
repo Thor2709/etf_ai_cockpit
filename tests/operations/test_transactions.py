@@ -253,6 +253,8 @@ def test_concurrent_writer_times_out_without_changing_previous_value(tmp_path: P
 
 def test_group_lock_retries_one_shot_windows_open_sharing_violation(tmp_path: Path, monkeypatch) -> None:
     parent = tmp_path / "data"
+    parent.mkdir(parents=True)
+    lock = parent / ".atomic-write-group.lock"
     real_open = atomic_io.os.open
     calls = 0
 
@@ -260,7 +262,9 @@ def test_group_lock_retries_one_shot_windows_open_sharing_violation(tmp_path: Pa
         nonlocal calls
         calls += 1
         if calls == 1:
+            lock.write_text("{}", encoding="utf-8")
             raise PermissionError("sharing violation")
+        lock.unlink(missing_ok=True)
         return real_open(path, flags, mode)
 
     monkeypatch.setattr(atomic_io.os, "open", flaky_open)
@@ -272,6 +276,8 @@ def test_group_lock_retries_one_shot_windows_open_sharing_violation(tmp_path: Pa
 
 def test_group_lock_persistent_open_sharing_violation_times_out(tmp_path: Path, monkeypatch) -> None:
     parent = tmp_path / "data"
+    parent.mkdir(parents=True)
+    (parent / ".atomic-write-group.lock").write_text("{}", encoding="utf-8")
     ticks = iter((10.0, 16.0))
     monkeypatch.setattr(atomic_io.time, "monotonic", lambda: next(ticks))
     monkeypatch.setattr(
@@ -281,6 +287,17 @@ def test_group_lock_persistent_open_sharing_violation_times_out(tmp_path: Path, 
     )
     with pytest.raises(TimeoutError):
         atomic_io._acquire_group_locks((parent,), None, timeout_seconds=5)
+
+
+def test_group_lock_absent_open_permission_error_propagates(tmp_path: Path, monkeypatch) -> None:
+    parent = tmp_path / "data"
+    monkeypatch.setattr(
+        atomic_io.os,
+        "open",
+        lambda *_args: (_ for _ in ()).throw(PermissionError("ACL denied")),
+    )
+    with pytest.raises(PermissionError, match="ACL denied"):
+        atomic_io._acquire_group_locks((parent,), None, timeout_seconds=1)
 
 
 def test_group_lock_ownership_write_failure_cleans_owned_lock(tmp_path: Path, monkeypatch) -> None:

@@ -31,7 +31,8 @@ def _percentile(values: list[float], percentile: float) -> float:
 def _junit_results(path: Path) -> dict[str, str]:
     results: dict[str, str] = {}
     for case in ET.parse(path).iter("testcase"):
-        nodeid = f"{case.attrib.get('classname', '')}::{case.attrib.get('name', '')}"
+        identity = (case.attrib.get("classname", ""), case.attrib.get("name", ""))
+        nodeid = f"{identity[0]}::{identity[1]}"
         if nodeid in results:
             raise ValueError(f"duplicate JUnit testcase identity: {nodeid}")
         outcome = "passed"
@@ -97,7 +98,51 @@ def _write_diagnostics(
 
 
 _MANIFEST_ENV = "ETF_COCKPIT_PILOT_NODEID_MANIFEST"
+_EXECUTED_MANIFEST_ENV = "ETF_COCKPIT_PILOT_EXECUTED_NODEID_MANIFEST"
+_EXECUTED_RESULTS_ENV = "ETF_COCKPIT_PILOT_EXECUTED_RESULTS"
 _UNSAFE_GROUPS = ["concurrency", "environment", "flet", "package", "ports", "sqlite"]
+_PILOT_PLUGIN = "scripts.profile_parallel_pytest"
+_LOCK_FILES = ("requirements-release.txt", "requirements-release-parsers.txt")
+_TOOL_NAMES = ("build", "pip", "pytest", "pytest-xdist")
+_EXECUTED_NODEID_EVENTS: list[str] = []
+_EXECUTED_RESULTS: dict[str, str] = {}
+
+
+def pytest_runtest_logreport(report: object) -> None:
+    """Capture exact nodeids from reports received by the pytest controller."""
+
+    when = getattr(report, "when", None)
+    if when in {"setup", "call", "teardown"}:
+        nodeid = getattr(report, "nodeid", None)
+        if isinstance(nodeid, str) and nodeid:
+            nodeid = nodeid.replace("\\", "/")
+            outcome = getattr(report, "outcome", None)
+            if when == "call" or (when == "setup" and outcome in {"failed", "skipped"}):
+                _EXECUTED_NODEID_EVENTS.append(nodeid)
+            if outcome in {"failed", "skipped"}:
+                _EXECUTED_RESULTS[nodeid] = "error" if outcome == "failed" else "skipped"
+            elif when == "call":
+                _EXECUTED_RESULTS[nodeid] = "passed"
+            elif nodeid not in _EXECUTED_RESULTS:
+                _EXECUTED_RESULTS[nodeid] = "passed"
+
+
+def pytest_sessionfinish(session: object, exitstatus: int) -> None:
+    """Write exact executed nodeids after serial or xdist execution."""
+
+    del exitstatus
+    worker_input = getattr(getattr(session, "config", None), "workerinput", None)
+    if worker_input is not None:
+        return
+    manifest_value = os.getenv(_EXECUTED_MANIFEST_ENV)
+    if not manifest_value:
+        return
+    destination = Path(manifest_value)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(sorted(_EXECUTED_NODEID_EVENTS)) + "\n", encoding="utf-8")
+    results_value = os.getenv(_EXECUTED_RESULTS_ENV)
+    if results_value:
+        Path(results_value).write_text(json.dumps(_EXECUTED_RESULTS, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def _manifest_nodeids(path: Path) -> list[str]:
@@ -113,17 +158,30 @@ def _manifest_nodeids(path: Path) -> list[str]:
 
 
 def _run_with_manifest(
-    root: Path, command: Sequence[str], manifest: Path
+    root: Path,
+    command: Sequence[str],
+    manifest: Path,
+    *,
+    executed: bool = False,
+    result_manifest: Path | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], float]:
-    previous = os.environ.get(_MANIFEST_ENV)
-    os.environ[_MANIFEST_ENV] = str(manifest)
+    variable = _EXECUTED_MANIFEST_ENV if executed else _MANIFEST_ENV
+    previous = os.environ.get(variable)
+    previous_results = os.environ.get(_EXECUTED_RESULTS_ENV)
+    os.environ[variable] = str(manifest)
+    if executed and result_manifest is not None:
+        os.environ[_EXECUTED_RESULTS_ENV] = str(result_manifest)
     try:
         return _run(root, command)
     finally:
         if previous is None:
-            os.environ.pop(_MANIFEST_ENV, None)
+            os.environ.pop(variable, None)
         else:
-            os.environ[_MANIFEST_ENV] = previous
+            os.environ[variable] = previous
+        if previous_results is None:
+            os.environ.pop(_EXECUTED_RESULTS_ENV, None)
+        else:
+            os.environ[_EXECUTED_RESULTS_ENV] = previous_results
 
 
 def _timing_summary(samples: list[float]) -> dict[str, object]:
@@ -152,19 +210,23 @@ def _lane_record(
             _fingerprint(_canonical_nodeids(value)) for value in collections
         ],
         "result_fingerprints": [_fingerprint(value) for value in results],
+        "executed_nodeids": [sorted(value) for value in results],
+        "result_outcomes": results,
         "timings": _timing_summary(durations),
     }
 
 
 def cache_evidence(root: Path) -> dict[str, object]:
-    lock_paths = [root / "requirements-release.txt", root / "requirements-release-parsers.txt"]
+    lock_paths = [root / name for name in _LOCK_FILES]
     lock_hashes = {
-        path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+        path.name: hashlib.sha256(
+            path.read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+        ).hexdigest()
         for path in lock_paths
         if path.is_file()
     }
     build_tools: dict[str, str] = {}
-    for name in ("build", "pip", "pytest", "pytest-xdist"):
+    for name in _TOOL_NAMES:
         try:
             build_tools[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:
@@ -177,6 +239,7 @@ def cache_evidence(root: Path) -> dict[str, object]:
     }
     encoded = json.dumps(inputs, sort_keys=True, separators=(",", ":")).encode()
     return {
+        "schema_version": "pytest-parallel-pilot-cache.v1",
         "key_sha256": hashlib.sha256(encoded).hexdigest(),
         "inputs": inputs,
         "setup_python_cache_hit": os.getenv("ETF_COCKPIT_SETUP_PYTHON_CACHE_HIT", "unknown"),
@@ -223,7 +286,16 @@ def profile(
                 collection_manifest = output / f"manifest-collection-{stem}.json"
                 collection, collection_duration = _run_with_manifest(
                     root,
-                    [sys.executable, "-m", "pytest", *mode_args[:2], "--collect-only", "-q"],
+                    [
+                        sys.executable,
+                        "-m",
+                        "pytest",
+                        "-p",
+                        _PILOT_PLUGIN,
+                        *mode_args[:2],
+                        "--collect-only",
+                        "-q",
+                    ],
                     collection_manifest,
                 )
                 if lane == "candidate" and phase == "unsafe":
@@ -241,6 +313,7 @@ def profile(
                     manifest_valid[mode].append(False)
                 junit = output / f"junit-{phase}-{repetition + 1}.xml"
                 run_manifest = output / f"manifest-run-{stem}.json"
+                run_results = output / f"manifest-results-{stem}.json"
                 if lane == "candidate" and phase == "safe":
                     # Start after safe collection; collection is evidence,
                     # not part of candidate execution wall time.
@@ -251,6 +324,8 @@ def profile(
                         sys.executable,
                         "-m",
                         "pytest",
+                        "-p",
+                        _PILOT_PLUGIN,
                         *mode_args,
                         "-q",
                         "--durations=100",
@@ -258,6 +333,8 @@ def profile(
                         f"--junitxml={junit}",
                     ],
                     run_manifest,
+                    executed=True,
+                    result_manifest=run_results,
                 )
                 _write_diagnostics(output, f"tests-{stem}", completed)
                 durations[mode].append(round(duration, 3))
@@ -266,9 +343,18 @@ def profile(
                 junit_present[mode].append(present)
                 try:
                     run_selected = _manifest_nodeids(run_manifest)
-                    if not manifest_valid[mode][-1] or run_selected != collections[mode][-1]:
+                    if not manifest_valid[mode][-1] or set(run_selected) != set(collections[mode][-1]):
                         manifest_valid[mode][-1] = False
-                    parsed = _junit_results(junit) if present else {}
+                    junit_results = _junit_results(junit) if present else {}
+                    executed_results = json.loads(run_results.read_text(encoding="utf-8"))
+                    if (
+                        not isinstance(executed_results, dict)
+                        or set(executed_results) != set(run_selected)
+                        or not all(value in {"passed", "failure", "error", "skipped"} for value in executed_results.values())
+                        or len(junit_results) != len(run_selected)
+                    ):
+                        manifest_valid[mode][-1] = False
+                    parsed = executed_results if isinstance(executed_results, dict) else {}
                 except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError, ET.ParseError):
                     manifest_valid[mode][-1] = False
                     parsed = {}

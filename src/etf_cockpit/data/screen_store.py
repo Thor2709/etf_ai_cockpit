@@ -218,10 +218,14 @@ def _revision_lock(directory: Path):
         descriptor: int | None = None
         try:
             descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except (FileExistsError, PermissionError):
-            # Windows can report an exclusive open against an existing lock
-            # as a sharing-denied PermissionError.  The open itself is
-            # contention; ownership-write failures below remain fatal.
+        except FileExistsError:
+            # An existing lock is ordinary contention.
+            pass
+        except PermissionError:
+            # Retry a sharing-denied open only when an existing lock proves
+            # contention; propagate absent-lock ACL/filesystem failures.
+            if not lock.exists():
+                raise
             pass
         else:
             payload = f"{os.getpid()}\n".encode("ascii")

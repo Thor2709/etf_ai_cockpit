@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -28,11 +29,54 @@ _COMPARED_FIELDS = (
     "manifest_valid",
     "lane_counts",
     "lane_codes",
-    "lane_fingerprints",
 )
 _LANES = ("full_serial", "candidate_safe", "candidate_unsafe", "candidate_combined")
 _UNSAFE_GROUPS = ["concurrency", "environment", "flet", "package", "ports", "sqlite"]
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_CACHE_SCHEMA = "pytest-parallel-pilot-cache.v1"
+_CACHE_LOCKS = ("requirements-release.txt", "requirements-release-parsers.txt")
+_CACHE_TOOLS = ("build", "pip", "pytest", "pytest-xdist")
+_KNOWN_PLATFORM_OUTCOMES = {
+    "tests/test_pid_liveness.py::test_windows_pid_probe_detects_exited_child_before_popen_handle_closes",
+    "tests/test_pid_liveness.py::test_windows_pid_probe_does_not_terminate_a_child_process",
+    "tests.test_pid_liveness::test_windows_pid_probe_detects_exited_child_before_popen_handle_closes",
+    "tests.test_pid_liveness::test_windows_pid_probe_does_not_terminate_a_child_process",
+}
+
+
+def _cache_key(inputs: Mapping[str, object]) -> str:
+    encoded = json.dumps(inputs, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _cache_is_valid(cache: object, platform_label: str | None = None) -> bool:
+    if not isinstance(cache, dict) or set(cache) != {"schema_version", "key_sha256", "inputs", "setup_python_cache_hit"}:
+        return False
+    if cache.get("schema_version") != _CACHE_SCHEMA or not isinstance(cache.get("key_sha256"), str) or not _SHA256_RE.fullmatch(cache["key_sha256"]):
+        return False
+    inputs = cache.get("inputs")
+    if not isinstance(inputs, dict) or set(inputs) != {"os", "python", "locks", "build_tools"}:
+        return False
+    if not all(isinstance(inputs.get(key), str) and inputs[key] for key in ("os", "python")):
+        return False
+    if platform_label is not None and str(inputs["os"]).lower() != platform_label:
+        return False
+    locks = inputs.get("locks")
+    if not isinstance(locks, dict) or set(locks) != set(_CACHE_LOCKS) or not all(isinstance(value, str) and _SHA256_RE.fullmatch(value) for value in locks.values()):
+        return False
+    tools = inputs.get("build_tools")
+    if not isinstance(tools, dict) or set(tools) != set(_CACHE_TOOLS) or not all(isinstance(value, str) and value for value in tools.values()):
+        return False
+    setup_cache_hit = cache.get("setup_python_cache_hit")
+    return (
+        cache["key_sha256"] == _cache_key(inputs)
+        and isinstance(setup_cache_hit, str)
+        and setup_cache_hit in {"true", "false", "unknown"}
+    )
+
+
+def _platform_outcome_is_allowed(nodeid: str, linux: str, windows: str) -> bool:
+    return nodeid in _KNOWN_PLATFORM_OUTCOMES and (linux, windows) == ("skipped", "passed")
 
 
 def _percentile(values: list[float], percentile: float) -> float:
@@ -78,6 +122,7 @@ def _report_is_valid(label: str, report: Mapping[str, object]) -> bool:
         or report.get("repeatable_results") is not True
         or report.get("repeatable_collections") is not True
         or report.get("status") != "passed"
+        or not _cache_is_valid(report.get("cache"), label)
     ):
         return False
     lanes = report.get("lanes")
@@ -108,6 +153,8 @@ def _report_is_valid(label: str, report: Mapping[str, object]) -> bool:
             "junit_present",
             "collection_fingerprints",
             "result_fingerprints",
+            "executed_nodeids",
+            "result_outcomes",
             "timings",
         )
         if any(key not in record for key in required):
@@ -127,6 +174,29 @@ def _report_is_valid(label: str, report: Mapping[str, object]) -> bool:
             return False
         if not all(isinstance(value, str) and _SHA256_RE.fullmatch(value) for key in ("collection_fingerprints", "result_fingerprints") for value in record[key]):
             return False
+        executed_nodeids = record["executed_nodeids"]
+        outcomes = record["result_outcomes"]
+        if not isinstance(executed_nodeids, list) or len(executed_nodeids) != sample_count:
+            return False
+        if not isinstance(outcomes, list) or len(outcomes) != sample_count:
+            return False
+        for index, (nodeids, outcome_map) in enumerate(zip(executed_nodeids, outcomes)):
+            if not isinstance(nodeids, list) or nodeids != sorted(set(nodeids)) or not all(isinstance(nodeid, str) and nodeid for nodeid in nodeids):
+                return False
+            if not isinstance(outcome_map, dict) or set(outcome_map) != set(nodeids) or not all(value in {"passed", "failure", "error", "skipped"} for value in outcome_map.values()):
+                return False
+            if len(nodeids) != record["result_counts"][index]:
+                return False
+            expected_collection_fingerprint = hashlib.sha256(
+                json.dumps(sorted(set(nodeids)), separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            if record["collection_fingerprints"][index] != expected_collection_fingerprint:
+                return False
+            expected_result_fingerprint = hashlib.sha256(
+                json.dumps(outcome_map, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            if record["result_fingerprints"][index] != expected_result_fingerprint:
+                return False
         validity = manifest_valid[lane]
         timing = record["timings"]
         if not isinstance(timing, dict):
@@ -238,6 +308,68 @@ def compare_reports(linux_path: Path, windows_path: Path) -> dict[str, object]:
                 continue
             if linux.get(field) != windows.get(field):
                 differences[field] = {"linux": linux.get(field), "windows": windows.get(field)}
+        linux_cache = linux.get("cache")
+        windows_cache = windows.get("cache")
+        if isinstance(linux_cache, dict) and isinstance(windows_cache, dict):
+            linux_inputs = linux_cache.get("inputs")
+            windows_inputs = windows_cache.get("inputs")
+            if isinstance(linux_inputs, dict) and isinstance(windows_inputs, dict):
+                for field in ("python", "locks", "build_tools"):
+                    if linux_inputs.get(field) != windows_inputs.get(field):
+                        differences[f"cache.{field}"] = {
+                            "linux": linux_inputs.get(field),
+                            "windows": windows_inputs.get(field),
+                        }
+        linux_lanes = linux.get("lanes")
+        windows_lanes = windows.get("lanes")
+        if not isinstance(linux_lanes, dict) or not isinstance(windows_lanes, dict):
+            linux_lanes = {}
+            windows_lanes = {}
+        for lane in _LANES:
+            linux_record = linux_lanes.get(lane, {})
+            windows_record = windows_lanes.get(lane, {})
+            if not isinstance(linux_record, dict) or not isinstance(windows_record, dict):
+                continue
+            if linux_record.get("collection_fingerprints") != windows_record.get("collection_fingerprints"):
+                differences[f"{lane}.collection_fingerprints"] = {
+                    "linux": linux_record.get("collection_fingerprints"),
+                    "windows": windows_record.get("collection_fingerprints"),
+                }
+            linux_ids = linux_record.get("executed_nodeids")
+            windows_ids = windows_record.get("executed_nodeids")
+            if linux_ids != windows_ids:
+                differences[f"{lane}.executed_nodeids"] = {
+                    "linux": linux_ids,
+                    "windows": windows_ids,
+                }
+                continue
+            linux_outcomes = linux_record.get("result_outcomes")
+            windows_outcomes = windows_record.get("result_outcomes")
+            if (
+                not isinstance(linux_ids, list)
+                or not isinstance(windows_ids, list)
+                or not isinstance(linux_outcomes, list)
+                or not isinstance(windows_outcomes, list)
+                or len(linux_ids) != len(windows_ids)
+                or len(linux_outcomes) != len(linux_ids)
+                or len(windows_outcomes) != len(windows_ids)
+            ):
+                continue
+            for index, nodeids in enumerate(linux_ids):
+                linux_map = linux_outcomes[index]
+                windows_map = windows_outcomes[index]
+                if not isinstance(linux_map, dict) or not isinstance(windows_map, dict):
+                    continue
+                unexpected = {
+                    nodeid: {"linux": linux_map.get(nodeid), "windows": windows_map.get(nodeid)}
+                    for nodeid in nodeids
+                    if linux_map.get(nodeid) != windows_map.get(nodeid)
+                    and not _platform_outcome_is_allowed(
+                        nodeid, str(linux_map.get(nodeid)), str(windows_map.get(nodeid))
+                    )
+                }
+                if unexpected:
+                    differences[f"{lane}.result_outcomes[{index}]"] = unexpected
         statuses = {"linux": linux.get("status"), "windows": windows.get("status")}
         if len(set(statuses.values())) != 1 or any(value != "passed" for value in statuses.values()):
             differences["status"] = statuses

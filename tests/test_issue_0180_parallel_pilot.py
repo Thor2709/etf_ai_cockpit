@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import subprocess
 import sys
@@ -32,14 +33,30 @@ def _write_selected_manifest(command: list[str]) -> None:
         path.write_text(json.dumps(_selected_for_command(command)), encoding="utf-8")
 
 
+def _write_executed_manifest(command: list[str]) -> None:
+    target = os.getenv("ETF_COCKPIT_PILOT_EXECUTED_NODEID_MANIFEST")
+    if target:
+        path = Path(target)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        selected = sorted(_selected_for_command(command))
+        path.write_text(json.dumps(selected), encoding="utf-8")
+        results_target = os.getenv("ETF_COCKPIT_PILOT_EXECUTED_RESULTS")
+        if results_target:
+            Path(results_target).write_text(
+                json.dumps({nodeid: "passed" for nodeid in selected}), encoding="utf-8"
+            )
+
+
 def test_profile_records_repeated_serial_parallel_parity_and_timings(
     tmp_path: Path, monkeypatch
 ) -> None:
     root = tmp_path / "root"
     root.mkdir()
     (root / "requirements-release.txt").write_text("build==1.3.0\n", encoding="utf-8")
+    (root / "requirements-release-parsers.txt").write_text("parser==1.0.0\n", encoding="utf-8")
     def completed(_root: Path, command: list[str]):
         _write_selected_manifest(command)
+        _write_executed_manifest(command)
         if "--collect-only" in command:
             return subprocess.CompletedProcess(command, 0, "tests/test_one.py: 1\n", ""), 6.0
         junit_arg = next(value for value in command if value.startswith("--junitxml="))
@@ -47,7 +64,7 @@ def test_profile_records_repeated_serial_parallel_parity_and_timings(
         Path(junit_arg.partition("=")[2]).write_text(
             "<testsuite>"
             + "".join(
-                f'<testcase classname="{node.split("::")[0].replace("/", ".")}" '
+                f'<testcase classname="{node.split("::")[0].replace("/", ".")[:-3]}" '
                 f' name="{node.split("::")[1]}"/>'
                 for node in selected
             )
@@ -132,6 +149,18 @@ def test_collection_summary_normalises_platform_paths_and_counts() -> None:
     assert profile_parallel_pytest._collection_count(summary) == 9
 
 
+def test_cache_evidence_normalises_lock_line_endings(tmp_path: Path) -> None:
+    (tmp_path / "requirements-release.txt").write_bytes(b"build==1.3.0\n")
+    (tmp_path / "requirements-release-parsers.txt").write_bytes(b"parser==1.0.0\n")
+    first = profile_parallel_pytest.cache_evidence(tmp_path)
+    (tmp_path / "requirements-release.txt").write_bytes(b"build==1.3.0\r\n")
+    (tmp_path / "requirements-release-parsers.txt").write_bytes(b"parser==1.0.0\r\n")
+    second = profile_parallel_pytest.cache_evidence(tmp_path)
+
+    assert first["inputs"]["locks"] == second["inputs"]["locks"]
+    assert first["key_sha256"] == second["key_sha256"]
+
+
 def test_duplicate_junit_identity_is_rejected(tmp_path: Path) -> None:
     junit = tmp_path / "duplicate.xml"
     junit.write_text(
@@ -144,6 +173,62 @@ def test_duplicate_junit_identity_is_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="duplicate JUnit testcase identity"):
         profile_parallel_pytest._junit_results(junit)
+
+
+def test_duplicate_executed_manifest_is_rejected(tmp_path: Path) -> None:
+    manifest = tmp_path / "executed.json"
+    manifest.write_text(json.dumps(["tests/test_one.py::test_ok"] * 2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="manifest contains duplicates"):
+        profile_parallel_pytest._manifest_nodeids(manifest)
+
+
+def test_junit_parameter_identity_with_colons_is_checked_without_reconstruction(tmp_path: Path) -> None:
+    junit = tmp_path / "parameter.xml"
+    junit.write_text(
+        "<testsuite>"
+        '<testcase classname="tests.test_one" name="test_value[a::b]"/>'
+        '<testcase classname="tests.test_one" name="test_value[a::b]"/>'
+        "</testsuite>",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="duplicate JUnit testcase identity"):
+        profile_parallel_pytest._junit_results(junit)
+
+
+def test_profile_rejects_same_count_wrong_executed_identity(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "requirements-release.txt").write_text("build==1.3.0\n", encoding="utf-8")
+    (root / "requirements-release-parsers.txt").write_text("parser==1.0.0\n", encoding="utf-8")
+
+    def completed(_root: Path, command: list[str]):
+        _write_selected_manifest(command)
+        _write_executed_manifest(command)
+        if "--collect-only" not in command:
+            target = os.getenv("ETF_COCKPIT_PILOT_EXECUTED_NODEID_MANIFEST")
+            assert target is not None
+            Path(target).write_text(json.dumps(["tests/test_one.py::test_wrong"]), encoding="utf-8")
+            results_target = os.getenv("ETF_COCKPIT_PILOT_EXECUTED_RESULTS")
+            assert results_target is not None
+            Path(results_target).write_text(
+                json.dumps({"tests/test_one.py::test_wrong": "passed"}), encoding="utf-8"
+            )
+        if "--collect-only" in command:
+            return subprocess.CompletedProcess(command, 0, "tests/test_one.py: 1\n", ""), 1.0
+        junit_arg = next(value for value in command if value.startswith("--junitxml="))
+        Path(junit_arg.partition("=")[2]).write_text(
+            '<testsuite><testcase classname="tests.test_one" name="test_safe"/></testsuite>',
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 0, "", ""), 1.0
+
+    monkeypatch.setattr(profile_parallel_pytest, "_run", completed)
+    report = profile_parallel_pytest.profile(root, tmp_path / "evidence", 2)
+
+    assert report["status"] == "divergent"
+    assert report["collection_evidence_valid"] is False
 
 
 def test_real_pytest_manifest_is_post_deselection_and_disjoint(tmp_path: Path) -> None:
@@ -274,23 +359,40 @@ def _pilot_report(*, status: str = "passed", result_suffix: str = "") -> dict[st
     lanes: dict[str, dict[str, object]] = {}
     for lane, count in lane_shapes.items():
         duration = 2.0 if lane == "candidate_combined" else 1.0
+        nodeids = [f"tests/test_case_{index}.py::test_case" for index in range(count)]
+        outcome = "failure" if result_suffix else "passed"
+        outcome_map = {nodeid: outcome for nodeid in nodeids}
+        collection_fingerprint = hashlib.sha256(
+            json.dumps(sorted(set(nodeids)), separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        result_fingerprint = hashlib.sha256(
+            json.dumps(outcome_map, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
         lanes[lane] = {
             "collection_counts": [count, count],
             "result_counts": [count, count],
             "collection_exit_codes": [0, 0],
             "exit_codes": [0, 0],
             "junit_present": [True, True],
-            "collection_fingerprints": ["a" * 64, "a" * 64],
-            "result_fingerprints": [
-                ("b" if not result_suffix else "c") * 64,
-                ("b" if not result_suffix else "c") * 64,
-            ],
+            "collection_fingerprints": [collection_fingerprint, collection_fingerprint],
+            "result_fingerprints": [result_fingerprint, result_fingerprint],
+            "executed_nodeids": [nodeids, nodeids],
+            "result_outcomes": [outcome_map, outcome_map],
             "timings": {
                 "samples_seconds": [duration, duration],
                 "p50_seconds": duration,
                 "p95_seconds": duration,
             },
         }
+    inputs = {
+        "os": "linux",
+        "python": "3.12.10",
+        "locks": {
+            "requirements-release.txt": "a" * 64,
+            "requirements-release-parsers.txt": "b" * 64,
+        },
+        "build_tools": {name: "1.0" for name in ("build", "pip", "pytest", "pytest-xdist")},
+    }
     return {
         "schema_version": "pytest-parallel-pilot.v2",
         "mode": "report_only",
@@ -334,6 +436,14 @@ def _pilot_report(*, status: str = "passed", result_suffix: str = "") -> dict[st
                 "p95_seconds": 2.0,
             },
         },
+        "cache": {
+            "schema_version": "pytest-parallel-pilot-cache.v1",
+            "key_sha256": hashlib.sha256(
+                json.dumps(inputs, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest(),
+            "inputs": inputs,
+            "setup_python_cache_hit": "true",
+        },
         "run_order": [["full_serial", "candidate"], ["candidate", "full_serial"]],
         "status": status,
     }
@@ -349,6 +459,14 @@ def _write_platform_reports(
     linux_payload = linux_report or _pilot_report()
     windows_payload = windows_report or _pilot_report()
     windows_payload["platform"] = "windows"
+    windows_cache = windows_payload["cache"]
+    assert isinstance(windows_cache, dict)
+    windows_inputs = windows_cache["inputs"]
+    assert isinstance(windows_inputs, dict)
+    windows_inputs["os"] = "windows"
+    windows_cache["key_sha256"] = hashlib.sha256(
+        json.dumps(windows_inputs, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
     linux.write_text(json.dumps(linux_payload), encoding="utf-8")
     windows.write_text(json.dumps(windows_payload), encoding="utf-8")
 
@@ -365,7 +483,7 @@ def test_cross_platform_aggregation_rejects_result_and_status_divergence(tmp_pat
     report = aggregate_parallel_pilot.compare_reports(linux, windows)
 
     assert report["status"] == "divergent"
-    assert "lane_fingerprints" in report["differences"]
+    assert "full_serial.result_outcomes[0]" in report["differences"]
 
     divergent_windows = _pilot_report(status="divergent")
     divergent_windows["platform"] = "windows"
@@ -401,6 +519,119 @@ def test_cross_platform_aggregation_accepts_matching_reports(tmp_path: Path) -> 
 
     assert report["status"] == "passed"
     assert report["differences"] == {}
+
+
+def test_cross_platform_aggregation_accepts_only_known_pid_outcome_difference(tmp_path: Path) -> None:
+    linux = _pilot_report()
+    windows = _pilot_report()
+    known = "tests/test_pid_liveness.py::test_windows_pid_probe_does_not_terminate_a_child_process"
+    for payload, outcome in ((linux, "skipped"), (windows, "passed")):
+        for lane in payload["lanes"].values():
+            nodeids = list(lane["executed_nodeids"][0])
+            old_nodeid = nodeids[0]
+            nodeids[0] = known
+            nodeids.sort()
+            lane["executed_nodeids"][0] = nodeids
+            lane["result_outcomes"][0] = {
+                known: outcome,
+                **{
+                    nodeid: value
+                    for nodeid, value in lane["result_outcomes"][0].items()
+                    if nodeid != old_nodeid
+                },
+            }
+            lane["collection_fingerprints"][0] = hashlib.sha256(
+                json.dumps(sorted(set(nodeids)), separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            lane["result_fingerprints"][0] = hashlib.sha256(
+                json.dumps(lane["result_outcomes"][0], sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            lane["executed_nodeids"][1] = list(nodeids)
+            lane["result_outcomes"][1] = dict(lane["result_outcomes"][0])
+            lane["collection_fingerprints"][1] = lane["collection_fingerprints"][0]
+            lane["result_fingerprints"][1] = lane["result_fingerprints"][0]
+        for lane_name, lane in payload["lanes"].items():
+            payload["lane_fingerprints"][lane_name]["collection"] = lane["collection_fingerprints"]
+            payload["lane_fingerprints"][lane_name]["results"] = lane["result_fingerprints"]
+    linux_path = tmp_path / "linux.json"
+    windows_path = tmp_path / "windows.json"
+    _write_platform_reports(linux_path, windows_path, linux_report=linux, windows_report=windows)
+
+    report = aggregate_parallel_pilot.compare_reports(linux_path, windows_path)
+
+    assert report["status"] == "passed"
+
+
+def test_cross_platform_aggregation_rejects_tampered_or_missing_cache(tmp_path: Path) -> None:
+    linux = tmp_path / "linux.json"
+    windows = tmp_path / "windows.json"
+    payload = _pilot_report()
+    payload["cache"]["key_sha256"] = "0" * 64
+    _write_platform_reports(linux, windows, linux_report=payload)
+    report = aggregate_parallel_pilot.compare_reports(linux, windows)
+    assert report["status"] == "divergent"
+    assert report["differences"]["linux_validity"] is False
+
+    payload = _pilot_report()
+    payload.pop("cache")
+    _write_platform_reports(linux, windows, linux_report=payload)
+    report = aggregate_parallel_pilot.compare_reports(linux, windows)
+    assert report["status"] == "divergent"
+    assert report["differences"]["linux_validity"] is False
+
+
+def test_cross_platform_aggregation_recomputes_identity_and_result_fingerprints(tmp_path: Path) -> None:
+    linux = _pilot_report()
+    lane = linux["lanes"]["full_serial"]
+    lane["result_fingerprints"][0] = "0" * 64
+    linux["lane_fingerprints"]["full_serial"]["results"] = lane["result_fingerprints"]
+    windows = _pilot_report()
+    linux_path = tmp_path / "linux.json"
+    windows_path = tmp_path / "windows.json"
+    _write_platform_reports(linux_path, windows_path, linux_report=linux, windows_report=windows)
+
+    report = aggregate_parallel_pilot.compare_reports(linux_path, windows_path)
+
+    assert report["status"] == "divergent"
+    assert report["differences"]["linux_validity"] is False
+
+
+def test_cross_platform_aggregation_rejects_same_count_wrong_executed_ids(tmp_path: Path) -> None:
+    linux = _pilot_report()
+    windows = _pilot_report()
+    for lane_name, lane in windows["lanes"].items():
+        nodeids = list(lane["executed_nodeids"][0])
+        old_nodeid = nodeids[0]
+        nodeids[0] = "tests/wrong.py::test_case"
+        nodeids.sort()
+        outcomes = {
+            nodeid: value
+            for nodeid, value in lane["result_outcomes"][0].items()
+            if nodeid != old_nodeid
+        }
+        outcomes["tests/wrong.py::test_case"] = "passed"
+        lane["executed_nodeids"][0] = nodeids
+        lane["result_outcomes"][0] = outcomes
+        lane["collection_fingerprints"][0] = hashlib.sha256(
+            json.dumps(nodeids, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        lane["result_fingerprints"][0] = hashlib.sha256(
+            json.dumps(outcomes, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        lane["executed_nodeids"][1] = list(nodeids)
+        lane["result_outcomes"][1] = dict(outcomes)
+        lane["collection_fingerprints"][1] = lane["collection_fingerprints"][0]
+        lane["result_fingerprints"][1] = lane["result_fingerprints"][0]
+        windows["lane_fingerprints"][lane_name]["collection"] = lane["collection_fingerprints"]
+        windows["lane_fingerprints"][lane_name]["results"] = lane["result_fingerprints"]
+    linux_path = tmp_path / "linux.json"
+    windows_path = tmp_path / "windows.json"
+    _write_platform_reports(linux_path, windows_path, linux_report=linux, windows_report=windows)
+
+    report = aggregate_parallel_pilot.compare_reports(linux_path, windows_path)
+
+    assert report["status"] == "divergent"
+    assert "full_serial.executed_nodeids" in report["differences"]
 
 
 def test_cross_platform_aggregation_rejects_missing_evidence_fields(tmp_path: Path) -> None:
