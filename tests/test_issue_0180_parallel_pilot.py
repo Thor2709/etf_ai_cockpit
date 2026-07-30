@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -10,6 +11,26 @@ from scripts import aggregate_parallel_pilot
 from scripts import profile_parallel_pytest
 
 
+def _selected_for_command(command: list[str]) -> list[str]:
+    all_nodes = [
+        "tests/test_one.py::test_safe",
+        "tests/operations/test_transactions.py::test_serial",
+    ]
+    if "not serial" in command:
+        return all_nodes[:1]
+    if "serial" in command:
+        return all_nodes[1:]
+    return all_nodes
+
+
+def _write_selected_manifest(command: list[str]) -> None:
+    target = os.getenv("ETF_COCKPIT_PILOT_NODEID_MANIFEST")
+    if target:
+        path = Path(target)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(_selected_for_command(command)), encoding="utf-8")
+
+
 def test_profile_records_repeated_serial_parallel_parity_and_timings(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -17,11 +38,19 @@ def test_profile_records_repeated_serial_parallel_parity_and_timings(
     root.mkdir()
     (root / "requirements-release.txt").write_text("build==1.3.0\n", encoding="utf-8")
     def completed(_root: Path, command: list[str]):
+        _write_selected_manifest(command)
         if "--collect-only" in command:
             return subprocess.CompletedProcess(command, 0, "tests/test_one.py: 1\n", ""), 6.0
         junit_arg = next(value for value in command if value.startswith("--junitxml="))
+        selected = _selected_for_command(command)
         Path(junit_arg.partition("=")[2]).write_text(
-            '<testsuite><testcase classname="tests.test_one" name="test_ok"/></testsuite>',
+            "<testsuite>"
+            + "".join(
+                f'<testcase classname="{node.split("::")[0].replace("/", ".")}" '
+                f' name="{node.split("::")[1]}"/>'
+                for node in selected
+            )
+            + "</testsuite>",
             encoding="utf-8",
         )
         return subprocess.CompletedProcess(command, 0, "", ""), 4.0
@@ -35,21 +64,19 @@ def test_profile_records_repeated_serial_parallel_parity_and_timings(
     assert report["workers"] == 4
     assert report["repetitions"] == 2
     assert report["sample_count"] == 2
-    assert report["sample_counts"] == {"serial": 2, "parallel": 2}
-    assert report["run_order"] == [["serial", "parallel"], ["parallel", "serial"]]
+    assert report["strategy"] == "full_serial_vs_two_phase_xdist"
+    assert report["phase_order"] == ["safe", "unsafe"]
+    assert report["run_order"] == [["full_serial", "candidate"], ["candidate", "full_serial"]]
     assert report["collection_parity"] is True
     assert report["collection_evidence_valid"] is True
     assert report["result_parity"] is True
-    assert len(report["collection_fingerprints"]["serial"]) == 2
-    assert report["collection_counts"] == {"serial": [1, 1], "parallel": [1, 1]}
-    assert len(report["result_fingerprints"]["parallel"]) == 2
-    assert report["result_counts"] == {"serial": [1, 1], "parallel": [1, 1]}
-    assert report["collection_exit_codes"] == {"serial": [0, 0], "parallel": [0, 0]}
-    assert report["timings"]["serial"]["p50_seconds"] == 4.0
-    assert report["timings"]["parallel"]["p95_seconds"] == 4.0
+    assert len(report["lane_fingerprints"]["full_serial"]["collection"]) == 2
+    assert report["lane_counts"]["candidate_combined"] == {"collection": [2, 2], "results": [2, 2]}
+    assert report["lane_codes"]["candidate_safe"]["collection"] == [0, 0]
+    assert report["timings"]["candidate_combined"]["p50_seconds"] == 8.0
     assert len(report["cache"]["key_sha256"]) == 64
-    assert (tmp_path / "evidence" / "collection-serial-1.stdout.log").is_file()
-    assert (tmp_path / "evidence" / "tests-parallel-2.stderr.log").is_file()
+    assert (tmp_path / "evidence" / "collection-full_serial-1.stdout.log").is_file()
+    assert (tmp_path / "evidence" / "tests-unsafe-2.stderr.log").is_file()
 
 
 def test_collection_failure_makes_report_divergent(tmp_path: Path, monkeypatch) -> None:
@@ -60,6 +87,7 @@ def test_collection_failure_makes_report_divergent(tmp_path: Path, monkeypatch) 
     def completed(_root: Path, command: list[str]):
         nonlocal calls
         calls += 1
+        _write_selected_manifest(command)
         if "--collect-only" in command:
             return subprocess.CompletedProcess(
                 command,
@@ -78,9 +106,9 @@ def test_collection_failure_makes_report_divergent(tmp_path: Path, monkeypatch) 
     report = profile_parallel_pytest.profile(root, tmp_path / "evidence", 2)
 
     assert report["status"] == "divergent"
-    assert report["collection_exit_codes"]["serial"] == [2, 0]
+    assert report["lanes"]["full_serial"]["collection_exit_codes"] == [2, 0]
     assert (
-        tmp_path / "evidence" / "collection-serial-1.stderr.log"
+        tmp_path / "evidence" / "collection-full_serial-1.stderr.log"
     ).read_text(encoding="utf-8") == "collection failed"
 
 
@@ -121,6 +149,7 @@ def test_empty_collection_summary_cannot_pass_with_matching_junit(
     root.mkdir()
 
     def completed(_root: Path, command: list[str]):
+        _write_selected_manifest(command)
         if "--collect-only" in command:
             return subprocess.CompletedProcess(command, 0, "2200 tests collected\n", ""), 1.0
         junit_arg = next(value for value in command if value.startswith("--junitxml="))
@@ -159,7 +188,8 @@ def test_missing_junit_evidence_is_divergent(tmp_path: Path, monkeypatch) -> Non
     report = profile_parallel_pytest.profile(root, tmp_path / "evidence", 2)
 
     assert report["status"] == "divergent"
-    assert report["junit_present"] == {"serial": [False, False], "parallel": [False, False]}
+    assert report["lanes"]["full_serial"]["junit_present"] == [False, False]
+    assert report["lanes"]["candidate_safe"]["junit_present"] == [False, False]
 
 
 def test_profile_rejects_less_than_two_samples(tmp_path: Path) -> None:
@@ -172,34 +202,64 @@ def test_profile_rejects_less_than_two_samples(tmp_path: Path) -> None:
 
 
 def _pilot_report(*, status: str = "passed", result_suffix: str = "") -> dict[str, object]:
+    lane_shapes = {
+        "full_serial": (3, "serial"),
+        "candidate_safe": (1, "safe"),
+        "candidate_unsafe": (2, "unsafe"),
+        "candidate_combined": (3, "combined"),
+    }
+    lanes: dict[str, dict[str, object]] = {}
+    for lane, (count, identity) in lane_shapes.items():
+        lanes[lane] = {
+            "collection_counts": [count, count],
+            "result_counts": [count, count],
+            "collection_exit_codes": [0, 0],
+            "exit_codes": [0, 0],
+            "junit_present": [True, True],
+            "collection_fingerprints": [f"collection-{identity}", f"collection-{identity}"],
+            "result_fingerprints": [f"result{result_suffix}", f"result{result_suffix}"],
+            "timings": {
+                "samples_seconds": [1.0, 1.0],
+                "p50_seconds": 1.0,
+                "p95_seconds": 1.0,
+            },
+        }
     return {
-        "schema_version": "pytest-parallel-pilot.v1",
+        "schema_version": "pytest-parallel-pilot.v2",
         "mode": "report_only",
         "authority": "serial_release_gate",
         "platform": "linux",
         "workers": 4,
         "repetitions": 2,
+        "sample_count": 2,
+        "strategy": "full_serial_vs_two_phase_xdist",
+        "phase_order": ["safe", "unsafe"],
+        "selectors": {
+            "full_serial": [],
+            "safe": ["-m", "not serial"],
+            "unsafe": ["-m", "serial"],
+        },
         "unsafe_groups": ["concurrency", "environment", "flet", "package", "ports", "sqlite"],
         "collection_parity": True,
         "collection_evidence_valid": True,
         "result_parity": True,
         "repeatable_results": True,
-        "collection_fingerprints": {
-            "serial": ["collection", "collection"],
-            "parallel": ["collection", "collection"],
+        "manifest_valid": {lane: [True, True] for lane in lane_shapes},
+        "lanes": lanes,
+        "lane_counts": {
+            lane: {"collection": value["collection_counts"], "results": value["result_counts"]}
+            for lane, value in lanes.items()
         },
-        "collection_counts": {"serial": [3, 3], "parallel": [3, 3]},
-        "result_fingerprints": {
-            "serial": [f"result{result_suffix}", f"result{result_suffix}"],
-            "parallel": [f"result{result_suffix}", f"result{result_suffix}"],
+        "lane_codes": {
+            lane: {"collection": value["collection_exit_codes"], "tests": value["exit_codes"]}
+            for lane, value in lanes.items()
         },
-        "result_counts": {"serial": [3, 3], "parallel": [3, 3]},
-        "junit_present": {"serial": [True, True], "parallel": [True, True]},
-        "collection_exit_codes": {"serial": [0, 0], "parallel": [0, 0]},
-        "exit_codes": {"serial": [0, 0], "parallel": [0, 0]},
-        "sample_count": 2,
-        "sample_counts": {"serial": 2, "parallel": 2},
-        "run_order": [["serial", "parallel"], ["parallel", "serial"]],
+        "lane_fingerprints": {
+            lane: {"collection": value["collection_fingerprints"], "results": value["result_fingerprints"]}
+            for lane, value in lanes.items()
+        },
+        "timings": {lane: value["timings"] for lane, value in lanes.items()},
+        "run_order": [["full_serial", "candidate"], ["candidate", "full_serial"]],
         "status": status,
     }
 
@@ -230,7 +290,7 @@ def test_cross_platform_aggregation_rejects_result_and_status_divergence(tmp_pat
     report = aggregate_parallel_pilot.compare_reports(linux, windows)
 
     assert report["status"] == "divergent"
-    assert "result_fingerprints" in report["differences"]
+    assert "lane_fingerprints" in report["differences"]
 
     divergent_windows = _pilot_report(status="divergent")
     divergent_windows["platform"] = "windows"
@@ -272,7 +332,7 @@ def test_cross_platform_aggregation_rejects_missing_evidence_fields(tmp_path: Pa
     linux = tmp_path / "linux.json"
     windows = tmp_path / "windows.json"
     payload = _pilot_report()
-    payload.pop("junit_present")
+    payload.pop("lane_counts")
     windows_payload = dict(payload)
     windows_payload["platform"] = "windows"
     linux.write_text(json.dumps(payload), encoding="utf-8")
@@ -281,7 +341,7 @@ def test_cross_platform_aggregation_rejects_missing_evidence_fields(tmp_path: Pa
     report = aggregate_parallel_pilot.compare_reports(linux, windows)
 
     assert report["status"] == "divergent"
-    assert "junit_present" in report["differences"]
+    assert "lane_counts" in report["differences"]
 
 
 def test_cross_platform_aggregation_rejects_nonzero_exit_codes(tmp_path: Path) -> None:
@@ -289,7 +349,7 @@ def test_cross_platform_aggregation_rejects_nonzero_exit_codes(tmp_path: Path) -
     windows = tmp_path / "windows.json"
     linux_report = _pilot_report()
     windows_report = _pilot_report()
-    windows_report["exit_codes"] = {"serial": [0, 0], "parallel": [1, 0]}
+    windows_report["lanes"]["candidate_safe"]["exit_codes"] = [1, 0]
     _write_platform_reports(
         linux,
         windows,
@@ -300,7 +360,7 @@ def test_cross_platform_aggregation_rejects_nonzero_exit_codes(tmp_path: Path) -
     report = aggregate_parallel_pilot.compare_reports(linux, windows)
 
     assert report["status"] == "divergent"
-    assert "exit_codes" in report["differences"]
+    assert report["differences"]["windows_validity"] is False
     assert report["differences"]["windows_validity"] is False
 
 

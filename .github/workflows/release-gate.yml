@@ -368,6 +368,9 @@ jobs:
           ETF_COCKPIT_SETUP_PYTHON_CACHE_HIT: ${{ steps.setup-python.outputs.cache-hit }}
           ETF_COCKPIT_PLATFORM: ${{ matrix.platform }}
         run: |
+          # Candidate repetitions collect without xdist, then run safe tests
+          # with four workers and serial-marked tests sequentially.  The
+          # serial release gate remains authoritative; this job is evidence.
           python scripts/profile_parallel_pytest.py \
             --root . \
             --output "artifacts/parallel-pilot/${{ matrix.platform }}" \

@@ -304,15 +304,26 @@ def parallel_pilot_evidence() -> dict[str, object]:
     except importlib.metadata.PackageNotFoundError:
         version = None
     return {
+        "schema_version": "pytest-parallel-pilot.v2",
         "mode": "report_only",
         "authority": "serial",
+        "strategy": "full_serial_vs_two_phase_xdist",
+        "phase_order": ["safe", "unsafe"],
+        "selectors": {
+            "full_serial": [],
+            "safe": ["-m", "not serial"],
+            "unsafe": ["-m", "serial"],
+        },
         "available": version is not None,
         "status": "available" if version is not None else "unavailable",
         "version": version,
         "workers": 4,
         "commands": {
             "serial_collection": "python -m pytest --collect-only -q",
-            "pilot_collection": "python -m pytest -n 4 --dist loadgroup --collect-only -q",
+            "candidate_safe_collection": "python -m pytest -m \"not serial\" --collect-only -q",
+            "candidate_unsafe_collection": "python -m pytest -m serial --collect-only -q",
+            "candidate_safe_execution": "python -m pytest -m \"not serial\" -n 4 --dist loadgroup -q",
+            "candidate_unsafe_execution": "python -m pytest -m serial -q",
         },
         "collection_parity": {
             "required": True,

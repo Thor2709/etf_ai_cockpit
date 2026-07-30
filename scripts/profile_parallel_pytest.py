@@ -92,6 +92,64 @@ def _write_diagnostics(
     )
 
 
+_MANIFEST_ENV = "ETF_COCKPIT_PILOT_NODEID_MANIFEST"
+_UNSAFE_GROUPS = ["concurrency", "environment", "flet", "package", "ports", "sqlite"]
+
+
+def _manifest_nodeids(path: Path) -> list[str]:
+    """Read one exact selected-nodeid manifest, rejecting ambiguity."""
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, list) or not all(isinstance(value, str) and value for value in payload):
+        raise ValueError(f"selected-nodeid manifest is malformed: {path}")
+    nodeids = [value.replace("\\", "/") for value in payload]
+    if len(nodeids) != len(set(nodeids)):
+        raise ValueError(f"selected-nodeid manifest contains duplicates: {path}")
+    return nodeids
+
+
+def _run_with_manifest(
+    root: Path, command: Sequence[str], manifest: Path
+) -> tuple[subprocess.CompletedProcess[str], float]:
+    previous = os.environ.get(_MANIFEST_ENV)
+    os.environ[_MANIFEST_ENV] = str(manifest)
+    try:
+        return _run(root, command)
+    finally:
+        if previous is None:
+            os.environ.pop(_MANIFEST_ENV, None)
+        else:
+            os.environ[_MANIFEST_ENV] = previous
+
+
+def _timing_summary(samples: list[float]) -> dict[str, object]:
+    return {
+        "samples_seconds": samples,
+        "p50_seconds": round(_percentile(samples, 0.50), 3) if samples else None,
+        "p95_seconds": round(_percentile(samples, 0.95), 3) if samples else None,
+    }
+
+
+def _lane_record(
+    collections: list[list[str]],
+    results: list[dict[str, str]],
+    collection_codes: list[int],
+    exit_codes: list[int],
+    junit_present: list[bool],
+    durations: list[float],
+) -> dict[str, object]:
+    return {
+        "collection_counts": [len(value) for value in collections],
+        "result_counts": [len(value) for value in results],
+        "collection_exit_codes": collection_codes,
+        "exit_codes": exit_codes,
+        "junit_present": junit_present,
+        "collection_fingerprints": [_fingerprint(value) for value in collections],
+        "result_fingerprints": [_fingerprint(value) for value in results],
+        "timings": _timing_summary(durations),
+    }
+
+
 def cache_evidence(root: Path) -> dict[str, object]:
     lock_paths = [root / "requirements-release.txt", root / "requirements-release-parsers.txt"]
     lock_hashes = {
@@ -123,118 +181,200 @@ def profile(root: Path, output: Path, repetitions: int) -> dict[str, object]:
     if repetitions < 2:
         raise ValueError("repetitions must be at least 2")
     output.mkdir(parents=True, exist_ok=True)
-    modes = {
-        "serial": [],
-        "parallel": ["-n", "4", "--dist", "loadgroup"],
-    }
-    collections: dict[str, list[list[str]]] = {name: [] for name in modes}
-    results: dict[str, list[dict[str, str]]] = {name: [] for name in modes}
-    durations: dict[str, list[float]] = {name: [] for name in modes}
-    exit_codes: dict[str, list[int]] = {name: [] for name in modes}
-    collection_exit_codes: dict[str, list[int]] = {name: [] for name in modes}
-    junit_present: dict[str, list[bool]] = {name: [] for name in modes}
+    lanes = ("full_serial", "candidate_safe", "candidate_unsafe", "candidate_combined")
+    collections: dict[str, list[list[str]]] = {name: [] for name in lanes}
+    results: dict[str, list[dict[str, str]]] = {name: [] for name in lanes}
+    durations: dict[str, list[float]] = {name: [] for name in lanes}
+    exit_codes: dict[str, list[int]] = {name: [] for name in lanes}
+    collection_exit_codes: dict[str, list[int]] = {name: [] for name in lanes}
+    junit_present: dict[str, list[bool]] = {name: [] for name in lanes}
+    manifest_valid: dict[str, list[bool]] = {name: [] for name in lanes}
     run_order: list[list[str]] = []
 
     for repetition in range(repetitions):
-        order = ["serial", "parallel"] if repetition % 2 == 0 else ["parallel", "serial"]
+        order = ["full_serial", "candidate"] if repetition % 2 == 0 else ["candidate", "full_serial"]
         run_order.append(order)
-        for mode in order:
-            mode_args = modes[mode]
-            collection, _ = _run(
-                root, [sys.executable, "-m", "pytest", *mode_args, "--collect-only", "-q"]
-            )
-            stem = f"{mode}-{repetition + 1}"
-            _write_diagnostics(output, f"collection-{stem}", collection)
-            collection_exit_codes[mode].append(collection.returncode)
-            collections[mode].append(_collection_nodeids(collection.stdout))
-            junit = output / f"junit-{mode}-{repetition + 1}.xml"
-            completed, duration = _run(
-                root,
-                [
-                    sys.executable,
-                    "-m",
-                    "pytest",
-                    *mode_args,
-                    "-q",
-                    "--durations=100",
-                    "--durations-min=0.25",
-                    f"--junitxml={junit}",
-                ],
-            )
-            _write_diagnostics(output, f"tests-{stem}", completed)
-            durations[mode].append(round(duration, 3))
-            exit_codes[mode].append(completed.returncode)
-            present = junit.is_file()
-            junit_present[mode].append(present)
-            results[mode].append(_junit_results(junit) if present else {})
+        for lane in order:
+            phases: tuple[tuple[str, list[str], str], ...]
+            if lane == "full_serial":
+                phases = (("full_serial", [], "full_serial"),)
+            else:
+                phases = (
+                    ("candidate_safe", ["-m", "not serial", "-n", "4", "--dist", "loadgroup"], "safe"),
+                    ("candidate_unsafe", ["-m", "serial"], "unsafe"),
+                )
+            for mode, mode_args, phase in phases:
+                stem = f"{phase}-{repetition + 1}"
+                collection_manifest = output / f"manifest-collection-{stem}.json"
+                collection, _ = _run_with_manifest(
+                    root,
+                    [sys.executable, "-m", "pytest", *mode_args[:2], "--collect-only", "-q"],
+                    collection_manifest,
+                )
+                _write_diagnostics(output, f"collection-{stem}", collection)
+                collection_exit_codes[mode].append(collection.returncode)
+                try:
+                    selected = _manifest_nodeids(collection_manifest)
+                    if not selected:
+                        raise ValueError("selected-nodeid manifest is empty")
+                    collections[mode].append(selected)
+                    manifest_valid[mode].append(True)
+                except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+                    collections[mode].append([])
+                    manifest_valid[mode].append(False)
+                junit = output / f"junit-{phase}-{repetition + 1}.xml"
+                run_manifest = output / f"manifest-run-{stem}.json"
+                completed, duration = _run_with_manifest(
+                    root,
+                    [
+                        sys.executable,
+                        "-m",
+                        "pytest",
+                        *mode_args,
+                        "-q",
+                        "--durations=100",
+                        "--durations-min=0.25",
+                        f"--junitxml={junit}",
+                    ],
+                    run_manifest,
+                )
+                _write_diagnostics(output, f"tests-{stem}", completed)
+                durations[mode].append(round(duration, 3))
+                exit_codes[mode].append(completed.returncode)
+                present = junit.is_file()
+                junit_present[mode].append(present)
+                try:
+                    run_selected = _manifest_nodeids(run_manifest)
+                    if not manifest_valid[mode][-1] or run_selected != collections[mode][-1]:
+                        manifest_valid[mode][-1] = False
+                    parsed = _junit_results(junit) if present else {}
+                except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError, ET.ParseError):
+                    manifest_valid[mode][-1] = False
+                    parsed = {}
+                results[mode].append(parsed)
 
-    serial_collection = collections["serial"][0]
-    serial_results = results["serial"][0]
-    collection_parity = all(
-        nodeids == serial_collection for mode_runs in collections.values() for nodeids in mode_runs
+        safe = collections["candidate_safe"][-1]
+        unsafe = collections["candidate_unsafe"][-1]
+        safe_results = results["candidate_safe"][-1]
+        unsafe_results = results["candidate_unsafe"][-1]
+        combined = {**safe_results, **unsafe_results}
+        if set(safe_results).intersection(unsafe_results):
+            combined = {}
+            manifest_valid["candidate_combined"].append(False)
+        else:
+            manifest_valid["candidate_combined"].append(
+                manifest_valid["candidate_safe"][-1] and manifest_valid["candidate_unsafe"][-1]
+            )
+        collections["candidate_combined"].append(list(dict.fromkeys([*safe, *unsafe])))
+        results["candidate_combined"].append(combined)
+        exit_codes["candidate_combined"].append(
+            max(exit_codes["candidate_safe"][-1], exit_codes["candidate_unsafe"][-1])
+        )
+        collection_exit_codes["candidate_combined"].append(
+            max(collection_exit_codes["candidate_safe"][-1], collection_exit_codes["candidate_unsafe"][-1])
+        )
+        junit_present["candidate_combined"].append(
+            junit_present["candidate_safe"][-1] and junit_present["candidate_unsafe"][-1]
+        )
+        durations["candidate_combined"].append(
+            round(durations["candidate_safe"][-1] + durations["candidate_unsafe"][-1], 3)
+        )
+
+    serial_collections = collections["full_serial"]
+    candidate_collections = collections["candidate_combined"]
+    serial_results = results["full_serial"]
+    candidate_results = results["candidate_combined"]
+    collection_parity = bool(serial_collections) and all(
+        serial_collections[index] == candidate_collections[index]
+        for index in range(repetitions)
     )
-    result_parity = all(
-        run_results == serial_results for mode_runs in results.values() for run_results in mode_runs
+    result_parity = bool(serial_results) and all(
+        candidate_results[index] == serial_results[index] for index in range(repetitions)
     )
-    repeatable = all(len({json.dumps(run, sort_keys=True) for run in mode_runs}) == 1 for mode_runs in results.values())
-    collection_fingerprints = {
-        mode: [_fingerprint(nodeids) for nodeids in runs]
-        for mode, runs in collections.items()
-    }
-    result_fingerprints = {
-        mode: [_fingerprint(run_results) for run_results in runs]
-        for mode, runs in results.items()
-    }
-    collection_counts = {
-        mode: [_collection_count(run) for run in runs]
-        for mode, runs in collections.items()
-    }
-    result_counts = {mode: [len(run) for run in runs] for mode, runs in results.items()}
+    repeatable = (
+        bool(serial_results)
+        and len({json.dumps(run, sort_keys=True) for run in serial_results}) == 1
+        and len({json.dumps(run, sort_keys=True) for run in candidate_results}) == 1
+    )
     collection_evidence_valid = all(
-        collected_count > 0 and collected_count == result_counts[mode][index]
-        for mode, counts in collection_counts.items()
-        for index, collected_count in enumerate(counts)
+        manifest_valid[lane][index]
+        and len(collections[lane][index]) == len(results[lane][index])
+        for lane in ("full_serial", "candidate_combined")
+        for index in range(repetitions)
+    ) and all(
+        manifest_valid[lane][index]
+        and collections["candidate_safe"][index]
+        and collections["candidate_unsafe"][index]
+        and not set(collections["candidate_safe"][index]).intersection(collections["candidate_unsafe"][index])
+        and set(collections["candidate_safe"][index]).union(collections["candidate_unsafe"][index])
+        == set(collections["full_serial"][index])
+        for index in range(repetitions)
+        for lane in ("candidate_safe", "candidate_unsafe")
     )
-    timings = {
-        mode: {
-            "samples_seconds": samples,
-            "p50_seconds": round(_percentile(samples, 0.50), 3),
-            "p95_seconds": round(_percentile(samples, 0.95), 3),
-        }
-        for mode, samples in durations.items()
+    lane_reports = {
+        lane: _lane_record(
+            collections[lane],
+            results[lane],
+            collection_exit_codes[lane],
+            exit_codes[lane],
+            junit_present[lane],
+            durations[lane],
+        )
+        for lane in lanes
     }
+    all_codes_zero = all(
+        code == 0
+        for lane in lanes
+        for code in (*collection_exit_codes[lane], *exit_codes[lane])
+    )
+    all_junit_present = all(flag for lane in lanes for flag in junit_present[lane])
     return {
-        "schema_version": "pytest-parallel-pilot.v1",
+        "schema_version": "pytest-parallel-pilot.v2",
         "mode": "report_only",
         "authority": "serial_release_gate",
         "workers": 4,
         "repetitions": repetitions,
         "sample_count": repetitions,
-        "sample_counts": {mode: len(runs) for mode, runs in collections.items()},
+        "strategy": "full_serial_vs_two_phase_xdist",
+        "phase_order": ["safe", "unsafe"],
+        "selectors": {
+            "full_serial": [],
+            "safe": ["-m", "not serial"],
+            "unsafe": ["-m", "serial"],
+        },
         "run_order": run_order,
         "platform": os.getenv("ETF_COCKPIT_PLATFORM", platform.system().lower()),
-        "unsafe_groups": ["concurrency", "environment", "flet", "package", "ports", "sqlite"],
+        "unsafe_groups": _UNSAFE_GROUPS,
         "collection_parity": collection_parity,
         "collection_evidence_valid": collection_evidence_valid,
         "result_parity": result_parity,
         "repeatable_results": repeatable,
-        "collection_fingerprints": collection_fingerprints,
-        "collection_counts": collection_counts,
-        "result_fingerprints": result_fingerprints,
-        "result_counts": result_counts,
-        "junit_present": junit_present,
-        "collection_exit_codes": collection_exit_codes,
-        "exit_codes": exit_codes,
-        "timings": timings,
+        "manifest_valid": manifest_valid,
+        "lanes": lane_reports,
+        "lane_counts": {
+            lane: {"collection": lane_reports[lane]["collection_counts"], "results": lane_reports[lane]["result_counts"]}
+            for lane in lanes
+        },
+        "lane_codes": {
+            lane: {"collection": lane_reports[lane]["collection_exit_codes"], "tests": lane_reports[lane]["exit_codes"]}
+            for lane in lanes
+        },
+        "lane_fingerprints": {
+            lane: {
+                "collection": lane_reports[lane]["collection_fingerprints"],
+                "results": lane_reports[lane]["result_fingerprints"],
+            }
+            for lane in lanes
+        },
+        "timings": {lane: lane_reports[lane]["timings"] for lane in lanes},
         "cache": cache_evidence(root),
         "status": "passed"
         if collection_parity
         and collection_evidence_valid
         and result_parity
         and repeatable
-        and all(all(present for present in flags) for flags in junit_present.values())
-        and all(not any(codes) for codes in collection_exit_codes.values())
-        and all(not any(codes) for codes in exit_codes.values())
+        and all_junit_present
+        and all_codes_zero
         else "divergent",
     }
 

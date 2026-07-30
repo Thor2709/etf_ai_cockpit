@@ -10,6 +10,9 @@ from typing import Mapping, Sequence
 
 _COMPARED_FIELDS = (
     "schema_version",
+    "strategy",
+    "phase_order",
+    "selectors",
     "workers",
     "repetitions",
     "unsafe_groups",
@@ -17,18 +20,14 @@ _COMPARED_FIELDS = (
     "collection_evidence_valid",
     "result_parity",
     "repeatable_results",
-    "collection_fingerprints",
-    "collection_counts",
-    "result_fingerprints",
-    "result_counts",
-    "junit_present",
-    "collection_exit_codes",
-    "exit_codes",
     "sample_count",
-    "sample_counts",
     "run_order",
+    "manifest_valid",
+    "lane_counts",
+    "lane_codes",
+    "lane_fingerprints",
 )
-_MODES = ("serial", "parallel")
+_LANES = ("full_serial", "candidate_safe", "candidate_unsafe", "candidate_combined")
 _UNSAFE_GROUPS = ["concurrency", "environment", "flet", "package", "ports", "sqlite"]
 
 
@@ -39,33 +38,25 @@ def _read_report(path: Path) -> Mapping[str, object]:
     return value
 
 
-def _mode_lists(
-    report: Mapping[str, object], field: str, sample_count: int
-) -> dict[str, list[object]] | None:
-    value = report.get(field)
-    if not isinstance(value, dict) or set(value) != set(_MODES):
-        return None
-    normalised: dict[str, list[object]] = {}
-    for mode in _MODES:
-        samples = value.get(mode)
-        if not isinstance(samples, list) or len(samples) != sample_count:
-            return None
-        normalised[mode] = samples
-    return normalised
-
-
 def _report_is_valid(label: str, report: Mapping[str, object]) -> bool:
     sample_count = report.get("sample_count")
     if type(sample_count) is not int or sample_count < 2:
         return False
     if (
-        report.get("schema_version") != "pytest-parallel-pilot.v1"
+        report.get("schema_version") != "pytest-parallel-pilot.v2"
         or report.get("mode") != "report_only"
         or report.get("authority") != "serial_release_gate"
         or report.get("platform") != label
         or report.get("workers") != 4
         or report.get("repetitions") != sample_count
-        or report.get("sample_counts") != {mode: sample_count for mode in _MODES}
+        or report.get("strategy") != "full_serial_vs_two_phase_xdist"
+        or report.get("phase_order") != ["safe", "unsafe"]
+        or report.get("selectors")
+        != {
+            "full_serial": [],
+            "safe": ["-m", "not serial"],
+            "unsafe": ["-m", "serial"],
+        }
         or report.get("unsafe_groups") != _UNSAFE_GROUPS
         or report.get("collection_parity") is not True
         or report.get("collection_evidence_valid") is not True
@@ -74,51 +65,57 @@ def _report_is_valid(label: str, report: Mapping[str, object]) -> bool:
         or report.get("status") != "passed"
     ):
         return False
-    fields = {
-        field: _mode_lists(report, field, sample_count)
-        for field in (
-            "collection_fingerprints",
+    lanes = report.get("lanes")
+    manifest_valid = report.get("manifest_valid")
+    for field in ("lane_counts", "lane_codes", "lane_fingerprints", "timings"):
+        field_value = report.get(field)
+        if not isinstance(field_value, dict) or set(field_value) != set(_LANES):
+            return False
+    if (
+        not isinstance(lanes, dict)
+        or set(lanes) != set(_LANES)
+        or not isinstance(manifest_valid, dict)
+        or set(manifest_valid) != set(_LANES)
+    ):
+        return False
+    for lane in _LANES:
+        record = lanes[lane]
+        if not isinstance(record, dict):
+            return False
+        required = (
             "collection_counts",
-            "result_fingerprints",
             "result_counts",
-            "junit_present",
             "collection_exit_codes",
             "exit_codes",
+            "junit_present",
+            "collection_fingerprints",
+            "result_fingerprints",
+            "timings",
         )
-    }
-    if any(value is None for value in fields.values()):
-        return False
-    collection_counts = fields["collection_counts"]
-    result_counts = fields["result_counts"]
-    junit_present = fields["junit_present"]
-    collection_exit_codes = fields["collection_exit_codes"]
-    exit_codes = fields["exit_codes"]
-    assert collection_counts is not None
-    assert result_counts is not None
-    assert junit_present is not None
-    assert collection_exit_codes is not None
-    assert exit_codes is not None
-    if collection_counts != result_counts:
-        return False
-    if not all(
-        type(count) is int and count > 0
-        for mode in _MODES
-        for count in collection_counts[mode]
-    ):
-        return False
-    if not all(
-        flag is True for mode in _MODES for flag in junit_present[mode]
-    ):
-        return False
-    if not all(
-        code == 0
-        for evidence in (collection_exit_codes, exit_codes)
-        for mode in _MODES
-        for code in evidence[mode]
-    ):
-        return False
+        if any(key not in record for key in required):
+            return False
+        arrays = {key: record[key] for key in required if key != "timings"}
+        if any(not isinstance(value, list) or len(value) != sample_count for value in arrays.values()):
+            return False
+        counts = record["collection_counts"]
+        result_counts = record["result_counts"]
+        if counts != result_counts or not all(type(count) is int and count > 0 for count in counts):
+            return False
+        if not all(flag is True for flag in record["junit_present"]):
+            return False
+        if not all(code == 0 for key in ("collection_exit_codes", "exit_codes") for code in record[key]):
+            return False
+        validity = manifest_valid[lane]
+        timing = record["timings"]
+        if not isinstance(timing, dict):
+            return False
+        samples = timing.get("samples_seconds")
+        if not isinstance(samples, list) or len(samples) != sample_count:
+            return False
+        if not isinstance(validity, list) or len(validity) != sample_count or not all(value is True for value in validity):
+            return False
     expected_order = [
-        ["serial", "parallel"] if index % 2 == 0 else ["parallel", "serial"]
+        ["full_serial", "candidate"] if index % 2 == 0 else ["candidate", "full_serial"]
         for index in range(sample_count)
     ]
     return report.get("run_order") == expected_order
@@ -170,7 +167,7 @@ def compare_reports(linux_path: Path, windows_path: Path) -> dict[str, object]:
                 differences[f"{label}_validity"] = False
 
     return {
-        "schema_version": "pytest-parallel-pilot-cross-platform.v1",
+        "schema_version": "pytest-parallel-pilot-cross-platform.v2",
         "mode": "report_only",
         "authority": "serial_release_gate",
         "compared_fields": list(_COMPARED_FIELDS) + ["status", "authority", "platform"],
