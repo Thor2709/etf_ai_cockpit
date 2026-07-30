@@ -9,6 +9,7 @@ import json
 import math
 import os
 import platform
+import re
 import subprocess
 import sys
 import time
@@ -40,8 +41,23 @@ def _junit_results(path: Path) -> dict[str, str]:
     return results
 
 
+_COLLECTION_SUMMARY_RE = re.compile(r"^(tests[\\/].+\.py):\s+(\d+)$")
+
+
 def _collection_nodeids(output: str) -> list[str]:
-    return [line.strip() for line in output.splitlines() if "::" in line and not line.startswith("=")]
+    """Normalise pytest 9's ordered per-file collection summary."""
+
+    collected: list[str] = []
+    for raw_line in output.splitlines():
+        match = _COLLECTION_SUMMARY_RE.fullmatch(raw_line.strip())
+        if match is not None:
+            normalised_path = match.group(1).replace("\\", "/")
+            collected.append(f"{normalised_path}:{match.group(2)}")
+    return collected
+
+
+def _collection_count(summary: list[str]) -> int:
+    return sum(int(row.rpartition(":")[2]) for row in summary)
 
 
 def _fingerprint(value: object) -> str:
@@ -167,7 +183,10 @@ def profile(root: Path, output: Path, repetitions: int) -> dict[str, object]:
         mode: [_fingerprint(run_results) for run_results in runs]
         for mode, runs in results.items()
     }
-    collection_counts = {mode: [len(run) for run in runs] for mode, runs in collections.items()}
+    collection_counts = {
+        mode: [_collection_count(run) for run in runs]
+        for mode, runs in collections.items()
+    }
     result_counts = {mode: [len(run) for run in runs] for mode, runs in results.items()}
     timings = {
         mode: {

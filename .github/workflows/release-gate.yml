@@ -297,6 +297,28 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Pin reviewed canonical generation base
+        shell: bash
+        env:
+          REVIEWED_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          REVIEWED_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || 'main' }}
+        run: |
+          if [[ "$REVIEWED_BASE_REF" != "main" ]]; then
+            echo "Parallel-pilot control evidence must target main, not $REVIEWED_BASE_REF" >&2
+            exit 1
+          fi
+          if [[ ! "$REVIEWED_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Invalid reviewed generation-base SHA: $REVIEWED_BASE_SHA" >&2
+            exit 1
+          fi
+          if ! git cat-file -e "${REVIEWED_BASE_SHA}^{commit}" 2>/dev/null; then
+            git fetch --no-tags origin "$REVIEWED_BASE_SHA"
+          fi
+          git update-ref refs/remotes/origin/main "$REVIEWED_BASE_SHA"
+          test "$(git rev-parse origin/main)" = "$REVIEWED_BASE_SHA"
 
       - name: Set up pinned Python and cache
         id: setup-python

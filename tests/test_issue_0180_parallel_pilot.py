@@ -16,7 +16,7 @@ def test_profile_records_repeated_serial_parallel_parity_and_timings(
     (root / "requirements-release.txt").write_text("build==1.3.0\n", encoding="utf-8")
     def completed(_root: Path, command: list[str]):
         if "--collect-only" in command:
-            return subprocess.CompletedProcess(command, 0, "tests/test_one.py::test_ok\n", ""), 6.0
+            return subprocess.CompletedProcess(command, 0, "tests/test_one.py: 1\n", ""), 6.0
         junit_arg = next(value for value in command if value.startswith("--junitxml="))
         Path(junit_arg.partition("=")[2]).write_text(
             '<testsuite><testcase classname="tests.test_one" name="test_ok"/></testsuite>',
@@ -58,7 +58,12 @@ def test_collection_failure_makes_report_divergent(tmp_path: Path, monkeypatch) 
         nonlocal calls
         calls += 1
         if "--collect-only" in command:
-            return subprocess.CompletedProcess(command, 2 if calls == 1 else 0, "", "collection failed"), 1.0
+            return subprocess.CompletedProcess(
+                command,
+                2 if calls == 1 else 0,
+                "tests/test_one.py: 1\n",
+                "collection failed",
+            ), 1.0
         junit_arg = next(value for value in command if value.startswith("--junitxml="))
         Path(junit_arg.partition("=")[2]).write_text(
             '<testsuite><testcase classname="tests.test_one" name="test_ok"/></testsuite>',
@@ -76,6 +81,22 @@ def test_collection_failure_makes_report_divergent(tmp_path: Path, monkeypatch) 
     ).read_text(encoding="utf-8") == "collection failed"
 
 
+def test_collection_summary_normalises_platform_paths_and_counts() -> None:
+    output = (
+        "tests/operations/test_events.py: 6\n"
+        "tests\\ui\\test_shell.py: 3\n"
+        "9 tests collected in 0.12s\n"
+    )
+
+    summary = profile_parallel_pytest._collection_nodeids(output)
+
+    assert summary == [
+        "tests/operations/test_events.py:6",
+        "tests/ui/test_shell.py:3",
+    ]
+    assert profile_parallel_pytest._collection_count(summary) == 9
+
+
 def test_main_returns_nonzero_for_divergence_and_writes_json(tmp_path: Path, monkeypatch) -> None:
     report = {"status": "divergent", "mode": "report_only"}
     monkeypatch.setattr(profile_parallel_pytest, "profile", lambda *_args: report)
@@ -91,7 +112,7 @@ def test_missing_junit_evidence_is_divergent(tmp_path: Path, monkeypatch) -> Non
 
     def completed(_root: Path, command: list[str]):
         if "--collect-only" in command:
-            return subprocess.CompletedProcess(command, 0, "tests/test_one.py::test_ok\n", ""), 1.0
+            return subprocess.CompletedProcess(command, 0, "tests/test_one.py: 1\n", ""), 1.0
         return subprocess.CompletedProcess(command, 0, "", ""), 1.0
 
     monkeypatch.setattr(profile_parallel_pytest, "_run", completed)
