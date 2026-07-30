@@ -17,6 +17,8 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Callable, Sequence
 
+import pytest
+
 
 def _percentile(values: list[float], percentile: float) -> float:
     ordered = sorted(values)
@@ -31,8 +33,19 @@ def _percentile(values: list[float], percentile: float) -> float:
 def _junit_results(path: Path) -> dict[str, str]:
     results: dict[str, str] = {}
     for case in ET.parse(path).iter("testcase"):
-        identity = (case.attrib.get("classname", ""), case.attrib.get("name", ""))
-        nodeid = f"{identity[0]}::{identity[1]}"
+        properties = case.find("properties")
+        pilot_nodeids = (
+            [
+                prop.attrib.get("value", "")
+                for prop in properties.findall("property")
+                if prop.attrib.get("name") == "pilot_nodeid"
+            ]
+            if properties is not None
+            else []
+        )
+        if len(pilot_nodeids) != 1 or not pilot_nodeids[0]:
+            raise ValueError("JUnit testcase missing exact pilot_nodeid property")
+        nodeid = pilot_nodeids[0].replace("\\", "/")
         if nodeid in results:
             raise ValueError(f"duplicate JUnit testcase identity: {nodeid}")
         outcome = "passed"
@@ -108,6 +121,33 @@ _EXECUTED_NODEID_EVENTS: list[str] = []
 _EXECUTED_RESULTS: dict[str, str] = {}
 
 
+def pytest_sessionstart(session: object) -> None:
+    """Reset controller state for each serial or xdist parent session."""
+
+    worker_input = getattr(getattr(session, "config", None), "workerinput", None)
+    if worker_input is None:
+        _EXECUTED_NODEID_EVENTS.clear()
+        _EXECUTED_RESULTS.clear()
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item: object, call: object):
+    """Attach the exact pytest nodeid to the JUnit testcase property."""
+
+    del item, call
+    outcome = yield
+    report = outcome.get_result()
+    when = getattr(report, "when", None)
+    if when not in {"setup", "call", "teardown"}:
+        return
+    nodeid = getattr(report, "nodeid", None)
+    if not isinstance(nodeid, str) or not nodeid:
+        return
+    properties = list(getattr(report, "user_properties", []))
+    properties.append(("pilot_nodeid", nodeid.replace("\\", "/")))
+    report.user_properties = properties
+
+
 def pytest_runtest_logreport(report: object) -> None:
     """Capture exact nodeids from reports received by the pytest controller."""
 
@@ -119,8 +159,10 @@ def pytest_runtest_logreport(report: object) -> None:
             outcome = getattr(report, "outcome", None)
             if when == "call" or (when == "setup" and outcome in {"failed", "skipped"}):
                 _EXECUTED_NODEID_EVENTS.append(nodeid)
-            if outcome in {"failed", "skipped"}:
-                _EXECUTED_RESULTS[nodeid] = "error" if outcome == "failed" else "skipped"
+            if outcome == "skipped":
+                _EXECUTED_RESULTS[nodeid] = "skipped"
+            elif outcome == "failed":
+                _EXECUTED_RESULTS[nodeid] = "failure" if when == "call" else "error"
             elif when == "call":
                 _EXECUTED_RESULTS[nodeid] = "passed"
             elif nodeid not in _EXECUTED_RESULTS:
@@ -351,7 +393,7 @@ def profile(
                         not isinstance(executed_results, dict)
                         or set(executed_results) != set(run_selected)
                         or not all(value in {"passed", "failure", "error", "skipped"} for value in executed_results.values())
-                        or len(junit_results) != len(run_selected)
+                        or junit_results != executed_results
                     ):
                         manifest_valid[mode][-1] = False
                     parsed = executed_results if isinstance(executed_results, dict) else {}

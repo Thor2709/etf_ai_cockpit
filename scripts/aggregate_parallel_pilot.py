@@ -39,9 +39,8 @@ _CACHE_TOOLS = ("build", "pip", "pytest", "pytest-xdist")
 _KNOWN_PLATFORM_OUTCOMES = {
     "tests/test_pid_liveness.py::test_windows_pid_probe_detects_exited_child_before_popen_handle_closes",
     "tests/test_pid_liveness.py::test_windows_pid_probe_does_not_terminate_a_child_process",
-    "tests.test_pid_liveness::test_windows_pid_probe_detects_exited_child_before_popen_handle_closes",
-    "tests.test_pid_liveness::test_windows_pid_probe_does_not_terminate_a_child_process",
 }
+_KNOWN_PLATFORM_LANES = {"full_serial", "candidate_safe", "candidate_combined"}
 
 
 def _cache_key(inputs: Mapping[str, object]) -> str:
@@ -75,8 +74,14 @@ def _cache_is_valid(cache: object, platform_label: str | None = None) -> bool:
     )
 
 
-def _platform_outcome_is_allowed(nodeid: str, linux: str, windows: str) -> bool:
-    return nodeid in _KNOWN_PLATFORM_OUTCOMES and (linux, windows) == ("skipped", "passed")
+def _platform_outcome_is_allowed(
+    lane: str, nodeid: str, linux: str, windows: str
+) -> bool:
+    return (
+        lane in _KNOWN_PLATFORM_LANES
+        and nodeid in _KNOWN_PLATFORM_OUTCOMES
+        and (linux, windows) == ("skipped", "passed")
+    )
 
 
 def _percentile(values: list[float], percentile: float) -> float:
@@ -365,7 +370,10 @@ def compare_reports(linux_path: Path, windows_path: Path) -> dict[str, object]:
                     for nodeid in nodeids
                     if linux_map.get(nodeid) != windows_map.get(nodeid)
                     and not _platform_outcome_is_allowed(
-                        nodeid, str(linux_map.get(nodeid)), str(windows_map.get(nodeid))
+                        lane,
+                        nodeid,
+                        str(linux_map.get(nodeid)),
+                        str(windows_map.get(nodeid)),
                     )
                 }
                 if unexpected:

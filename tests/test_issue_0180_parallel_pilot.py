@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -47,6 +48,17 @@ def _write_executed_manifest(command: list[str]) -> None:
             )
 
 
+def _junit_case(nodeid: str, body: str = "") -> str:
+    path, name = nodeid.split("::", 1)
+    classname = path.replace("/", ".")[:-3]
+    return (
+        f'<testcase classname="{classname}" name="{name}">'
+        '<properties>'
+        f'<property name="pilot_nodeid" value="{nodeid}"/>'
+        f"</properties>{body}</testcase>"
+    )
+
+
 def test_profile_records_repeated_serial_parallel_parity_and_timings(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -64,8 +76,7 @@ def test_profile_records_repeated_serial_parallel_parity_and_timings(
         Path(junit_arg.partition("=")[2]).write_text(
             "<testsuite>"
             + "".join(
-                f'<testcase classname="{node.split("::")[0].replace("/", ".")[:-3]}" '
-                f' name="{node.split("::")[1]}"/>'
+                _junit_case(node)
                 for node in selected
             )
             + "</testsuite>",
@@ -118,7 +129,7 @@ def test_collection_failure_makes_report_divergent(tmp_path: Path, monkeypatch) 
             ), 1.0
         junit_arg = next(value for value in command if value.startswith("--junitxml="))
         Path(junit_arg.partition("=")[2]).write_text(
-            '<testsuite><testcase classname="tests.test_one" name="test_ok"/></testsuite>',
+            '<testsuite>' + _junit_case("tests/test_one.py::test_ok") + "</testsuite>",
             encoding="utf-8",
         )
         return subprocess.CompletedProcess(command, 0, "", ""), 1.0
@@ -165,9 +176,9 @@ def test_duplicate_junit_identity_is_rejected(tmp_path: Path) -> None:
     junit = tmp_path / "duplicate.xml"
     junit.write_text(
         "<testsuite>"
-        '<testcase classname="tests.test_one" name="test_ok"/>'
-        '<testcase classname="tests.test_one" name="test_ok"/>'
-        "</testsuite>",
+        + _junit_case("tests/test_one.py::test_ok")
+        + _junit_case("tests/test_one.py::test_ok")
+        + "</testsuite>",
         encoding="utf-8",
     )
 
@@ -187,9 +198,9 @@ def test_junit_parameter_identity_with_colons_is_checked_without_reconstruction(
     junit = tmp_path / "parameter.xml"
     junit.write_text(
         "<testsuite>"
-        '<testcase classname="tests.test_one" name="test_value[a::b]"/>'
-        '<testcase classname="tests.test_one" name="test_value[a::b]"/>'
-        "</testsuite>",
+        + _junit_case("tests/test_one.py::test_value[a::b]")
+        + _junit_case("tests/test_one.py::test_value[a::b]")
+        + "</testsuite>",
         encoding="utf-8",
     )
 
@@ -219,7 +230,7 @@ def test_profile_rejects_same_count_wrong_executed_identity(tmp_path: Path, monk
             return subprocess.CompletedProcess(command, 0, "tests/test_one.py: 1\n", ""), 1.0
         junit_arg = next(value for value in command if value.startswith("--junitxml="))
         Path(junit_arg.partition("=")[2]).write_text(
-            '<testsuite><testcase classname="tests.test_one" name="test_safe"/></testsuite>',
+            '<testsuite>' + _junit_case("tests/test_one.py::test_safe") + "</testsuite>",
             encoding="utf-8",
         )
         return subprocess.CompletedProcess(command, 0, "", ""), 1.0
@@ -229,6 +240,55 @@ def test_profile_rejects_same_count_wrong_executed_identity(tmp_path: Path, monk
 
     assert report["status"] == "divergent"
     assert report["collection_evidence_valid"] is False
+
+
+def test_profile_rejects_same_count_wrong_junit_identity_and_outcome(
+    tmp_path: Path, monkeypatch
+) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "requirements-release.txt").write_text("build==1.3.0\n", encoding="utf-8")
+    (root / "requirements-release-parsers.txt").write_text("parser==1.0.0\n", encoding="utf-8")
+
+    def completed(_root: Path, command: list[str]):
+        _write_selected_manifest(command)
+        _write_executed_manifest(command)
+        if "--collect-only" in command:
+            return subprocess.CompletedProcess(command, 0, "tests/test_one.py: 1\n", ""), 1.0
+        junit_arg = next(value for value in command if value.startswith("--junitxml="))
+        selected = _selected_for_command(command)
+        Path(junit_arg.partition("=")[2]).write_text(
+            "<testsuite>"
+            + "".join(_junit_case(f"{node}[wrong]", "<failure/>") for node in selected)
+            + "</testsuite>",
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 0, "", ""), 1.0
+
+    monkeypatch.setattr(profile_parallel_pytest, "_run", completed)
+    report = profile_parallel_pytest.profile(root, tmp_path / "evidence", 2)
+
+    assert report["status"] == "divergent"
+    assert report["collection_evidence_valid"] is False
+
+
+def test_controller_state_resets_between_parent_sessions(monkeypatch) -> None:
+    events = ["tests/old.py::test_old"]
+    results = {"tests/old.py::test_old": "passed"}
+    monkeypatch.setattr(profile_parallel_pytest, "_EXECUTED_NODEID_EVENTS", events)
+    monkeypatch.setattr(profile_parallel_pytest, "_EXECUTED_RESULTS", results)
+
+    parent = SimpleNamespace(config=SimpleNamespace(workerinput=None))
+    profile_parallel_pytest.pytest_sessionstart(parent)
+    assert events == []
+    assert results == {}
+
+    events.append("tests/new.py::test_new")
+    results["tests/new.py::test_new"] = "passed"
+    worker = SimpleNamespace(config=SimpleNamespace(workerinput={"workerid": "gw0"}))
+    profile_parallel_pytest.pytest_sessionstart(worker)
+    assert events == ["tests/new.py::test_new"]
+    assert results == {"tests/new.py::test_new": "passed"}
 
 
 def test_real_pytest_manifest_is_post_deselection_and_disjoint(tmp_path: Path) -> None:
@@ -526,7 +586,9 @@ def test_cross_platform_aggregation_accepts_only_known_pid_outcome_difference(tm
     windows = _pilot_report()
     known = "tests/test_pid_liveness.py::test_windows_pid_probe_does_not_terminate_a_child_process"
     for payload, outcome in ((linux, "skipped"), (windows, "passed")):
-        for lane in payload["lanes"].values():
+        for lane_name, lane in payload["lanes"].items():
+            if lane_name not in aggregate_parallel_pilot._KNOWN_PLATFORM_LANES:
+                continue
             nodeids = list(lane["executed_nodeids"][0])
             old_nodeid = nodeids[0]
             nodeids[0] = known
