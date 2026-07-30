@@ -272,23 +272,61 @@ def test_profile_rejects_same_count_wrong_junit_identity_and_outcome(
     assert report["collection_evidence_valid"] is False
 
 
-def test_controller_state_resets_between_parent_sessions(monkeypatch) -> None:
-    events = ["tests/old.py::test_old"]
-    results = {"tests/old.py::test_old": "passed"}
-    monkeypatch.setattr(profile_parallel_pytest, "_EXECUTED_NODEID_EVENTS", events)
-    monkeypatch.setattr(profile_parallel_pytest, "_EXECUTED_RESULTS", results)
+def test_controller_state_does_not_reset_for_nested_parent_session(monkeypatch) -> None:
+    outer = SimpleNamespace(config=SimpleNamespace(workerinput=None))
+    nested = SimpleNamespace(config=SimpleNamespace(workerinput=None))
+    # Isolate the faithful nested-controller simulation from this pytest
+    # process's real outer session, then restore it before this test returns so
+    # its own JUnit/result report remains in the outer manifest.
+    with monkeypatch.context() as isolated:
+        isolated.setattr(profile_parallel_pytest, "_CONTROLLER_STATE", None)
+        profile_parallel_pytest.pytest_sessionstart(outer)
+        profile_parallel_pytest.pytest_runtest_logreport(
+            SimpleNamespace(when="call", nodeid="tests/outer.py::test_outer", outcome="passed")
+        )
+        profile_parallel_pytest.pytest_sessionstart(nested)
+        profile_parallel_pytest.pytest_runtest_logreport(
+            SimpleNamespace(
+                when="call", nodeid="tests/outer.py::test_after_nested", outcome="passed"
+            )
+        )
+        profile_parallel_pytest.pytest_sessionfinish(nested, 0)
 
-    parent = SimpleNamespace(config=SimpleNamespace(workerinput=None))
-    profile_parallel_pytest.pytest_sessionstart(parent)
-    assert events == []
-    assert results == {}
+        state = profile_parallel_pytest._CONTROLLER_STATE
+        assert state is not None
+        assert state.session is outer
+        assert state.nodeid_events == [
+            "tests/outer.py::test_outer",
+            "tests/outer.py::test_after_nested",
+        ]
+        assert state.results == {
+            "tests/outer.py::test_outer": "passed",
+            "tests/outer.py::test_after_nested": "passed",
+        }
 
-    events.append("tests/new.py::test_new")
-    results["tests/new.py::test_new"] = "passed"
-    worker = SimpleNamespace(config=SimpleNamespace(workerinput={"workerid": "gw0"}))
-    profile_parallel_pytest.pytest_sessionstart(worker)
-    assert events == ["tests/new.py::test_new"]
-    assert results == {"tests/new.py::test_new": "passed"}
+
+def test_controller_state_resets_only_after_owning_parent_finishes(monkeypatch) -> None:
+    first = SimpleNamespace(config=SimpleNamespace(workerinput=None))
+    second = SimpleNamespace(config=SimpleNamespace(workerinput=None))
+    with monkeypatch.context() as isolated:
+        isolated.setattr(profile_parallel_pytest, "_CONTROLLER_STATE", None)
+        profile_parallel_pytest.pytest_sessionstart(first)
+        profile_parallel_pytest.pytest_runtest_logreport(
+            SimpleNamespace(when="call", nodeid="tests/first.py::test_first", outcome="passed")
+        )
+        profile_parallel_pytest.pytest_sessionfinish(second, 0)
+        state = profile_parallel_pytest._CONTROLLER_STATE
+        assert state is not None
+        assert state.session is first
+        profile_parallel_pytest.pytest_sessionfinish(first, 0)
+        assert profile_parallel_pytest._CONTROLLER_STATE is None
+
+        profile_parallel_pytest.pytest_sessionstart(second)
+        state = profile_parallel_pytest._CONTROLLER_STATE
+        assert state is not None
+        assert state.session is second
+        assert state.nodeid_events == []
+        assert state.results == {}
 
 
 def test_real_pytest_manifest_is_post_deselection_and_disjoint(tmp_path: Path) -> None:
@@ -793,6 +831,9 @@ def test_workflow_isolates_pilot_and_keeps_aggregation_non_authoritative() -> No
     assert "python scripts/release_gate.py --root . --verify-environment" in pilot
     assert "ETF_COCKPIT_RELEASE_SIGNING_KEY" not in pilot
     assert "Ensure pilot evidence directory for upload" in pilot
+    assert '"${RUNNER_TEMP}/etf-cockpit-parallel-pilot-${{ matrix.platform }}"' in pilot
+    assert "artifacts/parallel-pilot" not in pilot
+    assert "path: ${{ runner.temp }}/etf-cockpit-parallel-pilot-${{ matrix.platform }}" in pilot
     assert "parallel-pilot-aggregate:" in workflow
     assert "actions/download-artifact@v4" in aggregate
     assert "scripts/aggregate_parallel_pilot.py" in aggregate

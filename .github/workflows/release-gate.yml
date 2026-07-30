@@ -360,7 +360,7 @@ jobs:
 
       - name: Prepare pilot evidence directory
         shell: bash
-        run: mkdir -p "artifacts/parallel-pilot/${{ matrix.platform }}"
+        run: mkdir -p "${RUNNER_TEMP}/etf-cockpit-parallel-pilot-${{ matrix.platform }}"
 
       - name: Run repeated report-only four-worker pilot
         shell: bash
@@ -373,14 +373,14 @@ jobs:
           # serial release gate remains authoritative; this job is evidence.
           python scripts/profile_parallel_pytest.py \
             --root . \
-            --output "artifacts/parallel-pilot/${{ matrix.platform }}" \
+            --output "${RUNNER_TEMP}/etf-cockpit-parallel-pilot-${{ matrix.platform }}" \
             --repetitions 2
 
       - name: Ensure pilot evidence directory for upload
         if: always()
         shell: bash
         run: |
-          evidence="artifacts/parallel-pilot/${{ matrix.platform }}"
+          evidence="${RUNNER_TEMP}/etf-cockpit-parallel-pilot-${{ matrix.platform }}"
           mkdir -p "$evidence"
           if [[ ! -e "$evidence/parallel-pilot.json" ]]; then
             printf 'pilot did not produce a report before failure\n' > "$evidence/pilot-failure.marker"
@@ -391,7 +391,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: parallel-pilot-${{ github.sha }}-${{ matrix.platform }}
-          path: artifacts/parallel-pilot/${{ matrix.platform }}
+          path: ${{ runner.temp }}/etf-cockpit-parallel-pilot-${{ matrix.platform }}
           if-no-files-found: error
 
   parallel-pilot-aggregate:

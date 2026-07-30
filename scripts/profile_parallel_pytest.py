@@ -14,6 +14,7 @@ import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Sequence
 
@@ -117,17 +118,51 @@ _UNSAFE_GROUPS = ["concurrency", "environment", "flet", "package", "ports", "sql
 _PILOT_PLUGIN = "scripts.profile_parallel_pytest"
 _LOCK_FILES = ("requirements-release.txt", "requirements-release-parsers.txt")
 _TOOL_NAMES = ("build", "pip", "pytest", "pytest-xdist")
+
+
+@dataclass
+class _ControllerState:
+    """State owned by one pytest controller session.
+
+    Pytest can invoke session hooks recursively when a test directly starts a
+    nested/fake parent session.  Keeping the owner session with its buffers
+    lets those nested hooks be ignored without clearing the outer controller's
+    evidence.  The module-level aliases remain for diagnostics and backwards
+    compatibility, but hooks always use this immutable owner state.
+    """
+
+    session: object
+    nodeid_events: list[str]
+    results: dict[str, str]
+
+
+_CONTROLLER_STATE: _ControllerState | None = None
+# Keep the historical names as aliases for local diagnostics/tests.  They are
+# rebound only when a new real controller session starts; hook code never reads
+# them directly, so a nested test cannot redirect outer-session evidence.
 _EXECUTED_NODEID_EVENTS: list[str] = []
 _EXECUTED_RESULTS: dict[str, str] = {}
 
 
 def pytest_sessionstart(session: object) -> None:
-    """Reset controller state for each serial or xdist parent session."""
+    """Start one controller state without clobbering an outer session.
+
+    Worker sessions have their own process and must not collect controller
+    evidence.  A second parent-session hook while the outer session is active
+    is a nested/direct invocation; it deliberately leaves the outer buffers
+    untouched.  A fresh state is created only after the owning session has
+    finished.
+    """
 
     worker_input = getattr(getattr(session, "config", None), "workerinput", None)
-    if worker_input is None:
-        _EXECUTED_NODEID_EVENTS.clear()
-        _EXECUTED_RESULTS.clear()
+    if worker_input is not None:
+        return
+    global _CONTROLLER_STATE, _EXECUTED_NODEID_EVENTS, _EXECUTED_RESULTS
+    if _CONTROLLER_STATE is not None:
+        return
+    _CONTROLLER_STATE = _ControllerState(session, [], {})
+    _EXECUTED_NODEID_EVENTS = _CONTROLLER_STATE.nodeid_events
+    _EXECUTED_RESULTS = _CONTROLLER_STATE.results
 
 
 @pytest.hookimpl(hookwrapper=True)
@@ -151,6 +186,9 @@ def pytest_runtest_makereport(item: object, call: object):
 def pytest_runtest_logreport(report: object) -> None:
     """Capture exact nodeids from reports received by the pytest controller."""
 
+    state = _CONTROLLER_STATE
+    if state is None:
+        return
     when = getattr(report, "when", None)
     if when in {"setup", "call", "teardown"}:
         nodeid = getattr(report, "nodeid", None)
@@ -158,33 +196,37 @@ def pytest_runtest_logreport(report: object) -> None:
             nodeid = nodeid.replace("\\", "/")
             outcome = getattr(report, "outcome", None)
             if when == "call" or (when == "setup" and outcome in {"failed", "skipped"}):
-                _EXECUTED_NODEID_EVENTS.append(nodeid)
+                state.nodeid_events.append(nodeid)
             if outcome == "skipped":
-                _EXECUTED_RESULTS[nodeid] = "skipped"
+                state.results[nodeid] = "skipped"
             elif outcome == "failed":
-                _EXECUTED_RESULTS[nodeid] = "failure" if when == "call" else "error"
+                state.results[nodeid] = "failure" if when == "call" else "error"
             elif when == "call":
-                _EXECUTED_RESULTS[nodeid] = "passed"
-            elif nodeid not in _EXECUTED_RESULTS:
-                _EXECUTED_RESULTS[nodeid] = "passed"
+                state.results[nodeid] = "passed"
+            elif nodeid not in state.results:
+                state.results[nodeid] = "passed"
 
 
 def pytest_sessionfinish(session: object, exitstatus: int) -> None:
     """Write exact executed nodeids after serial or xdist execution."""
 
+    global _CONTROLLER_STATE
     del exitstatus
     worker_input = getattr(getattr(session, "config", None), "workerinput", None)
-    if worker_input is not None:
+    state = _CONTROLLER_STATE
+    if worker_input is not None or state is None or state.session is not session:
         return
     manifest_value = os.getenv(_EXECUTED_MANIFEST_ENV)
-    if not manifest_value:
-        return
-    destination = Path(manifest_value)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(json.dumps(sorted(_EXECUTED_NODEID_EVENTS)) + "\n", encoding="utf-8")
-    results_value = os.getenv(_EXECUTED_RESULTS_ENV)
-    if results_value:
-        Path(results_value).write_text(json.dumps(_EXECUTED_RESULTS, sort_keys=True) + "\n", encoding="utf-8")
+    if manifest_value:
+        destination = Path(manifest_value)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(json.dumps(sorted(state.nodeid_events)) + "\n", encoding="utf-8")
+        results_value = os.getenv(_EXECUTED_RESULTS_ENV)
+        if results_value:
+            Path(results_value).write_text(
+                json.dumps(state.results, sort_keys=True) + "\n", encoding="utf-8"
+            )
+    _CONTROLLER_STATE = None
 
 
 def _manifest_nodeids(path: Path) -> list[str]:
