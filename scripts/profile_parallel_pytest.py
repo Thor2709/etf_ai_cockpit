@@ -44,6 +44,11 @@ def _collection_nodeids(output: str) -> list[str]:
     return [line.strip() for line in output.splitlines() if "::" in line and not line.startswith("=")]
 
 
+def _fingerprint(value: object) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def _run(root: Path, command: Sequence[str]) -> tuple[subprocess.CompletedProcess[str], float]:
     started = time.perf_counter()
     completed = subprocess.run(
@@ -97,6 +102,8 @@ def cache_evidence(root: Path) -> dict[str, object]:
 
 
 def profile(root: Path, output: Path, repetitions: int) -> dict[str, object]:
+    if repetitions < 2:
+        raise ValueError("repetitions must be at least 2")
     output.mkdir(parents=True, exist_ok=True)
     modes = {
         "serial": [],
@@ -107,9 +114,14 @@ def profile(root: Path, output: Path, repetitions: int) -> dict[str, object]:
     durations: dict[str, list[float]] = {name: [] for name in modes}
     exit_codes: dict[str, list[int]] = {name: [] for name in modes}
     collection_exit_codes: dict[str, list[int]] = {name: [] for name in modes}
+    junit_present: dict[str, list[bool]] = {name: [] for name in modes}
+    run_order: list[list[str]] = []
 
     for repetition in range(repetitions):
-        for mode, mode_args in modes.items():
+        order = ["serial", "parallel"] if repetition % 2 == 0 else ["parallel", "serial"]
+        run_order.append(order)
+        for mode in order:
+            mode_args = modes[mode]
             collection, _ = _run(
                 root, [sys.executable, "-m", "pytest", *mode_args, "--collect-only", "-q"]
             )
@@ -134,7 +146,9 @@ def profile(root: Path, output: Path, repetitions: int) -> dict[str, object]:
             _write_diagnostics(output, f"tests-{stem}", completed)
             durations[mode].append(round(duration, 3))
             exit_codes[mode].append(completed.returncode)
-            results[mode].append(_junit_results(junit) if junit.is_file() else {})
+            present = junit.is_file()
+            junit_present[mode].append(present)
+            results[mode].append(_junit_results(junit) if present else {})
 
     serial_collection = collections["serial"][0]
     serial_results = results["serial"][0]
@@ -145,6 +159,16 @@ def profile(root: Path, output: Path, repetitions: int) -> dict[str, object]:
         run_results == serial_results for mode_runs in results.values() for run_results in mode_runs
     )
     repeatable = all(len({json.dumps(run, sort_keys=True) for run in mode_runs}) == 1 for mode_runs in results.values())
+    collection_fingerprints = {
+        mode: [_fingerprint(nodeids) for nodeids in runs]
+        for mode, runs in collections.items()
+    }
+    result_fingerprints = {
+        mode: [_fingerprint(run_results) for run_results in runs]
+        for mode, runs in results.items()
+    }
+    collection_counts = {mode: [len(run) for run in runs] for mode, runs in collections.items()}
+    result_counts = {mode: [len(run) for run in runs] for mode, runs in results.items()}
     timings = {
         mode: {
             "samples_seconds": samples,
@@ -159,10 +183,19 @@ def profile(root: Path, output: Path, repetitions: int) -> dict[str, object]:
         "authority": "serial_release_gate",
         "workers": 4,
         "repetitions": repetitions,
+        "sample_count": repetitions,
+        "sample_counts": {mode: len(runs) for mode, runs in collections.items()},
+        "run_order": run_order,
+        "platform": os.getenv("ETF_COCKPIT_PLATFORM", platform.system().lower()),
         "unsafe_groups": ["concurrency", "environment", "flet", "package", "ports", "sqlite"],
         "collection_parity": collection_parity,
         "result_parity": result_parity,
         "repeatable_results": repeatable,
+        "collection_fingerprints": collection_fingerprints,
+        "collection_counts": collection_counts,
+        "result_fingerprints": result_fingerprints,
+        "result_counts": result_counts,
+        "junit_present": junit_present,
         "collection_exit_codes": collection_exit_codes,
         "exit_codes": exit_codes,
         "timings": timings,
@@ -171,6 +204,7 @@ def profile(root: Path, output: Path, repetitions: int) -> dict[str, object]:
         if collection_parity
         and result_parity
         and repeatable
+        and all(all(present for present in flags) for flags in junit_present.values())
         and all(not any(codes) for codes in collection_exit_codes.values())
         and all(not any(codes) for codes in exit_codes.values())
         else "divergent",

@@ -253,8 +253,8 @@ jobs:
       - name: Run lint and typing gates
         shell: bash
         run: |
-          python -m ruff check scripts/release_gate.py scripts/profile_parallel_pytest.py scripts/validate_app.py scripts/classify_validation.py scripts/generate_programme.py scripts/validation_summary.py src/etf_cockpit/data/health.py tests/test_release_gate.py tests/test_issue_0177_observability.py tests/test_issue_0178_validation_classifier.py tests/test_issue_0179_atomic_generation.py tests/test_issue_0179_validation_summary.py tests/test_issue_0180_parallel_pilot.py tests/test_data_health.py
-          python -m mypy --ignore-missing-imports --disable-error-code=import-untyped --follow-imports=skip scripts/release_gate.py scripts/profile_parallel_pytest.py scripts/classify_validation.py scripts/generate_programme.py scripts/validation_summary.py src/etf_cockpit/data/health.py
+          python -m ruff check scripts/release_gate.py scripts/profile_parallel_pytest.py scripts/aggregate_parallel_pilot.py scripts/validate_app.py scripts/classify_validation.py scripts/generate_programme.py scripts/validation_summary.py src/etf_cockpit/data/health.py tests/test_release_gate.py tests/test_issue_0177_observability.py tests/test_issue_0178_validation_classifier.py tests/test_issue_0179_atomic_generation.py tests/test_issue_0179_validation_summary.py tests/test_issue_0180_parallel_pilot.py tests/test_data_health.py
+          python -m mypy --ignore-missing-imports --disable-error-code=import-untyped --follow-imports=skip scripts/release_gate.py scripts/profile_parallel_pytest.py scripts/aggregate_parallel_pilot.py scripts/classify_validation.py scripts/generate_programme.py scripts/validation_summary.py src/etf_cockpit/data/health.py
 
       - name: Run protected release gate
         shell: bash
@@ -298,6 +298,10 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
+      - name: Prepare pilot evidence directory
+        shell: bash
+        run: mkdir -p "artifacts/parallel-pilot/${{ matrix.platform }}"
+
       - name: Set up pinned Python and cache
         id: setup-python
         uses: actions/setup-python@v5
@@ -308,6 +312,21 @@ jobs:
             requirements-release.txt
             requirements-release-parsers.txt
 
+      - name: Configure isolated user profile
+        shell: bash
+        run: |
+          profile="${RUNNER_TEMP}/etf-cockpit-profile-${{ matrix.platform }}"
+          mkdir -p "$profile/config" "$profile/cache" "$profile/data"
+          {
+            echo "HOME=$profile"
+            echo "USERPROFILE=$profile"
+            echo "APPDATA=$profile/config"
+            echo "LOCALAPPDATA=$profile/data"
+            echo "XDG_CONFIG_HOME=$profile/config"
+            echo "XDG_CACHE_HOME=$profile/cache"
+            echo "PIP_CACHE_DIR=$profile/cache/pip"
+          } >> "$GITHUB_ENV"
+
       - name: Install pinned pilot environment
         shell: bash
         run: |
@@ -315,10 +334,17 @@ jobs:
           python -m pip install --requirement requirements-release.txt
           python -m pip install --requirement requirements-release-parsers.txt
 
+      - name: Verify protected environment
+        shell: bash
+        env:
+          ETF_COCKPIT_SETUP_PYTHON_CACHE_HIT: ${{ steps.setup-python.outputs.cache-hit }}
+        run: python scripts/release_gate.py --root . --verify-environment
+
       - name: Run repeated report-only four-worker pilot
         shell: bash
         env:
           ETF_COCKPIT_SETUP_PYTHON_CACHE_HIT: ${{ steps.setup-python.outputs.cache-hit }}
+          ETF_COCKPIT_PLATFORM: ${{ matrix.platform }}
         run: |
           python scripts/profile_parallel_pytest.py \
             --root . \
@@ -331,6 +357,42 @@ jobs:
         with:
           name: parallel-pilot-${{ github.sha }}-${{ matrix.platform }}
           path: artifacts/parallel-pilot/${{ matrix.platform }}
+          if-no-files-found: error
+
+  parallel-pilot-aggregate:
+    name: Parallel pilot cross-platform aggregation
+    needs: [classifier, parallel-pilot]
+    if: always() && needs.classifier.outputs.package_gate_required == 'true'
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Prepare aggregate evidence directory
+        shell: bash
+        run: mkdir -p validation-evidence/parallel-pilot
+
+      - name: Download Linux and Windows pilot evidence
+        uses: actions/download-artifact@v4
+        with:
+          pattern: parallel-pilot-${{ github.sha }}-*
+          path: validation-evidence/parallel-pilot
+
+      - name: Compare cross-platform pilot evidence
+        shell: bash
+        run: |
+          python scripts/aggregate_parallel_pilot.py \
+            --linux-report "validation-evidence/parallel-pilot/parallel-pilot-${{ github.sha }}-linux/parallel-pilot.json" \
+            --windows-report "validation-evidence/parallel-pilot/parallel-pilot-${{ github.sha }}-windows/parallel-pilot.json" \
+            --output validation-evidence/parallel-pilot/cross-platform.json
+
+      - name: Upload cross-platform pilot evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parallel-pilot-${{ github.sha }}-cross-platform
+          path: validation-evidence/parallel-pilot
           if-no-files-found: error
 
   validation-summary:

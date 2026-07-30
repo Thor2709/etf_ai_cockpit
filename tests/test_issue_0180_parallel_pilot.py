@@ -4,6 +4,7 @@ import json
 import subprocess
 from pathlib import Path
 
+from scripts import aggregate_parallel_pilot
 from scripts import profile_parallel_pytest
 
 
@@ -31,8 +32,15 @@ def test_profile_records_repeated_serial_parallel_parity_and_timings(
     assert report["authority"] == "serial_release_gate"
     assert report["workers"] == 4
     assert report["repetitions"] == 2
+    assert report["sample_count"] == 2
+    assert report["sample_counts"] == {"serial": 2, "parallel": 2}
+    assert report["run_order"] == [["serial", "parallel"], ["parallel", "serial"]]
     assert report["collection_parity"] is True
     assert report["result_parity"] is True
+    assert len(report["collection_fingerprints"]["serial"]) == 2
+    assert report["collection_counts"] == {"serial": [1, 1], "parallel": [1, 1]}
+    assert len(report["result_fingerprints"]["parallel"]) == 2
+    assert report["result_counts"] == {"serial": [1, 1], "parallel": [1, 1]}
     assert report["collection_exit_codes"] == {"serial": [0, 0], "parallel": [0, 0]}
     assert report["timings"]["serial"]["p50_seconds"] == 4.0
     assert report["timings"]["parallel"]["p95_seconds"] == 4.0
@@ -75,3 +83,97 @@ def test_main_returns_nonzero_for_divergence_and_writes_json(tmp_path: Path, mon
 
     assert profile_parallel_pytest.main(["--root", str(tmp_path), "--output", str(output)]) == 1
     assert json.loads((output / "parallel-pilot.json").read_text(encoding="utf-8")) == report
+
+
+def test_missing_junit_evidence_is_divergent(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+
+    def completed(_root: Path, command: list[str]):
+        if "--collect-only" in command:
+            return subprocess.CompletedProcess(command, 0, "tests/test_one.py::test_ok\n", ""), 1.0
+        return subprocess.CompletedProcess(command, 0, "", ""), 1.0
+
+    monkeypatch.setattr(profile_parallel_pytest, "_run", completed)
+    report = profile_parallel_pytest.profile(root, tmp_path / "evidence", 2)
+
+    assert report["status"] == "divergent"
+    assert report["junit_present"] == {"serial": [False, False], "parallel": [False, False]}
+
+
+def test_profile_rejects_less_than_two_samples(tmp_path: Path) -> None:
+    try:
+        profile_parallel_pytest.profile(tmp_path, tmp_path / "evidence", 1)
+    except ValueError as exc:
+        assert str(exc) == "repetitions must be at least 2"
+    else:
+        raise AssertionError("profile accepted fewer than two repetitions")
+
+
+def _pilot_report(*, status: str = "passed", result_suffix: str = "") -> dict[str, object]:
+    return {
+        "collection_fingerprints": {"serial": ["collection"], "parallel": ["collection"]},
+        "collection_counts": {"serial": [3], "parallel": [3]},
+        "result_fingerprints": {"serial": [f"result{result_suffix}"], "parallel": [f"result{result_suffix}"]},
+        "result_counts": {"serial": [3], "parallel": [3]},
+        "sample_count": 1,
+        "sample_counts": {"serial": 1, "parallel": 1},
+        "run_order": [["serial", "parallel"]],
+        "status": status,
+    }
+
+
+def test_cross_platform_aggregation_rejects_result_and_status_divergence(tmp_path: Path) -> None:
+    linux = tmp_path / "linux.json"
+    windows = tmp_path / "windows.json"
+    linux.write_text(json.dumps(_pilot_report()), encoding="utf-8")
+    windows.write_text(json.dumps(_pilot_report(result_suffix="-windows")), encoding="utf-8")
+
+    report = aggregate_parallel_pilot.compare_reports(linux, windows)
+
+    assert report["status"] == "divergent"
+    assert "result_fingerprints" in report["differences"]
+
+    windows.write_text(json.dumps(_pilot_report(status="divergent")), encoding="utf-8")
+    report = aggregate_parallel_pilot.compare_reports(linux, windows)
+
+    assert report["status"] == "divergent"
+    assert "status" in report["differences"]
+
+    output = tmp_path / "aggregate.json"
+    assert (
+        aggregate_parallel_pilot.main(
+            [
+                "--linux-report",
+                str(linux),
+                "--windows-report",
+                str(windows),
+                "--output",
+                str(output),
+            ]
+        )
+        == 1
+    )
+    assert json.loads(output.read_text(encoding="utf-8"))["status"] == "divergent"
+
+
+def test_workflow_isolates_pilot_and_keeps_aggregation_non_authoritative() -> None:
+    root = Path(__file__).resolve().parents[1]
+    workflow = (root / ".github" / "workflows" / "release-gate.yml").read_text(encoding="utf-8")
+    pilot = workflow.split("  parallel-pilot:\n", maxsplit=1)[1].split(
+        "  parallel-pilot-aggregate:\n", maxsplit=1
+    )[0]
+    aggregate = workflow.split("  parallel-pilot-aggregate:\n", maxsplit=1)[1].split(
+        "  validation-summary:\n", maxsplit=1
+    )[0]
+
+    assert pilot.index("Configure isolated user profile") < pilot.index("Verify protected environment")
+    assert pilot.index("Verify protected environment") < pilot.index("Run repeated report-only four-worker pilot")
+    assert "python scripts/release_gate.py --root . --verify-environment" in pilot
+    assert "ETF_COCKPIT_RELEASE_SIGNING_KEY" not in pilot
+    assert "Prepare pilot evidence directory" in pilot
+    assert "parallel-pilot-aggregate:" in workflow
+    assert "actions/download-artifact@v4" in aggregate
+    assert "scripts/aggregate_parallel_pilot.py" in aggregate
+    assert "continue-on-error: true" in aggregate
+    assert "needs: [classifier, parallel-pilot]" in aggregate
