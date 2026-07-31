@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -235,11 +236,15 @@ def verify_actions_oidc_token(
         raise ValueError("malformed GitHub Actions OIDC JWT")
     header = _strict_json(_b64url_decode(parts[0], "JWT header"), "JWT header")
     claims = _strict_json(_b64url_decode(parts[1], "JWT claims"), "JWT claims")
-    if set(header) != {"alg", "kid", "typ"} or header != {
+    if set(header) != {"alg", "kid", "typ", "x5t"} or header != {
         "alg": "RS256",
         "kid": header.get("kid"),
         "typ": "JWT",
-    } or not isinstance(header["kid"], str) or not header["kid"]:
+        "x5t": header.get("x5t"),
+    } or any(
+        not isinstance(header[key], str) or not header[key]
+        for key in ("kid", "x5t")
+    ):
         raise ValueError("unsupported GitHub Actions OIDC JOSE header")
     jwks = jwks_reader()
     jwk = _select_jwk(jwks, header["kid"])
@@ -252,6 +257,9 @@ def verify_actions_oidc_token(
         or jwk.get("use") != "sig"
         or jwk.get("kid") != header["kid"]
         or jwk.get("alg") not in (None, "RS256")
+        or not isinstance(jwk.get("x5t"), str)
+        or not jwk["x5t"]
+        or not hmac.compare_digest(jwk["x5t"], header["x5t"])
         or not isinstance(jwk.get("n"), str)
         or not isinstance(jwk.get("e"), str)
     ):

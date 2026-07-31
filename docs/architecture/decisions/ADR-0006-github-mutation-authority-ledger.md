@@ -36,7 +36,9 @@ repeating or rewriting history.
 The sole mutation workflow also obtains a fresh GitHub Actions OIDC token at
 startup and immediately before every possible issue POST. Its custom audience
 is the SHA-256 digest of the exact issue credential presented to the transport.
-The local verifier accepts only GitHub's fixed issuer and RS256 JWKS, and binds
+The local verifier accepts only GitHub's documented `typ`, `alg`, `x5t`, and
+`kid` JOSE header shape, fixed issuer and RS256 JWKS, binds the header's `x5t`
+certificate thumbprint to the selected `kid` key, and binds
 the signed repository, push/main ref, commit, workflow, first run, GitHub-hosted
 runner and job check-run claims to live in-progress run and check objects. This
 provides process-local freshness and correlation; it does not prove credential
@@ -75,4 +77,5 @@ event store were rejected.
 `scripts/github_mutation_gateway.py`,
 `scripts/sync_github_issues.py`,
 `scripts/prepare_github_mutation_authority.py`,
-`.github/workflows/programme-status-completion.yml`.
+`.github/workflows/programme-status-completion.yml`, and GitHub's
+[OIDC token example](https://docs.github.com/actions/reference/security/oidc#example-oidc-token).
