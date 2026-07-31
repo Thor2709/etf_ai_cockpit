@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import copy
+import hashlib
 import json
 import os
 import subprocess
@@ -10,6 +11,8 @@ from pathlib import Path
 
 import pytest
 import yaml
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from scripts import apply_reviewed_status_completion as completion
 from scripts import github_mutation_gateway as gateway
@@ -29,12 +32,83 @@ RUN_ATTESTATION = {
     "repository": gateway.REPO,
     "event_payload_sha256": "d" * 64,
 }
+NOW = 1_800_000_000
+
+
+def _jwt_part(value: object) -> str:
+    return base64.urlsafe_b64encode(
+        json.dumps(value, separators=(",", ":")).encode()
+    ).rstrip(b"=").decode()
+
+
+def _signed_oidc(
+    private_key: rsa.RSAPrivateKey,
+    audience: str,
+    **changes: object,
+) -> str:
+    claims: dict[str, object] = {
+        "iss": completion.OIDC_ISSUER,
+        "sub": f"repo:{gateway.REPO}:ref:refs/heads/main",
+        "aud": audience,
+        "jti": "proof-1",
+        "iat": NOW,
+        "nbf": NOW,
+        "exp": NOW + 300,
+        "repository": gateway.REPO,
+        "repository_id": "987654",
+        "event_name": "push",
+        "ref": "refs/heads/main",
+        "sha": HEAD,
+        "workflow_ref": RUN_ATTESTATION["workflow_ref"],
+        "workflow_sha": HEAD,
+        "run_id": RUN_ATTESTATION["run_id"],
+        "run_number": RUN_ATTESTATION["run_number"],
+        "run_attempt": "1",
+        "runner_environment": "github-hosted",
+        "check_run_id": "555",
+    }
+    claims.update(changes)
+    encoded_header = _jwt_part({"alg": "RS256", "kid": "test-key", "typ": "JWT"})
+    encoded_claims = _jwt_part(claims)
+    signing_input = f"{encoded_header}.{encoded_claims}".encode()
+    signature = private_key.sign(signing_input, padding.PKCS1v15(), hashes.SHA256())
+    return f"{encoded_header}.{encoded_claims}.{base64.urlsafe_b64encode(signature).rstrip(b'=').decode()}"
+
+
+def _jwk(private_key: rsa.RSAPrivateKey) -> dict[str, object]:
+    numbers = private_key.public_key().public_numbers()
+
+    def integer(value: int) -> str:
+        raw = value.to_bytes((value.bit_length() + 7) // 8, "big")
+        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+    return {
+        "keys": [{
+            "kty": "RSA", "use": "sig", "alg": "RS256", "kid": "test-key",
+            "n": integer(numbers.n), "e": integer(numbers.e),
+        }]
+    }
+
+
+def _live_check(**changes: object) -> dict[str, object]:
+    value: dict[str, object] = {
+        "id": 555,
+        "head_sha": HEAD,
+        "status": "in_progress",
+        "app": {"slug": "github-actions"},
+        "details_url": (
+            f"https://github.com/{gateway.REPO}/actions/runs/"
+            f"{RUN_ATTESTATION['run_id']}/job/999"
+        ),
+    }
+    value.update(changes)
+    return value
 
 
 def _live_actions_run(**changes: object) -> dict[str, object]:
     value: dict[str, object] = {
         "id": int(RUN_ATTESTATION["run_id"]),
-        "repository": {"full_name": gateway.REPO},
+        "repository": {"full_name": gateway.REPO, "id": 987654},
         "path": completion.WORKFLOW_PATH,
         "name": completion.WORKFLOW_NAME,
         "event": "push",
@@ -291,6 +365,7 @@ def test_happy_apply_uses_approved_plan_and_requires_zero_readback(
         actor="merger",
         pusher="merger",
         **RUN_ATTESTATION,
+        caller_proof_verifier=lambda: None,
     )
 
     assert len(observed) == 1
@@ -751,7 +826,9 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
 
     assert status_workflow["permissions"] == {
         "actions": "read",
+        "checks": "read",
         "contents": "read",
+        "id-token": "write",
         "issues": "write",
     }
     assert status_workflow["concurrency"] == {
@@ -980,6 +1057,7 @@ def test_live_revalidator_fetches_remote_main_and_detects_advance(
         attestation=attestation,
         run_reader=run_reader,
         main_fetcher=completion.fetch_origin_main,
+        caller_proof_verifier=lambda: None,
     )
 
     subprocess.run(
@@ -1007,6 +1085,7 @@ def test_live_revalidator_fetches_remote_main_and_detects_advance(
             attestation=attestation,
             run_reader=run_reader,
             main_fetcher=completion.fetch_origin_main,
+            caller_proof_verifier=lambda: None,
         )
 
 
@@ -1061,6 +1140,90 @@ def test_live_actions_attestation_accepts_only_current_exact_run() -> None:
         attestation,
         lambda run_id: _live_actions_run(id=int(run_id)),
     )
+
+
+def test_fresh_oidc_proof_binds_exact_issue_credential_and_live_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    monkeypatch.setenv("GH_TOKEN", "github-token\nwith-exact-bytes")
+    audience = hashlib.sha256(os.environ["GH_TOKEN"].encode()).hexdigest()
+    token = _signed_oidc(private_key, audience)
+    attestation = {**RUN_ATTESTATION, "event_after": HEAD}
+
+    completion.verify_fresh_caller_proof(
+        attestation,
+        run_reader=lambda _run_id: _live_actions_run(),
+        check_reader=lambda _check_id: _live_check(),
+        token_requester=lambda requested: token if requested == audience else "",
+        jwks_reader=lambda: _jwk(private_key),
+        used_jtis=set(),
+        now=lambda: NOW,
+    )
+
+
+@pytest.mark.parametrize(
+    ("credential", "claim_changes", "check_changes"),
+    [
+        ("substituted-token", {}, {}),
+        ("real-token", {"runner_environment": "self-hosted"}, {}),
+        ("real-token", {"workflow_sha": "f" * 40}, {}),
+        ("real-token", {"repository_id": "123"}, {}),
+        ("real-token", {"check_run_id": "556"}, {}),
+        ("real-token", {"iat": NOW - completion.OIDC_MAX_AGE_SECONDS - 1}, {}),
+        ("real-token", {}, {"status": "completed"}),
+        ("real-token", {}, {"head_sha": "f" * 40}),
+    ],
+)
+def test_oidc_proof_rejects_credential_substitution_wrong_claims_and_spent_job(
+    monkeypatch: pytest.MonkeyPatch,
+    credential: str,
+    claim_changes: dict[str, object],
+    check_changes: dict[str, object],
+) -> None:
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    signed_audience = hashlib.sha256(b"real-token").hexdigest()
+    token = _signed_oidc(private_key, signed_audience, **claim_changes)
+    monkeypatch.setenv("GH_TOKEN", credential)
+    attestation = {**RUN_ATTESTATION, "event_after": HEAD}
+
+    with pytest.raises(
+        gateway.MutationPolicyError,
+        match=(
+            "github_check_run_attestation_mismatch"
+            if check_changes or claim_changes.get("check_run_id") == "556"
+            else "github_actions_oidc_caller_proof_invalid"
+        ),
+    ):
+        completion.verify_fresh_caller_proof(
+            attestation,
+            run_reader=lambda _run_id: _live_actions_run(),
+            check_reader=lambda _check_id: _live_check(**check_changes),
+            token_requester=lambda _audience: token,
+            jwks_reader=lambda: _jwk(private_key),
+            used_jtis=set(),
+            now=lambda: NOW,
+        )
+
+
+def test_oidc_proof_jti_cannot_be_reused(monkeypatch: pytest.MonkeyPatch) -> None:
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    monkeypatch.setenv("GH_TOKEN", "real-token")
+    audience = hashlib.sha256(b"real-token").hexdigest()
+    token = _signed_oidc(private_key, audience)
+    used: set[str] = set()
+    kwargs = {
+        "run_reader": lambda _run_id: _live_actions_run(),
+        "check_reader": lambda _check_id: _live_check(),
+        "token_requester": lambda _audience: token,
+        "jwks_reader": lambda: _jwk(private_key),
+        "used_jtis": used,
+        "now": lambda: NOW,
+    }
+    attestation = {**RUN_ATTESTATION, "event_after": HEAD}
+    completion.verify_fresh_caller_proof(attestation, **kwargs)
+    with pytest.raises(gateway.MutationPolicyError, match="caller_proof_invalid"):
+        completion.verify_fresh_caller_proof(attestation, **kwargs)
 
 
 def test_actions_run_reader_uses_one_read_only_repository_endpoint(

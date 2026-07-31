@@ -33,6 +33,18 @@ record is not implemented by this repair. Any future compensating-record
 mechanism requires explicit user approval and must document an anomaly without
 repeating or rewriting history.
 
+The sole mutation workflow also obtains a fresh GitHub Actions OIDC token at
+startup and immediately before every possible issue POST. Its custom audience
+is the SHA-256 digest of the exact issue credential presented to the transport.
+The local verifier accepts only GitHub's fixed issuer and RS256 JWKS, and binds
+the signed repository, push/main ref, commit, workflow, first run, GitHub-hosted
+runner and job check-run claims to live in-progress run and check objects. This
+is application-level proof of possession, not a native token `cnf` claim or a
+server-side compare-and-swap. A compromise of the active runner together with
+the complete credential/proof pair remains outside the guarantee, and the
+final check-status-to-POST race is reduced but cannot be eliminated by the
+documented GitHub APIs.
+
 The ledger is not a general GitHub database, issue tracker or event-sourcing
 framework. It must not grow speculative support for pull requests, labels,
 releases, tags, deployments or unrelated resources. After the bounded H-tier

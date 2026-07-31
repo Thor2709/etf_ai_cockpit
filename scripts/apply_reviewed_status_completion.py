@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import os
 import re
 import subprocess
+import time
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Any, Callable
+
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 try:
     from scripts import github_mutation_gateway as mutation_gateway
@@ -39,6 +46,9 @@ EXPECTED_KEYS = {
 EXPECTED_UPDATE_KEYS = {"stable_id", "from_status", "to_status"}
 WORKFLOW_PATH = ".github/workflows/programme-status-completion.yml"
 WORKFLOW_NAME = "Programme status completion"
+OIDC_ISSUER = "https://token.actions.githubusercontent.com"
+OIDC_JWKS_URL = f"{OIDC_ISSUER}/.well-known/jwks"
+OIDC_MAX_AGE_SECONDS = 60
 
 
 def _git(root: Path, *args: str) -> str:
@@ -113,6 +123,194 @@ def read_actions_run(run_id: str) -> dict[str, Any]:
     return value
 
 
+def read_check_run(check_run_id: str) -> dict[str, Any]:
+    value = json.loads(
+        mutation_gateway._read_gh(
+            ["api", f"repos/{mutation_gateway.REPO}/check-runs/{check_run_id}"]
+        )
+    )
+    if not isinstance(value, dict):
+        raise ValueError("GitHub check run response must be an object")
+    return value
+
+
+def _strict_json(data: bytes, description: str) -> dict[str, Any]:
+    def reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate {description} field")
+            result[key] = value
+        return result
+
+    try:
+        value = json.loads(data, object_pairs_hook=reject_duplicates)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"malformed {description}") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"{description} must be an object")
+    return value
+
+
+def _b64url_decode(value: str, description: str) -> bytes:
+    if not isinstance(value, str) or not value or "=" in value:
+        raise ValueError(f"malformed {description}")
+    try:
+        decoded = base64.b64decode(
+            value + "=" * (-len(value) % 4), altchars=b"-_", validate=True
+        )
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"malformed {description}") from exc
+    if base64.urlsafe_b64encode(decoded).rstrip(b"=").decode("ascii") != value:
+        raise ValueError(f"non-canonical {description}")
+    return decoded
+
+
+def _read_url_json(request: urllib.request.Request, description: str) -> dict[str, Any]:
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:  # noqa: S310
+            if response.status != 200:
+                raise ValueError(f"{description} request failed")
+            return _strict_json(response.read(), description)
+    except Exception as exc:
+        raise ValueError(f"{description} request failed") from exc
+
+
+def request_actions_oidc_token(audience: str) -> str:
+    request_url = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL", "")
+    request_token = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "")
+    if not request_url.startswith("https://") or not request_token:
+        raise ValueError("GitHub Actions OIDC request authority is unavailable")
+    parsed = urllib.parse.urlsplit(request_url)
+    query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    query.append(("audience", audience))
+    url = urllib.parse.urlunsplit(
+        (parsed.scheme, parsed.netloc, parsed.path, urllib.parse.urlencode(query), "")
+    )
+    response = _read_url_json(
+        urllib.request.Request(
+            url,
+            headers={"Authorization": f"Bearer {request_token}"},
+            method="GET",
+        ),
+        "GitHub Actions OIDC token",
+    )
+    if set(response) != {"value"} or not isinstance(response["value"], str):
+        raise ValueError("malformed GitHub Actions OIDC token response")
+    return response["value"]
+
+
+def read_oidc_jwks() -> dict[str, Any]:
+    return _read_url_json(
+        urllib.request.Request(OIDC_JWKS_URL, method="GET"), "GitHub Actions JWKS"
+    )
+
+
+def _select_jwk(jwks: dict[str, Any], kid: str) -> dict[str, Any] | None:
+    if set(jwks) != {"keys"} or not isinstance(jwks["keys"], list):
+        raise ValueError("malformed GitHub Actions JWKS")
+    matches = [
+        key
+        for key in jwks["keys"]
+        if isinstance(key, dict) and key.get("kid") == kid
+    ]
+    if len(matches) > 1:
+        raise ValueError("duplicate GitHub Actions signing key")
+    return matches[0] if matches else None
+
+
+def verify_actions_oidc_token(
+    token: str,
+    *,
+    audience: str,
+    attestation: dict[str, str],
+    live_run: dict[str, Any],
+    live_check: dict[str, Any],
+    jwks_reader: Callable[[], dict[str, Any]] = read_oidc_jwks,
+    now: Callable[[], float] = time.time,
+    used_jtis: set[str] | None = None,
+) -> dict[str, Any]:
+    parts = token.split(".")
+    if len(parts) != 3:
+        raise ValueError("malformed GitHub Actions OIDC JWT")
+    header = _strict_json(_b64url_decode(parts[0], "JWT header"), "JWT header")
+    claims = _strict_json(_b64url_decode(parts[1], "JWT claims"), "JWT claims")
+    if set(header) != {"alg", "kid", "typ"} or header != {
+        "alg": "RS256",
+        "kid": header.get("kid"),
+        "typ": "JWT",
+    } or not isinstance(header["kid"], str) or not header["kid"]:
+        raise ValueError("unsupported GitHub Actions OIDC JOSE header")
+    jwks = jwks_reader()
+    jwk = _select_jwk(jwks, header["kid"])
+    if jwk is None:
+        jwk = _select_jwk(jwks_reader(), header["kid"])
+    if jwk is None or set(jwk) - {"kty", "use", "kid", "n", "e", "alg", "x5c", "x5t"}:
+        raise ValueError("GitHub Actions OIDC signing key unavailable")
+    if (
+        jwk.get("kty") != "RSA"
+        or jwk.get("use") != "sig"
+        or jwk.get("kid") != header["kid"]
+        or jwk.get("alg") not in (None, "RS256")
+        or not isinstance(jwk.get("n"), str)
+        or not isinstance(jwk.get("e"), str)
+    ):
+        raise ValueError("invalid GitHub Actions OIDC signing key")
+    public_key = rsa.RSAPublicNumbers(
+        int.from_bytes(_b64url_decode(jwk["e"], "JWK exponent"), "big"),
+        int.from_bytes(_b64url_decode(jwk["n"], "JWK modulus"), "big"),
+    ).public_key()
+    try:
+        public_key.verify(
+            _b64url_decode(parts[2], "JWT signature"),
+            f"{parts[0]}.{parts[1]}".encode("ascii"),
+            padding.PKCS1v15(),
+            hashes.SHA256(),
+        )
+    except Exception as exc:
+        raise ValueError("invalid GitHub Actions OIDC signature") from exc
+    required_strings = {
+        "iss", "sub", "aud", "jti", "repository", "repository_id", "event_name",
+        "ref", "sha", "workflow_ref", "workflow_sha", "run_id", "run_number",
+        "run_attempt", "runner_environment", "check_run_id",
+    }
+    if any(not isinstance(claims.get(key), str) or not claims[key] for key in required_strings):
+        raise ValueError("missing or invalid GitHub Actions OIDC claim")
+    if any(type(claims.get(key)) is not int for key in ("iat", "nbf", "exp")):
+        raise ValueError("missing or invalid GitHub Actions OIDC time claim")
+    current = int(now())
+    if not (current - OIDC_MAX_AGE_SECONDS <= claims["iat"] <= current + 5):
+        raise ValueError("GitHub Actions OIDC proof is not fresh")
+    if claims["nbf"] > current + 5 or claims["exp"] <= current or claims["exp"] <= claims["iat"]:
+        raise ValueError("GitHub Actions OIDC proof is outside its validity window")
+    if used_jtis is not None:
+        if claims["jti"] in used_jtis:
+            raise ValueError("GitHub Actions OIDC proof was replayed")
+        used_jtis.add(claims["jti"])
+    repository = live_run.get("repository")
+    repository_id = str(repository.get("id", "")) if isinstance(repository, dict) else ""
+    expected = {
+        "iss": OIDC_ISSUER,
+        "aud": audience,
+        "sub": f"repo:{mutation_gateway.REPO}:ref:refs/heads/main",
+        "repository": mutation_gateway.REPO,
+        "repository_id": repository_id,
+        "event_name": "push",
+        "ref": "refs/heads/main",
+        "sha": attestation["event_after"],
+        "workflow_ref": attestation["workflow_ref"],
+        "workflow_sha": attestation["event_after"],
+        "run_id": attestation["run_id"],
+        "run_number": attestation["run_number"],
+        "run_attempt": "1",
+        "runner_environment": "github-hosted",
+        "check_run_id": str(live_check.get("id", "")),
+    }
+    if not repository_id or any(claims.get(key) != value for key, value in expected.items()):
+        raise ValueError("GitHub Actions OIDC caller binding mismatch")
+    return claims
+
+
 def validate_live_actions_run(
     attestation: dict[str, str],
     run_reader: Callable[[str], dict[str, Any]],
@@ -131,6 +329,7 @@ def validate_live_actions_run(
         str(run.get("id", "")) != attestation["run_id"]
         or not isinstance(repository, dict)
         or repository.get("full_name") != mutation_gateway.REPO
+        or not str(repository.get("id", "")).isdigit()
         or run.get("path") != WORKFLOW_PATH
         or run.get("name") != WORKFLOW_NAME
         or run.get("event") != "push"
@@ -146,6 +345,91 @@ def validate_live_actions_run(
                 "github_actions_run_attestation_mismatch"
             ),
         )
+
+
+def validate_live_check_run(
+    attestation: dict[str, str],
+    check_run_id: str,
+    check_reader: Callable[[str], dict[str, Any]],
+) -> dict[str, Any]:
+    try:
+        check = check_reader(check_run_id)
+    except Exception as exc:
+        raise mutation_gateway.MutationPolicyError(
+            "github_check_run_unverifiable",
+            mutation_gateway._policy_evidence("github_check_run_unverifiable"),
+        ) from exc
+    app = check.get("app")
+    details_url = str(check.get("details_url", ""))
+    expected_prefix = (
+        f"https://github.com/{mutation_gateway.REPO}/actions/runs/"
+        f"{attestation['run_id']}/job/"
+    )
+    if (
+        str(check.get("id", "")) != check_run_id
+        or check.get("head_sha") != attestation["event_after"]
+        or check.get("status") != "in_progress"
+        or not isinstance(app, dict)
+        or app.get("slug") != "github-actions"
+        or not details_url.startswith(expected_prefix)
+        or not details_url[len(expected_prefix) :].isdigit()
+    ):
+        raise mutation_gateway.MutationPolicyError(
+            "github_check_run_attestation_mismatch",
+            mutation_gateway._policy_evidence("github_check_run_attestation_mismatch"),
+        )
+    return check
+
+
+def verify_fresh_caller_proof(
+    attestation: dict[str, str],
+    *,
+    run_reader: Callable[[str], dict[str, Any]],
+    check_reader: Callable[[str], dict[str, Any]],
+    token_requester: Callable[[str], str],
+    jwks_reader: Callable[[], dict[str, Any]],
+    used_jtis: set[str],
+    now: Callable[[], float] = time.time,
+) -> None:
+    try:
+        credential = os.environ.get("GH_TOKEN")
+        if credential is None or not credential:
+            raise ValueError("GitHub issue credential is unavailable")
+        audience = hashlib.sha256(credential.encode("utf-8")).hexdigest()
+        token = token_requester(audience)
+        # The unverified claim is used only to locate the check that the signed
+        # token must subsequently bind; it grants no authority by itself.
+        token_parts = token.split(".")
+        if len(token_parts) != 3:
+            raise ValueError("malformed GitHub Actions OIDC JWT")
+        unverified = _strict_json(
+            _b64url_decode(token_parts[1], "JWT claims"), "JWT claims"
+        )
+        check_run_id = unverified.get("check_run_id")
+        if not isinstance(check_run_id, str) or not check_run_id.isdigit():
+            raise ValueError("invalid GitHub Actions OIDC check_run_id")
+        live_run = run_reader(attestation["run_id"])
+        validate_live_actions_run(attestation, lambda _run_id: live_run)
+        live_check = validate_live_check_run(attestation, check_run_id, check_reader)
+        verify_actions_oidc_token(
+            token,
+            audience=audience,
+            attestation=attestation,
+            live_run=live_run,
+            live_check=live_check,
+            jwks_reader=jwks_reader,
+            now=now,
+            used_jtis=used_jtis,
+        )
+    except mutation_gateway.MutationPolicyError:
+        raise
+    except Exception as exc:
+        raise mutation_gateway.MutationPolicyError(
+            "github_actions_oidc_caller_proof_invalid",
+            mutation_gateway._policy_evidence(
+                "github_actions_oidc_caller_proof_invalid"
+            ),
+        ) from exc
 
 
 def fetch_origin_main(root: Path) -> None:
@@ -262,11 +546,12 @@ def revalidate_live_authority(
     attestation: dict[str, str],
     run_reader: Callable[[str], dict[str, Any]],
     main_fetcher: Callable[[Path], None],
+    caller_proof_verifier: Callable[[], None],
 ) -> None:
     """Refresh live read authorities immediately before one GitHub POST."""
 
     main_fetcher(root)
-    validate_live_actions_run(attestation, run_reader)
+    caller_proof_verifier()
     mutation_gateway.validate_authority_git_transition(
         root,
         event_before=expected_parent,
@@ -437,6 +722,7 @@ def run(
     event_payload_sha256: str | None = None,
     actions_run_reader: Callable[[str], dict[str, Any]] = read_actions_run,
     main_fetcher: Callable[[Path], None] = fetch_origin_main,
+    caller_proof_verifier: Callable[[], None] | None = None,
 ) -> None:
     evidence: dict[str, Any] = {
         "schema_version": "etf-ai-cockpit.status-completion-evidence/1.0",
@@ -499,6 +785,16 @@ def run(
             "repository": str(repository),
             "event_payload_sha256": str(event_payload_sha256),
         }
+        if apply:
+            if caller_proof_verifier is None:
+                raise mutation_gateway.MutationPolicyError(
+                    "github_actions_oidc_caller_proof_required",
+                    mutation_gateway._policy_evidence(
+                        "github_actions_oidc_caller_proof_required"
+                    ),
+                )
+            caller_proof_verifier()
+        proof_revalidator = caller_proof_verifier
         prior_records, records, git_binding = (
             mutation_gateway.validate_authority_git_transition(
                 root,
@@ -648,6 +944,7 @@ def run(
                     attestation=attestation,
                     run_reader=actions_run_reader,
                     main_fetcher=main_fetcher,
+                    caller_proof_verifier=proof_revalidator,  # type: ignore[arg-type]
                 ),
             )
         elif authority["authority_type"] == "create":
@@ -711,6 +1008,7 @@ def run(
                     attestation=attestation,
                     run_reader=actions_run_reader,
                     main_fetcher=main_fetcher,
+                    caller_proof_verifier=proof_revalidator,  # type: ignore[arg-type]
                 ),
             )
         else:
@@ -762,6 +1060,9 @@ def main(
     *,
     actions_run_reader: Callable[[str], dict[str, Any]] = read_actions_run,
     main_fetcher: Callable[[Path], None] = fetch_origin_main,
+    check_run_reader: Callable[[str], dict[str, Any]] = read_check_run,
+    oidc_token_requester: Callable[[str], str] = request_actions_oidc_token,
+    oidc_jwks_reader: Callable[[], dict[str, Any]] = read_oidc_jwks,
 ) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd())
@@ -780,6 +1081,7 @@ def main(
     if evidence_out is not None and not evidence_out.is_absolute():
         evidence_out = root / evidence_out
     attestation: dict[str, str] = {}
+    caller_proof_verifier: Callable[[], None] | None = None
     if args.apply:
         if args.expected_parent or args.expected_head or args.main_ref:
             parser.error(
@@ -789,6 +1091,18 @@ def main(
         expected_parent = attestation["event_before"]
         expected_head = attestation["event_after"]
         main_ref = "origin/main"
+        used_jtis: set[str] = set()
+        def caller_proof() -> None:
+            verify_fresh_caller_proof(
+                attestation,
+                run_reader=actions_run_reader,
+                check_reader=check_run_reader,
+                token_requester=oidc_token_requester,
+                jwks_reader=oidc_jwks_reader,
+                used_jtis=used_jtis,
+            )
+
+        caller_proof_verifier = caller_proof
     else:
         if not args.expected_parent or not args.expected_head:
             parser.error("validation requires --expected-parent and --expected-head")
@@ -817,6 +1131,7 @@ def main(
         event_payload_sha256=attestation.get("event_payload_sha256"),
         actions_run_reader=actions_run_reader,
         main_fetcher=main_fetcher,
+        caller_proof_verifier=caller_proof_verifier,
     )
     return 0
 
