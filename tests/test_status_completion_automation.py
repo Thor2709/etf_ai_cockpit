@@ -909,7 +909,12 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
     assert ' -- "$ledger" || ledger_changed=true' in release
     assert 'echo "changed=$ledger_changed"' in release
     release_workflow = yaml.safe_load(release)
-    preflight_steps = release_workflow["jobs"]["preflight"]["steps"]
+    preflight = release_workflow["jobs"]["preflight"]
+    assert preflight["env"] == {
+        "ETF_COCKPIT_VALIDATION_BASE_SHA": "${{ github.event.pull_request.base.sha }}",
+        "ETF_COCKPIT_VALIDATION_HEAD_SHA": "${{ github.event.pull_request.head.sha }}",
+    }
+    preflight_steps = preflight["steps"]
     primary_checkout = next(
         step for step in preflight_steps if step.get("name") == "Check out source"
     )
@@ -920,17 +925,41 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
         for step in preflight_steps
         if step.get("name") == "Check out reviewed GitHub mutation authority head"
     )
-    assert authority_checkout["if"] == (
-        "steps.github_authority.outputs.changed == 'true'"
-    )
+    assert "if" not in authority_checkout
     assert authority_checkout["uses"] == (
         "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
     )
     assert authority_checkout["with"] == {
-        "ref": "${{ needs.classifier.outputs.head_sha }}",
+        "repository": "${{ github.event.pull_request.head.repo.full_name }}",
+        "ref": "${{ github.event.pull_request.head.sha }}",
         "path": ".validation-head",
         "fetch-depth": 0,
+        "persist-credentials": False,
     }
+    base_checkout = next(
+        step
+        for step in preflight_steps
+        if step.get("name") == "Check out trusted pull request base"
+    )
+    assert base_checkout["uses"] == authority_checkout["uses"]
+    assert base_checkout["with"] == {
+        "repository": "${{ github.event.pull_request.base.repo.full_name }}",
+        "ref": "${{ github.event.pull_request.base.sha }}",
+        "path": ".validation-base",
+        "fetch-depth": 1,
+        "persist-credentials": False,
+    }
+    authority_detection = next(
+        step
+        for step in preflight_steps
+        if step.get("name") == "Detect and couple GitHub mutation authority changes"
+    )
+    assert authority_detection["working-directory"] == ".validation-head"
+    assert (
+        'git fetch --no-tags --depth=1 ../.validation-base '
+        '"$ETF_COCKPIT_VALIDATION_BASE_SHA"'
+        in authority_detection["run"]
+    )
     authority_validation = next(
         step
         for step in preflight_steps
@@ -943,13 +972,55 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
         in authority_validation["run"]
     )
     assert "--root ." in authority_validation["run"]
-    assert (
-        "--evidence-out ../artifacts/validation/status-completion-candidate.json"
-        in release
+    assert '--evidence-out "$STATUS_COMPLETION_EVIDENCE"' in release
+    security_end = next(
+        index
+        for index, step in enumerate(preflight_steps)
+        if step.get("name") == "Check out source"
     )
+    security_steps = preflight_steps[:security_end]
+    security_text = yaml.safe_dump(security_steps)
+    assert "needs.classifier.outputs.base_sha" not in security_text
+    assert "needs.classifier.outputs.head_sha" not in security_text
+    assert security_steps[0]["name"] == "Validate trusted pull request identities"
+    assert [step["name"] for step in security_steps].index(
+        "Detect and couple GitHub mutation authority changes"
+    ) < [step["name"] for step in security_steps].index(
+        "Install locked mutation runtime"
+    )
+    install = next(
+        step for step in security_steps if step.get("name") == "Install locked mutation runtime"
+    )["run"]
+    assert "requirements-github-mutation-runtime.txt" in install
+    assert "--require-hashes" in install
+    assert "--only-binary=:all:" in install
+    prepare = next(
+        step
+        for step in security_steps
+        if step.get("name") == "Prepare fresh status-completion evidence target"
+    )["run"]
+    assert 'mktemp -d "$RUNNER_TEMP/status-completion.XXXXXX"' in prepare
+    assert '[[ -L "$evidence_dir" ]]' in prepare
+    assert "was not initially empty" in prepare
+    verify = next(
+        step
+        for step in security_steps
+        if step.get("name") == "Verify fresh status-completion evidence"
+    )
+    assert "[[ -L \"$STATUS_COMPLETION_EVIDENCE\" ]]" in verify["run"]
+    assert "stat -c '%h'" in verify["run"]
+    assert "stat -c '%u'" in verify["run"]
+    assert "python -I -S" in verify["run"]
+    assert 'echo "ready=true"' in verify["run"]
+    upload = next(
+        step
+        for step in security_steps
+        if step.get("name") == "Upload status-completion candidate evidence"
+    )
+    assert upload["if"] == "steps.status_evidence_verified.outputs.ready == 'true'"
+    assert upload["with"]["path"] == "${{ steps.status_evidence.outputs.file }}"
+    assert "always()" not in upload["if"]
     assert "name: validation-status-completion-candidate-${{ github.sha }}" in release
-    assert "path: artifacts/validation/status-completion-candidate.json" in release
-    assert "!artifacts/validation/status-completion-candidate.json" in release
     write_workflows = []
     for workflow_path in (root / ".github/workflows").glob("*.yml"):
         workflow_text = workflow_path.read_text(encoding="utf-8")
