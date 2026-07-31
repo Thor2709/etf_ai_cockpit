@@ -254,3 +254,66 @@ def test_rollback_terminal_state_survives_cleanup_failure(tmp_path: Path, monkey
     second = recover_incomplete_transactions(tmp_path, event_path=tmp_path / "second.events")[0]
     assert second.state == "rolled_back"
     assert not list(tmp_path.rglob(".atomic-transactions/*"))
+
+
+def test_activation_preserves_rollback_and_guard_release_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    destination = tmp_path / "data" / "value.bin"
+    destination.parent.mkdir(parents=True)
+    destination.write_bytes(b"old")
+
+    def fail_recovery(*_args: object, **_kwargs: object) -> bool:
+        raise PermissionError("rollback denied")
+
+    def fail_release(_self: atomic_io._GroupGuardLease) -> None:
+        raise OSError("guard release failed")
+
+    monkeypatch.setattr(atomic_io, "_recover_journal", fail_recovery)
+    monkeypatch.setattr(atomic_io._GroupGuardLease, "close", fail_release)
+
+    with pytest.raises(PermissionError, match="activation denied") as raised:
+        atomic_io.atomic_write_group(
+            (_request(destination, b"new"),),
+            lifecycle_hook=lambda state, _path: (
+                (_ for _ in ()).throw(PermissionError("activation denied"))
+                if state == "committing"
+                else None
+            ),
+        )
+
+    secondary = raised.value.__cause__
+    assert isinstance(secondary, BaseExceptionGroup)
+    assert secondary.message == "atomic write group secondary failures"
+    assert [(type(error), str(error)) for error in secondary.exceptions] == [
+        (PermissionError, "rollback denied"),
+        (OSError, "guard release failed"),
+    ]
+    journal = next(tmp_path.rglob("journal.json"))
+    assert json.loads(journal.read_text(encoding="utf-8"))["recovery_error"] == "rollback denied"
+
+
+def test_activation_with_only_guard_release_failure_keeps_simple_cause(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    destination = tmp_path / "data" / "value.bin"
+    destination.parent.mkdir(parents=True)
+
+    def fail_release(_self: atomic_io._GroupGuardLease) -> None:
+        raise OSError("guard release failed")
+
+    monkeypatch.setattr(atomic_io._GroupGuardLease, "close", fail_release)
+
+    with pytest.raises(PermissionError, match="activation denied") as raised:
+        atomic_io.atomic_write_group(
+            (_request(destination, b"new"),),
+            lifecycle_hook=lambda state, _path: (
+                (_ for _ in ()).throw(PermissionError("activation denied"))
+                if state == "authority_published"
+                else None
+            ),
+        )
+
+    assert isinstance(raised.value.__cause__, OSError)
+    assert not isinstance(raised.value.__cause__, BaseExceptionGroup)
+    assert str(raised.value.__cause__) == "guard release failed"

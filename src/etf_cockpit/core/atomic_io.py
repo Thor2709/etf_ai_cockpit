@@ -2248,12 +2248,25 @@ def atomic_write_group(
             except BaseException as error:
                 release_error = error
         if primary_error is not None:
-            if cleanup_error is not None:
-                if release_error is not None:
-                    cleanup_error.__context__ = release_error
-                raise primary_error from cleanup_error
-            if release_error is not None:
-                raise primary_error from release_error
+            finalizer_errors = tuple(
+                error for error in (cleanup_error, release_error) if error is not None
+            )
+            if finalizer_errors:
+                existing_cause = primary_error.__cause__
+                secondary_errors = (
+                    (existing_cause, *finalizer_errors)
+                    if existing_cause is not None
+                    else finalizer_errors
+                )
+                secondary_error: BaseException
+                if len(secondary_errors) == 1:
+                    secondary_error = secondary_errors[0]
+                else:
+                    secondary_error = BaseExceptionGroup(
+                        "atomic write group secondary failures",
+                        secondary_errors,
+                    )
+                raise primary_error from secondary_error
         if cleanup_error is not None:
             if release_error is not None:
                 raise cleanup_error from release_error
