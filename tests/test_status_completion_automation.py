@@ -831,6 +831,25 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
         "id-token": "write",
         "issues": "write",
     }
+    steps = status_workflow["jobs"]["apply-reviewed-status"]["steps"]
+    setup_index = next(
+        index for index, step in enumerate(steps) if step.get("uses") == "actions/setup-python@v5"
+    )
+    install_index = next(
+        index for index, step in enumerate(steps) if step.get("name") == "Install locked mutation runtime"
+    )
+    mutation_index = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("name") == "Guard and apply reviewed status completion"
+    )
+    assert steps[setup_index]["with"]["python-version"] == "3.12.10"
+    install = steps[install_index]["run"]
+    assert "requirements-release.txt" in install
+    assert "cryptography==" in install
+    assert "python -m pip install \"${cryptography_lock[0]}\"" in install
+    assert "import cryptography" in install
+    assert setup_index < install_index < mutation_index
     assert status_workflow["concurrency"] == {
         "group": "github-mutations-${{ github.repository }}",
         "cancel-in-progress": False,
@@ -1163,28 +1182,26 @@ def test_fresh_oidc_proof_binds_exact_issue_credential_and_live_job(
 
 
 @pytest.mark.parametrize(
-    ("credential", "claim_changes", "check_changes"),
+    ("claim_changes", "check_changes"),
     [
-        ("substituted-token", {}, {}),
-        ("real-token", {"runner_environment": "self-hosted"}, {}),
-        ("real-token", {"workflow_sha": "f" * 40}, {}),
-        ("real-token", {"repository_id": "123"}, {}),
-        ("real-token", {"check_run_id": "556"}, {}),
-        ("real-token", {"iat": NOW - completion.OIDC_MAX_AGE_SECONDS - 1}, {}),
-        ("real-token", {}, {"status": "completed"}),
-        ("real-token", {}, {"head_sha": "f" * 40}),
+        ({"runner_environment": "self-hosted"}, {}),
+        ({"workflow_sha": "f" * 40}, {}),
+        ({"repository_id": "123"}, {}),
+        ({"check_run_id": "556"}, {}),
+        ({"iat": NOW - completion.OIDC_MAX_AGE_SECONDS - 1}, {}),
+        ({}, {"status": "completed"}),
+        ({}, {"head_sha": "f" * 40}),
     ],
 )
-def test_oidc_proof_rejects_credential_substitution_wrong_claims_and_spent_job(
+def test_oidc_proof_rejects_wrong_claims_and_spent_job(
     monkeypatch: pytest.MonkeyPatch,
-    credential: str,
     claim_changes: dict[str, object],
     check_changes: dict[str, object],
 ) -> None:
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     signed_audience = hashlib.sha256(b"real-token").hexdigest()
     token = _signed_oidc(private_key, signed_audience, **claim_changes)
-    monkeypatch.setenv("GH_TOKEN", credential)
+    monkeypatch.setenv("GH_TOKEN", "real-token")
     attestation = {**RUN_ATTESTATION, "event_after": HEAD}
 
     with pytest.raises(
@@ -1204,6 +1221,47 @@ def test_oidc_proof_rejects_credential_substitution_wrong_claims_and_spent_job(
             used_jtis=set(),
             now=lambda: NOW,
         )
+
+
+def test_preissued_proof_cannot_be_reused_with_replacement_credential(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    token = _signed_oidc(private_key, hashlib.sha256(b"original-token").hexdigest())
+    monkeypatch.setenv("GH_TOKEN", "replacement-token")
+    with pytest.raises(gateway.MutationPolicyError, match="caller_proof_invalid"):
+        completion.verify_fresh_caller_proof(
+            {**RUN_ATTESTATION, "event_after": HEAD},
+            run_reader=lambda _run_id: _live_actions_run(),
+            check_reader=lambda _check_id: _live_check(),
+            token_requester=lambda _audience: token,
+            jwks_reader=lambda: _jwk(private_key),
+            used_jtis=set(),
+            now=lambda: NOW,
+        )
+
+
+def test_live_oidc_request_authority_can_adapt_to_replacement_credential(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    monkeypatch.setenv("GH_TOKEN", "replacement-token")
+    requested: list[str] = []
+
+    def adaptive_request(audience: str) -> str:
+        requested.append(audience)
+        return _signed_oidc(private_key, audience)
+
+    completion.verify_fresh_caller_proof(
+        {**RUN_ATTESTATION, "event_after": HEAD},
+        run_reader=lambda _run_id: _live_actions_run(),
+        check_reader=lambda _check_id: _live_check(),
+        token_requester=adaptive_request,
+        jwks_reader=lambda: _jwk(private_key),
+        used_jtis=set(),
+        now=lambda: NOW,
+    )
+    assert requested == [hashlib.sha256(b"replacement-token").hexdigest()]
 
 
 def test_oidc_proof_jti_cannot_be_reused(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1299,3 +1357,52 @@ def test_apply_cli_rejects_local_invocation_and_native_rerun(
             ),
             main_fetcher=lambda _root: None,
         )
+
+
+def test_outside_job_forged_context_pat_and_borrowed_live_run_never_posts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    event = {
+        "before": PARENT,
+        "after": HEAD,
+        "ref": "refs/heads/main",
+        "repository": {"full_name": gateway.REPO},
+        "pusher": {"name": "merger"},
+        "head_commit": {"id": HEAD},
+    }
+    event_path = tmp_path / "event.json"
+    event_path.write_text(json.dumps(event), encoding="utf-8")
+    values = {
+        "GITHUB_ACTIONS": "true",
+        "GITHUB_EVENT_NAME": "push",
+        "GITHUB_REF": "refs/heads/main",
+        "GITHUB_SHA": HEAD,
+        "GITHUB_RUN_ATTEMPT": "1",
+        "GITHUB_RUN_ID": RUN_ATTESTATION["run_id"],
+        "GITHUB_RUN_NUMBER": RUN_ATTESTATION["run_number"],
+        "GITHUB_WORKFLOW_REF": RUN_ATTESTATION["workflow_ref"],
+        "GITHUB_REPOSITORY": gateway.REPO,
+        "GITHUB_ACTOR": "merger",
+        "GITHUB_EVENT_PATH": str(event_path),
+        "GH_TOKEN": "forged-local-pat",
+    }
+    for key, value in values.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.delenv("ACTIONS_ID_TOKEN_REQUEST_URL", raising=False)
+    monkeypatch.delenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", raising=False)
+    posts = 0
+
+    def forbidden_transport() -> object:
+        nonlocal posts
+        posts += 1
+        raise AssertionError("mutation transport reached")
+
+    monkeypatch.setattr(gateway, "GhMutationTransport", forbidden_transport)
+    with pytest.raises(gateway.MutationPolicyError, match="caller_proof_invalid"):
+        completion.main(
+            ["--root", str(tmp_path), "--apply"],
+            actions_run_reader=lambda _run_id: _live_actions_run(),
+            main_fetcher=lambda _root: None,
+        )
+    assert posts == 0

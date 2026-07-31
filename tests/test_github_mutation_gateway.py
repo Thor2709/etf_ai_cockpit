@@ -527,6 +527,30 @@ def test_single_open_create_is_verified_without_retry(ambiguous: bool) -> None:
     assert "stable-id=ISSUE-0179" in transport.issues[0]["body"]
 
 
+def test_create_receipt_rejects_foreign_user_attribution() -> None:
+    transport = CreateTransport()
+    assert _apply_create(_create_plan(), transport)["accepted"] is True
+    receipt = transport.issues[0]["comments"][0]
+    receipt["author"] = {"login": "reviewer", "type": "User", "id": 7}
+
+    assert gateway.validate_create_acceptance(transport.issues[0]) == {
+        "accepted": False,
+        "error": "invalid_create_acceptance",
+    }
+
+
+def test_create_receipt_rejects_foreign_app_attribution() -> None:
+    transport = CreateTransport()
+    assert _apply_create(_create_plan(), transport)["accepted"] is True
+    receipt = transport.issues[0]["comments"][0]
+    receipt["performed_via_github_app"] = {"slug": "foreign-app", "id": 1}
+
+    assert gateway.validate_create_acceptance(transport.issues[0]) == {
+        "accepted": False,
+        "error": "invalid_create_acceptance",
+    }
+
+
 def test_multi_action_and_closed_create_fail_before_transport() -> None:
     for mutate in (
         lambda plan: plan["actions"].append(copy.deepcopy(plan["actions"][0])),

@@ -39,11 +39,16 @@ is the SHA-256 digest of the exact issue credential presented to the transport.
 The local verifier accepts only GitHub's fixed issuer and RS256 JWKS, and binds
 the signed repository, push/main ref, commit, workflow, first run, GitHub-hosted
 runner and job check-run claims to live in-progress run and check objects. This
-is application-level proof of possession, not a native token `cnf` claim or a
-server-side compare-and-swap. A compromise of the active runner together with
-the complete credential/proof pair remains outside the guarantee, and the
-final check-status-to-POST race is reduced but cannot be eliminated by the
-documented GitHub APIs.
+provides process-local freshness and correlation; it does not prove credential
+provenance and is neither a native token `cnf` claim nor server-side
+compare-and-swap. A forged context outside the active job, even with a PAT and
+borrowed live-run metadata, cannot obtain an accepted proof and cannot POST.
+A holder of the live `ACTIONS_ID_TOKEN_REQUEST_TOKEN`, however, can request a
+fresh proof whose audience adaptively binds a replacement credential. That is
+an excluded active-runner compromise. The final check-status-to-POST race is
+reduced but cannot be eliminated by the documented GitHub APIs. The created
+issue's actor is not treated as provenance; only canonical managed comments
+and receipts pinned to the GitHub Actions bot and app are accepted.
 
 The ledger is not a general GitHub database, issue tracker or event-sourcing
 framework. It must not grow speculative support for pull requests, labels,
