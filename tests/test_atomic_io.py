@@ -112,6 +112,36 @@ def test_windows_replace_propagates_first_persistent_candidate_error(
     assert list(tmp_path.glob(f".{destination.name}.*.tmp")) == []
 
 
+def test_windows_replace_does_not_attempt_again_after_sleep_overshoots_deadline(
+    tmp_path, monkeypatch
+):
+    destination = tmp_path / "store.json"
+    destination.write_bytes(b"old")
+    candidate = _windows_permission_error(32, "sharing violation")
+    attempts = 0
+    clock = iter((30.0, 30.0, 30.251))
+    sleeps: list[float] = []
+
+    def replace(self: Path, target: Path):
+        nonlocal attempts
+        attempts += 1
+        raise candidate
+
+    monkeypatch.setattr(atomic_io.os, "name", "nt")
+    monkeypatch.setattr(Path, "replace", replace)
+    monkeypatch.setattr(atomic_io.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(atomic_io.time, "sleep", sleeps.append)
+
+    with pytest.raises(PermissionError) as raised:
+        atomic_write_bytes(destination, b"new", validator=lambda _: None)
+
+    assert raised.value is candidate
+    assert attempts == 1
+    assert sleeps == [0.010]
+    assert destination.read_bytes() == b"old"
+    assert list(tmp_path.glob(f".{destination.name}.*.tmp")) == []
+
+
 def test_windows_replace_propagates_noncandidate_error_without_retry(
     tmp_path, monkeypatch
 ):

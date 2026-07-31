@@ -388,6 +388,8 @@ def _replace_single_destination_with_retry(source: Path, destination: Path) -> N
     deadline = time.monotonic() + 0.250
     first_error: PermissionError | None = None
     while True:
+        if first_error is not None and time.monotonic() >= deadline:
+            raise first_error
         try:
             source.replace(destination)
             return
