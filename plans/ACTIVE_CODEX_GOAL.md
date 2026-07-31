@@ -50,9 +50,11 @@
   rejected candidate must not be amended to one incidental GitHub list order.
 - Active prerequisite worktree:
   `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_plan_order`;
-  branch `codex/github-plan-order-canonicalization`; exact base and current
-  pre-commit head `c326e0c706eba327b26da1719cbb46ab3d2a6b16`; the bounded source,
-  adversarial tests and this checkpoint are the only uncommitted changes.
+  branch `codex/github-plan-order-canonicalization`; exact base
+  `c326e0c706eba327b26da1719cbb46ab3d2a6b16`; exact bounded implementation
+  commit `d59e95bd9d947bff5c93d3735b7866d43149644e`. Any branch-tip descendant
+  of that commit is limited to this checkpoint; verify the current tip with
+  `git rev-parse HEAD` to avoid a self-referential commit identity.
 - Focused validation passes 106 tests. The repaired planner rebuilds the
   preserved candidate's reviewed semantic SHA
   `775b1f011428522b3fe5979720ac87300dbaa1f138761b89d0b2d682c079543b`
@@ -61,9 +63,9 @@
 - Required checks: focused shuffled-order regression tests, complete stable
   diff, independent whole-diff/adversarial/authority/release review, and the
   complete Linux/Windows H-tier gate.
-- Exact next action: freeze the bounded diff in one local commit, obtain
-  independent whole-diff, adversarial, authority and release review, then run
-  the complete Linux/Windows H-tier gate before any merge or candidate replay.
+- Exact next action: complete independent exact-head whole-diff, adversarial,
+  authority and release review, then run the complete Linux/Windows H-tier
+  gate before any merge or candidate replay.
 - Stop condition: stop if the correction needs mutation-authority expansion,
   retries, compensation, historical repair, another GitHub resource or any
   change outside deterministic plan construction and its tests. Any such
