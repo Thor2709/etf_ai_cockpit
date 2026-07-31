@@ -143,6 +143,23 @@ def test_convergence_evidence_requires_zero_action_and_separate_authority(
 
     generate_programme._validate_and_emit_convergence_evidence(tmp_path, outputs)
 
+    evidence["authority_reconciliation"] = None
+    offline_payload = json.dumps(evidence).encode()
+    _write(tmp_path, f"{prefix}/github-sync-evidence.json", offline_payload)
+    _write(
+        tmp_path,
+        f"{prefix}/github-sync-evidence.json.sha256",
+        f"{__import__('hashlib').sha256(offline_payload).hexdigest()}  github-sync-evidence.json\n".encode(),
+    )
+    generate_programme._validate_and_emit_convergence_evidence(
+        tmp_path,
+        outputs,
+        require_authority_reconciliation=False,
+    )
+    with pytest.raises(ValueError, match="authority ledger"):
+        generate_programme._validate_and_emit_convergence_evidence(tmp_path, outputs)
+    evidence["authority_reconciliation"] = {"accepted": True}
+
     evidence["apply_authority"] = True
     _write(tmp_path, f"{prefix}/github-sync-evidence.json", json.dumps(evidence).encode())
     with pytest.raises(ValueError, match="must not grant GitHub apply authority"):
@@ -250,9 +267,10 @@ def test_post_merge_workflow_is_read_only_exact_head_and_reviewable() -> None:
     assert "--reviewed-sidecar" in workflow
     assert "GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}" in workflow
     assert "actions/upload-artifact@v4" in workflow
-    assert "post-merge-control-candidate.json" not in workflow
+    assert ".github/issue-transitions/post-merge-control-candidate.json" in workflow
     assert "git rev-parse HEAD^" not in workflow
     assert "--control-candidate" not in workflow
-    assert "deferring to programme-status-completion" not in workflow
+    assert "deferring to programme-status-completion zero-action readback" in workflow
+    assert 'git diff --quiet "${{ github.event.before }}" "${{ github.sha }}"' in workflow
     assert "--apply" not in workflow
     assert "git push" not in workflow

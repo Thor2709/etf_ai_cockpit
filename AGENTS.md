@@ -131,7 +131,10 @@ Do not turn the authority ledger into a general GitHub database, issue tracker
 or event-sourcing framework. Do not add speculative support for pull requests,
 labels, releases, tags, deployments or unrelated GitHub resources. Ambiguous,
 cancelled, partially applied or erased writes fail closed; retries, recovery
-and compensation must not invent authority or rewrite history.
+and compensation must not invent authority or rewrite history. This repair
+implements no compensation or recovery mechanism. Any future explicit
+compensating-record mechanism requires user approval and must not repeat or
+rewrite history.
 
 After the bounded H-tier repair and formal ISSUE-0180 integration, freeze this
 infrastructure and resume product work with ISSUE-0101. Any later expansion

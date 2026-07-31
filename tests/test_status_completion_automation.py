@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import copy
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -18,6 +19,16 @@ from scripts import sync_github_issues as sync
 PARENT = "a" * 40
 HEAD = "b" * 40
 MERGE = "c" * 40
+RUN_ATTESTATION = {
+    "run_id": "12345",
+    "run_number": "7",
+    "workflow_ref": (
+        f"{gateway.REPO}/.github/workflows/"
+        "programme-status-completion.yml@refs/heads/main"
+    ),
+    "repository": gateway.REPO,
+    "event_payload_sha256": "d" * 64,
+}
 
 
 def _record(status: str = "integrated") -> dict[str, object]:
@@ -216,6 +227,7 @@ def test_happy_apply_uses_approved_plan_and_requires_zero_readback(
         event_after=HEAD,
         actor="merger",
         pusher="merger",
+        **RUN_ATTESTATION,
     )
 
     assert len(observed) == 1
@@ -228,6 +240,76 @@ def test_happy_apply_uses_approved_plan_and_requires_zero_readback(
     assert evidence["terminal_status"] == "applied_and_verified"
     assert evidence["zero_action_readback"] is True
     assert "body" not in json.dumps(evidence).lower()
+
+
+def test_premerge_create_authority_validation_does_not_require_candidate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    remote = _remote()
+    existing = _record("implemented_initially")
+    new_record = _record("planned")
+    new_record["canonical_id"] = "ISSUE-0180"
+    new_record["title"] = "Parallel validation pilot"
+    registry_payload = {"records": [existing, new_record]}
+    registry = tmp_path / sync.REGISTRY_PATH
+    registry.parent.mkdir(parents=True)
+    registry.write_text(json.dumps(registry_payload), encoding="utf-8")
+    bootstrap = _bootstrap()
+    plan = sync.plan_actions(
+        registry_payload,
+        remote,
+        historical_map={},
+        authority_records=[bootstrap],
+    )
+    action = plan["actions"][0]
+    authority = gateway.build_authority_record(
+        "create",
+        {
+            "stable_id": action["stable_id"],
+            "source_sha": PARENT,
+            "title": action["title"],
+            "managed_body": sync.managed_block(action),
+            "claim_inventory_sha256": plan["claim_inventory_sha256"],
+            "plan_sha256": plan["plan_sha256"],
+        },
+        sequence=1,
+        previous_authority_id=str(bootstrap["authority_id"]),
+    )
+    binding = {
+        "authority_id": authority["authority_id"],
+        "authority_sequence": 1,
+        "authority_type": "create",
+        "source_sha": PARENT,
+        "head_sha": HEAD,
+        "ledger_blob_oid": "1" * 40,
+        "ledger_blob_sha256": "2" * 64,
+    }
+    monkeypatch.setattr(
+        completion.mutation_gateway,
+        "validate_authority_git_transition",
+        lambda *_args, **_kwargs: (
+            [bootstrap],
+            [bootstrap, authority],
+            binding,
+        ),
+    )
+    evidence = tmp_path / "create-validation.json"
+
+    completion.run(
+        tmp_path,
+        tmp_path / "candidate-does-not-exist.json",
+        expected_parent=PARENT,
+        expected_head=HEAD,
+        main_ref=None,
+        apply=False,
+        evidence_out=evidence,
+        remote_reader=lambda: remote,
+    )
+
+    payload = json.loads(evidence.read_text(encoding="utf-8"))
+    assert payload["terminal_status"] == "validated"
+    assert payload["action_scope"][0]["kind"] == "create"
 
 
 @pytest.mark.parametrize(
@@ -556,8 +638,9 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
     assert status_workflow[True]["push"]["paths"] == [
         ".github/issue-transitions/github-mutation-authority.jsonl"
     ]
-    assert '--expected-parent "${{ github.event.before }}"' in status_text
-    assert "--apply" in status_text and "--main-ref origin/main" in status_text
+    assert "--apply" in status_text
+    assert "--expected-parent" not in status_text
+    assert "--main-ref" not in status_text
     module_invocation = "python -m scripts.apply_reviewed_status_completion"
     direct_script_invocation = "python scripts/apply_reviewed_status_completion.py"
     assert module_invocation in status_text
@@ -569,19 +652,23 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
     assert "if: always()" in status_text
     assert "actions/upload-artifact@v4" in status_text
     assert "--control-candidate" not in convergence
-    assert "deferring to programme-status-completion" not in convergence
+    assert "deferring to programme-status-completion zero-action readback" in convergence
+    assert 'git diff --quiet "${{ github.event.before }}" "${{ github.sha }}"' in convergence
+    assert "git rev-parse HEAD^" not in convergence
     assert "group: github-mutations-${{ github.repository }}" in convergence
     assert "cancel-in-progress: false" in convergence
     assert "queue: max" in convergence
     assert "issues: read" in release
     assert isinstance(yaml.safe_load(release), dict)
-    assert "steps.status_candidate.outputs.changed == 'true'" in release
+    assert "steps.github_authority.outputs.changed == 'true'" in release
     assert module_invocation in release
     assert direct_script_invocation not in release
     assert (
-        'git diff --quiet "$ETF_COCKPIT_VALIDATION_BASE_SHA" "$ETF_COCKPIT_VALIDATION_HEAD_SHA" -- "$candidate"'
+        'git diff --quiet "$ETF_COCKPIT_VALIDATION_BASE_SHA" "$ETF_COCKPIT_VALIDATION_HEAD_SHA" -- "$candidate" || candidate_changed=true'
         in release
     )
+    assert ' -- "$ledger" || ledger_changed=true' in release
+    assert 'echo "changed=$ledger_changed"' in release
     assert (
         "--evidence-out artifacts/validation/status-completion-candidate.json"
         in release
@@ -599,15 +686,15 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
             assert "queue: max" in workflow_text
     assert write_workflows == ["programme-status-completion.yml"]
     for argument in (
-        '--event-name "${{ github.event_name }}"',
-        '--event-ref "${{ github.ref }}"',
-        '--run-attempt "${{ github.run_attempt }}"',
-        '--event-before "${{ github.event.before }}"',
-        '--event-after "${{ github.sha }}"',
-        '--actor "${{ github.actor }}"',
-        '--pusher "${{ github.event.pusher.name }}"',
+        "--event-name",
+        "--event-ref",
+        "--run-attempt",
+        "--event-before",
+        "--event-after",
+        "--actor",
+        "--pusher",
     ):
-        assert argument in status_text
+        assert argument not in status_text
     candidate_upload = release.index(
         "- name: Upload status-completion candidate evidence"
     )
@@ -699,3 +786,42 @@ def test_status_completion_module_help_smoke() -> None:
     )
 
     assert "usage:" in result.stdout
+
+
+def test_apply_cli_rejects_local_invocation_and_native_rerun(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for key in tuple(os.environ):
+        if key.startswith("GITHUB_"):
+            monkeypatch.delenv(key, raising=False)
+    with pytest.raises(gateway.MutationPolicyError, match="github_actions_apply_required"):
+        completion.main(["--root", str(tmp_path), "--apply"])
+
+    event = {
+        "before": PARENT,
+        "after": HEAD,
+        "ref": "refs/heads/main",
+        "repository": {"full_name": gateway.REPO},
+        "pusher": {"name": "merger"},
+        "head_commit": {"id": HEAD},
+    }
+    event_path = tmp_path / "event.json"
+    event_path.write_text(json.dumps(event), encoding="utf-8")
+    values = {
+        "GITHUB_ACTIONS": "true",
+        "GITHUB_EVENT_NAME": "push",
+        "GITHUB_REF": "refs/heads/main",
+        "GITHUB_SHA": HEAD,
+        "GITHUB_RUN_ATTEMPT": "2",
+        "GITHUB_RUN_ID": "12345",
+        "GITHUB_RUN_NUMBER": "7",
+        "GITHUB_WORKFLOW_REF": RUN_ATTESTATION["workflow_ref"],
+        "GITHUB_REPOSITORY": gateway.REPO,
+        "GITHUB_ACTOR": "merger",
+        "GITHUB_EVENT_PATH": str(event_path),
+    }
+    for key, value in values.items():
+        monkeypatch.setenv(key, value)
+    with pytest.raises(gateway.MutationPolicyError, match="ineligible_authority"):
+        completion.main(["--root", str(tmp_path), "--apply"])

@@ -15,7 +15,7 @@ import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 try:
     from scripts import github_mutation_gateway as mutation_gateway
@@ -658,6 +658,14 @@ def apply_actions(
     run_attempt: str = "",
     event_before: str = "",
     event_after: str = "",
+    actor: str = "",
+    pusher: str = "",
+    run_id: str = "",
+    run_number: str = "",
+    workflow_ref: str = "",
+    repository: str = "",
+    event_payload_sha256: str = "",
+    authority_revalidator: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     """Apply at most one policy-allowlisted open-issue creation."""
 
@@ -676,7 +684,15 @@ def apply_actions(
         run_attempt=run_attempt,
         event_before=event_before,
         event_after=event_after,
+        actor=actor,
+        pusher=pusher,
+        run_id=run_id,
+        run_number=run_number,
+        workflow_ref=workflow_ref,
+        repository=repository,
+        event_payload_sha256=event_payload_sha256,
         transport=mutation_transport,
+        authority_revalidator=authority_revalidator,
     )
 
 

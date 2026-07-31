@@ -30,16 +30,6 @@ jobs:
           python -m scripts.apply_reviewed_status_completion \
             --root . \
             --candidate .github/issue-transitions/post-merge-control-candidate.json \
-            --expected-parent "${{ github.event.before }}" \
-            --expected-head "${{ github.sha }}" \
-            --main-ref origin/main \
-            --event-name "${{ github.event_name }}" \
-            --event-ref "${{ github.ref }}" \
-            --run-attempt "${{ github.run_attempt }}" \
-            --event-before "${{ github.event.before }}" \
-            --event-after "${{ github.sha }}" \
-            --actor "${{ github.actor }}" \
-            --pusher "${{ github.event.pusher.name }}" \
             --evidence-out artifacts/programme-status-completion/evidence.json \
             --apply
       - name: Upload status-completion evidence

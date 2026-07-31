@@ -30,12 +30,27 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Defer authority-bearing push to the ordered writer
+        id: mutation_range
+        shell: bash
+        run: |
+          deferred=false
+          if [[ "${{ github.event_name }}" == "push" ]] && \
+             ! git diff --quiet "${{ github.event.before }}" "${{ github.sha }}" -- \
+               .github/issue-transitions/post-merge-control-candidate.json \
+               .github/issue-transitions/github-mutation-authority.jsonl; then
+            deferred=true
+            echo "deferring to programme-status-completion zero-action readback"
+          fi
+          echo "deferred=$deferred" >> "$GITHUB_OUTPUT"
       - name: Guard exact fresh main head
+        if: steps.mutation_range.outputs.deferred != 'true'
         run: |
           git fetch --no-tags origin main
           test "$(git rev-parse HEAD)" = "${{ github.sha }}"
           test "$(git rev-parse origin/main)" = "${{ github.sha }}"
       - name: Stage one read-only convergence transaction
+        if: steps.mutation_range.outputs.deferred != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -68,6 +83,7 @@ jobs:
           fi
           python scripts/generate_programme.py "${args[@]}"
       - name: Produce reviewable patch only
+        if: steps.mutation_range.outputs.deferred != 'true'
         run: git diff --no-index --binary /dev/null artifacts/programme-convergence > programme-convergence.patch || test $? = 1
       - name: Upload staged evidence and patch
         if: always()

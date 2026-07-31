@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -97,6 +98,100 @@ def _canonical_candidate_blob_sha256(root: Path, expected_head: str) -> str:
     return hashlib.sha256(
         subprocess.check_output(["git", "cat-file", "blob", blob], cwd=root)
     ).hexdigest()
+
+
+def github_actions_push_attestation() -> dict[str, str]:
+    """Read, cross-check and attest the native introducing GitHub push run."""
+
+    required = {
+        key: os.environ.get(key, "")
+        for key in (
+            "GITHUB_ACTIONS",
+            "GITHUB_EVENT_NAME",
+            "GITHUB_REF",
+            "GITHUB_SHA",
+            "GITHUB_RUN_ATTEMPT",
+            "GITHUB_RUN_ID",
+            "GITHUB_RUN_NUMBER",
+            "GITHUB_WORKFLOW_REF",
+            "GITHUB_REPOSITORY",
+            "GITHUB_ACTOR",
+            "GITHUB_EVENT_PATH",
+        )
+    }
+    event_path = Path(required["GITHUB_EVENT_PATH"])
+    if required["GITHUB_ACTIONS"] != "true" or not event_path.is_file():
+        raise mutation_gateway.MutationPolicyError(
+            "github_actions_apply_required",
+            mutation_gateway._policy_evidence("github_actions_apply_required"),
+        )
+    event_bytes = event_path.read_bytes()
+    try:
+        event = json.loads(event_bytes)
+    except json.JSONDecodeError as exc:
+        raise mutation_gateway.MutationPolicyError(
+            "invalid_github_push_event",
+            mutation_gateway._policy_evidence("invalid_github_push_event"),
+        ) from exc
+    repository = event.get("repository") if isinstance(event, dict) else None
+    pusher = event.get("pusher") if isinstance(event, dict) else None
+    head_commit = event.get("head_commit") if isinstance(event, dict) else None
+    attestation = {
+        "event_name": required["GITHUB_EVENT_NAME"],
+        "event_ref": required["GITHUB_REF"],
+        "run_attempt": required["GITHUB_RUN_ATTEMPT"],
+        "event_before": str(event.get("before", "")),
+        "event_after": str(event.get("after", "")),
+        "actor": required["GITHUB_ACTOR"],
+        "pusher": str(pusher.get("name", "")) if isinstance(pusher, dict) else "",
+        "run_id": required["GITHUB_RUN_ID"],
+        "run_number": required["GITHUB_RUN_NUMBER"],
+        "workflow_ref": required["GITHUB_WORKFLOW_REF"],
+        "repository": required["GITHUB_REPOSITORY"],
+        "event_payload_sha256": hashlib.sha256(event_bytes).hexdigest(),
+    }
+    try:
+        mutation_gateway._validate_run_attestation(
+            {
+                key: attestation[key]
+                for key in (
+                    "run_id",
+                    "run_number",
+                    "workflow_ref",
+                    "repository",
+                    "event_payload_sha256",
+                )
+            }
+        )
+    except ValueError as exc:
+        raise mutation_gateway.MutationPolicyError(
+            "invalid_github_actions_run_attestation",
+            mutation_gateway._policy_evidence(
+                "invalid_github_actions_run_attestation"
+            ),
+        ) from exc
+    if (
+        attestation["event_name"] != "push"
+        or attestation["event_ref"] != "refs/heads/main"
+        or attestation["run_attempt"] != "1"
+        or attestation["event_after"] != required["GITHUB_SHA"]
+        or not SHA_RE.fullmatch(attestation["event_before"])
+        or not SHA_RE.fullmatch(attestation["event_after"])
+        or not attestation["actor"]
+        or not attestation["pusher"]
+        or not isinstance(repository, dict)
+        or repository.get("full_name") != mutation_gateway.REPO
+        or event.get("ref") != "refs/heads/main"
+        or not isinstance(head_commit, dict)
+        or head_commit.get("id") != attestation["event_after"]
+    ):
+        raise mutation_gateway.MutationPolicyError(
+            "ineligible_authority_gateway_event",
+            mutation_gateway._policy_evidence(
+                "ineligible_authority_gateway_event"
+            ),
+        )
+    return attestation
 
 
 def load_candidate(candidate_bytes: bytes) -> dict[str, Any]:
@@ -254,6 +349,11 @@ def run(
     event_after: str | None = None,
     actor: str | None = None,
     pusher: str | None = None,
+    run_id: str | None = None,
+    run_number: str | None = None,
+    workflow_ref: str | None = None,
+    repository: str | None = None,
+    event_payload_sha256: str | None = None,
 ) -> None:
     evidence: dict[str, Any] = {
         "schema_version": "etf-ai-cockpit.status-completion-evidence/1.0",
@@ -273,6 +373,14 @@ def run(
             event_after = expected_head
             actor = "offline-validator"
             pusher = "offline-validator"
+            run_id = "1"
+            run_number = "1"
+            workflow_ref = (
+                f"{mutation_gateway.REPO}/.github/workflows/"
+                "programme-status-completion.yml@refs/heads/main"
+            )
+            repository = mutation_gateway.REPO
+            event_payload_sha256 = "0" * 64
 
         if (
             event_name != "push"
@@ -282,6 +390,11 @@ def run(
             or event_after != expected_head
             or not actor
             or not pusher
+            or not run_id
+            or not run_number
+            or not workflow_ref
+            or not repository
+            or not event_payload_sha256
         ):
             raise mutation_gateway.MutationPolicyError(
                 "ineligible_authority_gateway_event",
@@ -422,6 +535,11 @@ def run(
                 event_after=str(event_after),
                 actor=str(actor),
                 pusher=str(pusher),
+                run_id=str(run_id),
+                run_number=str(run_number),
+                workflow_ref=str(workflow_ref),
+                repository=str(repository),
+                event_payload_sha256=str(event_payload_sha256),
                 authority_record=authority,
                 git_binding=git_binding,
                 transport=mutation_transport,
@@ -451,6 +569,19 @@ def run(
                 run_attempt=str(run_attempt),
                 event_before=str(event_before),
                 event_after=str(event_after),
+                actor=str(actor),
+                pusher=str(pusher),
+                run_id=str(run_id),
+                run_number=str(run_number),
+                workflow_ref=str(workflow_ref),
+                repository=str(repository),
+                event_payload_sha256=str(event_payload_sha256),
+                authority_revalidator=lambda: mutation_gateway.validate_authority_git_transition(
+                    root,
+                    event_before=expected_parent,
+                    event_after=expected_head,
+                    main_ref=main_ref,
+                ),
             )
         else:
             raise ValueError("unsupported GitHub mutation authority")
@@ -500,18 +631,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--candidate", type=Path, default=DEFAULT_CANDIDATE)
-    parser.add_argument("--expected-parent", required=True)
-    parser.add_argument("--expected-head", required=True)
+    parser.add_argument("--expected-parent")
+    parser.add_argument("--expected-head")
     parser.add_argument("--main-ref")
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--evidence-out", type=Path)
-    parser.add_argument("--event-name")
-    parser.add_argument("--event-ref")
-    parser.add_argument("--run-attempt")
-    parser.add_argument("--event-before")
-    parser.add_argument("--event-after")
-    parser.add_argument("--actor")
-    parser.add_argument("--pusher")
     args = parser.parse_args(argv)
     root = args.root.resolve()
     candidate = args.candidate
@@ -520,21 +644,42 @@ def main(argv: list[str] | None = None) -> int:
     evidence_out = args.evidence_out
     if evidence_out is not None and not evidence_out.is_absolute():
         evidence_out = root / evidence_out
+    attestation: dict[str, str] = {}
+    if args.apply:
+        if args.expected_parent or args.expected_head or args.main_ref:
+            parser.error(
+                "--apply derives push identity and main authority from GitHub Actions"
+            )
+        attestation = github_actions_push_attestation()
+        expected_parent = attestation["event_before"]
+        expected_head = attestation["event_after"]
+        main_ref = "origin/main"
+    else:
+        if not args.expected_parent or not args.expected_head:
+            parser.error("validation requires --expected-parent and --expected-head")
+        expected_parent = args.expected_parent
+        expected_head = args.expected_head
+        main_ref = args.main_ref
     run(
         root,
         candidate,
-        expected_parent=args.expected_parent,
-        expected_head=args.expected_head,
-        main_ref=args.main_ref,
+        expected_parent=expected_parent,
+        expected_head=expected_head,
+        main_ref=main_ref,
         apply=args.apply,
         evidence_out=evidence_out,
-        event_name=args.event_name,
-        event_ref=args.event_ref,
-        run_attempt=args.run_attempt,
-        event_before=args.event_before,
-        event_after=args.event_after,
-        actor=args.actor,
-        pusher=args.pusher,
+        event_name=attestation.get("event_name"),
+        event_ref=attestation.get("event_ref"),
+        run_attempt=attestation.get("run_attempt"),
+        event_before=attestation.get("event_before"),
+        event_after=attestation.get("event_after"),
+        actor=attestation.get("actor"),
+        pusher=attestation.get("pusher"),
+        run_id=attestation.get("run_id"),
+        run_number=attestation.get("run_number"),
+        workflow_ref=attestation.get("workflow_ref"),
+        repository=attestation.get("repository"),
+        event_payload_sha256=attestation.get("event_payload_sha256"),
     )
     return 0
 

@@ -7,6 +7,7 @@ issues/programme_control_state.json text eol=lf
 # its generated source blob exact so platform checkout filters cannot drift it.
 issues/open.md -text
 data/.schema_versions/*.json text eol=lf
+.github/issue-transitions/github-mutation-authority.jsonl text eol=lf
 docs/product-completion/*.json text eol=lf
 docs/product-completion/PROGRESS.md text eol=lf
 docs/product-completion/**/*.json text eol=lf

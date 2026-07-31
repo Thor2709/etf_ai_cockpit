@@ -29,7 +29,9 @@ Every eligible write is reconciled against its reviewed Git authority and live
 resource immediately before mutation. Ambiguous, cancelled, partially applied
 or erased writes remain spent and unresolved. The system does not retry them or
 repair history by inventing authority; an explicitly authorised compensating
-record may document an anomaly without repeating or rewriting it.
+record is not implemented by this repair. Any future compensating-record
+mechanism requires explicit user approval and must document an anomaly without
+repeating or rewriting history.
 
 The ledger is not a general GitHub database, issue tracker or event-sourcing
 framework. It must not grow speculative support for pull requests, labels,
@@ -55,4 +57,5 @@ event store were rejected.
 
 `scripts/github_mutation_gateway.py`,
 `scripts/sync_github_issues.py`,
+`scripts/prepare_github_mutation_authority.py`,
 `.github/workflows/programme-status-completion.yml`.

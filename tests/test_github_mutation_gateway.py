@@ -19,6 +19,16 @@ SOURCE = "a" * 40
 HEAD = "b" * 40
 BLOB = "c" * 64
 PLAN = "d" * 64
+RUN_ATTESTATION = {
+    "run_id": "12345",
+    "run_number": "7",
+    "workflow_ref": (
+        f"{gateway.REPO}/.github/workflows/"
+        "programme-status-completion.yml@refs/heads/main"
+    ),
+    "repository": gateway.REPO,
+    "event_payload_sha256": "e" * 64,
+}
 
 
 def issue(status: str = "implemented_initially") -> dict[str, Any]:
@@ -164,6 +174,7 @@ def append(
         event_after=HEAD,
         actor="merger",
         pusher="merger",
+        **RUN_ATTESTATION,
         authority_record=authority,
         git_binding=binding,
         transport=transport,
@@ -332,6 +343,7 @@ def test_cancelled_or_rerun_authority_cannot_append_again() -> None:
             event_after=HEAD,
             actor="merger",
             pusher="merger",
+            **RUN_ATTESTATION,
             authority_record=authority,
             git_binding=binding,
             transport=transport,
@@ -445,7 +457,10 @@ def _create_authority(plan: dict[str, Any]) -> tuple[dict[str, Any], dict[str, A
 
 
 def _apply_create(
-    plan: dict[str, Any], transport: CreateTransport
+    plan: dict[str, Any],
+    transport: CreateTransport,
+    *,
+    authority_revalidator: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     authority, binding = _create_authority(plan)
     return sync.apply_actions(
@@ -459,6 +474,10 @@ def _apply_create(
         run_attempt="1",
         event_before=SOURCE,
         event_after=HEAD,
+        actor="merger",
+        pusher="merger",
+        **RUN_ATTESTATION,
+        authority_revalidator=authority_revalidator,
     )
 
 
@@ -518,6 +537,33 @@ def test_create_ambiguity_never_retries_or_emits_receipt(outcome: str) -> None:
 
     assert transport.writes == 1
     assert all(not item["comments"] for item in transport.issues)
+
+
+@pytest.mark.parametrize("superseded_at", [1, 2])
+def test_create_revalidates_git_authority_immediately_before_each_post(
+    superseded_at: int,
+) -> None:
+    plan = _create_plan()
+    transport = CreateTransport()
+    calls = 0
+
+    def revalidate() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == superseded_at:
+            raise gateway.MutationPolicyError(
+                "authority_superseded_on_main",
+                gateway._policy_evidence("authority_superseded_on_main"),
+            )
+
+    with pytest.raises(gateway.MutationPolicyError, match="authority_superseded"):
+        _apply_create(
+            plan,
+            transport,
+            authority_revalidator=revalidate,
+        )
+
+    assert transport.writes == superseded_at - 1
 
 
 def test_orphan_create_marker_and_orphan_receipt_block_planning() -> None:
@@ -611,6 +657,7 @@ def _event_comment(
         event_after=HEAD,
         actor="merger",
         pusher="merger",
+        **RUN_ATTESTATION,
     )
     return {
         "id": event["mutation_id"],
@@ -671,7 +718,7 @@ def test_document_only_compensation_never_restores_invalid_chain() -> None:
         [
             edited,
             {
-                "body": gateway.COMPENSATION_PREFIX
+                "body": "<!-- etf-ai-cockpit:status-compensation:v1 -->\n"
                 + json.dumps(compensation, sort_keys=True, separators=(",", ":"))
                 + "\n",
                 "author": {"login": "reviewer", "type": "User", "id": 1},
@@ -813,6 +860,32 @@ def test_convergence_report_requires_actions_empty_and_valid_chain(tmp_path: Pat
         )
 
 
+def test_convergence_report_redacts_plan_bodies_and_unmanaged_content(
+    tmp_path: Path,
+) -> None:
+    secret = "private unmanaged reviewer note"
+    plan = {
+        "actions": [
+            {
+                "kind": "update",
+                "stable_id": "ISSUE-0179",
+                "title": "Sensitive title",
+                "body": f"managed\n{secret}",
+            }
+        ]
+    }
+
+    summary = convergence.plan_summary(plan)
+    serialised = json.dumps(summary)
+
+    assert secret not in serialised
+    assert "Sensitive title" not in serialised
+    assert summary["actions"][0]["body_length"] == len(
+        f"managed\n{secret}".encode()
+    )
+    assert "body_sha256" in summary["actions"][0]
+
+
 def _bootstrap_record() -> dict[str, Any]:
     return gateway.build_authority_record(
         "legacy_bootstrap",
@@ -842,6 +915,18 @@ def test_authority_ledger_is_canonical_hash_chained_and_tamper_evident() -> None
         gateway.parse_authority_ledger(data.replace(b"integrated", b"integrateD"))
     with pytest.raises(ValueError, match="canonical_jsonl"):
         gateway.parse_authority_ledger(data.rstrip(b"\n"))
+
+
+def test_authority_ledger_is_pinned_lf_and_crlf_input_fails_closed() -> None:
+    root = Path(__file__).resolve().parents[1]
+    attributes = (root / ".gitattributes").read_text(encoding="utf-8")
+    assert (
+        ".github/issue-transitions/github-mutation-authority.jsonl text eol=lf"
+        in attributes
+    )
+    data = gateway.authority_ledger_bytes([_bootstrap_record()])
+    with pytest.raises(ValueError, match="invalid_authority_ledger_record"):
+        gateway.parse_authority_ledger(data.replace(b"\n", b"\r\n"))
 
 
 def test_all_authorities_reconcile_and_complete_pair_deletion_blocks() -> None:

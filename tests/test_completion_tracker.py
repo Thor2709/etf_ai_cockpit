@@ -269,6 +269,14 @@ def test_status_event_projection_produces_zero_action_convergence() -> None:
         event_after="b" * 40,
         actor="merger",
         pusher="merger",
+        run_id="12345",
+        run_number="7",
+        workflow_ref=(
+            f"{gateway.REPO}/.github/workflows/"
+            "programme-status-completion.yml@refs/heads/main"
+        ),
+        repository=gateway.REPO,
+        event_payload_sha256="e" * 64,
     )
     value["comments"] = [
             {

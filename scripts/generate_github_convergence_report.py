@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
@@ -19,13 +20,42 @@ def read_json(path: Path) -> dict:
     return value
 
 
+def _redacted_action(action: object) -> dict:
+    if not isinstance(action, dict):
+        return {"kind": "invalid"}
+    safe = {
+        key: action[key]
+        for key in (
+            "kind",
+            "stable_id",
+            "remote_number",
+            "remote_numbers",
+            "desired_state",
+            "programme_status",
+            "reason",
+            "managed_field_deltas",
+            "authority_error",
+        )
+        if key in action
+    }
+    for field in ("title", "body"):
+        value = action.get(field)
+        if isinstance(value, str):
+            safe[f"{field}_sha256"] = hashlib.sha256(value.encode()).hexdigest()
+            safe[f"{field}_length"] = len(value.encode())
+    return safe
+
+
 def plan_summary(plan: dict) -> dict:
+    actions = plan.get("actions")
+    if not isinstance(actions, list):
+        actions = []
     return {
         "plan_sha256": plan.get("plan_sha256"),
         "remote_inventory_sha256": plan.get("remote_inventory_sha256"),
         "remote_issue_count": plan.get("remote_issue_count"),
         "summary": plan.get("summary"),
-        "actions": plan.get("actions"),
+        "actions": [_redacted_action(action) for action in actions],
         "status_event_projections": plan.get("status_event_projections"),
         "authority_reconciliation": plan.get("authority_reconciliation"),
         "legacy_duplicate_count": len(plan.get("legacy_duplicates", [])),

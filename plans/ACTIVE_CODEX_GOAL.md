@@ -16,8 +16,9 @@
   labels, releases, tags, deployments or unrelated GitHub resources.
 - Retry limit: an ambiguous, cancelled, partially applied or erased write
   leaves its authority spent and unresolved. Automatic retries and historical
-  repair must not invent authority. A later authorised compensating record may
-  document the anomaly but may not silently repeat or rewrite it.
+  repair must not invent authority. This repair implements no compensation or
+  recovery mechanism. Any future explicit compensating record requires user
+  approval and may not repeat or rewrite history.
 - Remaining work: finish the append-only authority/baseline implementation;
   reconcile every current sync, readback and convergence path; add the
   adversarial suite; obtain independent authority, whole-diff and release
@@ -33,33 +34,33 @@
 
 ## Current checkpoint
 
-- Current UTC timestamp: `2026-07-31T11:22:28Z`
+- Current UTC timestamp: `2026-07-31T12:21:46Z`
 - Current `origin/main`: `e829972e18ce84ae2ec9d7e53424c596c207bc12`
 - Active worktree:
   `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_status_module`
 - Active branch: `codex/status-module-invocation`
 - Exact base SHA: `e829972e18ce84ae2ec9d7e53424c596c207bc12`
 - Exact last committed head before this checkpoint update:
-  `1ffd64622d46890ccf6e42ad9819284f01d1e2ab`
+  `30d24d8a59a9a22722782c2bf32cdce36b00120f`
 - Current PR and state: no authority-ledger repair PR exists and nothing from
   this branch has been pushed.
 - Current issue: bounded repository-wide lost-update repair for the two
   existing GitHub issue mutation classes.
-- Completed work: all direct writers and bypasses were audited; the first
-  gateway checkpoint passed focused tests and whole-diff review; independent
-  review then proved complete-deletion and exact-provenance gaps. The corrected
-  append-only Git-authority architecture, live 278-issue identity bootstrap and
-  scope boundary are now reviewed and documented. Implementation is in
-  progress and intentionally uncommitted.
+- Completed work: all direct writers and bypasses were audited; the append-only
+  Git-authority architecture, live 278-issue identity bootstrap and scope
+  boundary are documented and committed. The bounded review correction closes
+  all ten independent BLOCK findings and passes 130 affected/preparation tests,
+  149 release/workflow tests, protected Ruff/MyPy/compile checks, all workflow
+  YAML parsing, deterministic generation and the full-tree writer audit.
 - Required checks: focused adversarial suites, independent whole-diff,
   authority and release review, then the complete H-tier Linux and Windows
   packaged gate at one frozen exact head.
-- Blocker: none under the accepted fail-closed rule that a cancelled,
-  ambiguous, partially applied or erased authority is spent and never
-  automatically retried.
-- Exact next action: finish only the bounded ledger/gateway implementation and
-  adversarial tests; stop if it requires new resource or contents-write
-  authority.
+- Blocker: none. Ambiguous, cancelled, partially applied or erased authorities
+  remain permanently fail-closed; this repair implements no retry,
+  compensation or recovery mechanism.
+- Exact next action: commit this bounded correction at one clean checkpoint,
+  then repeat independent whole-diff, authority and release review before any
+  push.
 
 ## Objective
 

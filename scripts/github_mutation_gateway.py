@@ -24,7 +24,6 @@ AUTHORITY_PATH = Path(".github/issue-transitions/github-mutation-authority.jsonl
 AUTHORITY_SCHEMA = "etf-ai-cockpit.github-mutation-authority/1.0"
 EVENT_PREFIX = "<!-- etf-ai-cockpit:status-event:v1 -->\n"
 EVENT_RECEIPT_PREFIX = "<!-- etf-ai-cockpit:status-event-acceptance:v1 -->\n"
-COMPENSATION_PREFIX = "<!-- etf-ai-cockpit:status-compensation:v1 -->\n"
 CREATE_MARKER_TEMPLATE = "<!-- etf-ai-cockpit:create-mutation-id={} -->"
 CREATE_RECEIPT_PREFIX = "<!-- etf-ai-cockpit:create-acceptance:v1 -->\n"
 EVENT_SCHEMA = "etf-ai-cockpit.status-event/1.0"
@@ -55,6 +54,11 @@ EVENT_KEYS = {
     "event_after",
     "actor",
     "pusher",
+    "run_id",
+    "run_number",
+    "workflow_ref",
+    "repository",
+    "event_payload_sha256",
     "authority_id",
     "authority_sequence",
     "ledger_blob_oid",
@@ -99,6 +103,18 @@ CREATE_RECEIPT_KEYS = {
     "ledger_blob_oid",
     "ledger_blob_sha256",
     "plan_sha256",
+    "run_id",
+    "run_number",
+    "workflow_ref",
+    "repository",
+    "event_payload_sha256",
+    "event_name",
+    "event_ref",
+    "run_attempt",
+    "event_before",
+    "event_after",
+    "actor",
+    "pusher",
 }
 AUTHORITY_KEYS = {
     "schema_version",
@@ -176,6 +192,22 @@ def _sha256(value: bytes | str) -> str:
     if isinstance(value, str):
         value = value.encode()
     return hashlib.sha256(value).hexdigest()
+
+
+def _validate_run_attestation(attestation: dict[str, str]) -> None:
+    """Validate the immutable identity of the sole supported introducing run."""
+
+    if (
+        not attestation["run_id"].isdigit()
+        or int(attestation["run_id"]) <= 0
+        or not attestation["run_number"].isdigit()
+        or int(attestation["run_number"]) <= 0
+        or attestation["repository"] != REPO
+        or attestation["workflow_ref"]
+        != f"{REPO}/.github/workflows/programme-status-completion.yml@refs/heads/main"
+        or not HASH_RE.fullmatch(attestation["event_payload_sha256"])
+    ):
+        raise ValueError("invalid_github_actions_run_attestation")
 
 
 def _authority_id(value: dict[str, Any]) -> str:
@@ -606,6 +638,18 @@ def parse_event_comment(body: str) -> dict[str, Any] | None:
         or not value.get("pusher")
     ):
         raise ValueError("invalid_status_event_workflow_binding")
+    _validate_run_attestation(
+        {
+            key: str(value.get(key, ""))
+            for key in (
+                "run_id",
+                "run_number",
+                "workflow_ref",
+                "repository",
+                "event_payload_sha256",
+            )
+        }
+    )
     for field in (
         "candidate_blob_sha256",
         "plan_sha256",
@@ -843,6 +887,11 @@ def build_status_event(
     event_after: str,
     actor: str,
     pusher: str,
+    run_id: str,
+    run_number: str,
+    workflow_ref: str,
+    repository: str,
+    event_payload_sha256: str,
     authority_id: str = "0" * 64,
     authority_sequence: int = 0,
     ledger_blob_oid: str = "0" * 40,
@@ -867,6 +916,11 @@ def build_status_event(
         "event_after": event_after,
         "actor": actor,
         "pusher": pusher,
+        "run_id": run_id,
+        "run_number": run_number,
+        "workflow_ref": workflow_ref,
+        "repository": repository,
+        "event_payload_sha256": event_payload_sha256,
         "authority_id": authority_id,
         "authority_sequence": authority_sequence,
         "ledger_blob_oid": ledger_blob_oid,
@@ -938,6 +992,18 @@ def build_create_receipt(
     ledger_blob_oid: str = "0" * 40,
     ledger_blob_sha256: str = "0" * 64,
     plan_sha256: str = "0" * 64,
+    run_id: str = "1",
+    run_number: str = "1",
+    workflow_ref: str = f"{REPO}/.github/workflows/programme-status-completion.yml@refs/heads/main",
+    repository: str = REPO,
+    event_payload_sha256: str = "0" * 64,
+    event_name: str = "push",
+    event_ref: str = "refs/heads/main",
+    run_attempt: str = "1",
+    event_before: str = "0" * 40,
+    event_after: str = "0" * 40,
+    actor: str = "test",
+    pusher: str = "test",
 ) -> tuple[dict[str, Any], str]:
     snapshot = normalise_issue_snapshot(issue)
     identity = {
@@ -955,6 +1021,18 @@ def build_create_receipt(
         "ledger_blob_oid": ledger_blob_oid,
         "ledger_blob_sha256": ledger_blob_sha256,
         "plan_sha256": plan_sha256,
+        "run_id": run_id,
+        "run_number": run_number,
+        "workflow_ref": workflow_ref,
+        "repository": repository,
+        "event_payload_sha256": event_payload_sha256,
+        "event_name": event_name,
+        "event_ref": event_ref,
+        "run_attempt": run_attempt,
+        "event_before": event_before,
+        "event_after": event_after,
+        "actor": actor,
+        "pusher": pusher,
         "execution_allowed": False,
     }
     receipt = {
@@ -1000,6 +1078,28 @@ def parse_create_receipt(body: str) -> dict[str, Any] | None:
         or not re.fullmatch(r"[0-9a-f]{40,64}", str(value.get("ledger_blob_oid", "")))
     ):
         raise ValueError("invalid_create_receipt_authority_binding")
+    _validate_run_attestation(
+        {
+            key: str(value.get(key, ""))
+            for key in (
+                "run_id",
+                "run_number",
+                "workflow_ref",
+                "repository",
+                "event_payload_sha256",
+            )
+        }
+    )
+    if (
+        value.get("event_name") != "push"
+        or value.get("event_ref") != "refs/heads/main"
+        or value.get("run_attempt") != "1"
+        or value.get("event_before") != value.get("source_sha")
+        or value.get("event_after") != value.get("head_sha")
+        or not value.get("actor")
+        or not value.get("pusher")
+    ):
+        raise ValueError("invalid_create_receipt_workflow_binding")
     return value
 
 
@@ -1302,7 +1402,15 @@ def apply_reviewed_plan(
     run_attempt: str = "",
     event_before: str = "",
     event_after: str = "",
+    actor: str = "",
+    pusher: str = "",
+    run_id: str = "",
+    run_number: str = "",
+    workflow_ref: str = "",
+    repository: str = "",
+    event_payload_sha256: str = "",
     transport: MutationTransport | None = None,
+    authority_revalidator: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     actions = _validate_plan_authority(plan, approved_sha256)
     if authority_record is None or git_binding is None:
@@ -1342,6 +1450,40 @@ def apply_reviewed_plan(
     stable_marker = f"<!-- etf-ai-cockpit:stable-id={stable_id} -->"
     title = str(action.get("title", ""))
     payload = authority_record.get("payload")
+    attestation = {
+        "run_id": run_id,
+        "run_number": run_number,
+        "workflow_ref": workflow_ref,
+        "repository": repository,
+        "event_payload_sha256": event_payload_sha256,
+        "event_name": event_name,
+        "event_ref": event_ref,
+        "run_attempt": run_attempt,
+        "event_before": event_before,
+        "event_after": event_after,
+        "actor": actor,
+        "pusher": pusher,
+    }
+    try:
+        _validate_run_attestation(
+            {
+                key: attestation[key]
+                for key in (
+                    "run_id",
+                    "run_number",
+                    "workflow_ref",
+                    "repository",
+                    "event_payload_sha256",
+                )
+            }
+        )
+    except ValueError as exc:
+        raise MutationPolicyError(
+            "invalid_github_actions_run_attestation",
+            _policy_evidence(
+                "invalid_github_actions_run_attestation", approved_sha256
+            ),
+        ) from exc
     if (
         authority_record.get("authority_type") != "create"
         or not isinstance(payload, dict)
@@ -1357,6 +1499,8 @@ def apply_reviewed_plan(
         or event_ref != "refs/heads/main"
         or run_attempt != "1"
         or event_after != git_binding.get("head_sha")
+        or not actor
+        or not pusher
     ):
         raise MutationPolicyError(
             "create_request_authority_mismatch",
@@ -1388,6 +1532,8 @@ def apply_reviewed_plan(
     if any(marker in str(issue.get("body") or "") for issue in before):
         evidence["terminal_status"] = "spent_authority_projection_exists"
         raise MutationGatewayError("spent_authority_projection_exists", evidence)
+    if authority_revalidator is not None:
+        authority_revalidator()
 
     reconciled: list[dict[str, Any]] | None = None
     try:
@@ -1444,8 +1590,11 @@ def apply_reviewed_plan(
         ledger_blob_oid=str(git_binding["ledger_blob_oid"]),
         ledger_blob_sha256=str(git_binding["ledger_blob_sha256"]),
         plan_sha256=approved_sha256,
+        **attestation,
     )
     evidence["receipt_mutation_id"] = receipt["receipt_mutation_id"]
+    if authority_revalidator is not None:
+        authority_revalidator()
     receipt_reconciled: dict[str, Any] | None = None
     try:
         evidence["transport_writes"] = 2
@@ -1550,6 +1699,11 @@ def append_status_event(
     event_after: str,
     actor: str,
     pusher: str,
+    run_id: str,
+    run_number: str,
+    workflow_ref: str,
+    repository: str,
+    event_payload_sha256: str,
     authority_record: dict[str, Any] | None = None,
     git_binding: dict[str, Any] | None = None,
     transport: MutationTransport | None = None,
@@ -1585,6 +1739,11 @@ def append_status_event(
         "event_after": event_after,
         "actor": actor,
         "pusher": pusher,
+        "run_id": run_id,
+        "run_number": run_number,
+        "workflow_ref": workflow_ref,
+        "repository": repository,
+        "event_payload_sha256": event_payload_sha256,
     }
     if (
         event_name != "push"
@@ -1598,6 +1757,27 @@ def append_status_event(
         evidence = _policy_evidence("ineligible_status_append_event", plan_sha256)
         evidence["event_binding_sha256"] = _sha256(_json_bytes(eligibility))
         raise MutationPolicyError("ineligible_status_append_event", evidence)
+    try:
+        _validate_run_attestation(
+            {
+                key: eligibility[key]
+                for key in (
+                    "run_id",
+                    "run_number",
+                    "workflow_ref",
+                    "repository",
+                    "event_payload_sha256",
+                )
+            }
+        )
+    except ValueError as exc:
+        evidence = _policy_evidence(
+            "invalid_github_actions_run_attestation", plan_sha256
+        )
+        evidence["event_binding_sha256"] = _sha256(_json_bytes(eligibility))
+        raise MutationPolicyError(
+            "invalid_github_actions_run_attestation", evidence
+        ) from exc
     gateway = transport or GhMutationTransport()
     reviewed = normalise_issue_snapshot(reviewed_snapshot)
     identity = describe_status_event(

@@ -112,24 +112,30 @@ jobs:
           python -m pytest -q tests/test_button_contracts.py tests/test_architecture_boundaries.py
           # Legacy findings outside the protected validation surface remain
           # tracked separately; do not turn them into an unrelated red baseline.
-          python -m ruff check scripts/classify_validation.py scripts/generate_programme.py scripts/validation_summary.py scripts/release_gate.py scripts/validate_app.py src/etf_cockpit/data/health.py
-          python -m mypy --ignore-missing-imports --disable-error-code=import-untyped --follow-imports=skip scripts/classify_validation.py scripts/generate_programme.py scripts/validation_summary.py
+          python -m ruff check scripts/classify_validation.py scripts/generate_programme.py scripts/validation_summary.py scripts/release_gate.py scripts/validate_app.py scripts/github_mutation_gateway.py scripts/apply_reviewed_status_completion.py scripts/sync_github_issues.py scripts/prepare_github_mutation_authority.py src/etf_cockpit/data/health.py
+          python -m mypy --ignore-missing-imports --disable-error-code=import-untyped --follow-imports=skip scripts/classify_validation.py scripts/generate_programme.py scripts/validation_summary.py scripts/github_mutation_gateway.py scripts/apply_reviewed_status_completion.py scripts/sync_github_issues.py scripts/prepare_github_mutation_authority.py
+          python -m compileall -q scripts/github_mutation_gateway.py scripts/apply_reviewed_status_completion.py scripts/sync_github_issues.py scripts/prepare_github_mutation_authority.py
           python scripts/smoke_app.py --mode offline --timeout 30
           git diff --check "$ETF_COCKPIT_VALIDATION_BASE_SHA" "$ETF_COCKPIT_VALIDATION_HEAD_SHA" --
 
-      - name: Detect reviewed status-completion candidate change
-        id: status_candidate
+      - name: Detect and couple GitHub mutation authority changes
+        id: github_authority
         shell: bash
         run: |
           candidate=".github/issue-transitions/post-merge-control-candidate.json"
-          if git diff --quiet "$ETF_COCKPIT_VALIDATION_BASE_SHA" "$ETF_COCKPIT_VALIDATION_HEAD_SHA" -- "$candidate"; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
+          ledger=".github/issue-transitions/github-mutation-authority.jsonl"
+          candidate_changed=false
+          ledger_changed=false
+          git diff --quiet "$ETF_COCKPIT_VALIDATION_BASE_SHA" "$ETF_COCKPIT_VALIDATION_HEAD_SHA" -- "$candidate" || candidate_changed=true
+          git diff --quiet "$ETF_COCKPIT_VALIDATION_BASE_SHA" "$ETF_COCKPIT_VALIDATION_HEAD_SHA" -- "$ledger" || ledger_changed=true
+          if [[ "$candidate_changed" == "true" && "$ledger_changed" != "true" ]]; then
+            echo "A status candidate change requires one coupled ledger append" >&2
+            exit 1
           fi
+          echo "changed=$ledger_changed" >> "$GITHUB_OUTPUT"
 
-      - name: Validate reviewed status-completion candidate
-        if: steps.status_candidate.outputs.changed == 'true'
+      - name: Validate reviewed GitHub mutation authority
+        if: steps.github_authority.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -142,7 +148,7 @@ jobs:
             --evidence-out artifacts/validation/status-completion-candidate.json
 
       - name: Upload status-completion candidate evidence
-        if: always() && steps.status_candidate.outputs.changed == 'true'
+        if: always() && steps.github_authority.outputs.changed == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: validation-status-completion-candidate-${{ github.sha }}
@@ -271,8 +277,9 @@ jobs:
       - name: Run lint and typing gates
         shell: bash
         run: |
-          python -m ruff check scripts/release_gate.py scripts/profile_parallel_pytest.py scripts/aggregate_parallel_pilot.py scripts/validate_app.py scripts/classify_validation.py scripts/generate_programme.py scripts/validation_summary.py src/etf_cockpit/data/health.py tests/test_release_gate.py tests/test_issue_0177_observability.py tests/test_issue_0178_validation_classifier.py tests/test_issue_0179_atomic_generation.py tests/test_issue_0179_validation_summary.py tests/test_issue_0180_parallel_pilot.py tests/test_data_health.py
-          python -m mypy --ignore-missing-imports --disable-error-code=import-untyped --follow-imports=skip scripts/release_gate.py scripts/profile_parallel_pytest.py scripts/aggregate_parallel_pilot.py scripts/classify_validation.py scripts/generate_programme.py scripts/validation_summary.py src/etf_cockpit/data/health.py
+          python -m ruff check scripts/release_gate.py scripts/profile_parallel_pytest.py scripts/aggregate_parallel_pilot.py scripts/validate_app.py scripts/classify_validation.py scripts/generate_programme.py scripts/validation_summary.py scripts/github_mutation_gateway.py scripts/apply_reviewed_status_completion.py scripts/sync_github_issues.py scripts/prepare_github_mutation_authority.py src/etf_cockpit/data/health.py tests/test_release_gate.py tests/test_issue_0177_observability.py tests/test_issue_0178_validation_classifier.py tests/test_issue_0179_atomic_generation.py tests/test_issue_0179_validation_summary.py tests/test_issue_0180_parallel_pilot.py tests/test_data_health.py
+          python -m mypy --ignore-missing-imports --disable-error-code=import-untyped --follow-imports=skip scripts/release_gate.py scripts/profile_parallel_pytest.py scripts/aggregate_parallel_pilot.py scripts/classify_validation.py scripts/generate_programme.py scripts/validation_summary.py scripts/github_mutation_gateway.py scripts/apply_reviewed_status_completion.py scripts/sync_github_issues.py scripts/prepare_github_mutation_authority.py src/etf_cockpit/data/health.py
+          python -m compileall -q scripts/github_mutation_gateway.py scripts/apply_reviewed_status_completion.py scripts/sync_github_issues.py scripts/prepare_github_mutation_authority.py
 
       - name: Run protected release gate
         shell: bash
