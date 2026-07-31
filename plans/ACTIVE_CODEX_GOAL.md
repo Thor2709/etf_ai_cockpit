@@ -45,6 +45,11 @@
   `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0101`; branch
   `codex/issue0101-cyclical-adapters-20260731`; exact base
   `8a0d1d9a7437770aa0567d9ae6787e3881832f27`.
+- Exact durable handoff content commit:
+  `a7525e302add1685a4d457be79478a35e8045d24`. Any branch-tip descendant is
+  limited to this checkpoint identity note; verify the current committed head
+  with `git rev-parse HEAD`. The product files listed below remain
+  intentionally uncommitted.
 - Current issue: dependency-ready ISSUE-0101, programme status `in_progress`.
   The bounded product outcome is one local typed adapter family for energy,
   materials/mining and non-infrastructure industrial evidence, deterministic
