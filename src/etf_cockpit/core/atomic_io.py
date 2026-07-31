@@ -1406,6 +1406,67 @@ def _cleanup_schema3_transaction(payload: dict[str, object], journal_path: Path)
     _fsync_directory(transaction_root.parent)
 
 
+def _verify_schema3_precommit_destinations(
+    payload: dict[str, object], authority: DestinationAuthority
+) -> None:
+    """Prove a prepared transaction has not changed any destination yet."""
+    entries_value = payload.get("entries")
+    if not isinstance(entries_value, list) or len(entries_value) != len(authority.destinations):
+        raise QuarantineError("prepared transaction lacks complete destination evidence")
+    entries = {
+        Path(str(entry.get("destination"))).resolve(): entry
+        for entry in entries_value
+        if isinstance(entry, dict) and isinstance(entry.get("destination"), str)
+    }
+    if tuple(entries) != authority.destinations:
+        raise QuarantineError("prepared transaction destination evidence is incomplete")
+    for destination in authority.destinations:
+        entry = entries[destination]
+        backup_value = entry.get("backup_path")
+        if backup_value is None:
+            if destination.exists():
+                raise QuarantineError("prepared destination was expected to remain absent")
+            continue
+        if not destination.exists():
+            raise QuarantineError("prepared prior destination disappeared")
+        if not destination.is_file():
+            raise QuarantineError("prepared destination is not a regular file")
+        previous = entry.get("previous_sha256")
+        if not isinstance(previous, str) or sha256_file(destination) != previous:
+            raise QuarantineError("prepared destination has ambiguous content")
+
+
+def _schema3_rollback_plan(
+    entries: list[dict[str, object]],
+) -> list[tuple[str, Path, bytes | None]]:
+    """Preflight every destination before mutating any during rollback."""
+    plan: list[tuple[str, Path, bytes | None]] = []
+    for entry in reversed(entries):
+        destination = Path(str(entry["destination"]))
+        backup_value = entry.get("backup_path")
+        expected = str(entry["expected_sha256"])
+        if backup_value is None:
+            if not destination.exists():
+                plan.append(("none", destination, None))
+                continue
+            if not destination.is_file() or sha256_file(destination) != expected:
+                raise QuarantineError("schema3 new destination has ambiguous content")
+            plan.append(("remove", destination, None))
+            continue
+        previous = str(entry["previous_sha256"])
+        if not destination.exists() or not destination.is_file():
+            raise QuarantineError("schema3 prior destination disappeared")
+        current = sha256_file(destination)
+        if current == previous:
+            plan.append(("none", destination, None))
+            continue
+        if current != expected:
+            raise QuarantineError("schema3 destination has ambiguous content")
+        backup = Path(str(backup_value))
+        plan.append(("restore", destination, backup.read_bytes()))
+    return plan
+
+
 def _recover_schema3_journal(
     journal_path: Path,
     *,
@@ -1453,44 +1514,35 @@ def _recover_schema3_journal(
             # generation.  Never roll it back based on owner PID.
             _cleanup_schema3_transaction(payload, journal_path)
             return True
-        if state in {"authority_published", "markers_publishing", "armed", "preparing", "prepared"}:
+        if state == "prepared":
+            _verify_schema3_precommit_destinations(payload, _authority_from_payload(payload, journal_path))
+            _cleanup_schema3_transaction(payload, journal_path)
+            return True
+        if state in {"authority_published", "markers_publishing", "armed", "preparing"}:
             # No destination mutation is legal before committing; cleanup is
             # therefore safe even when entries are partial.
             _cleanup_schema3_transaction(payload, journal_path)
             return True
         if state != "committing":
             return False
-        # Committing has complete evidence.  Restore each prior generation in
-        # reverse order while the immutable authority-derived guards remain held.
-        for entry in reversed(entries):
-            assert isinstance(entry, dict)
-            destination = Path(str(entry["destination"]))
-            backup_value = entry.get("backup_path")
-            expected = str(entry["expected_sha256"])
-            if backup_value is None:
-                if destination.exists():
-                    if not destination.is_file() or sha256_file(destination) != expected:
-                        raise QuarantineError("schema3 new destination has ambiguous content")
-                    _retry_unlink(destination)
-                    _fsync_directory(destination.parent)
-                continue
-            backup = Path(str(backup_value))
-            previous = str(entry["previous_sha256"])
-            if destination.is_file():
-                current = sha256_file(destination)
-                if current == previous:
-                    continue
-                if current != expected:
-                    raise QuarantineError("schema3 destination has ambiguous content")
-            else:
-                raise QuarantineError("schema3 prior destination disappeared")
-            original = backup.read_bytes()
+        # Committing has complete evidence.  Preflight every destination under
+        # the immutable guards so an ambiguous later edge cannot follow an
+        # earlier mutation.
+        typed_entries = [entry for entry in entries if isinstance(entry, dict)]
+        plan = _schema3_rollback_plan(typed_entries)
+        for action, destination, original in plan:
+            if action == "remove":
+                _retry_unlink(destination)
+                _fsync_directory(destination.parent)
+            elif action == "restore":
+                assert original is not None
+                previous = str(next(entry["previous_sha256"] for entry in typed_entries if Path(str(entry["destination"])).resolve() == destination))
 
-            def validate(path: Path, checksum: str = previous) -> None:
-                if sha256_file(path) != checksum:
-                    raise OSError(f"schema3 rollback checksum mismatch: {path}")
+                def validate(path: Path, checksum: str = previous) -> None:
+                    if sha256_file(path) != checksum:
+                        raise OSError(f"schema3 rollback checksum mismatch: {path}")
 
-            atomic_write_bytes(destination, original, validate)
+                atomic_write_bytes(destination, original, validate)
         payload["state"] = "rolled_back"
         payload["status"] = "rolled_back"
         payload["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -1561,6 +1613,50 @@ def _recover_journal(
                 isinstance(item, dict) for item in entries_value
             ):
                 return False
+            sealed_v1 = payload.get("schema_version") == 2 and payload.get("guard_protocol") == _GROUP_GUARD_PROTOCOL
+            strict_plan: list[tuple[str, Path, bytes | None]] = []
+            if sealed_v1:
+                for entry in reversed(entries_value):
+                    destination = Path(str(entry["destination"]))
+                    backup_value = entry.get("backup_path")
+                    expected = str(entry["expected_sha256"])
+                    if backup_value is None:
+                        if not destination.exists():
+                            strict_plan.append(("none", destination, None))
+                        elif not destination.is_file() or sha256_file(destination) != expected:
+                            raise QuarantineError("sealed-v1 destination has ambiguous content")
+                        else:
+                            strict_plan.append(("remove", destination, None))
+                    else:
+                        previous = str(entry["previous_sha256"])
+                        if not destination.exists() or not destination.is_file():
+                            raise QuarantineError("sealed-v1 prior destination disappeared")
+                        current = sha256_file(destination)
+                        if current == previous:
+                            strict_plan.append(("none", destination, None))
+                        elif current == expected:
+                            strict_plan.append(("restore", destination, Path(str(backup_value)).read_bytes()))
+                        else:
+                            raise QuarantineError("sealed-v1 destination has ambiguous content")
+            if sealed_v1:
+                for action, destination, original in strict_plan:
+                    if action == "remove":
+                        _retry_unlink(destination)
+                        _fsync_directory(destination.parent)
+                    elif action == "restore":
+                        assert original is not None
+                        previous = next(
+                            str(item["previous_sha256"])
+                            for item in entries_value
+                            if Path(str(item["destination"])).resolve() == destination
+                        )
+
+                        def validate(path: Path, checksum: str = previous) -> None:
+                            if sha256_file(path) != checksum:
+                                raise OSError(f"transaction recovery checksum mismatch: {path}")
+
+                        atomic_write_bytes(destination, original, validate)
+                entries_value = []
             for entry in reversed(entries_value):
                 destination = Path(str(entry["destination"]))
                 backup_value = entry.get("backup_path")
@@ -1969,6 +2065,7 @@ def atomic_write_group(
         guards.require(lock_parents)
         guards.seal()
         transaction_root.mkdir(parents=True, exist_ok=False)
+        _fsync_directory(transaction_root.parent)
         authority = _publish_authority(
             authority_path,
             transaction_id=transaction_id,
@@ -2120,17 +2217,21 @@ def atomic_write_group(
     except AtomicWriteInterrupted:
         interrupted = True
         raise
-    except Exception:
+    except Exception as activation_error:
         if journal_path.is_file() and guards is not None:
             try:
                 recovered = _recover_journal(journal_path, force=True, held_guards=guards, deadline=deadline.value)
             except Exception as recovery_error:
                 recovery_pending = True
                 _mark_recovery_required(journal_path, recovery_error)
-                raise
+                raise activation_error from recovery_error
             if not recovered:
                 recovery_pending = True
-                _mark_recovery_required(journal_path, "rollback could not be proven from immutable authority evidence")
+                rollback_failure = OSError(
+                    "rollback could not be proven from immutable authority evidence"
+                )
+                _mark_recovery_required(journal_path, rollback_failure)
+                raise activation_error from rollback_failure
         raise
     finally:
         primary_error = sys.exc_info()[1]

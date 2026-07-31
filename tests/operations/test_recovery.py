@@ -515,6 +515,30 @@ def _valid_v2_payload(root: Path, transaction_id: str = "valid") -> tuple[Path, 
     return journal, payload
 
 
+@pytest.mark.parametrize("mutation", ["third", "missing", "directory"])
+def test_sealed_v1_committing_ambiguous_destination_is_quarantined(
+    tmp_path: Path, mutation: str
+) -> None:
+    journal, payload = _valid_v2_payload(tmp_path, transaction_id=f"sealed-{mutation}")
+    destination = Path(str(payload["entries"][0]["destination"]))
+    before_journal = journal.read_bytes()
+    if mutation == "third":
+        destination.write_bytes(b"third-party")
+    else:
+        destination.unlink()
+        if mutation == "directory":
+            destination.mkdir()
+    result = _recover(tmp_path)[0]
+    assert result.state == "quarantined"
+    if mutation == "third":
+        assert destination.read_bytes() == b"third-party"
+    elif mutation == "directory":
+        assert destination.is_dir()
+    else:
+        assert not destination.exists()
+    assert journal.exists() and journal.read_bytes() == before_journal
+
+
 @pytest.mark.parametrize(
     ("damage", "expected_reason"),
     [

@@ -123,6 +123,27 @@ def test_schema3_marker_publication_flushes_parent_directory(tmp_path: Path, mon
     assert any(path.name == ".atomic-transactions" for path in flushed)
 
 
+def test_schema3_transaction_root_flush_precedes_authority_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    destination = tmp_path / "data" / "value.bin"
+    destination.parent.mkdir(parents=True)
+    flushed: list[Path] = []
+    original_fsync_directory = atomic_io._fsync_directory
+
+    def record_fsync(path: Path) -> None:
+        flushed.append(Path(path).resolve())
+        original_fsync_directory(path)
+
+    monkeypatch.setattr(atomic_io, "_fsync_directory", record_fsync)
+    with pytest.raises(atomic_io.AtomicWriteInterrupted):
+        atomic_io.atomic_write_group(
+            (_request(destination, b"new"),),
+            lifecycle_hook=_interrupt_at("authority_published"),
+        )
+    assert flushed[0] == (destination.parent / ".atomic-transactions").resolve()
+
+
 def test_atomic_group_reader_publishes_no_reader_markers(tmp_path: Path) -> None:
     first = tmp_path / "data" / "a.bin"
     second = tmp_path / "configs" / "b.bin"
@@ -168,6 +189,37 @@ def test_committing_third_party_destination_is_quarantined(tmp_path: Path) -> No
     result = recover_incomplete_transactions(tmp_path, event_path=tmp_path / "events.json")[0]
     assert result.state == "quarantined"
     assert destination.read_bytes() == b"third-party"
+    assert journal.exists() and journal.read_bytes() == journal_before
+
+
+@pytest.mark.parametrize("mutation", ["third", "missing", "directory"])
+def test_prepared_ambiguous_destination_is_quarantined_without_cleanup(
+    tmp_path: Path, mutation: str
+) -> None:
+    destination = tmp_path / "data" / "value.bin"
+    destination.parent.mkdir(parents=True)
+    destination.write_bytes(b"old")
+    with pytest.raises(atomic_io.AtomicWriteInterrupted):
+        atomic_io.atomic_write_group(
+            (_request(destination, b"new"),),
+            lifecycle_hook=_interrupt_at("prepared"),
+        )
+    journal = next(tmp_path.rglob("journal.json"))
+    journal_before = journal.read_bytes()
+    if mutation == "third":
+        destination.write_bytes(b"third-party")
+    else:
+        destination.unlink()
+        if mutation == "directory":
+            destination.mkdir()
+    result = recover_incomplete_transactions(tmp_path, event_path=tmp_path / "events.json")[0]
+    assert result.state == "quarantined"
+    if mutation == "third":
+        assert destination.read_bytes() == b"third-party"
+    elif mutation == "directory":
+        assert destination.is_dir()
+    else:
+        assert not destination.exists()
     assert journal.exists() and journal.read_bytes() == journal_before
 
 

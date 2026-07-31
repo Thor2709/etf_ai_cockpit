@@ -523,15 +523,18 @@ def test_activation_rollback_failure_preserves_recovery_evidence(
 
     monkeypatch.setattr(Path, "replace", fail_activation_and_rollback)
 
-    with pytest.raises(PermissionError):
+    with pytest.raises(PermissionError, match="activation denied for second") as raised:
         atomic_io.atomic_write_group(
             (_request(first, b"new-a"), _request(second, b"new-b")),
         )
+    assert isinstance(raised.value.__cause__, PermissionError)
+    assert "rollback denied for first" in str(raised.value.__cause__)
 
     journals = list(tmp_path.rglob(".atomic-transactions/*/journal.json"))
     assert len(journals) == 1
     payload = json.loads(journals[0].read_text(encoding="utf-8"))
     assert payload["state"] == "recovery_required"
+    assert "rollback denied for first" in payload["recovery_error"]
     assert first.read_bytes() == b"new-a"
     assert second.read_bytes() == b"old-b"
     assert any(Path(path).exists() for path in payload["staged_paths"])
