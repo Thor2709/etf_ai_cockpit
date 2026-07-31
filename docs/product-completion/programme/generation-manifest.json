@@ -15,11 +15,11 @@
     },
     {
       "path": "docs/product-completion/CURRENT_STATUS.json",
-      "sha256": "973cd9377b75a3d982c8cc3c1e2bd66f31e584f5198cc3d64855548db6b4d669"
+      "sha256": "35190227dbe99bd811e07b6894e85216a50088d1cb10782a1492ff44b82c46f7"
     },
     {
       "path": "docs/product-completion/PROGRESS.md",
-      "sha256": "587dfcd3ce8ef160f699c51d5401518c3001ac1e34819d1a3d31fd3462e60be9"
+      "sha256": "10eb586d2025a22006b0b618bd3b3aec780a27c55fe967625adeb9252b416f11"
     },
     {
       "path": "docs/product-completion/programme/git-workflow.md",
@@ -63,7 +63,7 @@
     },
     {
       "path": "docs/product-completion/programme/phases/phase-09-quality-release-security.md",
-      "sha256": "6e5462878500c40f8b22736ffd5794ac50481c92b583718f465be590e602374e"
+      "sha256": "9821a0b8be1350e26f99f9f87133c2e88646974aaa61c46868c36fcec5a2ae89"
     },
     {
       "path": "docs/product-completion/programme/phases/phase-10-audit-documentation-governance.md",
@@ -79,11 +79,11 @@
     },
     {
       "path": "docs/product-completion/programme/readiness.json",
-      "sha256": "87e0f9c9fb6ed72cb6a197af695dd407eadfd6b7545f7cfbd69702ea016f11ca"
+      "sha256": "654a56071ffdad4f57af683f2fe101dbd6e5b44982a2693757e55d91d3f3c31b"
     },
     {
       "path": "docs/product-completion/programme/roadmap.md",
-      "sha256": "09a09034c667ded02b7823a36866c9b50da8418943ce1f6bca1b1da694ece9d6"
+      "sha256": "190e0d3852ed1cf274615867027ac9e56e9272c6afc2e3accf51af8dbf8361a3"
     },
     {
       "path": "docs/product-completion/programme/test-and-performance-strategy.md",
@@ -143,11 +143,11 @@
     },
     {
       "path": "docs/product-completion/reconciliation/2026-07-21-2337f69/source-to-canonical.csv",
-      "sha256": "94a6fe18a0d2d34cc80a7eeb97ad4ca8578febde3838f2bb052dd2bb1dbf5b91"
+      "sha256": "a95fec1ebb1af92c62a9439496c62a88bf606531e3d91a42dd60e2a1bd355fa4"
     },
     {
       "path": "issues/issue_registry.json",
-      "sha256": "ee3d65e8cad0aee640c99037950cc75a4a4e6c4feda80bf8cbea3412181bbb56"
+      "sha256": "d42632ee3b75677ea336b3a9944fcbeddf33812c76432874ef9b02d3b39e7603"
     },
     {
       "path": "issues/open.md",
@@ -155,7 +155,7 @@
     },
     {
       "path": "issues/programme_control_state.json",
-      "sha256": "7e7dec5f4d5d30cf17e4b6a52668640059c065a5d1c7bf02300a5026d85f172f"
+      "sha256": "a1c8254e78551cdeb6110b7ffa5866010af01a84e4b48e1ef96217f201678cf5"
     }
   ],
   "schema_version": "programme-generation.v1"

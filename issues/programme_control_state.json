@@ -8097,6 +8097,19 @@
           "reviewed_date": "2026-07-30",
           "reviewer": "Codex root orchestrator",
           "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "PR #622 accepted exact product head f2911ccd2b32df6b6d6d3ff7a1b3ea565e506371 and merged as ad056e4eafd8ea1a201a5da92b68a3e5e6b78372",
+            "Release run 30603914783 H-tier terminal summary passed authoritative Linux and Windows gates with 2292 tests each",
+            "Release run 30603914783 passed both four-worker pilots, the cross-platform aggregate, and validation summary",
+            "Independent exact whole-diff review was clean and adversarial atomic-authority stress evidence passed",
+            "Exact-main post-merge convergence run 30607173205 passed with an empty patch and zero-action GitHub sync"
+          ],
+          "review_reference": "ISSUE-0180 integration accepted after exact-head parallel pilot, adversarial atomic-authority review, and exact-main zero-action convergence",
+          "reviewed_date": "2026-07-31",
+          "reviewer": "Codex root orchestrator",
+          "status": "integrated"
         }
       ],
       "canonical_definition": {
@@ -8178,11 +8191,11 @@
         }
       },
       "phase": "phase-09-quality-release-security",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
-        "from": "in_progress",
-        "review_reference": "ISSUE-0180 initial environment-isolation implementation accepted with parallel timing proof still outstanding",
-        "to": "implemented_initially"
+        "from": "implemented_initially",
+        "review_reference": "ISSUE-0180 integration accepted after exact-head parallel pilot, adversarial atomic-authority review, and exact-main zero-action convergence",
+        "to": "integrated"
       },
       "transition_history": [
         {
@@ -8245,10 +8258,26 @@
           "reviewer": "Codex root orchestrator",
           "to": "implemented_initially",
           "verified_commit": "ed314167a0ab8390ed72fcda9326c37d27aae81f"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #622 accepted exact product head f2911ccd2b32df6b6d6d3ff7a1b3ea565e506371 and merged as ad056e4eafd8ea1a201a5da92b68a3e5e6b78372",
+            "Release run 30603914783 H-tier terminal summary passed authoritative Linux and Windows gates with 2292 tests each",
+            "Release run 30603914783 passed both four-worker pilots, the cross-platform aggregate, and validation summary",
+            "Independent exact whole-diff review was clean and adversarial atomic-authority stress evidence passed",
+            "Exact-main post-merge convergence run 30607173205 passed with an empty patch and zero-action GitHub sync"
+          ],
+          "from": "implemented_initially",
+          "review_reference": "ISSUE-0180 integration accepted after exact-head parallel pilot, adversarial atomic-authority review, and exact-main zero-action convergence",
+          "reviewed_date": "2026-07-31",
+          "reviewer": "Codex root orchestrator",
+          "to": "integrated",
+          "verified_commit": "ad056e4eafd8ea1a201a5da92b68a3e5e6b78372"
         }
       ],
-      "verified_commit": "ed314167a0ab8390ed72fcda9326c37d27aae81f",
-      "verified_date": "2026-07-30"
+      "verified_commit": "ad056e4eafd8ea1a201a5da92b68a3e5e6b78372",
+      "verified_date": "2026-07-31"
     },
     "ISSUE-0181": {
       "acceptance_evidence": [],
