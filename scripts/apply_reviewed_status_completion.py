@@ -54,6 +54,7 @@ def _validate_candidate_blob(
     root: Path,
     *,
     candidate_path: Path,
+    candidate_bytes: bytes,
     expected_head: str,
 ) -> None:
     candidate_relative = DEFAULT_CANDIDATE.as_posix()
@@ -78,20 +79,18 @@ def _validate_candidate_blob(
         candidate_relative,
     ):
         raise ValueError("candidate path has staged, unstaged, or untracked changes")
-    worktree_blob = _git(
-        root,
-        "hash-object",
-        f"--path={candidate_relative}",
-        str(candidate_path),
+    expected_bytes = subprocess.check_output(
+        ["git", "cat-file", "blob", expected_blob],
+        cwd=root,
     )
-    if worktree_blob != expected_blob:
-        raise ValueError(
-            "checked-out candidate canonical blob does not match expected head"
-        )
+    if candidate_bytes != expected_bytes and candidate_bytes != expected_bytes.replace(
+        b"\n", b"\r\n"
+    ):
+        raise ValueError("checked-out candidate bytes do not match expected head")
 
 
-def load_candidate(path: Path) -> dict[str, Any]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
+def load_candidate(candidate_bytes: bytes) -> dict[str, Any]:
+    payload = json.loads(candidate_bytes.decode("utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("status-completion candidate must be a JSON object")
     return payload
@@ -102,6 +101,7 @@ def validate_git_bindings(
     candidate: dict[str, Any],
     *,
     candidate_path: Path,
+    candidate_bytes: bytes,
     expected_parent: str,
     expected_head: str,
     main_ref: str | None,
@@ -114,6 +114,7 @@ def validate_git_bindings(
     _validate_candidate_blob(
         root,
         candidate_path=candidate_path,
+        candidate_bytes=candidate_bytes,
         expected_head=expected_head,
     )
     if main_ref is None:
@@ -239,7 +240,8 @@ def run(
             raise ValueError(
                 "candidate path must be the canonical status-completion path"
             )
-        candidate = load_candidate(candidate_path)
+        candidate_bytes = candidate_path.read_bytes()
+        candidate = load_candidate(candidate_bytes)
         evidence.update(
             {
                 "remote_inventory_sha256": candidate.get("remote_inventory_sha256"),
@@ -251,6 +253,7 @@ def run(
             root,
             candidate,
             candidate_path=candidate_path,
+            candidate_bytes=candidate_bytes,
             expected_parent=expected_parent,
             expected_head=expected_head,
             main_ref=main_ref,

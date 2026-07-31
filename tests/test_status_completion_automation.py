@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import copy
 import json
 import subprocess
@@ -135,6 +136,7 @@ def test_candidate_rejects_wrong_bindings(field: str, value: str, message: str) 
                 Path("."),
                 candidate,
                 candidate_path=Path("."),
+                candidate_bytes=b"",
                 expected_parent=PARENT,
                 expected_head=HEAD,
                 main_ref=None,
@@ -195,6 +197,7 @@ def _validate_repo_binding(
         root,
         candidate,
         candidate_path=candidate_path,
+        candidate_bytes=candidate_path.read_bytes() if candidate_path.exists() else b"",
         expected_parent=parent,
         expected_head=head,
         main_ref=None,
@@ -251,6 +254,82 @@ def test_candidate_git_binding_rejects_wrong_head_and_path(tmp_path: Path) -> No
     wrong_path.write_bytes(candidate_path.read_bytes())
     with pytest.raises(ValueError, match="canonical status-completion path"):
         _validate_repo_binding(root, wrong_path, candidate, parent, head)
+
+
+@pytest.mark.parametrize(
+    "altered",
+    [
+        b'{"altered": true}\n',
+        b'{\r\n  "altered": true\n}\r\n',
+        b'{"altered": true}\r',
+    ],
+)
+def test_candidate_git_binding_rejects_altered_bytes_hidden_by_clean_filter(
+    tmp_path: Path, altered: bytes
+) -> None:
+    root, candidate_path, candidate, parent, head = _git_repo(tmp_path)
+    filter_script = root / "clean-filter.py"
+    encoded_reviewed = base64.b64encode(candidate_path.read_bytes()).decode("ascii")
+    filter_script.write_text(
+        "import base64, sys\n"
+        f"sys.stdout.buffer.write(base64.b64decode('{encoded_reviewed}'))\n",
+        encoding="utf-8",
+    )
+    subprocess.run(
+        [
+            "git",
+            "config",
+            "filter.hide.clean",
+            f"python {filter_script.as_posix()}",
+        ],
+        cwd=root,
+        check=True,
+    )
+    info_attributes = root / ".git/info/attributes"
+    info_attributes.write_text(
+        f"{completion.DEFAULT_CANDIDATE.as_posix()} filter=hide\n",
+        encoding="utf-8",
+    )
+    candidate_path.write_bytes(altered)
+    subprocess.run(
+        ["git", "add", completion.DEFAULT_CANDIDATE.as_posix()],
+        cwd=root,
+        check=True,
+    )
+    assert (
+        subprocess.check_output(
+            [
+                "git",
+                "status",
+                "--porcelain=v1",
+                "--",
+                completion.DEFAULT_CANDIDATE.as_posix(),
+            ],
+            cwd=root,
+            text=True,
+        )
+        == ""
+    )
+
+    with pytest.raises(ValueError, match="bytes do not match"):
+        _validate_repo_binding(root, candidate_path, candidate, parent, head)
+
+
+def test_candidate_git_binding_rejects_swap_after_byte_capture(tmp_path: Path) -> None:
+    root, candidate_path, candidate, parent, head = _git_repo(tmp_path)
+    captured = candidate_path.read_bytes()
+    candidate_path.write_text('{"swapped": true}\n', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="staged, unstaged, or untracked"):
+        completion.validate_git_bindings(
+            root,
+            candidate,
+            candidate_path=candidate_path,
+            candidate_bytes=captured,
+            expected_parent=parent,
+            expected_head=head,
+            main_ref=None,
+        )
 
 
 def test_candidate_rejects_disallowed_direct_status_transition() -> None:
