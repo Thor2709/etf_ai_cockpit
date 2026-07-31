@@ -1,10 +1,10 @@
 # Active Codex goal — atomic delivery fast path
 
-## Bounded GitHub authority-ledger repair
+## Frozen GitHub authority-ledger repair
 
-- Current boundary: close out the bounded H-tier safety repair for the
+- Current boundary: the bounded H-tier safety repair is complete for the
   repository-authored issue creation and lifecycle/status projections already
-  used by the programme.
+  used by the programme. Freeze this infrastructure and resume product work.
   Git is canonical; GitHub comments and issue markers are tamper-evident
   projections, not immutable records and not server-side compare-and-swap.
 - Rationale: the formal fail-closed guarantee must still detect a completely
@@ -20,56 +20,54 @@
   repair must not invent authority. This repair implements no compensation or
   recovery mechanism. Any future explicit compensating record requires user
   approval and may not repeat or rewrite history.
-- Remaining work: correct the newly evidenced input-order dependence in
-  GitHub issue-plan construction, repeat independent authority, adversarial,
-  whole-diff and release review, run the complete Linux/Windows H gate and
-  merge at the reviewed expected head. Then regenerate and formally integrate
-  ISSUE-0180 from repaired exact `main`, prove the live writer/readback path,
-  freeze this infrastructure and resume ISSUE-0101.
+- Remaining work: publish the final measured fast-path evidence and durable
+  checkpoint, then resume the dependency-valid ISSUE-0101 product slice.
+  No further GitHub authority hardening belongs in this continuation.
 - Stop condition: stop before any design or code expands beyond the two current
   issue mutation classes, adds GitHub resource or contents-write authority, or
   requires automatic replay of an ambiguous/erased write. Such expansion needs
   explicit user approval and a demonstrated safety need, not optional
   hardening.
-- After this bounded repair merges and ISSUE-0180 is formally integrated,
-  freeze the infrastructure and resume product development with ISSUE-0101.
+- The repair and formal ISSUE-0180 integration are complete. This
+  infrastructure is frozen; product development resumes with ISSUE-0101.
 
 ## Current checkpoint
 
-- Current UTC timestamp: `2026-07-31T17:41:14Z`.
-- PR #628 merged as
-  `c326e0c706eba327b26da1719cbb46ab3d2a6b16`; its reviewed exact head
-  `54bf70f550e631911964c7cd1fb4edb0f2bcad69` passed the complete H-tier
-  Linux and Windows gate at 2,449 tests per platform.
-- The fresh ISSUE-0180 integration candidate is preserved, clean and unpushed
-  at `7ea23ca65ae4553a3a6e1ae2f1d8aecd1f1fcc82`. Two local exact-head
-  preflights failed closed with zero writes because the candidate semantic
-  plan SHA did not match a plan rebuilt from the same remote inventory.
-- Diagnosis found that normalised remote issue order can change legacy
-  status-event projection order while the inventory hash remains stable. The
-  rejected candidate must not be amended to one incidental GitHub list order.
-- Active prerequisite worktree:
-  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_plan_order`;
-  branch `codex/github-plan-order-canonicalization`; exact base
-  `c326e0c706eba327b26da1719cbb46ab3d2a6b16`; exact bounded implementation
-  commit `d59e95bd9d947bff5c93d3735b7866d43149644e`. Any branch-tip descendant
-  of that commit is limited to this checkpoint; verify the current tip with
-  `git rev-parse HEAD` to avoid a self-referential commit identity.
-- Focused validation passes 106 tests. The repaired planner rebuilds the
-  preserved candidate's reviewed semantic SHA
-  `775b1f011428522b3fe5979720ac87300dbaa1f138761b89d0b2d682c079543b`
-  from both the saved raw and reversed live snapshot, with exactly one update
-  and zero blocked actions.
-- Required checks: focused shuffled-order regression tests, complete stable
-  diff, independent whole-diff/adversarial/authority/release review, and the
-  complete Linux/Windows H-tier gate.
-- Exact next action: complete independent exact-head whole-diff, adversarial,
-  authority and release review, then run the complete Linux/Windows H-tier
-  gate before any merge or candidate replay.
-- Stop condition: stop if the correction needs mutation-authority expansion,
-  retries, compensation, historical repair, another GitHub resource or any
-  change outside deterministic plan construction and its tests. Any such
-  expansion requires explicit user approval and a demonstrated safety need.
+- Current UTC timestamp: `2026-07-31T19:20:55Z`.
+- The bounded plan-order repair PR #629 merged as
+  `b113ac8c205887c5f84d841445d2e52ca5101c04`; authoritative H run
+  `30652483166` passed Linux and Windows at 2,452 tests per platform.
+- Formal ISSUE-0180 status PR #630 merged exact reviewed head
+  `a7c50d58bee1dc6b717ec9a220f3d5110d2bcad2` as
+  `45564c306643f8fbe97fe460979a04e25e6f41b9`. Status guard run
+  `30656428462` passed. Tier-E run `30656428457` correctly required the full
+  package gate: Linux and Windows each ran 2,452 tests and terminal validation
+  passed.
+- Ordered writer run `30658275241` applied and verified authority
+  `d7f3468a0b0e30a85b663a2c1a34f8070d746e04a9e4334f4537cdd2946ea09d`.
+  It appended one proposal and one receipt, projected ISSUE-0180 as
+  `integrated`, preserved the reviewed body/title/state/labels, and completed
+  its zero-action readback. Convergence run `30658275236` then succeeded by
+  deferring to that readback. The unchanged body status is the deliberate
+  tamper-detectable bootstrap anchor, not the effective status.
+- Active final-evidence worktree:
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_final_fastpath_docs`;
+  branch `codex/final-fastpath-metrics-freeze`; exact base and current
+  pre-commit head `45564c306643f8fbe97fe460979a04e25e6f41b9`.
+- Final measured compact-control sample is frozen to every eligible main-push
+  convergence/status run from PR #618 through PR #628, including failures:
+  execution p50/p95 `0.4000/1.2500 min`; queue p50/p95
+  `0.0500/1.8833 min`. E package skipping was correct in `5/5` transactions;
+  cache reuse was `10/46` (`21.74%`). No polling reduction is claimed.
+- Required checks: deterministic generation, focused programme-control tests,
+  independent exact-head review and the complete Linux/Windows H-tier gate.
+- Exact next action: publish this final checkpoint and measured evidence,
+  merge it at the reviewed head, then create the fresh bounded ISSUE-0101
+  product lane. Do not reopen or expand GitHub authority infrastructure.
+- Stop condition: stop if final documentation requires new GitHub authority,
+  retry/compensation/history repair, another GitHub resource, product scope or
+  any change beyond the recorded workflow contract. Expansion still requires
+  explicit user approval and a demonstrated safety need.
 - Temporary orchestration override: up to six child agents may be used, subject
   to any lower runtime cap, until the user explicitly says to revert. This
   changes concurrency only and grants no authority or product-scope expansion.

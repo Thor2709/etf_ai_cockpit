@@ -6,6 +6,32 @@ continuing this batch.
 
 ## Active fast-path checkpoint
 
+`COMPLETE/FROZEN` the bounded atomic-delivery repair is formally proven.
+Plan-order repair PR #629 merged as
+`b113ac8c205887c5f84d841445d2e52ca5101c04`; H run `30652483166` passed
+Linux and Windows at 2,452 tests per platform. Formal ISSUE-0180 status PR
+#630 merged as `45564c306643f8fbe97fe460979a04e25e6f41b9`. Its exact status guard
+passed in `30656428462`; tier-E run `30656428457` correctly required and
+passed the full 2,452-test Linux and Windows package gates.
+
+Ordered writer `30658275241` appended one reviewed proposal and receipt for
+authority `d7f3468a`, projected ISSUE-0180 as `integrated`, preserved unrelated
+issue content and completed zero-action readback. Convergence `30658275236`
+then succeeded by deferring to that proof. Git remains canonical; the
+unchanged body status is the tamper-detectable bootstrap anchor and the
+accepted comment chain is the effective GitHub projection.
+
+The frozen 11-run compact-control sample reports execution p50/p95
+`0.4000/1.2500 min` and queue p50/p95 `0.0500/1.8833 min`. E package skipping
+was correct in `5/5` transactions, cache reuse was `10/46` (`21.74%`), and no
+polling reduction is claimed. The issue-creation/status authority
+infrastructure is frozen; expansion requires explicit user approval and a
+demonstrated safety need. `execution_allowed=false`; broker, provider,
+release and deployment authority are unchanged. The exact next product lane
+is dependency-valid ISSUE-0101.
+
+The entries below retain the chronological implementation and repair history.
+
 `MERGED` immutable dependency-only PR #608 from exact head
 `937ec382dfab7acc74ad16e7e706b795c88e63a2` as
 `b11b1d6783438df03847d7a1b45c3a4d7c1f2385`. Its single documented

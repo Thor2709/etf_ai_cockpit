@@ -198,29 +198,34 @@ success from one favourable run.
 
 ### Verified atomic fast-path checkpoint
 
-ISSUE-0179 is integrated through PR #613 and its single live E lifecycle run
-`30453340819` completed in `1.73 min`, reused exact evidence and skipped both
-platform packages. ISSUE-0180 is integrated through PR #614 at
-`1d4b390935bf050625d8a704ae31a87487fb7bb9`; H run `30453850014` passed
-Linux and Windows at `2169/2169`.
+ISSUE-0179 remains integrated through PR #613. PR #614 is retained as the
+historical ISSUE-0180 environment-product integration. Formal ISSUE-0180
+programme integration completed through PR #630 as
+`45564c306643f8fbe97fe460979a04e25e6f41b9` after the bounded GitHub
+authority repairs through PR #629.
 
-Automatic exact-main convergence exposed a remaining checksum-rotation defect:
-fresh zero-action inventory legitimately changed the evidence checksum while
-the committed reviewed sidecar retained the prior inventory checksum. The
-reviewed repair at `3873d889` accepts that drift only after zero actions,
-`apply_authority=false`, valid schema and exact inventory binding are proved.
-Nonzero actions still fail. A reviewed post-merge control candidate is staged
-read-only only by the merge that changes it, so later merges cannot replay a
-stale candidate.
+PR #630's status guard passed in run `30656428462`. Tier-E run `30656428457`
+correctly required the full package gate because evidence reuse was not
+authorised; Linux and Windows each ran 2,452 tests and terminal validation
+passed. Ordered writer run `30658275241` appended the reviewed proposal and
+receipt, projected ISSUE-0180 as `integrated`, preserved unrelated issue
+content and completed zero-action readback. Convergence run `30658275236`
+then succeeded by deferring to the ordered writer.
 
-Representative fixture coverage now includes E reuse/package skipping, batched
+The representative fixtures cover E reuse/package skipping, batched
 independent edges, ordinary O selection, mandatory two-platform H selection,
-two fresh sequential main heads and staged product-merge completion evidence.
-The implementation passed H run `30456636457` at Linux/Windows `2171/2171`
-and merged as `97d1e364`; live exact-main zero-action convergence passed in
-run `30458709210`. Detailed measurements and unmet sample-size/PR-share targets
-are recorded in `plans/ATOMIC_FAST_PATH_METRICS.md`. ISSUE-0090 product work
-therefore resumes from that fresh main under the new validation policy.
+consecutive fresh main heads and live staged status completion. All five
+audited E transactions selected package skipping correctly. In the frozen
+11-run compact-control sample, execution p50/p95 was `0.4000/1.2500 min` and
+separately measured queue p50/p95 was `0.0500/1.8833 min`; cache reuse was
+`10/46` (`21.74%`). No polling reduction is claimed. Detailed evidence is in
+`plans/ATOMIC_FAST_PATH_METRICS.md`.
+
+The GitHub authority infrastructure is now frozen to existing
+repository-authored issue creation and lifecycle/status projection. Any
+expansion requires explicit user approval and a demonstrated safety need.
+Normal dependency-valid product work resumes with ISSUE-0101 under the new
+validation policy.
 
 ### Required continuation after P0 merge
 
