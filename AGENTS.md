@@ -120,6 +120,27 @@ Require a zero-action readback after synchronisation.
 
 Never force-push, publish a release or tag, deploy or enable execution without explicit approval.
 
+## GitHub mutation safety scope
+
+GitHub mutation safety infrastructure is limited to repository-authored issue
+creation and lifecycle/status projections currently used by the programme.
+Git remains canonical; GitHub events are tamper-evident projections, not
+immutable records or server-side compare-and-swap.
+
+Do not turn the authority ledger into a general GitHub database, issue tracker
+or event-sourcing framework. Do not add speculative support for pull requests,
+labels, releases, tags, deployments or unrelated GitHub resources. Ambiguous,
+cancelled, partially applied or erased writes fail closed; retries, recovery
+and compensation must not invent authority or rewrite history. This repair
+implements no compensation or recovery mechanism. Any future explicit
+compensating-record mechanism requires user approval and must not repeat or
+rewrite history.
+
+After the bounded H-tier repair and formal ISSUE-0180 integration, freeze this
+infrastructure and resume product work with ISSUE-0101. Any later expansion
+requires explicit user approval and a demonstrated safety need, not optional
+hardening.
+
 ## Throughput and validation tiers
 
 Classify every change before broad validation. When uncertain, select the higher-risk tier.

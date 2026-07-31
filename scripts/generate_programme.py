@@ -105,7 +105,12 @@ def build_manifest(root: Path, outputs: frozenset[str]) -> bytes:
     return (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
 
-def _validate_and_emit_convergence_evidence(root: Path, outputs: frozenset[str]) -> None:
+def _validate_and_emit_convergence_evidence(
+    root: Path,
+    outputs: frozenset[str],
+    *,
+    require_authority_reconciliation: bool = True,
+) -> None:
     remote_path = next(root / path for path in outputs if path.endswith("/github-remote-summary.json"))
     evidence_path = next(root / path for path in outputs if path.endswith("/github-sync-evidence.json"))
     sidecar_path = next(
@@ -132,6 +137,10 @@ def _validate_and_emit_convergence_evidence(root: Path, outputs: frozenset[str])
         raise ValueError("convergence evidence repository mismatch")
     if evidence.get("schema_version") != "etf-ai-cockpit.safe-sync-evidence/1.0":
         raise ValueError("convergence evidence schema mismatch")
+    if require_authority_reconciliation:
+        authority = evidence.get("authority_reconciliation")
+        if not isinstance(authority, dict) or authority.get("accepted") is not True:
+            raise ValueError("convergence authority ledger is not fully reconciled")
     semantic = evidence.get("plan_semantic_sha256")
     if not isinstance(semantic, str) or not __import__("re").fullmatch(
         r"[0-9a-f]{64}", semantic
@@ -301,7 +310,11 @@ def stage_generation(
     _run_generators(stage)
     outputs = required_outputs(stage)
     if validate_convergence:
-        _validate_and_emit_convergence_evidence(stage, outputs)
+        _validate_and_emit_convergence_evidence(
+            stage,
+            outputs,
+            require_authority_reconciliation=False,
+        )
     (stage / MANIFEST_PATH).parent.mkdir(parents=True, exist_ok=True)
     (stage / MANIFEST_PATH).write_bytes(build_manifest(stage, outputs))
     return outputs

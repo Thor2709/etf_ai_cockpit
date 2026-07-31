@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
@@ -19,12 +20,44 @@ def read_json(path: Path) -> dict:
     return value
 
 
+def _redacted_action(action: object) -> dict:
+    if not isinstance(action, dict):
+        return {"kind": "invalid"}
+    safe = {
+        key: action[key]
+        for key in (
+            "kind",
+            "stable_id",
+            "remote_number",
+            "remote_numbers",
+            "desired_state",
+            "programme_status",
+            "reason",
+            "managed_field_deltas",
+            "authority_error",
+        )
+        if key in action
+    }
+    for field in ("title", "body"):
+        value = action.get(field)
+        if isinstance(value, str):
+            safe[f"{field}_sha256"] = hashlib.sha256(value.encode()).hexdigest()
+            safe[f"{field}_length"] = len(value.encode())
+    return safe
+
+
 def plan_summary(plan: dict) -> dict:
+    actions = plan.get("actions")
+    if not isinstance(actions, list):
+        actions = []
     return {
         "plan_sha256": plan.get("plan_sha256"),
         "remote_inventory_sha256": plan.get("remote_inventory_sha256"),
         "remote_issue_count": plan.get("remote_issue_count"),
         "summary": plan.get("summary"),
+        "actions": [_redacted_action(action) for action in actions],
+        "status_event_projections": plan.get("status_event_projections"),
+        "authority_reconciliation": plan.get("authority_reconciliation"),
         "legacy_duplicate_count": len(plan.get("legacy_duplicates", [])),
     }
 
@@ -38,6 +71,23 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     approved = [plan_summary(read_json(path)) for path in args.approved_plan]
     final = plan_summary(read_json(args.final_plan))
+    zero = {"create": 0, "update": 0, "close": 0, "reopen": 0, "blocked": 0}
+    projections = final["status_event_projections"]
+    authority = final["authority_reconciliation"]
+    if (
+        final["summary"] != zero
+        or final["actions"] != []
+        or not isinstance(projections, list)
+        or any(
+            not isinstance(item, dict) or item.get("accepted") is not True
+            for item in projections
+        )
+        or not isinstance(authority, dict)
+        or authority.get("accepted") is not True
+    ):
+        raise ValueError(
+            "final convergence requires zero summary, actions=[] and valid status-event chains"
+        )
     historical_map = read_json(args.map_path)
     first = approved[0]["summary"] or {}
     applied = {
@@ -52,7 +102,7 @@ def main(argv: list[str] | None = None) -> int:
         "repository": "Thor2709/etf_ai_cockpit",
         "application": {
             "status": "APPLIED_AND_VERIFIED",
-            "readback_noop": final["summary"] == {"create": 0, "update": 0, "close": 0, "reopen": 0, "blocked": 0},
+            "readback_noop": True,
             "reviewed_reopen_ids": ["ISSUE-0048", "ISSUE-0067", "ISSUE-0122"],
             "initial_action_summary": first,
             "applied_action_totals": applied,
