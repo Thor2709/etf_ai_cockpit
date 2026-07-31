@@ -107,16 +107,43 @@ in duration and are not reclassified as queue time.
 | 30463554978 | success H | 25.53 | Linux/Windows `2191/2191` |
 | 30465742045 | success convergence | 0.35 | exact-main zero action; `0.05 min` queue |
 
-The eleven E/convergence transactions have execution p50 `0.45 min` and p95
-nearest-rank `2.18 min`, inside the timing target across the required sample
-size. This measures workflow execution, not end-to-end issue throughput.
-Successful H runs remain approximately `20–26 min`, with the full
-Linux/Windows coverage unchanged.
+### Frozen compact-control sample
+
+The final sample includes every push-triggered `Programme convergence
+evidence` and `Programme status completion` run on `main` from PR #618's
+merge through PR #628's merge, inclusive. It includes eligible failures,
+excludes PR/full Release Gate runs and freezes the cutoff before PR #629 so
+the result cannot drift with later runs.
+
+| Run | Queue (min) | Execution (min) |
+|---:|---:|---:|
+| 30496885950 | 0.0333 | 0.3333 |
+| 30499499975 | 0.0500 | 0.4167 |
+| 30500052132 | 0.0500 | 0.4167 |
+| 30500490803 | 1.8833 | 0.3667 |
+| 30607173205 | 0.1500 | 0.3500 |
+| 30613949318 | 0.0500 | 0.4000 |
+| 30619723960 | 0.1500 | 0.4000 |
+| 30645015084 | 0.0500 | 0.4667 |
+| 30645015094 | 0.5667 | 0.2833 |
+| 30647061104 | 0.0500 | 0.9500 |
+| 30650771847 | 0.1500 | 1.2500 |
+
+Queue time is workflow creation to job start; execution is job start to
+completion. For `n=11`, nearest-rank percentiles use `ceil(p*n)`: p50 selects
+observation 6 and p95 observation 11. Execution p50/p95 is therefore
+`0.4000/1.2500 min`; separately measured queue p50/p95 is
+`0.0500/1.8833 min`. This is workflow execution evidence, not end-to-end
+issue throughput. Successful H runs remain approximately `20–26 min`, with
+the full Linux/Windows coverage unchanged.
 
 ### Fixture and invariant evidence
 
 - E: run `30453340819` passed terminal summary, reused exact product evidence
   and skipped Linux/Windows packages.
+- Across the audited E sample, package skipping was selected correctly in all
+  five eligible transactions (`5/5`).
+- Cache reuse occurred in `10/46` observed opportunities (`21.74%`).
 - Independent dependency edges: the schema-1.3 status guard fixture validates
   two unrelated integrated edges in one transaction.
 - O: classifier fixtures require focused/affected/UI/architecture/static/source
@@ -127,12 +154,12 @@ Linux/Windows coverage unchanged.
   #615 then merged on the immediately prior PR #614 main and automatic
   convergence passed without a stale base or manual convergence PR.
 - Status completion: the earlier read-only staging design was found incapable
-  of applying a genuine nonzero status update. PR #617 integrated the bounded
-  status-only apply path after H `2191/2191`; deterministic tests cover exact
-  checksum, inventory, PR-head, fresh-main, canonical-transition and
-  zero-readback behavior. The candidate-free post-merge convergence run did
-  not invoke that write workflow, so a truthful live product-status write
-  remains outstanding.
+  of applying a genuine nonzero status update. The bounded authority repair
+  culminated in formal ISSUE-0180 PR #630. Ordered writer `30658275241`
+  appended one reviewed proposal and receipt, projected `integrated`,
+  preserved unrelated issue content and completed zero-action readback;
+  convergence `30658275236` then deferred successfully. Git remains canonical
+  and the body status remains the deliberate bootstrap anchor.
 
 ### Post-merge release-gate defect found by completion audit
 
