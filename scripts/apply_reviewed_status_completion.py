@@ -37,6 +37,8 @@ EXPECTED_KEYS = {
     "expected_update",
 }
 EXPECTED_UPDATE_KEYS = {"stable_id", "from_status", "to_status"}
+WORKFLOW_PATH = ".github/workflows/programme-status-completion.yml"
+WORKFLOW_NAME = "Programme status completion"
 
 
 def _git(root: Path, *args: str) -> str:
@@ -100,7 +102,63 @@ def _canonical_candidate_blob_sha256(root: Path, expected_head: str) -> str:
     ).hexdigest()
 
 
-def github_actions_push_attestation() -> dict[str, str]:
+def read_actions_run(run_id: str) -> dict[str, Any]:
+    value = json.loads(
+        mutation_gateway._read_gh(
+            ["api", f"repos/{mutation_gateway.REPO}/actions/runs/{run_id}"]
+        )
+    )
+    if not isinstance(value, dict):
+        raise ValueError("GitHub Actions run response must be an object")
+    return value
+
+
+def validate_live_actions_run(
+    attestation: dict[str, str],
+    run_reader: Callable[[str], dict[str, Any]],
+) -> None:
+    """Require the actual, still-active first run for the introducing push."""
+
+    try:
+        run = run_reader(attestation["run_id"])
+    except Exception as exc:
+        raise mutation_gateway.MutationPolicyError(
+            "github_actions_run_unverifiable",
+            mutation_gateway._policy_evidence("github_actions_run_unverifiable"),
+        ) from exc
+    repository = run.get("repository")
+    if (
+        str(run.get("id", "")) != attestation["run_id"]
+        or not isinstance(repository, dict)
+        or repository.get("full_name") != mutation_gateway.REPO
+        or run.get("path") != WORKFLOW_PATH
+        or run.get("name") != WORKFLOW_NAME
+        or run.get("event") != "push"
+        or run.get("head_branch") != "main"
+        or run.get("head_sha") != attestation["event_after"]
+        or str(run.get("run_number", "")) != attestation["run_number"]
+        or str(run.get("run_attempt", "")) != "1"
+        or run.get("status") != "in_progress"
+    ):
+        raise mutation_gateway.MutationPolicyError(
+            "github_actions_run_attestation_mismatch",
+            mutation_gateway._policy_evidence(
+                "github_actions_run_attestation_mismatch"
+            ),
+        )
+
+
+def fetch_origin_main(root: Path) -> None:
+    subprocess.run(
+        ["git", "fetch", "--no-tags", "origin", "main"],
+        cwd=root,
+        check=True,
+    )
+
+
+def github_actions_push_attestation(
+    run_reader: Callable[[str], dict[str, Any]] = read_actions_run,
+) -> dict[str, str]:
     """Read, cross-check and attest the native introducing GitHub push run."""
 
     required = {
@@ -191,7 +249,30 @@ def github_actions_push_attestation() -> dict[str, str]:
                 "ineligible_authority_gateway_event"
             ),
         )
+    validate_live_actions_run(attestation, run_reader)
     return attestation
+
+
+def revalidate_live_authority(
+    root: Path,
+    *,
+    expected_parent: str,
+    expected_head: str,
+    main_ref: str | None,
+    attestation: dict[str, str],
+    run_reader: Callable[[str], dict[str, Any]],
+    main_fetcher: Callable[[Path], None],
+) -> None:
+    """Refresh live read authorities immediately before one GitHub POST."""
+
+    main_fetcher(root)
+    validate_live_actions_run(attestation, run_reader)
+    mutation_gateway.validate_authority_git_transition(
+        root,
+        event_before=expected_parent,
+        event_after=expected_head,
+        main_ref=main_ref,
+    )
 
 
 def load_candidate(candidate_bytes: bytes) -> dict[str, Any]:
@@ -354,6 +435,8 @@ def run(
     workflow_ref: str | None = None,
     repository: str | None = None,
     event_payload_sha256: str | None = None,
+    actions_run_reader: Callable[[str], dict[str, Any]] = read_actions_run,
+    main_fetcher: Callable[[Path], None] = fetch_origin_main,
 ) -> None:
     evidence: dict[str, Any] = {
         "schema_version": "etf-ai-cockpit.status-completion-evidence/1.0",
@@ -402,6 +485,20 @@ def run(
                     "ineligible_authority_gateway_event"
                 ),
             )
+        attestation = {
+            "event_name": str(event_name),
+            "event_ref": str(event_ref),
+            "run_attempt": str(run_attempt),
+            "event_before": str(event_before),
+            "event_after": str(event_after),
+            "actor": str(actor),
+            "pusher": str(pusher),
+            "run_id": str(run_id),
+            "run_number": str(run_number),
+            "workflow_ref": str(workflow_ref),
+            "repository": str(repository),
+            "event_payload_sha256": str(event_payload_sha256),
+        }
         prior_records, records, git_binding = (
             mutation_gateway.validate_authority_git_transition(
                 root,
@@ -543,14 +640,44 @@ def run(
                 authority_record=authority,
                 git_binding=git_binding,
                 transport=mutation_transport,
-                authority_revalidator=lambda: mutation_gateway.validate_authority_git_transition(
+                authority_revalidator=lambda: revalidate_live_authority(
                     root,
-                    event_before=expected_parent,
-                    event_after=expected_head,
+                    expected_parent=expected_parent,
+                    expected_head=expected_head,
                     main_ref=main_ref,
+                    attestation=attestation,
+                    run_reader=actions_run_reader,
+                    main_fetcher=main_fetcher,
                 ),
             )
         elif authority["authority_type"] == "create":
+            actions = plan.get("actions")
+            create_body = (
+                sync.managed_block(actions[0])
+                if isinstance(actions, list)
+                and len(actions) == 1
+                and actions[0].get("kind") == "create"
+                else None
+            )
+            mutation_gateway.validate_reviewed_create_authority(
+                plan,
+                approved_sha256=str(payload["plan_sha256"]),
+                create_body=create_body,
+                authority_record=authority,
+                git_binding=git_binding,
+                event_name=str(event_name),
+                event_ref=str(event_ref),
+                run_attempt=str(run_attempt),
+                event_before=str(event_before),
+                event_after=str(event_after),
+                actor=str(actor),
+                pusher=str(pusher),
+                run_id=str(run_id),
+                run_number=str(run_number),
+                workflow_ref=str(workflow_ref),
+                repository=str(repository),
+                event_payload_sha256=str(event_payload_sha256),
+            )
             if not apply:
                 evidence["action_scope"] = sync.safe_plan_evidence(plan, remote)[
                     "actions"
@@ -576,11 +703,14 @@ def run(
                 workflow_ref=str(workflow_ref),
                 repository=str(repository),
                 event_payload_sha256=str(event_payload_sha256),
-                authority_revalidator=lambda: mutation_gateway.validate_authority_git_transition(
+                authority_revalidator=lambda: revalidate_live_authority(
                     root,
-                    event_before=expected_parent,
-                    event_after=expected_head,
+                    expected_parent=expected_parent,
+                    expected_head=expected_head,
                     main_ref=main_ref,
+                    attestation=attestation,
+                    run_reader=actions_run_reader,
+                    main_fetcher=main_fetcher,
                 ),
             )
         else:
@@ -627,7 +757,12 @@ def run(
             )
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(
+    argv: list[str] | None = None,
+    *,
+    actions_run_reader: Callable[[str], dict[str, Any]] = read_actions_run,
+    main_fetcher: Callable[[Path], None] = fetch_origin_main,
+) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--candidate", type=Path, default=DEFAULT_CANDIDATE)
@@ -650,7 +785,7 @@ def main(argv: list[str] | None = None) -> int:
             parser.error(
                 "--apply derives push identity and main authority from GitHub Actions"
             )
-        attestation = github_actions_push_attestation()
+        attestation = github_actions_push_attestation(actions_run_reader)
         expected_parent = attestation["event_before"]
         expected_head = attestation["event_after"]
         main_ref = "origin/main"
@@ -680,6 +815,8 @@ def main(argv: list[str] | None = None) -> int:
         workflow_ref=attestation.get("workflow_ref"),
         repository=attestation.get("repository"),
         event_payload_sha256=attestation.get("event_payload_sha256"),
+        actions_run_reader=actions_run_reader,
+        main_fetcher=main_fetcher,
     )
     return 0
 

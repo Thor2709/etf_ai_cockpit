@@ -31,6 +31,23 @@ RUN_ATTESTATION = {
 }
 
 
+def _live_actions_run(**changes: object) -> dict[str, object]:
+    value: dict[str, object] = {
+        "id": int(RUN_ATTESTATION["run_id"]),
+        "repository": {"full_name": gateway.REPO},
+        "path": completion.WORKFLOW_PATH,
+        "name": completion.WORKFLOW_NAME,
+        "event": "push",
+        "head_branch": "main",
+        "head_sha": HEAD,
+        "run_number": int(RUN_ATTESTATION["run_number"]),
+        "run_attempt": 1,
+        "status": "in_progress",
+    }
+    value.update(changes)
+    return value
+
+
 def _record(status: str = "integrated") -> dict[str, object]:
     return {
         "canonical_id": "ISSUE-0179",
@@ -158,6 +175,52 @@ def _status_authority(
     return authority, binding
 
 
+def _create_plan_authority() -> tuple[
+    list[dict[str, object]],
+    dict[str, object],
+    dict[str, object],
+    dict[str, object],
+    dict[str, object],
+]:
+    remote = _remote()
+    existing = _record("implemented_initially")
+    new_record = _record("planned")
+    new_record["canonical_id"] = "ISSUE-0180"
+    new_record["title"] = "Parallel validation pilot"
+    registry_payload = {"records": [existing, new_record]}
+    bootstrap = _bootstrap()
+    plan = sync.plan_actions(
+        registry_payload,
+        remote,
+        historical_map={},
+        authority_records=[bootstrap],
+    )
+    action = plan["actions"][0]
+    authority = gateway.build_authority_record(
+        "create",
+        {
+            "stable_id": action["stable_id"],
+            "source_sha": PARENT,
+            "title": action["title"],
+            "managed_body": sync.managed_block(action),
+            "claim_inventory_sha256": plan["claim_inventory_sha256"],
+            "plan_sha256": plan["plan_sha256"],
+        },
+        sequence=1,
+        previous_authority_id=str(bootstrap["authority_id"]),
+    )
+    binding = {
+        "authority_id": authority["authority_id"],
+        "authority_sequence": 1,
+        "authority_type": "create",
+        "source_sha": PARENT,
+        "head_sha": HEAD,
+        "ledger_blob_oid": "1" * 40,
+        "ledger_blob_sha256": "2" * 64,
+    }
+    return remote, registry_payload, plan, authority, binding
+
+
 def test_happy_apply_uses_approved_plan_and_requires_zero_readback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -246,45 +309,11 @@ def test_premerge_create_authority_validation_does_not_require_candidate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    remote = _remote()
-    existing = _record("implemented_initially")
-    new_record = _record("planned")
-    new_record["canonical_id"] = "ISSUE-0180"
-    new_record["title"] = "Parallel validation pilot"
-    registry_payload = {"records": [existing, new_record]}
+    remote, registry_payload, plan, authority, binding = _create_plan_authority()
     registry = tmp_path / sync.REGISTRY_PATH
     registry.parent.mkdir(parents=True)
     registry.write_text(json.dumps(registry_payload), encoding="utf-8")
     bootstrap = _bootstrap()
-    plan = sync.plan_actions(
-        registry_payload,
-        remote,
-        historical_map={},
-        authority_records=[bootstrap],
-    )
-    action = plan["actions"][0]
-    authority = gateway.build_authority_record(
-        "create",
-        {
-            "stable_id": action["stable_id"],
-            "source_sha": PARENT,
-            "title": action["title"],
-            "managed_body": sync.managed_block(action),
-            "claim_inventory_sha256": plan["claim_inventory_sha256"],
-            "plan_sha256": plan["plan_sha256"],
-        },
-        sequence=1,
-        previous_authority_id=str(bootstrap["authority_id"]),
-    )
-    binding = {
-        "authority_id": authority["authority_id"],
-        "authority_sequence": 1,
-        "authority_type": "create",
-        "source_sha": PARENT,
-        "head_sha": HEAD,
-        "ledger_blob_oid": "1" * 40,
-        "ledger_blob_sha256": "2" * 64,
-    }
     monkeypatch.setattr(
         completion.mutation_gateway,
         "validate_authority_git_transition",
@@ -310,6 +339,98 @@ def test_premerge_create_authority_validation_does_not_require_candidate(
     payload = json.loads(evidence.read_text(encoding="utf-8"))
     assert payload["terminal_status"] == "validated"
     assert payload["action_scope"][0]["kind"] == "create"
+
+    altered_payload = dict(authority["payload"])
+    altered_payload["title"] = "Manual unreviewed title"
+    altered = gateway.build_authority_record(
+        "create",
+        altered_payload,
+        sequence=1,
+        previous_authority_id=str(bootstrap["authority_id"]),
+    )
+    altered_binding = {**binding, "authority_id": altered["authority_id"]}
+    monkeypatch.setattr(
+        completion.mutation_gateway,
+        "validate_authority_git_transition",
+        lambda *_args, **_kwargs: (
+            [bootstrap],
+            [bootstrap, altered],
+            altered_binding,
+        ),
+    )
+
+    with pytest.raises(
+        gateway.MutationPolicyError,
+        match="create_request_authority_mismatch",
+    ):
+        completion.run(
+            tmp_path,
+            tmp_path / "candidate-does-not-exist.json",
+            expected_parent=PARENT,
+            expected_head=HEAD,
+            main_ref=None,
+            apply=False,
+            remote_reader=lambda: remote,
+        )
+
+
+@pytest.mark.parametrize(
+    ("area", "field", "value"),
+    [
+        ("payload", "stable_id", "ISSUE-0181"),
+        ("payload", "title", "Manual title"),
+        ("payload", "managed_body", "manual body"),
+        ("payload", "claim_inventory_sha256", "a" * 64),
+        ("payload", "plan_sha256", "b" * 64),
+        ("payload", "source_sha", "c" * 40),
+        ("binding", "authority_type", "status"),
+        ("binding", "source_sha", "d" * 40),
+        ("binding", "head_sha", "e" * 40),
+        ("binding", "ledger_blob_oid", "not-an-oid"),
+        ("binding", "ledger_blob_sha256", "not-a-hash"),
+    ],
+)
+def test_shared_create_validator_rejects_manual_authority_or_binding(
+    area: str,
+    field: str,
+    value: object,
+) -> None:
+    _remote_rows, _registry, plan, authority, binding = _create_plan_authority()
+    candidate_authority = copy.deepcopy(authority)
+    candidate_binding = dict(binding)
+    if area == "payload":
+        payload = dict(candidate_authority["payload"])
+        payload[field] = value
+        candidate_authority = gateway.build_authority_record(
+            "create",
+            payload,
+            sequence=1,
+            previous_authority_id=str(_bootstrap()["authority_id"]),
+        )
+        candidate_binding["authority_id"] = candidate_authority["authority_id"]
+    else:
+        candidate_binding[field] = value
+    action = plan["actions"][0]
+
+    with pytest.raises(
+        gateway.MutationPolicyError,
+        match="create_request_authority_mismatch",
+    ):
+        gateway.validate_reviewed_create_authority(
+            plan,
+            approved_sha256=str(plan["plan_sha256"]),
+            create_body=sync.managed_block(action),
+            authority_record=candidate_authority,
+            git_binding=candidate_binding,
+            event_name="push",
+            event_ref="refs/heads/main",
+            run_attempt="1",
+            event_before=PARENT,
+            event_after=HEAD,
+            actor="merger",
+            pusher="merger",
+            **RUN_ATTESTATION,
+        )
 
 
 @pytest.mark.parametrize(
@@ -628,7 +749,11 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
     release = (root / ".github/workflows/release-gate.yml").read_text(encoding="utf-8")
     status_workflow = yaml.safe_load(status_text)
 
-    assert status_workflow["permissions"] == {"contents": "read", "issues": "write"}
+    assert status_workflow["permissions"] == {
+        "actions": "read",
+        "contents": "read",
+        "issues": "write",
+    }
     assert status_workflow["concurrency"] == {
         "group": "github-mutations-${{ github.repository }}",
         "cancel-in-progress": False,
@@ -774,6 +899,117 @@ def test_authority_transition_accepts_multi_commit_push_and_not_head_parent(
     assert binding["head_sha"] == head
 
 
+def test_live_revalidator_fetches_remote_main_and_detects_advance(
+    tmp_path: Path,
+) -> None:
+    bare = tmp_path / "origin.git"
+    root = tmp_path / "writer"
+    advancer = tmp_path / "advancer"
+    subprocess.run(["git", "init", "--bare", "-q", str(bare)], check=True)
+    root.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(["git", "checkout", "-qb", "main"], cwd=root, check=True)
+    for key, value in (
+        ("user.name", "Test"),
+        ("user.email", "test@example.invalid"),
+    ):
+        subprocess.run(["git", "config", key, value], cwd=root, check=True)
+    subprocess.run(
+        ["git", "remote", "add", "origin", str(bare)], cwd=root, check=True
+    )
+    ledger = root / gateway.AUTHORITY_PATH
+    ledger.parent.mkdir(parents=True)
+    bootstrap = _bootstrap()
+    ledger.write_bytes(gateway.authority_ledger_bytes([bootstrap]))
+    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", "bootstrap"], cwd=root, check=True)
+    source = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=root, text=True
+    ).strip()
+    subprocess.run(
+        ["git", "push", "-qu", "origin", "main"], cwd=root, check=True
+    )
+
+    candidate = root / completion.DEFAULT_CANDIDATE
+    candidate.write_bytes(b"{}\n")
+    candidate_oid = subprocess.check_output(
+        ["git", "hash-object", completion.DEFAULT_CANDIDATE.as_posix()],
+        cwd=root,
+        text=True,
+    ).strip()
+    status_payload: dict[str, object] = {
+        "stable_id": "ISSUE-0179",
+        "issue_number": 179,
+        "database_id": "4179",
+        "node_id": "ISSUE_NODE_179",
+        "source_sha": source,
+        "from_status": "implemented_initially",
+        "to_status": "integrated",
+        "candidate_path": gateway.AUTHORITY_CANDIDATE_PATH,
+        "candidate_blob_oid": candidate_oid,
+        "candidate_blob_sha256": __import__("hashlib").sha256(b"{}\n").hexdigest(),
+        "candidate_authority_ref": "",
+        "plan_sha256": "2" * 64,
+    }
+    status_payload["candidate_authority_ref"] = gateway.candidate_authority_ref(
+        status_payload
+    )
+    authority = gateway.build_authority_record(
+        "status",
+        status_payload,
+        sequence=1,
+        previous_authority_id=str(bootstrap["authority_id"]),
+    )
+    ledger.write_bytes(gateway.authority_ledger_bytes([bootstrap, authority]))
+    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", "authority"], cwd=root, check=True)
+    head = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=root, text=True
+    ).strip()
+    subprocess.run(["git", "push", "-q", "origin", "main"], cwd=root, check=True)
+    attestation = {**RUN_ATTESTATION, "event_after": head}
+
+    def run_reader(_run_id: str) -> dict[str, object]:
+        return _live_actions_run(head_sha=head)
+
+    completion.revalidate_live_authority(
+        root,
+        expected_parent=source,
+        expected_head=head,
+        main_ref="origin/main",
+        attestation=attestation,
+        run_reader=run_reader,
+        main_fetcher=completion.fetch_origin_main,
+    )
+
+    subprocess.run(
+        ["git", "clone", "-q", "--branch", "main", str(bare), str(advancer)],
+        check=True,
+    )
+    for key, value in (
+        ("user.name", "Advancer"),
+        ("user.email", "advancer@example.invalid"),
+    ):
+        subprocess.run(["git", "config", key, value], cwd=advancer, check=True)
+    (advancer / "advance.txt").write_text("new main\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=advancer, check=True)
+    subprocess.run(["git", "commit", "-qm", "advance main"], cwd=advancer, check=True)
+    subprocess.run(
+        ["git", "push", "-q", "origin", "main"], cwd=advancer, check=True
+    )
+
+    with pytest.raises(gateway.MutationPolicyError, match="superseded_on_main"):
+        completion.revalidate_live_authority(
+            root,
+            expected_parent=source,
+            expected_head=head,
+            main_ref="origin/main",
+            attestation=attestation,
+            run_reader=run_reader,
+            main_fetcher=completion.fetch_origin_main,
+        )
+
+
 def test_status_completion_module_help_smoke() -> None:
     root = Path(__file__).resolve().parents[1]
 
@@ -786,6 +1022,67 @@ def test_status_completion_module_help_smoke() -> None:
     )
 
     assert "usage:" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"status": "completed"},
+        {"id": 99999},
+        {"path": ".github/workflows/other.yml"},
+        {"name": "Other workflow"},
+        {"head_sha": "f" * 40},
+        {"repository": {"full_name": "other/repository"}},
+        {"event": "workflow_dispatch"},
+        {"head_branch": "feature"},
+        {"run_number": 8},
+        {"run_attempt": 2},
+    ],
+)
+def test_live_actions_attestation_rejects_nonintroducing_or_spent_runs(
+    changes: dict[str, object],
+) -> None:
+    attestation = {**RUN_ATTESTATION, "event_after": HEAD}
+
+    with pytest.raises(
+        gateway.MutationPolicyError,
+        match="github_actions_run_attestation_mismatch",
+    ):
+        completion.validate_live_actions_run(
+            attestation,
+            lambda _run_id: _live_actions_run(**changes),
+        )
+
+
+def test_live_actions_attestation_accepts_only_current_exact_run() -> None:
+    attestation = {**RUN_ATTESTATION, "event_after": HEAD}
+
+    completion.validate_live_actions_run(
+        attestation,
+        lambda run_id: _live_actions_run(id=int(run_id)),
+    )
+
+
+def test_actions_run_reader_uses_one_read_only_repository_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: list[list[str]] = []
+
+    def read(args: list[str], **_kwargs: object) -> str:
+        observed.append(args)
+        return json.dumps(_live_actions_run())
+
+    monkeypatch.setattr(completion.mutation_gateway, "_read_gh", read)
+
+    assert completion.read_actions_run(RUN_ATTESTATION["run_id"])["status"] == (
+        "in_progress"
+    )
+    assert observed == [
+        [
+            "api",
+            f"repos/{gateway.REPO}/actions/runs/{RUN_ATTESTATION['run_id']}",
+        ]
+    ]
 
 
 def test_apply_cli_rejects_local_invocation_and_native_rerun(
@@ -825,3 +1122,17 @@ def test_apply_cli_rejects_local_invocation_and_native_rerun(
         monkeypatch.setenv(key, value)
     with pytest.raises(gateway.MutationPolicyError, match="ineligible_authority"):
         completion.main(["--root", str(tmp_path), "--apply"])
+
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
+    with pytest.raises(
+        gateway.MutationPolicyError,
+        match="github_actions_run_attestation_mismatch",
+    ):
+        completion.main(
+            ["--root", str(tmp_path), "--apply"],
+            actions_run_reader=lambda _run_id: _live_actions_run(
+                id=99999,
+                status="completed",
+            ),
+            main_fetcher=lambda _root: None,
+        )

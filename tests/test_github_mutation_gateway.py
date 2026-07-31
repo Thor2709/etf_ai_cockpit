@@ -135,6 +135,8 @@ def _status_authority(
     binding = {
         "authority_id": authority["authority_id"],
         "authority_sequence": 1,
+        "authority_type": "status",
+        "source_sha": SOURCE,
         "head_sha": HEAD,
         "ledger_blob_oid": "1" * 40,
         "ledger_blob_sha256": "2" * 64,
@@ -146,6 +148,7 @@ def append(
     reviewed: dict[str, Any],
     transport: MemoryTransport,
     authority: dict[str, Any] | None = None,
+    authority_revalidator: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     authority, binding = (
         (authority, {
@@ -178,6 +181,7 @@ def append(
         authority_record=authority,
         git_binding=binding,
         transport=transport,
+        authority_revalidator=authority_revalidator,
     )
 
 
@@ -196,6 +200,33 @@ def test_append_preserves_snapshot_and_projects_status() -> None:
     projection = gateway.project_status_events(transport.value)
     assert projection["accepted"] is True
     assert projection["status"] == "integrated"
+
+
+@pytest.mark.parametrize("superseded_at", [1, 2])
+def test_status_revalidates_live_authority_immediately_before_each_post(
+    superseded_at: int,
+) -> None:
+    reviewed = issue()
+    transport = MemoryTransport(reviewed)
+    calls = 0
+
+    def revalidate() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == superseded_at:
+            raise gateway.MutationPolicyError(
+                "authority_superseded_on_main",
+                gateway._policy_evidence("authority_superseded_on_main"),
+            )
+
+    with pytest.raises(gateway.MutationPolicyError, match="authority_superseded"):
+        append(
+            reviewed,
+            transport,
+            authority_revalidator=revalidate,
+        )
+
+    assert transport.writes == superseded_at - 1
 
 
 @pytest.mark.parametrize(
@@ -449,6 +480,8 @@ def _create_authority(plan: dict[str, Any]) -> tuple[dict[str, Any], dict[str, A
     binding = {
         "authority_id": authority["authority_id"],
         "authority_sequence": 1,
+        "authority_type": "create",
+        "source_sha": SOURCE,
         "head_sha": HEAD,
         "ledger_blob_oid": "1" * 40,
         "ledger_blob_sha256": "2" * 64,

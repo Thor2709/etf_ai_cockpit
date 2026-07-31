@@ -1390,44 +1390,38 @@ def _validate_plan_authority(plan: dict[str, Any], approved_sha256: str) -> list
     return actions
 
 
-def apply_reviewed_plan(
+def validate_reviewed_create_authority(
     plan: dict[str, Any],
     *,
     approved_sha256: str,
-    create_body: str | None = None,
-    authority_record: dict[str, Any] | None = None,
-    git_binding: dict[str, Any] | None = None,
-    event_name: str = "",
-    event_ref: str = "",
-    run_attempt: str = "",
-    event_before: str = "",
-    event_after: str = "",
-    actor: str = "",
-    pusher: str = "",
-    run_id: str = "",
-    run_number: str = "",
-    workflow_ref: str = "",
-    repository: str = "",
-    event_payload_sha256: str = "",
-    transport: MutationTransport | None = None,
-    authority_revalidator: Callable[[], None] | None = None,
+    create_body: str | None,
+    authority_record: dict[str, Any] | None,
+    git_binding: dict[str, Any] | None,
+    event_name: str,
+    event_ref: str,
+    run_attempt: str,
+    event_before: str,
+    event_after: str,
+    actor: str,
+    pusher: str,
+    run_id: str,
+    run_number: str,
+    workflow_ref: str,
+    repository: str,
+    event_payload_sha256: str,
 ) -> dict[str, Any]:
+    """Validate the exact create request shared by premerge and apply."""
+
     actions = _validate_plan_authority(plan, approved_sha256)
     if authority_record is None or git_binding is None:
         raise MutationPolicyError(
             "missing_committed_mutation_authority",
             _policy_evidence("missing_committed_mutation_authority", approved_sha256),
         )
-    if not actions:
-        return {
-            **_policy_evidence("no_action", approved_sha256),
-            "accepted": True,
-            "terminal_status": "no_action",
-        }
     if len(actions) != 1:
         raise MutationPolicyError(
-            "multi_action_plan_prohibited",
-            _policy_evidence("multi_action_plan_prohibited", approved_sha256),
+            "single_create_action_required",
+            _policy_evidence("single_create_action_required", approved_sha256),
         )
     action = actions[0]
     kind = str(action.get("kind", ""))
@@ -1447,7 +1441,6 @@ def apply_reviewed_plan(
             _policy_evidence("missing_claim_inventory_authority", approved_sha256),
         )
     stable_id = str(action["stable_id"])
-    stable_marker = f"<!-- etf-ai-cockpit:stable-id={stable_id} -->"
     title = str(action.get("title", ""))
     payload = authority_record.get("payload")
     attestation = {
@@ -1489,6 +1482,13 @@ def apply_reviewed_plan(
         or not isinstance(payload, dict)
         or authority_record.get("authority_id") != git_binding.get("authority_id")
         or authority_record.get("sequence") != git_binding.get("authority_sequence")
+        or git_binding.get("authority_type") != "create"
+        or git_binding.get("source_sha") != event_before
+        or git_binding.get("head_sha") != event_after
+        or not re.fullmatch(
+            r"[0-9a-f]{40,64}", str(git_binding.get("ledger_blob_oid", ""))
+        )
+        or not HASH_RE.fullmatch(str(git_binding.get("ledger_blob_sha256", "")))
         or payload.get("stable_id") != stable_id
         or payload.get("title") != title
         or payload.get("managed_body") != create_body
@@ -1498,7 +1498,6 @@ def apply_reviewed_plan(
         or event_name != "push"
         or event_ref != "refs/heads/main"
         or run_attempt != "1"
-        or event_after != git_binding.get("head_sha")
         or not actor
         or not pusher
     ):
@@ -1506,6 +1505,73 @@ def apply_reviewed_plan(
             "create_request_authority_mismatch",
             _policy_evidence("create_request_authority_mismatch", approved_sha256),
         )
+    return {
+        "action": action,
+        "stable_id": stable_id,
+        "title": title,
+        "expected_inventory": expected_inventory,
+        "attestation": attestation,
+    }
+
+
+def apply_reviewed_plan(
+    plan: dict[str, Any],
+    *,
+    approved_sha256: str,
+    create_body: str | None = None,
+    authority_record: dict[str, Any] | None = None,
+    git_binding: dict[str, Any] | None = None,
+    event_name: str = "",
+    event_ref: str = "",
+    run_attempt: str = "",
+    event_before: str = "",
+    event_after: str = "",
+    actor: str = "",
+    pusher: str = "",
+    run_id: str = "",
+    run_number: str = "",
+    workflow_ref: str = "",
+    repository: str = "",
+    event_payload_sha256: str = "",
+    transport: MutationTransport | None = None,
+    authority_revalidator: Callable[[], None] | None = None,
+) -> dict[str, Any]:
+    actions = _validate_plan_authority(plan, approved_sha256)
+    if authority_record is None or git_binding is None:
+        raise MutationPolicyError(
+            "missing_committed_mutation_authority",
+            _policy_evidence("missing_committed_mutation_authority", approved_sha256),
+        )
+    if not actions:
+        return {
+            **_policy_evidence("no_action", approved_sha256),
+            "accepted": True,
+            "terminal_status": "no_action",
+        }
+    validated = validate_reviewed_create_authority(
+        plan,
+        approved_sha256=approved_sha256,
+        create_body=create_body,
+        authority_record=authority_record,
+        git_binding=git_binding,
+        event_name=event_name,
+        event_ref=event_ref,
+        run_attempt=run_attempt,
+        event_before=event_before,
+        event_after=event_after,
+        actor=actor,
+        pusher=pusher,
+        run_id=run_id,
+        run_number=run_number,
+        workflow_ref=workflow_ref,
+        repository=repository,
+        event_payload_sha256=event_payload_sha256,
+    )
+    expected_inventory = str(validated["expected_inventory"])
+    stable_id = str(validated["stable_id"])
+    stable_marker = f"<!-- etf-ai-cockpit:stable-id={stable_id} -->"
+    title = str(validated["title"])
+    attestation = dict(validated["attestation"])
     mutation_id = str(authority_record["authority_id"])
     marker = CREATE_MARKER_TEMPLATE.format(mutation_id)
     body = f"{marker}\n{create_body}"
