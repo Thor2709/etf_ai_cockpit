@@ -6,6 +6,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from etf_cockpit.core import atomic_io
 from etf_cockpit.core.atomic_io import (
     atomic_write_bytes,
     atomic_write_group,
@@ -46,6 +47,116 @@ def test_failed_replace_preserves_previous_destination(tmp_path, monkeypatch):
         atomic_write_bytes(destination, b'{"valid": false}', validator=lambda _: None)
 
     assert destination.read_text(encoding="utf-8") == '{"valid": true}'
+    assert list(tmp_path.glob(f".{destination.name}.*.tmp")) == []
+
+
+def _windows_permission_error(code: int, message: str) -> PermissionError:
+    error = PermissionError(message)
+    error.winerror = code
+    return error
+
+
+def test_windows_replace_retries_candidate_error_then_succeeds(tmp_path, monkeypatch):
+    destination = tmp_path / "store.json"
+    destination.write_bytes(b"old")
+    real_replace = Path.replace
+    candidate = _windows_permission_error(5, "destination in use")
+    attempts = 0
+    sleeps: list[float] = []
+
+    def replace(self: Path, target: Path):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise candidate
+        return real_replace(self, target)
+
+    monkeypatch.setattr(atomic_io.os, "name", "nt")
+    monkeypatch.setattr(Path, "replace", replace)
+    monkeypatch.setattr(atomic_io.time, "monotonic", lambda: 10.0)
+    monkeypatch.setattr(atomic_io.time, "sleep", sleeps.append)
+
+    atomic_write_bytes(destination, b"new", validator=lambda _: None)
+
+    assert attempts == 2
+    assert sleeps == [0.010]
+    assert destination.read_bytes() == b"new"
+    assert list(tmp_path.glob(f".{destination.name}.*.tmp")) == []
+
+
+def test_windows_replace_propagates_first_persistent_candidate_error(
+    tmp_path, monkeypatch
+):
+    destination = tmp_path / "store.json"
+    destination.write_bytes(b"old")
+    first = _windows_permission_error(32, "first sharing violation")
+    later = _windows_permission_error(5, "later access denied")
+    errors = iter((first, later))
+    clock = iter((20.0, 20.0, 20.250))
+    sleeps: list[float] = []
+
+    def replace(self: Path, target: Path):
+        raise next(errors)
+
+    monkeypatch.setattr(atomic_io.os, "name", "nt")
+    monkeypatch.setattr(Path, "replace", replace)
+    monkeypatch.setattr(atomic_io.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(atomic_io.time, "sleep", sleeps.append)
+
+    with pytest.raises(PermissionError) as raised:
+        atomic_write_bytes(destination, b"new", validator=lambda _: None)
+
+    assert raised.value is first
+    assert sleeps == [0.010]
+    assert destination.read_bytes() == b"old"
+    assert list(tmp_path.glob(f".{destination.name}.*.tmp")) == []
+
+
+def test_windows_replace_propagates_noncandidate_error_without_retry(
+    tmp_path, monkeypatch
+):
+    destination = tmp_path / "store.json"
+    destination.write_bytes(b"old")
+    noncandidate = _windows_permission_error(13, "not retryable")
+    attempts = 0
+    sleeps: list[float] = []
+
+    def replace(self: Path, target: Path):
+        nonlocal attempts
+        attempts += 1
+        raise noncandidate
+
+    monkeypatch.setattr(atomic_io.os, "name", "nt")
+    monkeypatch.setattr(Path, "replace", replace)
+    monkeypatch.setattr(atomic_io.time, "sleep", sleeps.append)
+
+    with pytest.raises(PermissionError) as raised:
+        atomic_write_bytes(destination, b"new", validator=lambda _: None)
+
+    assert raised.value is noncandidate
+    assert attempts == 1
+    assert sleeps == []
+    assert destination.read_bytes() == b"old"
+    assert list(tmp_path.glob(f".{destination.name}.*.tmp")) == []
+
+
+def test_atomic_write_does_not_retry_validator(tmp_path):
+    destination = tmp_path / "store.json"
+    destination.write_bytes(b"old")
+    error = _windows_permission_error(5, "validator rejected staged file")
+    validations = 0
+
+    def validate(_: Path) -> None:
+        nonlocal validations
+        validations += 1
+        raise error
+
+    with pytest.raises(PermissionError) as raised:
+        atomic_write_bytes(destination, b"new", validator=validate)
+
+    assert raised.value is error
+    assert validations == 1
+    assert destination.read_bytes() == b"old"
     assert list(tmp_path.glob(f".{destination.name}.*.tmp")) == []
 
 

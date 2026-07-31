@@ -383,18 +383,24 @@ def _fsync_file(path: Path) -> None:
         os.close(descriptor)
 
 
-def _replace_destination_with_retry(source: Path, destination: Path) -> None:
-    """Retry only documented Windows sharing violations from read handles."""
-    for attempt in range(3):
+def _replace_single_destination_with_retry(source: Path, destination: Path) -> None:
+    """Retry a single-file Windows replace while existing readers release it."""
+    deadline = time.monotonic() + 0.250
+    first_error: PermissionError | None = None
+    while True:
         try:
             source.replace(destination)
             return
         except PermissionError as error:
             code = getattr(error, "winerror", None)
-            if os.name != "nt" or code not in {5, 32} or attempt == 2:
+            if os.name != "nt" or code not in {5, 32}:
                 raise
-            time.sleep(0.025 * (attempt + 1))
-    raise AssertionError("unreachable")
+            if first_error is None:
+                first_error = error
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise first_error
+            time.sleep(min(0.010, remaining))
 
 
 def atomic_write_bytes(
@@ -418,7 +424,7 @@ def atomic_write_bytes(
             handle.flush()
             os.fsync(handle.fileno())
         validator(temp_path)
-        _replace_destination_with_retry(temp_path, destination)
+        _replace_single_destination_with_retry(temp_path, destination)
         _fsync_directory(destination.parent)
         return AtomicWriteResult(
             destination=destination,
@@ -2190,7 +2196,7 @@ def atomic_write_group(
             request.validator(staged_path)
             if sha256_file(staged_path) != expected:
                 raise OSError(f"staged payload checksum mismatch: {staged_path}")
-            _replace_destination_with_retry(staged[destination], destination)
+            staged[destination].replace(destination)
         for parent in _canonical_paths(destination.parent for destination in destinations):
             _fsync_directory(parent)
         journal_payload["state"] = "committed"
