@@ -53,4 +53,4 @@ Deliver the bounded quality, release, security and resilience work with local-fi
 | `ISSUE-0176` | `P0` | `planned` | `security-and-release` | `ISSUE-0037`, `ISSUE-0076`, `ISSUE-0080`, `ISSUE-0144`, `ISSUE-0145`, `ISSUE-0146`, `ISSUE-0149` | - | `ISSUE-0171`, `ISSUE-0173` | - |
 | `ISSUE-0177` | `P0` | `integrated` | `quality-release` | - | `ISSUE-0141`, `ISSUE-0143` | `ISSUE-0178`, `ISSUE-0180` | `ISSUE-0039` |
 | `ISSUE-0178` | `P0` | `integrated` | `quality-release` | `ISSUE-0177` | `ISSUE-0141`, `ISSUE-0143` | `ISSUE-0179` | `ISSUE-0013`, `UPDATEV2-0029` |
-| `ISSUE-0180` | `P1` | `implemented_initially` | `quality-release` | `ISSUE-0177` | `ISSUE-0038`, `ISSUE-0072` | - | `ISSUE-0141`, `ISSUE-0143` |
+| `ISSUE-0180` | `P1` | `integrated` | `quality-release` | `ISSUE-0177` | `ISSUE-0038`, `ISSUE-0072` | - | `ISSUE-0141`, `ISSUE-0143` |

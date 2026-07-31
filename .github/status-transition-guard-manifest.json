@@ -3,23 +3,23 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "planned",
+      "from": "implemented_initially",
       "issue_id": "ISSUE-0180",
-      "to": "implemented_initially"
+      "to": "integrated"
     }
   ],
-  "base_commit": "376127910455295ba91e78b8c4240426655f2036",
-  "branch": "codex/issue-0180-lifecycle-e-20260730",
+  "base_commit": "ad056e4eafd8ea1a201a5da92b68a3e5e6b78372",
+  "branch": "codex/issue0180-status-integrated-20260731",
   "issue_ids": [
     "ISSUE-0180"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "a314473815ea711047b1a3278b7b00b7063850eea2c80f932bb16dc75d4fd6a9",
+    "base_registry_sha256": "ee3d65e8cad0aee640c99037950cc75a4a4e6c4feda80bf8cbea3412181bbb56",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "ee3d65e8cad0aee640c99037950cc75a4a4e6c4feda80bf8cbea3412181bbb56",
-    "reason": "Replay ISSUE-0180 planned to in_progress and implemented_initially on immutable base 376127910455295ba91e78b8c4240426655f2036 using exact PR #614 H-tier environment-isolation evidence and the live PR #620 tier-E dependency fixture; keep parallel timing proof outstanding, preserve all dependencies, policies, broker authority and execution_allowed=false.",
+    "proposed_registry_sha256": "d42632ee3b75677ea336b3a9944fcbeddf33812c76432874ef9b02d3b39e7603",
+    "reason": "Transition only ISSUE-0180 from implemented_initially to integrated on immutable product merge ad056e4eafd8ea1a201a5da92b68a3e5e6b78372 after exact-head PR #622 H-tier Linux and Windows gates, both four-worker pilots, aggregate validation, independent adversarial review and exact-main zero-action convergence; preserve all dependencies, policies, broker authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },

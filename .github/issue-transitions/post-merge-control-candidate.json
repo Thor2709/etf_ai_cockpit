@@ -1,0 +1,12 @@
+{
+  "schema_version": "etf-ai-cockpit.status-completion-candidate/1.0",
+  "execution_allowed": false,
+  "expected_parent_sha": "ad056e4eafd8ea1a201a5da92b68a3e5e6b78372",
+  "remote_inventory_sha256": "0d8c8d4eca18b719060fdfc182b5d5b1ef9b59f73e1feb114a98fa14ec917742",
+  "plan_semantic_sha256": "378480aa7cb6e586e5ffc1f7f2581ef6213c050212c3213fdff24f9dc5114349",
+  "expected_update": {
+    "stable_id": "ISSUE-0180",
+    "from_status": "implemented_initially",
+    "to_status": "integrated"
+  }
+}
