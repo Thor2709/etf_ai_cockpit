@@ -24,8 +24,10 @@ JOB_KEYS = {"classifier", "preflight", "supply_chain", "release_windows", "relea
 CANDIDATE_PATH = ".github/issue-transitions/post-merge-control-candidate.json"
 CANDIDATE_EVIDENCE_SCHEMA = "etf-ai-cockpit.status-completion-evidence/1.0"
 CANDIDATE_UPDATE_KEYS = {"stable_id", "from_status", "to_status"}
+CANDIDATE_ARTIFACT_PREFIX = "validation-status-completion-candidate-"
 SHA_RE = re.compile(r"[0-9a-f]{40}")
 HASH_RE = re.compile(r"[0-9a-f]{64}")
+STABLE_ID_RE = re.compile(r"(?:ISSUE|UPDATEV2)-[0-9]{4}")
 
 
 def validate_summary(report: dict[str, Any]) -> list[str]:
@@ -133,13 +135,42 @@ def _junit_tests(node: ET.Element) -> int:
 
 def _candidate_changed(classifier: dict[str, Any]) -> bool:
     paths = classifier.get("paths")
-    return isinstance(paths, list) and any(
-        isinstance(item, dict) and item.get("path") == CANDIDATE_PATH
-        for item in paths
-    )
+    if not isinstance(paths, list):
+        raise ValueError("classifier paths are missing or malformed")
+    candidate_count = 0
+    for item in paths:
+        if (
+            not isinstance(item, dict)
+            or not isinstance(item.get("path"), str)
+            or not item["path"]
+            or not isinstance(item.get("tier"), str)
+            or not isinstance(item.get("reason"), str)
+        ):
+            raise ValueError("classifier paths are missing or malformed")
+        if item["path"] == CANDIDATE_PATH:
+            candidate_count += 1
+    if candidate_count > 1:
+        raise ValueError("classifier contains duplicate status-completion candidate paths")
+    return candidate_count == 1
+
+
+def _load_committed_candidate(root: Path, head: str) -> dict[str, Any]:
+    try:
+        payload = subprocess.check_output(
+            ["git", "show", f"{head}:{CANDIDATE_PATH}"],
+            cwd=root,
+            text=True,
+        )
+        candidate = json.loads(payload)
+    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+        raise ValueError("committed status-completion candidate is unavailable or malformed") from exc
+    if not isinstance(candidate, dict):
+        raise ValueError("committed status-completion candidate must be a JSON object")
+    return candidate
 
 
 def _validate_candidate_evidence(
+    root: Path,
     artifacts_root: Path,
     *,
     base: str,
@@ -148,14 +179,22 @@ def _validate_candidate_evidence(
     paths = list(artifacts_root.rglob("status-completion-candidate.json"))
     if len(paths) != 1:
         raise ValueError("exactly one status-completion candidate evidence artifact is required")
+    evidence_path = paths[0]
+    if (
+        evidence_path.parent.parent != artifacts_root
+        or not evidence_path.parent.name.startswith(CANDIDATE_ARTIFACT_PREFIX)
+        or evidence_path.parent.name == CANDIDATE_ARTIFACT_PREFIX
+    ):
+        raise ValueError("status-completion candidate evidence artifact provenance is invalid")
     try:
-        evidence = json.loads(paths[0].read_text(encoding="utf-8"))
+        evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ValueError("status-completion candidate evidence is malformed") from exc
     if not isinstance(evidence, dict):
         raise ValueError("status-completion candidate evidence must be a JSON object")
     if evidence.get("schema_version") != CANDIDATE_EVIDENCE_SCHEMA:
         raise ValueError("status-completion candidate evidence schema mismatch")
+    candidate = _load_committed_candidate(root, head)
     if (
         evidence.get("mode") != "validate"
         or evidence.get("execution_allowed") is not False
@@ -167,6 +206,16 @@ def _validate_candidate_evidence(
         raise ValueError("status-completion candidate evidence base SHA mismatch")
     if evidence.get("expected_head_sha") != head:
         raise ValueError("status-completion candidate evidence head SHA mismatch")
+    candidate_bindings = {
+        "execution_allowed": "execution authority",
+        "expected_parent_sha": "expected parent",
+        "remote_inventory_sha256": "remote inventory",
+        "plan_semantic_sha256": "semantic plan",
+        "expected_update": "expected update",
+    }
+    for key, label in candidate_bindings.items():
+        if evidence.get(key) != candidate.get(key):
+            raise ValueError(f"status-completion candidate {label} identity mismatch")
     if not HASH_RE.fullmatch(str(evidence.get("remote_inventory_sha256", ""))):
         raise ValueError("status-completion candidate remote inventory identity is invalid")
     if not HASH_RE.fullmatch(str(evidence.get("plan_semantic_sha256", ""))):
@@ -175,7 +224,7 @@ def _validate_candidate_evidence(
     if (
         not isinstance(expected_update, dict)
         or set(expected_update) != CANDIDATE_UPDATE_KEYS
-        or not re.fullmatch(r"ISSUE-[0-9]{4}", str(expected_update.get("stable_id", "")))
+        or not STABLE_ID_RE.fullmatch(str(expected_update.get("stable_id", "")))
         or not isinstance(expected_update.get("from_status"), str)
         or not expected_update.get("from_status")
         or expected_update.get("to_status") != "integrated"
@@ -207,7 +256,7 @@ def collect_summary(
         raise ValueError("exactly one classifier artifact is required")
     classifier = json.loads(classifier_paths[0].read_text(encoding="utf-8"))
     if _candidate_changed(classifier):
-        _validate_candidate_evidence(artifacts_root, base=base, head=head)
+        _validate_candidate_evidence(root, artifacts_root, base=base, head=head)
     tier = classifier.get("tier")
     package = bool(classifier.get("package_gate_required"))
     artifacts = [

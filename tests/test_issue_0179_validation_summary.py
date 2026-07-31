@@ -85,6 +85,13 @@ def test_terminal_collection_preserves_platform_artifact_directories(
                 "tier": "H",
                 "package_gate_required": True,
                 "reasons": ["protected-control"],
+                "paths": [
+                    {
+                        "path": "scripts/validation_summary.py",
+                        "tier": "H",
+                        "reason": "protected-or-high-risk-surface",
+                    }
+                ],
                 "evidence_reuse": {"authorized": False},
             }
         ),
@@ -174,8 +181,26 @@ def _candidate_artifacts(tmp_path: Path) -> Path:
 def _collect_candidate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    *,
+    candidate: dict[str, object] | None = None,
 ) -> dict[str, object]:
     monkeypatch.setattr(validation_summary, "_tree_identity", lambda *_args: "e" * 64)
+    evidence = _candidate_evidence()
+    monkeypatch.setattr(
+        validation_summary,
+        "_load_committed_candidate",
+        lambda *_args: candidate
+        or {
+            key: evidence[key]
+            for key in (
+                "execution_allowed",
+                "expected_parent_sha",
+                "remote_inventory_sha256",
+                "plan_semantic_sha256",
+                "expected_update",
+            )
+        },
+    )
     return validation_summary.collect_summary(
         tmp_path,
         tmp_path / "validation-evidence",
@@ -215,8 +240,8 @@ def test_candidate_change_requires_valid_terminal_evidence(
         (lambda evidence: evidence.update(terminal_status="failed"), "not terminally validated"),
         (lambda evidence: evidence.update(expected_parent_sha="f" * 40), "base SHA mismatch"),
         (lambda evidence: evidence.update(expected_head_sha="f" * 40), "head SHA mismatch"),
-        (lambda evidence: evidence.update(plan_semantic_sha256="bad"), "plan identity is invalid"),
-        (lambda evidence: evidence.update(expected_update={}), "expected update identity is invalid"),
+        (lambda evidence: evidence.update(plan_semantic_sha256="bad"), "semantic plan identity mismatch"),
+        (lambda evidence: evidence.update(expected_update={}), "expected update identity mismatch"),
     ],
 )
 def test_candidate_change_rejects_invalid_evidence(
@@ -228,7 +253,11 @@ def test_candidate_change_rejects_invalid_evidence(
     artifacts = _candidate_artifacts(tmp_path)
     payload = _candidate_evidence()
     mutation(payload)
-    evidence = artifacts / "candidate" / "status-completion-candidate.json"
+    evidence = (
+        artifacts
+        / "validation-status-completion-candidate-head"
+        / "status-completion-candidate.json"
+    )
     evidence.parent.mkdir()
     evidence.write_text(json.dumps(payload), encoding="utf-8")
 
@@ -244,8 +273,16 @@ def test_candidate_change_rejects_missing_duplicate_and_malformed_evidence(
     with pytest.raises(ValueError, match="exactly one"):
         _collect_candidate(tmp_path, monkeypatch)
 
-    first = artifacts / "candidate-a" / "status-completion-candidate.json"
-    second = artifacts / "candidate-b" / "status-completion-candidate.json"
+    first = (
+        artifacts
+        / "validation-status-completion-candidate-head-a"
+        / "status-completion-candidate.json"
+    )
+    second = (
+        artifacts
+        / "validation-status-completion-candidate-head-b"
+        / "status-completion-candidate.json"
+    )
     first.parent.mkdir()
     second.parent.mkdir()
     payload = json.dumps(_candidate_evidence())
@@ -267,10 +304,143 @@ def test_candidate_unchanged_does_not_require_evidence(
     artifacts = _candidate_artifacts(tmp_path)
     classifier = artifacts / "validation-classifier-head" / "classifier.json"
     payload = json.loads(classifier.read_text(encoding="utf-8"))
-    payload["paths"] = [{"path": "docs/product-completion/PROGRESS.md", "tier": "E"}]
+    payload["paths"] = [
+        {
+            "path": "docs/product-completion/PROGRESS.md",
+            "tier": "E",
+            "reason": "allowlisted-semantic-event-or-projection",
+        }
+    ]
     classifier.write_text(json.dumps(payload), encoding="utf-8")
 
     assert validate_summary(_collect_candidate(tmp_path, monkeypatch)) == []
+
+
+def test_candidate_evidence_rejects_wrong_artifact_provenance(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifacts = _candidate_artifacts(tmp_path)
+    evidence = artifacts / "validation-preflight-head" / "status-completion-candidate.json"
+    evidence.parent.mkdir()
+    evidence.write_text(json.dumps(_candidate_evidence()), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="provenance is invalid"):
+        _collect_candidate(tmp_path, monkeypatch)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "execution_allowed",
+        "expected_parent_sha",
+        "remote_inventory_sha256",
+        "plan_semantic_sha256",
+        "expected_update",
+    ],
+)
+def test_candidate_evidence_must_equal_committed_candidate_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+) -> None:
+    artifacts = _candidate_artifacts(tmp_path)
+    evidence_payload = _candidate_evidence()
+    evidence = (
+        artifacts
+        / "validation-status-completion-candidate-head"
+        / "status-completion-candidate.json"
+    )
+    evidence.parent.mkdir()
+    evidence.write_text(json.dumps(evidence_payload), encoding="utf-8")
+    candidate = {
+        key: copy.deepcopy(evidence_payload[key])
+        for key in (
+            "execution_allowed",
+            "expected_parent_sha",
+            "remote_inventory_sha256",
+            "plan_semantic_sha256",
+            "expected_update",
+        )
+    }
+    candidate[field] = "different"
+
+    with pytest.raises(ValueError, match="identity mismatch"):
+        _collect_candidate(tmp_path, monkeypatch, candidate=candidate)
+
+
+@pytest.mark.parametrize(
+    "paths",
+    [
+        None,
+        "not-a-list",
+        [{}],
+        [{"path": ".github/issue-transitions/post-merge-control-candidate.json"}],
+        [
+            {
+                "path": ".github/issue-transitions/post-merge-control-candidate.json",
+                "tier": "E",
+                "reason": "allowlisted",
+            },
+            {
+                "path": ".github/issue-transitions/post-merge-control-candidate.json",
+                "tier": "E",
+                "reason": "allowlisted",
+            },
+        ],
+    ],
+)
+def test_classifier_paths_fail_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    paths: object,
+) -> None:
+    artifacts = _candidate_artifacts(tmp_path)
+    classifier = artifacts / "validation-classifier-head" / "classifier.json"
+    payload = json.loads(classifier.read_text(encoding="utf-8"))
+    if paths is None:
+        payload.pop("paths")
+    else:
+        payload["paths"] = paths
+    classifier.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="classifier"):
+        _collect_candidate(tmp_path, monkeypatch)
+
+
+def test_updatev2_candidate_identity_is_accepted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifacts = _candidate_artifacts(tmp_path)
+    payload = _candidate_evidence()
+    payload["expected_update"] = {
+        "stable_id": "UPDATEV2-0001",
+        "from_status": "implemented_initially",
+        "to_status": "integrated",
+    }
+    payload["action_scope"][0]["stable_id"] = "UPDATEV2-0001"  # type: ignore[index]
+    evidence = (
+        artifacts
+        / "validation-status-completion-candidate-head"
+        / "status-completion-candidate.json"
+    )
+    evidence.parent.mkdir()
+    evidence.write_text(json.dumps(payload), encoding="utf-8")
+    candidate = {
+        key: copy.deepcopy(payload[key])
+        for key in (
+            "execution_allowed",
+            "expected_parent_sha",
+            "remote_inventory_sha256",
+            "plan_semantic_sha256",
+            "expected_update",
+        )
+    }
+
+    assert validate_summary(
+        _collect_candidate(tmp_path, monkeypatch, candidate=candidate)
+    ) == []
 
 
 def test_workflow_keeps_artifact_names_and_writes_failed_terminal_evidence() -> None:
