@@ -2,8 +2,9 @@
 
 ## Bounded GitHub authority-ledger repair
 
-- Current boundary: one H-tier safety repair for the repository-authored issue
-  creation and lifecycle/status projections already used by the programme.
+- Current boundary: close out the bounded H-tier safety repair for the
+  repository-authored issue creation and lifecycle/status projections already
+  used by the programme.
   Git is canonical; GitHub comments and issue markers are tamper-evident
   projections, not immutable records and not server-side compare-and-swap.
 - Rationale: the formal fail-closed guarantee must still detect a completely
@@ -19,11 +20,12 @@
   repair must not invent authority. This repair implements no compensation or
   recovery mechanism. Any future explicit compensating record requires user
   approval and may not repeat or rewrite history.
-- Remaining work: finish the append-only authority/baseline implementation;
-  reconcile every current sync, readback and convergence path; add the
-  adversarial suite; obtain independent authority, whole-diff and release
-  review; run the complete Linux/Windows H gate; merge at the reviewed expected
-  head; then regenerate and formally integrate ISSUE-0180 from repaired main.
+- Remaining work: make the narrow optional-`x5t` verifier correction, repeat
+  independent authority, adversarial, whole-diff and release review, run the
+  complete Linux/Windows H gate, merge at the reviewed expected head and prove
+  the live writer/readback path. Then regenerate and formally integrate
+  ISSUE-0180 from repaired exact `main`, freeze this infrastructure and resume
+  ISSUE-0101.
 - Stop condition: stop before any design or code expands beyond the two current
   issue mutation classes, adds GitHub resource or contents-write authority, or
   requires automatic replay of an ambiguous/erased write. Such expansion needs
@@ -34,35 +36,27 @@
 
 ## Current checkpoint
 
-- Current UTC timestamp: `2026-07-31T12:44:50Z`
-- Current `origin/main`: `e829972e18ce84ae2ec9d7e53424c596c207bc12`
-- Active worktree:
-  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_status_module`
-- Active branch: `codex/status-module-invocation`
-- Exact base SHA: `e829972e18ce84ae2ec9d7e53424c596c207bc12`
-- Exact last committed head before this checkpoint update:
-  `ef664b3ff4b8019c26abcf54b6cfabd92638ae6e`
-- Current PR and state: no authority-ledger repair PR exists and nothing from
-  this branch has been pushed.
-- Current issue: bounded repository-wide lost-update repair for the two
-  existing GitHub issue mutation classes.
-- Completed work: all direct writers and bypasses were audited; the append-only
-  Git-authority architecture, live 278-issue identity bootstrap and scope
-  boundary are documented and committed. The bounded review corrections close
-  all independent BLOCK findings, including live Actions-run attestation,
-  per-write remote-main refresh and shared create premerge validation. The
-  checkpoint passes 156 affected/preparation tests, 173 release/workflow tests,
-  protected Ruff/MyPy/compile checks, all workflow YAML parsing, deterministic
-  generation and the full-tree writer audit.
-- Required checks: focused adversarial suites, independent whole-diff,
-  authority and release review, then the complete H-tier Linux and Windows
-  packaged gate at one frozen exact head.
-- Blocker: none. Ambiguous, cancelled, partially applied or erased authorities
-  remain permanently fail-closed; this repair implements no retry,
-  compensation or recovery mechanism.
-- Exact next action: commit this bounded correction at one clean checkpoint,
-  then repeat independent whole-diff, authority and release review before any
-  push.
+- Current UTC timestamp: `2026-07-31T16:17:09Z`.
+- PR #626 is merged; current `main` is
+  `a94f8c36bedc68292f2b9a2afcea6ed2c79d0a10`.
+- The first post-merge writer run, `30645015084`, failed closed with zero
+  writes because of strict JOSE-header compatibility.
+- Local follow-up head `85d17649` is unpushed and **BLOCKED**: mandatory `x5t`
+  is not a valid general verifier contract.
+- Implementation remains paused pending one narrow optional-`x5t` verifier
+  correction, independent reviews, the complete H-tier Linux and Windows CI
+  gate, merge and live proof, and regeneration and formal integration of the
+  ISSUE-0180 candidate. Then freeze this infrastructure and resume ISSUE-0101.
+- Exact next action: correct only the verifier's `x5t` requirement and obtain
+  the stated evidence. Do not push or resume implementation before review.
+- Stop condition: stop if the correction broadens mutation authority, product
+  scope, OIDC design or the two current issue mutation classes; adds retries,
+  compensation or another GitHub resource; or cannot preserve fail-closed zero
+  writes. Any expansion requires explicit user approval and a demonstrated
+  safety need.
+- Temporary orchestration override: up to six child agents may be used, subject
+  to any lower runtime cap, until the user explicitly says to revert. This
+  changes concurrency only and grants no authority or product-scope expansion.
 
 ## Objective
 
