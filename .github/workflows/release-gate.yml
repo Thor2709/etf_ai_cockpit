@@ -134,18 +134,32 @@ jobs:
           fi
           echo "changed=$ledger_changed" >> "$GITHUB_OUTPUT"
 
+      - name: Check out reviewed GitHub mutation authority head
+        if: steps.github_authority.outputs.changed == 'true'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.classifier.outputs.head_sha }}
+          path: .validation-head
+          fetch-depth: 0
+
       - name: Validate reviewed GitHub mutation authority
         if: steps.github_authority.outputs.changed == 'true'
+        working-directory: .validation-head
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          checked_head="$(git rev-parse HEAD)"
+          if [[ "$checked_head" != "$ETF_COCKPIT_VALIDATION_HEAD_SHA" ]]; then
+            echo "Exact-head validation checkout mismatch: expected $ETF_COCKPIT_VALIDATION_HEAD_SHA, got $checked_head" >&2
+            exit 1
+          fi
           candidate=".github/issue-transitions/post-merge-control-candidate.json"
           python -m scripts.apply_reviewed_status_completion \
             --root . \
             --candidate "$candidate" \
             --expected-parent "$ETF_COCKPIT_VALIDATION_BASE_SHA" \
             --expected-head "$ETF_COCKPIT_VALIDATION_HEAD_SHA" \
-            --evidence-out artifacts/validation/status-completion-candidate.json
+            --evidence-out ../artifacts/validation/status-completion-candidate.json
 
       - name: Upload status-completion candidate evidence
         if: always() && steps.github_authority.outputs.changed == 'true'

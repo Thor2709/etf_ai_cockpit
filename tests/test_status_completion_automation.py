@@ -908,8 +908,43 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
     )
     assert ' -- "$ledger" || ledger_changed=true' in release
     assert 'echo "changed=$ledger_changed"' in release
+    release_workflow = yaml.safe_load(release)
+    preflight_steps = release_workflow["jobs"]["preflight"]["steps"]
+    primary_checkout = next(
+        step for step in preflight_steps if step.get("name") == "Check out source"
+    )
+    assert primary_checkout["uses"] == "actions/checkout@v4"
+    assert primary_checkout["with"] == {"fetch-depth": 0}
+    authority_checkout = next(
+        step
+        for step in preflight_steps
+        if step.get("name") == "Check out reviewed GitHub mutation authority head"
+    )
+    assert authority_checkout["if"] == (
+        "steps.github_authority.outputs.changed == 'true'"
+    )
+    assert authority_checkout["uses"] == (
+        "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
+    )
+    assert authority_checkout["with"] == {
+        "ref": "${{ needs.classifier.outputs.head_sha }}",
+        "path": ".validation-head",
+        "fetch-depth": 0,
+    }
+    authority_validation = next(
+        step
+        for step in preflight_steps
+        if step.get("name") == "Validate reviewed GitHub mutation authority"
+    )
+    assert authority_validation["working-directory"] == ".validation-head"
+    assert 'checked_head="$(git rev-parse HEAD)"' in authority_validation["run"]
     assert (
-        "--evidence-out artifacts/validation/status-completion-candidate.json"
+        '[[ "$checked_head" != "$ETF_COCKPIT_VALIDATION_HEAD_SHA" ]]'
+        in authority_validation["run"]
+    )
+    assert "--root ." in authority_validation["run"]
+    assert (
+        "--evidence-out ../artifacts/validation/status-completion-candidate.json"
         in release
     )
     assert "name: validation-status-completion-candidate-${{ github.sha }}" in release
