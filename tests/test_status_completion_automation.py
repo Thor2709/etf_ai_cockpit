@@ -4,6 +4,7 @@ import base64
 import copy
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -435,6 +436,10 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
         ".github/issue-transitions/post-merge-control-candidate.json"
     ]
     assert "--apply" in status_text and "--main-ref origin/main" in status_text
+    module_invocation = "python -m scripts.apply_reviewed_status_completion"
+    direct_script_invocation = "python scripts/apply_reviewed_status_completion.py"
+    assert module_invocation in status_text
+    assert direct_script_invocation not in status_text
     assert (
         "--evidence-out artifacts/programme-status-completion/evidence.json"
         in status_text
@@ -446,6 +451,8 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
     assert "issues: read" in release
     assert isinstance(yaml.safe_load(release), dict)
     assert "steps.status_candidate.outputs.changed == 'true'" in release
+    assert module_invocation in release
+    assert direct_script_invocation not in release
     assert (
         'git diff --quiet "$ETF_COCKPIT_VALIDATION_BASE_SHA" "$ETF_COCKPIT_VALIDATION_HEAD_SHA" -- "$candidate"'
         in release
@@ -463,3 +470,17 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
     assert (
         "if-no-files-found: error" in release[candidate_upload : candidate_upload + 420]
     )
+
+
+def test_status_completion_module_help_smoke() -> None:
+    root = Path(__file__).resolve().parents[1]
+
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.apply_reviewed_status_completion", "--help"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "usage:" in result.stdout

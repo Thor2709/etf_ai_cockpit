@@ -134,7 +134,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           candidate=".github/issue-transitions/post-merge-control-candidate.json"
-          python scripts/apply_reviewed_status_completion.py \
+          python -m scripts.apply_reviewed_status_completion \
             --root . \
             --candidate "$candidate" \
             --expected-parent "$ETF_COCKPIT_VALIDATION_BASE_SHA" \

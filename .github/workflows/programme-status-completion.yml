@@ -27,7 +27,7 @@ jobs:
         run: |
           git fetch --no-tags origin main
           parent="$(git rev-parse HEAD^)"
-          python scripts/apply_reviewed_status_completion.py \
+          python -m scripts.apply_reviewed_status_completion \
             --root . \
             --candidate .github/issue-transitions/post-merge-control-candidate.json \
             --expected-parent "$parent" \
