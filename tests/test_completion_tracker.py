@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 
 import pytest
@@ -249,8 +250,9 @@ def test_status_event_projection_produces_zero_action_convergence() -> None:
         pusher="merger",
     )
     value["comments"] = [
-        {
-            "id": "event-1",
+            {
+                "id": "event-1",
+                "node_id": "NODE-event-1",
             "body": body,
             "author": {
                 "login": "github-actions[bot]",
@@ -265,6 +267,29 @@ def test_status_event_projection_produces_zero_action_convergence() -> None:
             "updatedAt": "2026-07-31T00:00:00Z",
         }
     ]
+    receipt, receipt_body = gateway.build_event_receipt(
+        _event,
+        gateway.normalise_comment(value["comments"][0]),
+        value,
+    )
+    value["comments"].append(
+        {
+            "id": receipt["receipt_mutation_id"],
+            "node_id": "NODE-receipt-1",
+            "body": receipt_body,
+            "author": {
+                "login": "github-actions[bot]",
+                "type": "Bot",
+                "id": int(gateway.GITHUB_ACTIONS_BOT_USER_ID),
+            },
+            "performed_via_github_app": {
+                "slug": "github-actions",
+                "id": int(gateway.GITHUB_ACTIONS_APP_ID),
+            },
+            "createdAt": "2026-07-31T00:00:01Z",
+            "updatedAt": "2026-07-31T00:00:01Z",
+        }
+    )
 
     plan = sync.plan_actions(registry(desired), [value])
 
@@ -281,3 +306,26 @@ def test_status_event_projection_produces_zero_action_convergence() -> None:
     drift_plan = sync.plan_actions(registry(non_status_drift), [value])
     assert drift_plan["summary"]["update"] == 1
     assert drift_plan["actions"][0]["kind"] == "update"
+    assert "Programme status: `implemented_initially`" in drift_plan["actions"][0][
+        "body"
+    ]
+    assert "Programme status: `integrated`" not in drift_plan["actions"][0]["body"]
+
+    expected = {
+        "stable_id": "ISSUE-0070",
+        "from_status": "implemented_initially",
+        "to_status": "integrated",
+    }
+    for remaining_comments in (
+        value["comments"][:1],
+        value["comments"][1:],
+        [],
+    ):
+        deleted = {**value, "comments": copy.deepcopy(remaining_comments)}
+        missing = sync.plan_actions(
+            registry(desired),
+            [deleted],
+            expected_status_event=expected,
+        )
+        assert missing["summary"]["blocked"] == 1
+        assert missing["actions"][0]["reason"] == "missing_expected_event"

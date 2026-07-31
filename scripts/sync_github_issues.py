@@ -106,6 +106,7 @@ def normalise_remote_issue(issue: dict[str, Any]) -> dict[str, Any]:
     value = mutation_gateway.normalise_issue_snapshot(issue)
     projection = mutation_gateway.project_status_events(value)
     value["status_projection"] = projection
+    value["create_acceptance"] = mutation_gateway.validate_create_acceptance(value)
     return value
 
 
@@ -171,6 +172,7 @@ def plan_actions(
     *,
     reviewed_reopen_ids: Iterable[str] = REVIEWED_REOPEN_IDS,
     historical_map: dict[str, Any] | None = None,
+    expected_status_event: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     remote = [normalise_remote_issue(issue) for issue in remote_issues]
     by_marker = marker_ids(remote)
@@ -229,17 +231,38 @@ def plan_actions(
 
         issue = matches[0]
         mapped_numbers.add(issue["number"])
-        projection = issue["status_projection"]
-        has_status_events = any(
-            str(comment.get("body", "")).startswith(mutation_gateway.EVENT_PREFIX)
-            for comment in issue["comments"]
-        )
-        if has_status_events and not projection.get("accepted"):
+        if not issue["create_acceptance"].get("accepted"):
             actions.append(
                 _action(
                     "blocked",
                     record,
-                    reason=str(projection.get("error", "invalid_status_event_projection")),
+                    reason=str(issue["create_acceptance"].get("error")),
+                    remote_number=issue["number"],
+                )
+            )
+            continue
+        projection = issue["status_projection"]
+        has_status_events = any(
+            str(comment.get("body", "")).startswith(
+                (
+                    mutation_gateway.EVENT_PREFIX,
+                    mutation_gateway.EVENT_RECEIPT_PREFIX,
+                )
+            )
+            for comment in issue["comments"]
+        )
+        if has_status_events and not projection.get("accepted"):
+            projection_reason = (
+                "missing_expected_event"
+                if isinstance(expected_status_event, dict)
+                and expected_status_event.get("stable_id") == stable_id
+                else str(projection.get("error", "invalid_status_event_projection"))
+            )
+            actions.append(
+                _action(
+                    "blocked",
+                    record,
+                    reason=projection_reason,
                     remote_number=issue["number"],
                 )
             )
@@ -270,11 +293,50 @@ def plan_actions(
         except ValueError as exc:
             actions.append(_action("blocked", record, reason=str(exc), remote_number=issue["number"]))
             continue
-        status_only_projection = (
-            _managed_delta_fields(
-                _action("update", record, remote_number=issue["number"]), issue
+        managed_deltas = _managed_delta_fields(
+            _action("update", record, remote_number=issue["number"]), issue
+        )
+        projected_status = projection.get("status")
+        expected_missing = (
+            isinstance(expected_status_event, dict)
+            and expected_status_event.get("stable_id") == stable_id
+            and expected_status_event.get("from_status") == projected_status
+            and expected_status_event.get("to_status") == record.get("programme_status")
+            and projected_status != record.get("programme_status")
+        )
+        if expected_missing:
+            actions.append(
+                _action(
+                    "blocked",
+                    record,
+                    reason="missing_expected_event",
+                    remote_number=issue["number"],
+                )
             )
-            == ["Programme status"]
+            continue
+        if projection.get("accepted") and int(projection.get("event_count", 0)) > 0:
+            legacy_status = re.search(
+                r"^- Programme status: `[^`]+`$", body, re.MULTILINE
+            )
+            if legacy_status is None:
+                actions.append(
+                    _action(
+                        "blocked",
+                        record,
+                        reason="missing_legacy_programme_status_anchor",
+                        remote_number=issue["number"],
+                    )
+                )
+                continue
+            desired_body = re.sub(
+                r"^- Programme status: `[^`]+`$",
+                legacy_status.group(0),
+                desired_body,
+                count=1,
+                flags=re.MULTILINE,
+            )
+        status_only_projection = (
+            managed_deltas == ["Programme status"]
             and projection.get("status") == record.get("programme_status")
         )
         if (
@@ -556,6 +618,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--historical-map", type=Path, help="reviewed map for duplicate legacy remote issues")
     parser.add_argument("--apply", action="store_true", help="apply only after the approved plan SHA-256 is supplied")
     parser.add_argument("--approved-plan-sha256")
+    parser.add_argument("--expected-status-candidate", type=Path)
     args = parser.parse_args(argv)
     if args.apply and args.remote_snapshot:
         raise SystemExit("POLICY_ERROR: remote_snapshot_apply_prohibited")
@@ -578,7 +641,18 @@ def main(argv: list[str] | None = None) -> int:
     historical_map = None
     if map_path.exists():
         historical_map = json.loads(map_path.read_text(encoding="utf-8"))
-    plan = plan_actions(registry, normalised_remote, historical_map=historical_map)
+    expected_status_event = None
+    if args.expected_status_candidate:
+        expected_payload = json.loads(
+            args.expected_status_candidate.read_text(encoding="utf-8")
+        )
+        expected_status_event = expected_payload.get("expected_update")
+    plan = plan_actions(
+        registry,
+        normalised_remote,
+        historical_map=historical_map,
+        expected_status_event=expected_status_event,
+    )
     output = args.plan_out or Path(tempfile.gettempdir()) / "etf-ai-cockpit-github-sync-plan.json"
     output.parent.mkdir(parents=True, exist_ok=True)
     plan_bytes = deterministic_json(plan)
@@ -611,7 +685,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.apply:
         if not args.approved_plan_sha256:
             raise SystemExit("--apply requires --approved-plan-sha256")
-        apply_actions(plan, approved_sha256=args.approved_plan_sha256)
+        gateway_evidence = apply_actions(
+            plan, approved_sha256=args.approved_plan_sha256
+        )
+        if gateway_evidence.get("accepted") is not True:
+            raise SystemExit("GitHub mutation gateway did not accept the operation")
         expected_noop = {"create": 0, "update": 0, "close": 0, "reopen": 0, "blocked": 0}
         readback = None
         for attempt in range(4):

@@ -93,9 +93,6 @@ def test_happy_apply_uses_approved_plan_and_requires_zero_readback(
         completion, "_canonical_candidate_blob_sha256", lambda *_args: "e" * 64
     )
     monkeypatch.setattr(
-        completion, "_validate_merge_source", lambda *_args: "f" * 40
-    )
-    monkeypatch.setattr(
         completion.mutation_gateway,
         "append_status_event",
         lambda reviewed_snapshot, **kwargs: (
@@ -296,9 +293,9 @@ def test_candidate_git_binding_rejects_altered_bytes_hidden_by_clean_filter(
     subprocess.run(
         [
             "git",
-            "config",
-            "filter.hide.clean",
-            f"python {filter_script.as_posix()}",
+                "config",
+                "filter.hide.clean",
+                f'"{Path(sys.executable).as_posix()}" "{filter_script.as_posix()}"',
         ],
         cwd=root,
         check=True,

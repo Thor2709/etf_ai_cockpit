@@ -15,13 +15,15 @@ import re
 import subprocess
 import time
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 
 REPO = "Thor2709/etf_ai_cockpit"
 EVENT_PREFIX = "<!-- etf-ai-cockpit:status-event:v1 -->\n"
+EVENT_RECEIPT_PREFIX = "<!-- etf-ai-cockpit:status-event-acceptance:v1 -->\n"
 COMPENSATION_PREFIX = "<!-- etf-ai-cockpit:status-compensation:v1 -->\n"
 CREATE_MARKER_TEMPLATE = "<!-- etf-ai-cockpit:create-mutation-id={} -->"
+CREATE_RECEIPT_PREFIX = "<!-- etf-ai-cockpit:create-acceptance:v1 -->\n"
 EVENT_SCHEMA = "etf-ai-cockpit.status-event/1.0"
 STABLE_ID_RE = re.compile(r"(?:ISSUE|UPDATEV2)-\d{4}")
 SHA_RE = re.compile(r"[0-9a-f]{40}")
@@ -50,6 +52,32 @@ EVENT_KEYS = {
     "event_after",
     "actor",
     "pusher",
+}
+EVENT_RECEIPT_KEYS = {
+    "schema_version",
+    "execution_allowed",
+    "receipt_mutation_id",
+    "proposal_mutation_id",
+    "proposal_comment_id",
+    "proposal_comment_node_id",
+    "proposal_body_sha256",
+    "candidate_blob_sha256",
+    "head_sha",
+    "predecessor_event_id",
+    "predecessor_event_sha256",
+    "verified_postwrite_snapshot_sha256",
+}
+CREATE_RECEIPT_KEYS = {
+    "schema_version",
+    "execution_allowed",
+    "receipt_mutation_id",
+    "create_mutation_id",
+    "stable_id",
+    "issue_id",
+    "issue_node_id",
+    "title_sha256",
+    "body_sha256",
+    "verified_snapshot_sha256",
 }
 
 
@@ -103,6 +131,7 @@ def normalise_comment(comment: dict[str, Any]) -> dict[str, Any]:
     )
     return {
         "id": str(comment.get("id") or comment.get("databaseId") or ""),
+        "node_id": str(comment.get("node_id") or comment.get("nodeId") or ""),
         "body": str(comment.get("body") or ""),
         "author": _author_login(author),
         "author_id": str(
@@ -138,6 +167,8 @@ def normalise_issue_snapshot(issue: dict[str, Any]) -> dict[str, Any]:
         for label in labels
     )
     return {
+        "id": str(issue.get("id") or ""),
+        "node_id": str(issue.get("node_id") or issue.get("nodeId") or ""),
         "number": int(issue.get("number", 0)),
         "title": str(issue.get("title") or ""),
         "body": str(issue.get("body") or ""),
@@ -215,7 +246,7 @@ def parse_event_comment(body: str) -> dict[str, Any] | None:
         or value.get("event_before") != value.get("source_sha")
         or value.get("event_after") != value.get("head_sha")
         or not value.get("actor")
-        or value.get("actor") != value.get("pusher")
+        or not value.get("pusher")
     ):
         raise ValueError("invalid_status_event_workflow_binding")
     for field in (
@@ -227,6 +258,79 @@ def parse_event_comment(body: str) -> dict[str, Any] | None:
         if not HASH_RE.fullmatch(str(value.get(field, ""))):
             raise ValueError(f"invalid_status_event_{field}")
     return value
+
+
+def parse_event_receipt(body: str) -> dict[str, Any] | None:
+    if not body.startswith(EVENT_RECEIPT_PREFIX):
+        return None
+    try:
+        value = json.loads(body[len(EVENT_RECEIPT_PREFIX) :])
+    except json.JSONDecodeError as exc:
+        raise ValueError("invalid_status_event_receipt_json") from exc
+    if not isinstance(value, dict) or set(value) != EVENT_RECEIPT_KEYS:
+        raise ValueError("invalid_status_event_receipt_fields")
+    if body != EVENT_RECEIPT_PREFIX + _json_bytes(value).decode():
+        raise ValueError("noncanonical_status_event_receipt")
+    if (
+        value.get("schema_version")
+        != "etf-ai-cockpit.status-event-acceptance/1.0"
+        or value.get("execution_allowed") is not False
+    ):
+        raise ValueError("invalid_status_event_receipt_authority")
+    for field in (
+        "receipt_mutation_id",
+        "proposal_mutation_id",
+        "proposal_body_sha256",
+        "candidate_blob_sha256",
+        "predecessor_event_sha256",
+        "verified_postwrite_snapshot_sha256",
+    ):
+        if not HASH_RE.fullmatch(str(value.get(field, ""))):
+            raise ValueError(f"invalid_status_event_receipt_{field}")
+    if not SHA_RE.fullmatch(str(value.get("head_sha", ""))):
+        raise ValueError("invalid_status_event_receipt_head_sha")
+    if not value.get("proposal_comment_id") or not value.get("proposal_comment_node_id"):
+        raise ValueError("invalid_status_event_receipt_comment_identity")
+    return value
+
+
+def _acceptance_snapshot_sha256(
+    snapshot: dict[str, Any], comments: list[dict[str, Any]] | None = None
+) -> str:
+    value = normalise_issue_snapshot(snapshot)
+    protected = {
+        key: value[key]
+        for key in ("number", "title", "body", "state", "url", "labels")
+    }
+    protected["comments"] = comments if comments is not None else value["comments"]
+    return _sha256(_json_bytes(protected))
+
+
+def build_event_receipt(
+    proposal: dict[str, Any],
+    proposal_comment: dict[str, Any],
+    proposal_snapshot: dict[str, Any],
+) -> tuple[dict[str, Any], str]:
+    identity = {
+        "proposal_mutation_id": proposal["mutation_id"],
+        "proposal_comment_id": proposal_comment["id"],
+        "proposal_comment_node_id": proposal_comment["node_id"],
+        "proposal_body_sha256": _sha256(proposal_comment["body"]),
+        "candidate_blob_sha256": proposal["candidate_blob_sha256"],
+        "head_sha": proposal["head_sha"],
+        "predecessor_event_id": proposal["predecessor_event_id"],
+        "predecessor_event_sha256": proposal["predecessor_event_sha256"],
+        "verified_postwrite_snapshot_sha256": _acceptance_snapshot_sha256(
+            proposal_snapshot
+        ),
+        "execution_allowed": False,
+    }
+    receipt = {
+        "schema_version": "etf-ai-cockpit.status-event-acceptance/1.0",
+        **identity,
+        "receipt_mutation_id": _sha256(_json_bytes(identity)),
+    }
+    return receipt, EVENT_RECEIPT_PREFIX + _json_bytes(receipt).decode()
 
 
 def project_status_events(issue: dict[str, Any]) -> dict[str, Any]:
@@ -243,9 +347,27 @@ def project_status_events(issue: dict[str, Any]) -> dict[str, Any]:
     stable_id = stable_ids[0]
     status = matches[0]
     predecessor_id, predecessor_hash = _legacy_anchor(stable_id, status)
-    events: list[tuple[dict[str, Any], dict[str, Any], str]] = []
+    event_count = 0
+
+    def require_bot(comment: dict[str, Any], *, receipt: bool = False) -> None:
+        label = "status_event_receipt" if receipt else "status_event"
+        if comment["author"] not in BOT_AUTHORS:
+            raise ValueError(f"{label}_not_bot_authored")
+        if comment["author_type"] != "Bot" or comment["app_slug"] != "github-actions":
+            raise ValueError(f"{label}_bot_provenance_invalid")
+        if (
+            comment["author_id"] != GITHUB_ACTIONS_BOT_USER_ID
+            or comment["app_id"] != GITHUB_ACTIONS_APP_ID
+        ):
+            raise ValueError(f"{label}_bot_attribution_mismatch")
+        if comment["created_at"] != comment["updated_at"]:
+            raise ValueError(f"edited_{label}")
+
     try:
-        for comment in snapshot["comments"]:
+        index = 0
+        comments = snapshot["comments"]
+        while index < len(comments):
+            comment = comments[index]
             if comment["body"].startswith(COMPENSATION_PREFIX):
                 try:
                     compensation = json.loads(
@@ -263,47 +385,53 @@ def project_status_events(issue: dict[str, Any]) -> dict[str, Any]:
                     )
                 ):
                     raise ValueError("invalid_status_compensation")
+                index += 1
                 continue
+            if parse_event_receipt(comment["body"]) is not None:
+                raise ValueError("orphan_status_event_receipt")
             event = parse_event_comment(comment["body"])
             if event is None:
+                index += 1
                 continue
-            if comment["author"] not in BOT_AUTHORS:
-                raise ValueError("status_event_not_bot_authored")
-            if comment["author_type"] != "Bot" or comment["app_slug"] != "github-actions":
-                raise ValueError("status_event_bot_provenance_invalid")
-            if (
-                comment["author_id"] != GITHUB_ACTIONS_BOT_USER_ID
-                or comment["app_id"] != GITHUB_ACTIONS_APP_ID
-            ):
-                raise ValueError("status_event_bot_attribution_mismatch")
-            if comment["created_at"] != comment["updated_at"]:
-                raise ValueError("edited_status_event")
+            require_bot(comment)
             if event["stable_id"] != stable_id:
                 raise ValueError("status_event_stable_id_mismatch")
-            events.append((event, comment, _sha256(comment["body"])))
+            if index + 1 >= len(comments):
+                raise ValueError("orphan_status_event_proposal")
+            receipt_comment = comments[index + 1]
+            receipt = parse_event_receipt(receipt_comment["body"])
+            if receipt is None:
+                raise ValueError("orphan_status_event_proposal")
+            require_bot(receipt_comment, receipt=True)
+            if (
+                event["predecessor_event_id"] != predecessor_id
+                or event["predecessor_event_sha256"] != predecessor_hash
+                or event["from_status"] != status
+                or receipt["proposal_mutation_id"] != event["mutation_id"]
+                or receipt["proposal_comment_id"] != comment["id"]
+                or receipt["proposal_comment_node_id"] != comment["node_id"]
+                or receipt["proposal_body_sha256"] != _sha256(comment["body"])
+                or receipt["candidate_blob_sha256"] != event["candidate_blob_sha256"]
+                or receipt["head_sha"] != event["head_sha"]
+                or receipt["predecessor_event_id"] != predecessor_id
+                or receipt["predecessor_event_sha256"] != predecessor_hash
+                or receipt["verified_postwrite_snapshot_sha256"]
+                != _acceptance_snapshot_sha256(snapshot, comments[: index + 1])
+            ):
+                raise ValueError("invalid_status_event_acceptance_pair")
+            status = str(event["to_status"])
+            predecessor_id = str(event["mutation_id"])
+            predecessor_hash = _sha256(comment["body"])
+            event_count += 1
+            index += 2
     except ValueError as exc:
         return {"accepted": False, "error": str(exc)}
-
-    mutation_ids = [event["mutation_id"] for event, _, _ in events]
-    if len(mutation_ids) != len(set(mutation_ids)):
-        return {"accepted": False, "error": "duplicate_status_event"}
-
-    for event, _comment, event_hash in events:
-        if (
-            event["predecessor_event_id"] != predecessor_id
-            or event["predecessor_event_sha256"] != predecessor_hash
-            or event["from_status"] != status
-        ):
-            return {"accepted": False, "error": "invalid_status_event_chain"}
-        status = str(event["to_status"])
-        predecessor_id = str(event["mutation_id"])
-        predecessor_hash = event_hash
     return {
         "accepted": True,
         "status": status,
         "head_event_id": predecessor_id,
         "head_event_sha256": predecessor_hash,
-        "event_count": len(events),
+        "event_count": event_count,
     }
 
 
@@ -396,6 +524,104 @@ def _policy_evidence(code: str, plan_sha256: str = "") -> dict[str, Any]:
         "plan_sha256": plan_sha256,
         "transport_writes": 0,
     }
+
+
+def build_create_receipt(
+    issue: dict[str, Any], *, mutation_id: str, stable_id: str
+) -> tuple[dict[str, Any], str]:
+    snapshot = normalise_issue_snapshot(issue)
+    identity = {
+        "create_mutation_id": mutation_id,
+        "stable_id": stable_id,
+        "issue_id": snapshot["id"],
+        "issue_node_id": snapshot["node_id"],
+        "title_sha256": _sha256(snapshot["title"]),
+        "body_sha256": _sha256(snapshot["body"]),
+        "verified_snapshot_sha256": _acceptance_snapshot_sha256(snapshot),
+        "execution_allowed": False,
+    }
+    receipt = {
+        "schema_version": "etf-ai-cockpit.create-acceptance/1.0",
+        **identity,
+        "receipt_mutation_id": _sha256(_json_bytes(identity)),
+    }
+    return receipt, CREATE_RECEIPT_PREFIX + _json_bytes(receipt).decode()
+
+
+def parse_create_receipt(body: str) -> dict[str, Any] | None:
+    if not body.startswith(CREATE_RECEIPT_PREFIX):
+        return None
+    try:
+        value = json.loads(body[len(CREATE_RECEIPT_PREFIX) :])
+    except json.JSONDecodeError as exc:
+        raise ValueError("invalid_create_receipt_json") from exc
+    if not isinstance(value, dict) or set(value) != CREATE_RECEIPT_KEYS:
+        raise ValueError("invalid_create_receipt_fields")
+    if body != CREATE_RECEIPT_PREFIX + _json_bytes(value).decode():
+        raise ValueError("noncanonical_create_receipt")
+    if (
+        value.get("schema_version") != "etf-ai-cockpit.create-acceptance/1.0"
+        or value.get("execution_allowed") is not False
+    ):
+        raise ValueError("invalid_create_receipt_authority")
+    for field in (
+        "receipt_mutation_id",
+        "create_mutation_id",
+        "title_sha256",
+        "body_sha256",
+        "verified_snapshot_sha256",
+    ):
+        if not HASH_RE.fullmatch(str(value.get(field, ""))):
+            raise ValueError(f"invalid_create_receipt_{field}")
+    return value
+
+
+def validate_create_acceptance(issue: dict[str, Any]) -> dict[str, Any]:
+    snapshot = normalise_issue_snapshot(issue)
+    markers = re.findall(
+        r"<!-- etf-ai-cockpit:create-mutation-id=([0-9a-f]{64}) -->",
+        snapshot["body"],
+    )
+    receipts = []
+    for index, comment in enumerate(snapshot["comments"]):
+        try:
+            receipt = parse_create_receipt(comment["body"])
+        except ValueError as exc:
+            return {"accepted": False, "error": str(exc)}
+        if receipt is not None:
+            receipts.append((index, receipt, comment))
+    if not markers:
+        return (
+            {"accepted": False, "error": "orphan_create_receipt"}
+            if receipts
+            else {"accepted": True, "legacy": True}
+        )
+    if len(markers) != 1 or len(receipts) != 1:
+        return {"accepted": False, "error": "orphan_or_duplicate_create_acceptance"}
+    index, receipt, comment = receipts[0]
+    stable = re.findall(
+        r"<!--\s*etf-ai-cockpit:stable-id=((?:ISSUE|UPDATEV2)-\d{4})\s*-->",
+        snapshot["body"],
+    )
+    if (
+        len(set(stable)) != 1
+        or receipt["create_mutation_id"] != markers[0]
+        or receipt["stable_id"] != stable[0]
+        or receipt["issue_id"] != snapshot["id"]
+        or receipt["issue_node_id"] != snapshot["node_id"]
+        or receipt["title_sha256"] != _sha256(snapshot["title"])
+        or receipt["body_sha256"] != _sha256(snapshot["body"])
+        or receipt["verified_snapshot_sha256"]
+        != _acceptance_snapshot_sha256(snapshot, snapshot["comments"][:index])
+        or comment["author"] != "github-actions[bot]"
+        or comment["author_id"] != GITHUB_ACTIONS_BOT_USER_ID
+        or comment["author_type"] != "Bot"
+        or comment["app_slug"] != "github-actions"
+        or comment["app_id"] != GITHUB_ACTIONS_APP_ID
+        or comment["created_at"] != comment["updated_at"]
+    ):
+        return {"accepted": False, "error": "invalid_create_acceptance"}
+    return {"accepted": True, "legacy": False, "mutation_id": markers[0]}
 
 
 def _validate_plan_authority(plan: dict[str, Any], approved_sha256: str) -> list[dict[str, Any]]:
@@ -519,13 +745,62 @@ def apply_reviewed_plan(
     ):
         evidence["terminal_status"] = "conflict_after_write"
         return evidence
+    created = normalise_issue_snapshot(gateway.fetch_issue(new_rows[0]["number"]))
+    if (
+        created["title"] != title
+        or created["body"] != body
+        or created["state"] != "open"
+        or created["comments"]
+        or not created["id"]
+        or not created["node_id"]
+    ):
+        evidence["terminal_status"] = "conflict_after_write"
+        return evidence
+    receipt, receipt_body = build_create_receipt(
+        created, mutation_id=mutation_id, stable_id=stable_id
+    )
+    evidence["receipt_mutation_id"] = receipt["receipt_mutation_id"]
+    receipt_reconciled: dict[str, Any] | None = None
+    try:
+        evidence["transport_writes"] = 2
+        gateway.append_comment(created["number"], receipt_body)
+    except BaseException as exc:
+        if not _is_ambiguous_write_error(exc):
+            evidence["terminal_status"] = "receipt_write_failed"
+            raise MutationTransportError("receipt_write_failed", evidence) from exc
+        receipt_reconciled = normalise_issue_snapshot(
+            gateway.fetch_issue(created["number"])
+        )
+        matches = [
+            comment
+            for comment in receipt_reconciled["comments"]
+            if (
+                (parsed := parse_create_receipt(comment["body"])) is not None
+                and parsed["receipt_mutation_id"] == receipt["receipt_mutation_id"]
+            )
+        ]
+        if len(matches) != 1:
+            evidence["terminal_status"] = "receipt_ambiguous_indeterminate"
+            raise MutationTransportError(
+                "receipt_ambiguous_indeterminate", evidence
+            ) from exc
+    final = receipt_reconciled or normalise_issue_snapshot(
+        gateway.fetch_issue(created["number"])
+    )
+    if not _postwrite_matches(created, final, receipt_body):
+        evidence["terminal_status"] = "conflict_after_receipt"
+        return evidence
+    acceptance = validate_create_acceptance(final)
+    if not acceptance.get("accepted"):
+        evidence["terminal_status"] = "invalid_create_acceptance"
+        return evidence
     evidence["accepted"] = True
     evidence["terminal_status"] = "accepted"
     return evidence
 
 
 def _is_ambiguous_write_error(exc: BaseException) -> bool:
-    if isinstance(exc, (TimeoutError, ConnectionError)):
+    if isinstance(exc, (TimeoutError, ConnectionError, KeyboardInterrupt)):
         return True
     if isinstance(exc, subprocess.CalledProcessError):
         text = f"{exc.stdout or ''}\n{exc.stderr or ''}"
@@ -541,6 +816,18 @@ def _mutation_comments(snapshot: dict[str, Any], mutation_id: str) -> list[dict[
         except ValueError:
             continue
         if event is not None and event["mutation_id"] == mutation_id:
+            result.append(comment)
+    return result
+
+
+def _receipt_comments(snapshot: dict[str, Any], mutation_id: str) -> list[dict[str, Any]]:
+    result = []
+    for comment in normalise_issue_snapshot(snapshot)["comments"]:
+        try:
+            receipt = parse_event_receipt(comment["body"])
+        except ValueError:
+            continue
+        if receipt is not None and receipt["receipt_mutation_id"] == mutation_id:
             result.append(comment)
     return result
 
@@ -578,6 +865,7 @@ def append_status_event(
     actor: str,
     pusher: str,
     transport: MutationTransport | None = None,
+    authority_revalidator: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     eligibility = {
         "event_name": event_name,
@@ -595,7 +883,7 @@ def append_status_event(
         or event_before != source_sha
         or event_after != head_sha
         or not actor
-        or actor != pusher
+        or not pusher
     ):
         evidence = _policy_evidence("ineligible_status_append_event", plan_sha256)
         evidence["event_binding_sha256"] = _sha256(_json_bytes(eligibility))
@@ -644,6 +932,8 @@ def append_status_event(
     if fresh != reviewed:
         evidence["terminal_status"] = "stale_before_write"
         raise MutationGatewayError("stale_before_write", evidence)
+    if authority_revalidator is not None:
+        authority_revalidator()
 
     reconciled: dict[str, Any] | None = None
     try:
@@ -665,7 +955,42 @@ def append_status_event(
     if not _postwrite_matches(fresh, after, body):
         evidence["terminal_status"] = "conflict_after_write"
         return evidence
-    projected = project_status_events(after)
+    proposal_comment = after["comments"][-1]
+    receipt, receipt_body = build_event_receipt(event, proposal_comment, after)
+    evidence["receipt_mutation_id"] = receipt["receipt_mutation_id"]
+    if authority_revalidator is not None:
+        authority_revalidator()
+    receipt_fresh = normalise_issue_snapshot(gateway.fetch_issue(reviewed["number"]))
+    if receipt_fresh != after:
+        evidence["terminal_status"] = "stale_before_receipt"
+        return evidence
+    receipt_reconciled: dict[str, Any] | None = None
+    try:
+        evidence["transport_writes"] = 2
+        gateway.append_comment(reviewed["number"], receipt_body)
+    except BaseException as exc:
+        if not _is_ambiguous_write_error(exc):
+            evidence["terminal_status"] = "receipt_write_failed"
+            raise MutationTransportError("receipt_write_failed", evidence) from exc
+        receipt_reconciled = normalise_issue_snapshot(
+            gateway.fetch_issue(reviewed["number"])
+        )
+        matches = _receipt_comments(
+            receipt_reconciled, str(receipt["receipt_mutation_id"])
+        )
+        evidence["receipt_ambiguous_reconciliation_count"] = len(matches)
+        if len(matches) != 1:
+            evidence["terminal_status"] = "receipt_ambiguous_indeterminate"
+            raise MutationTransportError(
+                "receipt_ambiguous_indeterminate", evidence
+            ) from exc
+    final = receipt_reconciled or normalise_issue_snapshot(
+        gateway.fetch_issue(reviewed["number"])
+    )
+    if not _postwrite_matches(after, final, receipt_body):
+        evidence["terminal_status"] = "conflict_after_receipt"
+        return evidence
+    projected = project_status_events(final)
     if (
         not projected.get("accepted")
         or projected.get("status") != to_status

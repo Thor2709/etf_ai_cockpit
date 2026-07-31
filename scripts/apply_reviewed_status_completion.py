@@ -99,18 +99,6 @@ def _canonical_candidate_blob_sha256(root: Path, expected_head: str) -> str:
     ).hexdigest()
 
 
-def _validate_merge_source(root: Path, expected_parent: str, expected_head: str) -> str:
-    parents = _git(root, "rev-list", "--parents", "-n", "1", expected_head).split()[1:]
-    if len(parents) != 2 or parents[0] != expected_parent:
-        raise ValueError("status completion requires the expected first-parent merge")
-    source = parents[1]
-    head_blob = _git(root, "rev-parse", f"{expected_head}:{DEFAULT_CANDIDATE.as_posix()}")
-    source_blob = _git(root, "rev-parse", f"{source}:{DEFAULT_CANDIDATE.as_posix()}")
-    if source_blob != head_blob:
-        raise ValueError("merge source candidate blob does not match canonical main")
-    return source
-
-
 def load_candidate(candidate_bytes: bytes) -> dict[str, Any]:
     payload = json.loads(candidate_bytes.decode("utf-8"))
     if not isinstance(payload, dict):
@@ -153,15 +141,25 @@ def validate_git_bindings(
     else:
         if checked_head != expected_head:
             raise ValueError("status-completion head does not equal checked-out HEAD")
-        parents = _git(root, "rev-list", "--parents", "-n", "1", expected_head).split()[
-            1:
-        ]
-        if expected_parent not in parents:
+        if not _is_ancestor(root, expected_parent, expected_head):
             raise ValueError(
-                "candidate expected parent/base is not a direct parent of head"
+                "candidate expected parent/base is not an ancestor of head"
             )
-        if _git(root, "rev-parse", main_ref) != expected_head:
-            raise ValueError("status-completion requires exact fresh main")
+        current_main = _git(root, "rev-parse", main_ref)
+        if not _is_ancestor(root, expected_head, current_main):
+            raise ValueError("status-completion trigger head is not on current main")
+        changed = _git(
+            root,
+            "diff",
+            "--name-only",
+            expected_head,
+            current_main,
+            "--",
+            DEFAULT_CANDIDATE.as_posix(),
+            REGISTRY_PATH.as_posix(),
+        )
+        if changed:
+            raise ValueError("status-completion authority was superseded on current main")
 
 
 def _programme_status(body: str) -> str:
@@ -331,7 +329,6 @@ def run(
             evidence["terminal_status"] = "validated"
             print("VALIDATED_STATUS_COMPLETION_CANDIDATE")
             return
-        _validate_merge_source(root, expected_parent, expected_head)
         bindings = {
             "stable_id": stable_id,
             "from_status": str(expected_update["from_status"]),
@@ -352,6 +349,15 @@ def run(
             reviewed_matches[0],
             **bindings,
             transport=mutation_transport,
+            authority_revalidator=lambda: validate_git_bindings(
+                root,
+                candidate,
+                candidate_path=candidate_path,
+                candidate_bytes=candidate_bytes,
+                expected_parent=expected_parent,
+                expected_head=expected_head,
+                main_ref=main_ref,
+            ),
         )
         evidence["mutation"] = gateway_evidence
         if not gateway_evidence["accepted"]:
@@ -363,6 +369,7 @@ def run(
                 registry,
                 remote_reader(),
                 historical_map=historical_map,
+                expected_status_event=expected_update,
             )
             if (
                 readback.get("summary") == ZERO_SUMMARY

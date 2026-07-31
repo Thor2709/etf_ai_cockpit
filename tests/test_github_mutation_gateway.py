@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import copy
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
 
@@ -76,6 +78,7 @@ class MemoryTransport:
                 self.value["comments"].append(
                     {
                         "id": f"bot-{self.writes}-{index}",
+                        "node_id": f"NODE-{self.writes}-{index}",
                         "body": body,
                         "author": {"login": "github-actions[bot]"},
                         "performed_via_github_app": {
@@ -124,7 +127,7 @@ def test_append_preserves_snapshot_and_projects_status() -> None:
     evidence = append(reviewed, transport)
 
     assert evidence["accepted"] is True
-    assert transport.writes == 1
+    assert transport.writes == 2
     assert transport.value["body"] == reviewed["body"]
     assert transport.value["title"] == reviewed["title"]
     assert transport.value["labels"] == reviewed["labels"]
@@ -182,7 +185,53 @@ def test_two_sessions_accept_at_most_one_event() -> None:
 
     assert first["accepted"] is True
     assert second.value.code == "stale_before_write"
-    assert shared.writes == 1
+    assert shared.writes == 2
+
+
+def test_threaded_competing_sessions_accept_at_most_one_pair() -> None:
+    reviewed = issue()
+
+    class BarrierTransport(MemoryTransport):
+        def __init__(self, value: dict[str, Any]) -> None:
+            super().__init__(value)
+            self.barrier = threading.Barrier(2)
+            self.lock = threading.Lock()
+
+        def fetch_issue(self, number: int) -> dict[str, Any]:
+            with self.lock:
+                return copy.deepcopy(self.value)
+
+        def append_comment(self, number: int, body: str) -> None:
+            self.barrier.wait(timeout=5)
+            with self.lock:
+                self.writes += 1
+                self.value["comments"].append(
+                    {
+                        "id": f"race-{self.writes}",
+                        "node_id": f"RACE-NODE-{self.writes}",
+                        "body": body,
+                        "author": {
+                            "login": "github-actions[bot]",
+                            "type": "Bot",
+                            "id": int(gateway.GITHUB_ACTIONS_BOT_USER_ID),
+                        },
+                        "performed_via_github_app": {
+                            "slug": "github-actions",
+                            "id": int(gateway.GITHUB_ACTIONS_APP_ID),
+                        },
+                        "createdAt": "2026-07-31T00:00:01Z",
+                        "updatedAt": "2026-07-31T00:00:01Z",
+                    }
+                )
+            self.barrier.wait(timeout=5)
+
+    transport = BarrierTransport(reviewed)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda _index: append(reviewed, transport), range(2)))
+
+    assert sum(result["accepted"] is True for result in results) <= 1
+    assert all(result["terminal_status"] == "conflict_after_write" for result in results)
+    assert transport.writes == 2
 
 
 @pytest.mark.parametrize("outcome", ["zero", "multiple"])
@@ -206,8 +255,8 @@ def test_ambiguous_single_mutation_id_is_reconciled_without_retry() -> None:
 
     assert evidence["accepted"] is True
     assert evidence["ambiguous_reconciliation_count"] == 1
-    assert transport.writes == 1
-    assert transport.fetches == 2
+    assert transport.writes == 2
+    assert transport.fetches == 4
 
 
 def test_cancelled_or_rerun_authority_cannot_append_again() -> None:
@@ -236,7 +285,7 @@ def test_cancelled_or_rerun_authority_cannot_append_again() -> None:
         )
 
     assert captured.value.code == "ineligible_status_append_event"
-    assert transport.writes == 1
+    assert transport.writes == 2
 
 
 @pytest.mark.parametrize("kind", ["update", "close", "reopen", "labels", "state"])
@@ -264,21 +313,44 @@ class CreateTransport:
         self.writes += 1
         self.issues.append(
             {
+                "id": 1001,
+                "node_id": "ISSUE_NODE_1",
                 "number": 1,
                 "title": title,
                 "body": body,
                 "state": "open",
                 "url": "https://example.invalid/issues/1",
+                "comments": [],
             }
         )
         if self.ambiguous:
             raise TimeoutError("response lost")
 
     def fetch_issue(self, number: int) -> dict[str, Any]:
-        raise AssertionError("not used for create")
+        assert number == 1
+        return copy.deepcopy(self.issues[0])
 
     def append_comment(self, number: int, body: str) -> None:
-        raise AssertionError("not used for create")
+        assert number == 1
+        self.writes += 1
+        self.issues[0]["comments"].append(
+            {
+                "id": 2001,
+                "node_id": "COMMENT_NODE_1",
+                "body": body,
+                "author": {
+                    "login": "github-actions[bot]",
+                    "type": "Bot",
+                    "id": int(gateway.GITHUB_ACTIONS_BOT_USER_ID),
+                },
+                "performed_via_github_app": {
+                    "slug": "github-actions",
+                    "id": int(gateway.GITHUB_ACTIONS_APP_ID),
+                },
+                "created_at": "2026-07-31T00:00:01Z",
+                "updated_at": "2026-07-31T00:00:01Z",
+            }
+        )
 
 
 def _create_plan() -> dict[str, Any]:
@@ -308,7 +380,7 @@ def test_single_open_create_is_verified_without_retry(ambiguous: bool) -> None:
     )
 
     assert evidence["accepted"] is True
-    assert transport.writes == 1
+    assert transport.writes == 2
     assert "create-mutation-id=" in transport.issues[0]["body"]
     assert "stable-id=ISSUE-0179" in transport.issues[0]["body"]
 
@@ -331,9 +403,109 @@ def test_multi_action_and_closed_create_fail_before_transport() -> None:
         assert transport.writes == 0
 
 
+@pytest.mark.parametrize("outcome", ["zero", "multiple"])
+def test_create_ambiguity_never_retries_or_emits_receipt(outcome: str) -> None:
+    plan = _create_plan()
+    transport = CreateTransport()
+
+    def ambiguous_create(title: str, body: str) -> None:
+        transport.writes += 1
+        if outcome == "multiple":
+            for number in (1, 2):
+                transport.issues.append(
+                    {
+                        "id": 1000 + number,
+                        "node_id": f"ISSUE_NODE_{number}",
+                        "number": number,
+                        "title": title,
+                        "body": body,
+                        "state": "open",
+                        "url": f"https://example.invalid/issues/{number}",
+                        "comments": [],
+                    }
+                )
+        raise TimeoutError("ambiguous create")
+
+    transport.create_open_issue = ambiguous_create  # type: ignore[method-assign]
+    with pytest.raises(gateway.MutationTransportError):
+        sync.apply_actions(
+            plan,
+            approved_sha256=plan["plan_sha256"],
+            mutation_transport=transport,
+        )
+
+    assert transport.writes == 1
+    assert all(not item["comments"] for item in transport.issues)
+
+
+def test_orphan_create_marker_and_orphan_receipt_block_planning() -> None:
+    plan = _create_plan()
+    transport = CreateTransport()
+
+    def interrupted_create(title: str, body: str) -> None:
+        transport.writes += 1
+        transport.issues.append(
+            {
+                "id": 1001,
+                "node_id": "ISSUE_NODE_1",
+                "number": 1,
+                "title": title + " (human changed)",
+                "body": body,
+                "state": "open",
+                "url": "https://example.invalid/issues/1",
+                "comments": [],
+            }
+        )
+        raise TimeoutError("cancelled after create")
+
+    transport.create_open_issue = interrupted_create  # type: ignore[method-assign]
+    rejected = sync.apply_actions(
+        plan,
+        approved_sha256=plan["plan_sha256"],
+        mutation_transport=transport,
+    )
+    assert rejected["accepted"] is False
+    registry = {
+        "records": [
+            {
+                "canonical_id": "ISSUE-0179",
+                "title": "Atomic programme generation",
+                "ledger_state": "open",
+                "programme_status": "planned",
+            }
+        ]
+    }
+    orphan_plan = sync.plan_actions(registry, transport.issues)
+    assert orphan_plan["summary"]["blocked"] == 1
+    assert orphan_plan["actions"][0]["reason"] == "orphan_or_duplicate_create_acceptance"
+
+    legacy = issue("planned")
+    receipt, receipt_body = gateway.build_create_receipt(
+        legacy, mutation_id="a" * 64, stable_id="ISSUE-0179"
+    )
+    legacy["comments"].append(
+        {
+            "id": receipt["receipt_mutation_id"],
+            "node_id": "RECEIPT_NODE",
+            "body": receipt_body,
+        }
+    )
+    assert gateway.validate_create_acceptance(legacy)["accepted"] is False
+
+
 def test_direct_write_helper_has_no_bypass() -> None:
     with pytest.raises(gateway.MutationPolicyError):
         sync.gh_command(["issue", "edit", "179", "--body", "unsafe"])
+
+
+def test_repository_authored_github_post_subprocess_is_gateway_only() -> None:
+    root = Path(__file__).resolve().parents[1]
+    owners = []
+    for path in (root / "scripts").glob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        if '"--method"' in text and '"POST"' in text and '"gh"' in text:
+            owners.append(path.name)
+    assert owners == ["github_mutation_gateway.py"]
 
 
 def _event_comment(
