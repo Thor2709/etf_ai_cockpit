@@ -28,6 +28,21 @@ def test_classifier_tiers_and_stable_reason_report() -> None:
     )
 
 
+def test_status_completion_candidate_remains_exact_evidence_tier() -> None:
+    report = build_report(
+        [".github/issue-transitions/post-merge-control-candidate.json"]
+    )
+
+    assert report["tier"] == "E"
+    assert report["paths"] == [
+        {
+            "path": ".github/issue-transitions/post-merge-control-candidate.json",
+            "tier": "E",
+            "reason": "allowlisted-semantic-event-or-projection",
+        }
+    ]
+
+
 def test_classifier_fails_unknown_and_protected_tooling_upward() -> None:
     assert build_report(["unexpected.file"])["tier"] == "H"
     assert build_report(["scripts/update_programme_status.py"])["tier"] == "H"
