@@ -236,14 +236,20 @@ def verify_actions_oidc_token(
         raise ValueError("malformed GitHub Actions OIDC JWT")
     header = _strict_json(_b64url_decode(parts[0], "JWT header"), "JWT header")
     claims = _strict_json(_b64url_decode(parts[1], "JWT claims"), "JWT claims")
-    if set(header) != {"alg", "kid", "typ", "x5t"} or header != {
-        "alg": "RS256",
-        "kid": header.get("kid"),
-        "typ": "JWT",
-        "x5t": header.get("x5t"),
-    } or any(
-        not isinstance(header[key], str) or not header[key]
-        for key in ("kid", "x5t")
+    header_keys = set(header)
+    if (
+        header_keys not in (
+            {"alg", "kid", "typ"},
+            {"alg", "kid", "typ", "x5t"},
+        )
+        or header.get("alg") != "RS256"
+        or header.get("typ") != "JWT"
+        or not isinstance(header.get("kid"), str)
+        or not header["kid"]
+        or (
+            "x5t" in header
+            and (not isinstance(header["x5t"], str) or not header["x5t"])
+        )
     ):
         raise ValueError("unsupported GitHub Actions OIDC JOSE header")
     jwks = jwks_reader()
@@ -257,9 +263,15 @@ def verify_actions_oidc_token(
         or jwk.get("use") != "sig"
         or jwk.get("kid") != header["kid"]
         or jwk.get("alg") not in (None, "RS256")
-        or not isinstance(jwk.get("x5t"), str)
-        or not jwk["x5t"]
-        or not hmac.compare_digest(jwk["x5t"], header["x5t"])
+        or (
+            "x5t" in jwk
+            and (not isinstance(jwk["x5t"], str) or not jwk["x5t"])
+        )
+        or (
+            "x5t" in header
+            and "x5t" in jwk
+            and not hmac.compare_digest(header["x5t"], jwk["x5t"])
+        )
         or not isinstance(jwk.get("n"), str)
         or not isinstance(jwk.get("e"), str)
     ):

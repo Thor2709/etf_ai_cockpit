@@ -1348,10 +1348,11 @@ def test_fresh_oidc_proof_binds_exact_issue_credential_and_live_job(
 @pytest.mark.parametrize(
     "header",
     [
-        {"typ": "JWT", "alg": "RS256", "kid": "test-key"},
         {"typ": "JWT", "alg": "RS256", "x5t": "", "kid": "test-key"},
         {"typ": "JWT", "alg": "RS256", "x5t": 7, "kid": "test-key"},
         {"typ": "JWT", "alg": "RS256", "x5t": "wrong", "kid": "test-key"},
+        {"typ": "JWT", "alg": "RS256", "kid": ""},
+        {"typ": "JWT", "alg": "RS256", "kid": 7},
         {"typ": "JOSE", "alg": "RS256", "x5t": "test-thumbprint", "kid": "test-key"},
         {"typ": "JWT", "alg": "ES256", "x5t": "test-thumbprint", "kid": "test-key"},
         {"typ": "JWT", "alg": "RS256", "x5t": "test-thumbprint", "kid": "test-key", "jku": "x"},
@@ -1377,15 +1378,55 @@ def test_oidc_proof_rejects_noncanonical_or_unbound_jose_header(
         )
 
 
-@pytest.mark.parametrize("x5t", [None, "", 7, "wrong"])
-def test_oidc_proof_rejects_missing_malformed_or_mismatched_jwk_thumbprint(
+@pytest.mark.parametrize(
+    ("header", "jwk_x5t"),
+    [
+        ({"typ": "JWT", "alg": "RS256", "kid": "test-key"}, None),
+        (
+            {
+                "typ": "JWT", "alg": "RS256", "kid": "test-key",
+                "x5t": "test-thumbprint",
+            },
+            "test-thumbprint",
+        ),
+        (
+            {
+                "typ": "JWT", "alg": "RS256", "kid": "test-key",
+                "x5t": "test-thumbprint",
+            },
+            None,
+        ),
+        ({"typ": "JWT", "alg": "RS256", "kid": "test-key"}, "test-thumbprint"),
+    ],
+)
+def test_oidc_proof_accepts_optional_thumbprint_shapes(
+    header: dict[str, object],
+    jwk_x5t: object,
+) -> None:
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    audience = hashlib.sha256(b"real-token").hexdigest()
+    jwks = _jwk(private_key, x5t=jwk_x5t)
+    if jwk_x5t is None:
+        del jwks["keys"][0]["x5t"]  # type: ignore[index]
+
+    completion.verify_actions_oidc_token(
+        _signed_oidc(private_key, audience, header=header),
+        audience=audience,
+        attestation={**RUN_ATTESTATION, "event_after": HEAD},
+        live_run=_live_actions_run(),
+        live_check=_live_check(),
+        jwks_reader=lambda: jwks,
+        now=lambda: NOW,
+    )
+
+
+@pytest.mark.parametrize("x5t", ["", 7, "wrong"])
+def test_oidc_proof_rejects_malformed_or_mismatched_jwk_thumbprint(
     x5t: object,
 ) -> None:
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     audience = hashlib.sha256(b"real-token").hexdigest()
     jwks = _jwk(private_key, x5t=x5t)
-    if x5t is None:
-        del jwks["keys"][0]["x5t"]  # type: ignore[index]
     with pytest.raises(ValueError):
         completion.verify_actions_oidc_token(
             _signed_oidc(private_key, audience),
@@ -1395,6 +1436,36 @@ def test_oidc_proof_rejects_missing_malformed_or_mismatched_jwk_thumbprint(
             live_check=_live_check(),
             jwks_reader=lambda: jwks,
             now=lambda: NOW,
+        )
+
+
+def test_oidc_proof_rejects_duplicate_kid_and_altered_signature() -> None:
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    audience = hashlib.sha256(b"real-token").hexdigest()
+    token = _signed_oidc(private_key, audience)
+    jwks = _jwk(private_key)
+    jwks["keys"].append(copy.deepcopy(jwks["keys"][0]))  # type: ignore[union-attr]
+    arguments = {
+        "audience": audience,
+        "attestation": {**RUN_ATTESTATION, "event_after": HEAD},
+        "live_run": _live_actions_run(),
+        "live_check": _live_check(),
+        "now": lambda: NOW,
+    }
+
+    with pytest.raises(ValueError, match="duplicate GitHub Actions signing key"):
+        completion.verify_actions_oidc_token(
+            token, jwks_reader=lambda: jwks, **arguments,
+        )
+
+    token_parts = token.split(".")
+    signature = bytearray(completion._b64url_decode(token_parts[2], "JWT signature"))
+    signature[0] ^= 1
+    token_parts[2] = base64.urlsafe_b64encode(signature).rstrip(b"=").decode()
+    altered_token = ".".join(token_parts)
+    with pytest.raises(ValueError, match="invalid GitHub Actions OIDC signature"):
+        completion.verify_actions_oidc_token(
+            altered_token, jwks_reader=lambda: _jwk(private_key), **arguments,
         )
 
 

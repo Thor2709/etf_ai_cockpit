@@ -36,9 +36,11 @@ repeating or rewriting history.
 The sole mutation workflow also obtains a fresh GitHub Actions OIDC token at
 startup and immediately before every possible issue POST. Its custom audience
 is the SHA-256 digest of the exact issue credential presented to the transport.
-The local verifier accepts only GitHub's documented `typ`, `alg`, `x5t`, and
-`kid` JOSE header shape, fixed issuer and RS256 JWKS, binds the header's `x5t`
-certificate thumbprint to the selected `kid` key, and binds
+The local verifier requires GitHub's documented `alg`, `kid`, and `typ` JOSE
+header contract and accepts `x5t` only as optional corroboration when present
+on both the header and selected JWK. The thumbprint never selects or substitutes
+for a key and never replaces RSA signature verification over the selected
+`kid` key's `n` and `e`. The verifier also binds the fixed issuer and
 the signed repository, push/main ref, commit, workflow, first run, GitHub-hosted
 runner and job check-run claims to live in-progress run and check objects. This
 provides process-local freshness and correlation; it does not prove credential
