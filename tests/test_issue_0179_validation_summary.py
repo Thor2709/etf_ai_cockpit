@@ -135,6 +135,7 @@ def _candidate_evidence() -> dict[str, object]:
         "expected_head_sha": "b" * 40,
         "remote_inventory_sha256": "c" * 64,
         "plan_semantic_sha256": "d" * 64,
+        "candidate_blob_sha256": "e" * 64,
         "expected_update": {
             "stable_id": "ISSUE-0179",
             "from_status": "implemented_initially",
@@ -148,6 +149,13 @@ def _candidate_evidence() -> dict[str, object]:
                 "managed_field_deltas": ["Programme status"],
             }
         ],
+        "mutation": {
+            "transport": "github_issue_comment_append",
+            "predecessor_event_id": "legacy:ISSUE-0179",
+            "predecessor_event_sha256": "f" * 64,
+            "candidate_blob_sha256": "e" * 64,
+            "plan_sha256": "d" * 64,
+        },
         "terminal_status": "validated",
         "zero_action_readback": None,
     }
@@ -185,6 +193,11 @@ def _collect_candidate(
     candidate: dict[str, object] | None = None,
 ) -> dict[str, object]:
     monkeypatch.setattr(validation_summary, "_tree_identity", lambda *_args: "e" * 64)
+    monkeypatch.setattr(
+        validation_summary,
+        "_committed_candidate_blob_sha256",
+        lambda *_args: "e" * 64,
+    )
     evidence = _candidate_evidence()
     monkeypatch.setattr(
         validation_summary,
@@ -242,6 +255,7 @@ def test_candidate_change_requires_valid_terminal_evidence(
         (lambda evidence: evidence.update(expected_head_sha="f" * 40), "head SHA mismatch"),
         (lambda evidence: evidence.update(plan_semantic_sha256="bad"), "semantic plan identity mismatch"),
         (lambda evidence: evidence.update(expected_update={}), "expected update identity mismatch"),
+        (lambda evidence: evidence.pop("mutation"), "comment event identity is invalid"),
     ],
 )
 def test_candidate_change_rejects_invalid_evidence(

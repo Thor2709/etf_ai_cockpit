@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from scripts import github_mutation_gateway as gateway
 from scripts import sync_github_issues as sync
 
 
@@ -144,8 +145,10 @@ def test_create_action_contains_canonical_managed_fields() -> None:
 def test_plan_hash_is_required_before_apply() -> None:
     issue = record()
     plan = sync.plan_actions(registry(issue), [remote(issue)])
-    with pytest.raises(ValueError, match="approved plan SHA-256"):
+    with pytest.raises(gateway.MutationPolicyError) as captured:
         sync.apply_actions(plan, approved_sha256="wrong")
+    assert captured.value.code == "approved_plan_sha256_mismatch"
+    assert captured.value.evidence["transport_writes"] == 0
 
 
 def test_idempotent_managed_remote_has_no_actions() -> None:
@@ -207,3 +210,74 @@ def test_cli_dry_run_writes_plan_only(tmp_path, monkeypatch) -> None:
     assert safe_inventory["inventory_sha256"] == json.loads(output.read_text(encoding="utf-8"))["remote_inventory_sha256"]
     assert all("body" not in row for row in safe_inventory["issues"])
     assert json.loads(output.read_text(encoding="utf-8"))["summary"]["blocked"] == 0
+
+
+def test_cli_prohibits_remote_snapshot_apply() -> None:
+    with pytest.raises(SystemExit, match="remote_snapshot_apply_prohibited"):
+        sync.main(
+            [
+                "--remote-snapshot",
+                "untrusted.json",
+                "--apply",
+                "--approved-plan-sha256",
+                "0" * 64,
+            ]
+        )
+
+
+def test_status_event_projection_produces_zero_action_convergence() -> None:
+    desired = record()
+    desired["programme_status"] = "integrated"
+    value = remote({**desired, "programme_status": "implemented_initially"})
+    projection = gateway.project_status_events(value)
+    _event, body = gateway.build_status_event(
+        stable_id="ISSUE-0070",
+        from_status="implemented_initially",
+        to_status="integrated",
+        source_sha="a" * 40,
+        head_sha="b" * 40,
+        candidate_blob_sha256="c" * 64,
+        plan_sha256="d" * 64,
+        predecessor_event_id=projection["head_event_id"],
+        predecessor_event_sha256=projection["head_event_sha256"],
+        event_name="push",
+        event_ref="refs/heads/main",
+        run_attempt="1",
+        event_before="a" * 40,
+        event_after="b" * 40,
+        actor="merger",
+        pusher="merger",
+    )
+    value["comments"] = [
+        {
+            "id": "event-1",
+            "body": body,
+            "author": {
+                "login": "github-actions[bot]",
+                "type": "Bot",
+                "id": int(gateway.GITHUB_ACTIONS_BOT_USER_ID),
+            },
+            "performed_via_github_app": {
+                "slug": "github-actions",
+                "id": int(gateway.GITHUB_ACTIONS_APP_ID),
+            },
+            "createdAt": "2026-07-31T00:00:00Z",
+            "updatedAt": "2026-07-31T00:00:00Z",
+        }
+    ]
+
+    plan = sync.plan_actions(registry(desired), [value])
+
+    assert plan["actions"] == []
+    assert plan["summary"] == {
+        "create": 0,
+        "update": 0,
+        "close": 0,
+        "reopen": 0,
+        "blocked": 0,
+    }
+
+    non_status_drift = {**desired, "priority": "P9"}
+    drift_plan = sync.plan_actions(registry(non_status_drift), [value])
+    assert drift_plan["summary"]["update"] == 1
+    assert drift_plan["actions"][0]["kind"] == "update"

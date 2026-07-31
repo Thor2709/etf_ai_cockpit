@@ -25,6 +25,8 @@ def plan_summary(plan: dict) -> dict:
         "remote_inventory_sha256": plan.get("remote_inventory_sha256"),
         "remote_issue_count": plan.get("remote_issue_count"),
         "summary": plan.get("summary"),
+        "actions": plan.get("actions"),
+        "status_event_projections": plan.get("status_event_projections"),
         "legacy_duplicate_count": len(plan.get("legacy_duplicates", [])),
     }
 
@@ -38,6 +40,20 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     approved = [plan_summary(read_json(path)) for path in args.approved_plan]
     final = plan_summary(read_json(args.final_plan))
+    zero = {"create": 0, "update": 0, "close": 0, "reopen": 0, "blocked": 0}
+    projections = final["status_event_projections"]
+    if (
+        final["summary"] != zero
+        or final["actions"] != []
+        or not isinstance(projections, list)
+        or any(
+            not isinstance(item, dict) or item.get("accepted") is not True
+            for item in projections
+        )
+    ):
+        raise ValueError(
+            "final convergence requires zero summary, actions=[] and valid status-event chains"
+        )
     historical_map = read_json(args.map_path)
     first = approved[0]["summary"] or {}
     applied = {
@@ -52,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
         "repository": "Thor2709/etf_ai_cockpit",
         "application": {
             "status": "APPLIED_AND_VERIFIED",
-            "readback_noop": final["summary"] == {"create": 0, "update": 0, "close": 0, "reopen": 0, "blocked": 0},
+            "readback_noop": True,
             "reviewed_reopen_ids": ["ISSUE-0048", "ISSUE-0067", "ISSUE-0122"],
             "initial_action_summary": first,
             "applied_action_totals": applied,

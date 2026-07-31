@@ -11,8 +11,9 @@ permissions:
   issues: write
 
 concurrency:
-  group: programme-status-completion-${{ github.ref }}
+  group: github-mutations-${{ github.repository }}
   cancel-in-progress: false
+  queue: max
 
 jobs:
   apply-reviewed-status:
@@ -33,6 +34,13 @@ jobs:
             --expected-parent "$parent" \
             --expected-head "${{ github.sha }}" \
             --main-ref origin/main \
+            --event-name "${{ github.event_name }}" \
+            --event-ref "${{ github.ref }}" \
+            --run-attempt "${{ github.run_attempt }}" \
+            --event-before "${{ github.event.before }}" \
+            --event-after "${{ github.sha }}" \
+            --actor "${{ github.actor }}" \
+            --pusher "${{ github.event.pusher.name }}" \
             --evidence-out artifacts/programme-status-completion/evidence.json \
             --apply
       - name: Upload status-completion evidence

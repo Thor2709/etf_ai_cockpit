@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -11,9 +12,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 try:
+    from scripts import github_mutation_gateway as mutation_gateway
     from scripts import sync_github_issues as sync
     from scripts.issue_registry_core import CONTROL_ALLOWED_TRANSITIONS, REGISTRY_PATH
 except ModuleNotFoundError:
+    import github_mutation_gateway as mutation_gateway
     import sync_github_issues as sync
     from issue_registry_core import CONTROL_ALLOWED_TRANSITIONS, REGISTRY_PATH
 
@@ -87,6 +90,25 @@ def _validate_candidate_blob(
         b"\n", b"\r\n"
     ):
         raise ValueError("checked-out candidate bytes do not match expected head")
+
+
+def _canonical_candidate_blob_sha256(root: Path, expected_head: str) -> str:
+    blob = _git(root, "rev-parse", f"{expected_head}:{DEFAULT_CANDIDATE.as_posix()}")
+    return hashlib.sha256(
+        subprocess.check_output(["git", "cat-file", "blob", blob], cwd=root)
+    ).hexdigest()
+
+
+def _validate_merge_source(root: Path, expected_parent: str, expected_head: str) -> str:
+    parents = _git(root, "rev-list", "--parents", "-n", "1", expected_head).split()[1:]
+    if len(parents) != 2 or parents[0] != expected_parent:
+        raise ValueError("status completion requires the expected first-parent merge")
+    source = parents[1]
+    head_blob = _git(root, "rev-parse", f"{expected_head}:{DEFAULT_CANDIDATE.as_posix()}")
+    source_blob = _git(root, "rev-parse", f"{source}:{DEFAULT_CANDIDATE.as_posix()}")
+    if source_blob != head_blob:
+        raise ValueError("merge source candidate blob does not match canonical main")
+    return source
 
 
 def load_candidate(candidate_bytes: bytes) -> dict[str, Any]:
@@ -224,6 +246,14 @@ def run(
     apply: bool,
     evidence_out: Path | None = None,
     remote_reader: Callable[[], list[dict[str, Any]]] = sync.gh_list_issues,
+    mutation_transport: mutation_gateway.MutationTransport | None = None,
+    event_name: str | None = None,
+    event_ref: str | None = None,
+    run_attempt: str | None = None,
+    event_before: str | None = None,
+    event_after: str | None = None,
+    actor: str | None = None,
+    pusher: str | None = None,
 ) -> None:
     evidence: dict[str, Any] = {
         "schema_version": "etf-ai-cockpit.status-completion-evidence/1.0",
@@ -247,6 +277,7 @@ def run(
                 "remote_inventory_sha256": candidate.get("remote_inventory_sha256"),
                 "plan_semantic_sha256": candidate.get("plan_semantic_sha256"),
                 "expected_update": candidate.get("expected_update"),
+                "candidate_blob_sha256": hashlib.sha256(candidate_bytes).hexdigest(),
             }
         )
         validate_git_bindings(
@@ -268,12 +299,65 @@ def run(
         )
         plan = sync.plan_actions(registry, remote, historical_map=historical_map)
         validate_candidate(candidate, plan, remote)
+        candidate_blob_sha256 = _canonical_candidate_blob_sha256(root, expected_head)
+        evidence["candidate_blob_sha256"] = candidate_blob_sha256
         evidence["action_scope"] = sync.safe_plan_evidence(plan, remote)["actions"]
+        expected_update = candidate["expected_update"]
+        stable_id = str(expected_update["stable_id"])
+        reviewed_matches = [
+            issue
+            for issue in remote
+            if stable_id
+            in set(
+                sync.MARKER_RE.findall(str(issue.get("body") or ""))
+            )
+        ]
+        if len(reviewed_matches) != 1:
+            raise ValueError("candidate reviewed issue snapshot is ambiguous")
+        projection = mutation_gateway.project_status_events(reviewed_matches[0])
+        if (
+            not projection.get("accepted")
+            or projection.get("status") != expected_update["from_status"]
+        ):
+            raise ValueError("live predecessor status-event projection is invalid")
+        evidence["mutation"] = {
+            "transport": "github_issue_comment_append",
+            "predecessor_event_id": projection["head_event_id"],
+            "predecessor_event_sha256": projection["head_event_sha256"],
+            "candidate_blob_sha256": candidate_blob_sha256,
+            "plan_sha256": str(candidate["plan_semantic_sha256"]),
+        }
         if not apply:
             evidence["terminal_status"] = "validated"
             print("VALIDATED_STATUS_COMPLETION_CANDIDATE")
             return
-        sync.apply_actions(plan, approved_sha256=str(candidate["plan_semantic_sha256"]))
+        _validate_merge_source(root, expected_parent, expected_head)
+        bindings = {
+            "stable_id": stable_id,
+            "from_status": str(expected_update["from_status"]),
+            "to_status": str(expected_update["to_status"]),
+            "source_sha": expected_parent,
+            "head_sha": expected_head,
+            "candidate_blob_sha256": candidate_blob_sha256,
+            "plan_sha256": str(candidate["plan_semantic_sha256"]),
+            "event_name": str(event_name or ""),
+            "event_ref": str(event_ref or ""),
+            "run_attempt": str(run_attempt or ""),
+            "event_before": str(event_before or ""),
+            "event_after": str(event_after or ""),
+            "actor": str(actor or ""),
+            "pusher": str(pusher or ""),
+        }
+        gateway_evidence = mutation_gateway.append_status_event(
+            reviewed_matches[0],
+            **bindings,
+            transport=mutation_transport,
+        )
+        evidence["mutation"] = gateway_evidence
+        if not gateway_evidence["accepted"]:
+            raise RuntimeError(
+                f"status event not accepted: {gateway_evidence['terminal_status']}"
+            )
         for attempt in range(4):
             readback = sync.plan_actions(
                 registry,
@@ -293,6 +377,8 @@ def run(
         evidence["zero_action_readback"] = False
         raise RuntimeError("status-completion GitHub read-back is not idempotent")
     except Exception as exc:
+        if isinstance(exc, mutation_gateway.MutationGatewayError):
+            evidence["mutation"] = exc.evidence
         evidence["failure_reason"] = f"{type(exc).__name__}: {exc}"
         raise
     finally:
@@ -314,6 +400,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--main-ref")
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--evidence-out", type=Path)
+    parser.add_argument("--event-name")
+    parser.add_argument("--event-ref")
+    parser.add_argument("--run-attempt")
+    parser.add_argument("--event-before")
+    parser.add_argument("--event-after")
+    parser.add_argument("--actor")
+    parser.add_argument("--pusher")
     args = parser.parse_args(argv)
     root = args.root.resolve()
     candidate = args.candidate
@@ -330,6 +423,13 @@ def main(argv: list[str] | None = None) -> int:
         main_ref=args.main_ref,
         apply=args.apply,
         evidence_out=evidence_out,
+        event_name=args.event_name,
+        event_ref=args.event_ref,
+        run_attempt=args.run_attempt,
+        event_before=args.event_before,
+        event_after=args.event_after,
+        actor=args.actor,
+        pusher=args.pusher,
     )
     return 0
 

@@ -17,8 +17,10 @@ from pathlib import Path
 from typing import Any, Iterable
 
 try:
+    from scripts import github_mutation_gateway as mutation_gateway
     from scripts.issue_registry_core import REGISTRY_PATH, deterministic_json
 except ModuleNotFoundError:
+    import github_mutation_gateway as mutation_gateway
     from issue_registry_core import REGISTRY_PATH, deterministic_json
 
 
@@ -101,13 +103,10 @@ def marker_ids(remote_issues: Iterable[dict[str, Any]]) -> dict[str, list[dict[s
 
 
 def normalise_remote_issue(issue: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "number": int(issue.get("number", 0)),
-        "title": str(issue.get("title", "")),
-        "body": str(issue.get("body") or ""),
-        "state": str(issue.get("state", "OPEN")).lower(),
-        "url": str(issue.get("url", "")),
-    }
+    value = mutation_gateway.normalise_issue_snapshot(issue)
+    projection = mutation_gateway.project_status_events(value)
+    value["status_projection"] = projection
+    return value
 
 
 def registry_sync_records(registry: dict[str, Any]) -> list[dict[str, Any]]:
@@ -230,6 +229,21 @@ def plan_actions(
 
         issue = matches[0]
         mapped_numbers.add(issue["number"])
+        projection = issue["status_projection"]
+        has_status_events = any(
+            str(comment.get("body", "")).startswith(mutation_gateway.EVENT_PREFIX)
+            for comment in issue["comments"]
+        )
+        if has_status_events and not projection.get("accepted"):
+            actions.append(
+                _action(
+                    "blocked",
+                    record,
+                    reason=str(projection.get("error", "invalid_status_event_projection")),
+                    remote_number=issue["number"],
+                )
+            )
+            continue
         body = issue["body"]
         new_markers = MARKER_RE.findall(body)
         legacy_markers = LEGACY_MARKER_RE.findall(body)
@@ -256,7 +270,17 @@ def plan_actions(
         except ValueError as exc:
             actions.append(_action("blocked", record, reason=str(exc), remote_number=issue["number"]))
             continue
-        if desired_body != body or str(issue.get("title", "")) != str(record.get("title", "")):
+        status_only_projection = (
+            _managed_delta_fields(
+                _action("update", record, remote_number=issue["number"]), issue
+            )
+            == ["Programme status"]
+            and projection.get("status") == record.get("programme_status")
+        )
+        if (
+            (desired_body != body and not status_only_projection)
+            or str(issue.get("title", "")) != str(record.get("title", ""))
+        ):
             actions.append(_action("update", record, remote_number=issue["number"], body=desired_body))
         desired_state = "closed" if record.get("ledger_state") == "closed" else "open"
         remote_state = str(issue.get("state", "open")).lower()
@@ -286,11 +310,27 @@ def plan_actions(
         "schema_version": "1.0",
         "repository": REPO,
         "remote_inventory_sha256": inventory_sha256(remote),
+        "claim_inventory_sha256": mutation_gateway.claim_inventory_sha256(remote),
         "desired_record_count": len(records),
         "remote_issue_count": len(remote),
         "reviewed_reopen_ids": sorted(reopen_ids),
         "historical_map_sha256": (historical_map or {}).get("map_sha256"),
         "legacy_duplicates": legacy_duplicates,
+        "status_event_projections": [
+            {
+                "stable_id": stable_id,
+                "remote_number": issue["number"],
+                "accepted": bool(issue["status_projection"].get("accepted")),
+                "effective_status": issue["status_projection"].get("status"),
+                "head_event_id": issue["status_projection"].get("head_event_id"),
+                "head_event_sha256": issue["status_projection"].get(
+                    "head_event_sha256"
+                ),
+                "validation_error": issue["status_projection"].get("error"),
+            }
+            for stable_id, issues in sorted(by_marker.items())
+            for issue in issues
+        ],
         "summary": summary,
         "actions": sorted(actions, key=lambda action: (str(action.get("stable_id", "")), action["kind"])),
     }
@@ -318,6 +358,14 @@ def safe_remote_inventory(remote_issues: Iterable[dict[str, Any]]) -> dict[str, 
             "state": issue["state"],
             "title": issue["title"],
             "url": issue["url"],
+            "effective_programme_status": issue["status_projection"].get("status"),
+            "status_event_head_id": issue["status_projection"].get("head_event_id"),
+            "status_event_head_sha256": issue["status_projection"].get(
+                "head_event_sha256"
+            ),
+            "status_event_validation": (
+                "accepted" if issue["status_projection"].get("accepted") else "invalid"
+            ),
         })
     return {
         "schema_version": "etf-ai-cockpit.safe-remote-inventory/1.0",
@@ -423,33 +471,34 @@ def sync_review_markdown(plan: dict[str, Any], *, safe_evidence_sha256: str) -> 
 
 
 def gh_list_issues() -> list[dict[str, Any]]:
-    value = json.loads(
-        gh_command(
-            [
-                "issue",
-                "list",
-                "--repo",
-                REPO,
-                "--state",
-                "all",
-                "--limit",
-                "1000",
-                "--json",
-                "number,title,body,state,url",
-            ]
-        )
-    )
-    if not isinstance(value, list):
-        raise ValueError("gh issue list did not return a JSON list")
+    transport = mutation_gateway.GhMutationTransport(REPO)
+    value = transport.list_issues()
+    value = [
+        transport.fetch_issue(int(issue["number"]))
+        if MARKER_RE.search(str(issue.get("body") or ""))
+        or LEGACY_MARKER_RE.search(str(issue.get("body") or ""))
+        else issue
+        for issue in value
+    ]
     return value
 
 
-def gh_write(args: list[str]) -> str:
-    return gh_command(args)
-
-
 def gh_command(args: list[str], *, attempts: int = 3) -> str:
-    """Run one gh operation, retrying only transient HTTP 503 failures."""
+    """Run one read-only gh operation, retrying transient HTTP 503 failures."""
+
+    mutation_tokens = {"create", "edit", "close", "reopen", "comment", "delete"}
+    if mutation_tokens.intersection(args) or "--method" in args:
+        raise mutation_gateway.MutationPolicyError(
+            "direct_github_mutation_prohibited",
+            {
+                "schema_version": "etf-ai-cockpit.github-mutation-evidence/1.0",
+                "execution_allowed": False,
+                "accepted": False,
+                "terminal_status": "policy_rejected",
+                "policy_code": "direct_github_mutation_prohibited",
+                "transport_writes": 0,
+            },
+        )
 
     for attempt in range(attempts):
         completed = subprocess.run(
@@ -472,28 +521,24 @@ def gh_command(args: list[str], *, attempts: int = 3) -> str:
     raise RuntimeError("unreachable")
 
 
-def apply_actions(plan: dict[str, Any], *, approved_sha256: str) -> None:
-    if approved_sha256 != plan.get("plan_sha256") or approved_sha256 != plan_sha256(plan):
-        raise ValueError("approved plan SHA-256 does not match the current deterministic plan")
-    blocked = [action for action in plan.get("actions", []) if action.get("kind") == "blocked"]
-    if blocked:
-        raise ValueError("cannot apply a plan containing blocked actions")
-    for action in plan.get("actions", []):
-        kind = action["kind"]
-        number = action.get("remote_number")
-        if kind == "create":
-            body = managed_block(action)
-            output = gh_write(["issue", "create", "--repo", REPO, "--title", action["title"], "--body", body])
-            match = re.search(r"/issues/(\d+)", output)
-            if not match:
-                raise RuntimeError("gh issue create did not return an issue URL")
-            number = match.group(1)
-        elif kind == "update":
-            gh_write(["issue", "edit", str(number), "--repo", REPO, "--title", action["title"], "--body", action["body"]])
-        if kind == "close" or (kind == "create" and action.get("desired_state") == "closed"):
-            gh_write(["issue", "close", str(number), "--repo", REPO])
-        elif kind == "reopen":
-            gh_write(["issue", "reopen", str(number), "--repo", REPO])
+def apply_actions(
+    plan: dict[str, Any],
+    *,
+    approved_sha256: str,
+    mutation_transport: mutation_gateway.MutationTransport | None = None,
+) -> dict[str, Any]:
+    """Apply at most one policy-allowlisted open-issue creation."""
+
+    actions = plan.get("actions")
+    create_body = None
+    if isinstance(actions, list) and len(actions) == 1 and actions[0].get("kind") == "create":
+        create_body = managed_block(actions[0])
+    return mutation_gateway.apply_reviewed_plan(
+        plan,
+        approved_sha256=approved_sha256,
+        create_body=create_body,
+        transport=mutation_transport,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -512,6 +557,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--apply", action="store_true", help="apply only after the approved plan SHA-256 is supplied")
     parser.add_argument("--approved-plan-sha256")
     args = parser.parse_args(argv)
+    if args.apply and args.remote_snapshot:
+        raise SystemExit("POLICY_ERROR: remote_snapshot_apply_prohibited")
     root = args.root.resolve()
     registry = json.loads((root / REGISTRY_PATH).read_text(encoding="utf-8"))
     if args.remote_snapshot:

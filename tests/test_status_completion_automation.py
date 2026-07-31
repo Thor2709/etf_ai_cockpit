@@ -83,19 +83,24 @@ def test_happy_apply_uses_approved_plan_and_requires_zero_readback(
     registry = tmp_path / sync.REGISTRY_PATH
     registry.parent.mkdir(parents=True)
     registry.write_text(json.dumps({"records": [_record()]}), encoding="utf-8")
-    observed: list[str] = []
+    observed: list[dict[str, object]] = []
     monkeypatch.setattr(
         completion,
         "validate_git_bindings",
         lambda *_args, **_kwargs: None,
     )
     monkeypatch.setattr(
-        completion.sync,
-        "apply_actions",
-        lambda value, *, approved_sha256: (
-            observed.append(approved_sha256)
-            if value == plan
-            else pytest.fail("unexpected plan")
+        completion, "_canonical_candidate_blob_sha256", lambda *_args: "e" * 64
+    )
+    monkeypatch.setattr(
+        completion, "_validate_merge_source", lambda *_args: "f" * 40
+    )
+    monkeypatch.setattr(
+        completion.mutation_gateway,
+        "append_status_event",
+        lambda reviewed_snapshot, **kwargs: (
+            observed.append({"snapshot": reviewed_snapshot, **kwargs})
+            or {"accepted": True, "terminal_status": "accepted"}
         ),
     )
     readbacks = iter([remote, _remote("integrated")])
@@ -110,9 +115,21 @@ def test_happy_apply_uses_approved_plan_and_requires_zero_readback(
         apply=True,
         evidence_out=evidence_path,
         remote_reader=lambda: next(readbacks),
+        event_name="push",
+        event_ref="refs/heads/main",
+        run_attempt="1",
+        event_before=PARENT,
+        event_after=HEAD,
+        actor="merger",
+        pusher="merger",
     )
 
-    assert observed == [plan["plan_sha256"]]
+    assert len(observed) == 1
+    assert observed[0]["plan_sha256"] == plan["plan_sha256"]
+    assert observed[0]["snapshot"] == remote[0]
+    assert observed[0]["event_name"] == "push"
+    assert observed[0]["event_ref"] == "refs/heads/main"
+    assert observed[0]["run_attempt"] == "1"
     evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
     assert evidence["terminal_status"] == "applied_and_verified"
     assert evidence["zero_action_readback"] is True
@@ -431,6 +448,11 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
     status_workflow = yaml.safe_load(status_text)
 
     assert status_workflow["permissions"] == {"contents": "read", "issues": "write"}
+    assert status_workflow["concurrency"] == {
+        "group": "github-mutations-${{ github.repository }}",
+        "cancel-in-progress": False,
+        "queue": "max",
+    }
     assert status_workflow[True]["push"]["branches"] == ["main"]
     assert status_workflow[True]["push"]["paths"] == [
         ".github/issue-transitions/post-merge-control-candidate.json"
@@ -464,6 +486,25 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
     assert "name: validation-status-completion-candidate-${{ github.sha }}" in release
     assert "path: artifacts/validation/status-completion-candidate.json" in release
     assert "!artifacts/validation/status-completion-candidate.json" in release
+    write_workflows = []
+    for workflow_path in (root / ".github/workflows").glob("*.yml"):
+        workflow_text = workflow_path.read_text(encoding="utf-8")
+        if "issues: write" in workflow_text:
+            write_workflows.append(workflow_path.name)
+            assert "group: github-mutations-${{ github.repository }}" in workflow_text
+            assert "cancel-in-progress: false" in workflow_text
+            assert "queue: max" in workflow_text
+    assert write_workflows == ["programme-status-completion.yml"]
+    for argument in (
+        '--event-name "${{ github.event_name }}"',
+        '--event-ref "${{ github.ref }}"',
+        '--run-attempt "${{ github.run_attempt }}"',
+        '--event-before "${{ github.event.before }}"',
+        '--event-after "${{ github.sha }}"',
+        '--actor "${{ github.actor }}"',
+        '--pusher "${{ github.event.pusher.name }}"',
+    ):
+        assert argument in status_text
     candidate_upload = release.index(
         "- name: Upload status-completion candidate evidence"
     )

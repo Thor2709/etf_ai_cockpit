@@ -9,10 +9,27 @@ from pathlib import Path
 
 try:
     from scripts.issue_registry_core import deterministic_json
-    from scripts.sync_github_issues import DEFAULT_MAP_PATH, gh_list_issues, inventory_sha256, marker_ids
+    from scripts.sync_github_issues import DEFAULT_MAP_PATH, gh_list_issues, marker_ids
 except ModuleNotFoundError:
     from issue_registry_core import deterministic_json
-    from sync_github_issues import DEFAULT_MAP_PATH, gh_list_issues, inventory_sha256, marker_ids
+    from sync_github_issues import DEFAULT_MAP_PATH, gh_list_issues, marker_ids
+
+
+def _body_marker_inventory_sha256(remote: list[dict]) -> str:
+    rows = sorted(
+        (
+            {
+                "number": int(issue.get("number", 0)),
+                "title": str(issue.get("title") or ""),
+                "body": str(issue.get("body") or ""),
+                "state": str(issue.get("state") or "").lower(),
+                "url": str(issue.get("url") or issue.get("html_url") or ""),
+            }
+            for issue in remote
+        ),
+        key=lambda row: (len(str(row["number"])), str(row["number"])),
+    )
+    return hashlib.sha256(deterministic_json(rows)).hexdigest()
 
 
 def build_map(remote: list[dict]) -> dict:
@@ -37,7 +54,7 @@ def build_map(remote: list[dict]) -> dict:
     payload = {
         "schema_version": "1.0",
         "repository": "Thor2709/etf_ai_cockpit",
-        "remote_inventory_sha256": inventory_sha256(remote),
+        "remote_inventory_sha256": _body_marker_inventory_sha256(remote),
         "duplicate_group_count": len(mappings),
         "mappings": mappings,
     }
