@@ -4,6 +4,8 @@ import copy
 import json
 from pathlib import Path
 
+import pytest
+
 from scripts import validation_summary
 from scripts.validation_summary import validate_summary
 
@@ -115,6 +117,160 @@ def test_terminal_collection_preserves_platform_artifact_directories(
 
     assert report["platform_junit"] == {"windows": 3, "linux": 3}
     assert validate_summary(report) == []
+
+
+def _candidate_evidence() -> dict[str, object]:
+    return {
+        "schema_version": "etf-ai-cockpit.status-completion-evidence/1.0",
+        "execution_allowed": False,
+        "mode": "validate",
+        "expected_parent_sha": "a" * 40,
+        "expected_head_sha": "b" * 40,
+        "remote_inventory_sha256": "c" * 64,
+        "plan_semantic_sha256": "d" * 64,
+        "expected_update": {
+            "stable_id": "ISSUE-0179",
+            "from_status": "implemented_initially",
+            "to_status": "integrated",
+        },
+        "action_scope": [
+            {
+                "kind": "update",
+                "stable_id": "ISSUE-0179",
+                "remote_number": 582,
+                "managed_field_deltas": ["Programme status"],
+            }
+        ],
+        "terminal_status": "validated",
+        "zero_action_readback": None,
+    }
+
+
+def _candidate_artifacts(tmp_path: Path) -> Path:
+    artifacts = tmp_path / "validation-evidence"
+    classifier = artifacts / "validation-classifier-head" / "classifier.json"
+    classifier.parent.mkdir(parents=True)
+    classifier.write_text(
+        json.dumps(
+            {
+                "tier": "E",
+                "package_gate_required": False,
+                "reasons": ["allowlisted-semantic-event-or-projection"],
+                "paths": [
+                    {
+                        "path": ".github/issue-transitions/post-merge-control-candidate.json",
+                        "tier": "E",
+                        "reason": "allowlisted-semantic-event-or-projection",
+                    }
+                ],
+                "evidence_reuse": {"authorized": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return artifacts
+
+
+def _collect_candidate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> dict[str, object]:
+    monkeypatch.setattr(validation_summary, "_tree_identity", lambda *_args: "e" * 64)
+    return validation_summary.collect_summary(
+        tmp_path,
+        tmp_path / "validation-evidence",
+        base="a" * 40,
+        head="b" * 40,
+        job_results={
+            "classifier": "success",
+            "preflight": "success",
+            "supply_chain": "success",
+            "release": "skipped",
+        },
+    )
+
+
+def test_candidate_change_requires_valid_terminal_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifacts = _candidate_artifacts(tmp_path)
+    evidence = (
+        artifacts
+        / "validation-status-completion-candidate-head"
+        / "status-completion-candidate.json"
+    )
+    evidence.parent.mkdir(parents=True)
+    evidence.write_text(json.dumps(_candidate_evidence()), encoding="utf-8")
+
+    report = _collect_candidate(tmp_path, monkeypatch)
+
+    assert validate_summary(report) == []
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        (lambda evidence: evidence.update(schema_version="wrong"), "schema mismatch"),
+        (lambda evidence: evidence.update(terminal_status="failed"), "not terminally validated"),
+        (lambda evidence: evidence.update(expected_parent_sha="f" * 40), "base SHA mismatch"),
+        (lambda evidence: evidence.update(expected_head_sha="f" * 40), "head SHA mismatch"),
+        (lambda evidence: evidence.update(plan_semantic_sha256="bad"), "plan identity is invalid"),
+        (lambda evidence: evidence.update(expected_update={}), "expected update identity is invalid"),
+    ],
+)
+def test_candidate_change_rejects_invalid_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation,
+    message: str,
+) -> None:
+    artifacts = _candidate_artifacts(tmp_path)
+    payload = _candidate_evidence()
+    mutation(payload)
+    evidence = artifacts / "candidate" / "status-completion-candidate.json"
+    evidence.parent.mkdir()
+    evidence.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=message):
+        _collect_candidate(tmp_path, monkeypatch)
+
+
+def test_candidate_change_rejects_missing_duplicate_and_malformed_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifacts = _candidate_artifacts(tmp_path)
+    with pytest.raises(ValueError, match="exactly one"):
+        _collect_candidate(tmp_path, monkeypatch)
+
+    first = artifacts / "candidate-a" / "status-completion-candidate.json"
+    second = artifacts / "candidate-b" / "status-completion-candidate.json"
+    first.parent.mkdir()
+    second.parent.mkdir()
+    payload = json.dumps(_candidate_evidence())
+    first.write_text(payload, encoding="utf-8")
+    second.write_text(payload, encoding="utf-8")
+    with pytest.raises(ValueError, match="exactly one"):
+        _collect_candidate(tmp_path, monkeypatch)
+
+    second.unlink()
+    first.write_text("{", encoding="utf-8")
+    with pytest.raises(ValueError, match="malformed"):
+        _collect_candidate(tmp_path, monkeypatch)
+
+
+def test_candidate_unchanged_does_not_require_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifacts = _candidate_artifacts(tmp_path)
+    classifier = artifacts / "validation-classifier-head" / "classifier.json"
+    payload = json.loads(classifier.read_text(encoding="utf-8"))
+    payload["paths"] = [{"path": "docs/product-completion/PROGRESS.md", "tier": "E"}]
+    classifier.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert validate_summary(_collect_candidate(tmp_path, monkeypatch)) == []
 
 
 def test_workflow_keeps_artifact_names_and_writes_failed_terminal_evidence() -> None:

@@ -117,15 +117,23 @@ jobs:
           python scripts/smoke_app.py --mode offline --timeout 30
           git diff --check "$ETF_COCKPIT_VALIDATION_BASE_SHA" "$ETF_COCKPIT_VALIDATION_HEAD_SHA" --
 
+      - name: Detect reviewed status-completion candidate change
+        id: status_candidate
+        shell: bash
+        run: |
+          candidate=".github/issue-transitions/post-merge-control-candidate.json"
+          if git diff --quiet "$ETF_COCKPIT_VALIDATION_BASE_SHA" "$ETF_COCKPIT_VALIDATION_HEAD_SHA" -- "$candidate"; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Validate reviewed status-completion candidate
-        if: needs.classifier.outputs.tier == 'H'
+        if: steps.status_candidate.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           candidate=".github/issue-transitions/post-merge-control-candidate.json"
-          if git diff --quiet "$ETF_COCKPIT_VALIDATION_BASE_SHA" "$ETF_COCKPIT_VALIDATION_HEAD_SHA" -- "$candidate"; then
-            exit 0
-          fi
           python scripts/apply_reviewed_status_completion.py \
             --root . \
             --candidate "$candidate" \
@@ -133,12 +141,22 @@ jobs:
             --expected-head "$ETF_COCKPIT_VALIDATION_HEAD_SHA" \
             --evidence-out artifacts/validation/status-completion-candidate.json
 
+      - name: Upload status-completion candidate evidence
+        if: always() && steps.status_candidate.outputs.changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-status-completion-candidate-${{ github.sha }}
+          path: artifacts/validation/status-completion-candidate.json
+          if-no-files-found: error
+
       - name: Upload preflight evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: validation-preflight-${{ github.sha }}
-          path: artifacts/validation
+          path: |
+            artifacts/validation
+            !artifacts/validation/status-completion-candidate.json
           if-no-files-found: warn
 
   supply-chain:

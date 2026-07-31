@@ -291,5 +291,12 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
     assert "--control-candidate" not in convergence
     assert "deferring to programme-status-completion" in convergence
     assert "issues: read" in release
-    assert "needs.classifier.outputs.tier == 'H'" in release
+    assert isinstance(yaml.safe_load(release), dict)
+    assert "steps.status_candidate.outputs.changed == 'true'" in release
+    assert 'git diff --quiet "$ETF_COCKPIT_VALIDATION_BASE_SHA" "$ETF_COCKPIT_VALIDATION_HEAD_SHA" -- "$candidate"' in release
     assert "--evidence-out artifacts/validation/status-completion-candidate.json" in release
+    assert "name: validation-status-completion-candidate-${{ github.sha }}" in release
+    assert "path: artifacts/validation/status-completion-candidate.json" in release
+    assert "!artifacts/validation/status-completion-candidate.json" in release
+    candidate_upload = release.index("- name: Upload status-completion candidate evidence")
+    assert "if-no-files-found: error" in release[candidate_upload : candidate_upload + 420]
