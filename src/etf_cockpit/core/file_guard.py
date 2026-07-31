@@ -225,6 +225,3 @@ def persistent_file_guard(
         raise
     else:
         guard.release()
-
-
-
