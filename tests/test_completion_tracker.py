@@ -85,6 +85,76 @@ def test_reviewed_duplicate_map_selects_newest_and_retains_closed_legacy_issue()
     assert plan["legacy_duplicates"][0]["retained_closed_remote_numbers"] == [1]
 
 
+def test_reviewed_duplicate_plan_is_independent_of_remote_input_order() -> None:
+    first = record("ISSUE-0070")
+    second = record("ISSUE-0071")
+    rows = [
+        remote(first, number=35, state="closed"),
+        remote(first, number=76),
+        remote(second, number=51),
+    ]
+    historical_map = {
+        "mappings": {
+            "ISSUE-0070": {
+                "selected_remote_number": 76,
+                "remote_numbers": [35, 76],
+                "selection_basis": "reviewed test map",
+            }
+        },
+        "map_sha256": "test",
+    }
+
+    plans = [
+        sync.plan_actions(
+            registry(first, second),
+            ordered_rows,
+            historical_map=historical_map,
+        )
+        for ordered_rows in (rows, list(reversed(rows)), [rows[2], rows[0], rows[1]])
+    ]
+
+    assert plans[0] == plans[1] == plans[2]
+    assert len({plan["plan_sha256"] for plan in plans}) == 1
+    assert [
+        (projection["stable_id"], projection["remote_number"])
+        for projection in plans[0]["status_event_projections"]
+    ] == [
+        ("ISSUE-0070", 35),
+        ("ISSUE-0070", 76),
+        ("ISSUE-0071", 51),
+    ]
+
+
+def test_reversed_duplicate_marker_remains_blocked_with_sorted_numbers() -> None:
+    issue = record()
+
+    plan = sync.plan_actions(
+        registry(issue),
+        [remote(issue, number=76), remote(issue, number=35)],
+    )
+
+    assert plan["summary"]["blocked"] == 1
+    assert plan["actions"][0]["reason"] == "duplicate_stable_marker"
+    assert plan["actions"][0]["remote_numbers"] == [35, 76]
+
+
+def test_reversed_ambiguous_legacy_match_remains_blocked_with_sorted_numbers() -> None:
+    issue = record()
+    body = "Unmanaged historical note for ISSUE-0070"
+
+    plan = sync.plan_actions(
+        registry(issue),
+        [
+            remote(issue, number=76, body=body),
+            remote(issue, number=35, body=body),
+        ],
+    )
+
+    assert plan["summary"]["blocked"] == 1
+    assert plan["actions"][0]["reason"] == "ambiguous_legacy_match"
+    assert plan["actions"][0]["remote_numbers"] == [35, 76]
+
+
 def test_duplicate_map_cannot_select_while_older_duplicate_is_open() -> None:
     issue = record()
     older = remote(issue, number=1, state="open")

@@ -20,12 +20,12 @@
   repair must not invent authority. This repair implements no compensation or
   recovery mechanism. Any future explicit compensating record requires user
   approval and may not repeat or rewrite history.
-- Remaining work: make the narrow optional-`x5t` verifier correction, repeat
-  independent authority, adversarial, whole-diff and release review, run the
-  complete Linux/Windows H gate, merge at the reviewed expected head and prove
-  the live writer/readback path. Then regenerate and formally integrate
-  ISSUE-0180 from repaired exact `main`, freeze this infrastructure and resume
-  ISSUE-0101.
+- Remaining work: correct the newly evidenced input-order dependence in
+  GitHub issue-plan construction, repeat independent authority, adversarial,
+  whole-diff and release review, run the complete Linux/Windows H gate and
+  merge at the reviewed expected head. Then regenerate and formally integrate
+  ISSUE-0180 from repaired exact `main`, prove the live writer/readback path,
+  freeze this infrastructure and resume ISSUE-0101.
 - Stop condition: stop before any design or code expands beyond the two current
   issue mutation classes, adds GitHub resource or contents-write authority, or
   requires automatic replay of an ambiguous/erased write. Such expansion needs
@@ -36,24 +36,38 @@
 
 ## Current checkpoint
 
-- Current UTC timestamp: `2026-07-31T16:17:09Z`.
-- PR #626 is merged; current `main` is
-  `a94f8c36bedc68292f2b9a2afcea6ed2c79d0a10`.
-- The first post-merge writer run, `30645015084`, failed closed with zero
-  writes because of strict JOSE-header compatibility.
-- Local follow-up head `85d17649` is unpushed and **BLOCKED**: mandatory `x5t`
-  is not a valid general verifier contract.
-- Implementation remains paused pending one narrow optional-`x5t` verifier
-  correction, independent reviews, the complete H-tier Linux and Windows CI
-  gate, merge and live proof, and regeneration and formal integration of the
-  ISSUE-0180 candidate. Then freeze this infrastructure and resume ISSUE-0101.
-- Exact next action: correct only the verifier's `x5t` requirement and obtain
-  the stated evidence. Do not push or resume implementation before review.
-- Stop condition: stop if the correction broadens mutation authority, product
-  scope, OIDC design or the two current issue mutation classes; adds retries,
-  compensation or another GitHub resource; or cannot preserve fail-closed zero
-  writes. Any expansion requires explicit user approval and a demonstrated
-  safety need.
+- Current UTC timestamp: `2026-07-31T17:41:14Z`.
+- PR #628 merged as
+  `c326e0c706eba327b26da1719cbb46ab3d2a6b16`; its reviewed exact head
+  `54bf70f550e631911964c7cd1fb4edb0f2bcad69` passed the complete H-tier
+  Linux and Windows gate at 2,449 tests per platform.
+- The fresh ISSUE-0180 integration candidate is preserved, clean and unpushed
+  at `7ea23ca65ae4553a3a6e1ae2f1d8aecd1f1fcc82`. Two local exact-head
+  preflights failed closed with zero writes because the candidate semantic
+  plan SHA did not match a plan rebuilt from the same remote inventory.
+- Diagnosis found that normalised remote issue order can change legacy
+  status-event projection order while the inventory hash remains stable. The
+  rejected candidate must not be amended to one incidental GitHub list order.
+- Active prerequisite worktree:
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_plan_order`;
+  branch `codex/github-plan-order-canonicalization`; exact base and current
+  pre-commit head `c326e0c706eba327b26da1719cbb46ab3d2a6b16`; the bounded source,
+  adversarial tests and this checkpoint are the only uncommitted changes.
+- Focused validation passes 106 tests. The repaired planner rebuilds the
+  preserved candidate's reviewed semantic SHA
+  `775b1f011428522b3fe5979720ac87300dbaa1f138761b89d0b2d682c079543b`
+  from both the saved raw and reversed live snapshot, with exactly one update
+  and zero blocked actions.
+- Required checks: focused shuffled-order regression tests, complete stable
+  diff, independent whole-diff/adversarial/authority/release review, and the
+  complete Linux/Windows H-tier gate.
+- Exact next action: freeze the bounded diff in one local commit, obtain
+  independent whole-diff, adversarial, authority and release review, then run
+  the complete Linux/Windows H-tier gate before any merge or candidate replay.
+- Stop condition: stop if the correction needs mutation-authority expansion,
+  retries, compensation, historical repair, another GitHub resource or any
+  change outside deterministic plan construction and its tests. Any such
+  expansion requires explicit user approval and a demonstrated safety need.
 - Temporary orchestration override: up to six child agents may be used, subject
   to any lower runtime cap, until the user explicitly says to revert. This
   changes concurrency only and grants no authority or product-scope expansion.
