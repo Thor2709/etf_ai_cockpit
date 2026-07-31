@@ -25578,6 +25578,19 @@
           "reviewed_date": "2026-07-30",
           "reviewer": "Codex root orchestrator",
           "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "PR #622 accepted exact product head f2911ccd2b32df6b6d6d3ff7a1b3ea565e506371 and merged as ad056e4eafd8ea1a201a5da92b68a3e5e6b78372",
+            "Release run 30603914783 H-tier terminal summary passed authoritative Linux and Windows gates with 2292 tests each",
+            "Release run 30603914783 passed both four-worker pilots, the cross-platform aggregate, and validation summary",
+            "Independent exact whole-diff review was clean and adversarial atomic-authority stress evidence passed",
+            "Exact-main post-merge convergence run 30607173205 passed with an empty patch and zero-action GitHub sync"
+          ],
+          "review_reference": "ISSUE-0180 integration accepted after exact-head parallel pilot, adversarial atomic-authority review, and exact-main zero-action convergence",
+          "reviewed_date": "2026-07-31",
+          "reviewer": "Codex root orchestrator",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -25621,7 +25634,7 @@
       "package_status": "",
       "phase": "phase-09-quality-release-security",
       "priority": "P1",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -25666,8 +25679,8 @@
         ],
         "tier": "H"
       },
-      "verified_commit": "ed314167a0ab8390ed72fcda9326c37d27aae81f",
-      "verified_date": "2026-07-30",
+      "verified_commit": "ad056e4eafd8ea1a201a5da92b68a3e5e6b78372",
+      "verified_date": "2026-07-31",
       "write_conflict_group": "quality-release"
     },
     {
@@ -27541,7 +27554,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "7e7dec5f4d5d30cf17e4b6a52668640059c065a5d1c7bf02300a5026d85f172f",
+    "programme_control_state_sha256": "a1c8254e78551cdeb6110b7ffa5866010af01a84e4b48e1ef96217f201678cf5",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
