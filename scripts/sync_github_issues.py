@@ -177,7 +177,10 @@ def plan_actions(
     authority_records: list[dict[str, Any]] | None = None,
     authority_root: Path | None = None,
 ) -> dict[str, Any]:
-    remote = [normalise_remote_issue(issue) for issue in remote_issues]
+    remote = sorted(
+        (normalise_remote_issue(issue) for issue in remote_issues),
+        key=lambda issue: issue["number"],
+    )
     authority_reconciliation = None
     if authority_records is not None:
         authority_reconciliation = mutation_gateway.reconcile_authority_ledger(
