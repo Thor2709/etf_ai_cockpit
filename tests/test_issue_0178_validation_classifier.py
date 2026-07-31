@@ -503,7 +503,8 @@ def test_workflow_has_unconditional_bookends_and_single_source_scan() -> None:
     assert "cancel-in-progress: true" in workflow
     assert "classifier:" in workflow
     assert "base_sha: ${{ steps.classify.outputs.base_sha }}" in workflow
-    assert "ETF_COCKPIT_VALIDATION_BASE_SHA: ${{ needs.classifier.outputs.base_sha }}" in workflow
+    assert "ETF_COCKPIT_VALIDATION_BASE_SHA: ${{ github.event.pull_request.base.sha }}" in workflow
+    assert "ETF_COCKPIT_VALIDATION_HEAD_SHA: ${{ github.event.pull_request.head.sha }}" in workflow
     assert "validation-summary:" in workflow
     assert "if: always()" in workflow
     assert "needs.classifier.outputs.package_gate_required == 'true'" in workflow
