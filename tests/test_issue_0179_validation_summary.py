@@ -133,6 +133,7 @@ def _candidate_evidence() -> dict[str, object]:
         "mode": "validate",
         "expected_parent_sha": "a" * 40,
         "expected_head_sha": "b" * 40,
+        "authority_ref": "1" * 64,
         "remote_inventory_sha256": "c" * 64,
         "plan_semantic_sha256": "d" * 64,
         "candidate_blob_sha256": "e" * 64,
@@ -151,9 +152,11 @@ def _candidate_evidence() -> dict[str, object]:
         ],
         "mutation": {
             "transport": "github_issue_comment_append",
+            "authority_id": "2" * 64,
             "predecessor_event_id": "legacy:ISSUE-0179",
             "predecessor_event_sha256": "f" * 64,
             "candidate_blob_sha256": "e" * 64,
+            "candidate_blob_oid": "3" * 40,
             "plan_sha256": "d" * 64,
         },
         "terminal_status": "validated",
@@ -208,6 +211,7 @@ def _collect_candidate(
             for key in (
                 "execution_allowed",
                 "expected_parent_sha",
+                "authority_ref",
                 "remote_inventory_sha256",
                 "plan_semantic_sha256",
                 "expected_update",
@@ -348,6 +352,7 @@ def test_candidate_evidence_rejects_wrong_artifact_provenance(
     [
         "execution_allowed",
         "expected_parent_sha",
+        "authority_ref",
         "remote_inventory_sha256",
         "plan_semantic_sha256",
         "expected_update",
@@ -372,6 +377,7 @@ def test_candidate_evidence_must_equal_committed_candidate_identity(
         for key in (
             "execution_allowed",
             "expected_parent_sha",
+            "authority_ref",
             "remote_inventory_sha256",
             "plan_semantic_sha256",
             "expected_update",
@@ -473,6 +479,7 @@ def test_updatev2_candidate_identity_is_accepted(
         for key in (
             "execution_allowed",
             "expected_parent_sha",
+            "authority_ref",
             "remote_inventory_sha256",
             "plan_semantic_sha256",
             "expected_update",

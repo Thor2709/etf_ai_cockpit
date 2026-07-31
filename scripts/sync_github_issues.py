@@ -13,6 +13,7 @@ import re
 import subprocess
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -173,8 +174,51 @@ def plan_actions(
     reviewed_reopen_ids: Iterable[str] = REVIEWED_REOPEN_IDS,
     historical_map: dict[str, Any] | None = None,
     expected_status_event: dict[str, Any] | None = None,
+    authority_records: list[dict[str, Any]] | None = None,
+    authority_root: Path | None = None,
 ) -> dict[str, Any]:
     remote = [normalise_remote_issue(issue) for issue in remote_issues]
+    authority_reconciliation = None
+    if authority_records is not None:
+        authority_reconciliation = mutation_gateway.reconcile_authority_ledger(
+            authority_records,
+            remote,
+            root=authority_root,
+        )
+        if not authority_reconciliation.get("accepted"):
+            payload = {
+                "schema_version": "1.0",
+                "repository": REPO,
+                "remote_inventory_sha256": inventory_sha256(remote),
+                "claim_inventory_sha256": mutation_gateway.claim_inventory_sha256(
+                    remote
+                ),
+                "desired_record_count": len(registry_sync_records(registry)),
+                "remote_issue_count": len(remote),
+                "reviewed_reopen_ids": sorted(set(reviewed_reopen_ids)),
+                "historical_map_sha256": (historical_map or {}).get("map_sha256"),
+                "legacy_duplicates": [],
+                "authority_reconciliation": authority_reconciliation,
+                "status_event_projections": authority_reconciliation.get(
+                    "projections", []
+                ),
+                "summary": {
+                    "create": 0,
+                    "update": 0,
+                    "close": 0,
+                    "reopen": 0,
+                    "blocked": 1,
+                },
+                "actions": [
+                    {
+                        "kind": "blocked",
+                        "reason": "github_authority_reconciliation_failed",
+                        "authority_error": authority_reconciliation.get("error"),
+                    }
+                ],
+            }
+            payload["plan_sha256"] = plan_sha256(payload)
+            return payload
     by_marker = marker_ids(remote)
     reopen_ids = set(reviewed_reopen_ids)
     actions: list[dict[str, Any]] = []
@@ -378,6 +422,7 @@ def plan_actions(
         "reviewed_reopen_ids": sorted(reopen_ids),
         "historical_map_sha256": (historical_map or {}).get("map_sha256"),
         "legacy_duplicates": legacy_duplicates,
+        "authority_reconciliation": authority_reconciliation,
         "status_event_projections": [
             {
                 "stable_id": stable_id,
@@ -389,6 +434,9 @@ def plan_actions(
                     "head_event_sha256"
                 ),
                 "validation_error": issue["status_projection"].get("error"),
+                "authority_events": issue["status_projection"].get(
+                    "authority_events", []
+                ),
             }
             for stable_id, issues in sorted(by_marker.items())
             for issue in issues
@@ -425,6 +473,10 @@ def safe_remote_inventory(remote_issues: Iterable[dict[str, Any]]) -> dict[str, 
             "status_event_head_sha256": issue["status_projection"].get(
                 "head_event_sha256"
             ),
+            "status_authority_events": issue["status_projection"].get(
+                "authority_events", []
+            ),
+            "create_acceptance": issue.get("create_acceptance"),
             "status_event_validation": (
                 "accepted" if issue["status_projection"].get("accepted") else "invalid"
             ),
@@ -480,6 +532,7 @@ def safe_plan_evidence(plan: dict[str, Any], remote_issues: Iterable[dict[str, A
         "plan_semantic_sha256": plan.get("plan_sha256"),
         "summary": plan.get("summary"),
         "actions": actions,
+        "authority_reconciliation": plan.get("authority_reconciliation"),
         "apply_authority": False,
         "fresh_exact_plan_required_for_apply": True,
     }
@@ -535,13 +588,23 @@ def sync_review_markdown(plan: dict[str, Any], *, safe_evidence_sha256: str) -> 
 def gh_list_issues() -> list[dict[str, Any]]:
     transport = mutation_gateway.GhMutationTransport(REPO)
     value = transport.list_issues()
-    value = [
-        transport.fetch_issue(int(issue["number"]))
+    managed = [
+        issue
+        for issue in value
         if MARKER_RE.search(str(issue.get("body") or ""))
         or LEGACY_MARKER_RE.search(str(issue.get("body") or ""))
-        else issue
-        for issue in value
+        or mutation_gateway.CREATE_MARKER_TEMPLATE.split("{")[0]
+        in str(issue.get("body") or "")
     ]
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        fetched = list(
+            executor.map(
+                lambda issue: transport.fetch_issue(int(issue["number"])),
+                managed,
+            )
+        )
+    by_number = {int(issue["number"]): issue for issue in fetched}
+    value = [by_number.get(int(issue["number"]), issue) for issue in value]
     return value
 
 
@@ -588,6 +651,13 @@ def apply_actions(
     *,
     approved_sha256: str,
     mutation_transport: mutation_gateway.MutationTransport | None = None,
+    authority_record: dict[str, Any] | None = None,
+    git_binding: dict[str, Any] | None = None,
+    event_name: str = "",
+    event_ref: str = "",
+    run_attempt: str = "",
+    event_before: str = "",
+    event_after: str = "",
 ) -> dict[str, Any]:
     """Apply at most one policy-allowlisted open-issue creation."""
 
@@ -599,6 +669,13 @@ def apply_actions(
         plan,
         approved_sha256=approved_sha256,
         create_body=create_body,
+        authority_record=authority_record,
+        git_binding=git_binding,
+        event_name=event_name,
+        event_ref=event_ref,
+        run_attempt=run_attempt,
+        event_before=event_before,
+        event_after=event_after,
         transport=mutation_transport,
     )
 
@@ -641,6 +718,7 @@ def main(argv: list[str] | None = None) -> int:
     historical_map = None
     if map_path.exists():
         historical_map = json.loads(map_path.read_text(encoding="utf-8"))
+    authority_records = mutation_gateway.load_authority_ledger(root)
     expected_status_event = None
     if args.expected_status_candidate:
         expected_payload = json.loads(
@@ -652,6 +730,8 @@ def main(argv: list[str] | None = None) -> int:
         normalised_remote,
         historical_map=historical_map,
         expected_status_event=expected_status_event,
+        authority_records=authority_records,
+        authority_root=root,
     )
     output = args.plan_out or Path(tempfile.gettempdir()) / "etf-ai-cockpit-github-sync-plan.json"
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -683,24 +763,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"PLAN_SHA256: {plan['plan_sha256']}")
     print(json.dumps(plan["summary"], indent=2, sort_keys=True))
     if args.apply:
-        if not args.approved_plan_sha256:
-            raise SystemExit("--apply requires --approved-plan-sha256")
-        gateway_evidence = apply_actions(
-            plan, approved_sha256=args.approved_plan_sha256
+        raise SystemExit(
+            "POLICY_ERROR: direct_apply_prohibited_use_main_push_authority_gateway"
         )
-        if gateway_evidence.get("accepted") is not True:
-            raise SystemExit("GitHub mutation gateway did not accept the operation")
-        expected_noop = {"create": 0, "update": 0, "close": 0, "reopen": 0, "blocked": 0}
-        readback = None
-        for attempt in range(4):
-            readback = plan_actions(registry, gh_list_issues(), historical_map=historical_map)
-            if readback["summary"] == expected_noop:
-                break
-            if attempt < 3:
-                time.sleep(2**attempt)
-        if readback is None or readback["summary"] != expected_noop:
-            raise SystemExit("GitHub read-back is not idempotent")
-        print("APPLIED_AND_VERIFIED")
     return 0 if not plan["summary"]["blocked"] else 2
 
 

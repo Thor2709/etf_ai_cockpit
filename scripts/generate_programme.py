@@ -132,6 +132,9 @@ def _validate_and_emit_convergence_evidence(root: Path, outputs: frozenset[str])
         raise ValueError("convergence evidence repository mismatch")
     if evidence.get("schema_version") != "etf-ai-cockpit.safe-sync-evidence/1.0":
         raise ValueError("convergence evidence schema mismatch")
+    authority = evidence.get("authority_reconciliation")
+    if not isinstance(authority, dict) or authority.get("accepted") is not True:
+        raise ValueError("convergence authority ledger is not fully reconciled")
     semantic = evidence.get("plan_semantic_sha256")
     if not isinstance(semantic, str) or not __import__("re").fullmatch(
         r"[0-9a-f]{64}", semantic

@@ -7,7 +7,6 @@ import hashlib
 import json
 import re
 import subprocess
-import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -21,7 +20,7 @@ except ModuleNotFoundError:
     from issue_registry_core import CONTROL_ALLOWED_TRANSITIONS, REGISTRY_PATH
 
 
-SCHEMA_VERSION = "etf-ai-cockpit.status-completion-candidate/1.0"
+SCHEMA_VERSION = "etf-ai-cockpit.status-completion-candidate/2.0"
 DEFAULT_CANDIDATE = Path(".github/issue-transitions/post-merge-control-candidate.json")
 ZERO_SUMMARY = {"create": 0, "update": 0, "close": 0, "reopen": 0, "blocked": 0}
 SHA_RE = re.compile(r"[0-9a-f]{40}")
@@ -31,6 +30,7 @@ EXPECTED_KEYS = {
     "schema_version",
     "execution_allowed",
     "expected_parent_sha",
+    "authority_ref",
     "remote_inventory_sha256",
     "plan_semantic_sha256",
     "expected_update",
@@ -182,6 +182,8 @@ def validate_candidate(
         raise ValueError("candidate must preserve execution_allowed=false")
     if not SHA_RE.fullmatch(str(candidate.get("expected_parent_sha", ""))):
         raise ValueError("candidate expected parent/base SHA is invalid")
+    if not HASH_RE.fullmatch(str(candidate.get("authority_ref", ""))):
+        raise ValueError("candidate authority reference is invalid")
     inventory = str(candidate.get("remote_inventory_sha256", ""))
     semantic = str(candidate.get("plan_semantic_sha256", ""))
     if not HASH_RE.fullmatch(inventory) or inventory != plan.get(
@@ -263,30 +265,40 @@ def run(
         "zero_action_readback": None,
     }
     try:
-        canonical_candidate = (root / DEFAULT_CANDIDATE).resolve()
-        if candidate_path.resolve() != canonical_candidate:
-            raise ValueError(
-                "candidate path must be the canonical status-completion path"
+        if not apply and not event_before and not event_after:
+            event_name = "push"
+            event_ref = "refs/heads/main"
+            run_attempt = "1"
+            event_before = expected_parent
+            event_after = expected_head
+            actor = "offline-validator"
+            pusher = "offline-validator"
+
+        if (
+            event_name != "push"
+            or event_ref != "refs/heads/main"
+            or run_attempt != "1"
+            or event_before != expected_parent
+            or event_after != expected_head
+            or not actor
+            or not pusher
+        ):
+            raise mutation_gateway.MutationPolicyError(
+                "ineligible_authority_gateway_event",
+                mutation_gateway._policy_evidence(
+                    "ineligible_authority_gateway_event"
+                ),
             )
-        candidate_bytes = candidate_path.read_bytes()
-        candidate = load_candidate(candidate_bytes)
-        evidence.update(
-            {
-                "remote_inventory_sha256": candidate.get("remote_inventory_sha256"),
-                "plan_semantic_sha256": candidate.get("plan_semantic_sha256"),
-                "expected_update": candidate.get("expected_update"),
-                "candidate_blob_sha256": hashlib.sha256(candidate_bytes).hexdigest(),
-            }
+        prior_records, records, git_binding = (
+            mutation_gateway.validate_authority_git_transition(
+                root,
+                event_before=expected_parent,
+                event_after=expected_head,
+                main_ref=main_ref,
+            )
         )
-        validate_git_bindings(
-            root,
-            candidate,
-            candidate_path=candidate_path,
-            candidate_bytes=candidate_bytes,
-            expected_parent=expected_parent,
-            expected_head=expected_head,
-            main_ref=main_ref,
-        )
+        authority = records[-1]
+        evidence["authority"] = git_binding
         registry = json.loads((root / REGISTRY_PATH).read_text(encoding="utf-8"))
         remote = remote_reader()
         map_path = root / sync.DEFAULT_MAP_PATH
@@ -295,61 +307,41 @@ def run(
             if map_path.exists()
             else None
         )
-        plan = sync.plan_actions(registry, remote, historical_map=historical_map)
-        validate_candidate(candidate, plan, remote)
-        candidate_blob_sha256 = _canonical_candidate_blob_sha256(root, expected_head)
-        evidence["candidate_blob_sha256"] = candidate_blob_sha256
-        evidence["action_scope"] = sync.safe_plan_evidence(plan, remote)["actions"]
-        expected_update = candidate["expected_update"]
-        stable_id = str(expected_update["stable_id"])
-        reviewed_matches = [
-            issue
-            for issue in remote
-            if stable_id
-            in set(
-                sync.MARKER_RE.findall(str(issue.get("body") or ""))
+        if prior_records:
+            prior_reconciliation = mutation_gateway.reconcile_authority_ledger(
+                prior_records, remote, root=root
             )
-        ]
-        if len(reviewed_matches) != 1:
-            raise ValueError("candidate reviewed issue snapshot is ambiguous")
-        projection = mutation_gateway.project_status_events(reviewed_matches[0])
-        if (
-            not projection.get("accepted")
-            or projection.get("status") != expected_update["from_status"]
-        ):
-            raise ValueError("live predecessor status-event projection is invalid")
-        evidence["mutation"] = {
-            "transport": "github_issue_comment_append",
-            "predecessor_event_id": projection["head_event_id"],
-            "predecessor_event_sha256": projection["head_event_sha256"],
-            "candidate_blob_sha256": candidate_blob_sha256,
-            "plan_sha256": str(candidate["plan_semantic_sha256"]),
-        }
-        if not apply:
-            evidence["terminal_status"] = "validated"
-            print("VALIDATED_STATUS_COMPLETION_CANDIDATE")
+            if not prior_reconciliation.get("accepted"):
+                raise ValueError(
+                    "predecessor authority reconciliation failed: "
+                    + str(prior_reconciliation.get("error"))
+                )
+        if authority["authority_type"] == "legacy_bootstrap":
+            reconciliation = mutation_gateway.reconcile_authority_ledger(
+                records, remote, root=None
+            )
+            if not reconciliation.get("accepted"):
+                raise ValueError(
+                    "legacy bootstrap reconciliation failed: "
+                    + str(reconciliation.get("error"))
+                )
+            evidence["terminal_status"] = "bootstrap_validated"
+            evidence["zero_action_readback"] = True
+            print("VALIDATED_GITHUB_MUTATION_AUTHORITY_BOOTSTRAP")
             return
-        bindings = {
-            "stable_id": stable_id,
-            "from_status": str(expected_update["from_status"]),
-            "to_status": str(expected_update["to_status"]),
-            "source_sha": expected_parent,
-            "head_sha": expected_head,
-            "candidate_blob_sha256": candidate_blob_sha256,
-            "plan_sha256": str(candidate["plan_semantic_sha256"]),
-            "event_name": str(event_name or ""),
-            "event_ref": str(event_ref or ""),
-            "run_attempt": str(run_attempt or ""),
-            "event_before": str(event_before or ""),
-            "event_after": str(event_after or ""),
-            "actor": str(actor or ""),
-            "pusher": str(pusher or ""),
-        }
-        gateway_evidence = mutation_gateway.append_status_event(
-            reviewed_matches[0],
-            **bindings,
-            transport=mutation_transport,
-            authority_revalidator=lambda: validate_git_bindings(
+
+        plan = sync.plan_actions(
+            registry,
+            remote,
+            historical_map=historical_map,
+            authority_records=prior_records,
+            authority_root=root,
+        )
+        payload = authority["payload"]
+        if authority["authority_type"] == "status":
+            candidate_bytes = candidate_path.read_bytes()
+            candidate = load_candidate(candidate_bytes)
+            validate_git_bindings(
                 root,
                 candidate,
                 candidate_path=candidate_path,
@@ -357,32 +349,138 @@ def run(
                 expected_parent=expected_parent,
                 expected_head=expected_head,
                 main_ref=main_ref,
-            ),
-        )
-        evidence["mutation"] = gateway_evidence
-        if not gateway_evidence["accepted"]:
-            raise RuntimeError(
-                f"status event not accepted: {gateway_evidence['terminal_status']}"
             )
-        for attempt in range(4):
-            readback = sync.plan_actions(
-                registry,
-                remote_reader(),
-                historical_map=historical_map,
-                expected_status_event=expected_update,
+            validate_candidate(candidate, plan, remote)
+            candidate_oid = _git(
+                root,
+                "rev-parse",
+                f"{expected_head}:{DEFAULT_CANDIDATE.as_posix()}",
             )
+            candidate_sha256 = _canonical_candidate_blob_sha256(root, expected_head)
             if (
-                readback.get("summary") == ZERO_SUMMARY
-                and readback.get("actions") == []
+                candidate.get("authority_ref") != payload["candidate_authority_ref"]
+                or payload["candidate_authority_ref"]
+                != mutation_gateway.candidate_authority_ref(payload)
+                or payload["candidate_blob_oid"] != candidate_oid
+                or payload["candidate_blob_sha256"] != candidate_sha256
+                or payload["plan_sha256"] != candidate["plan_semantic_sha256"]
             ):
-                evidence["terminal_status"] = "applied_and_verified"
-                evidence["zero_action_readback"] = True
-                print("APPLIED_AND_VERIFIED_STATUS_COMPLETION")
+                raise ValueError("candidate does not bind the committed authority")
+            expected_update = candidate["expected_update"]
+            stable_id = str(expected_update["stable_id"])
+            reviewed_matches = [
+                issue
+                for issue in remote
+                if int(issue.get("number", 0)) == payload["issue_number"]
+                and str(issue.get("id", "")) == payload["database_id"]
+                and str(issue.get("node_id") or issue.get("nodeId") or "")
+                == payload["node_id"]
+            ]
+            if len(reviewed_matches) != 1:
+                raise ValueError("authority target issue identity mismatch")
+            projection = mutation_gateway.project_status_events(reviewed_matches[0])
+            evidence.update(
+                {
+                    "remote_inventory_sha256": candidate.get(
+                        "remote_inventory_sha256"
+                    ),
+                    "plan_semantic_sha256": candidate.get("plan_semantic_sha256"),
+                    "authority_ref": candidate.get("authority_ref"),
+                    "expected_update": expected_update,
+                    "candidate_blob_sha256": candidate_sha256,
+                    "action_scope": sync.safe_plan_evidence(plan, remote)["actions"],
+                    "mutation": {
+                        "transport": "github_issue_comment_append",
+                        "authority_id": authority["authority_id"],
+                        "predecessor_event_id": projection.get("head_event_id"),
+                        "predecessor_event_sha256": projection.get(
+                            "head_event_sha256"
+                        ),
+                        "candidate_blob_oid": candidate_oid,
+                        "candidate_blob_sha256": candidate_sha256,
+                        "plan_sha256": candidate["plan_semantic_sha256"],
+                    },
+                }
+            )
+            if not apply:
+                evidence["terminal_status"] = "validated"
+                print("VALIDATED_STATUS_COMPLETION_CANDIDATE")
                 return
-            if attempt < 3:
-                time.sleep(2**attempt)
-        evidence["zero_action_readback"] = False
-        raise RuntimeError("status-completion GitHub read-back is not idempotent")
+            gateway_evidence = mutation_gateway.append_status_event(
+                reviewed_matches[0],
+                stable_id=stable_id,
+                from_status=str(expected_update["from_status"]),
+                to_status=str(expected_update["to_status"]),
+                source_sha=expected_parent,
+                head_sha=expected_head,
+                candidate_blob_sha256=candidate_sha256,
+                plan_sha256=str(candidate["plan_semantic_sha256"]),
+                event_name=str(event_name),
+                event_ref=str(event_ref),
+                run_attempt=str(run_attempt),
+                event_before=str(event_before),
+                event_after=str(event_after),
+                actor=str(actor),
+                pusher=str(pusher),
+                authority_record=authority,
+                git_binding=git_binding,
+                transport=mutation_transport,
+                authority_revalidator=lambda: mutation_gateway.validate_authority_git_transition(
+                    root,
+                    event_before=expected_parent,
+                    event_after=expected_head,
+                    main_ref=main_ref,
+                ),
+            )
+        elif authority["authority_type"] == "create":
+            if not apply:
+                evidence["action_scope"] = sync.safe_plan_evidence(plan, remote)[
+                    "actions"
+                ]
+                evidence["terminal_status"] = "validated"
+                print("VALIDATED_GITHUB_CREATE_AUTHORITY")
+                return
+            gateway_evidence = sync.apply_actions(
+                plan,
+                approved_sha256=str(payload["plan_sha256"]),
+                mutation_transport=mutation_transport,
+                authority_record=authority,
+                git_binding=git_binding,
+                event_name=str(event_name),
+                event_ref=str(event_ref),
+                run_attempt=str(run_attempt),
+                event_before=str(event_before),
+                event_after=str(event_after),
+            )
+        else:
+            raise ValueError("unsupported GitHub mutation authority")
+        evidence["mutation"] = gateway_evidence
+        if not gateway_evidence.get("accepted"):
+            raise RuntimeError(
+                f"authority projection not accepted: {gateway_evidence['terminal_status']}"
+            )
+        readback_remote = remote_reader()
+        reconciliation = mutation_gateway.reconcile_authority_ledger(
+            records, readback_remote, root=root
+        )
+        readback = sync.plan_actions(
+            registry,
+            readback_remote,
+            historical_map=historical_map,
+            authority_records=records,
+            authority_root=root,
+        )
+        if (
+            not reconciliation.get("accepted")
+            or readback.get("summary") != ZERO_SUMMARY
+            or readback.get("actions") != []
+        ):
+            evidence["zero_action_readback"] = False
+            raise RuntimeError("GitHub authority read-back is not fully reconciled")
+        evidence["terminal_status"] = "applied_and_verified"
+        evidence["zero_action_readback"] = True
+        print("APPLIED_AND_VERIFIED_GITHUB_MUTATION_AUTHORITY")
+        return
     except Exception as exc:
         if isinstance(exc, mutation_gateway.MutationGatewayError):
             evidence["mutation"] = exc.evidence

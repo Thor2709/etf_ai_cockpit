@@ -35,6 +35,8 @@ def registry(*records: dict) -> dict:
 
 def remote(issue: dict, *, number: int = 1, state: str = "open", body: str | None = None) -> dict:
     return {
+        "id": str(4000 + number),
+        "node_id": f"ISSUE_NODE_{number}",
         "number": number,
         "title": issue["title"],
         "state": state,
@@ -183,6 +185,25 @@ def test_cli_dry_run_writes_plan_only(tmp_path, monkeypatch) -> None:
     registry_path = tmp_path / "issues" / "issue_registry.json"
     registry_path.parent.mkdir()
     registry_path.write_text(json.dumps(registry(issue)), encoding="utf-8")
+    authority_path = tmp_path / gateway.AUTHORITY_PATH
+    authority_path.parent.mkdir(parents=True)
+    bootstrap = gateway.build_authority_record(
+        "legacy_bootstrap",
+        {
+            "legacy_issues": [
+                {
+                    "stable_id": "ISSUE-0070",
+                    "issue_number": 1,
+                    "database_id": "4001",
+                    "node_id": "ISSUE_NODE_1",
+                    "initial_status": "ready",
+                }
+            ]
+        },
+        sequence=0,
+        previous_authority_id=None,
+    )
+    authority_path.write_bytes(gateway.authority_ledger_bytes([bootstrap]))
     snapshot = tmp_path / "remote.json"
     snapshot.write_text(json.dumps([remote(issue)]), encoding="utf-8")
     output = tmp_path / "plan.json"

@@ -217,6 +217,7 @@ def _validate_candidate_evidence(
     candidate_bindings = {
         "execution_allowed": "execution authority",
         "expected_parent_sha": "expected parent",
+        "authority_ref": "authority reference",
         "remote_inventory_sha256": "remote inventory",
         "plan_semantic_sha256": "semantic plan",
         "expected_update": "expected update",
@@ -228,6 +229,8 @@ def _validate_candidate_evidence(
         raise ValueError("status-completion candidate remote inventory identity is invalid")
     if not HASH_RE.fullmatch(str(evidence.get("plan_semantic_sha256", ""))):
         raise ValueError("status-completion candidate plan identity is invalid")
+    if not HASH_RE.fullmatch(str(evidence.get("authority_ref", ""))):
+        raise ValueError("status-completion candidate authority identity is invalid")
     candidate_blob_sha256 = str(evidence.get("candidate_blob_sha256", ""))
     if (
         not HASH_RE.fullmatch(candidate_blob_sha256)
@@ -260,6 +263,10 @@ def _validate_candidate_evidence(
         not isinstance(mutation, dict)
         or mutation.get("transport") != "github_issue_comment_append"
         or mutation.get("candidate_blob_sha256") != candidate_blob_sha256
+        or not HASH_RE.fullmatch(str(mutation.get("authority_id", "")))
+        or not re.fullmatch(
+            r"[0-9a-f]{40,64}", str(mutation.get("candidate_blob_oid", ""))
+        )
         or mutation.get("plan_sha256") != evidence.get("plan_semantic_sha256")
         or not isinstance(mutation.get("predecessor_event_id"), str)
         or not mutation.get("predecessor_event_id")

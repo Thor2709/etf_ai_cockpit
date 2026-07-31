@@ -27,6 +27,7 @@ def plan_summary(plan: dict) -> dict:
         "summary": plan.get("summary"),
         "actions": plan.get("actions"),
         "status_event_projections": plan.get("status_event_projections"),
+        "authority_reconciliation": plan.get("authority_reconciliation"),
         "legacy_duplicate_count": len(plan.get("legacy_duplicates", [])),
     }
 
@@ -42,6 +43,7 @@ def main(argv: list[str] | None = None) -> int:
     final = plan_summary(read_json(args.final_plan))
     zero = {"create": 0, "update": 0, "close": 0, "reopen": 0, "blocked": 0}
     projections = final["status_event_projections"]
+    authority = final["authority_reconciliation"]
     if (
         final["summary"] != zero
         or final["actions"] != []
@@ -50,6 +52,8 @@ def main(argv: list[str] | None = None) -> int:
             not isinstance(item, dict) or item.get("accepted") is not True
             for item in projections
         )
+        or not isinstance(authority, dict)
+        or authority.get("accepted") is not True
     ):
         raise ValueError(
             "final convergence requires zero summary, actions=[] and valid status-event chains"

@@ -28,6 +28,8 @@ def issue(status: str = "implemented_initially") -> dict[str, Any]:
         "programme_status": status,
     }
     return {
+        "id": "4179",
+        "node_id": "ISSUE_NODE_179",
         "number": 179,
         "title": record["title"],
         "body": sync.managed_block(record),
@@ -99,7 +101,53 @@ class MemoryTransport:
             raise TimeoutError("ambiguous transport result")
 
 
-def append(reviewed: dict[str, Any], transport: MemoryTransport) -> dict[str, Any]:
+def _status_authority(
+    previous_authority_id: str = "f" * 64,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    payload = {
+        "stable_id": "ISSUE-0179",
+        "issue_number": 179,
+        "database_id": "4179",
+        "node_id": "ISSUE_NODE_179",
+        "source_sha": SOURCE,
+        "from_status": "implemented_initially",
+        "to_status": "integrated",
+        "candidate_path": gateway.AUTHORITY_CANDIDATE_PATH,
+        "candidate_blob_oid": "e" * 40,
+        "candidate_blob_sha256": BLOB,
+        "candidate_authority_ref": "",
+        "plan_sha256": PLAN,
+    }
+    payload["candidate_authority_ref"] = gateway.candidate_authority_ref(payload)
+    authority = gateway.build_authority_record(
+        "status", payload, sequence=1, previous_authority_id=previous_authority_id
+    )
+    binding = {
+        "authority_id": authority["authority_id"],
+        "authority_sequence": 1,
+        "head_sha": HEAD,
+        "ledger_blob_oid": "1" * 40,
+        "ledger_blob_sha256": "2" * 64,
+    }
+    return authority, binding
+
+
+def append(
+    reviewed: dict[str, Any],
+    transport: MemoryTransport,
+    authority: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    authority, binding = (
+        (authority, {
+            "authority_id": authority["authority_id"],
+            "authority_sequence": authority["sequence"],
+            "head_sha": HEAD,
+            "ledger_blob_oid": "1" * 40,
+            "ledger_blob_sha256": "2" * 64,
+        })
+        if authority is not None
+        else _status_authority()
+    )
     return gateway.append_status_event(
         reviewed,
         stable_id="ISSUE-0179",
@@ -116,6 +164,8 @@ def append(reviewed: dict[str, Any], transport: MemoryTransport) -> dict[str, An
         event_after=HEAD,
         actor="merger",
         pusher="merger",
+        authority_record=authority,
+        git_binding=binding,
         transport=transport,
     )
 
@@ -264,6 +314,7 @@ def test_cancelled_or_rerun_authority_cannot_append_again() -> None:
     transport = MemoryTransport(reviewed, ambiguous="single")
     assert append(reviewed, transport)["accepted"] is True
 
+    authority, binding = _status_authority()
     with pytest.raises(gateway.MutationPolicyError) as captured:
         gateway.append_status_event(
             reviewed,
@@ -281,6 +332,8 @@ def test_cancelled_or_rerun_authority_cannot_append_again() -> None:
             event_after=HEAD,
             actor="merger",
             pusher="merger",
+            authority_record=authority,
+            git_binding=binding,
             transport=transport,
         )
 
@@ -368,16 +421,53 @@ def _create_plan() -> dict[str, Any]:
     return plan
 
 
+def _create_authority(plan: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    action = plan["actions"][0]
+    payload = {
+        "stable_id": action["stable_id"],
+        "source_sha": SOURCE,
+        "title": action["title"],
+        "managed_body": sync.managed_block(action),
+        "claim_inventory_sha256": plan["claim_inventory_sha256"],
+        "plan_sha256": plan["plan_sha256"],
+    }
+    authority = gateway.build_authority_record(
+        "create", payload, sequence=1, previous_authority_id="f" * 64
+    )
+    binding = {
+        "authority_id": authority["authority_id"],
+        "authority_sequence": 1,
+        "head_sha": HEAD,
+        "ledger_blob_oid": "1" * 40,
+        "ledger_blob_sha256": "2" * 64,
+    }
+    return authority, binding
+
+
+def _apply_create(
+    plan: dict[str, Any], transport: CreateTransport
+) -> dict[str, Any]:
+    authority, binding = _create_authority(plan)
+    return sync.apply_actions(
+        plan,
+        approved_sha256=plan["plan_sha256"],
+        mutation_transport=transport,
+        authority_record=authority,
+        git_binding=binding,
+        event_name="push",
+        event_ref="refs/heads/main",
+        run_attempt="1",
+        event_before=SOURCE,
+        event_after=HEAD,
+    )
+
+
 @pytest.mark.parametrize("ambiguous", [False, True])
 def test_single_open_create_is_verified_without_retry(ambiguous: bool) -> None:
     plan = _create_plan()
     transport = CreateTransport(ambiguous=ambiguous)
 
-    evidence = sync.apply_actions(
-        plan,
-        approved_sha256=plan["plan_sha256"],
-        mutation_transport=transport,
-    )
+    evidence = _apply_create(plan, transport)
 
     assert evidence["accepted"] is True
     assert transport.writes == 2
@@ -395,11 +485,7 @@ def test_multi_action_and_closed_create_fail_before_transport() -> None:
         plan["plan_sha256"] = sync.plan_sha256(plan)
         transport = CreateTransport()
         with pytest.raises(gateway.MutationPolicyError):
-            sync.apply_actions(
-                plan,
-                approved_sha256=plan["plan_sha256"],
-                mutation_transport=transport,
-            )
+            _apply_create(plan, transport)
         assert transport.writes == 0
 
 
@@ -428,11 +514,7 @@ def test_create_ambiguity_never_retries_or_emits_receipt(outcome: str) -> None:
 
     transport.create_open_issue = ambiguous_create  # type: ignore[method-assign]
     with pytest.raises(gateway.MutationTransportError):
-        sync.apply_actions(
-            plan,
-            approved_sha256=plan["plan_sha256"],
-            mutation_transport=transport,
-        )
+        _apply_create(plan, transport)
 
     assert transport.writes == 1
     assert all(not item["comments"] for item in transport.issues)
@@ -459,11 +541,7 @@ def test_orphan_create_marker_and_orphan_receipt_block_planning() -> None:
         raise TimeoutError("cancelled after create")
 
     transport.create_open_issue = interrupted_create  # type: ignore[method-assign]
-    rejected = sync.apply_actions(
-        plan,
-        approved_sha256=plan["plan_sha256"],
-        mutation_transport=transport,
-    )
+    rejected = _apply_create(plan, transport)
     assert rejected["accepted"] is False
     registry = {
         "records": [
@@ -701,6 +779,7 @@ def test_convergence_report_requires_actions_empty_and_valid_chain(tmp_path: Pat
         "summary": zero,
         "actions": [],
         "status_event_projections": [{"accepted": True}],
+        "authority_reconciliation": {"accepted": True},
     }
     final.write_text(json.dumps(payload), encoding="utf-8")
 
@@ -732,3 +811,97 @@ def test_convergence_report_requires_actions_empty_and_valid_chain(tmp_path: Pat
                 str(output),
             ]
         )
+
+
+def _bootstrap_record() -> dict[str, Any]:
+    return gateway.build_authority_record(
+        "legacy_bootstrap",
+        {
+            "legacy_issues": [
+                {
+                    "stable_id": "ISSUE-0179",
+                    "issue_number": 179,
+                    "database_id": "4179",
+                    "node_id": "ISSUE_NODE_179",
+                    "initial_status": "implemented_initially",
+                }
+            ]
+        },
+        sequence=0,
+        previous_authority_id=None,
+    )
+
+
+def test_authority_ledger_is_canonical_hash_chained_and_tamper_evident() -> None:
+    bootstrap = _bootstrap_record()
+    status, _binding = _status_authority(str(bootstrap["authority_id"]))
+    data = gateway.authority_ledger_bytes([bootstrap, status])
+
+    assert gateway.parse_authority_ledger(data) == [bootstrap, status]
+    with pytest.raises(ValueError, match="invalid_authority_ledger_record"):
+        gateway.parse_authority_ledger(data.replace(b"integrated", b"integrateD"))
+    with pytest.raises(ValueError, match="canonical_jsonl"):
+        gateway.parse_authority_ledger(data.rstrip(b"\n"))
+
+
+def test_all_authorities_reconcile_and_complete_pair_deletion_blocks() -> None:
+    bootstrap = _bootstrap_record()
+    authority, _binding = _status_authority(str(bootstrap["authority_id"]))
+    reviewed = issue()
+    transport = MemoryTransport(reviewed)
+    assert append(reviewed, transport, authority)["accepted"] is True
+    assert gateway.reconcile_authority_ledger(
+        [bootstrap, authority], [transport.value]
+    )["accepted"] is True
+
+    transport.value["comments"] = transport.value["comments"][:-2]
+    blocked = gateway.reconcile_authority_ledger(
+        [bootstrap, authority], [transport.value]
+    )
+    assert blocked["error"] == "missing_or_extra_status_authority_projection"
+
+
+def test_trailing_human_comment_is_allowed_but_interposed_comment_blocks() -> None:
+    bootstrap = _bootstrap_record()
+    authority, _binding = _status_authority(str(bootstrap["authority_id"]))
+    transport = MemoryTransport(issue())
+    assert append(issue(), transport, authority)["accepted"] is True
+    human = {
+        "id": "human-tail",
+        "node_id": "HUMAN_TAIL",
+        "body": "ordinary review note",
+        "author": {"login": "reviewer", "type": "User", "id": 7},
+        "createdAt": "2026-07-31T00:00:02Z",
+        "updatedAt": "2026-07-31T00:00:02Z",
+    }
+    transport.value["comments"].append(human)
+    assert gateway.reconcile_authority_ledger(
+        [bootstrap, authority], [transport.value]
+    )["accepted"] is True
+    receipt = transport.value["comments"].pop(-2)
+    transport.value["comments"].append(receipt)
+    assert gateway.reconcile_authority_ledger(
+        [bootstrap, authority], [transport.value]
+    )["accepted"] is False
+
+
+def test_deleted_baseline_or_whole_created_issue_blocks() -> None:
+    bootstrap = _bootstrap_record()
+    assert gateway.reconcile_authority_ledger([bootstrap], [])["error"] == (
+        "legacy_authority_issue_deleted"
+    )
+    create = gateway.build_authority_record(
+        "create",
+        {
+            "stable_id": "ISSUE-0180",
+            "source_sha": SOURCE,
+            "title": "Parallel validation pilot",
+            "managed_body": "managed",
+            "claim_inventory_sha256": "1" * 64,
+            "plan_sha256": "2" * 64,
+        },
+        sequence=1,
+        previous_authority_id=str(bootstrap["authority_id"]),
+    )
+    blocked = gateway.reconcile_authority_ledger([bootstrap, create], [issue()])
+    assert blocked["error"] == "missing_or_duplicate_create_authority_projection"

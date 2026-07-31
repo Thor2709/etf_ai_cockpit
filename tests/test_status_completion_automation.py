@@ -11,6 +11,7 @@ import pytest
 import yaml
 
 from scripts import apply_reviewed_status_completion as completion
+from scripts import github_mutation_gateway as gateway
 from scripts import sync_github_issues as sync
 
 
@@ -44,6 +45,8 @@ def _remote(status: str = "implemented_initially") -> list[dict[str, object]]:
     body = sync.managed_block(record)
     return [
         {
+            "id": "4179",
+            "node_id": "ISSUE_NODE_179",
             "number": 179,
             "title": record["title"],
             "body": body,
@@ -53,15 +56,50 @@ def _remote(status: str = "implemented_initially") -> list[dict[str, object]]:
     ]
 
 
+def _bootstrap() -> dict[str, object]:
+    return gateway.build_authority_record(
+        "legacy_bootstrap",
+        {
+            "legacy_issues": [
+                {
+                    "stable_id": "ISSUE-0179",
+                    "issue_number": 179,
+                    "database_id": "4179",
+                    "node_id": "ISSUE_NODE_179",
+                    "initial_status": "implemented_initially",
+                }
+            ]
+        },
+        sequence=0,
+        previous_authority_id=None,
+    )
+
+
 def _plan_and_candidate() -> tuple[
     list[dict[str, object]], dict[str, object], dict[str, object]
 ]:
     remote = _remote()
-    plan = sync.plan_actions({"records": [_record()]}, remote, historical_map={})
+    plan = sync.plan_actions(
+        {"records": [_record()]},
+        remote,
+        historical_map={},
+        authority_records=[_bootstrap()],
+    )
+    authority_core = {
+        "stable_id": "ISSUE-0179",
+        "issue_number": 179,
+        "database_id": "4179",
+        "node_id": "ISSUE_NODE_179",
+        "source_sha": PARENT,
+        "from_status": "implemented_initially",
+        "to_status": "integrated",
+        "plan_sha256": plan["plan_sha256"],
+    }
     candidate = {
         "schema_version": completion.SCHEMA_VERSION,
         "execution_allowed": False,
         "expected_parent_sha": PARENT,
+        "authority_ref": gateway.candidate_authority_ref(authority_core),
         "remote_inventory_sha256": plan["remote_inventory_sha256"],
         "plan_semantic_sha256": plan["plan_sha256"],
         "expected_update": {
@@ -71,6 +109,42 @@ def _plan_and_candidate() -> tuple[
         },
     }
     return remote, plan, candidate
+
+
+def _status_authority(
+    plan: dict[str, object], candidate: dict[str, object]
+) -> tuple[dict[str, object], dict[str, object]]:
+    payload: dict[str, object] = {
+        "stable_id": "ISSUE-0179",
+        "issue_number": 179,
+        "database_id": "4179",
+        "node_id": "ISSUE_NODE_179",
+        "source_sha": PARENT,
+        "from_status": "implemented_initially",
+        "to_status": "integrated",
+        "candidate_path": gateway.AUTHORITY_CANDIDATE_PATH,
+        "candidate_blob_oid": "3" * 40,
+        "candidate_blob_sha256": "e" * 64,
+        "candidate_authority_ref": candidate["authority_ref"],
+        "plan_sha256": plan["plan_sha256"],
+    }
+    bootstrap = _bootstrap()
+    authority = gateway.build_authority_record(
+        "status",
+        payload,
+        sequence=1,
+        previous_authority_id=str(bootstrap["authority_id"]),
+    )
+    binding = {
+        "authority_id": authority["authority_id"],
+        "authority_sequence": 1,
+        "authority_type": "status",
+        "source_sha": PARENT,
+        "head_sha": HEAD,
+        "ledger_blob_oid": "4" * 40,
+        "ledger_blob_sha256": "5" * 64,
+    }
+    return authority, binding
 
 
 def test_happy_apply_uses_approved_plan_and_requires_zero_readback(
@@ -91,6 +165,29 @@ def test_happy_apply_uses_approved_plan_and_requires_zero_readback(
     )
     monkeypatch.setattr(
         completion, "_canonical_candidate_blob_sha256", lambda *_args: "e" * 64
+    )
+    authority, binding = _status_authority(plan, candidate)
+    monkeypatch.setattr(
+        completion.mutation_gateway,
+        "validate_authority_git_transition",
+        lambda *_args, **_kwargs: ([_bootstrap()], [_bootstrap(), authority], binding),
+    )
+    monkeypatch.setattr(
+        completion,
+        "_git",
+        lambda *_args: "3" * 40,
+    )
+    original_reconcile = completion.mutation_gateway.reconcile_authority_ledger
+
+    def reconcile(records: list[dict[str, object]], *args: object, **kwargs: object) -> dict[str, object]:
+        if len(records) == 2:
+            return {"accepted": True, "projections": []}
+        return original_reconcile(records, *args, **kwargs)
+
+    monkeypatch.setattr(
+        completion.mutation_gateway,
+        "reconcile_authority_ledger",
+        reconcile,
     )
     monkeypatch.setattr(
         completion.mutation_gateway,
@@ -375,6 +472,11 @@ def test_failure_evidence_is_privacy_safe(
     monkeypatch.setattr(
         completion, "validate_git_bindings", lambda *_args, **_kwargs: None
     )
+    monkeypatch.setattr(
+        completion.mutation_gateway,
+        "validate_authority_git_transition",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("inventory")),
+    )
 
     with pytest.raises(ValueError, match="inventory"):
         completion.run(
@@ -452,8 +554,9 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
     }
     assert status_workflow[True]["push"]["branches"] == ["main"]
     assert status_workflow[True]["push"]["paths"] == [
-        ".github/issue-transitions/post-merge-control-candidate.json"
+        ".github/issue-transitions/github-mutation-authority.jsonl"
     ]
+    assert '--expected-parent "${{ github.event.before }}"' in status_text
     assert "--apply" in status_text and "--main-ref origin/main" in status_text
     module_invocation = "python -m scripts.apply_reviewed_status_completion"
     direct_script_invocation = "python scripts/apply_reviewed_status_completion.py"
@@ -466,7 +569,10 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
     assert "if: always()" in status_text
     assert "actions/upload-artifact@v4" in status_text
     assert "--control-candidate" not in convergence
-    assert "deferring to programme-status-completion" in convergence
+    assert "deferring to programme-status-completion" not in convergence
+    assert "group: github-mutations-${{ github.repository }}" in convergence
+    assert "cancel-in-progress: false" in convergence
+    assert "queue: max" in convergence
     assert "issues: read" in release
     assert isinstance(yaml.safe_load(release), dict)
     assert "steps.status_candidate.outputs.changed == 'true'" in release
@@ -508,6 +614,77 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
     assert (
         "if-no-files-found: error" in release[candidate_upload : candidate_upload + 420]
     )
+
+
+def test_authority_transition_accepts_multi_commit_push_and_not_head_parent(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "authority-repo"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.invalid"],
+        cwd=root,
+        check=True,
+    )
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=root, check=True)
+    ledger = root / gateway.AUTHORITY_PATH
+    ledger.parent.mkdir(parents=True)
+    bootstrap = _bootstrap()
+    ledger.write_bytes(gateway.authority_ledger_bytes([bootstrap]))
+    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", "bootstrap"], cwd=root, check=True)
+    source = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=root, text=True
+    ).strip()
+
+    candidate = root / completion.DEFAULT_CANDIDATE
+    candidate.write_text("{}\n", encoding="utf-8", newline="\n")
+    candidate_oid = subprocess.check_output(
+        ["git", "hash-object", completion.DEFAULT_CANDIDATE.as_posix()],
+        cwd=root,
+        text=True,
+    ).strip()
+    payload: dict[str, object] = {
+        "stable_id": "ISSUE-0179",
+        "issue_number": 179,
+        "database_id": "4179",
+        "node_id": "ISSUE_NODE_179",
+        "source_sha": source,
+        "from_status": "implemented_initially",
+        "to_status": "integrated",
+        "candidate_path": gateway.AUTHORITY_CANDIDATE_PATH,
+        "candidate_blob_oid": candidate_oid,
+        "candidate_blob_sha256": __import__("hashlib").sha256(b"{}\n").hexdigest(),
+        "candidate_authority_ref": "",
+        "plan_sha256": "2" * 64,
+    }
+    payload["candidate_authority_ref"] = gateway.candidate_authority_ref(payload)
+    authority = gateway.build_authority_record(
+        "status",
+        payload,
+        sequence=1,
+        previous_authority_id=str(bootstrap["authority_id"]),
+    )
+    ledger.write_bytes(gateway.authority_ledger_bytes([bootstrap, authority]))
+    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", "authority"], cwd=root, check=True)
+    (root / "ordinary.txt").write_text("later\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", "ordinary"], cwd=root, check=True)
+    head = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=root, text=True
+    ).strip()
+
+    before, after, binding = gateway.validate_authority_git_transition(
+        root,
+        event_before=source,
+        event_after=head,
+        main_ref=None,
+    )
+    assert before == [bootstrap]
+    assert after == [bootstrap, authority]
+    assert binding["head_sha"] == head
 
 
 def test_status_completion_module_help_smoke() -> None:

@@ -19,8 +19,9 @@ permissions:
   issues: read
 
 concurrency:
-  group: programme-convergence-${{ github.ref }}
-  cancel-in-progress: true
+  group: github-mutations-${{ github.repository }}
+  cancel-in-progress: false
+  queue: max
 
 jobs:
   dry-run-convergence:
@@ -34,20 +35,7 @@ jobs:
           git fetch --no-tags origin main
           test "$(git rev-parse HEAD)" = "${{ github.sha }}"
           test "$(git rev-parse origin/main)" = "${{ github.sha }}"
-      - name: Detect candidate-changing merge
-        id: candidate
-        shell: bash
-        run: |
-          candidate=".github/issue-transitions/post-merge-control-candidate.json"
-          parent="$(git rev-parse HEAD^)"
-          if git diff --quiet "$parent" HEAD -- "$candidate"; then
-            echo "deferred=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "deferred=true" >> "$GITHUB_OUTPUT"
-            echo "Status candidate changed; deferring to programme-status-completion."
-          fi
       - name: Stage one read-only convergence transaction
-        if: steps.candidate.outputs.deferred != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -80,10 +68,9 @@ jobs:
           fi
           python scripts/generate_programme.py "${args[@]}"
       - name: Produce reviewable patch only
-        if: steps.candidate.outputs.deferred != 'true'
         run: git diff --no-index --binary /dev/null artifacts/programme-convergence > programme-convergence.patch || test $? = 1
       - name: Upload staged evidence and patch
-        if: always() && steps.candidate.outputs.deferred != 'true'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: programme-convergence-${{ github.sha }}

@@ -130,6 +130,7 @@ def test_convergence_evidence_requires_zero_action_and_separate_authority(
         "remote_inventory_sha256": "a" * 64,
         "summary": {"create": 0, "update": 0, "close": 0, "reopen": 0, "blocked": 0},
         "actions": [],
+        "authority_reconciliation": {"accepted": True},
     }
     _write(tmp_path, f"{prefix}/github-sync-evidence.json", json.dumps(evidence).encode())
     evidence_bytes = json.dumps(evidence).encode()
@@ -241,16 +242,17 @@ def test_post_merge_workflow_is_read_only_exact_head_and_reviewable() -> None:
         / ".github/workflows/programme-convergence.yml"
     ).read_text(encoding="utf-8")
     assert "contents: read" in workflow
-    assert "cancel-in-progress: true" in workflow
+    assert "cancel-in-progress: false" in workflow
+    assert "group: github-mutations-${{ github.repository }}" in workflow
+    assert "queue: max" in workflow
     assert "git rev-parse origin/main" in workflow
     assert "--converge" in workflow
     assert "--reviewed-sidecar" in workflow
     assert "GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}" in workflow
     assert "actions/upload-artifact@v4" in workflow
-    assert "post-merge-control-candidate.json" in workflow
-    assert 'git rev-parse HEAD^' in workflow
-    assert 'git diff --quiet "$parent" HEAD -- "$candidate"' in workflow
+    assert "post-merge-control-candidate.json" not in workflow
+    assert "git rev-parse HEAD^" not in workflow
     assert "--control-candidate" not in workflow
-    assert "deferring to programme-status-completion" in workflow
+    assert "deferring to programme-status-completion" not in workflow
     assert "--apply" not in workflow
     assert "git push" not in workflow

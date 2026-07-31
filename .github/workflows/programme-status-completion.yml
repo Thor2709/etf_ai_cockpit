@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - .github/issue-transitions/post-merge-control-candidate.json
+      - .github/issue-transitions/github-mutation-authority.jsonl
 
 permissions:
   contents: read
@@ -27,11 +27,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git fetch --no-tags origin main
-          parent="$(git rev-parse HEAD^)"
           python -m scripts.apply_reviewed_status_completion \
             --root . \
             --candidate .github/issue-transitions/post-merge-control-candidate.json \
-            --expected-parent "$parent" \
+            --expected-parent "${{ github.event.before }}" \
             --expected-head "${{ github.sha }}" \
             --main-ref origin/main \
             --event-name "${{ github.event_name }}" \

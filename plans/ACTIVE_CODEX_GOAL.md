@@ -1,19 +1,65 @@
 # Active Codex goal — atomic delivery fast path
 
+## Bounded GitHub authority-ledger repair
+
+- Current boundary: one H-tier safety repair for the repository-authored issue
+  creation and lifecycle/status projections already used by the programme.
+  Git is canonical; GitHub comments and issue markers are tamper-evident
+  projections, not immutable records and not server-side compare-and-swap.
+- Rationale: the formal fail-closed guarantee must still detect a completely
+  erased or altered projection. A reviewed Git authority must therefore remain
+  after GitHub evidence disappears. This is deliberately stronger than an
+  ordinary single-user application needs and is justified only by this
+  project's formal programme-control guarantees.
+- Scope limit: this is not a general GitHub database, issue tracker or
+  event-sourcing framework. Do not add speculative support for pull requests,
+  labels, releases, tags, deployments or unrelated GitHub resources.
+- Retry limit: an ambiguous, cancelled, partially applied or erased write
+  leaves its authority spent and unresolved. Automatic retries and historical
+  repair must not invent authority. A later authorised compensating record may
+  document the anomaly but may not silently repeat or rewrite it.
+- Remaining work: finish the append-only authority/baseline implementation;
+  reconcile every current sync, readback and convergence path; add the
+  adversarial suite; obtain independent authority, whole-diff and release
+  review; run the complete Linux/Windows H gate; merge at the reviewed expected
+  head; then regenerate and formally integrate ISSUE-0180 from repaired main.
+- Stop condition: stop before any design or code expands beyond the two current
+  issue mutation classes, adds GitHub resource or contents-write authority, or
+  requires automatic replay of an ambiguous/erased write. Such expansion needs
+  explicit user approval and a demonstrated safety need, not optional
+  hardening.
+- After this bounded repair merges and ISSUE-0180 is formally integrated,
+  freeze the infrastructure and resume product development with ISSUE-0101.
+
 ## Current checkpoint
 
-- Current UTC timestamp: `2026-07-29T22:13:33Z`
-- Current `origin/main`: `9bb8826a87e582d1c2fc876b24294935c908af4f`
-- Active worktree: `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\postmerge-release-gate-repair-20260730`
-- Active branch: `codex/postmerge-release-gate-repair-20260730`
-- Exact base SHA: `9bb8826a87e582d1c2fc876b24294935c908af4f`
-- Exact last committed head before this checkpoint update: `9bb8826a87e582d1c2fc876b24294935c908af4f`
-- Current PR and state: draft PR #618 is open at reviewed product/control head `773f344e909375a721fedb958e91d5e6e72c2f4e`; protected H CI is pending.
-- Current issue: necessary shared prerequisite — stop ordinary `main` merges from rerunning the signed release gate after the exact PR head already passed H.
-- Completed work: the full GitHub audit through PR #617 proved the latest `main` push run `30465742029` passed all `2191/2191` tests and every mandatory Linux/Windows check except signature; `RELEASE_SIGNING_KEY` is intentionally absent outside a real release. Seven duplicate push matrices consumed `291.90` runner-minutes. The bounded repair removes only the ordinary `main` push trigger, retaining pull-request H, both platforms, read-only permissions, signing-secret wiring and fail-closed signed-release behavior. Seventy affected tests, Ruff, protected MyPy, programme byte-clean generation, compile, YAML parsing and diff hygiene pass.
-- Required checks: commit the reviewed repair, classify the exact head H, then integrate only after the protected Linux/Windows PR gate passes and verify that its merge produces convergence without another Release Gate push run.
-- Blocker: none. The repair must not weaken PR validation, release signing, financial or execution authority.
-- Exact next action: commit the reviewed repair and open an immutable draft PR for the required H gate.
+- Current UTC timestamp: `2026-07-31T11:22:28Z`
+- Current `origin/main`: `e829972e18ce84ae2ec9d7e53424c596c207bc12`
+- Active worktree:
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_status_module`
+- Active branch: `codex/status-module-invocation`
+- Exact base SHA: `e829972e18ce84ae2ec9d7e53424c596c207bc12`
+- Exact last committed head before this checkpoint update:
+  `1ffd64622d46890ccf6e42ad9819284f01d1e2ab`
+- Current PR and state: no authority-ledger repair PR exists and nothing from
+  this branch has been pushed.
+- Current issue: bounded repository-wide lost-update repair for the two
+  existing GitHub issue mutation classes.
+- Completed work: all direct writers and bypasses were audited; the first
+  gateway checkpoint passed focused tests and whole-diff review; independent
+  review then proved complete-deletion and exact-provenance gaps. The corrected
+  append-only Git-authority architecture, live 278-issue identity bootstrap and
+  scope boundary are now reviewed and documented. Implementation is in
+  progress and intentionally uncommitted.
+- Required checks: focused adversarial suites, independent whole-diff,
+  authority and release review, then the complete H-tier Linux and Windows
+  packaged gate at one frozen exact head.
+- Blocker: none under the accepted fail-closed rule that a cancelled,
+  ambiguous, partially applied or erased authority is spent and never
+  automatically retried.
+- Exact next action: finish only the bounded ledger/gateway implementation and
+  adversarial tests; stop if it requires new resource or contents-write
+  authority.
 
 ## Objective
 
