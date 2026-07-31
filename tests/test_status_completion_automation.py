@@ -34,6 +34,8 @@ RUN_ATTESTATION = {
     "event_payload_sha256": "d" * 64,
 }
 NOW = 1_800_000_000
+TEST_THUMBPRINT = base64.urlsafe_b64encode(b"a" * 20).rstrip(b"=").decode()
+OTHER_THUMBPRINT = base64.urlsafe_b64encode(b"b" * 20).rstrip(b"=").decode()
 
 
 def _jwt_part(value: object) -> str:
@@ -45,6 +47,8 @@ def _jwt_part(value: object) -> str:
 def _signed_oidc(
     private_key: rsa.RSAPrivateKey,
     audience: str,
+    *,
+    header: dict[str, object] | None = None,
     **changes: object,
 ) -> str:
     claims: dict[str, object] = {
@@ -69,26 +73,28 @@ def _signed_oidc(
         "check_run_id": "555",
     }
     claims.update(changes)
-    encoded_header = _jwt_part({"alg": "RS256", "kid": "test-key", "typ": "JWT"})
+    encoded_header = _jwt_part(header or {
+        "typ": "JWT", "alg": "RS256", "x5t": TEST_THUMBPRINT, "kid": "test-key",
+    })
     encoded_claims = _jwt_part(claims)
     signing_input = f"{encoded_header}.{encoded_claims}".encode()
     signature = private_key.sign(signing_input, padding.PKCS1v15(), hashes.SHA256())
     return f"{encoded_header}.{encoded_claims}.{base64.urlsafe_b64encode(signature).rstrip(b'=').decode()}"
 
 
-def _jwk(private_key: rsa.RSAPrivateKey) -> dict[str, object]:
+def _jwk(private_key: rsa.RSAPrivateKey, **changes: object) -> dict[str, object]:
     numbers = private_key.public_key().public_numbers()
 
     def integer(value: int) -> str:
         raw = value.to_bytes((value.bit_length() + 7) // 8, "big")
         return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
 
-    return {
-        "keys": [{
-            "kty": "RSA", "use": "sig", "alg": "RS256", "kid": "test-key",
-            "n": integer(numbers.n), "e": integer(numbers.e),
-        }]
+    key: dict[str, object] = {
+        "kty": "RSA", "use": "sig", "alg": "RS256", "kid": "test-key",
+        "x5t": TEST_THUMBPRINT, "n": integer(numbers.n), "e": integer(numbers.e),
     }
+    key.update(changes)
+    return {"keys": [key]}
 
 
 def _live_check(**changes: object) -> dict[str, object]:
@@ -1339,6 +1345,165 @@ def test_fresh_oidc_proof_binds_exact_issue_credential_and_live_job(
         used_jtis=set(),
         now=lambda: NOW,
     )
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        {"typ": "JWT", "alg": "RS256", "x5t": "", "kid": "test-key"},
+        {"typ": "JWT", "alg": "RS256", "x5t": 7, "kid": "test-key"},
+        {"typ": "JWT", "alg": "RS256", "x5t": OTHER_THUMBPRINT, "kid": "test-key"},
+        {"typ": "JWT", "alg": "RS256", "kid": ""},
+        {"typ": "JWT", "alg": "RS256", "kid": 7},
+        {"typ": "JOSE", "alg": "RS256", "x5t": TEST_THUMBPRINT, "kid": "test-key"},
+        {"typ": "JWT", "alg": "ES256", "x5t": TEST_THUMBPRINT, "kid": "test-key"},
+        {"typ": "JWT", "alg": "RS256", "x5t": TEST_THUMBPRINT, "kid": "test-key", "jku": "x"},
+        {"typ": "JWT", "alg": "RS256", "x5t": TEST_THUMBPRINT, "kid": "test-key", "x5u": "x"},
+        {"typ": "JWT", "alg": "RS256", "x5t": TEST_THUMBPRINT, "kid": "test-key", "crit": []},
+        {"typ": "JWT", "alg": "RS256", "x5t": TEST_THUMBPRINT, "kid": "test-key", "other": True},
+    ],
+)
+def test_oidc_proof_rejects_noncanonical_or_unbound_jose_header(
+    header: dict[str, object],
+) -> None:
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    audience = hashlib.sha256(b"real-token").hexdigest()
+    with pytest.raises(ValueError):
+        completion.verify_actions_oidc_token(
+            _signed_oidc(private_key, audience, header=header),
+            audience=audience,
+            attestation={**RUN_ATTESTATION, "event_after": HEAD},
+            live_run=_live_actions_run(),
+            live_check=_live_check(),
+            jwks_reader=lambda: _jwk(private_key),
+            now=lambda: NOW,
+        )
+
+
+@pytest.mark.parametrize(
+    ("header", "jwk_x5t"),
+    [
+        ({"typ": "JWT", "alg": "RS256", "kid": "test-key"}, None),
+        (
+            {
+                "typ": "JWT", "alg": "RS256", "kid": "test-key",
+                "x5t": TEST_THUMBPRINT,
+            },
+            TEST_THUMBPRINT,
+        ),
+        (
+            {
+                "typ": "JWT", "alg": "RS256", "kid": "test-key",
+                "x5t": TEST_THUMBPRINT,
+            },
+            None,
+        ),
+        ({"typ": "JWT", "alg": "RS256", "kid": "test-key"}, TEST_THUMBPRINT),
+    ],
+)
+def test_oidc_proof_accepts_optional_thumbprint_shapes(
+    header: dict[str, object],
+    jwk_x5t: object,
+) -> None:
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    audience = hashlib.sha256(b"real-token").hexdigest()
+    jwks = _jwk(private_key, x5t=jwk_x5t)
+    if jwk_x5t is None:
+        del jwks["keys"][0]["x5t"]  # type: ignore[index]
+
+    completion.verify_actions_oidc_token(
+        _signed_oidc(private_key, audience, header=header),
+        audience=audience,
+        attestation={**RUN_ATTESTATION, "event_after": HEAD},
+        live_run=_live_actions_run(),
+        live_check=_live_check(),
+        jwks_reader=lambda: jwks,
+        now=lambda: NOW,
+    )
+
+
+@pytest.mark.parametrize(
+    "x5t",
+    [
+        "",
+        7,
+        OTHER_THUMBPRINT,
+        "*" * 27,
+        f"{TEST_THUMBPRINT}=",
+        base64.urlsafe_b64encode(b"a" * 19).rstrip(b"=").decode(),
+    ],
+)
+def test_oidc_proof_rejects_malformed_or_mismatched_jwk_thumbprint(
+    x5t: object,
+) -> None:
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    audience = hashlib.sha256(b"real-token").hexdigest()
+    jwks = _jwk(private_key, x5t=x5t)
+    with pytest.raises(ValueError):
+        completion.verify_actions_oidc_token(
+            _signed_oidc(private_key, audience),
+            audience=audience,
+            attestation={**RUN_ATTESTATION, "event_after": HEAD},
+            live_run=_live_actions_run(),
+            live_check=_live_check(),
+            jwks_reader=lambda: jwks,
+            now=lambda: NOW,
+        )
+
+
+@pytest.mark.parametrize(
+    "x5t",
+    [
+        "*" * 27,
+        f"{TEST_THUMBPRINT}=",
+        base64.urlsafe_b64encode(b"a" * 19).rstrip(b"=").decode(),
+    ],
+)
+def test_oidc_proof_rejects_matched_malformed_thumbprints(x5t: str) -> None:
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    audience = hashlib.sha256(b"real-token").hexdigest()
+    header = {"typ": "JWT", "alg": "RS256", "kid": "test-key", "x5t": x5t}
+
+    with pytest.raises(ValueError):
+        completion.verify_actions_oidc_token(
+            _signed_oidc(private_key, audience, header=header),
+            audience=audience,
+            attestation={**RUN_ATTESTATION, "event_after": HEAD},
+            live_run=_live_actions_run(),
+            live_check=_live_check(),
+            jwks_reader=lambda: _jwk(private_key, x5t=x5t),
+            now=lambda: NOW,
+        )
+
+
+def test_oidc_proof_rejects_duplicate_kid_and_altered_signature() -> None:
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    audience = hashlib.sha256(b"real-token").hexdigest()
+    token = _signed_oidc(private_key, audience)
+    jwks = _jwk(private_key)
+    jwks["keys"].append(copy.deepcopy(jwks["keys"][0]))  # type: ignore[union-attr]
+    arguments = {
+        "audience": audience,
+        "attestation": {**RUN_ATTESTATION, "event_after": HEAD},
+        "live_run": _live_actions_run(),
+        "live_check": _live_check(),
+        "now": lambda: NOW,
+    }
+
+    with pytest.raises(ValueError, match="duplicate GitHub Actions signing key"):
+        completion.verify_actions_oidc_token(
+            token, jwks_reader=lambda: jwks, **arguments,
+        )
+
+    token_parts = token.split(".")
+    signature = bytearray(completion._b64url_decode(token_parts[2], "JWT signature"))
+    signature[0] ^= 1
+    token_parts[2] = base64.urlsafe_b64encode(signature).rstrip(b"=").decode()
+    altered_token = ".".join(token_parts)
+    with pytest.raises(ValueError, match="invalid GitHub Actions OIDC signature"):
+        completion.verify_actions_oidc_token(
+            altered_token, jwks_reader=lambda: _jwk(private_key), **arguments,
+        )
 
 
 @pytest.mark.parametrize(

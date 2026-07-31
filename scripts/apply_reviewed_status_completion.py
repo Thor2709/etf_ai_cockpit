@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -166,6 +167,12 @@ def _b64url_decode(value: str, description: str) -> bytes:
     return decoded
 
 
+def _validate_x5t(value: object, description: str) -> str:
+    if not isinstance(value, str) or len(_b64url_decode(value, description)) != 20:
+        raise ValueError(f"malformed {description}")
+    return value
+
+
 def _read_url_json(request: urllib.request.Request, description: str) -> dict[str, Any]:
     try:
         with urllib.request.urlopen(request, timeout=10) as response:  # noqa: S310
@@ -235,12 +242,20 @@ def verify_actions_oidc_token(
         raise ValueError("malformed GitHub Actions OIDC JWT")
     header = _strict_json(_b64url_decode(parts[0], "JWT header"), "JWT header")
     claims = _strict_json(_b64url_decode(parts[1], "JWT claims"), "JWT claims")
-    if set(header) != {"alg", "kid", "typ"} or header != {
-        "alg": "RS256",
-        "kid": header.get("kid"),
-        "typ": "JWT",
-    } or not isinstance(header["kid"], str) or not header["kid"]:
+    header_keys = set(header)
+    if (
+        header_keys not in (
+            {"alg", "kid", "typ"},
+            {"alg", "kid", "typ", "x5t"},
+        )
+        or header.get("alg") != "RS256"
+        or header.get("typ") != "JWT"
+        or not isinstance(header.get("kid"), str)
+        or not header["kid"]
+    ):
         raise ValueError("unsupported GitHub Actions OIDC JOSE header")
+    if "x5t" in header:
+        _validate_x5t(header["x5t"], "GitHub Actions OIDC header x5t")
     jwks = jwks_reader()
     jwk = _select_jwk(jwks, header["kid"])
     if jwk is None:
@@ -254,6 +269,14 @@ def verify_actions_oidc_token(
         or jwk.get("alg") not in (None, "RS256")
         or not isinstance(jwk.get("n"), str)
         or not isinstance(jwk.get("e"), str)
+    ):
+        raise ValueError("invalid GitHub Actions OIDC signing key")
+    if "x5t" in jwk:
+        _validate_x5t(jwk["x5t"], "GitHub Actions OIDC JWK x5t")
+    if (
+        "x5t" in header
+        and "x5t" in jwk
+        and not hmac.compare_digest(header["x5t"], jwk["x5t"])
     ):
         raise ValueError("invalid GitHub Actions OIDC signing key")
     public_key = rsa.RSAPublicNumbers(
