@@ -6,6 +6,7 @@ import socket
 import sys
 import tempfile
 import uuid
+import json
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -62,7 +63,7 @@ def reserved_tcp_port() -> Iterator[socket.socket]:
         yield reservation
 
 
-def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     groups = {
         "environment": ("environment", "dependency", "lock"),
         "sqlite": ("sqlite", "database", "db_"),
@@ -77,3 +78,24 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         if matched is not None:
             item.add_marker(pytest.mark.serial)
             item.add_marker(pytest.mark.xdist_group(matched))
+
+    # The parallel pilot opts into this exact selected-nodeid evidence.  Do
+    # not emit it for ordinary test runs.  Manifest emission happens from
+    # pytest_collection_finish after marker deselection below.
+
+
+def pytest_collection_finish(session: pytest.Session) -> None:
+    """Write the post-deselection pilot manifest when explicitly requested."""
+
+    manifest_value = os.getenv("ETF_COCKPIT_PILOT_NODEID_MANIFEST")
+    worker_input = getattr(session.config, "workerinput", None)
+    if not manifest_value or (
+        worker_input is not None and worker_input.get("workerid") != "gw0"
+    ):
+        return
+    nodeids = [item.nodeid.replace("\\", "/") for item in session.items]
+    if len(nodeids) != len(set(nodeids)):
+        raise RuntimeError("parallel pilot selected-nodeid manifest contains duplicates")
+    destination = Path(manifest_value)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(nodeids, sort_keys=False) + "\n", encoding="utf-8")

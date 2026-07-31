@@ -336,16 +336,26 @@ def test_statement_evidence_atomic_failure_rolls_back_after_first_destination_re
     original_replace = Path.replace
     replaced_destinations: list[Path] = []
     injected = False
+    expected_destinations = tuple(
+        sorted(
+            (facts_destination.resolve(), inventory_destination.resolve()),
+            key=lambda path: str(path).casefold(),
+        )
+    )
 
     def replace_with_failure(path: Path, target: Path, *args, **kwargs):
         nonlocal injected
         resolved_target = Path(target).resolve()
-        if resolved_target == facts_destination.resolve() and not replaced_destinations:
+        if resolved_target == expected_destinations[0] and not replaced_destinations:
             result = original_replace(path, target, *args, **kwargs)
             replaced_destinations.append(resolved_target)
             return result
-        if resolved_target == inventory_destination.resolve() and not injected:
-            assert facts_destination.read_bytes() != facts_before
+        if resolved_target == expected_destinations[1] and not injected:
+            assert expected_destinations[0].read_bytes() != (
+                facts_before
+                if expected_destinations[0] == facts_destination.resolve()
+                else inventory_before
+            )
             injected = True
             raise OSError("injected after first destination replacement")
         return original_replace(path, target, *args, **kwargs)
@@ -356,7 +366,7 @@ def test_statement_evidence_atomic_failure_rolls_back_after_first_destination_re
 
     with pytest.raises(OSError, match="injected after first destination replacement"):
         sec_module.write_statement_evidence(source, (record,), facts_destination, inventory_destination)
-    assert replaced_destinations == [facts_destination.resolve()]
+    assert replaced_destinations == [expected_destinations[0]]
     assert facts_destination.read_bytes() == facts_before
     assert inventory_destination.read_bytes() == inventory_before
 

@@ -114,6 +114,9 @@ data/.migration_state.json
 *.db
 
 # Downloaded and trained model weights
+**/.revision.guard
+**/.atomic-write-group.guard
+
 models/**/*.safetensors
 models/**/*.onnx
 models/**/*.h5

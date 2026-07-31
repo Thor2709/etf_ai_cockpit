@@ -12,16 +12,21 @@ import os
 from pathlib import Path
 import re
 import time
+import uuid
 
 from etf_cockpit.application.screening import ScreenQuery, ScreenResult
-from etf_cockpit.core.atomic_io import atomic_write_bytes
+from etf_cockpit.core.atomic_io import _fsync_directory, atomic_write_bytes
+from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.paths import DATA_DIR
+from etf_cockpit.core.process import pid_is_alive as _pid_alive
 
 
 SCREENS_DIR = DATA_DIR / "screens"
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _-]{0,79}$")
 _FORMULA_PREFIXES = ("=", "+", "-", "@")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_ABSENT_PERMISSION_RETRY_LIMIT = 3
+_REVISION_LOCK_SCHEMA_VERSION = 1
 
 
 def save_screen(
@@ -210,30 +215,180 @@ def _validate_record_file(path: Path) -> None:
 
 
 @contextmanager
-def _revision_lock(directory: Path):
+def _revision_lock(directory: Path, timeout_seconds: float = 5.0):
+    deadline = time.monotonic() + timeout_seconds
+    with persistent_file_guard(
+        directory / ".revision.guard",
+        timeout_seconds=timeout_seconds,
+        deadline=deadline,
+        clock=time.monotonic,
+    ):
+        with _revision_lock_body(directory, deadline=deadline):
+            yield
+
+
+@contextmanager
+def _revision_lock_body(directory: Path, *, deadline: float | None = None):
     lock = directory / ".revision.lock"
-    deadline = time.monotonic() + 5.0
-    descriptor: int | None = None
-    while descriptor is None:
+    token = uuid.uuid4().hex
+    if deadline is None:
+        deadline = time.monotonic() + 5.0
+    absent_permission_errors = 0
+    first_absent_permission: PermissionError | None = None
+    while True:
+        descriptor: int | None = None
         try:
             descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            os.write(descriptor, f"{os.getpid()}\n".encode("ascii"))
         except FileExistsError:
+            # An existing lock is ordinary contention.
+            absent_permission_errors = 0
+            first_absent_permission = None
+            pass
+        except PermissionError as error:
+            # A sharing-denied open normally means an existing lock, but on
+            # Windows another thread can create and remove it between the
+            # failed open and this existence check.  Retry that absent-lock
+            # race a few times, while preserving persistent ACL failures.
+            if lock.exists():
+                absent_permission_errors = 0
+                first_absent_permission = None
+            else:
+                absent_permission_errors += 1
+                if first_absent_permission is None:
+                    first_absent_permission = error
+                if absent_permission_errors >= _ABSENT_PERMISSION_RETRY_LIMIT:
+                    assert first_absent_permission is not None
+                    raise first_absent_permission
+        else:
+            payload = json.dumps(
+                {
+                    "schema_version": _REVISION_LOCK_SCHEMA_VERSION,
+                    "lock_type": "screen_revision",
+                    "owner_pid": os.getpid(),
+                    "token": token,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("ascii")
             try:
-                if time.time() - lock.stat().st_mtime > 30:
+                written = os.write(descriptor, payload)
+                if written != len(payload):
+                    raise OSError("saved screen revision lock ownership write was incomplete")
+                os.fsync(descriptor)
+            except BaseException as write_error:
+                # The newly-created lock is ours even when ownership evidence
+                # cannot be written.  Remove it before propagating the write
+                # failure; leaving a partial lock would deny all future saves.
+                try:
+                    os.close(descriptor)
+                except BaseException as close_error:
+                    descriptor = None
+                    raise write_error from close_error
+                descriptor = None
+                try:
                     lock.unlink(missing_ok=True)
-                    continue
-            except OSError:
+                    _fsync_directory(lock.parent)
+                    if lock.exists():
+                        raise OSError(f"saved screen revision lock remained: {lock}")
+                except BaseException as cleanup_error:
+                    raise write_error from cleanup_error
+                raise write_error
+            try:
+                os.close(descriptor)
+            except BaseException as close_error:
+                descriptor = None
+                try:
+                    if not _remove_owned_revision_lock(lock, token):
+                        raise OSError(f"saved screen revision lock ownership changed: {lock}")
+                except BaseException as cleanup_error:
+                    raise close_error from cleanup_error
+                raise
+            descriptor = None
+            _fsync_directory(lock.parent)
+            break
+        if lock.exists():
+            try:
+                owner_text = lock.read_text(encoding="ascii").strip()
+                if owner_text.startswith("{"):
+                    owner_payload = json.loads(owner_text)
+                    if not isinstance(owner_payload, dict):
+                        raise ValueError("malformed saved screen lock ownership")
+                    if (
+                        set(owner_payload)
+                        != {"schema_version", "lock_type", "owner_pid", "token"}
+                        or owner_payload.get("schema_version")
+                        != _REVISION_LOCK_SCHEMA_VERSION
+                        or owner_payload.get("lock_type") != "screen_revision"
+                        or not isinstance(owner_payload.get("token"), str)
+                        or not owner_payload["token"]
+                    ):
+                        raise ValueError("malformed saved screen lock ownership")
+                    owner_pid = owner_payload.get("owner_pid")
+                    if type(owner_pid) is not int or owner_pid <= 0:
+                        raise ValueError("malformed saved screen lock ownership")
+                    if _remove_owned_revision_lock(lock, str(owner_payload["token"])):
+                        continue
+                elif time.time() - lock.stat().st_mtime > 30:
+                    owner_pid = int(owner_text)
+                    if str(owner_pid) != owner_text or owner_pid <= 0:
+                        raise ValueError("malformed saved screen lock ownership")
+                    if not _pid_alive(owner_pid):
+                        lock.unlink(missing_ok=True)
+                        _fsync_directory(lock.parent)
+                        if lock.exists():
+                            raise OSError(f"saved screen revision lock remained: {lock}")
+                        continue
+            except (UnicodeDecodeError, ValueError, json.JSONDecodeError):
+                # Malformed or currently inaccessible ownership evidence is
+                # fail-closed.  Never reclaim based on age alone.
                 pass
-            if time.monotonic() >= deadline:
-                raise TimeoutError(f"timed out waiting for saved screen revision lock: {lock}")
-            time.sleep(0.01)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            if first_absent_permission is not None:
+                raise first_absent_permission
+            raise TimeoutError(f"timed out waiting for saved screen revision lock: {lock}")
+        time.sleep(min(0.01, remaining))
     try:
         yield
-    finally:
-        if descriptor is not None:
-            os.close(descriptor)
+    except BaseException as body_error:
+        try:
+            if not _remove_owned_revision_lock(lock, token):
+                raise OSError(f"saved screen revision lock ownership changed: {lock}")
+        except BaseException as cleanup_error:
+            raise body_error from cleanup_error
+        raise
+    else:
+        if not _remove_owned_revision_lock(lock, token):
+            raise OSError(f"saved screen revision lock ownership changed: {lock}")
+
+
+def _remove_owned_revision_lock(lock: Path, token: str) -> bool:
+    """Remove only our versioned marker while its persistent guard is held."""
+
+    try:
+        payload = json.loads(lock.read_text(encoding="ascii"))
+    except FileNotFoundError:
+        return True
+    except OSError as error:
+        raise OSError(f"cannot verify saved screen lock ownership: {lock}") from error
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
+        return False
+    owner_pid = payload.get("owner_pid") if isinstance(payload, dict) else None
+    if (
+        isinstance(payload, dict)
+        and set(payload) == {"schema_version", "lock_type", "owner_pid", "token"}
+        and payload.get("schema_version") == _REVISION_LOCK_SCHEMA_VERSION
+        and payload.get("lock_type") == "screen_revision"
+        and type(owner_pid) is int
+        and owner_pid > 0
+        and payload.get("token") == token
+    ):
         lock.unlink(missing_ok=True)
+        _fsync_directory(lock.parent)
+        if lock.exists():
+            raise OSError(f"saved screen revision lock remained: {lock}")
+        return True
+    return False
 
 
 def _safe_csv_cell(value: object) -> object:

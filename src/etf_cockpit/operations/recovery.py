@@ -154,6 +154,8 @@ def _required_result(
     reason: str,
     *,
     evidence_checksums: dict[str, str] | None = None,
+    state: str = "recovery_required",
+    startup_mode: str = "read_only",
 ) -> RecoveryResult:
     checksums = dict(evidence_checksums or {})
     if journal.is_file():
@@ -163,8 +165,8 @@ def _required_result(
             checksums["journal_sha256"] = "unavailable"
     return RecoveryResult(
         transaction_id,
-        "recovery_required",
-        "read_only",
+        state,
+        startup_mode,
         reason,
         journal,
         checksums,
@@ -485,6 +487,57 @@ def _validate_legacy_paths(
     return None
 
 
+def _validate_v3_payload(payload: dict[str, object], journal: Path) -> str | None:
+    """Classify destination-authority-v1 without mutating evidence."""
+    try:
+        valid = atomic_io._validate_schema3_payload(payload, journal)
+    except (OSError, RuntimeError, ValueError, TypeError, atomic_io.QuarantineError) as exc:
+        return f"schema3 authority evidence unavailable: {exc}"
+    if not valid:
+        return "schema3 authority/evidence consistency check failed"
+    return None
+
+
+def _validate_v2_auto_recovery(payload: dict[str, object], journal: Path) -> str | None:
+    """Permit only the sealed-v1 compatibility subset for old journals."""
+    if payload.get("guard_protocol") != "sealed-v1":
+        return "legacy schema2 journal has no immutable destination authority"
+    affected = payload.get("affected_dataset_ids")
+    if not isinstance(affected, list) or not affected or any(
+        not isinstance(value, str) or not Path(value).is_absolute() for value in affected
+    ):
+        return "schema2 sealed journal requires absolute affected destinations"
+    destinations = tuple(Path(value).resolve(strict=False) for value in affected)
+    if tuple(str(path) for path in destinations) != tuple(affected):
+        return "schema2 affected destinations are not canonical"
+    if atomic_io._canonical_paths(destinations) != destinations:
+        return "schema2 affected destinations are not unique/sorted"
+    expected_locks = atomic_io._expected_group_lock_paths_from_payload(payload)
+    values = payload.get("lock_paths")
+    if expected_locks is None or not isinstance(values, list):
+        return "schema2 sealed journal has no complete guard set"
+    actual = tuple(Path(value).resolve() for value in values if isinstance(value, str))
+    if actual != expected_locks:
+        return "schema2 sealed journal guard set is incomplete"
+    state = payload.get("state")
+    if not isinstance(state, str):
+        return "schema2 state must be a string"
+    if state in {"validating", "ready_to_commit", "committing", "manifest_publish", "committed"}:
+        entries = payload.get("entries")
+        staged = payload.get("staged_paths")
+        final = payload.get("final_paths")
+        checksums = payload.get("expected_checksums")
+        if not isinstance(entries, list) or len(entries) != len(destinations):
+            return "schema2 post-staging state lacks complete entries"
+        if not isinstance(staged, list) or not isinstance(final, list) or not isinstance(checksums, dict):
+            return "schema2 post-staging state lacks complete evidence"
+        if tuple(Path(str(entry.get("destination"))).resolve() for entry in entries if isinstance(entry, dict)) != destinations:
+            return "schema2 entries do not cover authority destinations"
+        if len(staged) != len(destinations) or len(final) != len(destinations) or len(checksums) != len(destinations):
+            return "schema2 post-staging evidence cardinality mismatch"
+    return None
+
+
 def _emit_recovery_event(result: RecoveryResult, event_path: Path | None) -> None:
     if event_path is None:
         return
@@ -564,7 +617,19 @@ def recover_incomplete_transactions(
         transaction_id = str(payload.get("transaction_id", transaction_root.name))
         journal_state = str(payload.get("state", ""))
         schema_version = payload.get("schema_version", 1)
-        if type(schema_version) is int and schema_version == 2:
+        if type(schema_version) is int and schema_version == 3:
+            error = _validate_v3_payload(payload, journal)
+            if error:
+                result = _required_result(
+                    journal,
+                    transaction_id,
+                    error,
+                    state="quarantined",
+                )
+                results.append(result)
+                _emit_recovery_event(result, resolved_event_path)
+                continue
+        elif type(schema_version) is int and schema_version == 2:
             try:
                 error = _validate_v2_payload(payload, journal, data_root)
             except (OSError, RuntimeError, ValueError) as exc:
@@ -577,18 +642,34 @@ def recover_incomplete_transactions(
                 results.append(result)
                 _emit_recovery_event(result, resolved_event_path)
                 continue
+            compatibility_error = _validate_v2_auto_recovery(payload, journal)
+            if compatibility_error:
+                result = _required_result(
+                    journal,
+                    transaction_id,
+                    compatibility_error,
+                    state="quarantined",
+                )
+                results.append(result)
+                _emit_recovery_event(result, resolved_event_path)
+                continue
             if error:
                 result = _required_result(journal, transaction_id, error)
                 results.append(result)
                 _emit_recovery_event(result, resolved_event_path)
                 continue
         elif type(schema_version) is int and schema_version == 1:
-            error = _validate_legacy_paths(payload, journal, data_root)
-            if error:
-                result = _required_result(journal, transaction_id, error)
-                results.append(result)
-                _emit_recovery_event(result, resolved_event_path)
-                continue
+            # Legacy journals never carry destination authority.  They remain
+            # immutable read-only evidence even when their paths look valid.
+            result = _required_result(
+                journal,
+                transaction_id,
+                "legacy schema1 transaction requires manual recovery",
+                state="quarantined",
+            )
+            results.append(result)
+            _emit_recovery_event(result, resolved_event_path)
+            continue
         else:
             result = _required_result(
                 journal,
@@ -603,12 +684,26 @@ def recover_incomplete_transactions(
                 journal,
                 transaction_id,
                 f"journal state {journal_state!r} requires manual review",
+                state="quarantined" if journal_state == "quarantined" else "recovery_required",
             )
             results.append(result)
             _emit_recovery_event(result, resolved_event_path)
             continue
         try:
             recovered = atomic_io._recover_journal(journal, force=True)
+        except atomic_io.QuarantineError as exc:
+            # An immutable-authority conflict or ambiguous destination is not
+            # a retryable rollback failure.  Preserve the journal and report
+            # quarantine so operators cannot mistake it for a transient retry.
+            result = _required_result(
+                journal,
+                transaction_id,
+                f"rollback quarantined: {exc}",
+                state="quarantined",
+            )
+            results.append(result)
+            _emit_recovery_event(result, resolved_event_path)
+            continue
         except (OSError, KeyError, TypeError, ValueError, ValidationError) as exc:
             result = _required_result(journal, transaction_id, f"rollback failed: {exc}")
             results.append(result)
@@ -619,7 +714,7 @@ def recover_incomplete_transactions(
             results.append(result)
             _emit_recovery_event(result, resolved_event_path)
             continue
-        result_state = "committed" if journal_state == "committed" else "rolled_back"
+        result_state = "committed" if journal_state in {"committed", "cleaned"} else "rolled_back"
         reason = (
             "verified committed generation retained"
             if result_state == "committed"

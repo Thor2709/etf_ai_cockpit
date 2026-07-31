@@ -31,11 +31,14 @@ def test_grouped_write_journal_exposes_durable_transaction_identity_and_lifecycl
     atomic_io.atomic_write_group((_request(destination, b"new"),))
 
     assert {str(item["state"]) for item in observed} >= {
-        "staging",
-        "validating",
+        "authority_published",
+        "markers_publishing",
+        "armed",
+        "preparing",
+        "prepared",
         "committing",
-        "manifest_publish",
         "committed",
+        "cleaned",
     }
     assert len({str(item["transaction_id"]) for item in observed}) == 1
     committed = observed[-1]
@@ -126,6 +129,8 @@ def test_mark_transaction_ready_rejects_transaction_id_outside_supplied_root(tmp
     assert outside_journal.read_text(encoding="utf-8") == "must-not-be-read-or-written"
 
 
+@pytest.mark.serial
+@pytest.mark.xdist_group("concurrency")
 def test_group_reader_cannot_observe_mixed_generation_during_activation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -186,7 +191,10 @@ def test_group_reader_cannot_observe_mixed_generation_during_activation(
     assert observed == [b"new-a", b"new-b"]
 
 
-@pytest.mark.parametrize("crash_point", ["staging", "validating", "committing", "manifest_publish"])
+@pytest.mark.parametrize(
+    "crash_point",
+    ["authority_published", "markers_publishing", "armed", "preparing", "prepared", "committing", "committed", "cleaned"],
+)
 def test_real_group_interruption_leaves_one_existing_journal_for_startup_recovery(
     tmp_path: Path, crash_point: str
 ) -> None:
@@ -206,7 +214,10 @@ def test_real_group_interruption_leaves_one_existing_journal_for_startup_recover
     assert json.loads(journals[0].read_text(encoding="utf-8"))["state"] == crash_point
 
 
-@pytest.mark.parametrize("crash_point", ["staging", "validating", "committing", "manifest_publish"])
+@pytest.mark.parametrize(
+    "crash_point",
+    ["authority_published", "markers_publishing", "armed", "preparing", "prepared", "committing", "committed", "cleaned"],
+)
 def test_real_group_interruption_recovers_the_previous_complete_generation(
     tmp_path: Path, crash_point: str
 ) -> None:
@@ -228,9 +239,9 @@ def test_real_group_interruption_recovers_the_previous_complete_generation(
         event_path=tmp_path / "logs" / "session.jsonl",
     )[0]
 
-    assert result.state == "rolled_back"
+    assert result.state == ("committed" if crash_point in {"committed", "cleaned"} else "rolled_back")
     assert result.startup_mode == "normal"
-    assert destination.read_bytes() == b"old"
+    assert destination.read_bytes() == (b"new" if crash_point in {"committed", "cleaned"} else b"old")
 
 
 def test_concurrent_writer_times_out_without_changing_previous_value(tmp_path: Path) -> None:
@@ -247,6 +258,103 @@ def test_concurrent_writer_times_out_without_changing_previous_value(tmp_path: P
         atomic_io.wait_for_atomic_group(destination, timeout_seconds=0.01)
 
     assert destination.read_bytes() == b"old"
+
+
+def test_group_lock_retries_one_shot_windows_open_sharing_violation(tmp_path: Path, monkeypatch) -> None:
+    parent = tmp_path / "data"
+    parent.mkdir(parents=True)
+    lock = parent / ".atomic-write-group.lock"
+    real_open = atomic_io.os.open
+    calls = 0
+
+    def flaky_open(path, flags, mode=0o777):
+        nonlocal calls
+        if Path(path) != lock:
+            return real_open(path, flags, mode)
+        calls += 1
+        if calls == 1:
+            lock.write_text("{}", encoding="utf-8")
+            raise PermissionError("sharing violation")
+        lock.unlink(missing_ok=True)
+        return real_open(path, flags, mode)
+
+    guards = atomic_io._acquire_group_guards((parent,), timeout_seconds=1)
+    try:
+        monkeypatch.setattr(atomic_io.os, "open", flaky_open)
+        locks = atomic_io._acquire_group_locks((parent,), None, timeout_seconds=1, held_guards=guards)
+        assert calls == 2
+        for lock in locks:
+            lock.unlink(missing_ok=True)
+    finally:
+        guards.close()
+
+
+def test_group_lock_persistent_open_sharing_violation_times_out(tmp_path: Path, monkeypatch) -> None:
+    parent = tmp_path / "data"
+    parent.mkdir(parents=True)
+    (parent / ".atomic-write-group.lock").write_text("{}", encoding="utf-8")
+    guards = atomic_io._acquire_group_guards((parent,), timeout_seconds=1)
+    ticks = iter((10.0, 16.0))
+    monkeypatch.setattr(atomic_io.time, "monotonic", lambda: next(ticks))
+    guards.deadline = 15.0
+    monkeypatch.setattr(
+        atomic_io.os,
+        "open",
+        lambda *_args: (_ for _ in ()).throw(PermissionError("sharing violation")),
+    )
+    try:
+        with pytest.raises(TimeoutError):
+            atomic_io._acquire_group_locks((parent,), None, timeout_seconds=5, held_guards=guards)
+    finally:
+        guards.close()
+
+
+def test_group_lock_absent_open_permission_error_propagates(tmp_path: Path, monkeypatch) -> None:
+    parent = tmp_path / "data"
+    guards = atomic_io._acquire_group_guards((parent,), timeout_seconds=1)
+    monkeypatch.setattr(
+        atomic_io.os,
+        "open",
+        lambda *_args: (_ for _ in ()).throw(PermissionError("ACL denied")),
+    )
+    try:
+        with pytest.raises(PermissionError, match="ACL denied"):
+            atomic_io._acquire_group_locks((parent,), None, timeout_seconds=1, held_guards=guards)
+    finally:
+        guards.close()
+
+
+def test_group_lock_ownership_write_failure_cleans_owned_lock(tmp_path: Path, monkeypatch) -> None:
+    parent = tmp_path / "data"
+    guards = atomic_io._acquire_group_guards((parent,), timeout_seconds=1)
+    monkeypatch.setattr(
+        atomic_io.os,
+        "write",
+        lambda *_args: (_ for _ in ()).throw(PermissionError("denied")),
+    )
+    try:
+        with pytest.raises(PermissionError):
+            atomic_io._acquire_group_locks((parent,), None, timeout_seconds=1, held_guards=guards)
+        assert not (parent / ".atomic-write-group.lock").exists()
+    finally:
+        guards.close()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"owner_pid": 999999, "lock_type": "reader"},
+        {"owner_pid": 999999, "lock_type": "reader", "journal_path": "forged"},
+    ],
+)
+def test_reader_lock_recovery_requires_a_live_guard_and_never_reclaims(
+    tmp_path: Path, payload: dict[str, object]
+) -> None:
+    lock = tmp_path / ".atomic-write-group.lock"
+    lock.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(RuntimeError):
+        atomic_io._recover_lock(lock)
+    assert lock.exists()
 
 
 def test_stale_lock_cannot_recover_a_journal_outside_its_recovery_root(tmp_path: Path) -> None:
@@ -396,8 +504,8 @@ def test_stale_lock_with_unhashable_journal_state_is_left_in_place(tmp_path: Pat
 def test_activation_rollback_failure_preserves_recovery_evidence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    first = tmp_path / "data" / "first.bin"
-    second = tmp_path / "configs" / "second.bin"
+    first = tmp_path / "a" / "first.bin"
+    second = tmp_path / "z" / "second.bin"
     first.parent.mkdir(parents=True)
     second.parent.mkdir(parents=True)
     first.write_bytes(b"old-a")
@@ -417,19 +525,22 @@ def test_activation_rollback_failure_preserves_recovery_evidence(
 
     monkeypatch.setattr(Path, "replace", fail_activation_and_rollback)
 
-    with pytest.raises(PermissionError):
+    with pytest.raises(PermissionError, match="activation denied for second") as raised:
         atomic_io.atomic_write_group(
             (_request(first, b"new-a"), _request(second, b"new-b")),
         )
+    assert isinstance(raised.value.__cause__, PermissionError)
+    assert "rollback denied for first" in str(raised.value.__cause__)
 
     journals = list(tmp_path.rglob(".atomic-transactions/*/journal.json"))
     assert len(journals) == 1
     payload = json.loads(journals[0].read_text(encoding="utf-8"))
     assert payload["state"] == "recovery_required"
+    assert "rollback denied for first" in payload["recovery_error"]
     assert first.read_bytes() == b"new-a"
     assert second.read_bytes() == b"old-b"
     assert any(Path(path).exists() for path in payload["staged_paths"])
-    assert all(Path(path).exists() for path in payload["lock_paths"])
+    assert all(Path(path).exists() for path in payload["marker_paths"])
 
     from etf_cockpit.operations.recovery import recover_incomplete_transactions
 
@@ -442,6 +553,8 @@ def test_activation_rollback_failure_preserves_recovery_evidence(
     assert journals[0].exists()
 
 
+@pytest.mark.serial
+@pytest.mark.xdist_group("concurrency")
 def test_recovery_of_interrupted_second_real_writer_preserves_first_commit(tmp_path: Path) -> None:
     from etf_cockpit.operations.recovery import recover_incomplete_transactions
 
@@ -461,7 +574,7 @@ def test_recovery_of_interrupted_second_real_writer_preserves_first_commit(tmp_p
     def second_hook(state: str, _journal: Path) -> None:
         if state == "committing":
             second_at_commit.set()
-        if state == "manifest_publish":
+        if state == "committing":
             raise atomic_io.AtomicWriteInterrupted(state)
 
     def write(payload: bytes, hook) -> None:
@@ -484,7 +597,7 @@ def test_recovery_of_interrupted_second_real_writer_preserves_first_commit(tmp_p
 
     assert not first.is_alive() and not second.is_alive()
     assert errors == []
-    assert destination.read_bytes() == b"new-2"
+    assert destination.read_bytes() == b"new-1"
 
     results = recover_incomplete_transactions(
         tmp_path,
@@ -512,4 +625,6 @@ def test_staged_checksum_is_recomputed_after_commit_hook_before_activation(tmp_p
         )
 
     assert destination.read_bytes() == b"old"
-    assert list(tmp_path.rglob(".atomic-transactions/*/journal.json")) == []
+    journals = list(tmp_path.rglob(".atomic-transactions/*/journal.json"))
+    assert len(journals) == 1
+    assert json.loads(journals[0].read_text(encoding="utf-8"))["state"] == "recovery_required"

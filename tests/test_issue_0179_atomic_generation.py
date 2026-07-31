@@ -22,8 +22,9 @@ def test_atomic_publish_rolls_back_the_complete_prior_set(tmp_path: Path) -> Non
         _write(root, relative, b"prior")
         _write(stage, relative, b"next")
     _write(stage, generate_programme.MANIFEST_PATH.as_posix(), b"manifest")
+
     def fail_validation(state: str, _journal: Path) -> None:
-        if state == "validating":
+        if state == "prepared":
             raise OSError("injected publication failure")
 
     with pytest.raises(OSError, match="injected publication failure"):
@@ -51,18 +52,6 @@ def test_interrupted_group_is_recovered_before_next_publication(tmp_path: Path) 
     with pytest.raises(generate_programme.atomic_io.AtomicWriteInterrupted):
         generate_programme.atomic_publish(root, stage, outputs, lifecycle_hook=interrupt)
 
-    for lock in root.rglob(".atomic-write-group.lock"):
-        lock_payload = json.loads(lock.read_text(encoding="utf-8"))
-        journal = Path(lock_payload["journal_path"])
-        journal_payload = json.loads(journal.read_text(encoding="utf-8"))
-        journal_payload["owner_pid"] = 99999999
-        journal.write_text(json.dumps(journal_payload), encoding="utf-8")
-        lock.write_text(
-            '{"owner_pid": 99999999, "lock_type": "writer", "journal_path": '
-            + json.dumps(lock_payload["journal_path"])
-            + "}",
-            encoding="utf-8",
-        )
     generate_programme.atomic_publish(root, stage, outputs)
     assert all((root / relative).read_bytes() == b"next" for relative in outputs)
 

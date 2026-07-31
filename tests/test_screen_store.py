@@ -3,10 +3,13 @@ from __future__ import annotations
 import csv
 from concurrent.futures import ThreadPoolExecutor
 import json
+import os
+import time
 
 import pytest
 
 from etf_cockpit.application.screening import ScreenFilter, ScreenQuery, bind_query, run_screen
+from etf_cockpit.data import screen_store
 from etf_cockpit.data.screen_store import export_screen_csv, list_saved_screens, load_screen, save_screen
 
 
@@ -137,3 +140,146 @@ def test_saved_screen_rejects_oversized_deep_or_boolean_revision_records(tmp_pat
     path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError, match="invalid types"):
         load_screen("boolean revision", directory=tmp_path)
+
+
+def test_revision_lock_retries_one_shot_windows_open_sharing_violation(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    directory = tmp_path / "screen"
+    directory.mkdir()
+    real_open = screen_store.os.open
+    lock = directory / ".revision.lock"
+    calls = 0
+
+    def flaky_open(path, flags, mode=0o777):
+        nonlocal calls
+        if path != lock:
+            return real_open(path, flags, mode)
+        calls += 1
+        if calls == 1:
+            lock.write_text("{}", encoding="ascii")
+            lock.unlink()
+            raise PermissionError("sharing violation")
+        return real_open(path, flags, mode)
+
+    monkeypatch.setattr(screen_store.os, "open", flaky_open)
+    with screen_store._revision_lock(directory):
+        marker = json.loads((directory / ".revision.lock").read_text(encoding="ascii"))
+        assert set(marker) == {"schema_version", "lock_type", "owner_pid", "token"}
+        assert marker["schema_version"] == screen_store._REVISION_LOCK_SCHEMA_VERSION
+        assert marker["lock_type"] == "screen_revision"
+        assert marker["owner_pid"] == os.getpid()
+        assert isinstance(marker["token"], str) and marker["token"]
+    assert calls == 2
+    assert not (directory / ".revision.lock").exists()
+
+
+def test_revision_lock_persistent_open_sharing_violation_times_out(tmp_path, monkeypatch) -> None:
+    directory = tmp_path / "screen"
+    directory.mkdir()
+    (directory / ".revision.lock").write_text("{}", encoding="ascii")
+    monkeypatch.setattr(screen_store, "_pid_alive", lambda _pid: True)
+    ticks = iter((10.0, 15.0))
+    monkeypatch.setattr(screen_store.time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(screen_store.os, "open", lambda *_args: (_ for _ in ()).throw(PermissionError("sharing violation")))
+    with pytest.raises(TimeoutError):
+        with screen_store._revision_lock(directory):
+            pass
+
+
+def test_revision_lock_persistent_absent_permission_error_propagates_with_bound(
+    tmp_path, monkeypatch
+) -> None:
+    directory = tmp_path / "screen"
+    directory.mkdir()
+    calls = 0
+    error = PermissionError("ACL denied")
+
+    def denied_open(*_args):
+        nonlocal calls
+        calls += 1
+        raise error
+
+    monkeypatch.setattr(
+        screen_store.os,
+        "open",
+        denied_open,
+    )
+    with pytest.raises(PermissionError, match="ACL denied") as caught:
+        with screen_store._revision_lock(directory):
+            pass
+    assert caught.value is error
+    assert calls == screen_store._ABSENT_PERMISSION_RETRY_LIMIT
+
+
+def test_revision_lock_slow_absent_permission_preserves_original_before_deadline(
+    tmp_path, monkeypatch
+) -> None:
+    directory = tmp_path / "screen"
+    directory.mkdir()
+    error = PermissionError("slow ACL denied")
+    calls = 0
+    ticks = iter((10.0, 16.0))
+
+    def slow_open(*_args):
+        nonlocal calls
+        calls += 1
+        raise error
+
+    monkeypatch.setattr(screen_store.time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(screen_store.os, "open", slow_open)
+    with pytest.raises(PermissionError, match="slow ACL denied") as caught:
+        with screen_store._revision_lock(directory):
+            pass
+    assert caught.value is error
+    assert calls == 1
+
+
+@pytest.mark.parametrize(
+    "owner_text",
+    ["not-a-pid", str(os.getpid())],
+    ids=["malformed-owner", "live-owner"],
+)
+def test_revision_lock_does_not_reclaim_malformed_or_live_stale_owner(
+    tmp_path, owner_text: str, monkeypatch, request: pytest.FixtureRequest
+) -> None:
+    assert str(os.getpid()) not in request.node.nodeid
+    directory = tmp_path / "screen"
+    directory.mkdir()
+    lock = directory / ".revision.lock"
+    lock.write_text(owner_text + "\n", encoding="ascii")
+    stale = time.time() - 60
+    os.utime(lock, (stale, stale))
+    ticks = iter((10.0, 15.0))
+    monkeypatch.setattr(screen_store.time, "monotonic", lambda: next(ticks))
+    with pytest.raises(TimeoutError):
+        with screen_store._revision_lock(directory):
+            pass
+    assert lock.exists()
+
+
+def test_revision_lock_reclaims_only_dead_stale_owner(tmp_path, monkeypatch) -> None:
+    directory = tmp_path / "screen"
+    directory.mkdir()
+    lock = directory / ".revision.lock"
+    lock.write_text("999999\n", encoding="ascii")
+    stale = time.time() - 60
+    os.utime(lock, (stale, stale))
+    monkeypatch.setattr(screen_store, "_pid_alive", lambda pid: pid != 999999)
+    with screen_store._revision_lock(directory):
+        marker = json.loads(lock.read_text(encoding="ascii"))
+        assert set(marker) == {"schema_version", "lock_type", "owner_pid", "token"}
+        assert marker["schema_version"] == screen_store._REVISION_LOCK_SCHEMA_VERSION
+        assert marker["lock_type"] == "screen_revision"
+        assert marker["owner_pid"] == os.getpid()
+        assert isinstance(marker["token"], str) and marker["token"]
+
+
+def test_revision_lock_ownership_write_failure_cleans_owned_lock(tmp_path, monkeypatch) -> None:
+    directory = tmp_path / "screen"
+    directory.mkdir()
+    monkeypatch.setattr(screen_store.os, "write", lambda *_args: (_ for _ in ()).throw(PermissionError("denied")))
+    with pytest.raises(PermissionError):
+        with screen_store._revision_lock(directory):
+            pass
+    assert not (directory / ".revision.lock").exists()

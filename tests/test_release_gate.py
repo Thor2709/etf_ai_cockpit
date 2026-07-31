@@ -315,7 +315,9 @@ def test_parallel_pilot_is_report_only_when_xdist_is_unavailable(monkeypatch) ->
         "comparison": "ordered_nodeids",
         "status": "not_run",
     }
-    assert "-n 4 --dist loadgroup --collect-only" in evidence["commands"]["pilot_collection"]
+    assert evidence["schema_version"] == "pytest-parallel-pilot.v2"
+    assert "--collect-only" in evidence["commands"]["candidate_safe_collection"]
+    assert "-n 4 --dist loadgroup" in evidence["commands"]["candidate_safe_execution"]
     assert evidence["serial_groups"] == [
         "concurrency",
         "environment",
