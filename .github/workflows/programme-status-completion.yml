@@ -22,31 +22,37 @@ jobs:
   apply-reviewed-status:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
       - name: Set up pinned Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12.10"
       - name: Install locked mutation runtime
         shell: bash
         run: |
-          mapfile -t cryptography_lock < <(grep -E '^cryptography==[0-9]+(\.[0-9]+)*$' requirements-release.txt)
-          test "${#cryptography_lock[@]}" -eq 1
-          python -m pip install "${cryptography_lock[0]}"
+          python -m pip install \
+            --require-hashes \
+            --only-binary=:all: \
+            --requirement requirements-github-mutation-runtime.txt
           python - <<'PY'
           import importlib.metadata
           import platform
 
           assert platform.python_version() == "3.12.10"
-          lock = next(
-              line.strip()
-              for line in open("requirements-release.txt", encoding="utf-8")
-              if line.startswith("cryptography==")
-          )
-          assert lock == f"cryptography=={importlib.metadata.version('cryptography')}"
+          expected = {
+              "cffi": "2.0.0",
+              "cryptography": "49.0.0",
+              "pycparser": "2.23",
+          }
+          assert {
+              distribution: importlib.metadata.version(distribution)
+              for distribution in expected
+          } == expected
+          import cffi  # noqa: F401
           import cryptography  # noqa: F401
+          import pycparser  # noqa: F401
           PY
       - name: Guard and apply reviewed status completion
         env:
@@ -60,7 +66,7 @@ jobs:
             --apply
       - name: Upload status-completion evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: programme-status-completion-${{ github.sha }}
           path: artifacts/programme-status-completion/evidence.json

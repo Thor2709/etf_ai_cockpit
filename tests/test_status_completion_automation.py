@@ -5,6 +5,7 @@ import copy
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -832,8 +833,19 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
         "issues": "write",
     }
     steps = status_workflow["jobs"]["apply-reviewed-status"]["steps"]
+    action_pins = {
+        "actions/checkout": ("11bd71901bbe5b1630ceea73d27597364c9af683", "v4.2.2"),
+        "actions/setup-python": ("a26af69be951a213d495a4c3e4e4022e16d87065", "v5.6.0"),
+        "actions/upload-artifact": ("ea165f8d65b6e75b540449e92b4886f43607fa02", "v4.6.2"),
+    }
+    for action, (sha, version) in action_pins.items():
+        assert f"uses: {action}@{sha} # {version}" in status_text
+    executable_actions = [step["uses"] for step in steps if "uses" in step]
+    assert all(re.fullmatch(r"[^@]+@[0-9a-f]{40}", action) for action in executable_actions)
     setup_index = next(
-        index for index, step in enumerate(steps) if step.get("uses") == "actions/setup-python@v5"
+        index
+        for index, step in enumerate(steps)
+        if step.get("uses", "").startswith("actions/setup-python@")
     )
     install_index = next(
         index for index, step in enumerate(steps) if step.get("name") == "Install locked mutation runtime"
@@ -845,10 +857,16 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
     )
     assert steps[setup_index]["with"]["python-version"] == "3.12.10"
     install = steps[install_index]["run"]
-    assert "requirements-release.txt" in install
-    assert "cryptography==" in install
-    assert "python -m pip install \"${cryptography_lock[0]}\"" in install
+    assert "requirements-github-mutation-runtime.txt" in install
+    assert "--require-hashes" in install
+    assert "--only-binary=:all:" in install
+    assert "--no-deps" not in install
+    assert '"cryptography": "49.0.0"' in install
+    assert '"cffi": "2.0.0"' in install
+    assert '"pycparser": "2.23"' in install
+    assert "import cffi" in install
     assert "import cryptography" in install
+    assert "import pycparser" in install
     assert setup_index < install_index < mutation_index
     assert status_workflow["concurrency"] == {
         "group": "github-mutations-${{ github.repository }}",
@@ -871,7 +889,7 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
         in status_text
     )
     assert "if: always()" in status_text
-    assert "actions/upload-artifact@v4" in status_text
+    assert "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" in status_text
     assert "--control-candidate" not in convergence
     assert "deferring to programme-status-completion zero-action readback" in convergence
     assert 'git diff --quiet "${{ github.event.before }}" "${{ github.sha }}"' in convergence
@@ -921,6 +939,42 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
     )
     assert (
         "if-no-files-found: error" in release[candidate_upload : candidate_upload + 420]
+    )
+
+
+def test_github_mutation_runtime_is_complete_binary_hash_lock() -> None:
+    root = Path(__file__).resolve().parents[1]
+    lock = (root / "requirements-github-mutation-runtime.txt").read_text(
+        encoding="utf-8"
+    )
+    requirements = re.findall(
+        r"(?m)^([a-z0-9-]+)==([^ ]+) \\\n+\s+--hash=sha256:([0-9a-f]{64})$",
+        lock,
+    )
+    assert requirements == [
+        (
+            "cffi",
+            "2.0.0",
+            "3e17ed538242334bf70832644a32a7aae3d83b57567f9fd60a26257e992b79ba",
+        ),
+        (
+            "cryptography",
+            "49.0.0",
+            "0e959b578856a3924bc0cbb710fc12c387b9412a951389f3ca61704a9e25f325",
+        ),
+        (
+            "pycparser",
+            "2.23",
+            "e5c6e8d3fbad53479cab09ac03729e0a9faf2bee3db8208a550daf5af81a5934",
+        ),
+    ]
+    requirement_lines = [
+        line for line in lock.splitlines() if line and not line.startswith(("#", " "))
+    ]
+    assert len(requirement_lines) == 3
+    assert all(
+        re.fullmatch(r"[a-z0-9-]+==[0-9.]+ [\\]", line)
+        for line in requirement_lines
     )
 
 
