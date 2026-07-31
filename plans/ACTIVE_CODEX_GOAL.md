@@ -33,7 +33,40 @@
 
 ## Current checkpoint
 
-- Current UTC timestamp: `2026-07-31T19:20:55Z`.
+- Current UTC timestamp: `2026-07-31T21:08:12Z`.
+- Final fast-path evidence PR #631 merged exact reviewed head
+  `11da5e4a880a4e06526147bd30527c24d186804d` as
+  `8a0d1d9a7437770aa0567d9ae6787e3881832f27`. H-tier run `30659377591`
+  passed classifier, preflight, supply-chain, Linux and Windows package gates,
+  both repeated parallel pilots, their cross-platform aggregate and terminal
+  validation. Post-merge convergence `30663879745` passed from exact main
+  with zero create, update, close, reopen or blocked actions.
+- Active product worktree:
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0101`; branch
+  `codex/issue0101-cyclical-adapters-20260731`; exact base
+  `8a0d1d9a7437770aa0567d9ae6787e3881832f27`.
+- Current issue: dependency-ready ISSUE-0101, programme status `in_progress`.
+  The bounded product outcome is one local typed adapter family for energy,
+  materials/mining and non-infrastructure industrial evidence, deterministic
+  scenarios and read-only Instrument Detail rationale.
+- Product checkpoint: the bounded implementation and one focused correction
+  are uncommitted. Forty-six adapter/architecture tests and 94 broader
+  Instrument Detail/application tests pass, with Ruff, compile, boundary and
+  diff checks green. Independent final review is not clean: self-rehashed
+  projections can still forge source/cycle/formula/routing semantics, and
+  three related limitation/replay inconsistencies remain.
+- Blocker: the same semantic-replay validator approach remains incomplete
+  after the implementation and its one permitted focused correction. Do not
+  commit, push or open a PR from this product diff.
+- Exact next action: preserve this explicitly uncommitted checkpoint and
+  redesign the cyclical projection verifier so it validates one canonical
+  source-bearing payload rather than attempting a second partial semantic
+  reconstruction. Start that as a fresh bounded implementation only after
+  reviewing this failure fingerprint; do not broaden into persistence,
+  providers or shared routing.
+- Product stop condition: stop if industrial versus infrastructure routing
+  requires a shared classification/registry redesign, persisted contracts,
+  external data authority or any broader sector or ISSUE-0115 scope.
 - The bounded plan-order repair PR #629 merged as
   `b113ac8c205887c5f84d841445d2e52ca5101c04`; authoritative H run
   `30652483166` passed Linux and Windows at 2,452 tests per platform.
@@ -50,27 +83,17 @@
   its zero-action readback. Convergence run `30658275236` then succeeded by
   deferring to that readback. The unchanged body status is the deliberate
   tamper-detectable bootstrap anchor, not the effective status.
-- Active final-evidence worktree:
-  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_final_fastpath_docs`;
-  branch `codex/final-fastpath-metrics-freeze`; exact base
-  `45564c306643f8fbe97fe460979a04e25e6f41b9`; exact final-evidence commit
-  `5bc696e634c940058ce361c01609f99adbbb0ebc`. Any branch-tip descendant is
-  limited to this checkpoint; verify it with `git rev-parse HEAD` to avoid a
-  self-referential commit identity.
+- Final evidence content was reviewed at
+  `5bc696e634c940058ce361c01609f99adbbb0ebc`; its plan-only checkpoint
+  correction was the merged PR head recorded above.
 - Final measured compact-control sample is frozen to every eligible main-push
   convergence/status run from PR #618 through PR #628, including failures:
   execution p50/p95 `0.4000/1.2500 min`; queue p50/p95
   `0.0500/1.8833 min`. E package skipping was correct in `5/5` transactions;
   cache reuse was `10/46` (`21.74%`). No polling reduction is claimed.
-- Required checks: deterministic generation, focused programme-control tests,
-  independent exact-head review and the complete Linux/Windows H-tier gate.
-- Exact next action: publish this final checkpoint and measured evidence,
-  merge it at the reviewed head, then create the fresh bounded ISSUE-0101
-  product lane. Do not reopen or expand GitHub authority infrastructure.
-- Stop condition: stop if final documentation requires new GitHub authority,
-  retry/compensation/history repair, another GitHub resource, product scope or
-  any change beyond the recorded workflow contract. Expansion still requires
-  explicit user approval and a demonstrated safety need.
+- Required checks for the product continuation: focused adapter, application,
+  selector, page and architecture tests first, then the validation tier and
+  broader gates required by the finished diff.
 - Temporary orchestration override: up to six child agents may be used, subject
   to any lower runtime cap, until the user explicitly says to revert. This
   changes concurrency only and grants no authority or product-scope expansion.
