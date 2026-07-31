@@ -52,8 +52,11 @@
   tamper-detectable bootstrap anchor, not the effective status.
 - Active final-evidence worktree:
   `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_final_fastpath_docs`;
-  branch `codex/final-fastpath-metrics-freeze`; exact base and current
-  pre-commit head `45564c306643f8fbe97fe460979a04e25e6f41b9`.
+  branch `codex/final-fastpath-metrics-freeze`; exact base
+  `45564c306643f8fbe97fe460979a04e25e6f41b9`; exact final-evidence commit
+  `5bc696e634c940058ce361c01609f99adbbb0ebc`. Any branch-tip descendant is
+  limited to this checkpoint; verify it with `git rev-parse HEAD` to avoid a
+  self-referential commit identity.
 - Final measured compact-control sample is frozen to every eligible main-push
   convergence/status run from PR #618 through PR #628, including failures:
   execution p50/p95 `0.4000/1.2500 min`; queue p50/p95
