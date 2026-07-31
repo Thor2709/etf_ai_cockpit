@@ -269,6 +269,8 @@ def test_group_lock_retries_one_shot_windows_open_sharing_violation(tmp_path: Pa
 
     def flaky_open(path, flags, mode=0o777):
         nonlocal calls
+        if Path(path) != lock:
+            return real_open(path, flags, mode)
         calls += 1
         if calls == 1:
             lock.write_text("{}", encoding="utf-8")

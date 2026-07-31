@@ -71,7 +71,7 @@ def test_windows_replace_retries_candidate_error_then_succeeds(tmp_path, monkeyp
             raise candidate
         return real_replace(self, target)
 
-    monkeypatch.setattr(atomic_io.os, "name", "nt")
+    monkeypatch.setattr(atomic_io, "_IS_WINDOWS", True)
     monkeypatch.setattr(Path, "replace", replace)
     monkeypatch.setattr(atomic_io.time, "monotonic", lambda: 10.0)
     monkeypatch.setattr(atomic_io.time, "sleep", sleeps.append)
@@ -98,7 +98,7 @@ def test_windows_replace_propagates_first_persistent_candidate_error(
     def replace(self: Path, target: Path):
         raise next(errors)
 
-    monkeypatch.setattr(atomic_io.os, "name", "nt")
+    monkeypatch.setattr(atomic_io, "_IS_WINDOWS", True)
     monkeypatch.setattr(Path, "replace", replace)
     monkeypatch.setattr(atomic_io.time, "monotonic", lambda: next(clock))
     monkeypatch.setattr(atomic_io.time, "sleep", sleeps.append)
@@ -127,7 +127,7 @@ def test_windows_replace_does_not_attempt_again_after_sleep_overshoots_deadline(
         attempts += 1
         raise candidate
 
-    monkeypatch.setattr(atomic_io.os, "name", "nt")
+    monkeypatch.setattr(atomic_io, "_IS_WINDOWS", True)
     monkeypatch.setattr(Path, "replace", replace)
     monkeypatch.setattr(atomic_io.time, "monotonic", lambda: next(clock))
     monkeypatch.setattr(atomic_io.time, "sleep", sleeps.append)
@@ -156,7 +156,7 @@ def test_windows_replace_propagates_noncandidate_error_without_retry(
         attempts += 1
         raise noncandidate
 
-    monkeypatch.setattr(atomic_io.os, "name", "nt")
+    monkeypatch.setattr(atomic_io, "_IS_WINDOWS", True)
     monkeypatch.setattr(Path, "replace", replace)
     monkeypatch.setattr(atomic_io.time, "sleep", sleeps.append)
 

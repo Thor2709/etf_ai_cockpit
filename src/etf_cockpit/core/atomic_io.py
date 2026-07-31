@@ -61,6 +61,7 @@ _GROUP_GUARD_PROTOCOL = "sealed-v1"
 _AUTHORITY_PROTOCOL = "destination-authority-v1"
 _AUTHORITY_SCHEMA_VERSION = 1
 _ATOMIC_SCHEMA_VERSION = 3
+_IS_WINDOWS = os.name == "nt"
 
 
 @dataclass(frozen=True)
@@ -395,7 +396,7 @@ def _replace_single_destination_with_retry(source: Path, destination: Path) -> N
             return
         except PermissionError as error:
             code = getattr(error, "winerror", None)
-            if os.name != "nt" or code not in {5, 32}:
+            if not _IS_WINDOWS or code not in {5, 32}:
                 raise
             if first_error is None:
                 first_error = error
