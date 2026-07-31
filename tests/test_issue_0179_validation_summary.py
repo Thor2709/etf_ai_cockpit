@@ -374,6 +374,7 @@ def test_candidate_evidence_must_equal_committed_candidate_identity(
     [
         None,
         "not-a-list",
+        [],
         [{}],
         [{"path": ".github/issue-transitions/post-merge-control-candidate.json"}],
         [
@@ -387,6 +388,32 @@ def test_candidate_evidence_must_equal_committed_candidate_identity(
                 "tier": "E",
                 "reason": "allowlisted",
             },
+        ],
+        [
+            {
+                "path": "docs/product-completion/PROGRESS.md",
+                "tier": "E",
+                "reason": "allowlisted",
+            },
+            {
+                "path": "docs/product-completion/PROGRESS.md",
+                "tier": "E",
+                "reason": "allowlisted",
+            },
+        ],
+        [
+            {
+                "path": "docs/product-completion/PROGRESS.md",
+                "tier": "invalid",
+                "reason": "allowlisted",
+            }
+        ],
+        [
+            {
+                "path": "docs/product-completion/PROGRESS.md",
+                "tier": "E",
+                "reason": "",
+            }
         ],
     ],
 )

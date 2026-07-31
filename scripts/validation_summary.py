@@ -28,6 +28,7 @@ CANDIDATE_ARTIFACT_PREFIX = "validation-status-completion-candidate-"
 SHA_RE = re.compile(r"[0-9a-f]{40}")
 HASH_RE = re.compile(r"[0-9a-f]{64}")
 STABLE_ID_RE = re.compile(r"(?:ISSUE|UPDATEV2)-[0-9]{4}")
+CLASSIFIER_TIERS = {"E", "O", "H", "C"}
 
 
 def validate_summary(report: dict[str, Any]) -> list[str]:
@@ -135,23 +136,23 @@ def _junit_tests(node: ET.Element) -> int:
 
 def _candidate_changed(classifier: dict[str, Any]) -> bool:
     paths = classifier.get("paths")
-    if not isinstance(paths, list):
+    if not isinstance(paths, list) or not paths:
         raise ValueError("classifier paths are missing or malformed")
-    candidate_count = 0
+    seen_paths: set[str] = set()
     for item in paths:
         if (
             not isinstance(item, dict)
             or not isinstance(item.get("path"), str)
             or not item["path"]
-            or not isinstance(item.get("tier"), str)
+            or item.get("tier") not in CLASSIFIER_TIERS
             or not isinstance(item.get("reason"), str)
+            or not item["reason"]
         ):
             raise ValueError("classifier paths are missing or malformed")
-        if item["path"] == CANDIDATE_PATH:
-            candidate_count += 1
-    if candidate_count > 1:
-        raise ValueError("classifier contains duplicate status-completion candidate paths")
-    return candidate_count == 1
+        if item["path"] in seen_paths:
+            raise ValueError("classifier contains duplicate paths")
+        seen_paths.add(item["path"])
+    return CANDIDATE_PATH in seen_paths
 
 
 def _load_committed_candidate(root: Path, head: str) -> dict[str, Any]:
