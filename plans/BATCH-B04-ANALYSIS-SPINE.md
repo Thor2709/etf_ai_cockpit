@@ -670,6 +670,16 @@ issue #241 with semantic SHA-256
 No dependency, scope, acceptance, policy or authority change is included;
 `execution_allowed=false`.
 
+`PRODUCT CHECKPOINT` ISSUE-0101 now has the bounded local typed energy,
+materials/mining and non-infrastructure industrial adapter family, canonical
+verified projection hashing, source-protected point-in-time operating
+evidence, distinct-cycle confidence handling, deterministic portfolio-impact
+scenarios, explicit unavailable metrics, commodity mappings and deterministic
+cycle-adjusted valuation/trough-distress checks, plus the Instrument Detail
+`Cyclicals` evidence seam. Focused adapter,
+classification, cohort, adjacent-sector, UI and architecture regressions pass;
+protected packaged release evidence remains required before integration.
+
 `VERIFIED` implemented-initially PR #543 merged as
 `a01c663cd10bc13057175bd128456108bfceb0c4` from reviewed head
 `01f95db5f1211ffc436e01458f78d8d0e63d123c`. Status guard run
