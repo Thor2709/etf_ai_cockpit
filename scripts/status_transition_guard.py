@@ -14,6 +14,7 @@ from typing import Any, Callable, Mapping
 try:
     from scripts.issue_registry_core import (
         CONTROL_STATE_PATH,
+        OPEN_LEDGER,
         PROGRESS_PATH,
         PROGRAMME_STATUSES,
         REGISTRY_PATH,
@@ -35,6 +36,7 @@ try:
 except ModuleNotFoundError:
     from issue_registry_core import (  # type: ignore[no-redef]
         CONTROL_STATE_PATH,
+        OPEN_LEDGER,
         PROGRESS_PATH,
         PROGRAMME_STATUSES,
         REGISTRY_PATH,
@@ -116,11 +118,47 @@ TRANSITION_REGISTRY_FIELDS = frozenset(
     }
 )
 BASE_REFRESH_SOURCE_FIELDS = frozenset({"baseline_commit", "programme_control_state_sha256"})
+OPEN_LEDGER_REFRESH_SOURCE_FIELD = "open_ledger_sha256"
 
 
 def _error(errors: list[str], message: str) -> None:
     if message not in errors:
         errors.append(message)
+
+
+def _is_open_ledger_refresh(
+    base_registry: Mapping[str, Any], proposed_registry: Mapping[str, Any]
+) -> bool:
+    """Return whether only the generated open-ledger digest was refreshed."""
+
+    if set(base_registry) != set(proposed_registry):
+        return False
+    if any(
+        base_registry[key] != proposed_registry[key]
+        for key in base_registry
+        if key != "source_of_truth"
+    ):
+        return False
+    base_source = base_registry.get("source_of_truth")
+    proposed_source = proposed_registry.get("source_of_truth")
+    if not isinstance(base_source, dict) or not isinstance(proposed_source, dict):
+        return False
+    changed_source_fields = {
+        key
+        for key in set(base_source) | set(proposed_source)
+        if base_source.get(key) != proposed_source.get(key)
+    }
+    if changed_source_fields != {OPEN_LEDGER_REFRESH_SOURCE_FIELD}:
+        return False
+    base_digest = base_source.get(OPEN_LEDGER_REFRESH_SOURCE_FIELD)
+    proposed_digest = proposed_source.get(OPEN_LEDGER_REFRESH_SOURCE_FIELD)
+    return (
+        isinstance(base_digest, str)
+        and SHA256_RE.fullmatch(base_digest) is not None
+        and isinstance(proposed_digest, str)
+        and SHA256_RE.fullmatch(proposed_digest) is not None
+        and base_digest != proposed_digest
+    )
 
 
 def _issue_map(registry: Mapping[str, Any], label: str, errors: list[str]) -> dict[str, dict[str, Any]]:
@@ -618,12 +656,16 @@ def guard_proposal(
     current_status: Mapping[str, Any],
     current_progress: bytes,
     source_manifest_sha256: str | None = None,
+    expected_open_ledger_sha256: str | None = None,
     expected_base_commit: str | None = None,
     latest_commit: str | None = None,
     branch: str | None = None,
     actual_head_commit: str | None = None,
     expected_head_commit: str | None = None,
     base_is_ancestor: bool | None = None,
+    base_control_state: Mapping[str, Any] | None = None,
+    latest_control_state: Mapping[str, Any] | None = None,
+    proposed_control_state: Mapping[str, Any] | None = None,
     verified_commit_is_ancestor: Callable[[str], bool] | None = None,
 ) -> list[str]:
     """Return deterministic validation errors for one proposed registry."""
@@ -635,21 +677,45 @@ def guard_proposal(
         registry_migration,
         edge_declarations,
     ) = _manifest_errors(manifest)
+    open_ledger_refresh = not errors and _is_open_ledger_refresh(base_registry, proposed_registry)
     requested_migration = manifest.get("registry_migration")
     migration_requested = isinstance(requested_migration, dict)
     migration_mode = requested_migration.get("mode") if isinstance(requested_migration, dict) else None
     manifest_base = manifest.get("base_commit")
-    if expected_base_commit is not None and expected_base_commit != manifest_base:
+    if not open_ledger_refresh and expected_base_commit is not None and expected_base_commit != manifest_base:
         _error(errors, "manifest base commit does not match the requested base commit")
-    if latest_commit is not None and latest_commit != manifest_base:
+    expected_latest_commit = expected_base_commit if open_ledger_refresh else manifest_base
+    if latest_commit is not None and latest_commit != expected_latest_commit:
         _error(errors, "stale origin/base mismatch: latest origin is not the manifest base")
     manifest_branch = manifest.get("branch")
-    if branch is not None and branch != manifest_branch:
+    if not open_ledger_refresh and branch is not None and branch != manifest_branch:
         _error(errors, "manifest branch does not match the proposed branch")
     if expected_head_commit is not None and actual_head_commit != expected_head_commit:
         _error(errors, "checked-out head does not match the proposed head commit")
     if base_is_ancestor is False:
         _error(errors, "stale branch/base mismatch: manifest base is not an ancestor of head")
+
+    if open_ledger_refresh:
+        manifest_issue_ids = set()
+        transitions = {}
+        requested_migration = None
+        migration_requested = False
+        migration_mode = None
+        registry_migration = None
+        if (
+            base_control_state is None
+            or latest_control_state is None
+            or proposed_control_state is None
+            or base_control_state != proposed_control_state
+            or latest_control_state != base_control_state
+        ):
+            _error(errors, "open-ledger refresh requires an unchanged canonical control state")
+        proposed_open_ledger_sha256 = proposed_registry["source_of_truth"][OPEN_LEDGER_REFRESH_SOURCE_FIELD]
+        if (
+            expected_open_ledger_sha256 is None
+            or proposed_open_ledger_sha256 != expected_open_ledger_sha256
+        ):
+            _error(errors, "open-ledger refresh digest does not match canonical issues/open.md")
 
     base_errors: list[str] = []
     latest_errors: list[str] = []
@@ -761,6 +827,8 @@ def guard_proposal(
         if isinstance(source_of_truth, dict):
             source_of_truth = dict(source_of_truth)
             source_of_truth.pop("source_manifest_sha256", None)
+            if open_ledger_refresh:
+                source_of_truth.pop(OPEN_LEDGER_REFRESH_SOURCE_FIELD, None)
             top_level["source_of_truth"] = source_of_truth
     if registry_migration is None and base_top_level != proposed_top_level:
         _error(errors, "non-allowlisted registry change: top-level registry data")
@@ -917,6 +985,8 @@ def main(argv: list[str] | None = None) -> int:
         base_registry = _git_json(root, requested_base, REGISTRY_PATH)
         latest_registry = _git_json(root, args.latest_ref, REGISTRY_PATH)
         proposed_registry = _load_json(root / REGISTRY_PATH)
+        base_control = _git_json(root, requested_base, CONTROL_STATE_PATH)
+        latest_control = _git_json(root, args.latest_ref, CONTROL_STATE_PATH)
         proposed_control = _load_json(root / CONTROL_STATE_PATH)
         verify_generation_base(root, proposed_control)
         allowed_edge_update: tuple[str, str] | None = None
@@ -936,6 +1006,7 @@ def main(argv: list[str] | None = None) -> int:
         current_status = _load_json(_path(root, args.status))
         current_progress = _path(root, args.progress).read_bytes()
         source_manifest_sha256 = sha256_text_file(_path(root, args.source_manifest))
+        open_ledger_sha256 = sha256_text_file(_path(root, OPEN_LEDGER))
         errors = guard_proposal(
             base_registry=base_registry,
             latest_registry=latest_registry,
@@ -944,12 +1015,16 @@ def main(argv: list[str] | None = None) -> int:
             current_status=current_status,
             current_progress=current_progress,
             source_manifest_sha256=source_manifest_sha256,
+            expected_open_ledger_sha256=open_ledger_sha256,
             expected_base_commit=requested_base,
             latest_commit=latest_commit,
             branch=branch,
             actual_head_commit=actual_head_commit,
             expected_head_commit=args.head_commit,
             base_is_ancestor=ancestor,
+            base_control_state=base_control,
+            latest_control_state=latest_control,
+            proposed_control_state=proposed_control,
             verified_commit_is_ancestor=lambda commit: _git_commit_is_ancestor(
                 root,
                 commit,

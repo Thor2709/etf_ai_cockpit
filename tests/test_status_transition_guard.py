@@ -220,6 +220,132 @@ def test_allows_deterministic_source_manifest_hash_recalculation() -> None:
     ) == []
 
 
+def test_allows_open_ledger_hash_refresh_without_stale_lifecycle_manifest() -> None:
+    base = _registry({"ISSUE-0180": "integrated"})
+    base["source_of_truth"]["open_ledger_sha256"] = "0" * 64
+    proposed = copy.deepcopy(base)
+    proposed["source_of_truth"]["open_ledger_sha256"] = "1" * 64
+    manifest = _base_refresh_transition_manifest(
+        base,
+        proposed,
+        ("ISSUE-0180", "implemented_initially", "integrated"),
+    )
+    manifest["base_commit"] = "c" * 40
+    manifest["branch"] = "stale-lifecycle-branch"
+    expected_status = status_payload(proposed)
+    expected_progress = deterministic_text(progress_markdown(expected_status, proposed))
+    control = {"records": {"ISSUE-0180": {"programme_status": "integrated"}}}
+
+    assert guard_proposal(
+        base_registry=base,
+        latest_registry=copy.deepcopy(base),
+        proposed_registry=proposed,
+        manifest=manifest,
+        current_status=expected_status,
+        current_progress=expected_progress,
+        source_manifest_sha256=SOURCE_MANIFEST_SHA256,
+        expected_open_ledger_sha256="1" * 64,
+        expected_base_commit=BASE_COMMIT,
+        latest_commit=BASE_COMMIT,
+        branch="feature/status-guard",
+        actual_head_commit="d" * 40,
+        expected_head_commit="d" * 40,
+        base_is_ancestor=True,
+        base_control_state=control,
+        latest_control_state=copy.deepcopy(control),
+        proposed_control_state=copy.deepcopy(control),
+    ) == []
+
+
+@pytest.mark.parametrize(
+    "mutation", ["record", "source", "hash", "wrong_hash", "control", "latest_control"]
+)
+def test_rejects_open_ledger_refresh_near_misses(mutation: str) -> None:
+    base = _registry({"ISSUE-0180": "integrated"})
+    base["source_of_truth"]["open_ledger_sha256"] = "0" * 64
+    proposed = copy.deepcopy(base)
+    proposed["source_of_truth"]["open_ledger_sha256"] = "1" * 64
+    control = {"records": {"ISSUE-0180": {"programme_status": "integrated"}}}
+    proposed_control = copy.deepcopy(control)
+    if mutation == "record":
+        proposed["records"][0]["title"] = "Unexpected edit"
+    elif mutation == "source":
+        proposed["source_of_truth"]["package_sha256"] = "2" * 64
+    elif mutation == "hash":
+        proposed["source_of_truth"]["open_ledger_sha256"] = "malformed"
+    elif mutation == "wrong_hash":
+        proposed["source_of_truth"]["open_ledger_sha256"] = "2" * 64
+    elif mutation == "control":
+        proposed_control["records"]["ISSUE-0180"]["programme_status"] = "planned"
+    latest_control = None if mutation == "latest_control" else copy.deepcopy(control)
+
+    errors = guard_proposal(
+        base_registry=base,
+        latest_registry=copy.deepcopy(base),
+        proposed_registry=proposed,
+        manifest=_manifest(),
+        current_status=status_payload(proposed),
+        current_progress=deterministic_text(progress_markdown(status_payload(proposed), proposed)),
+        source_manifest_sha256=SOURCE_MANIFEST_SHA256,
+        expected_open_ledger_sha256="1" * 64,
+        expected_base_commit=BASE_COMMIT,
+        latest_commit=BASE_COMMIT,
+        branch="feature/status-guard",
+        base_is_ancestor=True,
+        base_control_state=control,
+        latest_control_state=latest_control,
+        proposed_control_state=proposed_control,
+    )
+
+    assert errors
+    if mutation == "wrong_hash":
+        assert "open-ledger refresh digest does not match canonical issues/open.md" in errors
+
+
+def test_open_ledger_refresh_keeps_stale_base_head_and_ancestry_guards() -> None:
+    base = _registry({"ISSUE-0180": "integrated"})
+    base["source_of_truth"]["open_ledger_sha256"] = "0" * 64
+    proposed = copy.deepcopy(base)
+    proposed["source_of_truth"]["open_ledger_sha256"] = "1" * 64
+    control = {"records": {"ISSUE-0180": {"programme_status": "integrated"}}}
+
+    def errors(*, latest: str = BASE_COMMIT, head: str | None = None, ancestor: bool = True) -> list[str]:
+        return guard_proposal(
+            base_registry=base,
+            latest_registry=copy.deepcopy(base),
+            proposed_registry=proposed,
+            manifest=_manifest(),
+            current_status=status_payload(proposed),
+            current_progress=deterministic_text(progress_markdown(status_payload(proposed), proposed)),
+            source_manifest_sha256=SOURCE_MANIFEST_SHA256,
+            expected_open_ledger_sha256="1" * 64,
+            expected_base_commit=BASE_COMMIT,
+            latest_commit=latest,
+            branch="feature/status-guard",
+            actual_head_commit=head,
+            expected_head_commit="d" * 40 if head is not None else None,
+            base_is_ancestor=ancestor,
+            base_control_state=control,
+            latest_control_state=copy.deepcopy(control),
+            proposed_control_state=copy.deepcopy(control),
+        )
+
+    assert "stale origin/base mismatch: latest origin is not the manifest base" in errors(latest="e" * 40)
+    assert "checked-out head does not match the proposed head commit" in errors(head="e" * 40)
+    assert "stale branch/base mismatch: manifest base is not an ancestor of head" in errors(ancestor=False)
+
+
+def test_lifecycle_latest_commit_remains_bound_to_manifest_base() -> None:
+    base = _registry({"ISSUE-0070": "planned"})
+    proposed = _registry({"ISSUE-0070": "integrated"})
+    manifest = _manifest(("ISSUE-0070", "planned", "integrated"))
+    manifest["base_commit"] = "c" * 40
+
+    errors = _errors(base, proposed, manifest, latest_commit="c" * 40)
+
+    assert "stale origin/base mismatch: latest origin is not the manifest base" not in errors
+
+
 def test_rejects_stale_implemented_initially_to_planned_reversion() -> None:
     base = _registry({"ISSUE-0070": "implemented_initially"})
     proposed = _registry({"ISSUE-0070": "planned"})
