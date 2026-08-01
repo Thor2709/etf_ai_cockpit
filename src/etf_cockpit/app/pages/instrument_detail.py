@@ -387,6 +387,8 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
         candidate_score=getattr(state, "selected_instrument_score", None),
         financial_projection=getattr(state, "financial_projection", None),
         real_asset_projection=getattr(state, "real_asset_projection", None),
+        cyclical_projection=getattr(state, "cyclical_projection", None),
+        cyclical_source_digest=getattr(state, "cyclical_source_digest", None),
     )
     vintage_history = bitemporal_history_summary(selected) if selected else {"status": "unavailable", "message": "No instrument selected."}
     export_status = ft.Text(
@@ -485,6 +487,12 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
             model.sections.get("real_assets"),
             subtitle="REIT, utility and infrastructure cash-flow definitions, NAV/RAB availability, payout, leverage, coverage, deterministic stresses and point-in-time lineage; execution_allowed=false.",
             key="instrument-detail.real-assets",
+        ),
+        _render_evidence_section(
+            "Cyclicals",
+            model.sections.get("cyclicals"),
+            subtitle="Energy, materials and non-infrastructure industrial operating metrics, distinct-cycle history, scenario portfolio impacts, confidence and point-in-time lineage; execution_allowed=false.",
+            key="instrument-detail.cyclicals",
         ),
         _render_evidence_section("Risk and feature evidence", model.sections.get("risk"), subtitle="Momentum, trend, relative strength, volatility, drawdown and liquidity/cost."),
         _render_evidence_section("Alpha, beta and correlation", model.sections.get("attribution")),
