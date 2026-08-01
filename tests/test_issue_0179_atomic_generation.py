@@ -103,6 +103,7 @@ def test_closed_manifest_covers_status_readiness_reconciliation_remote_and_sync_
         ".github/status-transition-guard-manifest.json",
     }
     assert expected <= outputs
+    assert "docs/product-completion/DELIVERY_WORKFLOW.md" in outputs
 
 
 def test_convergence_evidence_requires_zero_action_and_separate_authority(

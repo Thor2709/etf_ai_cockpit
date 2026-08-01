@@ -6,6 +6,10 @@ Phase `phase-05-returns-risk-portfolio` covers `ISSUE-0008, ISSUE-0028–ISSUE-0
 
 Deliver the bounded expected return, risk and portfolio construction work with local-first behaviour, explicit evidence and the safety gates defined by the canonical records.
 
+## Current delivery mechanics
+
+Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C validation, exact-tree evidence reuse, ownership, review and automatic convergence. This phase document is implementation guidance only.
+
 ## Affected modules, schemas and UI
 
 - Confirm the existing module boundary before implementation; keep UI orchestration separate from feature, signal, model, backtest and ChatGPT bridge logic.

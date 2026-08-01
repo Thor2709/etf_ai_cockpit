@@ -1,6 +1,6 @@
 # Implementation order
 
-Follow the phase order below. Within a phase, resolve `blocking_dependencies` before implementation; treat `related_issues` as context only.
+Follow the phase order below. Within a phase, resolve `blocking_dependencies` before implementation; treat `related_issues` as context only. Phase order and dependency readiness select work; current delivery mechanics come from `docs/product-completion/DELIVERY_WORKFLOW.md`.
 
 1. **phase-01-governance-scope** - Governance, scope and completion contract (ISSUE-0001–ISSUE-0006, ISSUE-0009–ISSUE-0010, ISSUE-0012–ISSUE-0015, ISSUE-0018–ISSUE-0019, ISSUE-0021, ISSUE-0024, ISSUE-0026–ISSUE-0027, ISSUE-0033–ISSUE-0036, ISSUE-0039–ISSUE-0040, ISSUE-0044, ISSUE-0047, ISSUE-0049–ISSUE-0050, ISSUE-0053, ISSUE-0058, ISSUE-0061–ISSUE-0063, ISSUE-0067, ISSUE-0069–ISSUE-0079, ISSUE-0179, UPDATEV2-0010, UPDATEV2-0012–UPDATEV2-0014, UPDATEV2-0017, UPDATEV2-0019–UPDATEV2-0020, UPDATEV2-0022, UPDATEV2-0024–UPDATEV2-0025, UPDATEV2-0028–UPDATEV2-0029; 58 records).
 2. **phase-02-data-policy-identity** - Local-first data policy, identity and data platform (ISSUE-0007, ISSUE-0022–ISSUE-0023, ISSUE-0025, ISSUE-0038, ISSUE-0048, ISSUE-0054–ISSUE-0056, ISSUE-0068, ISSUE-0080–ISSUE-0090, ISSUE-0153, ISSUE-0155, ISSUE-0170–ISSUE-0171, ISSUE-0181, UPDATEV2-0011, UPDATEV2-0015–UPDATEV2-0016, UPDATEV2-0018, UPDATEV2-0021, UPDATEV2-0023, UPDATEV2-0030; 33 records).

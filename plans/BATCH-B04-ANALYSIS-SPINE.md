@@ -4,6 +4,11 @@ The durable active objective, protected boundaries and exact continuation
 checkpoint are maintained in `plans/ACTIVE_CODEX_GOAL.md`; read it before
 continuing this batch.
 
+Current delivery mechanics are defined in
+`docs/product-completion/DELIVERY_WORKFLOW.md`. Historical references below
+to sole workers, Sol-low workers or old lifecycle PR chains describe past
+execution and are not current operational instructions.
+
 ## Active fast-path checkpoint
 
 `COMPLETE/FROZEN` the bounded atomic-delivery repair is formally proven.
@@ -29,6 +34,29 @@ infrastructure is frozen; expansion requires explicit user approval and a
 demonstrated safety need. `execution_allowed=false`; broker, provider,
 release and deployment authority are unchanged. The exact next product lane
 is dependency-valid ISSUE-0101.
+
+`ACTIVE` ISSUE-0101 now runs from fresh main
+`8a0d1d9a7437770aa0567d9ae6787e3881832f27` in
+`codex/issue0101-cyclical-adapters-20260731`. Its sole blocking edge is
+complete. The bounded implementation owns local typed energy,
+materials/mining and non-infrastructure industrial evidence, deterministic
+cycle scenarios and read-only Instrument Detail projection only. Stop if the
+industrial/infrastructure distinction requires shared routing redesign,
+persistence, external authority, another sector child or ISSUE-0115 scope.
+Programme-control, GitHub authority, providers, forecasts, recommendations,
+optimisation, orders, broker authority and `execution_allowed=false` remain
+unchanged.
+
+`STOPPED AT REVIEW` the first ISSUE-0101 implementation and its one focused
+correction pass 46 adapter/architecture tests and 94 broader Instrument
+Detail/application tests, plus Ruff, compile, architecture-boundary and diff
+checks. They are intentionally uncommitted because independent review proved
+that the replay verifier still accepts self-rehashed source, cycle, formula
+and routing forgeries; it also found three limitation/replay consistency
+defects. Preserve the checkpoint and failure fingerprint. The next attempt
+must use one canonical source-bearing validation path, not extend the partial
+duplicate verifier. Do not push or broaden into persistence, providers,
+shared classification or GitHub authority.
 
 The entries below retain the chronological implementation and repair history.
 

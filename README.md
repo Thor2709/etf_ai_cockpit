@@ -30,10 +30,6 @@ For a command-line smoke test without opening the UI:
 
 The workflow smoke harness accepts `source`, `native`, `portable-native`, `launcher`, `first-run` and `offline` modes. It requires a local HTTP-ready app for each mode and removes only processes it started. `offline` prevents the harness itself from making remote requests; it does not certify that every provider is unavailable without a separate provider fixture test.
 
-For an ordinary change, run the targeted tests for the affected code and one
-local application smoke check. Consolidated milestone and release testing is
-performed later.
-
 The configured market-data backbone is Yahoo Finance through `yfinance`. The validated clean store under `data/clean` is refreshed from yfinance, then algorithms, backtests and TimesFM/Toto forecasts run from that same yfinance price panel. Sample data remains available only as a fallback/test generator.
 
 ## Main Workflows
@@ -112,5 +108,5 @@ The canonical registry and current evidence live in `issues/issue_registry.json`
 
 Live execution is not authorised: `execution_allowed=false`. Portfolio, paper, broker-read-only and disabled canary scaffolding have separate certification/activation lanes and cannot gain authority from a model, LLM, UI action or programme status.
 
-Canonical checks: `python scripts/generate_issue_registry.py --check`, `python scripts/validate_issue_registry.py`, `python scripts/update_programme_status.py --check`, `python scripts/validate_app.py --changed`, and `python scripts/validate_app.py --offline`. Full/package certification is delegated to the existing protected release gate through `validate_app.py --full` and `--packaged`.
+Current delivery mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`. Canonical checks: `python scripts/generate_programme.py --root . --check`, `python scripts/classify_validation.py --root . --base <exact-origin-main> --head <exact-head>`, `python scripts/validate_app.py --changed`, and `python scripts/validate_app.py --offline`. Ordinary changes use focused evidence plus the classifier-derived full-gate cadence. Full/package certification is delegated to the existing protected release gate through `validate_app.py --full` and `--packaged`; authoritative serial Linux/Windows jobs and the terminal `validation-summary` remain the CI interface.
 <!-- END GENERATED FINAL RELEASE PROGRAMME -->

@@ -34,6 +34,7 @@ STATIC_REQUIRED_OUTPUTS = frozenset(
         "issues/programme_control_state.json",
         "docs/product-completion/CURRENT_STATUS.json",
         "docs/product-completion/PROGRESS.md",
+        "docs/product-completion/DELIVERY_WORKFLOW.md",
         "docs/product-completion/programme/readiness.json",
         "docs/product-completion/programme/roadmap.md",
         "docs/product-completion/programme/implementation-order.md",
@@ -268,7 +269,13 @@ def _copy_tracked_tree(root: Path, stage: Path) -> None:
     tracked = subprocess.check_output(
         ["git", "ls-files", "-z"], cwd=root
     ).decode("utf-8").split("\0")
-    for relative in (item for item in tracked if item):
+    source_paths = set(item for item in tracked if item)
+    # Include the protected contract while it is newly created in an
+    # uncommitted worktree, so check mode validates the real atomic output set.
+    delivery_contract = "docs/product-completion/DELIVERY_WORKFLOW.md"
+    if (root / delivery_contract).is_file():
+        source_paths.add(delivery_contract)
+    for relative in sorted(source_paths):
         source = root / relative
         if not source.is_file():
             continue

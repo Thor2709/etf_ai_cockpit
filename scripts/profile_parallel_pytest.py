@@ -337,8 +337,8 @@ def profile(
     *,
     clock: Callable[[], float] = time.perf_counter,
 ) -> dict[str, object]:
-    if repetitions < 2:
-        raise ValueError("repetitions must be at least 2")
+    if repetitions < 1:
+        raise ValueError("repetitions must be at least 1")
     output.mkdir(parents=True, exist_ok=True)
     lanes = ("full_serial", "candidate_safe", "candidate_unsafe", "candidate_combined")
     collections: dict[str, list[list[str]]] = {name: [] for name in lanes}
@@ -592,8 +592,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--repetitions", type=int, default=2)
     args = parser.parse_args(argv)
-    if args.repetitions < 2:
-        parser.error("--repetitions must be at least 2")
+    if args.repetitions < 1:
+        parser.error("--repetitions must be at least 1")
     destination_dir = args.output.resolve()
     destination_dir.mkdir(parents=True, exist_ok=True)
     report = profile(args.root.resolve(), destination_dir, args.repetitions)

@@ -917,8 +917,8 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
     release_workflow = yaml.safe_load(release)
     preflight = release_workflow["jobs"]["preflight"]
     assert preflight["env"] == {
-        "ETF_COCKPIT_VALIDATION_BASE_SHA": "${{ github.event.pull_request.base.sha }}",
-        "ETF_COCKPIT_VALIDATION_HEAD_SHA": "${{ github.event.pull_request.head.sha }}",
+        "ETF_COCKPIT_VALIDATION_BASE_SHA": "${{ needs.classifier.outputs.base_sha }}",
+        "ETF_COCKPIT_VALIDATION_HEAD_SHA": "${{ needs.classifier.outputs.head_sha }}",
     }
     preflight_steps = preflight["steps"]
     primary_checkout = next(
@@ -936,8 +936,8 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
         "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
     )
     assert authority_checkout["with"] == {
-        "repository": "${{ github.event.pull_request.head.repo.full_name }}",
-        "ref": "${{ github.event.pull_request.head.sha }}",
+        "repository": "${{ needs.classifier.outputs.head_repository }}",
+        "ref": "${{ needs.classifier.outputs.head_sha }}",
         "path": ".validation-head",
         "fetch-depth": 0,
         "persist-credentials": False,
@@ -949,8 +949,8 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
     )
     assert base_checkout["uses"] == authority_checkout["uses"]
     assert base_checkout["with"] == {
-        "repository": "${{ github.event.pull_request.base.repo.full_name }}",
-        "ref": "${{ github.event.pull_request.base.sha }}",
+        "repository": "${{ needs.classifier.outputs.base_repository }}",
+        "ref": "${{ needs.classifier.outputs.base_sha }}",
         "path": ".validation-base",
         "fetch-depth": 1,
         "persist-credentials": False,
@@ -986,8 +986,10 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
     )
     security_steps = preflight_steps[:security_end]
     security_text = yaml.safe_dump(security_steps)
-    assert "needs.classifier.outputs.base_sha" not in security_text
-    assert "needs.classifier.outputs.head_sha" not in security_text
+    assert "needs.classifier.outputs.base_sha" in security_text
+    assert "needs.classifier.outputs.head_sha" in security_text
+    assert "github.event.pull_request.base.sha" not in security_text
+    assert "github.event.pull_request.head.sha" not in security_text
     assert security_steps[0]["name"] == "Validate trusted pull request identities"
     assert [step["name"] for step in security_steps].index(
         "Detect and couple GitHub mutation authority changes"

@@ -6,6 +6,10 @@ Phase `phase-09-quality-release-security` covers `ISSUE-0141–ISSUE-0146, ISSUE
 
 Deliver the bounded quality, release, security and resilience work with local-first behaviour, explicit evidence and the safety gates defined by the canonical records.
 
+## Current delivery mechanics
+
+Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C validation, exact-tree evidence reuse, ownership, review and automatic convergence. This phase document is implementation guidance only.
+
 ## Affected modules, schemas and UI
 
 - Confirm the existing module boundary before implementation; keep UI orchestration separate from feature, signal, model, backtest and ChatGPT bridge logic.

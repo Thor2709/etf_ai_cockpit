@@ -1,17 +1,38 @@
 # ETF AI Cockpit — Codex Rules
 
-Before selecting or continuing work, read the durable active objective and
-checkpoint in `plans/ACTIVE_CODEX_GOAL.md`.
-
 ## Goal
 
 Complete the canonical implementation plan correctly and efficiently.
 
-The Sol-high main agent plans, delegates, reviews and integrates.
+The `gpt-5.6-sol` medium-reasoning main agent is the orchestrator and sole integration and GitHub authority. It plans, selects the narrowest configured agent roles, reviews and integrates.
 
-Exactly one Sol-low `sol_worker` performs each substantive implementation task.
+Choose efficiently among the 12 configured named roles. Normal allocation is one child and no more than two children may be open concurrently.
 
-Work sequentially on one issue or one necessary shared prerequisite at a time.
+Use one active code writer per overlapping file boundary. Parallelise only independent, non-overlapping work.
+
+## Current ISSUE-0177–0180 delivery contract
+
+Read `plans/ACTIVE_CODEX_GOAL.md` and
+`docs/product-completion/DELIVERY_WORKFLOW.md` before work. The canonical
+classifier selects E/O/H/C and unknown history or cadence fails upward. Exact
+base/head, protected source/dependency/product/policy/environment/artifact and
+`execution_allowed=false` identities must all match before evidence reuse.
+Use one integration/CI lane and normally one implementation writer; a second
+child is only independent read-only work or proven disjoint worktree work.
+Normally make one product issue per product PR; batch only inseparable,
+independent dependency edges. Lifecycle/status convergence is compact and
+automatic. Update canonical control first and regenerate projections; never
+hand-edit generated status/programme views. Atomic generation must be followed
+by a second byte-clean check. `validation-summary` is the normal CI interface;
+use at most one watcher and no repetitive polling. Raw artefacts are for
+failure, inconsistency, sampled audit or final certification.
+
+The four-worker safe/unsafe pytest pilot is report-only and serial packaged
+Linux/Windows validation remains authoritative. `main` remains green. Read and
+update the relevant SDD/ADR for architecture or contract changes. Preflight
+must cover UI acceptance, application-facade imports, environment, temporary
+roots, ports and CRLF/LF. Product work remains local-first with
+`execution_allowed=false`.
 
 ## Start
 
@@ -34,41 +55,56 @@ For each substantive task, the main agent must:
 2. State the relevant issue and acceptance criteria.
 3. Identify relevant files and tests.
 4. State what must not change.
-5. Spawn one `sol_worker`.
+5. Select the narrowest suitable configured agent and delegate when doing so is efficient.
 6. Review the worker's complete diff and tests.
-7. Request at most one focused worker correction.
+7. Request at most one focused correction from the implementation agent.
 8. Integrate and run the necessary broader checks.
 9. Update the batch plan, status and GitHub only after the implementation is evidenced.
 
 The main agent should not write substantial product code. Small integration and generated-file corrections are allowed.
 
-The orchestrator may own one reviewed, immutable release lane while the single
-worker prepares one dependency-ready, non-overlapping product lane in a
-separate worktree. The orchestrator remains the sole integration authority.
+## Agents
 
-## Worker
+Configured agents:
 
-The `sol_worker`:
+- are selected by role and task shape;
+- own one bounded assignment;
+- read only relevant context;
+- make the smallest correct change when assigned write ownership;
+- add and run focused tests when relevant;
+- do not change unrelated files;
+- do not spawn agents;
+- do not push, merge or update programme status.
 
-- performs the actual coding;
-- owns one bounded task;
-- reads only relevant context;
-- makes the smallest correct change;
-- adds and runs focused tests;
-- does not change unrelated files;
-- does not spawn agents;
-- does not push, merge or update programme status.
+Only one agent may write within an overlapping production-code boundary. Review only a finished stable diff. Use `test_engineer` only when test design is independently substantial; the `implementer` owns ordinary focused tests.
+
+## Routing
+
+```text
+Ordinary feature:
+implementer → reviewer → main integration → release verifier when required
+
+Unknown defect:
+diagnostician → implementer → reviewer
+
+High-risk change:
+optional planner → implementer → reviewer + risk reviewer
+
+Performance work:
+benchmark guard → performance refactorer → benchmark guard → reviewer
+```
 
 ## Product rules
 
-Architecture-affecting work must read `docs/architecture/SDD.md` and relevant
-ADRs; architecture or contract changes must update the SDD/ADR in the same PR.
-
 - Keep the application local-first.
 - Keep `execution_allowed=false`.
+- Risk and data-quality gates override forecasts, model output, audits and UI actions.
+- TimesFM, Toto and other model integrations remain optional and disabled-safe; the application must retain deterministic baseline behaviour without model packages or weights.
+- Do not grant broker, provider or other external write authority unless explicitly approved.
 - Do not enable live orders or broker writes.
+- Do not add cloud uploads or silent external network activity.
 - Use adjusted, corporate-action-aware data for returns.
-- Preserve point-in-time and revision semantics.
+- Preserve point-in-time, revision and replay semantics.
 - Never introduce look-ahead or survivorship leakage.
 - Missing, stale, conflicted and unsupported data must remain explicit.
 - Do not invent or silently zero-fill data.
@@ -79,9 +115,9 @@ ADRs; architecture or contract changes must update the SDD/ADR in the same PR.
 
 ## Testing
 
-The worker runs focused tests.
+The assigned implementation or test agent runs focused tests.
 
-The main agent reviews the diff and runs affected integration, UI, lint, type and compile checks as relevant.
+The main agent reviews the diff and runs affected integration, UI, lint, type and compile checks according to the change's risk tier.
 
 Run the complete Linux and Windows packaged gate immediately for persistence, migrations, concurrency, canonical financial calculations, security, release tooling, programme-control machinery or broker authority.
 
@@ -90,10 +126,6 @@ For ordinary work, run the full packaged gate centrally after every two or three
 Do not rerun unchanged passing tests.
 
 A documented flake may be retried once.
-
-Classify every change under the validation tiers below before broad testing.
-Reuse exact-head passing evidence only when relevant files, dependencies,
-policy and environment are unchanged.
 
 ## Stop loops
 
@@ -114,6 +146,8 @@ Only the main agent may commit, push, open or merge pull requests, update canoni
 
 Use isolated branches and expected-head merge protection.
 
+Reuse valid evidence when the source, dependency, policy, environment and validation identity are unchanged. Do not rerun an unchanged passing gate merely because a commit or status event occurred.
+
 Apply GitHub issue changes only from the existing reviewed checksum-controlled process.
 
 Require a zero-action readback after synchronisation.
@@ -131,71 +165,12 @@ Do not turn the authority ledger into a general GitHub database, issue tracker
 or event-sourcing framework. Do not add speculative support for pull requests,
 labels, releases, tags, deployments or unrelated GitHub resources. Ambiguous,
 cancelled, partially applied or erased writes fail closed; retries, recovery
-and compensation must not invent authority or rewrite history. This repair
-implements no compensation or recovery mechanism. Any future explicit
-compensating-record mechanism requires user approval and must not repeat or
-rewrite history.
+and compensation must not invent authority or rewrite history.
 
 After the bounded H-tier repair and formal ISSUE-0180 integration, freeze this
 infrastructure and resume product work with ISSUE-0101. Any later expansion
 requires explicit user approval and a demonstrated safety need, not optional
 hardening.
-
-## Throughput and validation tiers
-
-Classify every change before broad validation. When uncertain, select the higher-risk tier.
-
-- `E — evidence only`: canonical status, dependency-edge evidence, deterministic generated documents or documentation. Require exact guards, generators/check mode, registry/status validation, diff hygiene and the canonical source/supply policy. Do not run the Linux/Windows package matrix unless protected tooling changed.
-- `O — ordinary product`: require worker focused tests, orchestrator affected integration/UI/architecture/static checks and source smoke. Run the central full package gate after every two or three completed ordinary issues and before a release milestone.
-- `H — high risk`: persistence, schema/migration, concurrency, canonical financial calculations, security/credentials, packaging/CI/release tooling, programme-control/status-transition machinery, or broker/order authority. Require the immediate complete Linux and Windows package gate.
-- `C — certification`: B13/final release candidate. Require complete cross-platform tests, packaging, parity, smoke, performance, security, privacy, legal, SBOM/signature and final evidence.
-
-Do not use a retained red baseline. `main` must remain green. A documented flake may receive one exact unchanged-head retry only when its node and fingerprint match the approved flake record.
-
-## Frozen release lane and active worker lane
-
-“Work sequentially” means one implementation writer and one integration authority, not idle time during CI.
-
-- The orchestrator may own one reviewed, immutable release lane while the single worker prepares one next dependency-ready product lane in a separate worktree.
-- The worker lane must have a disjoint file boundary and may not edit `issues/`, `plans/`, generated programme documents, workflow files or the frozen PR's files.
-- The worker may not push, merge or update GitHub. After the prior merge, the orchestrator reviews and transplants/rebases the checkpoint onto fresh `origin/main` before integration.
-- Do not start an overlapping or dependency-invalid lane merely to create activity.
-
-## CI and observability
-
-- Every workflow run must emit a deterministic validation-tier report, per-stage timings, environment fingerprint and JUnit/slow-test artefacts where tests run.
-- Full/affected pytest runs must report the slowest 100 setup/call/teardown durations with a minimum threshold of 0.25 seconds.
-- Use workflow concurrency cancellation for obsolete PR heads. Retain final-certification runs only when policy explicitly requires every attempt.
-- Use one terminal `validation-summary` check. Conditional jobs may skip only when the classifier authorises it; the summary must fail if any tier-required job fails.
-- Run the equivalent repository/source supply-chain scan once per exact tree. Keep platform-specific package checks only where platform behaviour differs.
-- Release tests are local/offline. Do not contact Yahoo Finance or other providers in protected tests.
-- Keep full logs, JUnit, timing, screenshots, SBOM and repeated per-run reconciliation as workflow artefacts. Commit compact current state and milestone evidence only.
-
-## Mandatory preflight contracts
-
-Before an expensive full gate:
-
-- added or changed routes and controls must have `configs/ui_acceptance.yaml` coverage;
-- presentation modules must consume domain/data functionality through the application facade;
-- generated registry, status, completion, readiness, reconciliation and transition-manifest outputs must be fresh;
-- semantic text hashes must be independent of CRLF/LF checkout conversion;
-- smoke tests must use ephemeral ports;
-- tests must use isolated temporary roots and leave no SQLite, package or runtime artefacts in the worktree;
-- the selected Python environment must match the pinned validation profile and contain tier-required dependencies.
-
-## Programme generation
-
-- Update the canonical control source first and regenerate public projections; do not hand-edit `CURRENT_STATUS.json` or other generated status documents.
-- Prefer one atomic generate-and-check command covering remote summary, registry, status, completion, reconciliation, GitHub plan and transition manifest.
-- A second check-mode run must produce zero diff.
-- Apply GitHub changes only from the reviewed checksum-controlled plan and require a fresh zero-action readback.
-- Preserve issue identity, status semantics, dependency evidence, policies and `execution_allowed=false`.
-
-## Performance optimisation
-
-- Profile before parallelising pytest. Start any xdist pilot at four workers, use explicit groups for SQLite, Flet, ports, package, environment and concurrency tests, and retain a serial lane where required.
-- Track worker-completion-to-actionable-result, PR lead time, product-code PR share, PRs per integrated issue, obsolete CI minutes, full-gate p50/p95, slow tests and worker idle time.
-- Provider batching/caching is a separate runtime issue. It must preserve source policy, legal terms, adjusted-price, provenance, partial-result and fail-closed canonical-commit rules.
 
 ## Progress
 

@@ -356,15 +356,19 @@ def test_release_workflow_is_matrixed_isolated_and_read_only() -> None:
     assert "timeout-minutes: 45" in workflow
     assert "Configure isolated user profile" in workflow
     assert "Pin reviewed canonical generation base" in workflow
-    assert "github.event.pull_request.base.sha || github.event.before" in workflow
+    assert "PR_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}" in workflow
     assert "github.event.pull_request.base.ref || 'main'" in workflow
     assert "git update-ref refs/remotes/origin/main \"$REVIEWED_BASE_SHA\"" in workflow
     assert 'test "$(git rev-parse origin/main)" = "$REVIEWED_BASE_SHA"' in workflow
     assert "requirements-release-parsers.txt" in workflow
     assert "ETF_COCKPIT_RELEASE_BUILD: \"1\"" in workflow
-    assert "ETF_COCKPIT_RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}" in workflow
-    assert 'if [[ "${{ github.event_name }}" == "pull_request" ]]; then' in workflow
-    assert "arguments+=(--allow-unsigned)" in workflow
+    assert "secrets.RELEASE_SIGNING_KEY" not in workflow
+    assert "github.event_name == 'pull_request' && needs.classifier.outputs.package_gate_required == 'true'" in workflow
+    assert "arguments=(--root . --output \"$output\" --allow-unsigned)" in workflow
+    assert "repository_dispatch:" in trigger
+    assert "workflow_dispatch:" not in trigger
+    assert "parallel-pilot-drift" in trigger
+    assert "parallel-pilot-full" in trigger
     assert "name: release-gate-${{ github.sha }}-${{ matrix.platform }}" in workflow
     assert "contents: read" in workflow
     assert "issues: write" not in workflow

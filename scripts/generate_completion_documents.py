@@ -203,6 +203,10 @@ def phase_document(registry: dict[str, Any], phase: dict[str, Any], recon_relati
         "",
         f"Deliver the bounded {phase['title'].lower()} work with local-first behaviour, explicit evidence and the safety gates defined by the canonical records.",
         "",
+        "## Current delivery mechanics",
+        "",
+        "Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C validation, exact-tree evidence reuse, ownership, review and automatic convergence. This phase document is implementation guidance only.",
+        "",
         "## Affected modules, schemas and UI",
         "",
         "- Confirm the existing module boundary before implementation; keep UI orchestration separate from feature, signal, model, backtest and ChatGPT bridge logic.",
@@ -321,19 +325,30 @@ def generate(root: Path, package_path: Path | None = None) -> dict[str, object]:
                 "phases": set(),
             },
         )
-        row["record_count"] = int(row["record_count"]) + 1
-        row["open_count"] = int(row["open_count"]) + (record.get("ledger_state") == "open")
-        row["closed_count"] = int(row["closed_count"]) + (record.get("ledger_state") == "closed")
-        row["proposed_count"] = int(row["proposed_count"]) + (
-            record.get("classification") == "proposed_new"
-        )
-        row["phases"].add(str(record.get("phase")))
+        increments = {
+            "record_count": 1,
+            "open_count": record.get("ledger_state") == "open",
+            "closed_count": record.get("ledger_state") == "closed",
+            "proposed_count": record.get("classification") == "proposed_new",
+        }
+        for key, increment in increments.items():
+            current = row[key]
+            if not isinstance(current, int):
+                raise TypeError(f"ownership count accumulator is not an int: {key}")
+            row[key] = current + int(increment)
+        phases = row["phases"]
+        if not isinstance(phases, set):
+            raise TypeError("ownership phase accumulator is not a set")
+        phases.add(str(record.get("phase")))
     ownership_rows = []
     for row in sorted(ownership.values(), key=lambda value: str(value["owner"])):
+        phase_values = row["phases"]
+        if not isinstance(phase_values, set):
+            raise TypeError("ownership phase accumulator is not a set")
         ownership_rows.append(
             {
                 **row,
-                "phases": ";".join(sorted(row["phases"])),
+                "phases": ";".join(sorted(str(value) for value in phase_values)),
             }
         )
     write_csv(
@@ -514,6 +529,7 @@ The supplied ZIP is immutable external evidence. It is archived as nine extracte
         "- Adjusted prices are required for returns, signals and backtests.",
         "- Toto and TimesFM are optional; baseline signals must work without their packages or weights.",
         "- GitHub synchronisation is dry-run by default and apply requires a reviewed plan checksum.",
+        "- Current delivery mechanics are defined in [`DELIVERY_WORKFLOW.md`](../DELIVERY_WORKFLOW.md); phase grouping does not authorise multi-issue PRs or multiple writers.",
         "",
         "## Phase order",
         "",
@@ -554,7 +570,7 @@ The supplied ZIP is immutable external evidence. It is archived as nine extracte
     order_lines = [
         "# Implementation order",
         "",
-        "Follow the phase order below. Within a phase, resolve `blocking_dependencies` before implementation; treat `related_issues` as context only.",
+        "Follow the phase order below. Within a phase, resolve `blocking_dependencies` before implementation; treat `related_issues` as context only. Phase order and dependency readiness select work; current delivery mechanics come from `docs/product-completion/DELIVERY_WORKFLOW.md`.",
         "",
     ]
     for index, row in enumerate(table, start=1):
@@ -571,6 +587,14 @@ The supplied ZIP is immutable external evidence. It is archived as nine extracte
     write_text(
         programme / "test-and-performance-strategy.md",
         """# Test and performance strategy
+
+## Current validation contract
+
+- The canonical classifier selects E/O/H/C. Validation is proportional to risk; H and C fail upward to the complete serial Linux and Windows package gates.
+- ISSUE-0177 observability records JUnit, slow tests, stage timings, environment and cache evidence, with early preflight before expensive gates.
+- Exact-tree evidence is reusable only when every protected identity matches. Do not weaken tests or repeat unchanged passing validation.
+- Safe and unsafe four-worker pytest execution is report-only evidence. The serial packaged gate remains authoritative; the pilot is required only for the documented drift triggers in the delivery workflow.
+- The terminal `validation-summary` is the normal CI interface. Raw artefacts are inspected only for failure, inconsistency, sampled audit or final certification.
 
 ## Required test layers
 
@@ -592,21 +616,23 @@ Run deterministic tests and safety gates before user-visible claims. Optional To
         programme / "git-workflow.md",
         f"""# Git workflow
 
-- Base: `{baseline}` (`origin/main`).
+- Historical reconciliation baseline: `{baseline}`. This is evidence for the imported package, not an operational base.
+- Operational base: freshly verify the current `origin/main` before every implementation or integration lane.
 - Keep the primary checkout and its unrelated untracked files untouched.
-- Review `git diff`, run targeted checks, commit the focused change, then use capability-based GitHub checks before any push or issue apply.
+- Normally deliver one product issue per PR; independent dependency edges may be batched when their contracts are inseparable from the same control transaction.
+- Review the exact head, run focused checks and protected gates, and merge only the reviewed head. Reuse evidence only when exact protected identities match.
 - Do not commit the supplied ZIP; commit the archived extracted members, manifest, registry, documents, scripts and tests.
 - GitHub Issue apply is permitted only with an approved plan SHA-256 and must read back the resulting state.
-- After merge, the guarded fresh-main workflow regenerates canonical evidence atomically and requires a read-only zero-action GitHub readback. Stale bases, nonzero or unreviewed actions and inconsistent projections fail closed; ordinary merges do not require a separate manual convergence commit.
+- There is no duplicate post-merge release package matrix. After merge, compact programme/status convergence is automatic and atomic; an E evidence PR is exceptional and only permitted when a repository commit is genuinely required. Do not use repetitive CI polling.
 """,
     )
     write_text(
         programme / "prompt-2-handoff.md",
         """# Prompt 2 handoff
 
-Start from `issues/issue_registry.json` and `docs/product-completion/programme/roadmap.md`. Read the relevant phase document before implementing product work. Treat the reconciliation report as the evidence boundary: the package is immutable, local-only historical records are explicit, dependencies are classified, and no product feature was implemented by Prompt 1.
+Start from `issues/issue_registry.json`, `issues/programme_control_state.json`, `docs/product-completion/CURRENT_STATUS.json`, `docs/product-completion/PROGRESS.md`, `docs/product-completion/DELIVERY_WORKFLOW.md`, `plans/ACTIVE_CODEX_GOAL.md`, the relevant phase document and the current batch plan. Run `python scripts/generate_programme.py --root . --check` plus the focused tests and canonical classifier before implementation. Treat the reconciliation report as the evidence boundary: the package is immutable, local-only historical records are explicit, dependencies are classified, and no product feature was implemented by Prompt 1.
 
-First implementation candidates are the records marked `ready` by the registry helper, subject to their blocking dependencies and the local-first safety policy. Re-run `python scripts/generate_issue_registry.py --check`, `python scripts/update_programme_status.py --check` and the focused tests after changes.
+First implementation candidates are the records marked `ready` by the registry helper, subject to their blocking dependencies and the local-first safety policy. Re-run the atomic generator check, focused tests and classifier after changes.
 """,
     )
     phases = programme / "phases"
@@ -634,7 +660,7 @@ The canonical registry and current evidence live in `issues/issue_registry.json`
 
 Live execution is not authorised: `execution_allowed=false`. Portfolio, paper, broker-read-only and disabled canary scaffolding have separate certification/activation lanes and cannot gain authority from a model, LLM, UI action or programme status.
 
-Canonical checks: `python scripts/generate_issue_registry.py --check`, `python scripts/validate_issue_registry.py`, `python scripts/update_programme_status.py --check`, `python scripts/validate_app.py --changed`, and `python scripts/validate_app.py --offline`. Full/package certification is delegated to the existing protected release gate through `validate_app.py --full` and `--packaged`.""",
+Current delivery mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`. Canonical checks: `python scripts/generate_programme.py --root . --check`, `python scripts/classify_validation.py --root . --base <exact-origin-main> --head <exact-head>`, `python scripts/validate_app.py --changed`, and `python scripts/validate_app.py --offline`. Ordinary changes use focused evidence plus the classifier-derived full-gate cadence. Full/package certification is delegated to the existing protected release gate through `validate_app.py --full` and `--packaged`; authoritative serial Linux/Windows jobs and the terminal `validation-summary` remain the CI interface.""",
     )
     write_managed_section(
         root / "CHANGELOG.md",

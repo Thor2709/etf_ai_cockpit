@@ -4,6 +4,12 @@ name: Release gate
 # mutate release aliases, publish releases, or change protected state.
 on:
   pull_request:
+  repository_dispatch:
+    types:
+      - parallel-pilot-drift
+      - parallel-pilot-full
+  schedule:
+    - cron: "17 3 * * 1"
 
 permissions:
   contents: read
@@ -21,6 +27,11 @@ jobs:
       package_gate_required: ${{ steps.classify.outputs.package_gate_required }}
       base_sha: ${{ steps.classify.outputs.base_sha }}
       head_sha: ${{ steps.classify.outputs.head_sha }}
+      base_repository: ${{ steps.classify.outputs.base_repository }}
+      head_repository: ${{ steps.classify.outputs.head_repository }}
+      parallel_pilot_required: ${{ steps.classify.outputs.parallel_pilot_required }}
+      parallel_pilot_repetitions: ${{ steps.classify.outputs.parallel_pilot_repetitions }}
+      parallel_pilot_reason: ${{ steps.classify.outputs.parallel_pilot_reason }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -31,22 +42,27 @@ jobs:
         id: classify
         shell: bash
         env:
-          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          PR_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
           HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          ORDINARY_ISSUES_SINCE_FULL_GATE: ${{ vars.ORDINARY_ISSUES_SINCE_FULL_GATE || '0' }}
+          BASE_REPOSITORY: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.repo.full_name || github.repository }}
+          HEAD_REPOSITORY: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          PILOT_TRIGGER: ${{ github.event_name == 'repository_dispatch' && github.event.action == 'parallel-pilot-full' && 'manual-full' || github.event_name == 'repository_dispatch' && 'manual' || github.event_name == 'schedule' && 'scheduled' || '' }}
         run: |
-          base="$BASE_SHA"
+          base="$PR_BASE_SHA"
+          if [[ -z "$base" ]]; then base="$(git rev-parse origin/main)"; fi
           if [[ ! "$base" =~ ^[0-9a-f]{40}$ ]] || [[ "$base" == "0000000000000000000000000000000000000000" ]]; then
-            base="$(git rev-parse HEAD^ 2>/dev/null || git rev-parse HEAD)"
+            echo "Missing exact validation base" >&2
+            exit 1
           fi
           export RESOLVED_BASE_SHA="$base"
           arguments=(
             --root .
             --base "$base"
             --head "$HEAD_SHA"
-            --ordinary-issues-since-full-gate "$ORDINARY_ISSUES_SINCE_FULL_GATE"
+            --main-ref origin/main
             --output artifacts/validation/classifier.json
           )
+          if [[ -n "$PILOT_TRIGGER" ]]; then arguments+=(--pilot-trigger "$PILOT_TRIGGER"); fi
           reuse_evidence=".github/issue-transitions/reuse-evidence.json"
           if [[ -f "$reuse_evidence" ]]; then
             arguments+=(--reuse-evidence "$reuse_evidence")
@@ -63,6 +79,11 @@ jobs:
               output.write(f"package_gate_required={str(report['package_gate_required']).lower()}\n")
               output.write(f"base_sha={os.environ['RESOLVED_BASE_SHA']}\n")
               output.write(f"head_sha={os.environ['HEAD_SHA']}\n")
+              output.write(f"base_repository={os.environ['BASE_REPOSITORY']}\n")
+              output.write(f"head_repository={os.environ['HEAD_REPOSITORY']}\n")
+              output.write(f"parallel_pilot_required={str(report['parallel_pilot_required']).lower()}\n")
+              output.write(f"parallel_pilot_repetitions={report['parallel_pilot_repetitions']}\n")
+              output.write(f"parallel_pilot_reason={report['parallel_pilot_reason']}\n")
           PY
 
       - name: Upload classifier report
@@ -78,8 +99,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      ETF_COCKPIT_VALIDATION_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-      ETF_COCKPIT_VALIDATION_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      ETF_COCKPIT_VALIDATION_BASE_SHA: ${{ needs.classifier.outputs.base_sha }}
+      ETF_COCKPIT_VALIDATION_HEAD_SHA: ${{ needs.classifier.outputs.head_sha }}
     steps:
       - name: Validate trusted pull request identities
         shell: bash
@@ -94,8 +115,8 @@ jobs:
       - name: Check out reviewed GitHub mutation authority head
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.sha }}
+          repository: ${{ needs.classifier.outputs.head_repository }}
+          ref: ${{ needs.classifier.outputs.head_sha }}
           path: .validation-head
           fetch-depth: 0
           persist-credentials: false
@@ -103,8 +124,8 @@ jobs:
       - name: Check out trusted pull request base
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          repository: ${{ github.event.pull_request.base.repo.full_name }}
-          ref: ${{ github.event.pull_request.base.sha }}
+          repository: ${{ needs.classifier.outputs.base_repository }}
+          ref: ${{ needs.classifier.outputs.base_sha }}
           path: .validation-base
           fetch-depth: 1
           persist-credentials: false
@@ -309,7 +330,7 @@ jobs:
 
   release-gate:
     needs: [classifier, preflight, supply-chain]
-    if: needs.classifier.outputs.package_gate_required == 'true'
+    if: github.event_name == 'pull_request' && needs.classifier.outputs.package_gate_required == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -329,7 +350,7 @@ jobs:
       - name: Pin reviewed canonical generation base
         shell: bash
         env:
-          REVIEWED_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          REVIEWED_BASE_SHA: ${{ needs.classifier.outputs.base_sha }}
           REVIEWED_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || 'main' }}
         run: |
           if [[ "$REVIEWED_BASE_REF" != "main" ]]; then
@@ -394,16 +415,11 @@ jobs:
       - name: Run protected release gate
         shell: bash
         env:
-          ETF_COCKPIT_RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
-          ETF_COCKPIT_RELEASE_SIGNING_KEY_ID: ${{ vars.RELEASE_SIGNING_KEY_ID }}
           ETF_COCKPIT_RELEASE_BUILD: "1"
           ETF_COCKPIT_SETUP_PYTHON_CACHE_HIT: ${{ steps.setup-python.outputs.cache-hit }}
         run: |
           output="artifacts/release/github-${{ github.sha }}/${{ matrix.platform }}"
-          arguments=(--root . --output "$output")
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            arguments+=(--allow-unsigned)
-          fi
+          arguments=(--root . --output "$output" --allow-unsigned)
           python scripts/release_gate.py "${arguments[@]}"
 
       - name: Upload release evidence
@@ -416,8 +432,11 @@ jobs:
 
   parallel-pilot:
     name: Parallel pilot (${{ matrix.platform }})
-    needs: classifier
-    if: needs.classifier.outputs.package_gate_required == 'true'
+    needs: [classifier, preflight, supply-chain]
+    if: >-
+      always() && needs.classifier.result == 'success' &&
+      needs.preflight.result == 'success' && needs['supply-chain'].result == 'success' &&
+      needs.classifier.outputs.parallel_pilot_required == 'true'
     continue-on-error: true
     strategy:
       fail-fast: false
@@ -438,7 +457,7 @@ jobs:
       - name: Pin reviewed canonical generation base
         shell: bash
         env:
-          REVIEWED_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          REVIEWED_BASE_SHA: ${{ needs.classifier.outputs.base_sha }}
           REVIEWED_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || 'main' }}
         run: |
           if [[ "$REVIEWED_BASE_REF" != "main" ]]; then
@@ -509,7 +528,7 @@ jobs:
           python scripts/profile_parallel_pytest.py \
             --root . \
             --output "${RUNNER_TEMP}/etf-cockpit-parallel-pilot-${{ matrix.platform }}" \
-            --repetitions 2
+            --repetitions "${{ needs.classifier.outputs.parallel_pilot_repetitions }}"
 
       - name: Ensure pilot evidence directory for upload
         if: always()
@@ -531,8 +550,12 @@ jobs:
 
   parallel-pilot-aggregate:
     name: Parallel pilot cross-platform aggregation
-    needs: [classifier, parallel-pilot]
-    if: always() && needs.classifier.outputs.package_gate_required == 'true'
+    needs: [classifier, preflight, supply-chain, parallel-pilot]
+    if: >-
+      always() && needs.classifier.result == 'success' &&
+      needs.preflight.result == 'success' && needs['supply-chain'].result == 'success' &&
+      needs.classifier.outputs.parallel_pilot_required == 'true' &&
+      needs['parallel-pilot'].result == 'success'
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:
