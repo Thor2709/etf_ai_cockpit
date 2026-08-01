@@ -348,6 +348,143 @@ def test_candidate_evidence_rejects_wrong_artifact_provenance(
 
 
 @pytest.mark.parametrize(
+    "mutation",
+    [
+        "reversed",
+        "dependency",
+        "commit_mismatch",
+        "prefix_mismatch",
+        "wrong_source_status",
+        "wrong_final_status",
+        "unrelated_head_field",
+    ],
+)
+def test_replay_candidate_summary_rejects_unsafe_contract(
+    monkeypatch: pytest.MonkeyPatch, mutation: str
+) -> None:
+    common = {
+        "evidence_references": ["tests/replay.py"],
+        "review_reference": "PR #633",
+        "reviewer": "reviewer",
+        "reviewed_date": "2026-08-02",
+        "verified_commit": "9" * 40,
+        "allow_downgrade": False,
+    }
+    prior = {"from": "planned", "to": "in_progress", **common}
+    hops = [
+        {"from": "in_progress", "to": "implemented_initially", **common},
+        {"from": "implemented_initially", "to": "integrated", **common},
+    ]
+    prior_acceptance = {
+        "status": "in_progress",
+        **{key: common[key] for key in (
+            "evidence_references", "review_reference", "reviewer", "reviewed_date"
+        )},
+    }
+    acceptances = [
+        {
+            "status": hop["to"],
+            **{key: hop[key] for key in (
+                "evidence_references", "review_reference", "reviewer", "reviewed_date"
+            )},
+        }
+        for hop in hops
+    ]
+    valid_hops = copy.deepcopy(hops)
+    valid_acceptances = copy.deepcopy(acceptances)
+    replay = {
+        "stable_id": "ISSUE-0179",
+        "issue_number": 179,
+        "from_status": "in_progress",
+        "to_status": "integrated",
+        "reviewed_product_commit": "9" * 40,
+        "transition_history_prefix": [prior],
+        "transition_history_append": hops,
+        "acceptance_evidence_prefix": [prior_acceptance],
+        "acceptance_evidence_append": acceptances,
+    }
+    candidate = {
+        "schema_version": validation_summary.CANDIDATE_REPLAY_SCHEMA,
+        "execution_allowed": False,
+        "expected_parent_sha": "a" * 40,
+        "authority_ref": "a" * 64,
+        "remote_inventory_sha256": "b" * 64,
+        "plan_semantic_sha256": "c" * 64,
+        "expected_replay": replay,
+    }
+    evidence = {
+        **copy.deepcopy(candidate),
+        "mode": "validate",
+        "expected_head_sha": "b" * 40,
+        "terminal_status": "validated",
+        "zero_action_readback": None,
+        "candidate_blob_sha256": "e" * 64,
+        "action_scope": [{
+            "kind": "update",
+            "stable_id": "ISSUE-0179",
+            "remote_number": 179,
+            "managed_field_deltas": ["Programme status"],
+        }],
+        "mutation": {
+            "transport": "github_issue_comment_append",
+            "transport_contract": "one_aggregate_proposal_one_receipt",
+            "replay_hops": copy.deepcopy(hops),
+            "reviewed_product_commit": "9" * 40,
+            "candidate_blob_sha256": "e" * 64,
+            "plan_sha256": "c" * 64,
+            "authority_id": "f" * 64,
+            "candidate_blob_oid": "d" * 40,
+        },
+    }
+    if mutation == "reversed":
+        candidate["expected_replay"]["transition_history_append"].reverse()
+        evidence["expected_replay"] = copy.deepcopy(candidate["expected_replay"])
+    elif mutation == "dependency":
+        candidate["expected_replay"]["transition_history_append"][0][
+            "dependency_edge"
+        ] = {"dependency": "ISSUE-0001", "evidence": {}}
+        evidence["expected_replay"] = copy.deepcopy(candidate["expected_replay"])
+    elif mutation == "commit_mismatch":
+        candidate["expected_replay"]["reviewed_product_commit"] = "8" * 40
+        evidence["expected_replay"] = copy.deepcopy(candidate["expected_replay"])
+    else:
+        candidate["expected_replay"]["transition_history_prefix"] = []
+        evidence["expected_replay"] = copy.deepcopy(candidate["expected_replay"])
+    monkeypatch.setattr(
+        validation_summary, "_committed_candidate_blob_sha256", lambda *_a: "e" * 64
+    )
+    source = {
+        "canonical_id": "ISSUE-0179",
+        "programme_status": "in_progress",
+        "transition_history": [prior],
+        "acceptance_evidence": [prior_acceptance],
+    }
+    from scripts.apply_reviewed_status_completion import project_status_replay_record
+
+    current = project_status_replay_record(source, valid_hops, valid_acceptances)
+    if mutation == "wrong_source_status":
+        source["programme_status"] = "blocked"
+    elif mutation == "wrong_final_status":
+        current["programme_status"] = "closed"
+    elif mutation == "unrelated_head_field":
+        current["owner"] = "unreviewed-owner"
+    monkeypatch.setattr(
+        validation_summary,
+        "_registry_record_at",
+        lambda _root, ref, _stable_id: source if ref == "a" * 40 else current,
+    )
+
+    with pytest.raises(ValueError, match=r"status[ _]replay"):
+        validation_summary._validate_replay_candidate_evidence(
+            evidence,
+            candidate,
+            root=Path("."),
+            base="a" * 40,
+            head="b" * 40,
+        )
+
+
+@pytest.mark.parametrize(
     "field",
     [
         "execution_allowed",

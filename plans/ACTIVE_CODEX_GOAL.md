@@ -1,12 +1,13 @@
-# Active Codex goal — ISSUE-0101 cyclical-sector adapters
+# Active Codex goal — H-tier status-replay authority repair
 
 ## Objective
 
-Continue the dependency-ready ISSUE-0101 product slice with one bounded local
-typed adapter family for energy, materials/mining and non-infrastructure
-industrial evidence, deterministic scenarios and read-only Instrument Detail
-rationale. Preserve every financial, point-in-time, safety, audit and
-cross-platform invariant.
+Implement the smallest safe additive repair for aggregate GitHub status replay:
+one issue, exactly two ordered legal hops from `in_progress` to
+`implemented_initially` to `integrated`, with one aggregate proposal and one
+receipt. Preserve legacy ISSUE-0180 authority/event bytes, canonical
+point-in-time and safety invariants, `execution_allowed=false`, and the
+fail-closed no-retry/no-compensation policy.
 
 The ISSUE-0177–0180 control-plane work is complete and frozen. Its complete
 former active-goal record and chronology are archived in
@@ -15,51 +16,27 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 
 ## Current checkpoint
 
-- Current UTC timestamp: `2026-07-31T21:08:12Z`.
-- Active product worktree:
-  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0101`;
-  branch `codex/issue0101-cyclical-adapters-20260731`; exact base
-  `8a0d1d9a7437770aa0567d9ae6787e3881832f27`.
-- Exact durable handoff content commit:
-  `a7525e302add1685a4d457be79478a35e8045d24`. The current local branch
-  head is a descendant identity note at
-  `64b5c5947e6a6b79bdd19146ef899ccb368956e1`; verify it before continuing.
-- Current issue: dependency-ready ISSUE-0101, programme status `in_progress`.
-- Bounded outcome: one local typed adapter family for energy,
-  materials/mining and non-infrastructure industrial evidence, deterministic
-  scenarios and read-only Instrument Detail rationale.
-- Product checkpoint: the bounded implementation and one focused correction
-  are intentionally uncommitted. Forty-six adapter/architecture tests and 94
-  broader Instrument Detail/application tests pass, with Ruff, compile,
-  boundary and diff checks green.
-- Independent review is not clean: self-rehashed projections can still forge
-  source/cycle/formula/routing semantics, and three related
-  limitation/replay inconsistencies remain.
-- Blocker: the same semantic-replay validator approach remains incomplete
-  after the implementation and its one permitted focused correction. Do not
-  commit, push or open a PR from this product diff.
-- Exact next action: preserve this explicitly uncommitted checkpoint and
-  redesign the cyclical projection verifier so it validates one canonical
-  source-bearing payload rather than attempting a second partial semantic
-  reconstruction. Start that as a fresh bounded implementation only after
-  reviewing this failure fingerprint; do not broaden into persistence,
-  providers or shared routing.
-- Product stop condition: stop if industrial versus infrastructure routing
-  requires a shared classification/registry redesign, persisted contracts,
-  external data authority or any broader sector or ISSUE-0115 scope.
-- Required checks for the continuation: focused adapter, application,
-  selector, page and architecture tests first, then the validation tier and
-  broader gates required by the finished diff.
-
-The intentionally uncommitted files are:
-
-- `configs/ui_acceptance.yaml`
-- `src/etf_cockpit/app/pages/instrument_detail.py`
-- `src/etf_cockpit/app/selectors/instrument_detail.py`
-- `src/etf_cockpit/app/state.py`
-- `src/etf_cockpit/application/ui_facade.py`
-- `src/etf_cockpit/analysis/cyclical_sector_adapters.py`
-- `tests/test_cyclical_sector_adapters.py`
+- Current UTC date: `2026-08-02`.
+- Repair worktree:
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_status_replay`;
+  branch `codex/status-replay-two-hop-20260802`; exact base and starting head
+  `0680429aa5c30477dc854ef80367a3cc5ff4010e`.
+- Current lane: bounded H-tier implementation is in progress; focused
+  validation, independent review and full package gates remain pending.
+- Owned scope: `status_replay` candidate/authority preparation, aggregate
+  projection/reconciliation/append, status-completion and validation-summary
+  compatibility, focused adversarial tests, and the requested durable policy,
+  workflow, batch and ADR text.
+- Protected scope: canonical ISSUE-0101 status and registry/control files,
+  generated projections, workflow permissions, external systems, broker or
+  execution authority, and legacy ISSUE-0180 status bytes remain unchanged.
+- Preserved rejected evidence path/hash:
+  `C:\Users\thor2\AppData\Local\Temp\issue0101-invalid-recovery-evidence-20260802-001`;
+  patch SHA-256
+  `32488742f363e50f14c566b6890992e37a1a9843d0ed9ca7031fc32fc56e168c`.
+- Exact next action: finish fresh H-tier focused/static/freshness/diff
+  evidence, then obtain independent review and the required Linux/Windows
+  package gates. No validation result is claimed until those checks complete.
 
 ## Frozen delivery evidence and boundaries
 

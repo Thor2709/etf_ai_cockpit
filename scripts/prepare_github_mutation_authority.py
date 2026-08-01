@@ -8,7 +8,7 @@ import json
 import re
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 try:
     from scripts import apply_reviewed_status_completion as completion
@@ -96,7 +96,119 @@ def prepare(
     records, action = _validate_reviewed_inputs(root, plan, remote)
     plan_sha = str(plan["plan_sha256"])
     candidate_bytes: bytes | None = None
-    if mode == "status":
+    if mode == "status_replay":
+        if (
+            action.get("kind") != "update"
+            or action.get("programme_status") != "integrated"
+            or plan.get("summary")
+            != {"create": 0, "update": 1, "close": 0, "reopen": 0, "blocked": 0}
+        ):
+            raise ValueError("status replay preparation requires exactly one integrated update")
+        number = int(action.get("remote_number", 0))
+        matches = [
+            sync.normalise_remote_issue(issue)
+            for issue in remote
+            if int(issue.get("number", 0)) == number
+        ]
+        if len(matches) != 1:
+            raise ValueError("status replay preparation target identity is ambiguous")
+        target = matches[0]
+        safe_action = sync.safe_plan_evidence(plan, remote)["actions"][0]
+        if safe_action.get("managed_field_deltas") != ["Programme status"]:
+            raise ValueError("status replay preparation action is not status-only")
+        stable_id = str(action["stable_id"])
+        current_registry = _load_object(root / completion.REGISTRY_PATH)
+        source_record = completion._registry_record(
+            completion._registry_at(root, source_sha), stable_id, context="source"
+        )
+        current_record = completion._registry_record(
+            current_registry, stable_id, context="current"
+        )
+        source_history = source_record.get("transition_history")
+        source_evidence = source_record.get("acceptance_evidence")
+        current_history = current_record.get("transition_history")
+        current_evidence = current_record.get("acceptance_evidence")
+        if not all(
+            isinstance(value, list)
+            for value in (
+                source_history,
+                source_evidence,
+                current_history,
+                current_evidence,
+            )
+        ):
+            raise ValueError("status replay canonical history/evidence is malformed")
+        source_history = cast(list[dict[str, Any]], source_history)
+        source_evidence = cast(list[dict[str, Any]], source_evidence)
+        current_history = cast(list[dict[str, Any]], current_history)
+        current_evidence = cast(list[dict[str, Any]], current_evidence)
+        history_prefix = source_history
+        evidence_prefix = source_evidence
+        history_append = current_history[len(source_history) :]
+        evidence_append = current_evidence[len(source_evidence) :]
+        if (
+            current_history[: len(source_history)] != source_history
+            or current_evidence[: len(source_evidence)] != source_evidence
+            or len(history_append) != 2
+            or len(evidence_append) != 2
+        ):
+            raise ValueError("status replay canonical change is not exactly two appended entries")
+        reviewed_commit = str(history_append[0].get("verified_commit", ""))
+        if any(
+            not isinstance(event, dict)
+            or event.get("verified_commit") != reviewed_commit
+            for event in history_append
+        ):
+            raise ValueError("status replay hops must share one reviewed product commit")
+        core = {
+            "stable_id": stable_id,
+            "issue_number": number,
+            "database_id": str(target["id"]),
+            "node_id": str(target["node_id"]),
+            "source_sha": source_sha,
+            "from_status": "in_progress",
+            "to_status": "integrated",
+            "reviewed_product_commit": reviewed_commit,
+            "hops": history_append,
+            "plan_sha256": plan["plan_sha256"],
+        }
+        candidate = {
+            "schema_version": completion.REPLAY_SCHEMA_VERSION,
+            "execution_allowed": False,
+            "expected_parent_sha": source_sha,
+            "authority_ref": gateway.replay_candidate_authority_ref(core),
+            "remote_inventory_sha256": plan["remote_inventory_sha256"],
+            "plan_semantic_sha256": plan["plan_sha256"],
+            "expected_replay": {
+                "stable_id": stable_id,
+                "issue_number": number,
+                "from_status": "in_progress",
+                "to_status": "integrated",
+                "reviewed_product_commit": reviewed_commit,
+                "transition_history_prefix": history_prefix,
+                "transition_history_append": history_append,
+                "acceptance_evidence_prefix": evidence_prefix,
+                "acceptance_evidence_append": evidence_append,
+            },
+        }
+        completion.validate_candidate(
+            candidate,
+            plan,
+            remote,
+            source_record=source_record,
+            current_record=current_record,
+        )
+        candidate_bytes = gateway._json_bytes(candidate)
+        payload = {
+            **core,
+            "candidate_path": gateway.AUTHORITY_CANDIDATE_PATH,
+            "candidate_blob_oid": _git(
+                root, "hash-object", "--stdin", input_bytes=candidate_bytes
+            ),
+            "candidate_blob_sha256": hashlib.sha256(candidate_bytes).hexdigest(),
+            "candidate_authority_ref": candidate["authority_ref"],
+        }
+    elif mode == "status":
         if (
             action.get("kind") != "update"
             or action.get("programme_status") != "integrated"
@@ -172,7 +284,7 @@ def prepare(
             "plan_sha256": plan_sha,
         }
     else:
-        raise ValueError("preparation mode must be status or create")
+        raise ValueError("preparation mode must be status, status_replay, or create")
 
     record = gateway.build_authority_record(
         mode,
@@ -210,7 +322,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--remote-snapshot", type=Path, required=True)
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--main-ref", default="origin/main")
-    parser.add_argument("--mode", choices=("status", "create"), required=True)
+    parser.add_argument("--mode", choices=("status", "status_replay", "create"), required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args(argv)
 

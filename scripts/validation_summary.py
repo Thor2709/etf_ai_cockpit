@@ -22,7 +22,9 @@ IDENTITY_KEYS = {
 }
 JOB_KEYS = {"classifier", "preflight", "supply_chain", "release_windows", "release_linux"}
 CANDIDATE_PATH = ".github/issue-transitions/post-merge-control-candidate.json"
+REGISTRY_PATH = "issues/issue_registry.json"
 CANDIDATE_EVIDENCE_SCHEMA = "etf-ai-cockpit.status-completion-evidence/1.0"
+CANDIDATE_REPLAY_SCHEMA = "etf-ai-cockpit.status-replay-candidate/3.0"
 CANDIDATE_UPDATE_KEYS = {"stable_id", "from_status", "to_status"}
 CANDIDATE_ARTIFACT_PREFIX = "validation-status-completion-candidate-"
 SHA_RE = re.compile(r"[0-9a-f]{40}")
@@ -177,6 +179,25 @@ def _committed_candidate_blob_sha256(root: Path, head: str) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _registry_record_at(root: Path, ref: str, stable_id: str) -> dict[str, Any]:
+    try:
+        payload = subprocess.check_output(
+            ["git", "show", f"{ref}:{REGISTRY_PATH}"], cwd=root, text=True
+        )
+        registry = json.loads(payload)
+    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+        raise ValueError("status replay registry source is unavailable or malformed") from exc
+    records = registry.get("records") if isinstance(registry, dict) else None
+    matches = (
+        [record for record in records if record.get("canonical_id") == stable_id]
+        if isinstance(records, list)
+        else []
+    )
+    if len(matches) != 1:
+        raise ValueError("status replay registry target is missing or ambiguous")
+    return matches[0]
+
+
 def _validate_candidate_evidence(
     root: Path,
     artifacts_root: Path,
@@ -203,6 +224,11 @@ def _validate_candidate_evidence(
     if evidence.get("schema_version") != CANDIDATE_EVIDENCE_SCHEMA:
         raise ValueError("status-completion candidate evidence schema mismatch")
     candidate = _load_committed_candidate(root, head)
+    if candidate.get("schema_version") == CANDIDATE_REPLAY_SCHEMA:
+        _validate_replay_candidate_evidence(
+            evidence, candidate, root=root, base=base, head=head
+        )
+        return
     if (
         evidence.get("mode") != "validate"
         or evidence.get("execution_allowed") is not False
@@ -273,6 +299,147 @@ def _validate_candidate_evidence(
         or not HASH_RE.fullmatch(str(mutation.get("predecessor_event_sha256", "")))
     ):
         raise ValueError("status-completion candidate comment event identity is invalid")
+
+
+def _validate_replay_candidate_evidence(
+    evidence: dict[str, Any],
+    candidate: dict[str, Any],
+    *,
+    root: Path,
+    base: str,
+    head: str,
+) -> None:
+    if (
+        evidence.get("mode") != "validate"
+        or evidence.get("execution_allowed") is not False
+        or evidence.get("terminal_status") != "validated"
+        or evidence.get("zero_action_readback") is not None
+        or evidence.get("expected_parent_sha") != base
+        or evidence.get("expected_head_sha") != head
+    ):
+        raise ValueError("status replay candidate evidence is not terminally validated")
+    for key in (
+        "execution_allowed",
+        "expected_parent_sha",
+        "authority_ref",
+        "remote_inventory_sha256",
+        "plan_semantic_sha256",
+        "expected_replay",
+    ):
+        if evidence.get(key) != candidate.get(key):
+            raise ValueError(f"status replay candidate {key} identity mismatch")
+    replay = candidate.get("expected_replay")
+    if (
+        not isinstance(replay, dict)
+        or set(replay)
+        != {
+            "stable_id",
+            "issue_number",
+            "from_status",
+            "to_status",
+            "reviewed_product_commit",
+            "transition_history_prefix",
+            "transition_history_append",
+            "acceptance_evidence_prefix",
+            "acceptance_evidence_append",
+        }
+        or replay.get("from_status") != "in_progress"
+        or replay.get("to_status") != "integrated"
+        or not isinstance(replay.get("transition_history_append"), list)
+        or len(replay["transition_history_append"]) != 2
+        or not isinstance(replay.get("acceptance_evidence_append"), list)
+        or len(replay["acceptance_evidence_append"]) != 2
+        or not SHA_RE.fullmatch(str(replay.get("reviewed_product_commit", "")))
+    ):
+        raise ValueError("status replay candidate canonical contract is invalid")
+    try:
+        from scripts.github_mutation_gateway import _validate_replay_hops
+    except ModuleNotFoundError:
+        from github_mutation_gateway import _validate_replay_hops  # type: ignore[no-redef]
+    hops = _validate_replay_hops(
+        replay["transition_history_append"],
+        reviewed_product_commit=str(replay["reviewed_product_commit"]),
+    )
+    source_record = _registry_record_at(root, base, str(replay["stable_id"]))
+    current_record = _registry_record_at(root, head, str(replay["stable_id"]))
+    if (
+        replay["transition_history_prefix"] != source_record.get("transition_history")
+        or replay["acceptance_evidence_prefix"]
+        != source_record.get("acceptance_evidence")
+        or current_record.get("transition_history")
+        != replay["transition_history_prefix"] + hops
+        or current_record.get("acceptance_evidence")
+        != replay["acceptance_evidence_prefix"]
+        + replay["acceptance_evidence_append"]
+    ):
+        raise ValueError("status replay candidate source-bound append is invalid")
+    for hop, acceptance in zip(
+        hops, replay["acceptance_evidence_append"], strict=True
+    ):
+        if (
+            not isinstance(acceptance, dict)
+            or set(acceptance)
+            != {
+                "status",
+                "evidence_references",
+                "review_reference",
+                "reviewer",
+                "reviewed_date",
+            }
+            or acceptance.get("status") != hop["to"]
+            or any(
+                acceptance.get(key) != hop.get(key)
+                for key in (
+                    "evidence_references",
+                    "review_reference",
+                    "reviewer",
+                    "reviewed_date",
+                )
+            )
+        ):
+            raise ValueError("status replay candidate acceptance evidence is invalid")
+    try:
+        from scripts.apply_reviewed_status_completion import project_status_replay_record
+    except ModuleNotFoundError:
+        from apply_reviewed_status_completion import (  # type: ignore[no-redef]
+            project_status_replay_record,
+        )
+    if project_status_replay_record(
+        source_record,
+        hops,
+        replay["acceptance_evidence_append"],
+    ) != current_record:
+        raise ValueError("status replay candidate complete canonical projection is invalid")
+    candidate_blob_sha256 = str(evidence.get("candidate_blob_sha256", ""))
+    if (
+        not HASH_RE.fullmatch(candidate_blob_sha256)
+        or candidate_blob_sha256 != _committed_candidate_blob_sha256(root, head)
+    ):
+        raise ValueError("status replay candidate canonical blob identity is invalid")
+    action_scope = evidence.get("action_scope")
+    if (
+        not isinstance(action_scope, list)
+        or len(action_scope) != 1
+        or not isinstance(action_scope[0], dict)
+        or action_scope[0].get("kind") != "update"
+        or action_scope[0].get("stable_id") != replay["stable_id"]
+        or action_scope[0].get("managed_field_deltas") != ["Programme status"]
+        or action_scope[0].get("remote_number") != replay["issue_number"]
+    ):
+        raise ValueError("status replay candidate action scope identity is invalid")
+    mutation = evidence.get("mutation")
+    if (
+        not isinstance(mutation, dict)
+        or mutation.get("transport") != "github_issue_comment_append"
+        or mutation.get("transport_contract") != "one_aggregate_proposal_one_receipt"
+        or mutation.get("replay_hops") != replay["transition_history_append"]
+        or mutation.get("reviewed_product_commit") != replay["reviewed_product_commit"]
+        or mutation.get("candidate_blob_sha256") != evidence.get("candidate_blob_sha256")
+        or mutation.get("plan_sha256") != evidence.get("plan_semantic_sha256")
+        or not HASH_RE.fullmatch(str(mutation.get("authority_id", "")))
+        or not re.fullmatch(r"[0-9a-f]{40,64}", str(mutation.get("candidate_blob_oid", "")))
+    ):
+        raise ValueError("status replay candidate mutation identity is invalid")
 
 
 def collect_summary(

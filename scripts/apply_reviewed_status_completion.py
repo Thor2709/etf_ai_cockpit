@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+from copy import deepcopy
 import hashlib
 import hmac
 import json
@@ -14,7 +15,7 @@ import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
@@ -22,14 +23,23 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 try:
     from scripts import github_mutation_gateway as mutation_gateway
     from scripts import sync_github_issues as sync
-    from scripts.issue_registry_core import CONTROL_ALLOWED_TRANSITIONS, REGISTRY_PATH
+    from scripts.issue_registry_core import (
+        CONTROL_ALLOWED_TRANSITIONS,
+        REGISTRY_PATH,
+        validate_control_transition_event,
+    )
 except ModuleNotFoundError:
     import github_mutation_gateway as mutation_gateway
     import sync_github_issues as sync
-    from issue_registry_core import CONTROL_ALLOWED_TRANSITIONS, REGISTRY_PATH
+    from issue_registry_core import (
+        CONTROL_ALLOWED_TRANSITIONS,
+        REGISTRY_PATH,
+        validate_control_transition_event,
+    )
 
 
 SCHEMA_VERSION = "etf-ai-cockpit.status-completion-candidate/2.0"
+REPLAY_SCHEMA_VERSION = "etf-ai-cockpit.status-replay-candidate/3.0"
 DEFAULT_CANDIDATE = Path(".github/issue-transitions/post-merge-control-candidate.json")
 ZERO_SUMMARY = {"create": 0, "update": 0, "close": 0, "reopen": 0, "blocked": 0}
 SHA_RE = re.compile(r"[0-9a-f]{40}")
@@ -45,6 +55,17 @@ EXPECTED_KEYS = {
     "expected_update",
 }
 EXPECTED_UPDATE_KEYS = {"stable_id", "from_status", "to_status"}
+REPLAY_KEYS = {
+    "stable_id",
+    "issue_number",
+    "from_status",
+    "to_status",
+    "reviewed_product_commit",
+    "transition_history_prefix",
+    "transition_history_append",
+    "acceptance_evidence_prefix",
+    "acceptance_evidence_append",
+}
 WORKFLOW_PATH = ".github/workflows/programme-status-completion.yml"
 WORKFLOW_NAME = "Programme status completion"
 OIDC_ISSUER = "https://token.actions.githubusercontent.com"
@@ -54,6 +75,35 @@ OIDC_MAX_AGE_SECONDS = 60
 
 def _git(root: Path, *args: str) -> str:
     return subprocess.check_output(["git", *args], cwd=root, text=True).strip()
+
+
+def _registry_at(root: Path, revision: str) -> dict[str, Any]:
+    raw = subprocess.check_output(
+        ["git", "show", f"{revision}:{REGISTRY_PATH.as_posix()}"],
+        cwd=root,
+    )
+    value = json.loads(raw)
+    if not isinstance(value, dict):
+        raise ValueError("canonical registry at source SHA is malformed")
+    return value
+
+
+def _registry_record(
+    registry: dict[str, Any], stable_id: str, *, context: str
+) -> dict[str, Any]:
+    records = registry.get("records")
+    matches = (
+        [
+            record
+            for record in records
+            if isinstance(record, dict) and record.get("canonical_id") == stable_id
+        ]
+        if isinstance(records, list)
+        else []
+    )
+    if len(matches) != 1:
+        raise ValueError(f"status replay {context} target is missing or ambiguous")
+    return matches[0]
 
 
 def _is_ancestor(root: Path, ancestor: str, descendant: str) -> bool:
@@ -653,11 +703,216 @@ def _programme_status(body: str) -> str:
     return matches[0]
 
 
+def project_status_replay_record(
+    source_record: dict[str, Any],
+    history_append: list[dict[str, Any]],
+    evidence_append: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Return the exact canonical record produced by the bounded replay."""
+
+    stable_id = str(source_record.get("canonical_id", ""))
+    if source_record.get("programme_status") != "in_progress":
+        raise ValueError("status replay source status is not in_progress")
+    if len(history_append) != 2 or len(evidence_append) != 2:
+        raise ValueError("status replay projection requires exactly two appends")
+    expected = deepcopy(source_record)
+    for index, event in enumerate(history_append):
+        validate_control_transition_event(stable_id, expected, event)
+        expected["programme_status"] = event["to"]
+        expected["verified_commit"] = event["verified_commit"]
+        expected["verified_date"] = event["reviewed_date"]
+        expected["status_transition"] = {
+            "from": event["from"],
+            "to": event["to"],
+            "review_reference": event["review_reference"],
+        }
+        expected.setdefault("transition_history", []).append(deepcopy(event))
+        expected.setdefault("acceptance_evidence", []).append(
+            deepcopy(evidence_append[index])
+        )
+    return expected
+
+
+def _validate_status_replay_candidate(
+    candidate: dict[str, Any],
+    plan: dict[str, Any],
+    remote: list[dict[str, Any]],
+    *,
+    source_record: dict[str, Any] | None = None,
+    current_record: dict[str, Any] | None = None,
+) -> None:
+    if set(candidate) != {
+        "schema_version",
+        "execution_allowed",
+        "expected_parent_sha",
+        "authority_ref",
+        "remote_inventory_sha256",
+        "plan_semantic_sha256",
+        "expected_replay",
+    }:
+        raise ValueError("status replay candidate envelope fields are not narrowly bounded")
+    if candidate.get("schema_version") != REPLAY_SCHEMA_VERSION:
+        raise ValueError("status replay candidate schema version mismatch")
+    if candidate.get("execution_allowed") is not False:
+        raise ValueError("candidate must preserve execution_allowed=false")
+    if not SHA_RE.fullmatch(str(candidate.get("expected_parent_sha", ""))):
+        raise ValueError("candidate expected parent/base SHA is invalid")
+    if not HASH_RE.fullmatch(str(candidate.get("authority_ref", ""))):
+        raise ValueError("candidate authority reference is invalid")
+    if candidate.get("remote_inventory_sha256") != plan.get("remote_inventory_sha256"):
+        raise ValueError("candidate remote inventory SHA mismatch")
+    if candidate.get("plan_semantic_sha256") != plan.get("plan_sha256"):
+        raise ValueError("candidate semantic plan SHA mismatch")
+    replay = candidate.get("expected_replay")
+    if not isinstance(replay, dict) or set(replay) != REPLAY_KEYS:
+        raise ValueError("status replay candidate contract fields are malformed")
+    stable_id = str(replay.get("stable_id", ""))
+    if not sync.MARKER_RE.fullmatch(f"<!-- etf-ai-cockpit:stable-id={stable_id} -->"):
+        raise ValueError("status replay candidate stable ID is invalid")
+    if not isinstance(replay.get("issue_number"), int) or replay["issue_number"] <= 0:
+        raise ValueError("status replay candidate issue number is invalid")
+    if replay.get("from_status") != "in_progress" or replay.get("to_status") != "integrated":
+        raise ValueError("status replay candidate must cover in_progress to integrated")
+    reviewed_commit = str(replay.get("reviewed_product_commit", ""))
+    if not SHA_RE.fullmatch(reviewed_commit):
+        raise ValueError("status replay reviewed product commit is invalid")
+    history_prefix = replay.get("transition_history_prefix")
+    history_append = replay.get("transition_history_append")
+    evidence_prefix = replay.get("acceptance_evidence_prefix")
+    evidence_append = replay.get("acceptance_evidence_append")
+    if not all(isinstance(value, list) for value in (history_prefix, history_append, evidence_prefix, evidence_append)):
+        raise ValueError("status replay canonical append data is malformed")
+    history_prefix = cast(list[dict[str, Any]], history_prefix)
+    history_append = cast(list[dict[str, Any]], history_append)
+    evidence_prefix = cast(list[dict[str, Any]], evidence_prefix)
+    evidence_append = cast(list[dict[str, Any]], evidence_append)
+    if len(history_append) != 2 or len(evidence_append) != 2:
+        raise ValueError("status replay requires exactly two matching appended entries")
+    mutation_gateway._validate_replay_hops(
+        history_append, reviewed_product_commit=reviewed_commit
+    )
+    expected_hops = (("in_progress", "implemented_initially"), ("implemented_initially", "integrated"))
+    if any(
+        not isinstance(event, dict)
+        or event.get("from") != expected_hops[index][0]
+        or event.get("to") != expected_hops[index][1]
+        or event.get("event_type") == "dependency_edge_update"
+        or "dependency_edge" in event
+        for index, event in enumerate(history_append)
+    ):
+        raise ValueError("status replay hops are missing, reversed, duplicated, or unsafe")
+    evidence_keys = {
+        "status",
+        "evidence_references",
+        "review_reference",
+        "reviewer",
+        "reviewed_date",
+    }
+    for index, evidence in enumerate(evidence_append):
+        if not isinstance(evidence, dict) or set(evidence) != evidence_keys:
+            raise ValueError("status replay acceptance evidence is malformed")
+        if evidence.get("status") != expected_hops[index][1]:
+            raise ValueError("status replay acceptance evidence does not match its hop")
+        event = history_append[index]
+        if any(
+            evidence.get(key) != event.get(key)
+            for key in ("evidence_references", "review_reference", "reviewer", "reviewed_date")
+        ):
+            raise ValueError("status replay review evidence is not bound to its hop")
+        if event.get("verified_commit") != reviewed_commit:
+            raise ValueError("status replay hops must share one reviewed product commit")
+    review_keys = (
+        "review_reference",
+        "evidence_references",
+        "reviewer",
+        "reviewed_date",
+    )
+    if any(
+        history_append[0].get(key) != history_append[1].get(key)
+        for key in review_keys
+    ):
+        raise ValueError("status replay hops must share identical review evidence")
+    if not isinstance(source_record, dict) or not isinstance(current_record, dict):
+        raise ValueError("status replay source and current canonical records are required")
+    if (
+        source_record.get("canonical_id") != stable_id
+        or current_record.get("canonical_id") != stable_id
+    ):
+        raise ValueError("status replay canonical issue identity mismatch")
+    source_history = source_record.get("transition_history")
+    source_evidence = source_record.get("acceptance_evidence")
+    current_history = current_record.get("transition_history")
+    current_evidence = current_record.get("acceptance_evidence")
+    if (
+        source_record.get("programme_status") != "in_progress"
+        or not isinstance(source_history, list)
+        or not isinstance(source_evidence, list)
+        or history_prefix != source_history
+        or evidence_prefix != source_evidence
+    ):
+        raise ValueError("status replay prefixes do not equal the source record")
+    if (
+        not isinstance(current_history, list)
+        or not isinstance(current_evidence, list)
+        or current_history != source_history + history_append
+        or current_evidence != source_evidence + evidence_append
+    ):
+        raise ValueError("status replay current record is not exactly two source-bound appends")
+    expected = project_status_replay_record(
+        source_record, history_append, evidence_append
+    )
+    if expected != current_record:
+        raise ValueError("status replay canonical projection differs from source-bound replay")
+
+    summary = plan.get("summary")
+    if summary != {"create": 0, "update": 1, "close": 0, "reopen": 0, "blocked": 0}:
+        raise ValueError("status replay plan is not exactly one update")
+    actions = plan.get("actions")
+    if not isinstance(actions, list) or len(actions) != 1:
+        raise ValueError("status replay plan must contain exactly one action")
+    action = actions[0]
+    if (
+        action.get("kind") != "update"
+        or action.get("stable_id") != stable_id
+        or action.get("programme_status") != "integrated"
+    ):
+        raise ValueError("status replay plan update is not the target integrated status")
+    normalised = [sync.normalise_remote_issue(issue) for issue in remote]
+    matching = [
+        issue
+        for issue in normalised
+        if stable_id in set(sync.MARKER_RE.findall(issue["body"]))
+    ]
+    if len(matching) != 1 or matching[0]["number"] != action.get("remote_number"):
+        raise ValueError("status replay remote issue identity is ambiguous")
+    if action.get("title") != matching[0]["title"]:
+        raise ValueError("status replay plan changes the remote issue title")
+    if replay["issue_number"] != matching[0]["number"]:
+        raise ValueError("status replay candidate issue number does not match remote")
+    if _programme_status(matching[0]["body"]) != "in_progress":
+        raise ValueError("status replay candidate source does not match remote")
+    evidence = sync.safe_plan_evidence(plan, normalised)
+    if evidence["actions"][0].get("managed_field_deltas") != ["Programme status"]:
+        raise ValueError("status replay plan contains a non-status delta")
+
+
 def validate_candidate(
     candidate: dict[str, Any],
     plan: dict[str, Any],
     remote: list[dict[str, Any]],
+    *,
+    source_record: dict[str, Any] | None = None,
+    current_record: dict[str, Any] | None = None,
 ) -> None:
+    if candidate.get("schema_version") == REPLAY_SCHEMA_VERSION:
+        _validate_status_replay_candidate(
+            candidate,
+            plan,
+            remote,
+            source_record=source_record,
+            current_record=current_record,
+        )
+        return
     if set(candidate) != EXPECTED_KEYS:
         raise ValueError("candidate envelope fields are not narrowly bounded")
     if candidate.get("schema_version") != SCHEMA_VERSION:
@@ -940,6 +1195,132 @@ def run(
                 stable_id=stable_id,
                 from_status=str(expected_update["from_status"]),
                 to_status=str(expected_update["to_status"]),
+                source_sha=expected_parent,
+                head_sha=expected_head,
+                candidate_blob_sha256=candidate_sha256,
+                plan_sha256=str(candidate["plan_semantic_sha256"]),
+                event_name=str(event_name),
+                event_ref=str(event_ref),
+                run_attempt=str(run_attempt),
+                event_before=str(event_before),
+                event_after=str(event_after),
+                actor=str(actor),
+                pusher=str(pusher),
+                run_id=str(run_id),
+                run_number=str(run_number),
+                workflow_ref=str(workflow_ref),
+                repository=str(repository),
+                event_payload_sha256=str(event_payload_sha256),
+                authority_record=authority,
+                git_binding=git_binding,
+                transport=mutation_transport,
+                authority_revalidator=lambda: revalidate_live_authority(
+                    root,
+                    expected_parent=expected_parent,
+                    expected_head=expected_head,
+                    main_ref=main_ref,
+                    attestation=attestation,
+                    run_reader=actions_run_reader,
+                    main_fetcher=main_fetcher,
+                    caller_proof_verifier=proof_revalidator,  # type: ignore[arg-type]
+                ),
+            )
+        elif authority["authority_type"] == "status_replay":
+            candidate_bytes = candidate_path.read_bytes()
+            candidate = load_candidate(candidate_bytes)
+            validate_git_bindings(
+                root,
+                candidate,
+                candidate_path=candidate_path,
+                candidate_bytes=candidate_bytes,
+                expected_parent=expected_parent,
+                expected_head=expected_head,
+                main_ref=main_ref,
+            )
+            replay = candidate.get("expected_replay")
+            if not isinstance(replay, dict):
+                raise ValueError("status replay candidate replay contract is malformed")
+            if not _is_ancestor(
+                root, str(replay.get("reviewed_product_commit", "")), expected_head
+            ):
+                raise ValueError("status replay reviewed product commit is not in the reviewed head")
+            stable_id = str(replay.get("stable_id"))
+            source_record = _registry_record(
+                _registry_at(root, expected_parent), stable_id, context="source"
+            )
+            current_record = _registry_record(
+                registry, stable_id, context="current"
+            )
+            validate_candidate(
+                candidate,
+                plan,
+                remote,
+                source_record=source_record,
+                current_record=current_record,
+            )
+            candidate_oid = _git(
+                root,
+                "rev-parse",
+                f"{expected_head}:{DEFAULT_CANDIDATE.as_posix()}",
+            )
+            candidate_sha256 = _canonical_candidate_blob_sha256(root, expected_head)
+            if (
+                candidate.get("authority_ref") != payload["candidate_authority_ref"]
+                or payload["candidate_authority_ref"]
+                != mutation_gateway.replay_candidate_authority_ref(payload)
+                or payload["candidate_blob_oid"] != candidate_oid
+                or payload["candidate_blob_sha256"] != candidate_sha256
+                or payload["plan_sha256"] != candidate["plan_semantic_sha256"]
+            ):
+                raise ValueError("status replay candidate does not bind the committed authority")
+            reviewed_matches = [
+                issue
+                for issue in remote
+                if int(issue.get("number", 0)) == payload["issue_number"]
+                and str(issue.get("id", "")) == payload["database_id"]
+                and str(issue.get("node_id") or issue.get("nodeId") or "")
+                == payload["node_id"]
+            ]
+            if len(reviewed_matches) != 1:
+                raise ValueError("status replay authority target issue identity mismatch")
+            evidence.update(
+                {
+                    "remote_inventory_sha256": candidate.get("remote_inventory_sha256"),
+                    "plan_semantic_sha256": candidate.get("plan_semantic_sha256"),
+                    "authority_ref": candidate.get("authority_ref"),
+                    "expected_replay": replay,
+                    "candidate_blob_sha256": candidate_sha256,
+                    "action_scope": sync.safe_plan_evidence(plan, remote)["actions"],
+                    "mutation": {
+                        "transport": "github_issue_comment_append",
+                        "transport_contract": "one_aggregate_proposal_one_receipt",
+                        "authority_id": authority["authority_id"],
+                        "predecessor_event_id": mutation_gateway.project_status_events(
+                            reviewed_matches[0]
+                        ).get("head_event_id"),
+                        "predecessor_event_sha256": mutation_gateway.project_status_events(
+                            reviewed_matches[0]
+                        ).get("head_event_sha256"),
+                        "candidate_blob_oid": candidate_oid,
+                        "candidate_blob_sha256": candidate_sha256,
+                        "plan_sha256": candidate["plan_semantic_sha256"],
+                    },
+                }
+            )
+            if not apply:
+                evidence["terminal_status"] = "validated"
+                print("VALIDATED_STATUS_REPLAY_CANDIDATE")
+                return
+            gateway_evidence = mutation_gateway.append_status_replay(
+                reviewed_matches[0],
+                stable_id=str(payload["stable_id"]),
+                issue_number=int(payload["issue_number"]),
+                database_id=str(payload["database_id"]),
+                node_id=str(payload["node_id"]),
+                from_status=str(payload["from_status"]),
+                to_status=str(payload["to_status"]),
+                reviewed_product_commit=str(payload["reviewed_product_commit"]),
+                hops=list(payload["hops"]),
                 source_sha=expected_parent,
                 head_sha=expected_head,
                 candidate_blob_sha256=candidate_sha256,

@@ -144,6 +144,54 @@ def _status_authority(
     return authority, binding
 
 
+def _replay_hops() -> list[dict[str, Any]]:
+    common = {
+        "evidence_references": ["tests/test_status_replay.py"],
+        "review_reference": "PR #replay",
+        "reviewer": "reviewer",
+        "reviewed_date": "2026-08-02",
+        "verified_commit": "9" * 40,
+        "allow_downgrade": False,
+    }
+    return [
+        {"from": "in_progress", "to": "implemented_initially", **common},
+        {"from": "implemented_initially", "to": "integrated", **common},
+    ]
+
+
+def _replay_authority() -> tuple[dict[str, Any], dict[str, Any]]:
+    payload: dict[str, Any] = {
+        "stable_id": "ISSUE-0179",
+        "issue_number": 179,
+        "database_id": "4179",
+        "node_id": "ISSUE_NODE_179",
+        "source_sha": SOURCE,
+        "from_status": "in_progress",
+        "to_status": "integrated",
+        "reviewed_product_commit": "9" * 40,
+        "hops": _replay_hops(),
+        "candidate_path": gateway.AUTHORITY_CANDIDATE_PATH,
+        "candidate_blob_oid": "e" * 40,
+        "candidate_blob_sha256": BLOB,
+        "candidate_authority_ref": "",
+        "plan_sha256": PLAN,
+    }
+    payload["candidate_authority_ref"] = gateway.replay_candidate_authority_ref(payload)
+    authority = gateway.build_authority_record(
+        "status_replay", payload, sequence=1, previous_authority_id="f" * 64
+    )
+    binding = {
+        "authority_id": authority["authority_id"],
+        "authority_sequence": 1,
+        "authority_type": "status_replay",
+        "source_sha": SOURCE,
+        "head_sha": HEAD,
+        "ledger_blob_oid": "1" * 40,
+        "ledger_blob_sha256": "2" * 64,
+    }
+    return authority, binding
+
+
 def append(
     reviewed: dict[str, Any],
     transport: MemoryTransport,
@@ -185,6 +233,55 @@ def append(
     )
 
 
+def append_replay(
+    reviewed: dict[str, Any],
+    transport: MemoryTransport,
+    *,
+    hops: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    authority, binding = _replay_authority()
+    selected_hops = hops or _replay_hops()
+    if hops is not None:
+        payload = dict(authority["payload"])
+        payload["hops"] = selected_hops
+        payload["candidate_authority_ref"] = gateway.replay_candidate_authority_ref(
+            payload
+        )
+        authority = gateway.build_authority_record(
+            "status_replay",
+            payload,
+            sequence=1,
+            previous_authority_id="f" * 64,
+        )
+        binding["authority_id"] = authority["authority_id"]
+    return gateway.append_status_replay(
+        reviewed,
+        stable_id="ISSUE-0179",
+        issue_number=179,
+        database_id="4179",
+        node_id="ISSUE_NODE_179",
+        from_status="in_progress",
+        to_status="integrated",
+        reviewed_product_commit="9" * 40,
+        hops=selected_hops,
+        source_sha=SOURCE,
+        head_sha=HEAD,
+        candidate_blob_sha256=BLOB,
+        plan_sha256=PLAN,
+        event_name="push",
+        event_ref="refs/heads/main",
+        run_attempt="1",
+        event_before=SOURCE,
+        event_after=HEAD,
+        actor="merger",
+        pusher="merger",
+        **RUN_ATTESTATION,
+        authority_record=authority,
+        git_binding=binding,
+        transport=transport,
+    )
+
+
 def test_append_preserves_snapshot_and_projects_status() -> None:
     reviewed = issue()
     transport = MemoryTransport(reviewed)
@@ -200,6 +297,244 @@ def test_append_preserves_snapshot_and_projects_status() -> None:
     projection = gateway.project_status_events(transport.value)
     assert projection["accepted"] is True
     assert projection["status"] == "integrated"
+
+
+def test_two_hop_replay_is_one_aggregate_pair_and_projects_both_hops() -> None:
+    reviewed = issue("in_progress")
+    transport = MemoryTransport(reviewed)
+    evidence = append_replay(reviewed, transport)
+
+    assert evidence["accepted"] is True
+    assert evidence["transport_contract"] == "one_aggregate_proposal_one_receipt"
+    assert transport.writes == 2
+    assert len(transport.value["comments"]) == len(reviewed["comments"]) + 2
+    projection = gateway.project_status_events(transport.value)
+    assert projection["accepted"] is True
+    assert projection["status"] == "integrated"
+    assert projection["event_count"] == 2
+    assert len(projection["authority_events"]) == 1
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("review_reference", "PR #other"),
+        ("evidence_references", ["tests/other.py"]),
+        ("reviewer", "other-reviewer"),
+        ("reviewed_date", "2026-08-03"),
+    ],
+)
+def test_two_hop_replay_rejects_split_review_metadata(
+    field: str, value: object
+) -> None:
+    hops = _replay_hops()
+    hops[1][field] = value
+
+    with pytest.raises(ValueError, match="share_review_evidence"):
+        append_replay(issue("in_progress"), MemoryTransport(issue("in_progress")), hops=hops)
+
+
+def test_replay_ambiguous_proposal_is_immediately_indeterminate() -> None:
+    reviewed = issue("in_progress")
+    transport = MemoryTransport(reviewed, ambiguous="single")
+
+    with pytest.raises(gateway.MutationTransportError) as captured:
+        append_replay(reviewed, transport)
+
+    assert captured.value.code == "ambiguous_indeterminate"
+    assert transport.writes == 1
+    assert transport.fetches == 1
+    assert "ambiguous_reconciliation_count" not in captured.value.evidence
+
+
+def test_replay_ambiguous_receipt_is_immediately_indeterminate() -> None:
+    class ReceiptAmbiguousTransport(MemoryTransport):
+        def append_comment(self, number: int, body: str) -> None:
+            super().append_comment(number, body)
+            if self.writes == 2:
+                raise TimeoutError("ambiguous receipt transport result")
+
+    reviewed = issue("in_progress")
+    transport = ReceiptAmbiguousTransport(reviewed)
+
+    with pytest.raises(gateway.MutationTransportError) as captured:
+        append_replay(reviewed, transport)
+
+    assert captured.value.code == "receipt_ambiguous_indeterminate"
+    assert transport.writes == 2
+    assert transport.fetches == 3
+    assert "receipt_ambiguous_reconciliation_count" not in captured.value.evidence
+
+
+def test_two_hop_replay_reconciles_one_authority_event_and_one_target() -> None:
+    reviewed = issue("in_progress")
+    transport = MemoryTransport(reviewed)
+    bootstrap = gateway.build_authority_record(
+        "legacy_bootstrap",
+        {
+            "legacy_issues": [
+                {
+                    "stable_id": "ISSUE-0179",
+                    "issue_number": 179,
+                    "database_id": "4179",
+                    "node_id": "ISSUE_NODE_179",
+                    "initial_status": "in_progress",
+                }
+            ]
+        },
+        sequence=0,
+        previous_authority_id=None,
+    )
+    authority, binding = _replay_authority()
+    authority = gateway.build_authority_record(
+        "status_replay",
+        authority["payload"],
+        sequence=1,
+        previous_authority_id=bootstrap["authority_id"],
+    )
+    binding["authority_id"] = authority["authority_id"]
+    assert len(
+        gateway.parse_authority_ledger(
+            gateway.authority_ledger_bytes([bootstrap, authority])
+        )
+    ) == 2
+
+    gateway.append_status_replay(
+        reviewed,
+        stable_id="ISSUE-0179",
+        issue_number=179,
+        database_id="4179",
+        node_id="ISSUE_NODE_179",
+        from_status="in_progress",
+        to_status="integrated",
+        reviewed_product_commit="9" * 40,
+        hops=_replay_hops(),
+        source_sha=SOURCE,
+        head_sha=HEAD,
+        candidate_blob_sha256=BLOB,
+        plan_sha256=PLAN,
+        event_name="push",
+        event_ref="refs/heads/main",
+        run_attempt="1",
+        event_before=SOURCE,
+        event_after=HEAD,
+        actor="merger",
+        pusher="merger",
+        **RUN_ATTESTATION,
+        authority_record=authority,
+        git_binding=binding,
+        transport=transport,
+    )
+    reconciled = gateway.reconcile_authority_ledger(
+        [bootstrap, authority], [transport.value]
+    )
+
+    assert reconciled["accepted"] is True
+    assert reconciled["authority_count"] == 2
+    assert reconciled["projections"][0]["authority_count"] == 1
+    assert reconciled["projections"][0]["effective_status"] == "integrated"
+    projected = reconciled["projections"][0]["authority_events"][0]
+    assert projected["reviewed_product_commit"] == authority["payload"][
+        "reviewed_product_commit"
+    ]
+    assert projected["hops"] == authority["payload"]["hops"]
+    mismatched = copy.deepcopy(authority)
+    mismatched["payload"]["reviewed_product_commit"] = "8" * 40
+    rejected = gateway.reconcile_authority_ledger(
+        [bootstrap, mismatched], [transport.value]
+    )
+    assert rejected["accepted"] is False
+    assert rejected["error"] == "status_authority_projection_binding_mismatch"
+
+
+@pytest.mark.parametrize("variant", ["reversed", "commit_mismatch"])
+def test_replay_authority_parser_rejects_invalid_hops_and_commit_binding(
+    variant: str,
+) -> None:
+    bootstrap = gateway.build_authority_record(
+        "legacy_bootstrap",
+        {
+            "legacy_issues": [
+                {
+                    "stable_id": "ISSUE-0179",
+                    "issue_number": 179,
+                    "database_id": "4179",
+                    "node_id": "ISSUE_NODE_179",
+                    "initial_status": "in_progress",
+                }
+            ]
+        },
+        sequence=0,
+        previous_authority_id=None,
+    )
+    authority, _binding = _replay_authority()
+    payload = copy.deepcopy(authority["payload"])
+    if variant == "reversed":
+        payload["hops"].reverse()
+    else:
+        payload["reviewed_product_commit"] = "8" * 40
+    payload["candidate_authority_ref"] = gateway.replay_candidate_authority_ref(
+        payload
+    )
+    invalid = gateway.build_authority_record(
+        "status_replay",
+        payload,
+        sequence=1,
+        previous_authority_id=bootstrap["authority_id"],
+    )
+
+    with pytest.raises(ValueError, match="status_replay"):
+        gateway.parse_authority_ledger(
+            gateway.authority_ledger_bytes([bootstrap, invalid])
+        )
+
+
+def test_replay_gateway_rejects_top_level_commit_mismatch_without_writes() -> None:
+    reviewed = issue("in_progress")
+    transport = MemoryTransport(reviewed)
+    authority, binding = _replay_authority()
+    payload = copy.deepcopy(authority["payload"])
+    payload["reviewed_product_commit"] = "8" * 40
+    payload["candidate_authority_ref"] = gateway.replay_candidate_authority_ref(
+        payload
+    )
+    authority = gateway.build_authority_record(
+        "status_replay",
+        payload,
+        sequence=authority["sequence"],
+        previous_authority_id=authority["previous_authority_id"],
+    )
+    binding["authority_id"] = authority["authority_id"]
+
+    with pytest.raises(ValueError, match="reviewed_product_commit"):
+        gateway.append_status_replay(
+            reviewed,
+            stable_id="ISSUE-0179",
+            issue_number=179,
+            database_id="4179",
+            node_id="ISSUE_NODE_179",
+            from_status="in_progress",
+            to_status="integrated",
+            reviewed_product_commit="8" * 40,
+            hops=_replay_hops(),
+            source_sha=SOURCE,
+            head_sha=HEAD,
+            candidate_blob_sha256=BLOB,
+            plan_sha256=PLAN,
+            event_name="push",
+            event_ref="refs/heads/main",
+            run_attempt="1",
+            event_before=SOURCE,
+            event_after=HEAD,
+            actor="merger",
+            pusher="merger",
+            **RUN_ATTESTATION,
+            authority_record=authority,
+            git_binding=binding,
+            transport=transport,
+        )
+
+    assert transport.writes == 0
 
 
 @pytest.mark.parametrize("superseded_at", [1, 2])

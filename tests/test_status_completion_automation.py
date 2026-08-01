@@ -820,6 +820,367 @@ def test_candidate_rejects_multiple_actions() -> None:
         completion.validate_candidate(candidate, plan, remote)
 
 
+def _replay_canonical() -> tuple[
+    list[dict[str, object]],
+    dict[str, object],
+    dict[str, object],
+    dict[str, object],
+    dict[str, object],
+]:
+    remote = _remote("in_progress")
+    common = {
+        "evidence_references": ["tests/test_status_replay.py"],
+        "review_reference": "PR #replay",
+        "reviewer": "reviewer",
+        "reviewed_date": "2026-08-02",
+        "verified_commit": "9" * 40,
+        "allow_downgrade": False,
+    }
+    prior_events = [
+        {"from": "planned", "to": "ready", **common},
+        {"from": "ready", "to": "in_progress", **common},
+    ]
+    hops = [
+        {"from": "in_progress", "to": "implemented_initially", **common},
+        {"from": "implemented_initially", "to": "integrated", **common},
+    ]
+    prior_evidence = [
+        {
+            "status": event["to"],
+            "evidence_references": event["evidence_references"],
+            "review_reference": event["review_reference"],
+            "reviewer": event["reviewer"],
+            "reviewed_date": event["reviewed_date"],
+        }
+        for event in prior_events
+    ]
+    evidence = [
+        {
+            "status": event["to"],
+            "evidence_references": event["evidence_references"],
+            "review_reference": event["review_reference"],
+            "reviewer": event["reviewer"],
+            "reviewed_date": event["reviewed_date"],
+        }
+        for event in hops
+    ]
+    source = _record("in_progress")
+    source.update(
+        {
+            "verified_commit": "9" * 40,
+            "verified_date": "2026-08-02",
+            "status_transition": {
+                "from": "ready",
+                "to": "in_progress",
+                "review_reference": "PR #replay",
+            },
+            "transition_history": copy.deepcopy(prior_events),
+            "acceptance_evidence": copy.deepcopy(prior_evidence),
+        }
+    )
+    current = copy.deepcopy(source)
+    current.update(
+        {
+            "programme_status": "integrated",
+            "verified_commit": "9" * 40,
+            "verified_date": "2026-08-02",
+            "status_transition": {
+                "from": "implemented_initially",
+                "to": "integrated",
+                "review_reference": "PR #replay",
+            },
+            "transition_history": [
+                *copy.deepcopy(prior_events),
+                *copy.deepcopy(hops),
+            ],
+            "acceptance_evidence": [
+                *copy.deepcopy(prior_evidence),
+                *copy.deepcopy(evidence),
+            ],
+        }
+    )
+    plan = sync.plan_actions(
+        {"records": [current]},
+        remote,
+        historical_map={},
+        authority_records=[
+            gateway.build_authority_record(
+                "legacy_bootstrap",
+                {
+                    "legacy_issues": [
+                        {
+                            "stable_id": "ISSUE-0179",
+                            "issue_number": 179,
+                            "database_id": "4179",
+                            "node_id": "ISSUE_NODE_179",
+                            "initial_status": "in_progress",
+                        }
+                    ]
+                },
+                sequence=0,
+                previous_authority_id=None,
+            )
+        ],
+    )
+    candidate = {
+        "schema_version": completion.REPLAY_SCHEMA_VERSION,
+        "execution_allowed": False,
+        "expected_parent_sha": PARENT,
+        "authority_ref": "a" * 64,
+        "remote_inventory_sha256": plan["remote_inventory_sha256"],
+        "plan_semantic_sha256": plan["plan_sha256"],
+        "expected_replay": {
+            "stable_id": "ISSUE-0179",
+            "issue_number": 179,
+            "from_status": "in_progress",
+            "to_status": "integrated",
+            "reviewed_product_commit": "9" * 40,
+            "transition_history_prefix": copy.deepcopy(prior_events),
+            "transition_history_append": copy.deepcopy(hops),
+            "acceptance_evidence_prefix": copy.deepcopy(prior_evidence),
+            "acceptance_evidence_append": copy.deepcopy(evidence),
+        },
+    }
+    return remote, plan, candidate, source, current
+
+
+def test_two_hop_replay_candidate_accepts_canonical_prefix_and_independent_hops() -> None:
+    remote, plan, candidate, source, current = _replay_canonical()
+
+    completion.validate_candidate(
+        candidate,
+        plan,
+        remote,
+        source_record=source,
+        current_record=current,
+    )
+
+
+def test_two_hop_replay_rejects_unrelated_remote_title_before_gateway() -> None:
+    remote, plan, candidate, source, current = _replay_canonical()
+    remote[0]["title"] = "Unreviewed remote title"
+
+    with pytest.raises(ValueError, match="remote issue title"):
+        completion.validate_candidate(
+            candidate,
+            plan,
+            remote,
+            source_record=source,
+            current_record=current,
+        )
+
+
+@pytest.mark.parametrize(
+    "name,mutate",
+    [
+        ("direct_skip", lambda replay: replay["transition_history_append"].__setitem__(0, {**replay["transition_history_append"][0], "to": "integrated"})),
+        ("missing_hop", lambda replay: replay.__setitem__("transition_history_append", replay["transition_history_append"][:1])),
+        ("reversed_hops", lambda replay: replay.__setitem__("transition_history_append", replay["transition_history_append"][::-1])),
+        ("duplicate_hop", lambda replay: replay.__setitem__("transition_history_append", [replay["transition_history_append"][0]] * 2)),
+        ("extra_hop", lambda replay: replay["transition_history_append"].append(copy.deepcopy(replay["transition_history_append"][1]))),
+        ("downgrade", lambda replay: replay["transition_history_append"].__setitem__(0, {**replay["transition_history_append"][0], "to": "planned"})),
+        ("unrelated_final", lambda replay: replay.__setitem__("to_status", "closed")),
+        ("dependency_edge", lambda replay: replay["transition_history_append"][0].update({"dependency_edge": {"dependency": "ISSUE-0001", "evidence": {}}})),
+        ("malformed_evidence", lambda replay: replay["acceptance_evidence_append"][0].update({"unexpected": True})),
+        ("prefix_changed", lambda replay: replay["transition_history_prefix"].clear()),
+        ("reviewed_commit_split", lambda replay: replay["transition_history_append"][1].update({"verified_commit": "8" * 40})),
+        ("review_reference_split", lambda replay: replay["transition_history_append"][1].update({"review_reference": "PR #other"})),
+        ("evidence_references_split", lambda replay: replay["transition_history_append"][1].update({"evidence_references": ["tests/other.py"]})),
+        ("reviewer_split", lambda replay: replay["transition_history_append"][1].update({"reviewer": "other-reviewer"})),
+        ("reviewed_date_split", lambda replay: replay["transition_history_append"][1].update({"reviewed_date": "2026-08-03"})),
+        ("evidence_mismatch", lambda replay: replay["acceptance_evidence_append"][1].update({"status": "implemented_initially"})),
+    ],
+)
+def test_two_hop_replay_rejects_malformed_or_unsafe_variants(name: str, mutate: object) -> None:
+    del name
+    remote, plan, candidate, source, current = _replay_canonical()
+    replay = candidate["expected_replay"]
+    assert isinstance(replay, dict)
+    assert callable(mutate)
+    mutate(replay)  # type: ignore[operator]
+
+    with pytest.raises(ValueError):
+        completion.validate_candidate(
+            candidate,
+            plan,
+            remote,
+            source_record=source,
+            current_record=current,
+        )
+
+
+@pytest.mark.parametrize(
+    "collection,mutation",
+    [
+        ("transition_history", "altered"),
+        ("transition_history", "truncated"),
+        ("transition_history", "reordered"),
+        ("acceptance_evidence", "altered"),
+        ("acceptance_evidence", "truncated"),
+        ("acceptance_evidence", "reordered"),
+    ],
+)
+def test_two_hop_replay_rejects_changed_source_prefix(
+    collection: str, mutation: str
+) -> None:
+    remote, plan, candidate, source, current = _replay_canonical()
+    values = source[collection]
+    assert isinstance(values, list)
+    if mutation == "altered":
+        assert isinstance(values[0], dict)
+        values[0]["review_reference"] = "PR #altered-source"
+    elif mutation == "truncated":
+        values.pop()
+    else:
+        values.reverse()
+
+    with pytest.raises(ValueError, match="source record"):
+        completion.validate_candidate(
+            candidate,
+            plan,
+            remote,
+            source_record=source,
+            current_record=current,
+        )
+
+
+def test_status_replay_run_binds_source_and_requires_zero_action_readback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    remote, plan, candidate, source, current = _replay_canonical()
+    replay = candidate["expected_replay"]
+    assert isinstance(replay, dict)
+    bootstrap = gateway.build_authority_record(
+        "legacy_bootstrap",
+        {
+            "legacy_issues": [
+                {
+                    "stable_id": "ISSUE-0179",
+                    "issue_number": 179,
+                    "database_id": "4179",
+                    "node_id": "ISSUE_NODE_179",
+                    "initial_status": "in_progress",
+                }
+            ]
+        },
+        sequence=0,
+        previous_authority_id=None,
+    )
+    payload: dict[str, object] = {
+        "stable_id": "ISSUE-0179",
+        "issue_number": 179,
+        "database_id": "4179",
+        "node_id": "ISSUE_NODE_179",
+        "source_sha": PARENT,
+        "from_status": "in_progress",
+        "to_status": "integrated",
+        "reviewed_product_commit": replay["reviewed_product_commit"],
+        "hops": replay["transition_history_append"],
+        "candidate_path": gateway.AUTHORITY_CANDIDATE_PATH,
+        "candidate_blob_oid": "3" * 40,
+        "candidate_blob_sha256": "e" * 64,
+        "candidate_authority_ref": "",
+        "plan_sha256": plan["plan_sha256"],
+    }
+    payload["candidate_authority_ref"] = gateway.replay_candidate_authority_ref(
+        payload
+    )
+    candidate["authority_ref"] = payload["candidate_authority_ref"]
+    authority = gateway.build_authority_record(
+        "status_replay",
+        payload,
+        sequence=1,
+        previous_authority_id=str(bootstrap["authority_id"]),
+    )
+    binding = {
+        "authority_id": authority["authority_id"],
+        "authority_sequence": 1,
+        "authority_type": "status_replay",
+        "source_sha": PARENT,
+        "head_sha": HEAD,
+        "ledger_blob_oid": "4" * 40,
+        "ledger_blob_sha256": "5" * 64,
+    }
+    candidate_path = tmp_path / completion.DEFAULT_CANDIDATE
+    candidate_path.parent.mkdir(parents=True)
+    candidate_path.write_text(json.dumps(candidate), encoding="utf-8")
+    registry_path = tmp_path / sync.REGISTRY_PATH
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps({"records": [current]}), encoding="utf-8"
+    )
+    observed: list[dict[str, object]] = []
+    source_reads: list[str] = []
+    monkeypatch.setattr(completion, "validate_git_bindings", lambda *_a, **_k: None)
+    monkeypatch.setattr(completion, "_is_ancestor", lambda *_a, **_k: True)
+    monkeypatch.setattr(
+        completion, "_canonical_candidate_blob_sha256", lambda *_a: "e" * 64
+    )
+    monkeypatch.setattr(completion, "_git", lambda *_a: "3" * 40)
+    monkeypatch.setattr(
+        completion,
+        "_registry_at",
+        lambda _root, revision: (
+            source_reads.append(revision) or {"records": [source]}
+        ),
+    )
+    monkeypatch.setattr(
+        completion.mutation_gateway,
+        "validate_authority_git_transition",
+        lambda *_a, **_k: ([bootstrap], [bootstrap, authority], binding),
+    )
+    monkeypatch.setattr(
+        completion.mutation_gateway,
+        "reconcile_authority_ledger",
+        lambda *_a, **_k: {"accepted": True, "projections": []},
+    )
+    monkeypatch.setattr(
+        completion.mutation_gateway,
+        "append_status_replay",
+        lambda reviewed_snapshot, **kwargs: (
+            observed.append({"snapshot": reviewed_snapshot, **kwargs})
+            or {"accepted": True, "terminal_status": "accepted"}
+        ),
+    )
+    planned_readbacks = iter(
+        [plan, {"summary": dict(completion.ZERO_SUMMARY), "actions": []}]
+    )
+    monkeypatch.setattr(
+        completion.sync,
+        "plan_actions",
+        lambda *_a, **_k: next(planned_readbacks),
+    )
+    readbacks = iter([remote, _remote("integrated")])
+    evidence_path = tmp_path / "artifacts/replay-evidence.json"
+
+    completion.run(
+        tmp_path,
+        candidate_path,
+        expected_parent=PARENT,
+        expected_head=HEAD,
+        main_ref="origin/main",
+        apply=True,
+        evidence_out=evidence_path,
+        remote_reader=lambda: next(readbacks),
+        event_name="push",
+        event_ref="refs/heads/main",
+        run_attempt="1",
+        event_before=PARENT,
+        event_after=HEAD,
+        actor="merger",
+        pusher="merger",
+        **RUN_ATTESTATION,
+        caller_proof_verifier=lambda: None,
+    )
+
+    assert source_reads == [PARENT]
+    assert len(observed) == 1
+    assert observed[0]["hops"] == replay["transition_history_append"]
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    assert evidence["terminal_status"] == "applied_and_verified"
+    assert evidence["zero_action_readback"] is True
+
+
 def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
     root = Path(__file__).resolve().parents[1]
     status_text = (
