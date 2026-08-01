@@ -89,7 +89,12 @@ sample. It uses one repetition for an ordinary explicit drift sample and two
 for mechanics, environment/partition, tier C or explicit full sampling.
 Unrelated documentation, plans, roles and product H changes skip it. A pilot
 starts only after classifier, preflight and the single source supply-chain job
-succeed. Skipped pilot jobs are excluded from branch-protection authority.
+succeed. Scheduled samples and explicit `repository_dispatch` samples execute
+the default-branch workflow and never receive release-signing material;
+arbitrary-ref `workflow_dispatch` is intentionally unavailable. Skipped pilot
+jobs do not create a pending check. The repository currently has no GitHub
+branch-protection rule or ruleset, so `validation-summary` is authoritative by
+reviewed process policy and workflow contract, not server-enforced protection.
 
 ## Preflight and implementation safeguards
 

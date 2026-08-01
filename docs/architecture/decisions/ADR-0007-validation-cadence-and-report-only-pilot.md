@@ -36,8 +36,12 @@ Pilot jobs depend on successful classifier, preflight, and supply-chain jobs.
 They and their aggregation remain `continue-on-error`, always produce
 diagnostic artifacts when run, and have no terminal release authority. The
 serial Linux and Windows package jobs and `validation-summary` remain
-authoritative. A skipped pilot therefore cannot leave branch protection
-pending.
+authoritative. Scheduled and explicit `repository_dispatch` samples use the
+default-branch workflow without release-signing material; arbitrary-ref
+`workflow_dispatch` is excluded. A skipped pilot cannot create a pending
+check. No repository branch-protection rule or ruleset is currently
+configured, so this authority is a reviewed process/workflow contract rather
+than a claim of server enforcement.
 
 ## Consequences
 

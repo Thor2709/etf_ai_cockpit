@@ -17,7 +17,9 @@ authority or application-performance claims. The serial Linux/Windows package
 gates remain authoritative. Ongoing samples are selected only by pilot
 mechanics, pytest partition/collection, environment/lock, concurrency,
 persistence, Windows-sharing, atomic-write or isolation changes, tier C, or
-an explicit manual/scheduled drift sample. The new policy measures saved
+an explicit default-branch `repository_dispatch` or scheduled drift sample.
+Arbitrary-ref `workflow_dispatch` is not exposed and drift samples receive no
+release-signing material. The new policy measures saved
 runner minutes before and after each eligible sample; no saving is claimed
 without a recorded comparison. Historical bootstrap PR counts are not
 steady-state results.

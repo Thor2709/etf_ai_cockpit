@@ -156,8 +156,9 @@ waiting is not the main protected-CI bottleneck.
 - Exactly one canonical source supply-chain scan runs per tree.
 - The terminal summary fails when any tier-required job fails and succeeds
   when optional jobs are correctly skipped.
-- No branch-protection check is left permanently pending due to workflow path
-  filtering.
+- No workflow check is left permanently pending due to path filtering. The
+  repository currently has no GitHub branch-protection rule or ruleset; this
+  is a workflow/process acceptance condition, not a server-enforcement claim.
 
 ### P0-C — 1+1 utilisation
 

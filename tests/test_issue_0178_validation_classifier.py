@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -182,22 +184,55 @@ def test_negative_explicit_cadence_override_fails_upward(
 def test_parallel_pilot_selection_is_additive_and_report_only() -> None:
     unrelated = parallel_pilot_plan(["docs/product-completion/DELIVERY_WORKFLOW.md"], tier="H")
     mechanics = parallel_pilot_plan(["scripts/profile_parallel_pytest.py"], tier="H")
+    workflow_mechanics = parallel_pilot_plan([".github/workflows/release-gate.yml"], tier="H")
     isolation = parallel_pilot_plan(["tests/test_concurrency.py"], tier="H")
     certification = parallel_pilot_plan(["docs/product-completion/certification/final.json"], tier="C")
     manual = parallel_pilot_plan(["docs/notes.md"], tier="H", trigger="manual")
     full = parallel_pilot_plan(["docs/notes.md"], tier="H", trigger="manual-full")
+    manual_mechanics = parallel_pilot_plan(
+        ["scripts/profile_parallel_pytest.py"], tier="H", trigger="manual"
+    )
+    manual_certification = parallel_pilot_plan(
+        ["docs/product-completion/certification/final.json"], tier="C", trigger="manual"
+    )
 
     assert unrelated["parallel_pilot_required"] is False
     assert unrelated["parallel_pilot_repetitions"] == 0
     assert mechanics["parallel_pilot_repetitions"] == 2
+    assert workflow_mechanics["parallel_pilot_repetitions"] == 2
     assert isolation["parallel_pilot_repetitions"] == 2
     assert certification["parallel_pilot_repetitions"] == 2
     assert manual["parallel_pilot_required"] is True
     assert manual["parallel_pilot_repetitions"] == 1
     assert full["parallel_pilot_repetitions"] == 2
+    assert manual_mechanics["parallel_pilot_repetitions"] == 2
+    assert manual_mechanics["parallel_pilot_reason"] == "pilot-mechanics-or-ISSUE-0180-change"
+    assert manual_certification["parallel_pilot_repetitions"] == 2
     drift = build_report([], pilot_trigger="scheduled")
     assert drift["parallel_pilot_required"] is True
     assert drift["package_gate_required"] is False
+
+
+def test_parallel_pilot_reason_is_hash_seed_deterministic() -> None:
+    root = Path(__file__).resolve().parents[1]
+    code = (
+        "import json; from scripts.classify_validation import parallel_pilot_plan; "
+        "print(json.dumps(parallel_pilot_plan(["
+        "'tests/test_concurrency.py','requirements-release.txt'], tier='H'), sort_keys=True))"
+    )
+    outputs = {
+        subprocess.check_output(
+            [sys.executable, "-c", code],
+            cwd=root,
+            env={**os.environ, "PYTHONHASHSEED": str(seed)},
+            text=True,
+        ).strip()
+        for seed in range(1, 9)
+    }
+
+    assert len(outputs) == 1
+    report = json.loads(outputs.pop())
+    assert report["parallel_pilot_reason"] == "release-dependency-or-python-environment-change"
 
 
 def test_high_risk_fixtures_require_platform_gate() -> None:

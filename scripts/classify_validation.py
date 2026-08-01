@@ -76,6 +76,7 @@ CERTIFICATION_PREFIXES = (
     "artifacts/certification/",
 )
 PILOT_MECHANICS_PATHS = {
+    ".github/workflows/release-gate.yml",
     "scripts/profile_parallel_pytest.py",
     "scripts/aggregate_parallel_pilot.py",
     "tests/test_issue_0180_parallel_pilot.py",
@@ -264,51 +265,40 @@ def parallel_pilot_plan(
 ) -> dict[str, object]:
     """Select the report-only pilot without changing serial gate authority."""
 
-    normalised = {_normalise_path(path).lower() for path in paths}
-    if trigger == "manual-full":
-        return {
-            "parallel_pilot_required": True,
-            "parallel_pilot_repetitions": 2,
-            "parallel_pilot_reason": "explicit-full-drift-sample",
-        }
-    if trigger in {"manual", "scheduled"}:
-        return {
-            "parallel_pilot_required": True,
-            "parallel_pilot_repetitions": 1,
-            "parallel_pilot_reason": f"explicit-{trigger}-drift-sample",
-        }
-    if tier == "C":
-        return {
-            "parallel_pilot_required": True,
-            "parallel_pilot_repetitions": 2,
-            "parallel_pilot_reason": "tier-C-certification",
-        }
-    if normalised & {path.lower() for path in PILOT_MECHANICS_PATHS}:
-        return {
-            "parallel_pilot_required": True,
-            "parallel_pilot_repetitions": 2,
-            "parallel_pilot_reason": "pilot-mechanics-or-ISSUE-0180-change",
-        }
+    normalised = sorted({_normalise_path(path).lower() for path in paths})
+    mechanics = bool(set(normalised) & {path.lower() for path in PILOT_MECHANICS_PATHS})
+    partition = False
+    environment = False
+    concurrency = False
     for path in normalised:
         name = PurePosixPath(path).name
         if name in PILOT_PARTITION_NAMES or path == "pyproject.toml":
-            return {
-                "parallel_pilot_required": True,
-                "parallel_pilot_repetitions": 2,
-                "parallel_pilot_reason": "pytest-partition-or-collection-change",
-            }
+            partition = True
         if name in PILOT_ENVIRONMENT_NAMES:
-            return {
-                "parallel_pilot_required": True,
-                "parallel_pilot_repetitions": 2,
-                "parallel_pilot_reason": "release-dependency-or-python-environment-change",
-            }
+            environment = True
         if any(token in path for token in ("concurrency", "persistence", "windows", "atomic", "isolation")):
-            return {
-                "parallel_pilot_required": True,
-                "parallel_pilot_repetitions": 2,
-                "parallel_pilot_reason": "concurrency-persistence-sharing-atomic-or-isolation-change",
-            }
+            concurrency = True
+
+    # Fixed ordering is also the stable reason precedence when several trigger
+    # classes require the same maximum repetition count.
+    candidates = [
+        (tier == "C", 2, "tier-C-certification"),
+        (mechanics, 2, "pilot-mechanics-or-ISSUE-0180-change"),
+        (partition, 2, "pytest-partition-or-collection-change"),
+        (environment, 2, "release-dependency-or-python-environment-change"),
+        (concurrency, 2, "concurrency-persistence-sharing-atomic-or-isolation-change"),
+        (trigger == "manual-full", 2, "explicit-full-drift-sample"),
+        (trigger in {"manual", "scheduled"}, 1, f"explicit-{trigger}-drift-sample"),
+    ]
+    required = [candidate for candidate in candidates if candidate[0]]
+    if required:
+        repetitions = max(candidate[1] for candidate in required)
+        reason = next(candidate[2] for candidate in required if candidate[1] == repetitions)
+        return {
+            "parallel_pilot_required": True,
+            "parallel_pilot_repetitions": repetitions,
+            "parallel_pilot_reason": reason,
+        }
     return {
         "parallel_pilot_required": False,
         "parallel_pilot_repetitions": 0,

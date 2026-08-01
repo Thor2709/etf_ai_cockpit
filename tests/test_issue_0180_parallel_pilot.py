@@ -438,13 +438,37 @@ def test_missing_junit_evidence_is_divergent(tmp_path: Path, monkeypatch) -> Non
     assert report["lanes"]["candidate_safe"]["junit_present"] == [False, False]
 
 
-def test_profile_rejects_less_than_two_samples(tmp_path: Path) -> None:
-    try:
-        profile_parallel_pytest.profile(tmp_path, tmp_path / "evidence", 1)
-    except ValueError as exc:
-        assert str(exc) == "repetitions must be at least 2"
-    else:
-        raise AssertionError("profile accepted fewer than two repetitions")
+def test_profile_accepts_one_drift_sample_and_rejects_zero(
+    tmp_path: Path, monkeypatch
+) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+
+    def completed(_root: Path, command: list[str]):
+        _write_selected_manifest(command)
+        _write_executed_manifest(command)
+        if "--collect-only" in command:
+            return subprocess.CompletedProcess(command, 0, "tests/test_one.py: 1\n", ""), 1.0
+        junit_arg = next(value for value in command if value.startswith("--junitxml="))
+        Path(junit_arg.partition("=")[2]).write_text(
+            "<testsuite>"
+            + "".join(_junit_case(node) for node in _selected_for_command(command))
+            + "</testsuite>",
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 0, "", ""), 1.0
+
+    monkeypatch.setattr(profile_parallel_pytest, "_run", completed)
+    ticks = iter((100.0, 108.0))
+    report = profile_parallel_pytest.profile(
+        root, tmp_path / "evidence", 1, clock=lambda: next(ticks)
+    )
+
+    assert report["status"] == "passed"
+    assert report["repetitions"] == 1
+    assert report["sample_count"] == 1
+    with pytest.raises(ValueError, match="repetitions must be at least 1"):
+        profile_parallel_pytest.profile(root, tmp_path / "invalid", 0)
 
 
 def _pilot_report(*, status: str = "passed", result_suffix: str = "") -> dict[str, object]:

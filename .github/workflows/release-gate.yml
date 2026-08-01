@@ -4,14 +4,10 @@ name: Release gate
 # mutate release aliases, publish releases, or change protected state.
 on:
   pull_request:
-  workflow_dispatch:
-    inputs:
-      parallel_pilot_sample:
-        description: Report-only drift sample depth
-        required: true
-        type: choice
-        default: ordinary
-        options: [ordinary, full]
+  repository_dispatch:
+    types:
+      - parallel-pilot-drift
+      - parallel-pilot-full
   schedule:
     - cron: "17 3 * * 1"
 
@@ -50,7 +46,7 @@ jobs:
           HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           BASE_REPOSITORY: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.repo.full_name || github.repository }}
           HEAD_REPOSITORY: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
-          PILOT_TRIGGER: ${{ github.event_name == 'workflow_dispatch' && inputs.parallel_pilot_sample == 'full' && 'manual-full' || github.event_name == 'workflow_dispatch' && 'manual' || github.event_name == 'schedule' && 'scheduled' || '' }}
+          PILOT_TRIGGER: ${{ github.event_name == 'repository_dispatch' && github.event.action == 'parallel-pilot-full' && 'manual-full' || github.event_name == 'repository_dispatch' && 'manual' || github.event_name == 'schedule' && 'scheduled' || '' }}
         run: |
           base="$PR_BASE_SHA"
           if [[ -z "$base" ]]; then base="$(git rev-parse origin/main)"; fi
@@ -334,7 +330,7 @@ jobs:
 
   release-gate:
     needs: [classifier, preflight, supply-chain]
-    if: needs.classifier.outputs.package_gate_required == 'true'
+    if: github.event_name == 'pull_request' && needs.classifier.outputs.package_gate_required == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -419,16 +415,11 @@ jobs:
       - name: Run protected release gate
         shell: bash
         env:
-          ETF_COCKPIT_RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
-          ETF_COCKPIT_RELEASE_SIGNING_KEY_ID: ${{ vars.RELEASE_SIGNING_KEY_ID }}
           ETF_COCKPIT_RELEASE_BUILD: "1"
           ETF_COCKPIT_SETUP_PYTHON_CACHE_HIT: ${{ steps.setup-python.outputs.cache-hit }}
         run: |
           output="artifacts/release/github-${{ github.sha }}/${{ matrix.platform }}"
-          arguments=(--root . --output "$output")
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            arguments+=(--allow-unsigned)
-          fi
+          arguments=(--root . --output "$output" --allow-unsigned)
           python scripts/release_gate.py "${arguments[@]}"
 
       - name: Upload release evidence
