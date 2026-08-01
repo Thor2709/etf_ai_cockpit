@@ -1,65 +1,40 @@
-# Active Codex goal — atomic delivery fast path
+# Active Codex goal — ISSUE-0101 cyclical-sector adapters
 
-## Frozen GitHub authority-ledger repair
+## Objective
 
-- Current boundary: the bounded H-tier safety repair is complete for the
-  repository-authored issue creation and lifecycle/status projections already
-  used by the programme. Freeze this infrastructure and resume product work.
-  Git is canonical; GitHub comments and issue markers are tamper-evident
-  projections, not immutable records and not server-side compare-and-swap.
-- Rationale: the formal fail-closed guarantee must still detect a completely
-  erased or altered projection. A reviewed Git authority must therefore remain
-  after GitHub evidence disappears. This is deliberately stronger than an
-  ordinary single-user application needs and is justified only by this
-  project's formal programme-control guarantees.
-- Scope limit: this is not a general GitHub database, issue tracker or
-  event-sourcing framework. Do not add speculative support for pull requests,
-  labels, releases, tags, deployments or unrelated GitHub resources.
-- Retry limit: an ambiguous, cancelled, partially applied or erased write
-  leaves its authority spent and unresolved. Automatic retries and historical
-  repair must not invent authority. This repair implements no compensation or
-  recovery mechanism. Any future explicit compensating record requires user
-  approval and may not repeat or rewrite history.
-- Remaining work: publish the final measured fast-path evidence and durable
-  checkpoint, then resume the dependency-valid ISSUE-0101 product slice.
-  No further GitHub authority hardening belongs in this continuation.
-- Stop condition: stop before any design or code expands beyond the two current
-  issue mutation classes, adds GitHub resource or contents-write authority, or
-  requires automatic replay of an ambiguous/erased write. Such expansion needs
-  explicit user approval and a demonstrated safety need, not optional
-  hardening.
-- The repair and formal ISSUE-0180 integration are complete. This
-  infrastructure is frozen; product development resumes with ISSUE-0101.
+Continue the dependency-ready ISSUE-0101 product slice with one bounded local
+typed adapter family for energy, materials/mining and non-infrastructure
+industrial evidence, deterministic scenarios and read-only Instrument Detail
+rationale. Preserve every financial, point-in-time, safety, audit and
+cross-platform invariant.
+
+The ISSUE-0177–0180 control-plane work is complete and frozen. Its complete
+former active-goal record and chronology are archived in
+`plans/archive/ATOMIC_FAST_PATH_ISSUE-0179-0180_2026-07-31.md`. Current delivery
+mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 
 ## Current checkpoint
 
 - Current UTC timestamp: `2026-07-31T21:08:12Z`.
-- Final fast-path evidence PR #631 merged exact reviewed head
-  `11da5e4a880a4e06526147bd30527c24d186804d` as
-  `8a0d1d9a7437770aa0567d9ae6787e3881832f27`. H-tier run `30659377591`
-  passed classifier, preflight, supply-chain, Linux and Windows package gates,
-  both repeated parallel pilots, their cross-platform aggregate and terminal
-  validation. Post-merge convergence `30663879745` passed from exact main
-  with zero create, update, close, reopen or blocked actions.
 - Active product worktree:
-  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0101`; branch
-  `codex/issue0101-cyclical-adapters-20260731`; exact base
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0101`;
+  branch `codex/issue0101-cyclical-adapters-20260731`; exact base
   `8a0d1d9a7437770aa0567d9ae6787e3881832f27`.
 - Exact durable handoff content commit:
-  `a7525e302add1685a4d457be79478a35e8045d24`. Any branch-tip descendant is
-  limited to this checkpoint identity note; verify the current committed head
-  with `git rev-parse HEAD`. The product files listed below remain
-  intentionally uncommitted.
+  `a7525e302add1685a4d457be79478a35e8045d24`. The current local branch
+  head is a descendant identity note at
+  `64b5c5947e6a6b79bdd19146ef899ccb368956e1`; verify it before continuing.
 - Current issue: dependency-ready ISSUE-0101, programme status `in_progress`.
-  The bounded product outcome is one local typed adapter family for energy,
+- Bounded outcome: one local typed adapter family for energy,
   materials/mining and non-infrastructure industrial evidence, deterministic
   scenarios and read-only Instrument Detail rationale.
 - Product checkpoint: the bounded implementation and one focused correction
-  are uncommitted. Forty-six adapter/architecture tests and 94 broader
-  Instrument Detail/application tests pass, with Ruff, compile, boundary and
-  diff checks green. Independent final review is not clean: self-rehashed
-  projections can still forge source/cycle/formula/routing semantics, and
-  three related limitation/replay inconsistencies remain.
+  are intentionally uncommitted. Forty-six adapter/architecture tests and 94
+  broader Instrument Detail/application tests pass, with Ruff, compile,
+  boundary and diff checks green.
+- Independent review is not clean: self-rehashed projections can still forge
+  source/cycle/formula/routing semantics, and three related
+  limitation/replay inconsistencies remain.
 - Blocker: the same semantic-replay validator approach remains incomplete
   after the implementation and its one permitted focused correction. Do not
   commit, push or open a PR from this product diff.
@@ -72,327 +47,86 @@
 - Product stop condition: stop if industrial versus infrastructure routing
   requires a shared classification/registry redesign, persisted contracts,
   external data authority or any broader sector or ISSUE-0115 scope.
-- The bounded plan-order repair PR #629 merged as
-  `b113ac8c205887c5f84d841445d2e52ca5101c04`; authoritative H run
-  `30652483166` passed Linux and Windows at 2,452 tests per platform.
-- Formal ISSUE-0180 status PR #630 merged exact reviewed head
-  `a7c50d58bee1dc6b717ec9a220f3d5110d2bcad2` as
-  `45564c306643f8fbe97fe460979a04e25e6f41b9`. Status guard run
-  `30656428462` passed. Tier-E run `30656428457` correctly required the full
-  package gate: Linux and Windows each ran 2,452 tests and terminal validation
-  passed.
-- Ordered writer run `30658275241` applied and verified authority
-  `d7f3468a0b0e30a85b663a2c1a34f8070d746e04a9e4334f4537cdd2946ea09d`.
-  It appended one proposal and one receipt, projected ISSUE-0180 as
-  `integrated`, preserved the reviewed body/title/state/labels, and completed
-  its zero-action readback. Convergence run `30658275236` then succeeded by
-  deferring to that readback. The unchanged body status is the deliberate
-  tamper-detectable bootstrap anchor, not the effective status.
-- Final evidence content was reviewed at
-  `5bc696e634c940058ce361c01609f99adbbb0ebc`; its plan-only checkpoint
-  correction was the merged PR head recorded above.
-- Final measured compact-control sample is frozen to every eligible main-push
-  convergence/status run from PR #618 through PR #628, including failures:
-  execution p50/p95 `0.4000/1.2500 min`; queue p50/p95
-  `0.0500/1.8833 min`. E package skipping was correct in `5/5` transactions;
-  cache reuse was `10/46` (`21.74%`). No polling reduction is claimed.
-- Required checks for the product continuation: focused adapter, application,
+- Required checks for the continuation: focused adapter, application,
   selector, page and architecture tests first, then the validation tier and
   broader gates required by the finished diff.
-- Temporary orchestration override: up to six child agents may be used, subject
-  to any lower runtime cap, until the user explicitly says to revert. This
-  changes concurrency only and grants no authority or product-scope expansion.
 
-## Objective
+The intentionally uncommitted files are:
 
-Replace transaction-heavy ETF AI Cockpit delivery with an atomic,
-evidence-reusing Codex/GitHub workflow, while safely completing the current PR
-and preserving every financial, safety, audit and cross-platform invariant.
+- `configs/ui_acceptance.yaml`
+- `src/etf_cockpit/app/pages/instrument_detail.py`
+- `src/etf_cockpit/app/selectors/instrument_detail.py`
+- `src/etf_cockpit/app/state.py`
+- `src/etf_cockpit/application/ui_facade.py`
+- `src/etf_cockpit/analysis/cyclical_sector_adapters.py`
+- `tests/test_cyclical_sector_adapters.py`
 
-Complete PR #608, stop before further product implementation, implement and
-integrate ISSUE-0179, prepare ISSUE-0180 only when safely disjoint, prove the
-redesigned workflow, and only then resume dependency-valid product work.
+## Frozen delivery evidence and boundaries
 
-Reduce end-to-end issue delivery time without weakening financial correctness,
-point-in-time and revision integrity, immutable replay, Linux and Windows
-protection, security and supply-chain controls, auditability,
-checksum-controlled GitHub synchronisation, exact-head merge protection or
-`execution_allowed=false`.
+- Final fast-path evidence PR #631 merged exact reviewed head
+  `11da5e4a880a4e06526147bd30527c24d186804d` as
+  `8a0d1d9a7437770aa0567d9ae6787e3881832f27`.
+- H-tier run `30659377591` passed classifier, preflight, supply-chain,
+  Linux and Windows package gates, both repeated parallel pilots,
+  cross-platform aggregation and terminal validation.
+- Post-merge convergence `30663879745` passed from exact main with zero
+  create, update, close, reopen or blocked actions.
+- Frozen compact-control evidence: execution p50/p95
+  `0.4000/1.2500 min`; queue p50/p95 `0.0500/1.8833 min`; correct E
+  package skipping `5/5`; cache reuse `10/46` (`21.74%`). No polling
+  reduction is claimed.
+- GitHub authority repair is complete and frozen to repository-authored issue
+  creation and lifecycle/status projections already used by the programme.
+  It is not a general GitHub database or event-sourcing framework.
+- Git remains canonical. Broker/provider/release/deployment authority is
+  unchanged and `execution_allowed=false`.
+- Do not add speculative GitHub support, compensation or retry of ambiguous,
+  cancelled, partially applied or erased writes without explicit user
+  approval and a demonstrated safety need.
 
-The replacement global and project `AGENTS.md` files are authoritative.
+## Current orchestration
+
+- The Sol-medium root owns requirements, shared state, Git, GitHub,
+  integration and release decisions.
+- Normally use one named child; maximum two children excluding the root;
+  delegation depth one.
+- A second child is limited to independent read-only work or a proven disjoint
+  worktree. Normally one workspace-writing child is active.
+- Product work may overlap immutable CI only through a disjoint worktree and
+  must not touch the frozen PR head, canonical/generated control files or
+  external state.
+- Current named-agent routing supersedes historical Sol/Terra/Luna routing.
+- Normally deliver one product issue per product PR. Independent dependency
+  evidence may be batched when safe; lifecycle convergence is compact and
+  automatic.
+- The four-worker safe/unsafe pytest pilot remains report-only. Serial Linux
+  and Windows packaged validation remains authoritative.
 
 ## Durable memory and compaction survival
 
-Do not rely on chat context as durable truth. Before product, CI or
-programme-control changes, read the global and project `AGENTS.md`,
-`PLAN_step2.md`, this file, `plans/BATCH-B04-ANALYSIS-SPINE.md`, the relevant
-issue records, source and tests.
+Before product, CI or programme-control changes, read:
 
-Maintain the `Current checkpoint` above with current UTC time, `origin/main`,
-worktree, branch, exact base/head/upstream, PR state, issue, completed work,
-required checks, blocker and exact next action. Reread this file after
-compaction, thread/worktree switches, every merge, every base change, before
-selecting another issue, before handoff and whenever the action is uncertain.
+1. global and project `AGENTS.md`;
+2. `docs/product-completion/DELIVERY_WORKFLOW.md`;
+3. this active goal and `plans/BATCH-B04-ANALYSIS-SPINE.md`;
+4. `PLAN_step2.md`, the relevant issue records, source and tests.
 
-The first action after compaction is to reread project `AGENTS.md`, this file
-and the active B04 batch plan. Update this checkpoint before every handoff.
+After compaction, a worktree/thread switch, merge, base change or uncertain
+handoff, re-read those files and verify `origin/main`, branch, base/head,
+upstream, dirty files, blocker and next action. Update this checkpoint before
+handoff.
 
-## Verified incoming handoff
-
-The incoming immutable PR worktree is
-`C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\.worktrees\issue0090-version-dependency-20260728`
-on `codex/issue-0090-version-dependency-20260728`. Its committed local and
-upstream head is
-`937ec382dfab7acc74ad16e7e706b795c88e63a2`, and it is clean.
-
-Draft PR #608, “Review ISSUE-0090 version-registry dependency”, records only
-`ISSUE-0090 → ISSUE-0075: unresolved → complete`. It must not change
-ISSUE-0090 programme status, acceptance criteria, product behaviour,
-execution authority or broker authority.
-
-ISSUE-0089 is fully integrated. PR #607 merged as
-`2337f6959719a9a4ae1b8ec9efb3927ade2acc7d`. The ISSUE-0090 → ISSUE-0072
-dependency evidence is complete. ISSUE-0090 remains
-`implemented_initially`. Provider projection was zero action at checksum
-`23cff2eee691649a17d83f0e8ff5c2833c7b19303f57a2a182f1e75db354d143`.
-`execution_allowed=false`; broker authority is unchanged.
-
-Local evidence already passed: 50 version/manifest/invalidation tests, 141
-programme-control tests, schema-1.3 dependency-edge guard, registry
-validation, generated-document freshness, classifier, preflight and
-supply-chain checks.
-
-## Immediate continuation
-
-1. Complete PR #608 under the currently merged workflow. Preserve its exact
-   dependency-only scope and head unless a verified failure makes that
-   impossible. Use terminal validation as primary evidence. Parse raw
-   Linux/Windows artifacts only for failure, inconsistency, missing exact
-   counts, final certification or an explicit existing rule. Require clean
-   review/comment/thread surfaces, mark ready only when all conditions pass,
-   and merge with expected-head protection.
-2. Fetch fresh main after merge, confirm the merge SHA, run independent GitHub
-   synchronisation dry-run and require zero actions.
-3. Verify ISSUE-0090 remains `implemented_initially`, both blocking edges are
-   complete, it is dependency-ready, `execution_allowed=false`, broker
-   authority unchanged, PR #560 unchanged, stale PR #562 unmerged and issue
-   #241 open and unchanged.
-4. Pause ISSUE-0090 product implementation and go directly to ISSUE-0179.
-
-## Measured control-plane defect
-
-ISSUE-0089 required six sequential PRs: two dependency edges, one product PR
-and three lifecycle PRs. Delivery took about 3h27m while implementation and
-local review took about 25m. Status/dependency-only transactions regenerated
-roughly 33–35 files and 15,500 lines, classified H and reran unchanged Linux
-and Windows packages. The prior log contained 197 explicit polling commands
-and about 179 minutes of foreground waiting. ISSUE-0090 began repeating this
-through PRs #607–608. This is a control-plane defect, not permission to remove
-product safeguards.
-
-## Required execution order
-
-1. Complete and verify PR #608.
-2. Persist its exact checkpoint here.
-3. Pause ISSUE-0090 product work.
-4. Implement and integrate ISSUE-0179 as the primary lane.
-5. While ISSUE-0179 has an immutable PR in CI, permit the sole worker to
-   prepare ISSUE-0180 only in disjoint files with no shared generated or
-   canonical state and no GitHub mutation.
-6. Prove the E/O/H/C workflow with the representative fixtures below.
-7. Update this file, `PLAN_step2.md`, the B04 plan and accepted workflow docs.
-8. Resume ISSUE-0090 or the next dependency-valid issue only after proof.
+## Completion and stop conditions
 
 Do not abandon reviewed checkpoints, alter PR #560, merge stale PR #562,
 close issue #241, publish a release, create a tag, deploy, enable execution or
 add broker writes.
 
-## Primary lane — ISSUE-0179
+After two attempts with the same root cause and no materially improved
+evidence, preserve the checkpoint, record the failure fingerprint and
+attempts, identify the missing decision or authority, and stop that approach.
+A newly evidenced independent cause may receive one bounded repair.
 
-Implement “Make programme generation atomic and automate post-merge
-convergence”. ISSUE-0178 is integrated. Solve the observed causes rather than
-documenting the old workflow.
-
-Acceptance:
-
-- One command produces every canonical generated file; a second check run is
-  byte-clean.
-- Tests make it impossible to omit current status, progress, reconciliation,
-  remote summary or transition manifest.
-- Post-merge convergence is one guarded automated transaction with exact-head
-  and zero-action readback evidence.
-- Median programme transactions fall to at most three per integrated issue
-  where dependency semantics allow.
-- All existing identities, dependencies, policies and execution authority
-  survive migration.
-
-## Secondary lane — ISSUE-0180
-
-Implement “Standardise local, worker and CI environments and isolate tests for
-safe parallelism” only under one-writer/disjoint-lane rules. It may remain a
-local reviewed checkpoint until ISSUE-0179 merges. It must not touch shared
-canonical/generated state, mutate GitHub or create another integration path.
-
-Provide one authoritative environment-verification command for local, worker
-and CI use. Isolate temp roots, SQLite/database paths, ports, mutable caches,
-logs, artifacts, optional-provider state, clocks and time zones. Optional
-dependency discovery must not silently change contracts.
-
-Profile pytest parallelism in report-only/shadow mode first. If xdist is
-already available or authorised, start capped at four, group expensive/shared
-fixtures, mark unsafe serial groups, compare collected IDs/results with the
-serial baseline and require repeated Linux/Windows parity. Affected-test
-selection remains report-only until false-negative monitoring proves safety
-and never replaces H/C gates.
-
-## Required workflow architecture
-
-### One product issue, normally one product PR
-
-Include independently verifiable dependency evidence, product/migration/UI
-changes, focused and affected tests, compact canonical evidence and the final
-intended lifecycle outcome when required checks can prove it. Do not create a
-manual full-gate PR solely for `in_progress`; represent operational work by
-branch, PR, issue metadata or append-only non-release event.
-
-After an exact-head green product merge, automatically create final canonical
-integration evidence. If a repository commit is mandatory, create at most one
-automatic E-tier evidence PR containing no product change, reusing exact-tree
-evidence, running compact validation, auto-merging after guards and skipping
-unchanged platform packages.
-
-### Atomic dependency evidence
-
-Batch independent integrated dependency edges when each is evidenced against
-the same immutable base and no edge depends on another new edge. Keep
-sequential transactions only for real contract dependencies. Prove at least
-two independent integrated dependencies in one fixture.
-
-### Canonical events and projections
-
-Adopt compact append-only events for dependency decisions, lifecycle
-transitions, acceptance evidence, reviewed product-tree identities, CI
-artifact identities and GitHub checksums. Do not rewrite tens of thousands of
-lines for one field.
-
-Views, completion docs, indexes and reports must be reproducible, emitted as
-CI artifacts where practical, committed only when useful, updated atomically
-and excluded from behavioural risk classification when generator/schema/event
-format are unchanged. Preserve deterministic byte verification.
-
-### No stale-by-construction generation base
-
-Replace a blocking committed `generation_base` with runtime-derived base,
-exact-run artifact metadata, non-blocking information or automatic
-post-merge evidence. Consecutive successful merges must not require manual
-convergence or make unrelated PRs fail.
-
-### Real E tier
-
-E is allowed only when product/source, lockfiles, workflows, classifier,
-generator, guards, schema and protected policy are unchanged; paths are
-allowlisted events/projections; exact product-tree evidence and artifact and
-policy hashes match; and execution/broker authority are unchanged.
-
-E runs exact status/dependency guard, event validation, deterministic
-generation, registry/status consistency, source/supply policy, diff hygiene,
-exact evidence-reference validation and terminal summary. It skips the
-Linux/Windows package matrix.
-
-Classifier, workflow, guard, generator implementation, schema or protected
-policy changes remain H.
-
-### Preserve H and C
-
-Require complete Linux and Windows packages for persistence/migrations,
-concurrency, canonical finance, point-in-time/revision semantics,
-security/credentials, supply chain, execution, broker authority,
-release/package tooling, CI, programme-control implementation/schema and
-final certification. Never reuse evidence when relevant source,
-dependencies, protected policy, environment or validation changed.
-
-### Authoritative terminal summary
-
-Report exact base/head, tier/reason, required/skipped jobs, platform JUnit
-counts when required, artifact presence/hashes, environment fingerprints,
-source/dependency hashes, product-tree identity, guards, freshness, evidence
-reuse and auto-merge authority. Report review/comment/thread state where
-permissions permit. A consistent green summary avoids routine manual artifact
-downloads except failure, inconsistency, final certification or sampled audit.
-
-### Stop synchronous polling
-
-Enable repository auto-merge when available. After exact reviewed head push,
-enable it, use at most one watcher, avoid repeated sleeps/check loops, work a
-safe disjoint lane while CI runs and report only terminal results or concrete
-fingerprints. Key concurrency by workflow plus PR/ref and cancel obsolete
-heads. Do not configure an ineligible merge queue.
-
-### Agents by task shape
-
-The Sol-high main agent owns issue/risk/architecture decisions, shared state,
-final review, push, PR, merge and external synchronisation. Exactly one
-Sol-low worker writes a bounded substantive task in an isolated worktree,
-runs focused tests and may checkpoint locally, but cannot push, merge, mutate
-programme state, write externally or spawn writers. Small low-risk direct
-corrections are limited to tightly coupled files and about 50 lines with no
-financial, persistence, security or execution semantics. Read-only agents may
-support independent exploration, logs, impact, security and test-gap review.
-
-### Safe caches
-
-Measure hit rates. Key by OS, Python, lockfile and build-tool version. Never
-cache secrets, credentials, provider tokens, mutable programme authority or
-broker authority.
-
-## Acceptance fixtures
-
-1. Evidence fixture: one compact status/evidence event selects E, skips
-   packages, passes terminal summary and reuses exact product evidence.
-2. Multi-edge fixture: at least two independent integrated edges in one PR,
-   no product/execution change.
-3. Ordinary product fixture: focused/affected/UI/architecture/static/source
-   checks, with central full gate only by cadence.
-4. High-risk fixture: persistence or canonical-finance change selects H and
-   requires both platforms.
-5. Consecutive-merge fixture: two sequential merges with no stale base and no
-   manual convergence PR.
-6. Status-completion fixture: one product PR automatically reaches integrated
-   evidence without the manual lifecycle PR chain.
-
-## Measured completion criteria
-
-Record before/after across at least ten representative transactions where
-possible. Targets: one–two normal issue PRs; evidence p50 ≤3m and p95 ≤6m;
-queue time separate; obsolete time near zero; no environment mismatch; no
-freshness failure caused only by an earlier merge; no routine artifact
-download for ordinary green runs; non-product PR share below 30%; unchanged
-test strength; zero accepted baseline failures; `execution_allowed=false`.
-Do not claim success from one run.
-
-## Stop conditions
-
-After two attempts with the same root cause and no materially new evidence,
-preserve the clean checkpoint, record the node/fingerprint and attempts,
-identify the missing authority/decision and stop that approach. A newly
-evidenced independent cause gets one bounded prerequisite repair.
-
-Never weaken guards/assertions, skip genuine H, force-push, use broad conflict
-strategies, alter unrelated branches, fabricate evidence or claim speed
-without measurement.
-
-## Handoff and completion
-
-At every safe stop, commit intended changes, push only when authorised/ready,
-leave a clean worktree or enumerate files, update this checkpoint and report
-goal, worktree, branch, base/head/upstream, PR/CI, completed work, protected
-boundaries, blocker, next actions and whether the overarching goal is complete.
-
-Final output must contain merged PRs/SHAs, old/new workflow diagram, fixtures,
-measured PR/wall/runner/polling reductions, retained invariants, remaining
-risks and the exact next dependency-valid product issue.
-
-The overarching goal is complete only when the representative fast path is
-proven, durable instructions/checkpoint and measured evidence are tracked, and
-normal feature continuation has resumed under the new workflow. Merging
-ISSUE-0179 or ISSUE-0180 alone is not completion.
+A safe handoff reports goal, worktree, branch, base/head/upstream, dirty files,
+issue and status, completed work, tests, protected boundaries, blocker, exact
+next action and whether the requested outcome is actually complete.

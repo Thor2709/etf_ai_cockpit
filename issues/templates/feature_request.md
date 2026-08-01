@@ -31,5 +31,6 @@
 ### Workflow
 
 Document the issue, set priority and dependencies, implement on a normal
-branch, run targeted tests, review, and merge. Consolidated milestone and
-release testing follows later.
+branch, run focused tests, then apply the E/O/H/C classifier and its exact-base
+cadence before review and merge. Follow
+`docs/product-completion/DELIVERY_WORKFLOW.md` for authoritative gates.

@@ -18,12 +18,20 @@ implemented and reviewed.
 
 ## Issue workflow
 
-1. Document the issue and its acceptance criteria.
-2. Assign priority and dependencies.
-3. Implement on a normal branch.
-4. Run targeted tests for the affected area.
-5. Review the change.
-6. Merge it; consolidated milestone and release testing follows later.
+The canonical issue identity, dependency and status sources are
+[`issue_registry.json`](issue_registry.json) and
+[`programme_control_state.json`](programme_control_state.json). Current
+delivery mechanics are in
+[`docs/product-completion/DELIVERY_WORKFLOW.md`](../docs/product-completion/DELIVERY_WORKFLOW.md).
+
+1. Verify the canonical issue and dependency readiness.
+2. Define one bounded product outcome.
+3. Normally create one product PR.
+4. Classify E/O/H/C.
+5. Implement with focused tests.
+6. Independently review a stable diff.
+7. Merge the exact reviewed head after required gates.
+8. Allow automatic compact programme/GitHub convergence.
 
 ## Tracker Rules
 

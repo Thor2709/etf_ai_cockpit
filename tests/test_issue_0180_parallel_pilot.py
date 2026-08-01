@@ -838,4 +838,5 @@ def test_workflow_isolates_pilot_and_keeps_aggregation_non_authoritative() -> No
     assert "actions/download-artifact@v4" in aggregate
     assert "scripts/aggregate_parallel_pilot.py" in aggregate
     assert "continue-on-error: true" in aggregate
-    assert "needs: [classifier, parallel-pilot]" in aggregate
+    assert "needs: [classifier, preflight, supply-chain, parallel-pilot]" in aggregate
+    assert "parallel_pilot_repetitions" in workflow

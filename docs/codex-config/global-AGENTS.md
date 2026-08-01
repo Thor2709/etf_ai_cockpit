@@ -63,6 +63,11 @@ Owned files:
 Required evidence:
 Must not change:
 Stop or escalation condition:
+Expected validation tier:
+Exact base/head:
+Evidence-reuse eligibility:
+Parallel-lane compatibility:
+Canonical/generated paths involved:
 ```
 
 Require this hand-off:

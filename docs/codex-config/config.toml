@@ -250,7 +250,7 @@ NODE_REPL_INSTRUCTIONS_USE_CASE_CHROME = "Control the Chrome browser in conjunct
 BROWSER_USE_CODEX_APP_BUILD_FLAVOR = "prod"
 BROWSER_USE_CODEX_APP_VERSION = "26.727.51351"
 SKY_CUA_NATIVE_PIPE = "1"
-SKY_CUA_NATIVE_PIPE_DIRECTORY = '\\.\pipe\codex-computer-use-03991d99-1130-46dd-8a7c-5f049cad2168'
+SKY_CUA_NATIVE_PIPE_DIRECTORY = '\\.\pipe\codex-computer-use-481c87a9-95d0-4abf-948d-6465d3ad81d1'
 CODEX_CLI_PATH = 'C:\Users\thor2\AppData\Local\OpenAI\Codex\bin\d7e8094cfb76a267\codex.exe'
 
 
@@ -265,6 +265,12 @@ multi_agent = true
 multi_agent_v2 = false
 
 [projects.'c:\users\thor2\desktop\trading app\etf_ai_cockpit']
+trust_level = "trusted"
+
+[projects.'c:\users\thor2\desktop\trading app\etf_ai_cockpit_wt_agent_plan_sync']
+trust_level = "trusted"
+
+[projects.'c:\users\thor2\desktop\trading app\etf_ai_cockpit_wt_issue0101']
 trust_level = "trusted"
 
 [projects.'c:\users\thor2\desktop\etf_ai_cockpit_portable_v0.1.0rc1_task13fix']
@@ -288,7 +294,7 @@ NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "c5e8b73f10ecc47ad1be38f14ba6b79cd3af
 NODE_REPL_TRUSTED_CODE_PATHS = 'C:\Users\thor2\.codex'
 
 [marketplaces.openai-bundled]
-last_updated = "2026-08-01T01:50:15Z"
+last_updated = "2026-08-01T03:47:11Z"
 source_type = "local"
 source = '\\?\C:\Users\thor2\.codex\.tmp\bundled-marketplaces\openai-bundled'
 

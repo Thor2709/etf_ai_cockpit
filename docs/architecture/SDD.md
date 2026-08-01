@@ -440,9 +440,8 @@ Current commands include:
 ```text
 python -m pytest tests -q
 python scripts/check_architecture_boundaries.py
-python scripts/generate_issue_registry.py --check
-python scripts/validate_issue_registry.py
-python scripts/update_programme_status.py --check
+python scripts/generate_programme.py --root . --check
+python scripts/classify_validation.py --root . --base <exact-origin-main> --head <exact-head>
 python scripts/validate_app.py --changed
 python scripts/validate_app.py --offline
 python scripts/validate_app.py --full
@@ -492,6 +491,19 @@ regenerates inventory, plan, review and safe evidence through
 The terminal `validation-summary.v1` report downloads exact job artifacts and
 fails closed on missing identities, hashes, required platform JUnit counts,
 guards, freshness or read-only authority.
+
+### 12.2 Delivery and validation selection contract
+
+The operational delivery contract is
+[DELIVERY_WORKFLOW.md](../product-completion/DELIVERY_WORKFLOW.md). Validation
+uses E/O/H/C tiers and derives ordinary-product cadence from the exact PR
+base's first-parent `origin/main` history. E-only merges do not increment the
+count; the nearest verifiable H/C merge resets it; and unknown, stale, shallow
+or malformed evidence fails upward to the serial package gate. The optional
+Linux/Windows parallel pilot is report-only and cannot replace the
+authoritative serial package jobs or terminal validation summary. Selection,
+repetition and drift-sampling rules are recorded in
+[ADR-0007](decisions/ADR-0007-validation-cadence-and-report-only-pilot.md).
 
 ## 13. Current state, gaps, risks and technical debt
 

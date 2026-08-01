@@ -4,6 +4,11 @@ The durable active objective, protected boundaries and exact continuation
 checkpoint are maintained in `plans/ACTIVE_CODEX_GOAL.md`; read it before
 continuing this batch.
 
+Current delivery mechanics are defined in
+`docs/product-completion/DELIVERY_WORKFLOW.md`. Historical references below
+to sole workers, Sol-low workers or old lifecycle PR chains describe past
+execution and are not current operational instructions.
+
 ## Active fast-path checkpoint
 
 `COMPLETE/FROZEN` the bounded atomic-delivery repair is formally proven.

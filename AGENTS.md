@@ -10,6 +10,30 @@ Choose efficiently among the 12 configured named roles. Normal allocation is one
 
 Use one active code writer per overlapping file boundary. Parallelise only independent, non-overlapping work.
 
+## Current ISSUE-0177–0180 delivery contract
+
+Read `plans/ACTIVE_CODEX_GOAL.md` and
+`docs/product-completion/DELIVERY_WORKFLOW.md` before work. The canonical
+classifier selects E/O/H/C and unknown history or cadence fails upward. Exact
+base/head, protected source/dependency/product/policy/environment/artifact and
+`execution_allowed=false` identities must all match before evidence reuse.
+Use one integration/CI lane and normally one implementation writer; a second
+child is only independent read-only work or proven disjoint worktree work.
+Normally make one product issue per product PR; batch only inseparable,
+independent dependency edges. Lifecycle/status convergence is compact and
+automatic. Update canonical control first and regenerate projections; never
+hand-edit generated status/programme views. Atomic generation must be followed
+by a second byte-clean check. `validation-summary` is the normal CI interface;
+use at most one watcher and no repetitive polling. Raw artefacts are for
+failure, inconsistency, sampled audit or final certification.
+
+The four-worker safe/unsafe pytest pilot is report-only and serial packaged
+Linux/Windows validation remains authoritative. `main` remains green. Read and
+update the relevant SDD/ADR for architecture or contract changes. Preflight
+must cover UI acceptance, application-facade imports, environment, temporary
+roots, ports and CRLF/LF. Product work remains local-first with
+`execution_allowed=false`.
+
 ## Start
 
 Before changing code:

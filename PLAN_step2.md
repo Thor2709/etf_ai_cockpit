@@ -3,6 +3,19 @@
 The detailed active fast-path objective and current handoff are maintained in
 `plans/ACTIVE_CODEX_GOAL.md`; read it before continuing this programme.
 
+## Current operational amendment
+
+B00–B13 are programme groupings, not permission for large multi-issue PRs.
+Normal product delivery is one issue/one product PR; a multi-issue product PR
+requires inseparable contracts and explicit root justification. Independent
+dependency edges may be batched. Lifecycle transitions use compact automatic
+convergence; do not create a manual `in_progress` / `implemented_initially` /
+`integrated` PR chain. Product work may overlap immutable CI only through a
+disjoint worktree. Current named-agent routing supersedes old Sol/Terra/Luna
+routing. The proven four-worker pytest run is report-only and is not a new
+pilot to start from scratch. The P0 throughput remediation is complete and
+frozen; see `docs/product-completion/DELIVERY_WORKFLOW.md` for detail.
+
 ## Summary
 
 Implement the accepted completion programme from fresh `origin/main` in small,
@@ -264,7 +277,7 @@ fixes, then correct the classifier in a separate guarded change.
    - Add bounded application/domain/provider boundaries and plugin contracts incrementally (`ISSUE-0071`, `ISSUE-0076`).
    - Implement the hybrid stores, point-in-time model, canonical scoring and version registries (`ISSUE-0038`, `ISSUE-0072`–`0075`).
    - Grow bootstrap workflows into the used portions of the resumable DAG and performance budgets (`ISSUE-0077`, `ISSUE-0078`).
-   - Integrate the remaining phase-owned decision-support, operational evidence, optional adapter and existing initially implemented records in coherent two-to-eight-issue slices.
+   - Integrate the remaining phase-owned decision-support, operational evidence, optional adapter and existing initially implemented records in bounded dependency-valid slices under the one-issue/one-product-PR rule.
    - Leave `ISSUE-0079` open until Phases 9–10 provide its required inputs.
 
 4. **Phases 2–7 - Analytical and transactional capabilities**

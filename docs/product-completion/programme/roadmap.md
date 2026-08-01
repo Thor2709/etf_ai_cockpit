@@ -9,6 +9,7 @@ This roadmap is the lightweight programme view. `issues/issue_registry.json` own
 - Adjusted prices are required for returns, signals and backtests.
 - Toto and TimesFM are optional; baseline signals must work without their packages or weights.
 - GitHub synchronisation is dry-run by default and apply requires a reviewed plan checksum.
+- Current delivery mechanics are defined in [`DELIVERY_WORKFLOW.md`](../DELIVERY_WORKFLOW.md); phase grouping does not authorise multi-issue PRs or multiple writers.
 
 ## Phase order
 

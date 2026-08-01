@@ -1,0 +1,27 @@
+# Sanitised durable Codex configuration template.
+# Machine paths, plugins, credentials and volatile runtime identifiers are
+# intentionally excluded; preserve the effective role matrix in agents/*.toml.
+model = "gpt-5.6-sol"
+model_reasoning_effort = "medium"
+plan_mode_reasoning_effort = "high"
+model_verbosity = "low"
+model_catalog_json = "models-v1.json"
+approval_policy = "never"
+sandbox_mode = "workspace-write"
+
+[sandbox_workspace_write]
+network_access = true
+exclude_slash_tmp = false
+exclude_tmpdir_env_var = false
+writable_roots = []
+
+[agents]
+enabled = true
+max_concurrent_threads_per_session = 2
+max_depth = 1
+default_subagent_model = "gpt-5.6-luna"
+default_subagent_reasoning_effort = "high"
+
+[windows]
+sandbox = "unelevated"
+sandbox_private_desktop = true

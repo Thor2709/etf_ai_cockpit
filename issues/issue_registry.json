@@ -27550,7 +27550,7 @@
       "final_release_spec_sha256": "exact bytes; immutable binary fixture",
       "other_text_inputs": "UTF-8 text with CRLF/CR canonicalised to LF"
     },
-    "open_ledger_sha256": "007cda4d2649a383c596ed23a21658b73f279baad38798007cc7ff0f7be3900c",
+    "open_ledger_sha256": "d879e1ef415744a138878e1255822eaed640a0c275c2774e03f8cd10e22a26a6",
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",

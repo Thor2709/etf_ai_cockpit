@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "purpose": "Sanitised provenance for regenerating the installed V1 model catalogue",
+  "source_codex_version": "codex-cli 0.146.0-alpha.9.2",
+  "source_command": "codex debug models --bundled with an isolated empty CODEX_HOME",
+  "source_cli_path": "<installed-codex-cli>",
+  "source_catalog_sha256": "6d6c694360ad6adf91b4d72b32014afce4c8c8322a304cd01ade377cc00d5f6",
+  "patched_catalog_sha256": "dc9e81ee9ae1164af4db7d1ed7061ccd7a7c1ff13fa2ece09cc3211bf5dd1ab8",
+  "required_models": [
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna"
+  ],
+  "allowed_patch": {
+    "gpt-5.6-sol.multi_agent_version": "v1",
+    "gpt-5.6-terra.multi_agent_version": "v1",
+    "gpt-5.6-luna.multi_agent_version": "v1"
+  },
+  "changes": [
+    {"path": "models[slug=gpt-5.6-sol].multi_agent_version", "before": "v2", "after": "v1"},
+    {"path": "models[slug=gpt-5.6-terra].multi_agent_version", "before": "v2", "after": "v1"}
+  ],
+  "runtime_paths_and_timestamps": "intentionally omitted"
+}

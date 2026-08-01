@@ -18,5 +18,7 @@ No broker automation is included. Audit packet export/import is manual and local
 ## Local checks
 
 For an ordinary change, run the targeted tests for the affected files and one
-local application import/startup smoke check, then review and merge the normal
-branch. Consolidated milestone and release testing is performed later.
+local application import/startup smoke check, then apply the E/O/H/C classifier
+and its exact-base cadence before review and merge. See
+`docs/product-completion/DELIVERY_WORKFLOW.md`; do not defer a gate that the
+classifier requires.

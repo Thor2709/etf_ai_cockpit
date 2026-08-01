@@ -6,6 +6,10 @@ Phase `phase-02-data-policy-identity` covers `ISSUE-0007, ISSUE-0022–ISSUE-002
 
 Deliver the bounded local-first data policy, identity and data platform work with local-first behaviour, explicit evidence and the safety gates defined by the canonical records.
 
+## Current delivery mechanics
+
+Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C validation, exact-tree evidence reuse, ownership, review and automatic convergence. This phase document is implementation guidance only.
+
 ## Affected modules, schemas and UI
 
 - Confirm the existing module boundary before implementation; keep UI orchestration separate from feature, signal, model, backtest and ChatGPT bridge logic.

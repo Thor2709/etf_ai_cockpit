@@ -8,7 +8,12 @@ import pytest
 
 from scripts import validate_app
 from scripts import classify_validation
-from scripts.classify_validation import build_report, validation_summary_failures
+from scripts.classify_validation import (
+    build_report,
+    derive_ordinary_gate_cadence,
+    parallel_pilot_plan,
+    validation_summary_failures,
+)
 
 
 def test_classifier_tiers_and_stable_reason_report() -> None:
@@ -50,12 +55,149 @@ def test_classifier_fails_unknown_and_protected_tooling_upward() -> None:
 
 
 def test_ordinary_cadence_requires_central_gate_after_two_issues() -> None:
+    missing = build_report(["src/etf_cockpit/app/page.py"])
     first = build_report(["src/etf_cockpit/app/page.py"], ordinary_issues_since_full_gate=1)
     second = build_report(["src/etf_cockpit/app/page.py"], ordinary_issues_since_full_gate=2)
 
+    assert missing["package_gate_required"] is True
+    assert missing["ordinary_full_gate_cadence"]["known"] is False
     assert first["package_gate_required"] is False
     assert second["package_gate_required"] is True
     assert second["ordinary_full_gate_cadence"]["threshold"] == 2
+
+
+def _cadence_commit(root: Path, relative: str, value: str, message: str) -> str:
+    path = root / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(value, encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", message], cwd=root, check=True)
+    return subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=root, text=True
+    ).strip()
+
+
+def _cadence_fixture(root: Path, ordinary_count: int, *, reset: bool = False) -> str:
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=root, check=True)
+    _cadence_commit(root, "scripts/protected.py", "H\n", "nearest H reset")
+    if reset:
+        _cadence_commit(root, "src/ordinary.py", "before-reset\n", "old O")
+        _cadence_commit(root, "scripts/reset.py", "H again\n", "second H reset")
+    _cadence_commit(root, "docs/product-completion/PROGRESS.md", "E\n", "ignored E")
+    for index in range(ordinary_count):
+        _cadence_commit(root, "src/ordinary.py", f"O {index}\n", f"ordinary {index}")
+    head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    subprocess.run(["git", "branch", "main", head], cwd=root, check=True)
+    return head
+
+
+@pytest.mark.parametrize("ordinary_count", [0, 1, 2])
+def test_first_parent_cadence_counts_zero_one_and_two_ordinary_commits(
+    tmp_path: Path, ordinary_count: int
+) -> None:
+    head = _cadence_fixture(tmp_path, ordinary_count)
+    cadence = derive_ordinary_gate_cadence(tmp_path, base=head, main_ref="main")
+
+    assert cadence["known"] is True
+    assert cadence["source"] == "exact-first-parent-origin-main"
+    assert cadence["issues_since_last_full_gate"] == ordinary_count
+    assert cadence["due"] is (ordinary_count >= 1)
+
+
+def test_first_parent_cadence_resets_at_nearest_high_risk_commit(tmp_path: Path) -> None:
+    head = _cadence_fixture(tmp_path, 1, reset=True)
+    cadence = derive_ordinary_gate_cadence(tmp_path, base=head, main_ref="main")
+
+    assert cadence["known"] is True
+    assert cadence["issues_since_last_full_gate"] == 1
+    assert cadence["due"] is True
+    assert cadence["reason"] == "counted-first-parent-since-nearest-H-C"
+
+
+def test_unknown_cadence_fails_upward_for_stale_and_malformed_inputs(tmp_path: Path) -> None:
+    _cadence_fixture(tmp_path, 1)
+    stale_base = subprocess.check_output(
+        ["git", "rev-parse", "main~1"], cwd=tmp_path, text=True
+    ).strip()
+    stale = derive_ordinary_gate_cadence(tmp_path, base=stale_base, main_ref="main")
+    malformed = derive_ordinary_gate_cadence(tmp_path, base="bad", main_ref="main")
+
+    assert stale["known"] is False and stale["due"] is True
+    assert stale["source"] == "exact-first-parent-origin-main"
+    assert stale["reason"] == "stale-pr-base"
+    assert malformed["known"] is False
+    assert build_report(
+        ["src/etf_cockpit/app/page.py"],
+        cadence={"known": False, "issues_since_last_full_gate": None, "due": True},
+    )["package_gate_required"] is True
+
+
+def test_cadence_without_a_reset_boundary_is_unknown(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, check=True)
+    head = _cadence_commit(tmp_path, "src/ordinary.py", "ordinary\n", "ordinary without reset")
+    subprocess.run(["git", "branch", "main", head], cwd=tmp_path, check=True)
+
+    cadence = derive_ordinary_gate_cadence(tmp_path, base=head, main_ref="main")
+
+    assert cadence["known"] is False
+    assert cadence["reason"] == "missing-reset-boundary"
+    assert cadence["due"] is True
+
+
+def test_negative_explicit_cadence_override_fails_upward(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    head = _cadence_fixture(tmp_path, 0)
+
+    assert classify_validation.main(
+        [
+            "--root",
+            str(tmp_path),
+            "--base",
+            head,
+            "--head",
+            head,
+            "--changed-file",
+            "src/etf_cockpit/app/page.py",
+            "--ordinary-issues-since-full-gate",
+            "-1",
+        ]
+    ) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["ordinary_full_gate_cadence"] == {
+        "due": True,
+        "issues_since_last_full_gate": -1,
+        "known": False,
+        "reason": "malformed-negative-cadence-override",
+        "source": "explicit-cli-cadence",
+        "threshold": 2,
+    }
+    assert report["package_gate_required"] is True
+
+
+def test_parallel_pilot_selection_is_additive_and_report_only() -> None:
+    unrelated = parallel_pilot_plan(["docs/product-completion/DELIVERY_WORKFLOW.md"], tier="H")
+    mechanics = parallel_pilot_plan(["scripts/profile_parallel_pytest.py"], tier="H")
+    isolation = parallel_pilot_plan(["tests/test_concurrency.py"], tier="H")
+    certification = parallel_pilot_plan(["docs/product-completion/certification/final.json"], tier="C")
+    manual = parallel_pilot_plan(["docs/notes.md"], tier="H", trigger="manual")
+    full = parallel_pilot_plan(["docs/notes.md"], tier="H", trigger="manual-full")
+
+    assert unrelated["parallel_pilot_required"] is False
+    assert unrelated["parallel_pilot_repetitions"] == 0
+    assert mechanics["parallel_pilot_repetitions"] == 2
+    assert isolation["parallel_pilot_repetitions"] == 2
+    assert certification["parallel_pilot_repetitions"] == 2
+    assert manual["parallel_pilot_required"] is True
+    assert manual["parallel_pilot_repetitions"] == 1
+    assert full["parallel_pilot_repetitions"] == 2
+    drift = build_report([], pilot_trigger="scheduled")
+    assert drift["parallel_pilot_required"] is True
+    assert drift["package_gate_required"] is False
 
 
 def test_high_risk_fixtures_require_platform_gate() -> None:
@@ -325,7 +467,10 @@ def test_base_anchored_prior_evidence_authorizes_cli_reuse(
     report = json.loads(capsys.readouterr().out)
     assert report["tier"] == "E"
     assert report["evidence_reuse"]["authorized"] is True
+    # O-tier cadence does not invalidate exact E-tier evidence reuse.
     assert report["package_gate_required"] is False
+    assert report["ordinary_full_gate_cadence"]["known"] is False
+    assert report["ordinary_full_gate_cadence"]["source"] == "exact-first-parent-origin-main"
 
 
 def test_reuse_rejects_reviewed_head_outside_current_base_ancestry(
@@ -434,7 +579,9 @@ def test_store_modules_and_tests_require_platform_gate_without_substring_spillov
         assert report["tier"] == "H"
         assert report["package_gate_required"] is True
 
-    boundary = build_report(["src/etf_cockpit/app/restore.py"])
+    boundary = build_report(
+        ["src/etf_cockpit/app/restore.py"], ordinary_issues_since_full_gate=0
+    )
     assert boundary["tier"] == "O"
     assert boundary["package_gate_required"] is False
 
@@ -503,8 +650,8 @@ def test_workflow_has_unconditional_bookends_and_single_source_scan() -> None:
     assert "cancel-in-progress: true" in workflow
     assert "classifier:" in workflow
     assert "base_sha: ${{ steps.classify.outputs.base_sha }}" in workflow
-    assert "ETF_COCKPIT_VALIDATION_BASE_SHA: ${{ github.event.pull_request.base.sha }}" in workflow
-    assert "ETF_COCKPIT_VALIDATION_HEAD_SHA: ${{ github.event.pull_request.head.sha }}" in workflow
+    assert "ETF_COCKPIT_VALIDATION_BASE_SHA: ${{ needs.classifier.outputs.base_sha }}" in workflow
+    assert "ETF_COCKPIT_VALIDATION_HEAD_SHA: ${{ needs.classifier.outputs.head_sha }}" in workflow
     assert "validation-summary:" in workflow
     assert "if: always()" in workflow
     assert "needs.classifier.outputs.package_gate_required == 'true'" in workflow

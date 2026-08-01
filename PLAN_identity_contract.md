@@ -1,4 +1,8 @@
-# Active plan — identity contract prerequisite
+# Historical plan — identity contract prerequisite
+
+This completed checkpoint preserves historical implementation evidence. Its
+`sol_worker` routing is superseded by
+`docs/product-completion/DELIVERY_WORKFLOW.md` and current named-agent policy.
 
 - Base: `origin/main` at `4e2876eda47daa7da5fa7a82bc7a1adddccbbdc8`.
 - Programme state: `ISSUE-0153` remains `in_progress`; GitHub issue `#432` is open; `execution_allowed=false`.

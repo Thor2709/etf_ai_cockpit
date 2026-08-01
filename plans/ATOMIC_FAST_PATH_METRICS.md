@@ -1,5 +1,27 @@
 # Atomic delivery fast-path metrics
 
+## Current ISSUE-0180 pilot policy
+
+The exact ISSUE-0180 four-worker measurements are frozen in the fast-path
+evidence below. Run `30659377591` used two repetitions and four workers; all
+lanes collected and returned the same `2,452` tests and the cross-platform
+aggregate passed.
+
+| Platform | Full serial samples (s) | Serial p50/p95 (s) | Four-worker combined samples (s) | Candidate p50/p95 (s) | p50 saving |
+|---|---|---:|---|---:|---:|
+| Linux | `1110.085`, `1121.291` | `1115.688/1120.731` | `619.380`, `640.006` | `629.693/638.975` | `485.995 s` (`43.56%`) |
+| Windows | `1240.438`, `1268.553` | `1254.495/1267.147` | `734.835`, `683.629` | `709.232/732.275` | `545.263 s` (`43.46%`) |
+
+These are report-only development-throughput measurements, not release-gate
+authority or application-performance claims. The serial Linux/Windows package
+gates remain authoritative. Ongoing samples are selected only by pilot
+mechanics, pytest partition/collection, environment/lock, concurrency,
+persistence, Windows-sharing, atomic-write or isolation changes, tier C, or
+an explicit manual/scheduled drift sample. The new policy measures saved
+runner minutes before and after each eligible sample; no saving is claimed
+without a recorded comparison. Historical bootstrap PR counts are not
+steady-state results.
+
 ## Baseline snapshot
 
 Captured from the GitHub pull-request and Actions APIs on
