@@ -1,0 +1,303 @@
+# =============================================================================
+# Core model and session settings
+# =============================================================================
+
+model = "gpt-5.6-sol"
+model_reasoning_effort = "medium"
+plan_mode_reasoning_effort = "high"
+model_verbosity = "low"
+personality = "pragmatic"
+model_catalog_json = 'C:\Users\thor2\.codex\models-v1.json'
+
+
+
+
+approval_policy = "never"
+
+# =============================================================================
+# Sandbox
+# =============================================================================
+
+sandbox_mode = "workspace-write"
+
+service_tier = "default"
+notify = [ "C:\\Users\\thor2\\AppData\\Local\\OpenAI\\Codex\\runtimes\\cua_node\\fb8898c05a62885e\\bin\\node_modules\\@oai\\sky\\bin\\windows\\codex-computer-use.exe", "turn-ended", "--previous-notify", "[]" ]
+[sandbox_workspace_write]
+exclude_slash_tmp = false
+writable_roots = []
+exclude_tmpdir_env_var = false
+network_access = true
+
+# =============================================================================
+# Agent limits
+# =============================================================================
+
+[agents]
+enabled = true
+max_concurrent_threads_per_session = 2
+max_depth = 1
+default_subagent_model = "gpt-5.6-luna"
+default_subagent_reasoning_effort = "high"
+interrupt_message = true
+
+
+
+# =============================================================================
+# Plugins
+# =============================================================================
+
+[plugins."documents@openai-primary-runtime"]
+enabled = true
+
+[plugins."spreadsheets@openai-primary-runtime"]
+enabled = true
+
+[plugins."presentations@openai-primary-runtime"]
+enabled = true
+
+[plugins."build-web-apps@openai-curated"]
+enabled = true
+
+[plugins."github@openai-curated"]
+enabled = true
+
+[plugins."build-ios-apps@openai-curated"]
+enabled = true
+
+[plugins."codex-security@openai-curated"]
+enabled = true
+
+[plugins."canva@openai-curated"]
+enabled = true
+
+[plugins."latex@openai-bundled"]
+enabled = false
+
+[plugins."life-science-research@openai-curated"]
+enabled = true
+
+[plugins."zotero@openai-curated"]
+enabled = true
+
+[plugins."cb-insights@openai-curated"]
+enabled = true
+
+[plugins."daloopa@openai-curated"]
+enabled = true
+
+[plugins."mt-newswires@openai-curated"]
+enabled = true
+
+[plugins."box@openai-curated"]
+enabled = true
+
+[plugins."nvidia@openai-curated"]
+enabled = true
+
+[plugins."pdf@openai-primary-runtime"]
+enabled = true
+
+[plugins."chrome@openai-bundled"]
+enabled = true
+
+[plugins."computer-use@openai-bundled"]
+enabled = true
+
+[plugins."browser@openai-bundled"]
+enabled = true
+
+[plugins."visualize@openai-bundled"]
+enabled = true
+
+[plugins."template-creator@openai-primary-runtime"]
+enabled = true
+
+
+# =============================================================================
+# Windows sandbox
+# =============================================================================
+
+[windows]
+
+# Elevated mode previously created files under a separate sandbox identity and
+# caused credential, ownership and worktree problems on this machine.
+#
+# Unelevated still enforces filesystem boundaries but derives its restricted
+# token from the current Windows user, avoiding cross-account Git ownership
+# problems.
+sandbox = "unelevated"
+
+# Preserve UI isolation.
+sandbox_private_desktop = true
+
+
+# =============================================================================
+# Desktop interface
+# =============================================================================
+
+[desktop]
+ambient-suggestions-enabled = false
+conversationDetailMode = "STEPS_COMMANDS"
+followUpQueueMode = "queue"
+show-context-window-usage = true
+
+enabled-reasoning-efforts = [
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "ultra",
+  "max",
+]
+
+show-ultra-in-model-picker-slider = false
+
+
+# =============================================================================
+# MCP servers
+#
+# No server is pinned to an old repository directory. Each enabled server
+# inherits the active project working directory.
+# =============================================================================
+
+[mcp_servers.flet]
+enabled = true
+command = "flet"
+args = ["mcp"]
+startup_timeout_sec = 120
+
+[mcp_servers.playwright]
+enabled = true
+command = "npx"
+args = ["-y", "@playwright/mcp@latest"]
+startup_timeout_sec = 120
+
+[mcp_servers.playwright.tools.browser_navigate]
+approval_mode = "approve"
+
+[mcp_servers.openaiDeveloperDocs]
+enabled = false
+url = "https://developers.openai.com/mcp"
+
+[mcp_servers.context7]
+enabled = false
+command = "npx"
+args = ["-y", "@upstash/context7-mcp"]
+startup_timeout_sec = 120
+
+[mcp_servers.filesystem]
+enabled = false
+command = "npx"
+args = [
+  "-y",
+  "@modelcontextprotocol/server-filesystem",
+  ".",
+]
+
+[mcp_servers.git]
+enabled = false
+command = "uvx"
+args = [
+  "mcp-server-git",
+  "--repository",
+  ".",
+]
+
+[mcp_servers.fetch]
+enabled = false
+command = "uvx"
+args = ["mcp-server-fetch"]
+
+[mcp_servers.time]
+enabled = false
+command = "uvx"
+args = [
+  "mcp-server-time",
+  "--local-timezone=Australia/Melbourne",
+]
+
+[mcp_servers.sequential-thinking]
+enabled = false
+command = "npx"
+args = [
+  "-y",
+  "@modelcontextprotocol/server-sequential-thinking",
+]
+
+[mcp_servers.memory]
+enabled = false
+command = "npx"
+args = [
+  "-y",
+  "@modelcontextprotocol/server-memory",
+]
+
+[mcp_servers.node_repl]
+args = []
+command = 'C:\Users\thor2\AppData\Local\OpenAI\Codex\runtimes\cua_node\fb8898c05a62885e\bin\node_repl.exe'
+startup_timeout_sec = 120
+
+[mcp_servers.node_repl.env]
+NODE_REPL_NATIVE_PIPE_CONNECT_TIMEOUT_MS = "1000"
+NODE_REPL_NODE_MODULE_DIRS = 'C:\Users\thor2\AppData\Local\OpenAI\Codex\runtimes\cua_node\fb8898c05a62885e\bin\node_modules'
+NODE_REPL_NODE_PATH = 'C:\Users\thor2\AppData\Local\OpenAI\Codex\runtimes\cua_node\fb8898c05a62885e\bin\node.exe'
+NODE_REPL_TRUSTED_CODE_PATHS = 'C:\Users\thor2\.codex'
+CODEX_HOME = 'C:\Users\thor2\.codex'
+NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "c5e8b73f10ecc47ad1be38f14ba6b79cd3af06fcd86637f7b6b857ae209a686e,f204d340535055781952b10ed396de20b842f00a19e430852f7e121ad1ce91f6"
+BROWSER_USE_AVAILABLE_BACKENDS = "chrome,iab"
+NODE_REPL_INSTRUCTIONS_USE_CASE_BROWSER = "Control the in-app browser in conjunction with the Browser Plugin."
+NODE_REPL_INSTRUCTIONS_USE_CASE_CHROME = "Control the Chrome browser in conjunction with the Chrome Plugin. Prefer this method of controlling Chrome over alternatives (such as Computer Use) unless the user explicitly mentions an alternative."
+BROWSER_USE_CODEX_APP_BUILD_FLAVOR = "prod"
+BROWSER_USE_CODEX_APP_VERSION = "26.727.51351"
+SKY_CUA_NATIVE_PIPE = "1"
+SKY_CUA_NATIVE_PIPE_DIRECTORY = '\\.\pipe\codex-computer-use-03991d99-1130-46dd-8a7c-5f049cad2168'
+CODEX_CLI_PATH = 'C:\Users\thor2\AppData\Local\OpenAI\Codex\bin\d7e8094cfb76a267\codex.exe'
+
+
+# =============================================================================
+# Feature flags
+# =============================================================================
+
+[features]
+js_repl = false
+unified_exec = false
+multi_agent = true
+multi_agent_v2 = false
+
+[projects.'c:\users\thor2\desktop\trading app\etf_ai_cockpit']
+trust_level = "trusted"
+
+[projects.'c:\users\thor2\desktop\etf_ai_cockpit_portable_v0.1.0rc1_task13fix']
+trust_level = "trusted"
+
+[projects.'c:\users\thor2\documents\apps\transcribing']
+trust_level = "trusted"
+
+[projects.'c:\users\thor2\.codex\smoke-tests\implementer-20260801-1120']
+trust_level = "trusted"
+
+[projects.'c:\users\thor2\.codex\smoke-tests\implementer-network-locked-20260801-1126']
+trust_level = "trusted"
+
+[projects.'c:\users\thor2\.codex\smoke-tests\implementer-final-20260801-1129']
+trust_level = "trusted"
+
+[shell_environment_policy.set]
+BROWSER_USE_AVAILABLE_BACKENDS = "chrome,iab"
+NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "c5e8b73f10ecc47ad1be38f14ba6b79cd3af06fcd86637f7b6b857ae209a686e,f204d340535055781952b10ed396de20b842f00a19e430852f7e121ad1ce91f6"
+NODE_REPL_TRUSTED_CODE_PATHS = 'C:\Users\thor2\.codex'
+
+[marketplaces.openai-bundled]
+last_updated = "2026-08-01T01:50:15Z"
+source_type = "local"
+source = '\\?\C:\Users\thor2\.codex\.tmp\bundled-marketplaces\openai-bundled'
+
+[marketplaces.openai-primary-runtime]
+last_updated = "2026-07-31T21:13:06Z"
+source_type = "local"
+source = '\\?\C:\Users\thor2\.cache\codex-runtimes\codex-primary-runtime\plugins\openai-primary-runtime'
+
+
+# =============================================================================
+# Trusted projects
+# =============================================================================
