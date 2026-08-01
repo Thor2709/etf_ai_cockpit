@@ -84,6 +84,12 @@ from etf_cockpit.analysis.real_asset_sector_adapters import (
     unavailable_real_asset_projection,
     verify_real_asset_projection,
 )
+from etf_cockpit.analysis.cyclical_sector_adapters import (
+    CyclicalAdapterError,
+    CyclicalProjection,
+    unavailable_cyclical_projection,
+    verify_cyclical_projection,
+)
 from etf_cockpit.data.manual_notes import *  # noqa: F401,F403
 from etf_cockpit.data.news_context import *  # noqa: F401,F403
 from etf_cockpit.data.oam_adapters import *  # noqa: F401,F403
@@ -576,6 +582,28 @@ def load_real_asset_projection(
         return payload
     except (RealAssetAdapterError, TypeError, ValueError):
         return unavailable_real_asset_projection(instrument_id, "real_asset_evidence_invalid")
+
+
+def load_cyclical_projection(
+    instrument_id: str,
+    *,
+    projection: CyclicalProjection | Mapping[str, object] | None = None,
+    expected_source_digest: str | None = None,
+) -> dict[str, object]:
+    """Verify optional in-memory cyclical evidence; never calculate in the UI."""
+
+    if projection is None or expected_source_digest is None:
+        return unavailable_cyclical_projection(instrument_id)
+    try:
+        payload = verify_cyclical_projection(
+            projection,
+            expected_source_digest=expected_source_digest,
+        )
+        if payload.get("instrument_id") != str(instrument_id):
+            raise CyclicalAdapterError("cyclical projection identity mismatch")
+        return payload
+    except (CyclicalAdapterError, TypeError, ValueError):
+        return unavailable_cyclical_projection(instrument_id, "cyclical_evidence_invalid")
 
 
 def save_classification_overrides(
