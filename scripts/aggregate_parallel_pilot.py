@@ -103,7 +103,7 @@ def _read_report(path: Path) -> Mapping[str, object]:
 
 def _report_is_valid(label: str, report: Mapping[str, object]) -> bool:
     sample_count = report.get("sample_count")
-    if type(sample_count) is not int or sample_count < 2:
+    if type(sample_count) is not int or sample_count < 1:
         return False
     if (
         report.get("schema_version") != "pytest-parallel-pilot.v2"

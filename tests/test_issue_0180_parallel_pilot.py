@@ -471,7 +471,9 @@ def test_profile_accepts_one_drift_sample_and_rejects_zero(
         profile_parallel_pytest.profile(root, tmp_path / "invalid", 0)
 
 
-def _pilot_report(*, status: str = "passed", result_suffix: str = "") -> dict[str, object]:
+def _pilot_report(
+    *, status: str = "passed", result_suffix: str = "", repetitions: int = 2
+) -> dict[str, object]:
     lane_shapes = {
         "full_serial": 3,
         "candidate_safe": 1,
@@ -491,17 +493,17 @@ def _pilot_report(*, status: str = "passed", result_suffix: str = "") -> dict[st
             json.dumps(outcome_map, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
         lanes[lane] = {
-            "collection_counts": [count, count],
-            "result_counts": [count, count],
-            "collection_exit_codes": [0, 0],
-            "exit_codes": [0, 0],
-            "junit_present": [True, True],
-            "collection_fingerprints": [collection_fingerprint, collection_fingerprint],
-            "result_fingerprints": [result_fingerprint, result_fingerprint],
-            "executed_nodeids": [nodeids, nodeids],
-            "result_outcomes": [outcome_map, outcome_map],
+            "collection_counts": [count] * repetitions,
+            "result_counts": [count] * repetitions,
+            "collection_exit_codes": [0] * repetitions,
+            "exit_codes": [0] * repetitions,
+            "junit_present": [True] * repetitions,
+            "collection_fingerprints": [collection_fingerprint] * repetitions,
+            "result_fingerprints": [result_fingerprint] * repetitions,
+            "executed_nodeids": [nodeids] * repetitions,
+            "result_outcomes": [outcome_map] * repetitions,
             "timings": {
-                "samples_seconds": [duration, duration],
+                "samples_seconds": [duration] * repetitions,
                 "p50_seconds": duration,
                 "p95_seconds": duration,
             },
@@ -521,8 +523,8 @@ def _pilot_report(*, status: str = "passed", result_suffix: str = "") -> dict[st
         "authority": "serial_release_gate",
         "platform": "linux",
         "workers": 4,
-        "repetitions": 2,
-        "sample_count": 2,
+        "repetitions": repetitions,
+        "sample_count": repetitions,
         "strategy": "full_serial_vs_two_phase_xdist",
         "phase_order": ["safe", "unsafe"],
         "selectors": {
@@ -536,7 +538,7 @@ def _pilot_report(*, status: str = "passed", result_suffix: str = "") -> dict[st
         "result_parity": True,
         "repeatable_results": True,
         "repeatable_collections": True,
-        "manifest_valid": {lane: [True, True] for lane in lane_shapes},
+        "manifest_valid": {lane: [True] * repetitions for lane in lane_shapes},
         "lanes": lanes,
         "lane_counts": {
             lane: {"collection": value["collection_counts"], "results": value["result_counts"]}
@@ -553,7 +555,7 @@ def _pilot_report(*, status: str = "passed", result_suffix: str = "") -> dict[st
         "timings": {
             **{lane: value["timings"] for lane, value in lanes.items()},
             "candidate_wall": {
-                "samples_seconds": [2.0, 2.0],
+                "samples_seconds": [2.0] * repetitions,
                 "p50_seconds": 2.0,
                 "p95_seconds": 2.0,
             },
@@ -566,7 +568,12 @@ def _pilot_report(*, status: str = "passed", result_suffix: str = "") -> dict[st
             "inputs": inputs,
             "setup_python_cache_hit": "true",
         },
-        "run_order": [["full_serial", "candidate"], ["candidate", "full_serial"]],
+        "run_order": [
+            ["full_serial", "candidate"]
+            if index % 2 == 0
+            else ["candidate", "full_serial"]
+            for index in range(repetitions)
+        ],
         "status": status,
     }
 
@@ -636,6 +643,24 @@ def test_cross_platform_aggregation_accepts_matching_reports(tmp_path: Path) -> 
     linux = tmp_path / "linux.json"
     windows = tmp_path / "windows.json"
     _write_platform_reports(linux, windows)
+
+    report = aggregate_parallel_pilot.compare_reports(linux, windows)
+
+    assert report["status"] == "passed"
+    assert report["differences"] == {}
+
+
+def test_cross_platform_aggregation_accepts_matching_one_sample_reports(
+    tmp_path: Path,
+) -> None:
+    linux = tmp_path / "linux.json"
+    windows = tmp_path / "windows.json"
+    _write_platform_reports(
+        linux,
+        windows,
+        linux_report=_pilot_report(repetitions=1),
+        windows_report=_pilot_report(repetitions=1),
+    )
 
     report = aggregate_parallel_pilot.compare_reports(linux, windows)
 
@@ -863,4 +888,4 @@ def test_workflow_isolates_pilot_and_keeps_aggregation_non_authoritative() -> No
     assert "scripts/aggregate_parallel_pilot.py" in aggregate
     assert "continue-on-error: true" in aggregate
     assert "needs: [classifier, preflight, supply-chain, parallel-pilot]" in aggregate
-    assert "parallel_pilot_repetitions" in workflow
+    assert '--repetitions "${{ needs.classifier.outputs.parallel_pilot_repetitions }}"' in pilot
