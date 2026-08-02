@@ -9,7 +9,7 @@ Current delivery mechanics are defined in
 to sole workers, Sol-low workers or old lifecycle PR chains describe past
 execution and are not current operational instructions.
 
-## Current ISSUE-0102 product checkpoint
+## Current ISSUE-0102 completion checkpoint
 
 Bounded repair PR #640 merged independently reviewed exact head
 `049cc5fac353b380090694f059412ec877df6cc1` as
@@ -19,14 +19,19 @@ writer run `30743990686` projected ISSUE-0102 `planned -> ready` and proved a
 zero-action post-write readback; generic convergence run `30743990684` passed
 and `execution_allowed=false` remains unchanged.
 
-The clean `codex/issue0102-product-20260802` lane preserves independently
-approved product commit `297d0999d0bd232a1014f993e4d920da05f7110c` as an
-ancestor after merging exact repaired main. The product PR contains only the
-software, semiconductor, healthcare/pharma and biotechnology adapter/UI scope
-plus ISSUE-0102 `ready -> in_progress` and its single-hop authority. Root
-verification passed 113 focused checks and independent product review passed
-121. Exact-head O-tier validation, writer acceptance and zero-action readback
-are required before the compact two-hop E-tier completion transaction.
+Product PR #641 merged independently approved exact head
+`671ebac2ec5c0fbdd4afc6d9d0f1c953a1ffaa6b` as
+`4a0b87a0a7e18633ffde1fa69e59baa40ce5e03e`. Tier-O run `30744924925`
+and status guard `30744924900` passed. Ordered writer `30745092252`
+projected ISSUE-0102 `ready -> in_progress` with zero-action readback; generic
+convergence `30745092242` passed and `execution_allowed=false` remains false.
+
+The clean `codex/issue0102-complete-20260802` lane starts at that exact merge
+and records only `in_progress -> implemented_initially -> integrated` through
+the existing aggregate replay contract. Both hops bind to PR #641, reviewed
+head, merge commit and validation evidence. Product code, dependencies and
+authority surfaces are unchanged; mechanical generation/check, focused E-tier
+guards, exact-head review, merge and writer/readback verification remain.
 
 ## Prior convergence repair checkpoint (superseded)
 

@@ -3592,6 +3592,28 @@
           "reviewed_date": "2026-08-02",
           "reviewer": "Codex root orchestrator",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product PR #641 merged exact independently approved head 671ebac2ec5c0fbdd4afc6d9d0f1c953a1ffaa6b as 4a0b87a0a7e18633ffde1fa69e59baa40ce5e03e",
+            "Release run 30744924925 classified tier O and passed fresh authority preflight, product/protected preflight, supply chain and terminal validation; status guard 30744924900 passed",
+            "Ordered writer run 30745092252 accepted ISSUE-0102 ready to in_progress with zero-action post-write readback; generic convergence run 30745092242 passed and execution_allowed remains false"
+          ],
+          "review_reference": "PR #641 exact-head product review and tier-O validation",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex independent reviewer and root orchestrator",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product PR #641 merged exact independently approved head 671ebac2ec5c0fbdd4afc6d9d0f1c953a1ffaa6b as 4a0b87a0a7e18633ffde1fa69e59baa40ce5e03e",
+            "Release run 30744924925 classified tier O and passed fresh authority preflight, product/protected preflight, supply chain and terminal validation; status guard 30744924900 passed",
+            "Ordered writer run 30745092252 accepted ISSUE-0102 ready to in_progress with zero-action post-write readback; generic convergence run 30745092242 passed and execution_allowed remains false"
+          ],
+          "review_reference": "PR #641 exact-head product review and tier-O validation",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex independent reviewer and root orchestrator",
+          "status": "integrated"
         }
       ],
       "dependency_edge_evidence": {
@@ -3609,11 +3631,11 @@
         }
       },
       "phase": "phase-03-stock-research",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "status_transition": {
-        "from": "ready",
-        "review_reference": "B04 ISSUE-0102 reviewed implementation start and product checkpoint",
-        "to": "in_progress"
+        "from": "implemented_initially",
+        "review_reference": "PR #641 exact-head product review and tier-O validation",
+        "to": "integrated"
       },
       "transition_history": [
         {
@@ -3670,9 +3692,37 @@
           "reviewer": "Codex root orchestrator",
           "to": "in_progress",
           "verified_commit": "874c9ef277350547ca3eca28d5d5c808d7dea7bb"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Product PR #641 merged exact independently approved head 671ebac2ec5c0fbdd4afc6d9d0f1c953a1ffaa6b as 4a0b87a0a7e18633ffde1fa69e59baa40ce5e03e",
+            "Release run 30744924925 classified tier O and passed fresh authority preflight, product/protected preflight, supply chain and terminal validation; status guard 30744924900 passed",
+            "Ordered writer run 30745092252 accepted ISSUE-0102 ready to in_progress with zero-action post-write readback; generic convergence run 30745092242 passed and execution_allowed remains false"
+          ],
+          "from": "in_progress",
+          "review_reference": "PR #641 exact-head product review and tier-O validation",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex independent reviewer and root orchestrator",
+          "to": "implemented_initially",
+          "verified_commit": "4a0b87a0a7e18633ffde1fa69e59baa40ce5e03e"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Product PR #641 merged exact independently approved head 671ebac2ec5c0fbdd4afc6d9d0f1c953a1ffaa6b as 4a0b87a0a7e18633ffde1fa69e59baa40ce5e03e",
+            "Release run 30744924925 classified tier O and passed fresh authority preflight, product/protected preflight, supply chain and terminal validation; status guard 30744924900 passed",
+            "Ordered writer run 30745092252 accepted ISSUE-0102 ready to in_progress with zero-action post-write readback; generic convergence run 30745092242 passed and execution_allowed remains false"
+          ],
+          "from": "implemented_initially",
+          "review_reference": "PR #641 exact-head product review and tier-O validation",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex independent reviewer and root orchestrator",
+          "to": "integrated",
+          "verified_commit": "4a0b87a0a7e18633ffde1fa69e59baa40ce5e03e"
         }
       ],
-      "verified_commit": "874c9ef277350547ca3eca28d5d5c808d7dea7bb",
+      "verified_commit": "4a0b87a0a7e18633ffde1fa69e59baa40ce5e03e",
       "verified_date": "2026-08-02"
     },
     "ISSUE-0103": {

@@ -32,7 +32,7 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   workflow, authority, security, persistence, financial, package and release
   surfaces remain H-tier.
 
-## Current ISSUE-0102 product checkpoint
+## Current ISSUE-0102 completion checkpoint
 
 - ISSUE-0102 dependency PR #638 merged exact reviewed head
   `871ea037c594844a0de9e72e7dbabd3405244b76` as
@@ -41,22 +41,25 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   gates and terminal validation; guard `30737461338` passed. Post-merge
   convergence `30738361187` was zero action at checksum
   `da979ae3fef7344ff4e492bd4468f8a3653e329f6121cb13ba9f2e2a003c1b8f`.
-- Clean product lane:
-  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0102_product`;
-  branch `codex/issue0102-product-20260802`. Reviewed product commit
-  `297d0999d0bd232a1014f993e4d920da05f7110c` is preserved as an ancestor
-  after merging exact repaired main `874c9ef277350547ca3eca28d5d5c808d7dea7bb`.
-- Product scope is limited to software, semiconductor, healthcare/pharma and
-  biotechnology adapters, their source-linked evidence/replay rules and the
-  Innovation/Healthcare Instrument Detail surface. Root verification passed
-  113 focused checks and independent exact-product review passed 121 checks.
-- The same product PR records only ISSUE-0102 `ready -> in_progress` and
-  carries one reviewed pending-status authority. After exact-head O-tier
-  validation and merge, the ordered writer must project `in_progress` with a
-  zero-action readback before one compact E-tier completion transaction records
-  `in_progress -> implemented_initially -> integrated`. Product code,
-  dependency edges, external authority and `execution_allowed=false` must not
-  change during completion.
+- Product PR #641 merged independently approved exact head
+  `671ebac2ec5c0fbdd4afc6d9d0f1c953a1ffaa6b` as
+  `4a0b87a0a7e18633ffde1fa69e59baa40ce5e03e`. Tier-O run `30744924925`
+  passed fresh authority and product preflight, supply chain and terminal
+  validation; status guard `30744924900` passed.
+- Ordered writer run `30745092252` projected ISSUE-0102
+  `ready -> in_progress` and recorded `zero_action_readback=true`;
+  generic convergence run `30745092242` passed and
+  `execution_allowed=false` remains unchanged.
+- Clean completion lane:
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0102_complete`;
+  branch `codex/issue0102-complete-20260802`; exact base
+  `4a0b87a0a7e18633ffde1fa69e59baa40ce5e03e`, initially empty. Scope is
+  exactly the ordered two-hop replay
+  `in_progress -> implemented_initially -> integrated`, bound to PR #641,
+  its reviewed exact head, merge commit and completed validation evidence.
+  No product code, dependency edge, external authority or execution policy may
+  change. Exact next action is mechanical generation/check, status-replay
+  authority preparation, focused E-tier guards and exact-head review.
 
 ### Prior dependency-edge checkpoint (superseded)
 
