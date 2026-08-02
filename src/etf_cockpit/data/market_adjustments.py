@@ -247,6 +247,7 @@ class CorporateActionCoverage:
     source_id: str
     source_checksum: str
     status: str = "active"
+    _canonical_evidence_digest: str = field(default="", init=False, repr=False, compare=False)
     execution_allowed: bool = field(default=False, init=False)
 
     def __post_init__(self) -> None:
@@ -271,7 +272,34 @@ class CorporateActionCoverage:
             raise MarketAdjustmentError(f"unsupported coverage status: {self.status}")
 
     def as_dict(self) -> dict[str, object]:
-        return asdict(self)
+        value = asdict(self)
+        value.pop("_canonical_evidence_digest", None)
+        return value
+
+
+def _coverage_evidence_digest(coverage: CorporateActionCoverage) -> str:
+    payload = json.dumps(
+        coverage.as_dict(),
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _mark_canonical_coverage(coverage: CorporateActionCoverage) -> CorporateActionCoverage:
+    object.__setattr__(coverage, "_canonical_evidence_digest", _coverage_evidence_digest(coverage))
+    return coverage
+
+
+def is_canonical_corporate_action_coverage(value: object) -> bool:
+    """Return whether coverage came through the append-only canonical store unchanged."""
+
+    return (
+        isinstance(value, CorporateActionCoverage)
+        and bool(value._canonical_evidence_digest)
+        and value._canonical_evidence_digest == _coverage_evidence_digest(value)
+    )
 
 
 @dataclass(frozen=True)
@@ -468,7 +496,7 @@ class CorporateActionCoverageStore(_ObservationStore):
             published_at=coverage.published_at,
             status=coverage.status,
         )
-        return coverage
+        return _mark_canonical_coverage(coverage)
 
     record = append
 
@@ -476,7 +504,7 @@ class CorporateActionCoverageStore(_ObservationStore):
         values = self._values(entity_id=instrument_id, decision_time=known_at)
         valid_cutoff = pd.Timestamp(_utc(valid_at, "valid_at"))
         known_cutoff = pd.Timestamp(_utc(known_at, "known_at"))
-        rows = [_coverage_from_value(value) for value in values]
+        rows = [_mark_canonical_coverage(_coverage_from_value(value)) for value in values]
         return tuple(
             sorted(
                 (
@@ -608,6 +636,7 @@ class AdjustmentResult:
     applied_ratio: float = 1.0
     raw_prices: tuple[float, ...] = ()
     execution_allowed: bool = False
+    _canonical_derivation_digest: str = field(default="", init=False, repr=False, compare=False)
 
     @property
     def available(self) -> bool:
@@ -617,6 +646,52 @@ class AdjustmentResult:
         if self.raw_prices:
             return self.raw_prices
         return tuple(float(value) for value in (_raw_prices or ()))
+
+
+def _adjustment_frame_digest(frame: pd.DataFrame) -> str:
+    payload = frame.to_json(
+        orient="split",
+        date_format="iso",
+        date_unit="ns",
+        double_precision=15,
+        index=True,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _adjustment_derivation_digest(result: AdjustmentResult) -> str:
+    payload = {
+        "status": result.status,
+        "frame_sha256": _adjustment_frame_digest(result.frame),
+        "convention": result.convention,
+        "action_reconciliation": [asdict(item) for item in result.action_reconciliation],
+        "warnings": list(result.warnings),
+        "price_return": result.price_return,
+        "income_return": result.income_return,
+        "total_return": result.total_return,
+        "adjusted_prices": list(result.adjusted_prices),
+        "action_ids": list(result.action_ids),
+        "applied_ratio": result.applied_ratio,
+        "raw_prices": list(result.raw_prices),
+        "execution_allowed": result.execution_allowed,
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _mark_canonical_adjustment(result: AdjustmentResult) -> AdjustmentResult:
+    object.__setattr__(result, "_canonical_derivation_digest", _adjustment_derivation_digest(result))
+    return result
+
+
+def is_canonical_adjustment_result(value: object) -> bool:
+    """Return whether the canonical adjustment generator issued this unchanged result."""
+
+    return (
+        isinstance(value, AdjustmentResult)
+        and bool(value._canonical_derivation_digest)
+        and value._canonical_derivation_digest == _adjustment_derivation_digest(value)
+    )
 
 
 def apply_total_return_adjustments(
@@ -647,7 +722,7 @@ def apply_total_return_adjustments(
         income_return = sum(item.net_cash_amount for item in actions if item.cash_flow_classification == "investment_income") / values[0]
         security_cash = sum(item.net_cash_amount for item in actions)
         total_return = (values[-1] * ratio + security_cash) / values[0] - 1.0
-        return AdjustmentResult(
+        return _mark_canonical_adjustment(AdjustmentResult(
             "available",
             pd.DataFrame({"raw_close": values, "adjusted_close": adjusted}),
             convention,
@@ -660,7 +735,7 @@ def apply_total_return_adjustments(
             tuple(item.action_id for item in actions),
             ratio,
             values,
-        )
+        ))
     required = {"date", "close"}
     missing = required - set(raw_prices.columns)
     if missing:
@@ -687,7 +762,7 @@ def apply_total_return_adjustments(
             continue
         selected.append(next(item for item in candidates if item.source_id == report.selected_source_id))
     if any(item.status == "quarantined" for item in reconciliations):
-        return AdjustmentResult("quarantined", _unavailable_adjustment_frame(frame), convention, tuple(reconciliations), tuple(warnings))
+        return _mark_canonical_adjustment(AdjustmentResult("quarantined", _unavailable_adjustment_frame(frame), convention, tuple(reconciliations), tuple(warnings)))
 
     events: dict[pd.Timestamp, list[CorporateAction]] = defaultdict(list)
     for action in selected:
@@ -732,7 +807,7 @@ def apply_total_return_adjustments(
     frame["adjusted_close"] = frame["total_return_index"] * float(frame["raw_close"].iloc[-1]) / float(frame["total_return_index"].iloc[-1])
     frame["total_return_convention"] = convention
     frame["execution_allowed"] = False
-    return AdjustmentResult("available", frame, convention, tuple(reconciliations), tuple(warnings))
+    return _mark_canonical_adjustment(AdjustmentResult("available", frame, convention, tuple(reconciliations), tuple(warnings)))
 
 
 def _unavailable_adjustment_frame(frame: pd.DataFrame) -> pd.DataFrame:
