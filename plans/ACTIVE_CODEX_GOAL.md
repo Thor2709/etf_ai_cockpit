@@ -73,18 +73,38 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   classifier, preflight, supply chain, authoritative Linux/Windows package
   gates and terminal validation; guard `30748705679` passed. Exact-main
   convergence `30749425839` passed.
-- Current clean readiness lane:
-  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0103_ready`;
-  branch `codex/issue0103-ready-20260802`; exact base
-  `4324ee6af1321cf7ea60a6f03b381c1f1979edb0`, initially empty.
-- Scope advances only ISSUE-0103 `planned -> ready`, preserving the reviewed
-  ISSUE-0084 edge, UPDATEV2-0015 closed-ledger resolution, product scope,
-  dependency lists and `execution_allowed=false`. The sole live #243 status
-  update has semantic SHA
-  `78d6759c5b6812d17b5e3a93bcb3bb03111a64528a50e12162e11352047b769f`
-  and authority `43a7be21b37e56f896e4a9cb32a24932cf6309d12a9999bf85c7117049aa88b0`.
-  Next is focused E-tier validation, exact-head review, merge, writer/readback,
-  then ISSUE-0103 product implementation.
+- ISSUE-0103 readiness PR #645 merged independently approved exact head
+  `5b5edb44307244e231582e268e227fcf63c211a1` as
+  `2428af72525474d306cf9c04e6c9ecdaef213caa`. Run `30749699624` passed
+  classifier, preflight, supply chain, authoritative Linux/Windows package
+  gates and terminal validation; its status guard passed. Ordered writer
+  `30750550860` applied only ISSUE-0103 `planned -> ready`, returned
+  `terminal_status=applied_and_verified`, `zero_action_readback=true` and
+  retained `execution_allowed=false`; automatic convergence `30750550864`
+  passed.
+- A fresh generic exact-main live reconciliation from merge
+  `2428af72525474d306cf9c04e6c9ecdaef213caa` produced zero create, update,
+  close, reopen or blocked actions at plan SHA
+  `4b5797a809179b80f1f964cd4080bff436411e23544b7abb4e5cb0ead42df71f`.
+- Current clean product lane:
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0103_product`;
+  branch `codex/issue0103-product-20260802`; exact base and starting head
+  `2428af72525474d306cf9c04e6c9ecdaef213caa`, with an empty initial diff.
+  Scope is the bounded ISSUE-0103 ETF economics implementation and focused
+  tests/UI exposure while preserving ISSUE-0106 liquidity, all authority
+  boundaries and `execution_allowed=false`.
+- The finished bounded product diff adds typed local ETF economics and
+  canonical total-return evidence, explicit fee/AUM/flow units, known-at
+  replay, matched business-daily tracking metadata, a versioned
+  provenance-bound closure proxy policy, normal snapshot loading and the ETF
+  Economics panel. Existing ISSUE-0106 liquidity code remains byte-identical.
+- Root validation passed 120 focused economics, instrument-detail, UI and
+  architecture tests plus targeted Ruff, compile and diff hygiene; the final
+  economics regression suite passed 30 tests. Independent whole-diff and
+  financial/point-in-time reviewers approved the stable corrected diff after
+  all mismatch, look-ahead, checksum, non-finite, unit and UI counterexamples
+  failed closed. Next is an immutable product evidence commit followed by the
+  existing `ready -> in_progress` automatic lifecycle preparation.
 
 ### Prior dependency-edge checkpoint (superseded)
 

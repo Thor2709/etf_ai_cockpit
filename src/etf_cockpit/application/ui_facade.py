@@ -29,6 +29,7 @@ from etf_cockpit.data.bulk_cache import *  # noqa: F401,F403
 from etf_cockpit.data.decision_journal import *  # noqa: F401,F403
 from etf_cockpit.data.forward_evidence_diary import *  # noqa: F401,F403
 from etf_cockpit.data.event_calendar import *  # noqa: F401,F403
+from etf_cockpit.data.etf_economics import *  # noqa: F401,F403
 from etf_cockpit.data.export_tables import *  # noqa: F401,F403
 from etf_cockpit.data.fund_documents import *  # noqa: F401,F403
 from etf_cockpit.data.fund_holdings import *  # noqa: F401,F403
