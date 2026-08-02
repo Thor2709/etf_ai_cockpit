@@ -242,11 +242,11 @@ def prepare(
     elif mode == "status":
         if (
             action.get("kind") != "update"
-            or action.get("programme_status") != "integrated"
             or plan.get("summary")
-            != {"create": 0, "update": 1, "close": 0, "reopen": 0, "blocked": 0}
+            != completion.ONE_UPDATE_SUMMARY
+            or action.get("desired_state") != "open"
         ):
-            raise ValueError("status preparation requires exactly one integrated update")
+            raise ValueError("status preparation requires exactly one open status update")
         number = int(action.get("remote_number", 0))
         matches = [
             sync.normalise_remote_issue(issue)
@@ -255,13 +255,9 @@ def prepare(
         ]
         if len(matches) != 1:
             raise ValueError("status preparation target identity is ambiguous")
-        target = matches[0]
-        status_projection = target.get("status_projection")
-        from_status = (
-            str(status_projection.get("status", ""))
-            if isinstance(status_projection, dict)
-            else ""
-        )
+        target, from_status = completion._accepted_remote_status_projection(matches[0])
+        to_status = action.get("programme_status")
+        completion.validate_single_hop_status_transition(from_status, to_status)
         safe_action = sync.safe_plan_evidence(plan, remote)["actions"][0]
         if safe_action.get("managed_field_deltas") != ["Programme status"]:
             raise ValueError("status preparation action is not status-only")
@@ -272,7 +268,7 @@ def prepare(
             "node_id": str(target["node_id"]),
             "source_sha": source_sha,
             "from_status": from_status,
-            "to_status": "integrated",
+            "to_status": str(to_status),
             "plan_sha256": plan_sha,
         }
         candidate = {
@@ -285,7 +281,7 @@ def prepare(
             "expected_update": {
                 "stable_id": core["stable_id"],
                 "from_status": from_status,
-                "to_status": "integrated",
+                "to_status": str(to_status),
             },
         }
         candidate_bytes = gateway._json_bytes(candidate)

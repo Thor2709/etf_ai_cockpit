@@ -165,6 +165,72 @@ def _remote(status: str = "implemented_initially") -> list[dict[str, object]]:
     ]
 
 
+def _remote_with_status_event(
+    raw_status: str, event_to_status: str
+) -> list[dict[str, object]]:
+    issue = copy.deepcopy(_remote(raw_status)[0])
+    predecessor_id, predecessor_hash = gateway._legacy_anchor(
+        "ISSUE-0179", raw_status
+    )
+    event, event_body = gateway.build_status_event(
+        stable_id="ISSUE-0179",
+        from_status=raw_status,
+        to_status=event_to_status,
+        source_sha=PARENT,
+        head_sha=HEAD,
+        candidate_blob_sha256="e" * 64,
+        plan_sha256="f" * 64,
+        predecessor_event_id=predecessor_id,
+        predecessor_event_sha256=predecessor_hash,
+        event_name="push",
+        event_ref="refs/heads/main",
+        run_attempt="1",
+        event_before=PARENT,
+        event_after=HEAD,
+        actor="merger",
+        pusher="merger",
+        run_id="12345",
+        run_number="7",
+        workflow_ref=RUN_ATTESTATION["workflow_ref"],
+        repository=gateway.REPO,
+        event_payload_sha256=RUN_ATTESTATION["event_payload_sha256"],
+        authority_id="1" * 64,
+        authority_sequence=1,
+        ledger_blob_oid="2" * 40,
+        ledger_blob_sha256="3" * 64,
+        candidate_blob_oid="4" * 40,
+    )
+    proposal = {
+        "id": event["mutation_id"],
+        "node_id": "proposal-node",
+        "body": event_body,
+        "author": {
+            "login": "github-actions[bot]",
+            "type": "Bot",
+            "id": int(gateway.GITHUB_ACTIONS_BOT_USER_ID),
+        },
+        "performed_via_github_app": {
+            "slug": "github-actions",
+            "id": int(gateway.GITHUB_ACTIONS_APP_ID),
+        },
+        "createdAt": "2026-08-02T00:00:01Z",
+        "updatedAt": "2026-08-02T00:00:01Z",
+    }
+    proposal_snapshot = gateway.normalise_issue_snapshot(issue)
+    proposal_snapshot["comments"] = [gateway.normalise_comment(proposal)]
+    _receipt, receipt_body = gateway.build_event_receipt(
+        event, gateway.normalise_comment(proposal), proposal_snapshot
+    )
+    receipt = {
+        **proposal,
+        "id": "receipt-id",
+        "node_id": "receipt-node",
+        "body": receipt_body,
+    }
+    issue["comments"] = [proposal, receipt]
+    return [issue]
+
+
 def _bootstrap() -> dict[str, object]:
     return gateway.build_authority_record(
         "legacy_bootstrap",
@@ -796,6 +862,58 @@ def test_candidate_rejects_wrong_id_and_non_status_delta() -> None:
         completion.validate_candidate(changed_candidate, changed, remote)
 
 
+def test_candidate_uses_accepted_comment_projection_when_body_lags() -> None:
+    remote = _remote_with_status_event("planned", "ready")
+    plan = sync.plan_actions(
+        {"records": [_record("in_progress")]}, remote, historical_map={}
+    )
+    candidate = {
+        "schema_version": completion.SCHEMA_VERSION,
+        "execution_allowed": False,
+        "expected_parent_sha": PARENT,
+        "authority_ref": "a" * 64,
+        "remote_inventory_sha256": plan["remote_inventory_sha256"],
+        "plan_semantic_sha256": plan["plan_sha256"],
+        "expected_update": {
+            "stable_id": "ISSUE-0179",
+            "from_status": "ready",
+            "to_status": "in_progress",
+        },
+    }
+
+    assert "- Programme status: `planned`" in str(remote[0]["body"])
+    assert sync.normalise_remote_issue(remote[0])["status_projection"]["status"] == "ready"
+    completion.validate_candidate(candidate, plan, remote)
+
+
+def test_candidate_rejects_malformed_status_projection() -> None:
+    valid_remote = _remote_with_status_event("planned", "ready")
+    valid_plan = sync.plan_actions(
+        {"records": [_record("in_progress")]}, valid_remote, historical_map={}
+    )
+    remote = copy.deepcopy(valid_remote)
+    remote[0]["comments"][1]["body"] = gateway.EVENT_RECEIPT_PREFIX + "{}"
+    plan = copy.deepcopy(valid_plan)
+    plan["remote_inventory_sha256"] = sync.inventory_sha256(remote)
+    plan["plan_sha256"] = sync.plan_sha256(plan)
+    candidate = {
+        "schema_version": completion.SCHEMA_VERSION,
+        "execution_allowed": False,
+        "expected_parent_sha": PARENT,
+        "authority_ref": "a" * 64,
+        "remote_inventory_sha256": plan["remote_inventory_sha256"],
+        "plan_semantic_sha256": plan["plan_sha256"],
+        "expected_update": {
+            "stable_id": "ISSUE-0179",
+            "from_status": "ready",
+            "to_status": "in_progress",
+        },
+    }
+
+    with pytest.raises(ValueError, match="accepted remote projection"):
+        completion.validate_candidate(candidate, plan, remote)
+
+
 @pytest.mark.parametrize("kind", ["create", "close", "reopen", "blocked"])
 def test_candidate_rejects_non_update_actions(kind: str) -> None:
     remote, plan, candidate = _plan_and_candidate()
@@ -943,6 +1061,25 @@ def _replay_canonical() -> tuple[
         },
     }
     return remote, plan, candidate, source, current
+
+
+def test_two_hop_replay_accepts_prior_single_hop_writer_projection() -> None:
+    _remote_before, _plan, candidate, source, current = _replay_canonical()
+    remote = _remote_with_status_event("planned", "in_progress")
+    plan = sync.plan_actions(
+        {"records": [current]}, remote, historical_map={}
+    )
+    replay_candidate = copy.deepcopy(candidate)
+    replay_candidate["remote_inventory_sha256"] = plan["remote_inventory_sha256"]
+    replay_candidate["plan_semantic_sha256"] = plan["plan_sha256"]
+
+    completion.validate_candidate(
+        replay_candidate,
+        plan,
+        remote,
+        source_record=source,
+        current_record=current,
+    )
 
 
 def test_two_hop_replay_candidate_accepts_canonical_prefix_and_independent_hops() -> None:

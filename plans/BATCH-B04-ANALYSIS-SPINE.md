@@ -9,6 +9,44 @@ Current delivery mechanics are defined in
 to sole workers, Sol-low workers or old lifecycle PR chains describe past
 execution and are not current operational instructions.
 
+## Current convergence repair checkpoint
+
+PR #639 merged as `26a3b5e7902b1c77df00d15f8e4ece472828f744`; its read-only
+Programme convergence run `30739727616` failed closed with exactly one
+status-only update at live-plan checksum
+`4754b3f8b395c3c3d6595a4756a6c9c4a2b20bd2303516745212227f94a823cc`.
+The bounded repair lane is branch
+`codex/pending-status-convergence-20260802` in
+`C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_pending_status_convergence`,
+based on exact SHA `26a3b5e7902b1c77df00d15f8e4ece472828f744`; it remains
+uncommitted and no new PR or merge is claimed here.
+
+The permitted repair cycle is one fail-closed append through the existing sole
+writer: schema-v2 status authority accepts exactly one legal status-only hop to
+`ready`, `in_progress` or `integrated`, bound to the exact issue/remote
+identity, parent/head, candidate, plan, ledger and workflow attestation.
+Downgrades, skipped transitions, terminal/unrelated statuses, create/close/
+reopen/blocked actions, non-status deltas and malformed projections remain
+rejected. The accepted comment projection is authoritative when the raw body
+anchor lags. The unchanged completion authority remains exactly
+`in_progress -> implemented_initially -> integrated`. The classifier
+correction is limited to exact active-goal and established
+`plans/BATCH-B<digits...>.md` chronology surfaces as E; all protected workflow,
+script, policy, security, authority, persistence, financial and release
+surfaces remain H. The abandoned deferral-only attempt failed closed and was
+restored. A fresh live read reproduced exactly one ISSUE-0102 status-only
+update at plan checksum
+`4754b3f8b395c3c3d6595a4756a6c9c4a2b20bd2303516745212227f94a823cc`;
+repository-only preparation produced authority
+`1e9de93977b28d6fc60f9992c6bad5f0fe4fc3f1a50a777376e6300810509ab1`
+and candidate SHA-256
+`25f4a2477a68702a584aae59e2a21be4cc9527aa6bc1642b163757f7c3bb9f21`
+for `planned -> ready`, preserving `execution_allowed=false`. The focused
+authority/classifier/summary suite passed 286 tests and the root four-suite
+rerun passed 225; Mypy, targeted Ruff, compile, workflow parsing, diff hygiene,
+atomic generation and byte-clean check mode passed. H-tier CI and independent
+review/risk review remain pending; no PR or merge is claimed.
+
 `IN_PROGRESS/READINESS` ISSUE-0102 dependency PR #638 merged exact reviewed
 head `871ea037c594844a0de9e72e7dbabd3405244b76` as
 `179e16c71328c43a9475dce60743a2d1aeda5aa7`. Release run `30737461361`

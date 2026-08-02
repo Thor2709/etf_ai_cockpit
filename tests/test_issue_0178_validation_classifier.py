@@ -316,7 +316,30 @@ def test_evidence_tier_is_a_closed_projection_allowlist() -> None:
         assert build_report([generated_path])["tier"] == "E"
     assert build_report(["docs/product-completion/programme/notes.md"])["tier"] == "H"
     assert build_report(["docs/product-completion/programme/roadmap.md.bak"])["tier"] == "H"
-    assert build_report(["plans/ACTIVE_CODEX_GOAL.md"])["tier"] == "H"
+    assert build_report(["plans/ACTIVE_CODEX_GOAL.md"])["tier"] == "E"
+
+
+def test_checkpoint_chronology_allowlist_is_narrow_and_content_independent() -> None:
+    positive = [
+        "plans/ACTIVE_CODEX_GOAL.md",
+        "plans/BATCH-B04-ANALYSIS-SPINE.md",
+        "plans/BATCH-B02-DATA-SPINE-CONTINUATION.md",
+    ]
+    negative = [
+        "plans/BATCH.md",
+        "plans/ATOMIC_FAST_PATH_METRICS.md",
+        "plans/BATCH-DOCS-SDD-20260802.md",
+        "plans/BATCH-B04-ANALYSIS-SPINE.txt",
+        "plans/arbitrary-checkpoint.md",
+    ]
+
+    assert all(build_report([path])["tier"] == "E" for path in positive)
+    assert all(build_report([path])["tier"] == "H" for path in negative)
+    assert build_report(
+        [positive[0], "scripts/classify_validation.py"]
+    )["tier"] == "H"
+    assert build_report(["AGENTS.md"])["tier"] == "H"
+    assert build_report(["docs/product-completion/DELIVERY_WORKFLOW.md"])["tier"] == "H"
 
 
 def test_identical_forged_head_files_cannot_authorize_e_reuse(
