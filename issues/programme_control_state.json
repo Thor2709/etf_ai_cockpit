@@ -8946,15 +8946,37 @@
           "reviewed_date": "2026-08-02",
           "reviewer": "Codex root orchestrator and independent reviewers",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product PR #651 merged exact independently approved head ccff5d7421d01df7bdcbfde3f3158893f5c449f2 as 7bffd0c57a992f599008a658425fc23575b9aef8",
+            "Release run 30772069784 classified tier H and passed preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; status guard 30772069791 passed",
+            "Ordered writer run 30773099083 applied UPDATEV2-0018 ready to in_progress with zero_action_readback=true; generic convergence run 30773099086 produced no patch and execution_allowed=false remains unchanged"
+          ],
+          "review_reference": "PR #651 exact-head whole-diff and risk reviews plus H-tier validation",
+          "reviewed_date": "2026-08-03",
+          "reviewer": "Codex independent reviewers and root orchestrator",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product PR #651 merged exact independently approved head ccff5d7421d01df7bdcbfde3f3158893f5c449f2 as 7bffd0c57a992f599008a658425fc23575b9aef8",
+            "Release run 30772069784 classified tier H and passed preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; status guard 30772069791 passed",
+            "Ordered writer run 30773099083 applied UPDATEV2-0018 ready to in_progress with zero_action_readback=true; generic convergence run 30773099086 produced no patch and execution_allowed=false remains unchanged"
+          ],
+          "review_reference": "PR #651 exact-head whole-diff and risk reviews plus H-tier validation",
+          "reviewed_date": "2026-08-03",
+          "reviewer": "Codex independent reviewers and root orchestrator",
+          "status": "integrated"
         }
       ],
       "dependency_edge_evidence": {},
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "status_transition": {
-        "from": "ready",
-        "review_reference": "B04 UPDATEV2-0018 reviewed ETF report evidence implementation start",
-        "to": "in_progress"
+        "from": "implemented_initially",
+        "review_reference": "PR #651 exact-head whole-diff and risk reviews plus H-tier validation",
+        "to": "integrated"
       },
       "transition_history": [
         {
@@ -8982,10 +9004,38 @@
           "reviewer": "Codex root orchestrator and independent reviewers",
           "to": "in_progress",
           "verified_commit": "772d297264c071f83bb668d2190723e969b12cde"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Product PR #651 merged exact independently approved head ccff5d7421d01df7bdcbfde3f3158893f5c449f2 as 7bffd0c57a992f599008a658425fc23575b9aef8",
+            "Release run 30772069784 classified tier H and passed preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; status guard 30772069791 passed",
+            "Ordered writer run 30773099083 applied UPDATEV2-0018 ready to in_progress with zero_action_readback=true; generic convergence run 30773099086 produced no patch and execution_allowed=false remains unchanged"
+          ],
+          "from": "in_progress",
+          "review_reference": "PR #651 exact-head whole-diff and risk reviews plus H-tier validation",
+          "reviewed_date": "2026-08-03",
+          "reviewer": "Codex independent reviewers and root orchestrator",
+          "to": "implemented_initially",
+          "verified_commit": "7bffd0c57a992f599008a658425fc23575b9aef8"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Product PR #651 merged exact independently approved head ccff5d7421d01df7bdcbfde3f3158893f5c449f2 as 7bffd0c57a992f599008a658425fc23575b9aef8",
+            "Release run 30772069784 classified tier H and passed preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; status guard 30772069791 passed",
+            "Ordered writer run 30773099083 applied UPDATEV2-0018 ready to in_progress with zero_action_readback=true; generic convergence run 30773099086 produced no patch and execution_allowed=false remains unchanged"
+          ],
+          "from": "implemented_initially",
+          "review_reference": "PR #651 exact-head whole-diff and risk reviews plus H-tier validation",
+          "reviewed_date": "2026-08-03",
+          "reviewer": "Codex independent reviewers and root orchestrator",
+          "to": "integrated",
+          "verified_commit": "7bffd0c57a992f599008a658425fc23575b9aef8"
         }
       ],
-      "verified_commit": "772d297264c071f83bb668d2190723e969b12cde",
-      "verified_date": "2026-08-02"
+      "verified_commit": "7bffd0c57a992f599008a658425fc23575b9aef8",
+      "verified_date": "2026-08-03"
     },
     "UPDATEV2-0019": {
       "acceptance_evidence": [],

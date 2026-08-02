@@ -76,6 +76,22 @@ UI acceptance inventory. The bounded product correction adds exactly those
 import/verify/reject contracts and explicit button-inventory coverage before a
 replacement exact head is frozen.
 
+PR #651 then merged independently approved exact head
+`ccff5d7421d01df7bdcbfde3f3158893f5c449f2` as
+`7bffd0c57a992f599008a658425fc23575b9aef8`. H-tier run `30772069784`
+passed Linux, Windows and terminal validation and status guard `30772069791`
+passed. Writer `30773099083` applied only `ready -> in_progress` with
+zero-action readback; generic convergence `30773099086` produced no patch and
+`execution_allowed=false` remains unchanged. The clean
+`codex/updatev2-0018-completion-20260803` lane starts at that exact merge and
+records only `in_progress -> implemented_initially -> integrated`, bound to
+the reviewed PR #651 product evidence. Exact live plan
+`ce935663ef8c49098b5b53f24fa0827b33370cc7f134cb1d946de6eddf9d56d7`,
+replay authority `6d5f03adc998d774a53d517bcb110d7d02da442ce8dbf8a42a5457238719749a`
+and candidate ref
+`bc7b8e36f23681298376e15fe631b463001b2ffeaf253038383395aa849800b3`
+bind the aggregate transaction and preserve `execution_allowed=false`.
+
 ## Completed ISSUE-0102 and current bounded readback repair
 
 Bounded repair PR #640 merged independently reviewed exact head
