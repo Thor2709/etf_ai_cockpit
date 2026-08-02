@@ -147,6 +147,15 @@ def test_document_registry_backfills_blank_source_id_from_provenance(tmp_path: P
     assert stored.loc[0, "source_id"].startswith("funddoc:")
 
 
+def test_generic_document_import_rejects_report_kinds_and_v2_registry_has_kind_status_columns(tmp_path: Path) -> None:
+    source = tmp_path / "report.pdf"
+    source.write_bytes(b"report")
+    with pytest.raises(ValueError, match="typed ETF report import API"):
+        import_etf_document(source, instrument_id="VWCE", document_type="annual_report")
+    inventory = build_document_inventory(["VWCE"])
+    assert {"document_kind", "extraction_status"} <= set(inventory.columns)
+
+
 def test_trust_artifact_inventory_emits_missing_rows_for_each_configured_instrument(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

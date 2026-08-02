@@ -13,37 +13,43 @@ former active-goal record and chronology are archived in
 `plans/archive/ATOMIC_FAST_PATH_ISSUE-0179-0180_2026-07-31.md`. Current delivery
 mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 
-## Current UPDATEV2-0018 checkpoint
+## Current UPDATEV2-0018 product checkpoint
 
-- Readiness PR #649 merged independently reviewed head
-  `8fe1b7ca9d02313def767e66e05838be236ec5ab` as
-  `efda3f3f8d9fbb075a902af37102b0752e5aba27` after release run
-  `30766666042` passed Linux, Windows and terminal validation. Automatic
-  convergence run `30767687270` then failed closed because the readiness PR
-  omitted the existing one-hop candidate and authority ledger append.
-- The single permitted repair cycle is isolated on clean branch
-  `codex/updatev2-0018-ready-authority-repair-20260802` at exact base
-  `efda3f3f8d9fbb075a902af37102b0752e5aba27`. It adds only the deterministic
-  UPDATEV2-0018/#158 `planned -> ready` candidate and one append-only authority
-  record for reviewed plan
-  `6bda2fed8424495b569499cb3ea1bfae11db7d2f78c192c924c4d43f2f97e1f8`;
-  `execution_allowed=false` remains unchanged.
-- Exact `origin/main` is
-  `745dfd9f747f95aa6cb0e3cbc6f25c4ac5a2de0c`; the dedicated readiness lane
-  `codex/updatev2-0018-ready-20260802` started byte-clean from that commit.
-- Canonical readiness is true with no blocking dependencies. This bounded
-  E-tier transaction advances only UPDATEV2-0018 `planned -> ready`, updates
-  the two allowlisted chronology files, regenerates all projections
-  mechanically, and preserves `execution_allowed=false`.
-- The isolated product lane is stable at
-  `6f41972a735b8dd8e98eac4c894685f027e06f99`. Its bounded local parser,
-  provenance, atomic persistence, Trust Evidence UI and adversarial tests are
-  under independent whole-diff and risk review. The product head will be
-  rebased onto the merged readiness commit before fresh H-tier validation.
-- Next action: complete exact readiness guards and review, merge the readiness
-  transaction with checksum-controlled GitHub convergence, then rebase and
-  re-review the product lane. Do not modify scoring, broker/provider authority,
-  external execution or unrelated programme state.
+- Readiness PR #649 merged as
+  `efda3f3f8d9fbb075a902af37102b0752e5aba27` after full Linux/Windows
+  validation. Its one permitted omission repair PR #650 merged exact reviewed
+  head `728d7a880947907169c25fded95774b6f8b11845` as
+  `772d297264c071f83bb668d2190723e969b12cde`; writer run `30769324802`
+  returned `terminal_status=applied_and_verified` and
+  `zero_action_readback=true`. Fresh generic readback plan
+  `371b004ccb8c0ebabceaa5242bb705b793b3cb8093b80c31f7cb5e7be457f44a`
+  has zero actions and reconciled authority head `f12d3055...`.
+- UPDATEV2-0018 is canonically and remotely `ready`, with no blocking
+  dependencies. ISSUE-0104 remains planned and structural-risk scoring is
+  outside this product change.
+- The first uncommitted implementation failed independent review on reproduced
+  persistence, source-binding, truncation and review-integrity defects. It is
+  isolated at
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_updatev2_0018` and
+  preserved outside the repository at
+  `C:\Users\thor2\AppData\Local\Temp\updatev2-0018-rejected-attempt-20260802-001`;
+  it must not be committed or pushed.
+- The clean v2 lane is
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_updatev2_0018_v2`
+  on `codex/updatev2-0018-product-20260802-v2`, rebased onto exact
+  `772d297264c071f83bb668d2190723e969b12cde`.
+  Its bounded H-tier scope is deterministic three-kind local report parsing,
+  hard subprocess resource bounds, immutable checksum/date/kind/authority
+  binding, serialized atomic registry/report/conflict persistence, advisory
+  fingerprint-bound human review and Trust Evidence visibility. It adds no
+  provider download, OCR, generative extraction, scoring, order or execution
+  authority.
+- Pre-rebase focused validation passed 112 tests with one expected Windows
+  skip; independent whole-diff and risk reviews approved exact head
+  `6f41972a735b8dd8e98eac4c894685f027e06f99`. After rebase, rerun exact-head
+  review and fresh authoritative Linux/Windows H-tier gates before protected
+  product merge and automatic lifecycle completion. `score_eligible=false`
+  and `execution_allowed=false` remain enforced.
 
 ## Completed convergence repair checkpoint
 

@@ -252,3 +252,87 @@ def test_corrupt_parsed_store_fails_closed_without_overwriting_prior_bytes(tmp_p
         persist_priips_kid_result(_kid_result(), "VWCE", destination=destination)
 
     assert destination.read_bytes() == prior
+def _v2_report_result(path: Path, *, kind: str = "prospectus", fund_name: str = "Evidence ETF", success: bool = True) -> ParseResult:
+    from etf_cockpit.parsers.etf_report import EtfReportFieldEvidence, EtfReportRecord
+
+    import hashlib
+
+    checksum = hashlib.sha256(path.read_bytes()).hexdigest()
+    values = {
+        "fund_name": fund_name, "isin": "IE00B4L5Y983", "document_date": "2026-07-14",
+        "reporting_period_end": "2026-06-30" if kind != "prospectus" else None,
+        "legal_structure": "Irish UCITS investment company", "securities_lending": "Up to 50%",
+        "collateral_policy": "Daily margining", "ongoing_costs": "0.22%", "holdings_count": "3612",
+        "operational_risks": "Settlement risk",
+    }
+    evidence = tuple(EtfReportFieldEvidence(field, value, 1, "high", "extracted" if value is not None else "unknown", (value,) if value is not None else (), field, (1,) if value is not None else ()) for field, value in values.items())
+    record = EtfReportRecord(kind, "en", "language.en.v1", f"template.{kind.replace('_', '-')}.english.v1", "2026-07-14", values, evidence, (1,), "high" if success else "partial", () if success else ("required_field_missing",), checksum)
+    return ParseResult((record,), (), "etf_report", "2.0", checksum, success)
+
+
+def test_v2_import_is_typed_checksum_bound_and_review_time_is_store_generated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import etf_cockpit.data.parsed_disclosures as module
+    from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest, EtfReportReviewRequest, import_etf_report, read_etf_report_records, review_etf_report
+
+    source = tmp_path / "prospectus.pdf"
+    source.write_bytes(b"v2 source")
+    monkeypatch.setattr(module, "parse_etf_report_in_child", lambda path, kind, **_kwargs: _v2_report_result(path, kind=kind))
+    report_path = tmp_path / "reports.parquet"
+    registry_path = tmp_path / "fund_documents.parquet"
+    conflict_path = tmp_path / "conflicts.parquet"
+    imported = import_etf_report(EtfReportImportRequest("VWCE", "prospectus", "issuer_document", source_path=source, destination=report_path, registry_destination=registry_path, conflict_destination=conflict_path, raw_dir=tmp_path / "raw"))
+    row = read_etf_report_records(report_path).iloc[0]
+    assert imported.source_id.startswith("report:v2:")
+    assert row["source_sha256"] == imported.document.sha256
+    assert row["verification_status"] == "pending"
+    assert bool(row["evidence_eligible"]) is False
+    with pytest.raises(ValueError, match="fingerprint"):
+        review_etf_report(EtfReportReviewRequest(str(row["source_id"]), "0" * 64, "analyst", "verified"), destination=report_path, registry_destination=registry_path, conflict_destination=conflict_path)
+    review_etf_report(EtfReportReviewRequest(str(row["source_id"]), str(row["extraction_sha256"]), "analyst", "verified"), destination=report_path, registry_destination=registry_path, conflict_destination=conflict_path)
+    verified = read_etf_report_records(report_path).iloc[0]
+    assert verified["verification_status"] == "verified"
+    assert bool(verified["evidence_eligible"]) is True
+    assert bool(verified["score_eligible"]) is False
+    assert bool(verified["execution_allowed"]) is False
+    assert "reviewed_at" in str(verified["review_history"])
+
+
+def test_failed_v2_parse_remains_checksum_backed_but_never_available(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import etf_cockpit.data.parsed_disclosures as module
+    from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest, import_etf_report
+
+    source = tmp_path / "unsupported.pdf"
+    source.write_bytes(b"unsupported")
+    monkeypatch.setattr(module, "parse_etf_report_in_child", lambda path, kind, **_kwargs: _v2_report_result(path, kind=kind, success=False))
+    registry_path = tmp_path / "fund_documents.parquet"
+    imported = import_etf_report(EtfReportImportRequest("VWCE", "annual_report", "official_regulator", source_path=source, destination=tmp_path / "reports.parquet", registry_destination=registry_path, conflict_destination=tmp_path / "conflicts.parquet", raw_dir=tmp_path / "raw"))
+    registry = pd.read_parquet(registry_path)
+    row = registry.loc[registry["source_id"].eq(imported.source_id)].iloc[0]
+    assert row["sha256"]
+    assert row["extraction_status"] == "incomplete"
+    assert row["coverage_status"] != "available"
+
+
+def test_v2_conflict_store_retains_both_sources_and_recomputes_after_rejection(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import etf_cockpit.data.parsed_disclosures as module
+    from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest, EtfReportReviewRequest, import_etf_report, read_etf_report_conflicts, read_etf_report_records, review_etf_report
+
+    def parse(path: Path, kind: str, **_kwargs):
+        return _v2_report_result(path, kind=kind, fund_name="Annual name" if kind == "annual_report" else "Prospectus name")
+
+    monkeypatch.setattr(module, "parse_etf_report_in_child", parse)
+    reports = tmp_path / "reports.parquet"
+    registry = tmp_path / "registry.parquet"
+    conflicts = tmp_path / "conflicts.parquet"
+    for kind, payload in (("prospectus", b"p"), ("annual_report", b"a")):
+        source = tmp_path / f"{kind}.pdf"
+        source.write_bytes(payload)
+        import_etf_report(EtfReportImportRequest("VWCE", kind, "issuer_document", source_path=source, destination=reports, registry_destination=registry, conflict_destination=conflicts, raw_dir=tmp_path / "raw"))
+    conflict_frame = read_etf_report_conflicts(conflicts)
+    assert not conflict_frame.empty
+    assert conflict_frame["value_a"].notna().all()
+    assert conflict_frame["value_b"].notna().all()
+    assert conflict_frame["canonical_value"].isna().all()
+    annual = read_etf_report_records(reports).loc[lambda frame: frame["document_kind"].eq("annual_report")].iloc[0]
+    review_etf_report(EtfReportReviewRequest(str(annual["source_id"]), str(annual["extraction_sha256"]), "analyst", "rejected", "conflicting source"), destination=reports, registry_destination=registry, conflict_destination=conflicts)
+    assert read_etf_report_conflicts(conflicts).empty

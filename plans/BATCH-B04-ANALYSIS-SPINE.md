@@ -9,6 +9,36 @@ Current delivery mechanics are defined in
 to sole workers, Sol-low workers or old lifecycle PR chains describe past
 execution and are not current operational instructions.
 
+## Current UPDATEV2-0018 parser lane
+
+ISSUE-0103 completion PR #648 merged exact reviewed head
+`80647cd7b62bd5a9ce047747e6b0af6e9b44a064` as
+`745dfd9f747f95aa6cb0e3cbc6f25c4ac5a2de0c`. Writer `30761603662`
+accepted the exact two-hop aggregate with zero-action readback and
+`execution_allowed=false`; a fresh generic live reconciliation also returned
+zero actions at plan SHA
+`35324f6f663a8455b0501dd7f627b24807c72987dda19f532afb91e71dd20692`.
+
+Canonical order now selects ready no-dependency `UPDATEV2-0018`, which supplies
+the bounded report-extraction dependency for planned ISSUE-0104. The first
+uncommitted implementation was rejected on reproduced integrity defects and
+is preserved at
+`C:\Users\thor2\AppData\Local\Temp\updatev2-0018-rejected-attempt-20260802-001`;
+it is not an integration candidate.
+
+The clean v2 lane
+`C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_updatev2_0018_v2` on
+`codex/updatev2-0018-product-20260802-v2` starts at exact main
+`745dfd9f747f95aa6cb0e3cbc6f25c4ac5a2de0c`. Its H-tier product scope is
+three explicit local ETF report kinds, page provenance, hard child-process
+resource bounds, immutable source identity, serialized atomic persistence,
+advisory fingerprint-bound review, bounded report-conflict visibility and the
+Trust Evidence surface. ISSUE-0104 scoring, providers, OCR, generative
+extraction, external writes and execution remain protected. Root focused
+validation passes 65 tests with one platform-specific skip plus Ruff, compile
+and diff hygiene; `score_eligible=false` and `execution_allowed=false` remain.
+Independent exact-head review and fresh Linux/Windows H gates are next.
+
 ## Completed ISSUE-0102 and current bounded readback repair
 
 Bounded repair PR #640 merged independently reviewed exact head

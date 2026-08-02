@@ -14,6 +14,7 @@ from etf_cockpit.core.paths import CLEAN_DIR
 
 FUND_DOCUMENTS_PATH = CLEAN_DIR / "fund_documents.parquet"
 DOCUMENT_TYPES = ("factsheet", "kid", "prospectus_report", "holdings", "methodology")
+REPORT_EXTRACTION_STATUSES = frozenset({"complete", "parse_failed", "unsupported", "malformed", "incomplete", "resource_blocked"})
 _DOCUMENT_TYPE_ALIASES = {
     "factsheet": "factsheet",
     "kid": "kid",
@@ -22,6 +23,9 @@ _DOCUMENT_TYPE_ALIASES = {
     "prospectus_or_report": "prospectus_report",
     "prospectus": "prospectus_report",
     "report": "prospectus_report",
+    "annual_report": "prospectus_report",
+    "half_year_report": "prospectus_report",
+    "half-year-report": "prospectus_report",
     "holdings": "holdings",
     "methodology": "methodology",
     "index_methodology": "methodology",
@@ -42,6 +46,8 @@ class FundDocument:
     source_id: str = ""
     schema_version: int = 1
     ingested_at: str | None = None
+    document_kind: str | None = None
+    extraction_status: str | None = None
 
 
 def canonical_document_type(document_type: str) -> str:
@@ -78,6 +84,22 @@ def _document_source_id(instrument_id: str, document_type: str, checksum: str | 
     return "funddoc:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
 
 
+def report_source_id(
+    instrument_id: str,
+    document_kind: str,
+    checksum: str | None,
+    document_date: str | None,
+    authority: str,
+) -> str:
+    """Return the v2 immutable report identity, including kind and authority."""
+
+    from etf_cockpit.parsers.etf_report import canonical_report_kind
+
+    kind = canonical_report_kind(document_kind)
+    payload = "|".join((str(instrument_id).strip(), "prospectus_report", kind, checksum or "missing", document_date or "missing", str(authority).strip()))
+    return "report:v2:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def register_document(
     path: Path,
     document_type: str,
@@ -90,6 +112,8 @@ def register_document(
 ) -> FundDocument:
     """Register one readable local disclosure with immutable checksum provenance."""
     resolved_type = canonical_document_type(document_type)
+    if resolved_type == "prospectus_report":
+        raise ValueError("prospectus_report requires the typed ETF report import API")
     instrument = str(instrument_id or "").strip()
     if not instrument:
         raise ValueError("instrument_id is required")
@@ -147,8 +171,14 @@ def _as_document(value: FundDocument | dict[str, object]) -> FundDocument:
     payload["document_type"] = canonical_document_type(str(payload.get("document_type", "")))
     payload.setdefault("warnings", ())
     payload.setdefault("schema_version", 1)
-    payload.setdefault("source_id", _document_source_id(str(payload.get("instrument_id", "")), str(payload["document_type"]), payload.get("sha256") if isinstance(payload.get("sha256"), str) else None, payload.get("document_date") if isinstance(payload.get("document_date"), str) else None))
-    return FundDocument(**payload)
+    payload.setdefault("document_kind", None)
+    payload.setdefault("extraction_status", None)
+    checksum_value = payload.get("sha256")
+    checksum: str | None = checksum_value if isinstance(checksum_value, str) else None
+    document_date_value = payload.get("document_date")
+    document_date: str | None = document_date_value if isinstance(document_date_value, str) else None
+    payload.setdefault("source_id", _document_source_id(str(payload.get("instrument_id", "")), str(payload["document_type"]), checksum, document_date))
+    return FundDocument(**payload)  # type: ignore[arg-type]
 
 
 def build_document_inventory(
@@ -188,6 +218,7 @@ _DOCUMENT_COLUMNS = [
     "source_id",
     "instrument_id",
     "document_type",
+    "document_kind",
     "path",
     "source_url",
     "authority",
@@ -195,6 +226,7 @@ _DOCUMENT_COLUMNS = [
     "checksum",
     "document_date",
     "coverage_status",
+    "extraction_status",
     "warnings",
     "ingested_at",
 ]
@@ -222,7 +254,9 @@ def _registry_frame(documents: Iterable[FundDocument | dict[str, object]] | pd.D
         document_date = row.get("document_date") if isinstance(row.get("document_date"), str) else None
         source_ids.append(_document_source_id(str(row.get("instrument_id", "")), canonical_document_type(str(row.get("document_type", ""))), checksum, document_date))
     frame["source_id"] = source_ids
-    frame["schema_version"] = 1
+    if "schema_version" not in frame.columns:
+        frame["schema_version"] = 1
+    frame["schema_version"] = frame["schema_version"].fillna(1).astype(int)
     for column in _DOCUMENT_COLUMNS:
         if column not in frame.columns:
             frame[column] = None
@@ -265,6 +299,8 @@ def import_etf_document(
     missing rows for configured instruments and document types.
     """
     destination = Path(destination or FUND_DOCUMENTS_PATH)
+    if canonical_document_type(document_type) == "prospectus_report":
+        raise ValueError("prospectus_report requires the typed ETF report import API")
     document = register_document(
         Path(path),
         document_type,
@@ -305,3 +341,56 @@ def read_document_registry(*, path: Path = FUND_DOCUMENTS_PATH) -> pd.DataFrame:
 # Compatibility aliases for provider/import callers.
 document_inventory = build_document_inventory
 persist_document_registry = write_document_registry
+
+
+def _register_report_document(
+    path: Path,
+    *,
+    instrument_id: str,
+    document_kind: str,
+    source_url: str,
+    authority: str,
+    sha256: str,
+    document_date: str | date | datetime | None,
+    extraction_status: str,
+    source_id: str | None = None,
+) -> FundDocument:
+    """Build a v2 registry row from an already retained immutable snapshot."""
+
+    from etf_cockpit.parsers.etf_report import canonical_report_kind
+
+    instrument = str(instrument_id or "").strip()
+    if not instrument:
+        raise ValueError("instrument_id is required")
+    kind = canonical_report_kind(document_kind)
+    checksum = str(sha256 or "").strip().lower()
+    if len(checksum) != 64 or any(char not in "0123456789abcdef" for char in checksum):
+        raise ValueError("sha256 must be a hexadecimal SHA-256 checksum")
+    status = str(extraction_status or "").strip().lower()
+    if status not in REPORT_EXTRACTION_STATUSES:
+        raise ValueError(f"Unsupported report extraction_status: {extraction_status}")
+    normalised_date = _normalise_date(document_date)
+    resolved = Path(path)
+    if not resolved.is_file():
+        raise ValueError(f"Retained report snapshot is missing: {resolved}")
+    actual = hashlib.sha256(resolved.read_bytes()).hexdigest()
+    if actual != checksum:
+        raise ValueError("retained report snapshot checksum mismatch")
+    authority_value = str(authority or "").strip()
+    identity = source_id or report_source_id(instrument, kind, checksum, normalised_date, authority_value)
+    return FundDocument(
+        instrument,
+        "prospectus_report",
+        str(resolved),
+        str(source_url or "").strip(),
+        authority_value,
+        checksum,
+        normalised_date,
+        "available" if status == "complete" else "unavailable",
+        () if status == "complete" else (status,),
+        identity,
+        2,
+        datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        kind,
+        status,
+    )
