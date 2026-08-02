@@ -70,6 +70,16 @@ Root validation passed 120 focused/relevant tests and the final 30-test
 economics suite, Ruff, compile, architecture and diff checks. Independent
 whole-diff and financial/point-in-time reviews approved the corrected stable
 diff; ISSUE-0106 liquidity is byte-identical and `execution_allowed=false`.
+Product evidence commit `21f3ed4e3e5b47f2db9dcf719fd01fcda3f5c34b`
+is immutable. The same product PR prepares only ISSUE-0103
+`ready -> in_progress`, bound to one live status-only plan at semantic SHA
+`a510143134719303b2d3e21ce22bcefe06b91f1cdab10bf8d1ccb3ae76afb1e1`,
+authority ID `b41017449b2a1c0a732e9cbc90180560f366f75498e41af8c218349a1b5e5491`
+and candidate ref
+`5870209390e4a6c6cd74f46799ea238a4cf0e414288300c538ce5cb11940b9e1`.
+Generated projections are byte-clean and the exact-base status guard passes;
+the next action is focused authority validation, final exact-head review,
+protected merge and zero-action post-write readback.
 
 ## Prior convergence repair checkpoint (superseded)
 

@@ -98,13 +98,25 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   replay, matched business-daily tracking metadata, a versioned
   provenance-bound closure proxy policy, normal snapshot loading and the ETF
   Economics panel. Existing ISSUE-0106 liquidity code remains byte-identical.
-- Root validation passed 120 focused economics, instrument-detail, UI and
-  architecture tests plus targeted Ruff, compile and diff hygiene; the final
-  economics regression suite passed 30 tests. Independent whole-diff and
-  financial/point-in-time reviewers approved the stable corrected diff after
-  all mismatch, look-ahead, checksum, non-finite, unit and UI counterexamples
-  failed closed. Next is an immutable product evidence commit followed by the
-  existing `ready -> in_progress` automatic lifecycle preparation.
+- Product evidence commit
+  `21f3ed4e3e5b47f2db9dcf719fd01fcda3f5c34b` is immutable. Root validation
+  passed 120 focused economics, instrument-detail, UI and architecture tests
+  plus targeted Ruff, compile and diff hygiene; the final economics regression
+  suite passed 30 tests. Independent whole-diff and financial/point-in-time
+  reviewers approved the stable corrected diff after all mismatch, look-ahead,
+  checksum, non-finite, unit and UI counterexamples failed closed.
+- The product PR now carries the single automatic `ready -> in_progress`
+  lifecycle transaction. Its live reviewed plan has one status-only update for
+  ISSUE-0103 at semantic SHA
+  `a510143134719303b2d3e21ce22bcefe06b91f1cdab10bf8d1ccb3ae76afb1e1`;
+  authority ID
+  `b41017449b2a1c0a732e9cbc90180560f366f75498e41af8c218349a1b5e5491`
+  and candidate authority ref
+  `5870209390e4a6c6cd74f46799ea238a4cf0e414288300c538ce5cb11940b9e1`
+  bind exact base `2428af72525474d306cf9c04e6c9ecdaef213caa` with
+  `execution_allowed=false`. The projection is byte-clean and the status guard
+  passes. Exact next action is focused authority validation, a final independent
+  review of the frozen PR head, protected merge and zero-action writer/readback.
 
 ### Prior dependency-edge checkpoint (superseded)
 

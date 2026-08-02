@@ -3737,6 +3737,17 @@
           "reviewed_date": "2026-08-02",
           "reviewer": "Codex independent reviewer and root orchestrator",
           "status": "ready"
+        },
+        {
+          "evidence_references": [
+            "Exact product commit 21f3ed4e3e5b47f2db9dcf719fd01fcda3f5c34b implements typed point-in-time ETF economics, fee/share-class history, matched tracking, versioned closure proxies and the live ETF Economics panel without external execution authority",
+            "Independent whole-diff and financial/point-in-time reviews approved the corrected stable product diff after 120 focused and relevant tests, the final 30-test economics suite, Ruff, compile, architecture and diff checks passed",
+            "Canonical total-return identity, currency, convention, checksum, known-at replay, units and missing-data controls fail closed; ISSUE-0106 liquidity is unchanged and execution_allowed remains false"
+          ],
+          "review_reference": "B04 ISSUE-0103 reviewed ETF economics implementation start",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex root orchestrator and independent reviewers",
+          "status": "in_progress"
         }
       ],
       "dependency_edge_evidence": {
@@ -3762,11 +3773,11 @@
         }
       },
       "phase": "phase-04-etf-research",
-      "programme_status": "ready",
+      "programme_status": "in_progress",
       "status_transition": {
-        "from": "planned",
-        "review_reference": "B04 ISSUE-0103 readiness after reviewed total-return dependency edge",
-        "to": "ready"
+        "from": "ready",
+        "review_reference": "B04 ISSUE-0103 reviewed ETF economics implementation start",
+        "to": "in_progress"
       },
       "transition_history": [
         {
@@ -3809,9 +3820,23 @@
           "reviewer": "Codex independent reviewer and root orchestrator",
           "to": "ready",
           "verified_commit": "4324ee6af1321cf7ea60a6f03b381c1f1979edb0"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Exact product commit 21f3ed4e3e5b47f2db9dcf719fd01fcda3f5c34b implements typed point-in-time ETF economics, fee/share-class history, matched tracking, versioned closure proxies and the live ETF Economics panel without external execution authority",
+            "Independent whole-diff and financial/point-in-time reviews approved the corrected stable product diff after 120 focused and relevant tests, the final 30-test economics suite, Ruff, compile, architecture and diff checks passed",
+            "Canonical total-return identity, currency, convention, checksum, known-at replay, units and missing-data controls fail closed; ISSUE-0106 liquidity is unchanged and execution_allowed remains false"
+          ],
+          "from": "ready",
+          "review_reference": "B04 ISSUE-0103 reviewed ETF economics implementation start",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex root orchestrator and independent reviewers",
+          "to": "in_progress",
+          "verified_commit": "2428af72525474d306cf9c04e6c9ecdaef213caa"
         }
       ],
-      "verified_commit": "4324ee6af1321cf7ea60a6f03b381c1f1979edb0",
+      "verified_commit": "2428af72525474d306cf9c04e6c9ecdaef213caa",
       "verified_date": "2026-08-02"
     },
     "ISSUE-0104": {
