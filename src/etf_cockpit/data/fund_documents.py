@@ -107,13 +107,33 @@ def report_source_id(
     checksum: str | None,
     document_date: str | None,
     authority: str,
+    *,
+    parser_name: str,
+    parser_version: str,
+    language_plugin: str | None,
+    template_plugin: str | None,
 ) -> str:
-    """Return the v2 immutable report identity, including kind and authority."""
+    """Return the v2 immutable report-extraction revision identity."""
 
     from etf_cockpit.parsers.etf_report import canonical_report_kind
 
     kind = canonical_report_kind(document_kind)
-    payload = "|".join((str(instrument_id).strip(), "prospectus_report", kind, checksum or "missing", document_date or "missing", str(authority).strip()))
+    parser = str(parser_name or "").strip()
+    version = str(parser_version or "").strip()
+    if not parser or not version:
+        raise ValueError("report parser_name and parser_version are required")
+    payload = "|".join((
+        str(instrument_id).strip(),
+        "prospectus_report",
+        kind,
+        checksum or "missing",
+        document_date or "missing",
+        str(authority).strip(),
+        parser,
+        version,
+        str(language_plugin or "").strip() or "none",
+        str(template_plugin or "").strip() or "none",
+    ))
     return "report:v2:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -383,7 +403,7 @@ def _register_report_document(
     sha256: str,
     document_date: str | date | datetime | None,
     extraction_status: str,
-    source_id: str | None = None,
+    source_id: str,
 ) -> FundDocument:
     """Build a v2 registry row from an already retained immutable snapshot."""
 
@@ -407,7 +427,9 @@ def _register_report_document(
     if actual != checksum:
         raise ValueError("retained report snapshot checksum mismatch")
     authority_value = str(authority or "").strip()
-    identity = source_id or report_source_id(instrument, kind, checksum, normalised_date, authority_value)
+    identity = str(source_id or "").strip()
+    if not identity:
+        raise ValueError("typed report source_id is required")
     return FundDocument(
         instrument,
         "prospectus_report",

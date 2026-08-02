@@ -258,7 +258,15 @@ def test_corrupt_parsed_store_fails_closed_without_overwriting_prior_bytes(tmp_p
         persist_priips_kid_result(_kid_result(), "VWCE", destination=destination)
 
     assert destination.read_bytes() == prior
-def _v2_report_result(path: Path, *, kind: str = "prospectus", fund_name: str = "Evidence ETF", success: bool = True) -> ParseResult:
+def _v2_report_result(
+    path: Path,
+    *,
+    kind: str = "prospectus",
+    fund_name: str = "Evidence ETF",
+    success: bool = True,
+    parser_version: str = "2.0",
+    template_version: str = "v1",
+) -> ParseResult:
     from etf_cockpit.parsers.etf_report import EtfReportFieldEvidence, EtfReportRecord
 
     import hashlib
@@ -272,8 +280,8 @@ def _v2_report_result(path: Path, *, kind: str = "prospectus", fund_name: str = 
         "operational_risks": "Settlement risk",
     }
     evidence = tuple(EtfReportFieldEvidence(field, value, 1, "high", "extracted" if value is not None else "unknown", (value,) if value is not None else (), field, (1,) if value is not None else ()) for field, value in values.items())
-    record = EtfReportRecord(kind, "en", "language.en.v1", f"template.{kind.replace('_', '-')}.english.v1", "2026-07-14", values, evidence, (1,), "high" if success else "partial", () if success else ("required_field_missing",), checksum)
-    return ParseResult((record,), (), "etf_report", "2.0", checksum, success)
+    record = EtfReportRecord(kind, "en", "language.en.v1", f"template.{kind.replace('_', '-')}.english.{template_version}", "2026-07-14", values, evidence, (1,), "high" if success else "partial", () if success else ("required_field_missing",), checksum)
+    return ParseResult((record,), (), "etf_report", parser_version, checksum, success)
 
 
 def test_v2_import_is_typed_checksum_bound_and_review_time_is_store_generated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -373,6 +381,61 @@ def test_exact_report_reimport_preserves_review_registry_and_conflicts(tmp_path:
     assert after_row["review_history"] == before_row["review_history"]
     pd.testing.assert_frame_equal(pd.read_parquet(registry).sort_values("source_id").reset_index(drop=True), before_registry)
     pd.testing.assert_frame_equal(module.read_etf_report_conflicts(conflicts), before_conflicts)
+
+
+def test_parser_revision_reimport_retains_prior_review_as_separate_extraction(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import etf_cockpit.data.parsed_disclosures as module
+    from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest, EtfReportReviewRequest
+
+    source = tmp_path / "prospectus.pdf"
+    source.write_bytes(b"parser revision source")
+    reports, registry, conflicts = (tmp_path / name for name in ("reports.parquet", "registry.parquet", "conflicts.parquet"))
+    request = EtfReportImportRequest(
+        "VWCE",
+        "prospectus",
+        "issuer_document",
+        source_path=source,
+        destination=reports,
+        registry_destination=registry,
+        conflict_destination=conflicts,
+        raw_dir=tmp_path / "raw",
+    )
+    revision = {"parser": "2.0", "template": "v1"}
+    monkeypatch.setattr(
+        module,
+        "parse_etf_report_in_child",
+        lambda path, kind, **_kwargs: _v2_report_result(
+            path,
+            kind=kind,
+            parser_version=revision["parser"],
+            template_version=revision["template"],
+        ),
+    )
+
+    first = module.import_etf_report(request)
+    first_row = module.read_etf_report_records(reports).iloc[0]
+    module.review_etf_report(
+        EtfReportReviewRequest(first.source_id, str(first_row["extraction_sha256"]), "analyst", "verified"),
+        destination=reports,
+        registry_destination=registry,
+        conflict_destination=conflicts,
+    )
+
+    revision.update(parser="2.1", template="v2")
+    second = module.import_etf_report(request)
+    stored = module.read_etf_report_records(reports).set_index("source_id")
+
+    assert second.source_id != first.source_id
+    assert len(stored) == 2
+    assert stored.loc[first.source_id, "verification_status"] == "verified"
+    assert len(json.loads(str(stored.loc[first.source_id, "review_history"]))) == 1
+    assert stored.loc[second.source_id, "verification_status"] == "pending"
+    assert json.loads(str(stored.loc[second.source_id, "review_history"])) == []
+    registry_ids = set(pd.read_parquet(registry)["source_id"].astype(str))
+    assert {source_id for source_id in registry_ids if source_id.startswith("report:v2:")} == {
+        first.source_id,
+        second.source_id,
+    }
 
 
 def test_review_rejects_copied_registry_destination(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

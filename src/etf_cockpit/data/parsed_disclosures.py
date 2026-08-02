@@ -584,7 +584,17 @@ def import_etf_report(request: EtfReportImportRequest) -> EtfReportImportResult:
             raise ValueError("parser result document kind is not bound to import request")
         record = parse_result.records[0] if parse_result.records else None
         document_date = record.document_date if record is not None else None
-        source_id = report_source_id(instrument, kind, checksum, document_date, authority)
+        source_id = report_source_id(
+            instrument,
+            kind,
+            checksum,
+            document_date,
+            authority,
+            parser_name=parse_result.parser_name,
+            parser_version=parse_result.parser_version,
+            language_plugin=record.language_plugin if record else None,
+            template_plugin=record.template_plugin if record else None,
+        )
         extraction_status = _report_extraction_status(parse_result)
         document = _register_report_document(
             snapshot_path,
@@ -846,6 +856,8 @@ def _merge_report_row(existing: pd.DataFrame, incoming: dict[str, Any]) -> pd.Da
             incoming["review_history"] = prior.get("review_history", "[]")
             incoming["manual_review"] = prior.get("manual_review", True)
             incoming["evidence_eligible"] = prior.get("evidence_eligible", False)
+        else:
+            raise ValueError("same-ID report extraction fingerprint mismatch")
         existing = existing.drop(index=matches[0])
     combined = pd.concat([existing, pd.DataFrame([incoming])], ignore_index=True)
     return _read_report_frame_from_frame(combined, validate_authority=False)

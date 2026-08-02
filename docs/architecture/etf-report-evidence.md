@@ -26,11 +26,14 @@ language/template, malformed identity dates, identity mismatch, missing
 required fields, decode failure and resource limits remain explicit failed
 registry states and are never `available`.
 
-The registry and report store share a v2 source identity derived from
-instrument, `prospectus_report`, exact kind, checksum, document date (or
-missing) and source authority.  Parser version and plugin IDs are persisted in
-the extraction row.  Registry v1 IDs and reads remain compatible, while the
-generic document importer rejects `prospectus_report`.
+The registry and report store share a v2 extraction-revision identity derived
+from instrument, `prospectus_report`, exact kind, checksum, document date (or
+missing), source authority, parser name/version and language/template plugin
+IDs. A parser or plugin revision therefore appends a separately reviewable
+row and preserves the prior fingerprint-bound review history. Repeating the
+same declared revision must reproduce the same extraction fingerprint or fail
+closed. Registry v1 IDs and reads remain compatible, while the generic
+document importer rejects `prospectus_report`.
 
 Report extraction rows retain immutable non-review fields under an
 `extraction_sha256` fingerprint.  Typed reviews provide only source ID,
