@@ -1645,9 +1645,19 @@ def validate_create_acceptance(issue: dict[str, Any]) -> dict[str, Any]:
             try:
                 status_event = parse_event_comment(comment["body"])
                 status_receipt = parse_event_receipt(comment["body"])
+                replay_event = parse_replay_event_comment(comment["body"])
+                replay_receipt = parse_replay_receipt(comment["body"])
             except ValueError as exc:
                 return {"accepted": False, "error": str(exc)}
-            if status_event is None and status_receipt is None:
+            if all(
+                managed is None
+                for managed in (
+                    status_event,
+                    status_receipt,
+                    replay_event,
+                    replay_receipt,
+                )
+            ):
                 return {
                     "accepted": False,
                     "error": "unknown_or_malformed_managed_comment",
