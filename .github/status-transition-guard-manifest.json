@@ -3,23 +3,23 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "in_progress",
-      "issue_id": "ISSUE-0103",
-      "to": "integrated"
+      "from": "planned",
+      "issue_id": "UPDATEV2-0018",
+      "to": "ready"
     }
   ],
-  "base_commit": "124a3f0279850ea034a93c9cb750a382bcfc35c9",
-  "branch": "codex/issue0103-completion-20260802-v2",
+  "base_commit": "745dfd9f747f95aa6cb0e3cbc6f25c4ac5a2de0c",
+  "branch": "codex/updatev2-0018-ready-20260802",
   "issue_ids": [
-    "ISSUE-0103"
+    "UPDATEV2-0018"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "9eca065d4f3c513c99e5e37e4d7ca762ea01442a19b108183b4e20ff6b3a33b0",
+    "base_registry_sha256": "c0e8db93abaa51ec641793c322d9b8f72145c3507c6488c12a7f1b1d46e9f7da",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "c0e8db93abaa51ec641793c322d9b8f72145c3507c6488c12a7f1b1d46e9f7da",
-    "reason": "Replay only ISSUE-0103 from in_progress through implemented_initially to integrated against merged and independently reviewed product PR #646 and bounded authority repair PR #647; preserve dependencies, product code, external authority and execution_allowed=false.",
+    "proposed_registry_sha256": "94943a6c4cceba4eeffef33a6d8a7f3c5e0706073670909f20f2882b8b2fac52",
+    "reason": "Advance only dependency-ready UPDATEV2-0018 from planned to ready before product integration; preserve dependencies, product code, external authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },

@@ -13,6 +13,25 @@ former active-goal record and chronology are archived in
 `plans/archive/ATOMIC_FAST_PATH_ISSUE-0179-0180_2026-07-31.md`. Current delivery
 mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 
+## Current UPDATEV2-0018 checkpoint
+
+- Exact `origin/main` is
+  `745dfd9f747f95aa6cb0e3cbc6f25c4ac5a2de0c`; the dedicated readiness lane
+  `codex/updatev2-0018-ready-20260802` started byte-clean from that commit.
+- Canonical readiness is true with no blocking dependencies. This bounded
+  E-tier transaction advances only UPDATEV2-0018 `planned -> ready`, updates
+  the two allowlisted chronology files, regenerates all projections
+  mechanically, and preserves `execution_allowed=false`.
+- The isolated product lane is stable at
+  `6f41972a735b8dd8e98eac4c894685f027e06f99`. Its bounded local parser,
+  provenance, atomic persistence, Trust Evidence UI and adversarial tests are
+  under independent whole-diff and risk review. The product head will be
+  rebased onto the merged readiness commit before fresh H-tier validation.
+- Next action: complete exact readiness guards and review, merge the readiness
+  transaction with checksum-controlled GitHub convergence, then rebase and
+  re-review the product lane. Do not modify scoring, broker/provider authority,
+  external execution or unrelated programme state.
+
 ## Completed convergence repair checkpoint
 
 - Bounded repair PR #640 merged independently reviewed exact head
