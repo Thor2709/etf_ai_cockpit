@@ -79,6 +79,12 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   requires equality of the complete v2 report/registry identity sets before
   any incoming revision is processed; same- and changed-revision divergence
   tests preserve every store byte-for-byte.
+- PR #651 exact-head run `30771627783` passed classifier, status guard and
+  supply chain but preflight failed before package gates because the three new
+  report controls lacked entries in `configs/ui_acceptance.yaml`. The bounded
+  correction adds only import/verify/reject contracts linked to
+  `tests/ui/test_etf_report_ui.py` and makes their keys explicit in the
+  existing button-inventory regression.
 
 ## Completed convergence repair checkpoint
 

@@ -70,6 +70,12 @@ requires complete v2 report/registry identity-set equality before processing
 any incoming revision; same- and changed-revision divergence tests preserve
 all bytes on rejection.
 
+PR #651 run `30771627783` passed classifier, status guard and supply chain but
+protected preflight found the three new report-control keys missing from the
+UI acceptance inventory. The bounded product correction adds exactly those
+import/verify/reject contracts and explicit button-inventory coverage before a
+replacement exact head is frozen.
+
 ## Completed ISSUE-0102 and current bounded readback repair
 
 Bounded repair PR #640 merged independently reviewed exact head
