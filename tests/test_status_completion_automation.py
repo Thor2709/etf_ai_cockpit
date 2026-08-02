@@ -867,6 +867,7 @@ def _replay_canonical() -> tuple[
     source = _record("in_progress")
     source.update(
         {
+            "dependency_edge_evidence": {},
             "verified_commit": "9" * 40,
             "verified_date": "2026-08-02",
             "status_transition": {
@@ -1010,18 +1011,18 @@ def test_two_hop_replay_rejects_malformed_or_unsafe_variants(name: str, mutate: 
 
 
 @pytest.mark.parametrize(
-    "collection,mutation",
+    "collection,mutation,error",
     [
-        ("transition_history", "altered"),
-        ("transition_history", "truncated"),
-        ("transition_history", "reordered"),
-        ("acceptance_evidence", "altered"),
-        ("acceptance_evidence", "truncated"),
-        ("acceptance_evidence", "reordered"),
+        ("transition_history", "altered", "acceptance evidence is inconsistent"),
+        ("transition_history", "truncated", "acceptance evidence does not match"),
+        ("transition_history", "reordered", "transition history is discontinuous"),
+        ("acceptance_evidence", "altered", "acceptance evidence is inconsistent"),
+        ("acceptance_evidence", "truncated", "acceptance evidence does not match"),
+        ("acceptance_evidence", "reordered", "acceptance evidence is inconsistent"),
     ],
 )
 def test_two_hop_replay_rejects_changed_source_prefix(
-    collection: str, mutation: str
+    collection: str, mutation: str, error: str
 ) -> None:
     remote, plan, candidate, source, current = _replay_canonical()
     values = source[collection]
@@ -1034,7 +1035,160 @@ def test_two_hop_replay_rejects_changed_source_prefix(
     else:
         values.reverse()
 
-    with pytest.raises(ValueError, match="source record"):
+    with pytest.raises(ValueError, match=error):
+        completion.validate_candidate(
+            candidate,
+            plan,
+            remote,
+            source_record=source,
+            current_record=current,
+        )
+
+
+@pytest.mark.parametrize(
+    ("collection", "mutation"),
+    [
+        ("transition_history", "string"),
+        ("transition_history", "null"),
+        ("transition_history", "extra"),
+        ("transition_history", "missing"),
+        ("transition_history", "blank_evidence"),
+        ("transition_history", "malformed_date"),
+        ("acceptance_evidence", "string"),
+        ("acceptance_evidence", "null"),
+        ("acceptance_evidence", "extra"),
+        ("acceptance_evidence", "missing"),
+        ("acceptance_evidence", "blank_evidence"),
+        ("acceptance_evidence", "malformed_date"),
+    ],
+)
+def test_two_hop_replay_rejects_identically_malformed_prefix_entries(
+    collection: str, mutation: str
+) -> None:
+    remote, plan, candidate, source, current = _replay_canonical()
+    prefix = copy.deepcopy(source[collection])
+    assert isinstance(prefix, list) and isinstance(prefix[0], dict)
+    if mutation == "string":
+        prefix[0] = "not-an-object"
+    elif mutation == "null":
+        prefix[0] = None
+    elif mutation == "extra":
+        prefix[0]["unexpected"] = True
+    elif mutation == "missing":
+        prefix[0].pop("reviewer")
+    elif mutation == "blank_evidence":
+        prefix[0]["evidence_references"] = [""]
+    else:
+        prefix[0]["reviewed_date"] = "2026-02-30"
+
+    replay = candidate["expected_replay"]
+    assert isinstance(replay, dict)
+    replay[f"{collection}_prefix"] = copy.deepcopy(prefix)
+    source[collection] = copy.deepcopy(prefix)
+    appended = (
+        replay["transition_history_append"]
+        if collection == "transition_history"
+        else replay["acceptance_evidence_append"]
+    )
+    assert isinstance(appended, list)
+    current[collection] = [*copy.deepcopy(prefix), *copy.deepcopy(appended)]
+
+    with pytest.raises(ValueError, match="history|evidence"):
+        completion.validate_candidate(
+            candidate,
+            plan,
+            remote,
+            source_record=source,
+            current_record=current,
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation,error",
+    [
+        ("acceptance_status", "acceptance evidence is inconsistent"),
+        ("discontinuous_history", "transition history is discontinuous"),
+        ("missing_acceptance", "acceptance evidence does not match"),
+        ("nested_dependency_mismatch", "dependency evidence is inconsistent"),
+        ("final_dependency_mismatch", "dependency history"),
+        ("missing_origin", "planned origin"),
+        ("missing_edge_history", "dependency history"),
+        ("duplicate_edge", "duplicate dependency-edge history"),
+        ("metadata_mismatch", "verified metadata"),
+    ],
+)
+def test_two_hop_replay_rejects_identically_inconsistent_prefixes(
+    mutation: str, error: str,
+) -> None:
+    remote, plan, candidate, source, current = _replay_canonical()
+    replay = candidate["expected_replay"]
+    assert isinstance(replay, dict)
+    if mutation == "acceptance_status":
+        source["acceptance_evidence"][0]["status"] = "blocked"  # type: ignore[index]
+    elif mutation == "discontinuous_history":
+        source["transition_history"][1]["from"] = "blocked"  # type: ignore[index]
+    elif mutation == "missing_acceptance":
+        source["acceptance_evidence"].pop()  # type: ignore[union-attr]
+    elif mutation == "missing_origin":
+        source["transition_history"].pop(0)  # type: ignore[union-attr]
+        source["acceptance_evidence"].pop(0)  # type: ignore[union-attr]
+    elif mutation == "missing_edge_history":
+        source["dependency_edge_evidence"] = {
+            "ISSUE-0001": {
+                "schema_version": "1.0",
+                "state": "complete",
+                "evidence_references": ["tests/replay.py"],
+                "contract_reference": "tests/replay.py#dependency",
+                "reviewer": "reviewer",
+                "reviewed_date": "2026-08-02",
+            }
+        }
+    elif mutation == "metadata_mismatch":
+        source["verified_commit"] = "8" * 40
+    else:
+        prior = source["transition_history"][0]  # type: ignore[index]
+        edge_evidence = {
+            "schema_version": "1.0",
+            "state": "complete",
+            "evidence_references": copy.deepcopy(prior["evidence_references"]),
+            "contract_reference": "tests/replay.py#dependency",
+            "reviewer": prior["reviewer"],
+            "reviewed_date": prior["reviewed_date"],
+        }
+        prior["dependency_edge"] = {
+            "dependency": "ISSUE-0001",
+            "evidence": copy.deepcopy(edge_evidence),
+        }
+        source["dependency_edge_evidence"] = {
+            "ISSUE-0001": copy.deepcopy(edge_evidence)
+        }
+        if mutation == "nested_dependency_mismatch":
+            prior["dependency_edge"]["evidence"]["reviewer"] = "different reviewer"
+            source["dependency_edge_evidence"]["ISSUE-0001"][
+                "reviewer"
+            ] = "different reviewer"
+        elif mutation == "final_dependency_mismatch":
+            source["dependency_edge_evidence"]["ISSUE-0001"][
+                "reviewer"
+            ] = "different reviewer"
+        else:
+            second = source["transition_history"][1]  # type: ignore[index]
+            second["dependency_edge"] = copy.deepcopy(prior["dependency_edge"])
+    replay["transition_history_prefix"] = copy.deepcopy(source["transition_history"])
+    replay["acceptance_evidence_prefix"] = copy.deepcopy(source["acceptance_evidence"])
+    current["transition_history"] = [
+        *copy.deepcopy(source["transition_history"]),  # type: ignore[arg-type]
+        *copy.deepcopy(replay["transition_history_append"]),
+    ]
+    current["acceptance_evidence"] = [
+        *copy.deepcopy(source["acceptance_evidence"]),  # type: ignore[arg-type]
+        *copy.deepcopy(replay["acceptance_evidence_append"]),
+    ]
+    current["dependency_edge_evidence"] = copy.deepcopy(
+        source["dependency_edge_evidence"]
+    )
+
+    with pytest.raises(ValueError, match=error):
         completion.validate_candidate(
             candidate,
             plan,
@@ -1109,6 +1263,31 @@ def test_status_replay_run_binds_source_and_requires_zero_action_readback(
     registry_path.write_text(
         json.dumps({"records": [current]}), encoding="utf-8"
     )
+    control_path = tmp_path / "issues/programme_control_state.json"
+    control_path.parent.mkdir(parents=True, exist_ok=True)
+    control_path.write_text(
+        json.dumps(
+            {
+                "metadata": {
+                    "bootstrap": False,
+                    "bootstrap_reason": "",
+                    "generation_base_commit": PARENT,
+                    "generation_base_ref": "origin/main",
+                    "verified_date": "2026-08-02",
+                },
+                "phase_definitions": [
+                    {
+                        "order": 1,
+                        "phase": "phase-01-governance-scope",
+                        "title": "Governance, scope and completion contract",
+                    }
+                ],
+                "records": {"ISSUE-0179": current},
+                "schema_version": "1.0",
+            }
+        ),
+        encoding="utf-8",
+    )
     observed: list[dict[str, object]] = []
     source_reads: list[str] = []
     monkeypatch.setattr(completion, "validate_git_bindings", lambda *_a, **_k: None)
@@ -1119,9 +1298,14 @@ def test_status_replay_run_binds_source_and_requires_zero_action_readback(
     monkeypatch.setattr(completion, "_git", lambda *_a: "3" * 40)
     monkeypatch.setattr(
         completion,
-        "_registry_at",
+        "load_control_state_at",
         lambda _root, revision: (
-            source_reads.append(revision) or {"records": [source]}
+            source_reads.append(revision)
+            or {
+                "records": {
+                    "ISSUE-0179": source if revision == PARENT else current
+                }
+            }
         ),
     )
     monkeypatch.setattr(
@@ -1173,7 +1357,7 @@ def test_status_replay_run_binds_source_and_requires_zero_action_readback(
         caller_proof_verifier=lambda: None,
     )
 
-    assert source_reads == [PARENT]
+    assert source_reads == [PARENT, HEAD]
     assert len(observed) == 1
     assert observed[0]["hops"] == replay["transition_history_append"]
     evidence = json.loads(evidence_path.read_text(encoding="utf-8"))

@@ -26,7 +26,10 @@ try:
     from scripts.issue_registry_core import (
         CONTROL_ALLOWED_TRANSITIONS,
         REGISTRY_PATH,
+        control_state_record,
+        load_control_state_at,
         validate_control_transition_event,
+        validate_status_replay_prefix_shape,
     )
 except ModuleNotFoundError:
     import github_mutation_gateway as mutation_gateway
@@ -34,7 +37,10 @@ except ModuleNotFoundError:
     from issue_registry_core import (
         CONTROL_ALLOWED_TRANSITIONS,
         REGISTRY_PATH,
+        control_state_record,
+        load_control_state_at,
         validate_control_transition_event,
+        validate_status_replay_prefix_shape,
     )
 
 
@@ -707,10 +713,12 @@ def project_status_replay_record(
     source_record: dict[str, Any],
     history_append: list[dict[str, Any]],
     evidence_append: list[dict[str, Any]],
+    *,
+    stable_id: str | None = None,
 ) -> dict[str, Any]:
     """Return the exact canonical record produced by the bounded replay."""
 
-    stable_id = str(source_record.get("canonical_id", ""))
+    stable_id = stable_id or str(source_record.get("canonical_id", ""))
     if source_record.get("programme_status") != "in_progress":
         raise ValueError("status replay source status is not in_progress")
     if len(history_append) != 2 or len(evidence_append) != 2:
@@ -786,6 +794,20 @@ def _validate_status_replay_candidate(
     history_append = cast(list[dict[str, Any]], history_append)
     evidence_prefix = cast(list[dict[str, Any]], evidence_prefix)
     evidence_append = cast(list[dict[str, Any]], evidence_append)
+    validate_status_replay_prefix_shape(
+        stable_id,
+        history_prefix,
+        evidence_prefix,
+        programme_status=replay.get("from_status"),
+        dependency_edge_evidence=(
+            source_record.get("dependency_edge_evidence")
+            if isinstance(source_record, dict)
+            else None
+        ),
+        verified_commit=(source_record.get("verified_commit") if isinstance(source_record, dict) else None),
+        verified_date=(source_record.get("verified_date") if isinstance(source_record, dict) else None),
+        status_transition=(source_record.get("status_transition") if isinstance(source_record, dict) else None),
+    )
     if len(history_append) != 2 or len(evidence_append) != 2:
         raise ValueError("status replay requires exactly two matching appended entries")
     mutation_gateway._validate_replay_hops(
@@ -834,15 +856,32 @@ def _validate_status_replay_candidate(
         raise ValueError("status replay hops must share identical review evidence")
     if not isinstance(source_record, dict) or not isinstance(current_record, dict):
         raise ValueError("status replay source and current canonical records are required")
-    if (
-        source_record.get("canonical_id") != stable_id
-        or current_record.get("canonical_id") != stable_id
-    ):
+    if not stable_id or not isinstance(source_record, dict) or not isinstance(current_record, dict):
         raise ValueError("status replay canonical issue identity mismatch")
     source_history = source_record.get("transition_history")
     source_evidence = source_record.get("acceptance_evidence")
     current_history = current_record.get("transition_history")
     current_evidence = current_record.get("acceptance_evidence")
+    validate_status_replay_prefix_shape(
+        stable_id,
+        source_history,
+        source_evidence,
+        programme_status=source_record.get("programme_status"),
+        dependency_edge_evidence=source_record.get("dependency_edge_evidence"),
+        verified_commit=source_record.get("verified_commit"),
+        verified_date=source_record.get("verified_date"),
+        status_transition=source_record.get("status_transition"),
+    )
+    validate_status_replay_prefix_shape(
+        stable_id,
+        current_history,
+        current_evidence,
+        programme_status=current_record.get("programme_status"),
+        dependency_edge_evidence=current_record.get("dependency_edge_evidence"),
+        verified_commit=current_record.get("verified_commit"),
+        verified_date=current_record.get("verified_date"),
+        status_transition=current_record.get("status_transition"),
+    )
     if (
         source_record.get("programme_status") != "in_progress"
         or not isinstance(source_history, list)
@@ -859,7 +898,7 @@ def _validate_status_replay_candidate(
     ):
         raise ValueError("status replay current record is not exactly two source-bound appends")
     expected = project_status_replay_record(
-        source_record, history_append, evidence_append
+        source_record, history_append, evidence_append, stable_id=stable_id
     )
     if expected != current_record:
         raise ValueError("status replay canonical projection differs from source-bound replay")
@@ -1245,11 +1284,13 @@ def run(
             ):
                 raise ValueError("status replay reviewed product commit is not in the reviewed head")
             stable_id = str(replay.get("stable_id"))
-            source_record = _registry_record(
-                _registry_at(root, expected_parent), stable_id, context="source"
+            source_record = control_state_record(
+                load_control_state_at(root, expected_parent),
+                stable_id,
+                context="source",
             )
-            current_record = _registry_record(
-                registry, stable_id, context="current"
+            current_record = control_state_record(
+                load_control_state_at(root, expected_head), stable_id, context="current"
             )
             validate_candidate(
                 candidate,

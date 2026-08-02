@@ -372,9 +372,25 @@ def parse_release_acceptance_matrix(text: str) -> list[dict[str, str]]:
     return rows
 
 
+def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError(f"duplicate key in canonical control state: {key}")
+        value[key] = item
+    return value
+
+
 def load_control_state(root: Path) -> dict[str, Any]:
     path = root / CONTROL_STATE_PATH
-    value = json.loads(path.read_text(encoding="utf-8"))
+    value = json.loads(
+        path.read_text(encoding="utf-8"),
+        object_pairs_hook=_reject_duplicate_json_keys,
+    )
+    return _validate_control_state(value, path)
+
+
+def _validate_control_state(value: Any, path: Path) -> dict[str, Any]:
     if not isinstance(value, dict) or value.get("schema_version") != "1.0":
         raise ValueError(f"unsupported canonical control-state schema: {path}")
     if not isinstance(value.get("metadata"), dict) or not isinstance(value.get("records"), dict):
@@ -389,6 +405,38 @@ def load_control_state(root: Path) -> dict[str, Any]:
     if len(phase_ids) != len(phases) or len(phase_ids) != len(set(phase_ids)):
         raise ValueError("canonical control phase definitions must be unique objects")
     return value
+
+
+def load_control_state_at(root: Path, revision: str) -> dict[str, Any]:
+    """Load and validate the authoritative control state from one Git revision."""
+    if re.fullmatch(r"[0-9a-f]{40}", revision) is None:
+        raise ValueError("canonical control revision must be a full lowercase Git SHA")
+    try:
+        payload = subprocess.check_output(
+            ["git", "show", f"{revision}:{CONTROL_STATE_PATH.as_posix()}"],
+            cwd=root,
+        )
+        value = json.loads(payload, object_pairs_hook=_reject_duplicate_json_keys)
+    except (
+        OSError,
+        UnicodeDecodeError,
+        subprocess.CalledProcessError,
+        json.JSONDecodeError,
+        ValueError,
+    ) as exc:
+        raise ValueError("canonical control state at revision is unavailable or malformed") from exc
+    return _validate_control_state(value, Path(f"{revision}:{CONTROL_STATE_PATH.as_posix()}"))
+
+
+def control_state_record(
+    control: dict[str, Any], stable_id: str, *, context: str
+) -> dict[str, Any]:
+    """Return exactly one authoritative lifecycle record for ``stable_id``."""
+    records = control.get("records")
+    record = records.get(stable_id) if isinstance(records, dict) else None
+    if not isinstance(record, dict):
+        raise ValueError(f"status replay {context} control-state target is missing or ambiguous")
+    return record
 
 
 def verify_generation_base(root: Path, control: dict[str, Any] | None = None) -> None:
@@ -1368,6 +1416,227 @@ def _control_is_downgrade(previous: str, proposed: str) -> bool:
     return previous in CONTROL_HIGH_STATUSES and proposed not in CONTROL_HIGH_STATUSES
 
 
+_CONTROL_EVENT_COMMON_KEYS = {
+    "review_reference",
+    "evidence_references",
+    "reviewer",
+    "reviewed_date",
+    "verified_commit",
+}
+_ACCEPTANCE_EVIDENCE_KEYS = {
+    "status",
+    "evidence_references",
+    "review_reference",
+    "reviewer",
+    "reviewed_date",
+}
+_EDGE_EVIDENCE_KEYS = {
+    "schema_version",
+    "state",
+    "evidence_references",
+    "contract_reference",
+    "reviewer",
+    "reviewed_date",
+}
+
+
+def _validate_review_date(issue_id: str, value: object, *, context: str) -> None:
+    if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        raise ValueError(f"{issue_id}: {context} reviewed_date must be YYYY-MM-DD")
+    try:
+        date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(
+            f"{issue_id}: {context} reviewed_date must be a valid YYYY-MM-DD date"
+        ) from exc
+
+
+def _validate_control_event_shape(issue_id: str, event: object) -> None:
+    if not isinstance(event, dict):
+        raise ValueError(f"{issue_id}: transition history entries must be objects")
+    edge_only = event.get("event_type") == "dependency_edge_update"
+    ordinary_keys = _CONTROL_EVENT_COMMON_KEYS | {"from", "to", "allow_downgrade"}
+    expected_keys = (
+        _CONTROL_EVENT_COMMON_KEYS | {"event_type", "dependency_edge"}
+        if edge_only
+        else ordinary_keys
+    )
+    allowed_key_sets = (
+        (expected_keys,)
+        if edge_only
+        else (ordinary_keys, ordinary_keys | {"dependency_edge"})
+    )
+    if set(event) not in allowed_key_sets:
+        raise ValueError(f"{issue_id}: transition history event fields are malformed")
+    for field in ("review_reference", "reviewer"):
+        if not isinstance(event.get(field), str) or not event[field].strip():
+            raise ValueError(f"{issue_id}: transition history requires non-blank {field}")
+    references = event.get("evidence_references")
+    if not isinstance(references, list) or not references or not all(
+        isinstance(reference, str) and reference.strip() for reference in references
+    ):
+        raise ValueError(f"{issue_id}: transition history requires non-blank evidence")
+    _validate_review_date(
+        issue_id, event.get("reviewed_date"), context="transition history"
+    )
+    verified_commit = event.get("verified_commit")
+    if not isinstance(verified_commit, str) or not re.fullmatch(
+        r"[0-9a-f]{40}", verified_commit
+    ):
+        raise ValueError(
+            f"{issue_id}: transition history verified_commit must be a full lowercase Git SHA"
+        )
+    if not edge_only:
+        if event.get("from") not in PROGRAMME_STATUSES or event.get("to") not in PROGRAMME_STATUSES:
+            raise ValueError(f"{issue_id}: transition history statuses are invalid")
+        if not isinstance(event.get("allow_downgrade"), bool):
+            raise ValueError(f"{issue_id}: transition history allow_downgrade must be boolean")
+    edge_change = event.get("dependency_edge")
+    if edge_change is None:
+        return
+    if not isinstance(edge_change, dict) or set(edge_change) != {"dependency", "evidence"}:
+        raise ValueError(f"{issue_id}: transition history dependency edge is malformed")
+    dependency = edge_change.get("dependency")
+    if not isinstance(dependency, str) or ISSUE_ID_RE.fullmatch(dependency) is None:
+        raise ValueError(f"{issue_id}: transition history dependency is invalid")
+    evidence = edge_change.get("evidence")
+    if not isinstance(evidence, dict) or set(evidence) != _EDGE_EVIDENCE_KEYS:
+        raise ValueError(f"{issue_id}: transition history dependency evidence is malformed")
+    if evidence.get("schema_version") != "1.0" or evidence.get("state") not in EDGE_EVIDENCE_STATES:
+        raise ValueError(f"{issue_id}: transition history dependency evidence is invalid")
+    edge_references = evidence.get("evidence_references")
+    if not isinstance(edge_references, list) or not all(
+        isinstance(reference, str) and reference.strip() for reference in edge_references
+    ):
+        raise ValueError(f"{issue_id}: transition history dependency evidence is invalid")
+    for field in ("contract_reference", "reviewer", "reviewed_date"):
+        if not isinstance(evidence.get(field), str):
+            raise ValueError(f"{issue_id}: transition history dependency evidence is invalid")
+    if evidence["state"] != "unresolved":
+        if not edge_references or not evidence["contract_reference"].strip() or not evidence["reviewer"].strip():
+            raise ValueError(f"{issue_id}: transition history dependency evidence is blank")
+        _validate_review_date(
+            issue_id,
+            evidence["reviewed_date"],
+            context="transition history dependency evidence",
+        )
+    elif evidence["reviewed_date"]:
+        _validate_review_date(
+            issue_id,
+            evidence["reviewed_date"],
+            context="transition history dependency evidence",
+        )
+
+
+def validate_status_replay_prefix_shape(
+    issue_id: str,
+    transition_history: object,
+    acceptance_evidence: object,
+    *,
+    programme_status: object,
+    dependency_edge_evidence: object,
+    verified_commit: object,
+    verified_date: object,
+    status_transition: object,
+) -> None:
+    """Validate the complete canonical prefix before a bounded status replay."""
+    if not isinstance(transition_history, list):
+        raise ValueError(f"{issue_id}: status replay transition history prefix must be a list")
+    replayed_status: object | None = None
+    ordinary_events: list[dict[str, Any]] = []
+    latest_edge_evidence: dict[str, object] = {}
+    for event in transition_history:
+        _validate_control_event_shape(issue_id, event)
+        edge_change = event.get("dependency_edge")
+        if edge_change is not None:
+            dependency = edge_change["dependency"]
+            if dependency in latest_edge_evidence:
+                raise ValueError(
+                    f"{issue_id}: status replay contains duplicate dependency-edge history"
+                )
+            nested_evidence = edge_change["evidence"]
+            if any(
+                nested_evidence.get(field) != event.get(field)
+                for field in ("evidence_references", "reviewer", "reviewed_date")
+            ):
+                raise ValueError(
+                    f"{issue_id}: status replay dependency evidence is inconsistent"
+                )
+            latest_edge_evidence[dependency] = nested_evidence
+        if event.get("event_type") == "dependency_edge_update":
+            continue
+        source = event.get("from")
+        target = event.get("to")
+        if replayed_status is not None and source != replayed_status:
+            raise ValueError(f"{issue_id}: status replay transition history is discontinuous")
+        normal = target in CONTROL_ALLOWED_TRANSITIONS.get(str(source), frozenset())
+        downgrade = _control_is_downgrade(str(source), str(target))
+        if not normal and not (event.get("allow_downgrade") is True and downgrade):
+            raise ValueError(f"{issue_id}: status replay transition history contains an illegal hop")
+        if event.get("allow_downgrade") is True and not downgrade:
+            raise ValueError(f"{issue_id}: status replay transition history has an invalid downgrade flag")
+        replayed_status = target
+        ordinary_events.append(event)
+    if not ordinary_events or ordinary_events[0].get("from") != "planned":
+        raise ValueError(f"{issue_id}: status replay transition history lacks its planned origin")
+    if not isinstance(acceptance_evidence, list):
+        raise ValueError(f"{issue_id}: status replay acceptance evidence prefix must be a list")
+    for evidence in acceptance_evidence:
+        if not isinstance(evidence, dict) or set(evidence) != _ACCEPTANCE_EVIDENCE_KEYS:
+            raise ValueError(f"{issue_id}: acceptance evidence prefix fields are malformed")
+        if evidence.get("status") not in PROGRAMME_STATUSES:
+            raise ValueError(f"{issue_id}: acceptance evidence prefix status is invalid")
+        references = evidence.get("evidence_references")
+        if not isinstance(references, list) or not references or not all(
+            isinstance(reference, str) and reference.strip() for reference in references
+        ):
+            raise ValueError(f"{issue_id}: acceptance evidence prefix requires non-blank evidence")
+        for field in ("review_reference", "reviewer"):
+            if not isinstance(evidence.get(field), str) or not evidence[field].strip():
+                raise ValueError(f"{issue_id}: acceptance evidence prefix requires {field}")
+        _validate_review_date(
+            issue_id,
+            evidence.get("reviewed_date"),
+            context="acceptance evidence prefix",
+        )
+    if len(acceptance_evidence) != len(ordinary_events):
+        raise ValueError(f"{issue_id}: status replay acceptance evidence does not match transition history")
+    for event, evidence in zip(ordinary_events, acceptance_evidence, strict=True):
+        if evidence.get("status") != event.get("to") or any(
+            evidence.get(field) != event.get(field)
+            for field in ("evidence_references", "review_reference", "reviewer", "reviewed_date")
+        ):
+            raise ValueError(f"{issue_id}: status replay acceptance evidence is inconsistent")
+    if ordinary_events and replayed_status != programme_status:
+        raise ValueError(f"{issue_id}: status replay transition history does not reach canonical status")
+    if programme_status not in PROGRAMME_STATUSES:
+        raise ValueError(f"{issue_id}: status replay canonical status is invalid")
+    if not isinstance(dependency_edge_evidence, dict) or not all(
+        isinstance(dependency, str)
+        and ISSUE_ID_RE.fullmatch(dependency) is not None
+        and isinstance(evidence, dict)
+        and not _validate_edge_evidence(issue_id, dependency, evidence)
+        for dependency, evidence in dependency_edge_evidence.items()
+    ):
+        raise ValueError(f"{issue_id}: status replay canonical dependency evidence is invalid")
+    if latest_edge_evidence != dependency_edge_evidence:
+        raise ValueError(f"{issue_id}: status replay dependency history does not reach canonical state")
+    terminal_event = transition_history[-1]
+    terminal_status_event = ordinary_events[-1]
+    if (
+        verified_commit != terminal_event.get("verified_commit")
+        or verified_date != terminal_event.get("reviewed_date")
+    ):
+        raise ValueError(f"{issue_id}: status replay verified metadata does not match history")
+    expected_transition = {
+        "from": terminal_status_event.get("from"),
+        "to": terminal_status_event.get("to"),
+        "review_reference": terminal_status_event.get("review_reference"),
+    }
+    if status_transition != expected_transition:
+        raise ValueError(f"{issue_id}: status replay terminal transition does not match history")
+
+
 def validate_control_transition_event(
     issue_id: str,
     previous_record: dict[str, Any],
@@ -1759,7 +2028,9 @@ __all__ = [
     "RECONCILIATION_ROOT",
     "build_registry",
     "canonical_text_bytes",
+    "control_state_record",
     "deterministic_json",
+    "load_control_state_at",
     "load_package_registry",
     "parse_closed_index",
     "parse_final_release_new_issues",
@@ -1771,5 +2042,6 @@ __all__ = [
     "sha256_file",
     "sha256_text_file",
     "validate_registry",
+    "validate_status_replay_prefix_shape",
     "write_json",
 ]
