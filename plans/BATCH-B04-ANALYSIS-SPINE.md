@@ -90,6 +90,38 @@ on `codex/status-replay-control-state-20260802` binds preparation, apply and
 terminal validation to `issues/programme_control_state.json` without changing
 canonical ISSUE-0101, generated schema, workflows, product code or authority.
 
+`IN_PROGRESS/H-TIER RECOVERY` follow-up repair PR #635 merged independently
+approved exact head `91aea56ec60d9dfb92968c30428c0a02a35b5652` as
+`a4aadf36cc6c0f8cbb356fff96b572919cf5857f`. H-tier run `30728917010`
+passed classifier, preflight, supply chain, both package gates and terminal
+summary; post-merge convergence run `30729715977` passed zero action. The new
+clean recovery lane
+`C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0101_replay_v2`
+on `codex/issue0101-two-hop-recovery-20260802-v2` starts at that exact merge.
+Canonical input records only ISSUE-0101
+`in_progress -> implemented_initially -> integrated`, with both hops bound to
+PR #633, product commit `0680429aa5c30477dc854ef80367a3cc5ff4010e`,
+recorded independent review and tier-O product validation evidence. Product code, dependency
+edges, unrelated issue state, workflows, authority and
+`execution_allowed=false` remain unchanged. Mechanical generation/check,
+bounded proposal/receipt preparation, H-tier review and full package gates, merge and GitHub #241
+convergence are pending.
+
+Recovery run `30731278862` passed the standalone guard and supply chain but
+failed closed in authority preflight before package jobs: an unconditional
+depth-one local base fetch converted the full exact-head checkout to shallow
+history, hiding the reviewed product commit from the ancestry check. The
+bounded correction skips that fetch when the trusted base commit is already
+present and retains the existing fail-closed fetch/check fallback otherwise.
+
+The corrected preflight then passed, as did supply chain and both authoritative
+Linux/Windows package gates. Terminal validation still failed closed because
+the validation-mode status-replay evidence omitted `replay_hops` and
+`reviewed_product_commit`, although both had already been validated against the
+candidate and ledger. The bounded follow-up projects exactly those two
+identities for the existing terminal verifier; replay and mutation authority
+remain unchanged.
+
 `MERGED` immutable dependency-only PR #608 from exact head
 `937ec382dfab7acc74ad16e7e706b795c88e63a2` as
 `b11b1d6783438df03847d7a1b45c3a4d7c1f2385`. Its single documented

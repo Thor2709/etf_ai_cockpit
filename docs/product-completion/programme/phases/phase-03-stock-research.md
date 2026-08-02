@@ -57,5 +57,5 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0098` | `P0` | `integrated` | `stock-research` | `ISSUE-0074`, `ISSUE-0083` | - | `ISSUE-0099`, `ISSUE-0100`, `ISSUE-0101`, `ISSUE-0102`, `ISSUE-0157`, `ISSUE-0172` | - |
 | `ISSUE-0099` | `P0/P1` | `integrated` | `stock-research` | `ISSUE-0098` | - | - | - |
 | `ISSUE-0100` | `P1` | `integrated` | `stock-research` | `ISSUE-0098` | - | - | - |
-| `ISSUE-0101` | `P1` | `in_progress` | `stock-research` | `ISSUE-0098` | - | - | - |
+| `ISSUE-0101` | `P1` | `integrated` | `stock-research` | `ISSUE-0098` | - | - | - |
 | `ISSUE-0102` | `P1` | `planned` | `stock-research` | `ISSUE-0098` | - | - | - |

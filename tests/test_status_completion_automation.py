@@ -1337,6 +1337,34 @@ def test_status_replay_run_binds_source_and_requires_zero_action_readback(
     readbacks = iter([remote, _remote("integrated")])
     evidence_path = tmp_path / "artifacts/replay-evidence.json"
 
+    monkeypatch.setattr(completion.sync, "plan_actions", lambda *_a, **_k: plan)
+    validation_evidence_path = tmp_path / "artifacts/replay-validation-evidence.json"
+    completion.run(
+        tmp_path,
+        candidate_path,
+        expected_parent=PARENT,
+        expected_head=HEAD,
+        main_ref="origin/main",
+        apply=False,
+        evidence_out=validation_evidence_path,
+        remote_reader=lambda: remote,
+    )
+    validation_evidence = json.loads(
+        validation_evidence_path.read_text(encoding="utf-8")
+    )
+    assert validation_evidence["mutation"]["replay_hops"] == replay[
+        "transition_history_append"
+    ]
+    assert validation_evidence["mutation"]["reviewed_product_commit"] == replay[
+        "reviewed_product_commit"
+    ]
+
+    monkeypatch.setattr(
+        completion.sync,
+        "plan_actions",
+        lambda *_a, **_k: next(planned_readbacks),
+    )
+
     completion.run(
         tmp_path,
         candidate_path,
@@ -1357,7 +1385,7 @@ def test_status_replay_run_binds_source_and_requires_zero_action_readback(
         caller_proof_verifier=lambda: None,
     )
 
-    assert source_reads == [PARENT, HEAD]
+    assert source_reads == [PARENT, HEAD, PARENT, HEAD]
     assert len(observed) == 1
     assert observed[0]["hops"] == replay["transition_history_append"]
     evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
@@ -1507,8 +1535,11 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
     )
     assert authority_detection["working-directory"] == ".validation-head"
     assert (
-        'git fetch --no-tags --depth=1 ../.validation-base '
-        '"$ETF_COCKPIT_VALIDATION_BASE_SHA"'
+        'if ! git cat-file -e "$ETF_COCKPIT_VALIDATION_BASE_SHA^{commit}"; then\n'
+        '  git fetch --no-tags --depth=1 ../.validation-base '
+        '"$ETF_COCKPIT_VALIDATION_BASE_SHA"\n'
+        "fi\n"
+        'if ! git cat-file -e "$ETF_COCKPIT_VALIDATION_BASE_SHA^{commit}"; then'
         in authority_detection["run"]
     )
     authority_validation = next(

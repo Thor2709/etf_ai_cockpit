@@ -1336,6 +1336,8 @@ def run(
                         "transport": "github_issue_comment_append",
                         "transport_contract": "one_aggregate_proposal_one_receipt",
                         "authority_id": authority["authority_id"],
+                        "replay_hops": replay["transition_history_append"],
+                        "reviewed_product_commit": replay["reviewed_product_commit"],
                         "predecessor_event_id": mutation_gateway.project_status_events(
                             reviewed_matches[0]
                         ).get("head_event_id"),

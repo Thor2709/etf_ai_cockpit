@@ -461,7 +461,14 @@ def test_authoritative_control_state_fixture_has_history_and_fails_closed() -> N
     authoritative = control_state_record(control, "ISSUE-0101", context="fixture")
     assert "transition_history" not in registry_record
     assert len(authoritative["transition_history"]) >= 2
-    assert authoritative["programme_status"] == "in_progress"
+    assert authoritative["programme_status"] == "integrated"
+    assert [
+        (event.get("from"), event.get("to"))
+        for event in authoritative["transition_history"][-2:]
+    ] == [
+        ("in_progress", "implemented_initially"),
+        ("implemented_initially", "integrated"),
+    ]
     validate_status_replay_prefix_shape(
         "ISSUE-0101",
         authoritative["transition_history"],

@@ -16489,6 +16489,28 @@
           "reviewed_date": "2026-07-28",
           "reviewer": "Codex root orchestrator",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product PR #633 merged as 0680429aa5c30477dc854ef80367a3cc5ff4010e",
+            "PR #633 body records independent exact-diff review approved with no findings",
+            "Release run 30698727382 classified tier O and passed classifier, preflight, supply-chain and validation summary; package and pilot jobs were not required; 179 affected and 35 focused tests passed"
+          ],
+          "review_reference": "PR #633 recorded independent exact-diff review and tier-O validation evidence",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex independent reviewer and root orchestrator",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product PR #633 merged as 0680429aa5c30477dc854ef80367a3cc5ff4010e",
+            "PR #633 body records independent exact-diff review approved with no findings",
+            "Release run 30698727382 classified tier O and passed classifier, preflight, supply-chain and validation summary; package and pilot jobs were not required; 179 affected and 35 focused tests passed"
+          ],
+          "review_reference": "PR #633 recorded independent exact-diff review and tier-O validation evidence",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex independent reviewer and root orchestrator",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -16542,7 +16564,7 @@
       "package_status": "",
       "phase": "phase-03-stock-research",
       "priority": "P1",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0099-issue-0102-sector-specific-stock-adapters"
@@ -16572,8 +16594,8 @@
       ],
       "title": "Implement energy, materials and industrial cyclical-sector adapters",
       "ui_requirement": "Cyclicals panel with drivers, cost and scenario history.",
-      "verified_commit": "a5acc69cc6ac0eb9cb7ec86509b98eec330e6537",
-      "verified_date": "2026-07-28",
+      "verified_commit": "0680429aa5c30477dc854ef80367a3cc5ff4010e",
+      "verified_date": "2026-08-02",
       "why": "Long-term analysis must normalise through cycles and connect operational drivers to balance-sheet resilience.",
       "write_conflict_group": "stock-research"
     },
@@ -27554,7 +27576,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "a1c8254e78551cdeb6110b7ffa5866010af01a84e4b48e1ef96217f201678cf5",
+    "programme_control_state_sha256": "9db583497ff31e87e79729ccc07173409c2ef19964f6e4e85d25db7a1ac6999c",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
