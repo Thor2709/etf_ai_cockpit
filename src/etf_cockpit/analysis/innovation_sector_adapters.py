@@ -547,9 +547,9 @@ def _validate_event(item: InnovationEventEvidence, decision: datetime, effective
     _time(item.event_date)
     if _time(item.as_of) > _time(item.known_at) or _time(item.known_at) > decision or _time(item.as_of) > effective:
         raise InnovationAdapterError("innovation event is future-known or future-effective")
-    if item.outcome_probability is not None and (not math.isfinite(float(item.outcome_probability)) or not 0 <= float(item.outcome_probability) <= 1):
+    if item.outcome_probability is not None and (not _finite_number(item.outcome_probability) or not 0 <= float(item.outcome_probability) <= 1):
         raise InnovationAdapterError("event outcome probability is invalid")
-    if item.concentration is not None and (not math.isfinite(float(item.concentration)) or not 0 <= float(item.concentration) <= 1):
+    if item.concentration is not None and (not _finite_number(item.concentration) or not 0 <= float(item.concentration) <= 1):
         raise InnovationAdapterError("event concentration is invalid")
 
 

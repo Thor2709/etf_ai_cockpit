@@ -323,6 +323,21 @@ def test_event_as_of_must_not_follow_known_at_but_future_milestone_date_is_allow
         _build("biotech", (), events=(replace(valid, known_at="2025-03-02T00:00:00Z"),))
 
 
+@pytest.mark.parametrize(("field", "value"), [
+    ("outcome_probability", "0.75"),
+    ("concentration", True),
+])
+def test_event_numeric_fields_reject_coercible_non_numbers(field, value):
+    event = InnovationEventEvidence(
+        event_id="trial-1", event_type="trial_milestone", title="Phase 2 readout",
+        stage="phase_2", event_date="2030-06-30T00:00:00Z", period="FY2030",
+        source_id="registry:trial-1", source_authority=SourceAuthority.OFFICIAL,
+        as_of=EFFECTIVE, known_at="2025-02-15T00:00:00Z",
+    )
+    with pytest.raises(InnovationAdapterError, match="probability|concentration"):
+        _build("biotech", (), events=(replace(event, **{field: value}),))
+
+
 def test_unregistered_adapter_fallback_is_rejected():
     with pytest.raises(InnovationAdapterError, match="classification route"):
         build_innovation_projection(
