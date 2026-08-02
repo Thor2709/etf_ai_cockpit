@@ -1507,8 +1507,11 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
     )
     assert authority_detection["working-directory"] == ".validation-head"
     assert (
-        'git fetch --no-tags --depth=1 ../.validation-base '
-        '"$ETF_COCKPIT_VALIDATION_BASE_SHA"'
+        'if ! git cat-file -e "$ETF_COCKPIT_VALIDATION_BASE_SHA^{commit}"; then\n'
+        '  git fetch --no-tags --depth=1 ../.validation-base '
+        '"$ETF_COCKPIT_VALIDATION_BASE_SHA"\n'
+        "fi\n"
+        'if ! git cat-file -e "$ETF_COCKPIT_VALIDATION_BASE_SHA^{commit}"; then'
         in authority_detection["run"]
     )
     authority_validation = next(

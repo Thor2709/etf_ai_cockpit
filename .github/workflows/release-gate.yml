@@ -140,7 +140,9 @@ jobs:
             echo "Exact-head validation checkout mismatch: expected $ETF_COCKPIT_VALIDATION_HEAD_SHA, got $checked_head" >&2
             exit 1
           fi
-          git fetch --no-tags --depth=1 ../.validation-base "$ETF_COCKPIT_VALIDATION_BASE_SHA"
+          if ! git cat-file -e "$ETF_COCKPIT_VALIDATION_BASE_SHA^{commit}"; then
+            git fetch --no-tags --depth=1 ../.validation-base "$ETF_COCKPIT_VALIDATION_BASE_SHA"
+          fi
           if ! git cat-file -e "$ETF_COCKPIT_VALIDATION_BASE_SHA^{commit}"; then
             echo "Trusted pull request base is unavailable in the exact-head checkout" >&2
             exit 1

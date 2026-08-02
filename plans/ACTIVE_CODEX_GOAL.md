@@ -43,6 +43,12 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   `0680429aa5c30477dc854ef80367a3cc5ff4010e`.
 - Current lane: mechanical projection generation/check, H-tier guards,
   exact-head review, merge and GitHub #241 convergence remain pending.
+- Exact-head run `30731278862` failed closed before package validation because
+  an unconditional depth-one local base fetch marked the already complete
+  authority checkout shallow and hid the reviewed product commit from the
+  ancestry check. The bounded CI correction preserves full history when the
+  trusted base commit is already present and keeps the existing fail-closed
+  fallback when it is absent.
 - Protected scope: ISSUE-0101 product code, dependency edges,
   workflows/permissions, external systems and all execution/authority policy
   remain unchanged.

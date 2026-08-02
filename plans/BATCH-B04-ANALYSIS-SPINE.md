@@ -107,6 +107,13 @@ edges, unrelated issue state, workflows, authority and
 bounded proposal/receipt preparation, H-tier review and full package gates, merge and GitHub #241
 convergence are pending.
 
+Recovery run `30731278862` passed the standalone guard and supply chain but
+failed closed in authority preflight before package jobs: an unconditional
+depth-one local base fetch converted the full exact-head checkout to shallow
+history, hiding the reviewed product commit from the ancestry check. The
+bounded correction skips that fetch when the trusted base commit is already
+present and retains the existing fail-closed fetch/check fallback otherwise.
+
 `MERGED` immutable dependency-only PR #608 from exact head
 `937ec382dfab7acc74ad16e7e706b795c88e63a2` as
 `b11b1d6783438df03847d7a1b45c3a4d7c1f2385`. Its single documented
