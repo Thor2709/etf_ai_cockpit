@@ -16745,7 +16745,19 @@
         "Closure risk is labelled as a proxy/model rather than a fact.",
         "Missing AUM/flow data do not become zero."
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Dependency PR #644 merged independently approved exact head 8ff50cfc2ef0b1c6d291b57944082b5fde00877f as 4324ee6af1321cf7ea60a6f03b381c1f1979edb0",
+            "Release run 30748705677 passed classifier, preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; status guard 30748705679 passed",
+            "ISSUE-0084 point-in-time total-return edge is complete; UPDATEV2-0015 is resolved as DEPENDENCY_LEDGER_CLOSED; convergence 30749425839 passed exact main and execution_allowed remains false"
+          ],
+          "review_reference": "B04 ISSUE-0103 readiness after reviewed total-return dependency edge",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex independent reviewer and root orchestrator",
+          "status": "ready"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [
         "ISSUE-0084",
@@ -16803,7 +16815,7 @@
       "package_status": "",
       "phase": "phase-04-etf-research",
       "priority": "P0/P1",
-      "programme_status": "planned",
+      "programme_status": "ready",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -16831,7 +16843,7 @@
       ],
       "title": "Implement ETF economics, fee, tracking and closure-quality analysis",
       "ui_requirement": "ETF Economics panel with cost and tracking history.",
-      "verified_commit": "ff9aa45be46302866fb4c9d89593d9ad9ba4b817",
+      "verified_commit": "4324ee6af1321cf7ea60a6f03b381c1f1979edb0",
       "verified_date": "2026-08-02",
       "why": "Long-term ETF outcomes depend on realised tracking, fees, scale, age and operational viability.",
       "write_conflict_group": "etf-research"
@@ -27629,7 +27641,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "58305daa29b5883f188652d3c8895985a341285e8f35d4f770acee928f3ce6e0",
+    "programme_control_state_sha256": "226aed8f8e09f2bfb96dcc3c8d3e29f081a0063dad522dc8df130fcb18e3de88",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

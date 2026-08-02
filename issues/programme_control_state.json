@@ -3726,7 +3726,19 @@
       "verified_date": "2026-08-02"
     },
     "ISSUE-0103": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Dependency PR #644 merged independently approved exact head 8ff50cfc2ef0b1c6d291b57944082b5fde00877f as 4324ee6af1321cf7ea60a6f03b381c1f1979edb0",
+            "Release run 30748705677 passed classifier, preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; status guard 30748705679 passed",
+            "ISSUE-0084 point-in-time total-return edge is complete; UPDATEV2-0015 is resolved as DEPENDENCY_LEDGER_CLOSED; convergence 30749425839 passed exact main and execution_allowed remains false"
+          ],
+          "review_reference": "B04 ISSUE-0103 readiness after reviewed total-return dependency edge",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex independent reviewer and root orchestrator",
+          "status": "ready"
+        }
+      ],
       "dependency_edge_evidence": {
         "ISSUE-0084": {
           "contract_reference": "B04/ISSUE-0084/point-in-time-total-return-contract-v1",
@@ -3750,11 +3762,11 @@
         }
       },
       "phase": "phase-04-etf-research",
-      "programme_status": "planned",
+      "programme_status": "ready",
       "status_transition": {
         "from": "planned",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "planned"
+        "review_reference": "B04 ISSUE-0103 readiness after reviewed total-return dependency edge",
+        "to": "ready"
       },
       "transition_history": [
         {
@@ -3783,9 +3795,23 @@
           "reviewed_date": "2026-08-02",
           "reviewer": "Codex root orchestrator",
           "verified_commit": "ff9aa45be46302866fb4c9d89593d9ad9ba4b817"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Dependency PR #644 merged independently approved exact head 8ff50cfc2ef0b1c6d291b57944082b5fde00877f as 4324ee6af1321cf7ea60a6f03b381c1f1979edb0",
+            "Release run 30748705677 passed classifier, preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; status guard 30748705679 passed",
+            "ISSUE-0084 point-in-time total-return edge is complete; UPDATEV2-0015 is resolved as DEPENDENCY_LEDGER_CLOSED; convergence 30749425839 passed exact main and execution_allowed remains false"
+          ],
+          "from": "planned",
+          "review_reference": "B04 ISSUE-0103 readiness after reviewed total-return dependency edge",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex independent reviewer and root orchestrator",
+          "to": "ready",
+          "verified_commit": "4324ee6af1321cf7ea60a6f03b381c1f1979edb0"
         }
       ],
-      "verified_commit": "ff9aa45be46302866fb4c9d89593d9ad9ba4b817",
+      "verified_commit": "4324ee6af1321cf7ea60a6f03b381c1f1979edb0",
       "verified_date": "2026-08-02"
     },
     "ISSUE-0104": {
