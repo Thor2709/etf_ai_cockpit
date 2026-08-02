@@ -147,6 +147,7 @@ def _candidate_evidence() -> dict[str, object]:
                 "kind": "update",
                 "stable_id": "ISSUE-0179",
                 "remote_number": 582,
+                "remote_state": "open",
                 "managed_field_deltas": ["Programme status"],
             }
         ],
@@ -727,6 +728,40 @@ def test_updatev2_candidate_identity_is_accepted(
     assert validate_summary(
         _collect_candidate(tmp_path, monkeypatch, candidate=candidate)
     ) == []
+
+
+def test_pending_single_hop_candidate_evidence_is_accepted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifacts = _candidate_artifacts(tmp_path)
+    payload = _candidate_evidence()
+    payload["expected_update"] = {
+        "stable_id": "ISSUE-0179",
+        "from_status": "planned",
+        "to_status": "ready",
+    }
+    evidence = (
+        artifacts
+        / "validation-status-completion-candidate-head"
+        / "status-completion-candidate.json"
+    )
+    evidence.parent.mkdir(parents=True)
+    evidence.write_text(json.dumps(payload), encoding="utf-8")
+
+    candidate = {
+        key: copy.deepcopy(payload[key])
+        for key in (
+            "execution_allowed",
+            "expected_parent_sha",
+            "authority_ref",
+            "remote_inventory_sha256",
+            "plan_semantic_sha256",
+            "expected_update",
+        )
+    }
+
+    assert validate_summary(_collect_candidate(tmp_path, monkeypatch, candidate=candidate)) == []
 
 
 def test_workflow_keeps_artifact_names_and_writes_failed_terminal_evidence() -> None:

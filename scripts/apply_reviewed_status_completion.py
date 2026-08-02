@@ -48,6 +48,8 @@ SCHEMA_VERSION = "etf-ai-cockpit.status-completion-candidate/2.0"
 REPLAY_SCHEMA_VERSION = "etf-ai-cockpit.status-replay-candidate/3.0"
 DEFAULT_CANDIDATE = Path(".github/issue-transitions/post-merge-control-candidate.json")
 ZERO_SUMMARY = {"create": 0, "update": 0, "close": 0, "reopen": 0, "blocked": 0}
+ONE_UPDATE_SUMMARY = {"create": 0, "update": 1, "close": 0, "reopen": 0, "blocked": 0}
+SINGLE_HOP_STATUS_TARGETS = frozenset({"ready", "in_progress", "integrated"})
 SHA_RE = re.compile(r"[0-9a-f]{40}")
 HASH_RE = re.compile(r"[0-9a-f]{64}")
 STATUS_RE = re.compile(r"^- Programme status: `([^`]+)`$", re.MULTILINE)
@@ -709,6 +711,28 @@ def _programme_status(body: str) -> str:
     return matches[0]
 
 
+def validate_single_hop_status_transition(from_status: object, to_status: object) -> None:
+    """Validate the one status-only forward hop shared by prepare and apply."""
+
+    if not isinstance(from_status, str) or not isinstance(to_status, str):
+        raise ValueError("candidate status transition is malformed")
+    if to_status not in SINGLE_HOP_STATUS_TARGETS:
+        raise ValueError("candidate status transition targets an unrelated status")
+    if to_status not in CONTROL_ALLOWED_TRANSITIONS.get(from_status, frozenset()):
+        raise ValueError("candidate status transition is not a canonical direct transition")
+
+
+def _accepted_remote_status_projection(issue: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    normalised = sync.normalise_remote_issue(issue)
+    projection = normalised.get("status_projection")
+    if not isinstance(projection, dict) or projection.get("accepted") is not True:
+        raise ValueError("candidate remote status projection is malformed or unaccepted")
+    status = projection.get("status")
+    if not isinstance(status, str) or not status:
+        raise ValueError("candidate remote status projection status is malformed")
+    return normalised, status
+
+
 def project_status_replay_record(
     source_record: dict[str, Any],
     history_append: list[dict[str, Any]],
@@ -928,8 +952,13 @@ def _validate_status_replay_candidate(
         raise ValueError("status replay plan changes the remote issue title")
     if replay["issue_number"] != matching[0]["number"]:
         raise ValueError("status replay candidate issue number does not match remote")
-    if _programme_status(matching[0]["body"]) != "in_progress":
-        raise ValueError("status replay candidate source does not match remote")
+    projection = matching[0].get("status_projection")
+    if (
+        not isinstance(projection, dict)
+        or projection.get("accepted") is not True
+        or projection.get("status") != "in_progress"
+    ):
+        raise ValueError("status replay candidate source does not match accepted remote projection")
     evidence = sync.safe_plan_evidence(plan, normalised)
     if evidence["actions"][0].get("managed_field_deltas") != ["Programme status"]:
         raise ValueError("status replay plan contains a non-status delta")
@@ -977,25 +1006,25 @@ def validate_candidate(
     stable_id = str(expected.get("stable_id", ""))
     if not sync.MARKER_RE.fullmatch(f"<!-- etf-ai-cockpit:stable-id={stable_id} -->"):
         raise ValueError("candidate stable ID is invalid")
-    if expected.get("to_status") != "integrated":
-        raise ValueError("candidate may only transition to integrated")
     from_status = str(expected.get("from_status", ""))
-    if "integrated" not in CONTROL_ALLOWED_TRANSITIONS.get(from_status, frozenset()):
-        raise ValueError(
-            "candidate status transition is not a canonical direct transition"
-        )
+    to_status = expected.get("to_status")
+    validate_single_hop_status_transition(from_status, to_status)
 
     summary = plan.get("summary")
-    if summary != {"create": 0, "update": 1, "close": 0, "reopen": 0, "blocked": 0}:
+    if summary != ONE_UPDATE_SUMMARY:
         raise ValueError("current plan is not exactly one update")
     actions = plan.get("actions")
     if not isinstance(actions, list) or len(actions) != 1:
         raise ValueError("current plan must contain exactly one action")
     action = actions[0]
-    if action.get("kind") != "update" or action.get("stable_id") != stable_id:
+    if (
+        not isinstance(action, dict)
+        or action.get("kind") != "update"
+        or action.get("stable_id") != stable_id
+        or action.get("programme_status") != to_status
+        or action.get("desired_state") != "open"
+    ):
         raise ValueError("current plan update does not match candidate stable ID")
-    if action.get("programme_status") != "integrated":
-        raise ValueError("current plan contains a non-integrated status update")
 
     normalised = [sync.normalise_remote_issue(issue) for issue in remote]
     matching = [
@@ -1007,8 +1036,14 @@ def validate_candidate(
         raise ValueError("candidate remote issue identity is ambiguous")
     if action.get("title") != matching[0]["title"]:
         raise ValueError("current plan contains a non-status delta")
-    if _programme_status(matching[0]["body"]) != from_status:
-        raise ValueError("candidate from status does not match remote issue")
+    projection = matching[0].get("status_projection")
+    if (
+        not isinstance(projection, dict)
+        or projection.get("accepted") is not True
+        or projection.get("status") != from_status
+        or matching[0].get("state") != "open"
+    ):
+        raise ValueError("candidate from status does not match accepted remote projection")
     evidence = sync.safe_plan_evidence(plan, normalised)
     if evidence["actions"][0].get("managed_field_deltas") != ["Programme status"]:
         raise ValueError("current plan contains a non-status delta")
