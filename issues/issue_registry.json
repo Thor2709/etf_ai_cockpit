@@ -5794,16 +5794,16 @@
       "edges": [
         {
           "dependency_id": "ISSUE-0098",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
+          "evidence_state": "complete",
+          "reason_code": "EDGE_EVIDENCE_COMPLETE",
+          "resolved": true
         }
       ],
       "execution_allowed": false,
       "issue_id": "ISSUE-0102",
-      "ready": false,
+      "ready": true,
       "reason_codes": [
-        "BLOCKED_UNRESOLVED_DEPENDENCY"
+        "READY_BLOCKING_EDGES_RESOLVED"
       ],
       "required_inputs": []
     },
@@ -16623,12 +16623,16 @@
       "dependency_conversions": [],
       "dependency_edge_evidence": {
         "ISSUE-0098": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B04/ISSUE-0098/peer-cohort-adapter-contract-v1",
+          "evidence_references": [
+            "PR #542 merged peer-cohort.v1 as fc734201b138d3f24fa68d8c07422322506d6fc5 after protected Linux and Windows packaged evidence; final convergence 389278a6a30e5fc96ce96d2c796de2f075bb3b60",
+            "src/etf_cockpit/analysis/peer_cohorts.py provides versioned AdapterDefinition/AdapterRegistry routing, metric applicability lineage, classified-stock rejection, exact-cutoff leaf-to-parent cohorts, explicit exclusions and robust peer statistics for downstream innovation and healthcare adapters",
+            "tests/test_peer_cohorts.py and tests/test_architecture_boundaries.py cover adapter version/applicability lineage, low-confidence and unregistered fallback, wrong-asset rejection, exact-cutoff classification, deterministic replay and architecture boundaries; ISSUE-0102 retains all software, semiconductor, healthcare and biotechnology formulas, source-linked events, cash-runway/dilution logic and Innovation/Healthcare UI rationale"
+          ],
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         }
       },
       "downstream_issues": [],
@@ -16684,8 +16688,8 @@
       ],
       "title": "Implement software, semiconductor, healthcare and biotechnology adapters",
       "ui_requirement": "Innovation/Healthcare panels with milestone and concentration timelines.",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "fc734201b138d3f24fa68d8c07422322506d6fc5",
+      "verified_date": "2026-08-02",
       "why": "Long-term quality and downside depend on recurring economics, R&D productivity, patents, pipeline and funding.",
       "write_conflict_group": "stock-research"
     },
@@ -27576,7 +27580,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "9db583497ff31e87e79729ccc07173409c2ef19964f6e4e85d25db7a1ac6999c",
+    "programme_control_state_sha256": "649f6633d9209336de9bdc1c5d4e4a27ba884e998d4a365600aea9afc664d6b8",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

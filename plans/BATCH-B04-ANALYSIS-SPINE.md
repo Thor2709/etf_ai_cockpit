@@ -9,6 +9,24 @@ Current delivery mechanics are defined in
 to sole workers, Sol-low workers or old lifecycle PR chains describe past
 execution and are not current operational instructions.
 
+`IN_PROGRESS` ISSUE-0101 is converged and ISSUE-0102 is the next
+implementation-order product record. Recovery PR #636 merged as
+`07da10ee0403033da30071eab5cfb5205c0af147`; bounded recognition repair PR
+#637 merged as `2e3d69541dccc5f71e868e4c55e85bef623cfbd3`; automatic run
+`30737053331` verified zero-action GitHub convergence for #241 at checksum
+`da979ae3fef7344ff4e492bd4468f8a3653e329f6121cb13ba9f2e2a003c1b8f`.
+
+The clean ISSUE-0102 evidence lane starts at exact main
+`2e3d69541dccc5f71e868e4c55e85bef623cfbd3` on
+`codex/issue0102-dependency-0098-20260802`. It records only the sole
+ISSUE-0102→ISSUE-0098 edge as complete against merged `peer-cohort.v1`
+commit `fc734201b138d3f24fa68d8c07422322506d6fc5`. ISSUE-0102 remains planned
+and retains all software, semiconductor, healthcare and biotechnology
+formulas, event/runway/dilution logic and UI scope. The generated programme is
+byte-clean; E-tier validation, exact-head review, merge and zero-action
+convergence are next. Product code, GitHub authority and
+`execution_allowed=false` remain unchanged.
+
 ## Active fast-path checkpoint
 
 `COMPLETE/FROZEN` the bounded atomic-delivery repair is formally proven.

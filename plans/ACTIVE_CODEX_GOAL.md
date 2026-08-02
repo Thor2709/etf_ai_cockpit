@@ -1,13 +1,12 @@
-# Active Codex goal — ISSUE-0101 two-hop convergence recovery
+# Active Codex goal — complete the canonical programme through Phase 11
 
 ## Objective
 
-Converge the already merged ISSUE-0101 product through the bounded aggregate
-status replay: `in_progress -> implemented_initially -> integrated`. Bind both
-hops to product PR #633, merged product commit
-`0680429aa5c30477dc854ef80367a3cc5ff4010e`, and its recorded independent
-review and tier-O validation evidence. Preserve `execution_allowed=false` and all
-fail-closed safeguards.
+Complete the canonical implementation programme issue by issue through
+integration, GitHub convergence and Phase 11 certification. Select work only
+from canonical readiness and implementation order, preserve
+`execution_allowed=false`, and retain all financial, point-in-time, security,
+privacy and audit safeguards.
 
 The ISSUE-0177–0180 control-plane work is complete and frozen. Its complete
 former active-goal record and chronology are archived in
@@ -15,6 +14,34 @@ former active-goal record and chronology are archived in
 mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 
 ## Current checkpoint
+
+- Current UTC date: `2026-08-02`.
+- ISSUE-0101 recovery PR #636 merged as
+  `07da10ee0403033da30071eab5cfb5205c0af147`; bounded recognition repair PR
+  #637 merged exact reviewed head
+  `0ca952b170420ceb6d85dbfedffa7f106a66d5d8` as
+  `2e3d69541dccc5f71e868e4c55e85bef623cfbd3` after H-tier run
+  `30736184903` passed. Automatic convergence run `30737053331` produced zero
+  actions at checksum
+  `da979ae3fef7344ff4e492bd4468f8a3653e329f6121cb13ba9f2e2a003c1b8f`;
+  GitHub #241 projects canonical `integrated` and `execution_allowed=false`.
+- ISSUE-0102 is the next implementation-order record. Its sole ISSUE-0098
+  dependency is integrated, but the edge requires evidence review before the
+  issue is ready.
+- Clean evidence-only lane:
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0102_edge`;
+  branch `codex/issue0102-dependency-0098-20260802`; exact base and starting
+  head `2e3d69541dccc5f71e868e4c55e85bef623cfbd3`, initially empty.
+- Current scope records only ISSUE-0102→ISSUE-0098 as `complete` against merged
+  `peer-cohort.v1` commit `fc734201b138d3f24fa68d8c07422322506d6fc5`.
+  ISSUE-0102 remains `planned`; product code, dependency lists, GitHub state,
+  external authority and execution policy are unchanged. The programme
+  projection is generated and byte-clean in check mode.
+- Exact next action: run E-tier guards, independently review and merge the
+  exact dependency head, verify zero-action convergence, then advance
+  ISSUE-0102 through readiness and bounded product implementation.
+
+## Prior ISSUE-0101 recovery checkpoint (superseded)
 
 - Current UTC date: `2026-08-02`.
 - ISSUE-0101 recovery PR #636 merged exact reviewed head
