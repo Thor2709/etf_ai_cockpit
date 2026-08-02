@@ -1668,6 +1668,16 @@ transaction.
 
 ## UPDATEV2-0018 readiness and product checkpoint — 2026-08-02
 
+`REPAIR` readiness PR #649 merged as
+`efda3f3f8d9fbb075a902af37102b0752e5aba27` after full cross-platform
+validation, but automatic convergence `30767687270` failed closed because the
+PR omitted the existing one-hop candidate/ledger append. The sole bounded
+repair lane adds only UPDATEV2-0018/#158 `planned -> ready` authority bound to
+exact parent `efda3f3f8d9fbb075a902af37102b0752e5aba27` and reviewed semantic
+plan `6bda2fed8424495b569499cb3ea1bfae11db7d2f78c192c924c4d43f2f97e1f8`.
+No generic convergence design, product code, dependency, external authority or
+`execution_allowed=false` state changes.
+
 `IN_PROGRESS` exact `origin/main`
 `745dfd9f747f95aa6cb0e3cbc6f25c4ac5a2de0c` selects UPDATEV2-0018 as the
 next implementation-order record, with deterministic readiness true and no
