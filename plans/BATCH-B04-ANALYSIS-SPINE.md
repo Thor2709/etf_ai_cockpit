@@ -90,7 +90,7 @@ on `codex/status-replay-control-state-20260802` binds preparation, apply and
 terminal validation to `issues/programme_control_state.json` without changing
 canonical ISSUE-0101, generated schema, workflows, product code or authority.
 
-`IN_PROGRESS/E-TIER RECOVERY` follow-up repair PR #635 merged independently
+`IN_PROGRESS/H-TIER RECOVERY` follow-up repair PR #635 merged independently
 approved exact head `91aea56ec60d9dfb92968c30428c0a02a35b5652` as
 `a4aadf36cc6c0f8cbb356fff96b572919cf5857f`. H-tier run `30728917010`
 passed classifier, preflight, supply chain, both package gates and terminal

@@ -5,8 +5,8 @@
 Converge the already merged ISSUE-0101 product through the bounded aggregate
 status replay: `in_progress -> implemented_initially -> integrated`. Bind both
 hops to product PR #633, merged product commit
-`0680429aa5c30477dc854ef80367a3cc5ff4010e`, and its completed review and
-protected validation evidence. Preserve `execution_allowed=false` and all
+`0680429aa5c30477dc854ef80367a3cc5ff4010e`, and its recorded independent
+review and tier-O validation evidence. Preserve `execution_allowed=false` and all
 fail-closed safeguards.
 
 The ISSUE-0177–0180 control-plane work is complete and frozen. Its complete
