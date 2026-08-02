@@ -438,6 +438,10 @@ def test_two_hop_replay_reconciles_one_authority_event_and_one_target() -> None:
         "reviewed_product_commit"
     ]
     assert projected["hops"] == authority["payload"]["hops"]
+    assert gateway.validate_create_acceptance(transport.value) == {
+        "accepted": True,
+        "legacy": True,
+    }
     mismatched = copy.deepcopy(authority)
     mismatched["payload"]["reviewed_product_commit"] = "8" * 40
     rejected = gateway.reconcile_authority_ledger(

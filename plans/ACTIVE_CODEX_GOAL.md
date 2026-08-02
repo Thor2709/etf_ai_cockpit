@@ -17,6 +17,25 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 ## Current checkpoint
 
 - Current UTC date: `2026-08-02`.
+- ISSUE-0101 recovery PR #636 merged exact reviewed head
+  `10db96f6a3e877196352f28c11428b7ac9d4859b` as
+  `07da10ee0403033da30071eab5cfb5205c0af147`. Run `30733297748` passed the
+  authoritative H-tier classifier, preflight, supply-chain, Linux/Windows
+  package gates and terminal summary at 2,581 tests per platform; guard run
+  `30733297750` passed. The Windows four-worker pilot recorded one report-only
+  ESEF parser divergence while the authoritative serial gate passed.
+- Automatic writer run `30735911761` appended the one aggregate replay proposal
+  and receipt to GitHub #241 with `execution_allowed=false`, then failed its
+  immediate zero-action readback. Settled authority reconciliation projects
+  `integrated`; generic sync blocks only because create-acceptance scanning does
+  not yet recognise the two replay markers as known managed comments.
+- Clean bounded H repair lane:
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0101_postmerge`;
+  branch `codex/status-replay-comment-recognition-20260802`; exact base and
+  starting head `07da10ee0403033da30071eab5cfb5205c0af147`, initially empty.
+- Current repair scope: recognise only valid replay proposal/receipt markers in
+  generic managed-comment validation, retaining replay parsing, ledger
+  reconciliation, fail-closed malformed-marker handling and all authorities.
 - Initial H-tier repair PR #634 merged exact reviewed head
   `676aaaeedadcf04c3a4644f4d10902a2c05bd311` as
   `ff10762e8c000b2f2c834073e27a664bc20de143`; run `30724545238` passed fresh

@@ -44,6 +44,11 @@ Both hops are carried by one aggregate proposal and one receipt bound to one
 authority, candidate, issue identity and reviewed head. Existing ISSUE-0180
 `status` authority, event and receipt bytes remain unchanged.
 
+Generic managed-comment validation recognises the replay proposal and replay
+acceptance markers as known authority comments. Their semantic validity still
+comes exclusively from the replay parser and ledger reconciliation; this
+recognition does not grant them create authority or tolerate malformed markers.
+
 The aggregate is semantically atomic: local validation replays both hops in
 memory and projection accepts the final status only when the proposal and its
 single receipt form a complete pair. This does not make GitHub transport

@@ -122,6 +122,19 @@ candidate and ledger. The bounded follow-up projects exactly those two
 identities for the existing terminal verifier; replay and mutation authority
 remain unchanged.
 
+`MERGED/CONVERGENCE REPAIR` ISSUE-0101 recovery PR #636 merged exact reviewed
+head `10db96f6a3e877196352f28c11428b7ac9d4859b` as
+`07da10ee0403033da30071eab5cfb5205c0af147`. H run `30733297748` passed
+authoritative Linux/Windows package gates at 2,581 tests per platform and the
+terminal summary; guard `30733297750` passed. Writer `30735911761` appended the
+single aggregate proposal and receipt with `execution_allowed=false`, but
+settled readback blocks because generic create-acceptance validation treats the
+new replay markers as unknown despite ledger reconciliation projecting
+ISSUE-0101 `integrated`. The clean H repair lane
+`codex/status-replay-comment-recognition-20260802` starts at the merge and only
+recognises valid replay markers as known managed comments; it adds no retry,
+compensation or authority.
+
 `MERGED` immutable dependency-only PR #608 from exact head
 `937ec382dfab7acc74ad16e7e706b795c88e63a2` as
 `b11b1d6783438df03847d7a1b45c3a4d7c1f2385`. Its single documented
