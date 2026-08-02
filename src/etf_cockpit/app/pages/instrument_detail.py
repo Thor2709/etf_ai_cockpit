@@ -389,6 +389,8 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
         real_asset_projection=getattr(state, "real_asset_projection", None),
         cyclical_projection=getattr(state, "cyclical_projection", None),
         cyclical_source_digest=getattr(state, "cyclical_source_digest", None),
+        innovation_projection=getattr(state, "innovation_projection", None),
+        innovation_source_digest=getattr(state, "innovation_source_digest", None),
     )
     vintage_history = bitemporal_history_summary(selected) if selected else {"status": "unavailable", "message": "No instrument selected."}
     export_status = ft.Text(
@@ -493,6 +495,12 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
             model.sections.get("cyclicals"),
             subtitle="Energy, materials and non-infrastructure industrial operating metrics, distinct-cycle history, scenario portfolio impacts, confidence and point-in-time lineage; execution_allowed=false.",
             key="instrument-detail.cyclicals",
+        ),
+        _render_evidence_section(
+            "Innovation and Healthcare",
+            model.sections.get("innovation"),
+            subtitle="Software, semiconductor, healthcare and biotechnology operating metrics, dated concentration and milestone timelines, reconciliation checks and explicit low-authority event limits; execution_allowed=false.",
+            key="instrument-detail.innovation",
         ),
         _render_evidence_section("Risk and feature evidence", model.sections.get("risk"), subtitle="Momentum, trend, relative strength, volatility, drawdown and liquidity/cost."),
         _render_evidence_section("Alpha, beta and correlation", model.sections.get("attribution")),

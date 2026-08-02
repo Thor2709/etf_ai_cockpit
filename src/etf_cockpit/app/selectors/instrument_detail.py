@@ -49,6 +49,7 @@ from etf_cockpit.application.ui_facade import load_peer_cohort_projection
 from etf_cockpit.application.ui_facade import load_financial_institution_projection
 from etf_cockpit.application.ui_facade import load_real_asset_projection
 from etf_cockpit.application.ui_facade import load_cyclical_projection
+from etf_cockpit.application.ui_facade import load_innovation_projection
 
 
 @dataclass(frozen=True)
@@ -72,6 +73,7 @@ _SECTION_NAMES = (
     "financial_institutions",
     "real_assets",
     "cyclicals",
+    "innovation",
     "etf_liquidity",
     "scores",
     "feature_drivers",
@@ -1234,6 +1236,8 @@ def build_instrument_detail(
     real_asset_projection: Mapping[str, object] | None = None,
     cyclical_projection: Mapping[str, object] | None = None,
     cyclical_source_digest: str | None = None,
+    innovation_projection: Mapping[str, object] | None = None,
+    innovation_source_digest: str | None = None,
 ) -> InstrumentDetailViewModel:
     identity = next((item for item in snapshot.config.universe.etfs if item.id == instrument_id), None)
     # Configured identities remain backed by canonical snapshot stores.  The
@@ -1396,6 +1400,11 @@ def build_instrument_detail(
         projection=cyclical_projection,
         expected_source_digest=cyclical_source_digest,
     )
+    innovation = load_innovation_projection(
+        instrument_id,
+        projection=innovation_projection,
+        expected_source_digest=innovation_source_digest,
+    )
     return InstrumentDetailViewModel(
         instrument_id,
         display_name,
@@ -1413,6 +1422,7 @@ def build_instrument_detail(
             "financial_institutions": financial_institutions,
             "real_assets": real_assets,
             "cyclicals": cyclicals,
+            "innovation": innovation,
             "etf_liquidity": liquidity,
             "scores": _score_panel(signal, scoreboard, derived, friction),
             "feature_drivers": _feature_driver_panel(instrument_id),
