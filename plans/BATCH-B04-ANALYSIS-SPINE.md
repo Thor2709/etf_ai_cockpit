@@ -31,9 +31,9 @@ rejected. The accepted comment projection is authoritative when the raw body
 anchor lags. The unchanged completion authority remains exactly
 `in_progress -> implemented_initially -> integrated`. The classifier
 correction is limited to exact active-goal and established
-`plans/BATCH-B<digits...>.md` chronology surfaces as E; all protected workflow,
-script, policy, security, authority, persistence, financial and release
-surfaces remain H. The abandoned deferral-only attempt failed closed and was
+active-goal and current B04 chronology paths as E; invented or other plan paths
+and all protected workflow, script, policy, security, authority, persistence,
+financial and release surfaces remain H. The abandoned deferral-only attempt failed closed and was
 restored. A fresh live read reproduced exactly one ISSUE-0102 status-only
 update at plan checksum
 `4754b3f8b395c3c3d6595a4756a6c9c4a2b20bd2303516745212227f94a823cc`;

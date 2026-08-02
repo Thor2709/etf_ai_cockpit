@@ -323,14 +323,20 @@ def test_checkpoint_chronology_allowlist_is_narrow_and_content_independent() -> 
     positive = [
         "plans/ACTIVE_CODEX_GOAL.md",
         "plans/BATCH-B04-ANALYSIS-SPINE.md",
-        "plans/BATCH-B02-DATA-SPINE-CONTINUATION.md",
     ]
     negative = [
         "plans/BATCH.md",
+        "plans/BATCH-B02-DATA-SPINE-CONTINUATION.md",
         "plans/ATOMIC_FAST_PATH_METRICS.md",
         "plans/BATCH-DOCS-SDD-20260802.md",
         "plans/BATCH-B04-ANALYSIS-SPINE.txt",
         "plans/arbitrary-checkpoint.md",
+        "plans/BATCH-B04-RUNTIME.md",
+        "plans/BATCH-B04-WORKFLOW.md",
+        "plans/BATCH-B04-SECURITY.md",
+        "plans/BATCH-B04-AUTHORITY.md",
+        "plans/BATCH-B04-PACKAGE.md",
+        "plans/BATCH-B04-RELEASE.md",
     ]
 
     assert all(build_report([path])["tier"] == "E" for path in positive)

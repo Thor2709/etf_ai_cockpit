@@ -48,9 +48,10 @@ identity, exact parent/head, candidate, plan, ledger and workflow attestation.
 The unchanged completion authority remains exactly two hops,
 `in_progress -> implemented_initially -> integrated`. No retry, compensation,
 ambiguous-write recovery or broader mutation authority is permitted.
-Active-goal and established `plans/BATCH-B<digits...>.md` checkpoint chronology
-is evidence-only and does not inflate an otherwise E control transaction.
-Genuine H changes still run the complete serial Linux/Windows packaged gates.
+The exact active-goal and current `plans/BATCH-B04-ANALYSIS-SPINE.md`
+checkpoint chronology files are evidence-only and do not inflate an otherwise
+E control transaction; invented or other plan paths fail upward. Genuine H
+changes still run the complete serial Linux/Windows packaged gates.
 Where the contract permits, product lifecycle completion is atomic/automatic
 rather than a serial chain of administrative PRs.
 

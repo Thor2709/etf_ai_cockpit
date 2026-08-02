@@ -33,10 +33,11 @@ fail-closed guards remain required. Existing schema-v2 status authority may
 append exactly one legal status-only forward projection to `ready`,
 `in_progress` or `integrated`; the unchanged completion authority remains
 `in_progress -> implemented_initially -> integrated`. No retry, compensation,
-ambiguous-write recovery or broader mutation authority is added. Active-goal
-and established `plans/BATCH-B<digits...>.md` checkpoint chronology is
-evidence-only and does not inflate an otherwise E control transaction. Genuine
-H changes still require the complete serial Linux/Windows packaged gates.
+ambiguous-write recovery or broader mutation authority is added. The exact
+active-goal and current `plans/BATCH-B04-ANALYSIS-SPINE.md` checkpoint
+chronology files are evidence-only and do not inflate an otherwise E control
+transaction; invented or other plan paths fail upward. Genuine H changes still
+require the complete serial Linux/Windows packaged gates.
 Where the contract permits, product lifecycle work uses atomic/automatic
 completion rather than serial administrative PRs.
 
