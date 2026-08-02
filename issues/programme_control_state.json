@@ -3731,7 +3731,7 @@
         "ISSUE-0084": {
           "contract_reference": "B04/ISSUE-0084/point-in-time-total-return-contract-v1",
           "evidence_references": [
-            "PR #482 merged independently reviewed ISSUE-0084 product as 537e800dd78e9593e7769f41aecf6d79babb75f9; PR #484 completed integration as c6b5742dad880e0b9fe1e24f4589521428284081",
+            "PR #482 merged independently reviewed ISSUE-0084 product as 537e800dd78e9593e7769f41aecf6d79babb75f9; PR #484 completed integration as c6b5742d59b7cdb64c5dbd464efaa198c7234dd8",
             "src/etf_cockpit/data/market_adjustments.py provides explicit corporate-action events, raw-to-adjusted and total-return derivation, income/price components, reconciliation, vintage lineage and unavailable states for ISSUE-0103 benchmark-relative consumers",
             "tests/test_market_adjustments.py covers dividends/distributions, split and action sequences, total-return conventions, round-trip/reconciliation, as-of revisions, selected-currency returns and incomplete FX; ISSUE-0103 retains benchmark matching, fee/share-class history, AUM/flows and closure-proxy implementation"
           ],
@@ -3763,7 +3763,7 @@
             "evidence": {
               "contract_reference": "B04/ISSUE-0084/point-in-time-total-return-contract-v1",
               "evidence_references": [
-                "PR #482 merged independently reviewed ISSUE-0084 product as 537e800dd78e9593e7769f41aecf6d79babb75f9; PR #484 completed integration as c6b5742dad880e0b9fe1e24f4589521428284081",
+                "PR #482 merged independently reviewed ISSUE-0084 product as 537e800dd78e9593e7769f41aecf6d79babb75f9; PR #484 completed integration as c6b5742d59b7cdb64c5dbd464efaa198c7234dd8",
                 "src/etf_cockpit/data/market_adjustments.py provides explicit corporate-action events, raw-to-adjusted and total-return derivation, income/price components, reconciliation, vintage lineage and unavailable states for ISSUE-0103 benchmark-relative consumers",
                 "tests/test_market_adjustments.py covers dividends/distributions, split and action sequences, total-return conventions, round-trip/reconciliation, as-of revisions, selected-currency returns and incomplete FX; ISSUE-0103 retains benchmark matching, fee/share-class history, AUM/flows and closure-proxy implementation"
               ],
@@ -3775,7 +3775,7 @@
           },
           "event_type": "dependency_edge_update",
           "evidence_references": [
-            "PR #482 merged independently reviewed ISSUE-0084 product as 537e800dd78e9593e7769f41aecf6d79babb75f9; PR #484 completed integration as c6b5742dad880e0b9fe1e24f4589521428284081",
+            "PR #482 merged independently reviewed ISSUE-0084 product as 537e800dd78e9593e7769f41aecf6d79babb75f9; PR #484 completed integration as c6b5742d59b7cdb64c5dbd464efaa198c7234dd8",
             "src/etf_cockpit/data/market_adjustments.py provides explicit corporate-action events, raw-to-adjusted and total-return derivation, income/price components, reconciliation, vintage lineage and unavailable states for ISSUE-0103 benchmark-relative consumers",
             "tests/test_market_adjustments.py covers dividends/distributions, split and action sequences, total-return conventions, round-trip/reconciliation, as-of revisions, selected-currency returns and incomplete FX; ISSUE-0103 retains benchmark matching, fee/share-class history, AUM/flows and closure-proxy implementation"
           ],

@@ -16768,7 +16768,7 @@
         "ISSUE-0084": {
           "contract_reference": "B04/ISSUE-0084/point-in-time-total-return-contract-v1",
           "evidence_references": [
-            "PR #482 merged independently reviewed ISSUE-0084 product as 537e800dd78e9593e7769f41aecf6d79babb75f9; PR #484 completed integration as c6b5742dad880e0b9fe1e24f4589521428284081",
+            "PR #482 merged independently reviewed ISSUE-0084 product as 537e800dd78e9593e7769f41aecf6d79babb75f9; PR #484 completed integration as c6b5742d59b7cdb64c5dbd464efaa198c7234dd8",
             "src/etf_cockpit/data/market_adjustments.py provides explicit corporate-action events, raw-to-adjusted and total-return derivation, income/price components, reconciliation, vintage lineage and unavailable states for ISSUE-0103 benchmark-relative consumers",
             "tests/test_market_adjustments.py covers dividends/distributions, split and action sequences, total-return conventions, round-trip/reconciliation, as-of revisions, selected-currency returns and incomplete FX; ISSUE-0103 retains benchmark matching, fee/share-class history, AUM/flows and closure-proxy implementation"
           ],
@@ -27629,7 +27629,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "38c85187b1238cf32cc63da7716cd3427b1a4226e45bb71a2bbb36c9d5010c6b",
+    "programme_control_state_sha256": "58305daa29b5883f188652d3c8895985a341285e8f35d4f770acee928f3ce6e0",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

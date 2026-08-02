@@ -16,7 +16,7 @@
     "base_registry_sha256": "909205ec1bb3de9217b6d3946d8c75497853a465f0e0900c152417b9f27fdee3",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_dependency_edge_evidence",
-    "proposed_registry_sha256": "b17dbba4c6a7f18ae74aba4cbbab2fbb4e1a49a325262bd1c61bcdc8aea7d1bd",
+    "proposed_registry_sha256": "4644fea19dbd1c639cfd841cd75cc5f72f548be37ca06dcbc1d6e91da33a3863",
     "reason": "Review only ISSUE-0103 to ISSUE-0084 against the integrated point-in-time total-return contract, leave ISSUE-0103 planned, and preserve product scope, lifecycle state, authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
