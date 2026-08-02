@@ -304,6 +304,9 @@ class ClosureProxyPolicy:
     source_id: str
     source_provenance: str
     source_checksum: str
+    effective_from: str | None = None
+    effective_until: str | None = None
+    known_at: str | None = None
     execution_allowed: bool = field(default=False, init=False)
 
     def __post_init__(self) -> None:
@@ -320,6 +323,14 @@ class ClosureProxyPolicy:
             if value is None:
                 raise EtfEconomicsError(f"closure policy {name} is required")
             object.__setattr__(self, name, value)
+        effective_from = _timestamp(self.effective_from, "closure policy effective_from", required=True) or ""
+        effective_until = _timestamp(self.effective_until, "closure policy effective_until", required=True) or ""
+        known_at = _timestamp(self.known_at, "closure policy known_at", required=True) or ""
+        if pd.Timestamp(effective_until) < pd.Timestamp(effective_from):
+            raise EtfEconomicsError("closure policy effective_until cannot precede effective_from")
+        object.__setattr__(self, "effective_from", effective_from)
+        object.__setattr__(self, "effective_until", effective_until)
+        object.__setattr__(self, "known_at", known_at)
         for name in ("aum_threshold", "flow_threshold", "young_age_years"):
             value = _number(getattr(self, name), name, minimum=0.0)
             if value is None or value == 0:
@@ -333,6 +344,124 @@ class ClosureProxyPolicy:
     @classmethod
     def from_mapping(cls, value: Mapping[str, object]) -> "ClosureProxyPolicy":
         return cls(**{key: value[key] for key in cls.__dataclass_fields__ if key != "execution_allowed" and key in value})
+
+
+def _reconciliation_signature(reconciliations: Sequence[object]) -> tuple[object, ...]:
+    return tuple(
+        (
+            getattr(item, "status", None),
+            getattr(item, "selected_source_id", None),
+            tuple(getattr(item, "discrepancies", ())),
+            tuple(
+                (
+                    getattr(observation, "action_id", None),
+                    getattr(observation, "instrument_id", None),
+                    getattr(observation, "source_id", None),
+                    getattr(observation, "source_checksum", None),
+                    getattr(observation, "known_at", None),
+                    getattr(observation, "event_at", None),
+                )
+                for observation in getattr(item, "observations", ())
+            ),
+        )
+        for item in reconciliations
+    )
+
+
+def _coverage_signature(coverage: object) -> tuple[object, ...]:
+    return tuple(
+        getattr(coverage, field_name, None)
+        for field_name in (
+            "instrument_id",
+            "coverage_through",
+            "published_at",
+            "retrieved_at",
+            "known_at",
+            "revision",
+            "source",
+            "source_id",
+            "source_checksum",
+            "status",
+            "execution_allowed",
+        )
+    )
+
+
+def _validate_corporate_action_coverage(
+    coverage: object,
+    *,
+    instrument_id: str,
+    frame: pd.DataFrame,
+    as_of: object,
+    known_at: object,
+    cutoff: str | None = None,
+) -> None:
+    from etf_cockpit.data.market_adjustments import CorporateActionCoverage
+
+    if not isinstance(coverage, CorporateActionCoverage):
+        raise EtfEconomicsError("total-return evidence requires trusted CorporateActionCoverage")
+    if coverage.instrument_id != instrument_id:
+        raise EtfEconomicsError("corporate-action coverage instrument mismatch")
+    if coverage.status != "active" or coverage.execution_allowed:
+        raise EtfEconomicsError("corporate-action coverage must be active and non-executable")
+    evidence_as_of = _timestamp(as_of, "total-return as_of", required=True) or ""
+    evidence_known_at = _timestamp(known_at, "total-return known_at", required=True) or ""
+    frame_dates = pd.to_datetime(frame.get("date"), errors="coerce", utc=True, format="mixed")
+    if not isinstance(frame_dates, pd.Series) or frame_dates.empty or frame_dates.isna().any():
+        raise EtfEconomicsError("total-return frame requires valid date evidence")
+    required_through = max(pd.Timestamp(evidence_as_of), frame_dates.max())
+    if pd.Timestamp(coverage.coverage_through) < required_through:
+        raise EtfEconomicsError("corporate-action coverage does not cover the total-return frame and as_of")
+    if pd.Timestamp(coverage.known_at) > pd.Timestamp(evidence_known_at):
+        raise EtfEconomicsError("corporate-action coverage is known after the total-return evidence envelope")
+    if cutoff is not None and pd.Timestamp(coverage.known_at) > pd.Timestamp(cutoff):
+        raise EtfEconomicsError("corporate-action coverage is not known at decision time")
+
+
+@dataclass(frozen=True)
+class _TrustedTotalReturnBinding:
+    """Snapshot binding to the canonical AdjustmentResult artifact."""
+
+    artifact: object = field(repr=False, compare=False)
+    frame_checksum: str
+    reconciliation_signature: tuple[object, ...]
+    convention: str
+    corporate_action_coverage: object = field(repr=False, compare=False)
+    coverage_signature: tuple[object, ...]
+
+    def verify(
+        self,
+        frame: pd.DataFrame,
+        convention: str,
+        instrument_id: str,
+        as_of: str,
+        known_at: str,
+        cutoff: str | None,
+    ) -> None:
+        artifact_frame = getattr(self.artifact, "frame", None)
+        reconciliations = getattr(self.artifact, "action_reconciliation", None)
+        if (
+            not isinstance(artifact_frame, pd.DataFrame)
+            or _frame_checksum(artifact_frame) != self.frame_checksum
+            or getattr(self.artifact, "status", None) != "available"
+            or getattr(self.artifact, "convention", None) != self.convention
+            or convention != self.convention
+        ):
+            raise EtfEconomicsError("total-return canonical AdjustmentResult artifact changed after binding")
+        if _frame_checksum(frame) != self.frame_checksum:
+            raise EtfEconomicsError("total-return payload is not the bound canonical artifact")
+        if _reconciliation_signature(tuple(reconciliations or ())) != self.reconciliation_signature:
+            raise EtfEconomicsError("total-return corporate-action reconciliation changed after binding")
+        if _coverage_signature(self.corporate_action_coverage) != self.coverage_signature:
+            raise EtfEconomicsError("total-return corporate-action coverage changed after binding")
+        _validate_corporate_action_coverage(
+            self.corporate_action_coverage,
+            instrument_id=instrument_id,
+            frame=frame,
+            as_of=as_of,
+            known_at=known_at,
+            cutoff=cutoff,
+        )
 
 
 @dataclass(frozen=True)
@@ -351,6 +480,7 @@ class TotalReturnEvidence:
     as_of: str
     frame: pd.DataFrame = field(repr=False, compare=False)
     frequency: str = _BUSINESS_DAILY
+    _binding: object | None = field(default=None, repr=False, compare=False)
     execution_allowed: bool = field(default=False, init=False)
 
     def __post_init__(self) -> None:
@@ -366,8 +496,12 @@ class TotalReturnEvidence:
         if self.status != "available" or self.reconciliation_status != "reconciled":
             raise EtfEconomicsError("total-return evidence must be available and reconciled")
         for name in ("source_id", "provenance", "checksum"):
-            if _text(getattr(self, name)) is None:
+            value = _text(getattr(self, name))
+            if value is None:
                 raise EtfEconomicsError(f"total-return {name} is required")
+            object.__setattr__(self, name, value)
+        if not isinstance(self._binding, _TrustedTotalReturnBinding):
+            raise EtfEconomicsError("total-return evidence requires a trusted canonical AdjustmentResult binding")
         object.__setattr__(self, "known_at", _timestamp(self.known_at, "total-return known_at", required=True) or "")
         object.__setattr__(self, "as_of", _timestamp(self.as_of, "total-return as_of", required=True) or "")
         if pd.Timestamp(self.known_at) < pd.Timestamp(self.as_of):
@@ -399,24 +533,48 @@ class TotalReturnEvidence:
         as_of: object,
         source_id: str,
         provenance: str,
+        corporate_action_coverage: object = None,
         checksum: str | None = None,
         frequency: str = _BUSINESS_DAILY,
     ) -> "TotalReturnEvidence":
-        from etf_cockpit.data.market_adjustments import AdjustmentResult
+        from etf_cockpit.data.market_adjustments import AdjustmentResult, CorporateAction
 
         if not isinstance(result, AdjustmentResult):
             raise EtfEconomicsError("authoritative total-return evidence must be created from AdjustmentResult")
         frame = result.frame.copy(deep=True)
         if "total_return_index" not in frame.columns:
             raise EtfEconomicsError("AdjustmentResult does not contain canonical total_return_index evidence")
+        reconciliations = tuple(result.action_reconciliation)
+        if reconciliations and any(
+            not item.available
+            or item.selected_source_id is None
+            or not item.observations
+            or any(not isinstance(observation, CorporateAction) for observation in item.observations)
+            for item in reconciliations
+        ):
+            raise EtfEconomicsError("AdjustmentResult action reconciliation must be positive, selected and observed")
+        _validate_corporate_action_coverage(
+            corporate_action_coverage,
+            instrument_id=instrument_id,
+            frame=frame,
+            as_of=as_of,
+            known_at=known_at,
+        )
         actual_checksum = checksum or _frame_checksum(frame)
-        reconciliation_status = "reconciled" if all(item.available for item in result.action_reconciliation) else "unreconciled"
+        binding = _TrustedTotalReturnBinding(
+            artifact=result,
+            frame_checksum=_frame_checksum(frame),
+            reconciliation_signature=_reconciliation_signature(reconciliations),
+            convention=result.convention,
+            corporate_action_coverage=corporate_action_coverage,
+            coverage_signature=_coverage_signature(corporate_action_coverage),
+        )
         return cls(
             instrument_id=instrument_id,
             currency=currency,
             total_return_convention=result.convention,
             status=result.status,
-            reconciliation_status=reconciliation_status,
+            reconciliation_status="reconciled",
             source_id=source_id,
             provenance=provenance,
             checksum=actual_checksum,
@@ -424,6 +582,7 @@ class TotalReturnEvidence:
             as_of=str(as_of),
             frame=frame,
             frequency=frequency,
+            _binding=binding,
         )
 
     @classmethod
@@ -432,25 +591,28 @@ class TotalReturnEvidence:
         missing = required - set(frame.columns)
         if missing or frame.empty:
             raise EtfEconomicsError(f"local total-return evidence missing metadata: {', '.join(sorted(missing))}")
-        first = frame.iloc[0]
         for column in required - {"known_at"}:
             if frame[column].map(lambda value: _text(value)).nunique(dropna=True) != 1:
                 raise EtfEconomicsError(f"local total-return metadata is inconsistent: {column}")
         known_at = pd.to_datetime(frame["known_at"], errors="coerce", utc=True, format="mixed")
         if known_at.isna().any():
             raise EtfEconomicsError("local total-return evidence has missing known_at")
-        return cls(
-            instrument_id=str(first["instrument_id"]), currency=str(first["currency"]),
-            total_return_convention=str(first["total_return_convention"]), status=str(first["status"]),
-            reconciliation_status=str(first["reconciliation_status"]), source_id=str(first["source_id"]),
-            provenance=str(first["provenance"]), checksum=str(first["checksum"]), known_at=str(known_at.max()),
-            as_of=str(first["as_of"]), frame=frame.copy(deep=True), frequency=str(first["frequency"]),
-        )
+        raise EtfEconomicsError("local total-return evidence requires a trusted canonical AdjustmentResult binding")
 
     def as_dict(self) -> dict[str, object]:
-        payload = {key: value for key, value in asdict(self).items() if key != "frame"}
+        payload = {
+            key: getattr(self, key)
+            for key in self.__dataclass_fields__
+            if key not in {"frame", "_binding", "execution_allowed"}
+        }
+        payload["artifact_checksum"] = self._binding.frame_checksum
+        payload["corporate_action_coverage"] = self._binding.corporate_action_coverage.as_dict()
         payload["execution_allowed"] = False
         return payload
+
+    @property
+    def artifact_checksum(self) -> str:
+        return self._binding.frame_checksum
 
 
 CanonicalTotalReturnEvidence = TotalReturnEvidence
@@ -468,6 +630,16 @@ class EtfEconomicsReport:
     benchmark_currency: str | None = None
     benchmark_source_id: str | None = None
     benchmark_source_provenance: str | None = None
+    benchmark_source_checksum: str | None = None
+    benchmark_total_return_convention: str | None = None
+    benchmark_total_return_known_at: str | None = None
+    benchmark_total_return_as_of: str | None = None
+    fund_source_id: str | None = None
+    fund_source_provenance: str | None = None
+    fund_source_checksum: str | None = None
+    fund_total_return_convention: str | None = None
+    fund_total_return_known_at: str | None = None
+    fund_total_return_as_of: str | None = None
     currency: str | None = None
     horizon_days: int | None = None
     sampling_frequency: str = _BUSINESS_DAILY
@@ -478,6 +650,7 @@ class EtfEconomicsReport:
     matched_rows: int = 0
     tracking_difference: float | None = None
     tracking_error: float | None = None
+    tracking_unit: str = "decimal_fraction"
     tracking_status: str = "unavailable"
     fund_metrics: Mapping[str, object] = field(default_factory=dict)
     share_class_metrics: Mapping[str, Mapping[str, object]] = field(default_factory=dict)
@@ -579,6 +752,14 @@ def _series_frame(evidence: object, label: str, expected_identity: str, cutoff: 
         raise EtfEconomicsError(f"{label} total-return evidence is untyped or unavailable")
     if evidence.checksum != _frame_checksum(evidence.frame):
         raise EtfEconomicsError(f"{label} total-return payload checksum mismatch at consumption")
+    evidence._binding.verify(
+        evidence.frame,
+        evidence.total_return_convention,
+        evidence.instrument_id,
+        evidence.as_of,
+        evidence.known_at,
+        cutoff,
+    )
     if evidence.instrument_id != expected_identity:
         raise EtfEconomicsError(f"{label} total-return identity mismatch")
     has_row_known_at = "known_at" in evidence.frame.columns
@@ -604,6 +785,8 @@ def _series_frame(evidence: object, label: str, expected_identity: str, cutoff: 
         known = pd.to_datetime(frame["known_at"], errors="coerce", utc=True, format="mixed")
         if known.isna().any():
             raise EtfEconomicsError(f"{label} total-return evidence has missing known_at")
+        if (known < parsed_dates).any():
+            raise EtfEconomicsError(f"{label} total-return row known_at cannot precede observation date")
         conflict_columns = [
             column
             for column in ("total_return_index", "instrument_id", "currency", "total_return_convention", "source_id", "provenance", "checksum")
@@ -652,6 +835,22 @@ def _closure_proxy(fund: EtfEconomicsObservation | None, as_of: str | None, poli
     unavailable = {"status": "unavailable", "label": label, "method": "versioned age/AUM/flow proxy", "score": None, "factor_coverage": {"available": 0, "total": 3, "ratio": 0.0}, "uncertainty": "high"}
     if fund is None or policy is None:
         return {**unavailable, "reason": "fund economics or explicit closure policy unavailable"}
+    if as_of is None or pd.Timestamp(as_of) < pd.Timestamp(policy.effective_from) or (
+        policy.effective_until is not None and pd.Timestamp(as_of) > pd.Timestamp(policy.effective_until)
+    ) or pd.Timestamp(policy.known_at) > pd.Timestamp(as_of):
+        return {
+            **unavailable,
+            "reason": "closure policy is not applicable at the requested point in time",
+            "policy_version": policy.version,
+            "policy_provenance": {
+                "source_id": policy.source_id,
+                "source_provenance": policy.source_provenance,
+                "source_checksum": policy.source_checksum,
+                "effective_from": policy.effective_from,
+                "effective_until": policy.effective_until,
+                "known_at": policy.known_at,
+            },
+        }
     if fund.currency != policy.base_currency or fund.aum_unit not in {None, policy.amount_unit} or fund.flows_unit not in {None, policy.amount_unit}:
         return {**unavailable, "reason": "policy base currency does not match AUM/flow currency", "policy_version": policy.version, "base_currency": policy.base_currency}
     factors: dict[str, float] = {}
@@ -671,8 +870,9 @@ def _closure_proxy(fund: EtfEconomicsObservation | None, as_of: str | None, poli
         missing.append("age")
     coverage = len(factors) / 3.0
     return {
-        "status": "available" if factors else "unavailable", "label": label, "method": "versioned age/AUM/flow proxy",
+        "status": "available" if coverage == 1.0 else "unavailable", "label": label, "method": "versioned age/AUM/flow proxy",
         "policy_version": policy.version, "base_currency": policy.base_currency, "amount_unit": policy.amount_unit,
+        "policy_interval": {"effective_from": policy.effective_from, "effective_until": policy.effective_until, "known_at": policy.known_at},
         "policy_assumptions": {"aum_threshold": policy.aum_threshold, "flow_period_days": policy.flow_period_days, "flow_threshold": policy.flow_threshold, "young_age_years": policy.young_age_years},
         "policy_provenance": {"source_id": policy.source_id, "source_provenance": policy.source_provenance, "source_checksum": policy.source_checksum},
         "score": round(sum(factors.values()) / len(factors), 8) if factors else None,
@@ -727,6 +927,11 @@ def calculate_etf_economics(
             missing.add("benchmark_currency")
         if benchmark_currency is not None and output_currency is not None and benchmark_currency != output_currency:
             missing.add("currency_match")
+        if fund is not None and any(
+            _text(getattr(fund, field_name)) is None
+            for field_name in ("source_id", "source_provenance", "source_checksum")
+        ):
+            missing.add("fund_economics_provenance")
 
         requested_horizon = int(horizon_days)
         if requested_horizon < 1:
@@ -772,7 +977,8 @@ def calculate_etf_economics(
             missing.add("matched_total_return")
 
         fund_metrics: dict[str, object] = {
-            "ter": fund.ter if fund else None, "ocf": fund.ocf if fund else None, "aum": fund.aum if fund else None,
+            "ter": fund.ter if fund else None, "ocf": fund.ocf if fund else None, "fee_unit": "decimal_fraction" if fund and fund.fee_unit else None, "aum": fund.aum if fund else None,
+            "source_id": fund.source_id if fund else None, "source_provenance": fund.source_provenance if fund else None, "source_checksum": fund.source_checksum if fund else None,
             "aum_unit": fund.aum_unit if fund else None, "flows": fund.flows if fund else None, "flows_unit": fund.flows_unit if fund else None,
             "flow_period_days": fund.flow_period_days if fund else None, "inception_date": fund.inception_date if fund else None,
             "age_years": None if fund is None or fund.inception_date is None or effective_as_of is None else round(max(0.0, (pd.Timestamp(effective_as_of) - pd.Timestamp(fund.inception_date)).days / 365.25), 8),
@@ -801,7 +1007,18 @@ def calculate_etf_economics(
         return EtfEconomicsReport(
             instrument, status, "ETF economics evidence is local, point-in-time and non-executable.", as_of=effective_as_of or "unavailable",
             benchmark_id=benchmark, benchmark_name=fund.benchmark_name if fund else None, benchmark_currency=benchmark_currency,
-            benchmark_source_id=fund.benchmark_source_id if fund else None, benchmark_source_provenance=fund.benchmark_source_provenance if fund else None,
+            benchmark_source_id=benchmark_total_return.source_id if isinstance(benchmark_total_return, TotalReturnEvidence) else (fund.benchmark_source_id if fund else None),
+            benchmark_source_provenance=benchmark_total_return.provenance if isinstance(benchmark_total_return, TotalReturnEvidence) else (fund.benchmark_source_provenance if fund else None),
+            benchmark_source_checksum=benchmark_total_return.checksum if isinstance(benchmark_total_return, TotalReturnEvidence) else (fund.benchmark_source_checksum if fund else None),
+            benchmark_total_return_convention=benchmark_total_return.total_return_convention if isinstance(benchmark_total_return, TotalReturnEvidence) else None,
+            benchmark_total_return_known_at=benchmark_total_return.known_at if isinstance(benchmark_total_return, TotalReturnEvidence) else None,
+            benchmark_total_return_as_of=benchmark_total_return.as_of if isinstance(benchmark_total_return, TotalReturnEvidence) else None,
+            fund_source_id=fund_total_return.source_id if isinstance(fund_total_return, TotalReturnEvidence) else None,
+            fund_source_provenance=fund_total_return.provenance if isinstance(fund_total_return, TotalReturnEvidence) else None,
+            fund_source_checksum=fund_total_return.checksum if isinstance(fund_total_return, TotalReturnEvidence) else None,
+            fund_total_return_convention=fund_total_return.total_return_convention if isinstance(fund_total_return, TotalReturnEvidence) else None,
+            fund_total_return_known_at=fund_total_return.known_at if isinstance(fund_total_return, TotalReturnEvidence) else None,
+            fund_total_return_as_of=fund_total_return.as_of if isinstance(fund_total_return, TotalReturnEvidence) else None,
             currency=output_currency, horizon_days=requested_horizon, matched_start=None if selected_window.empty else pd.Timestamp(selected_window["date"].iloc[0]).isoformat().replace("+00:00", "Z"),
             matched_end=None if selected_window.empty else pd.Timestamp(selected_window["date"].iloc[-1]).isoformat().replace("+00:00", "Z"), sampling_frequency=_BUSINESS_DAILY,
             coverage=f"{len(selected_window)}/{expected_rows} business_daily observations" if not selected_window.empty else "unavailable", coverage_ratio=None if coverage_ratio is None else round(coverage_ratio, 8), matched_rows=len(selected_window),

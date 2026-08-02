@@ -21,7 +21,7 @@ from etf_cockpit.data.etf_economics import (
     load_etf_economics_records,
     load_total_return_evidence,
 )
-from etf_cockpit.data.market_adjustments import apply_total_return_adjustments
+from etf_cockpit.data.market_adjustments import AdjustmentResult, CorporateActionCoverage, apply_total_return_adjustments
 from etf_cockpit.features.etf_economics import calculate_etf_liquidity
 import etf_cockpit.services as services
 from etf_cockpit.services import build_snapshot
@@ -167,6 +167,9 @@ def _economics_records() -> list[dict[str, object]]:
             "inception_date": "2020-01-01",
             "share_class_structure": "accumulating",
             "document_id": "kid-2026",
+            "source_id": "fund-economics-test",
+            "source_provenance": "unit-test",
+            "source_checksum": "b" * 64,
         },
         {
             "instrument_id": "VWCE",
@@ -209,33 +212,80 @@ def _closure_policy() -> ClosureProxyPolicy:
         "policy-test",
         "unit-test",
         "sha256:closure-policy-test",
+        "2020-01-01",
+        "2099-12-31",
+        "2020-01-01",
     )
 
 
 def _total_return_series(values: list[float], *, instrument_id: str = "VWCE", currency: str = "EUR", start: str = "2026-01-01") -> TotalReturnEvidence:
     dates = pd.bdate_range(start, periods=len(values))
-    frame = pd.DataFrame({"date": dates, "total_return_index": values, "instrument_id": instrument_id, "currency": currency})
-    return TotalReturnEvidence(
+    adjustment = apply_total_return_adjustments(pd.DataFrame({"date": dates, "close": values}))
+    adjustment.frame["instrument_id"] = instrument_id
+    adjustment.frame["currency"] = currency
+    return TotalReturnEvidence.from_adjustment_result(
+        adjustment,
         instrument_id=instrument_id,
         currency=currency,
-        total_return_convention="reinvest_on_ex_date",
-        status="available",
-        reconciliation_status="reconciled",
-        source_id="test",
-        provenance="unit-test",
-        checksum=TotalReturnEvidence.checksum_for_frame(frame),
         known_at=str(dates[-1]),
         as_of=str(dates[-1]),
-        frame=frame,
+        source_id="test",
+        provenance="unit-test",
+        corporate_action_coverage=_corporate_action_coverage(instrument_id, dates[-1], dates[-1]),
+    )
+
+
+def _corporate_action_coverage(
+    instrument_id: str,
+    coverage_through: object,
+    known_at: object,
+    *,
+    status: str = "active",
+) -> CorporateActionCoverage:
+    return CorporateActionCoverage(
+        instrument_id=instrument_id,
+        coverage_through=str(coverage_through),
+        published_at=str(coverage_through),
+        retrieved_at=str(coverage_through),
+        known_at=str(known_at),
+        revision=1,
+        source="unit-test",
+        source_id="coverage-test",
+        source_checksum="c" * 64,
+        status=status,
     )
 
 
 def _replace_evidence(evidence: TotalReturnEvidence, frame: pd.DataFrame, **changes: object) -> TotalReturnEvidence:
-    return replace(
-        evidence,
-        frame=frame,
-        checksum=TotalReturnEvidence.checksum_for_frame(frame),
+    artifact = AdjustmentResult(
+        "available",
+        frame.copy(deep=True),
+        evidence.total_return_convention,
+        evidence._binding.artifact.action_reconciliation,
+    )
+    values = {
+        "known_at": evidence.known_at,
+        "as_of": evidence.as_of,
         **changes,
+    }
+    coverage_through = max(
+        pd.to_datetime(frame["date"], utc=True, format="mixed").max(),
+        pd.to_datetime(values["as_of"], utc=True),
+    )
+    existing_coverage = evidence._binding.corporate_action_coverage
+    coverage = (
+        existing_coverage
+        if pd.Timestamp(existing_coverage.coverage_through) >= coverage_through
+        else _corporate_action_coverage(evidence.instrument_id, coverage_through, values["known_at"])
+    )
+    return TotalReturnEvidence.from_adjustment_result(
+        artifact,
+        instrument_id=evidence.instrument_id,
+        currency=evidence.currency,
+        source_id=evidence.source_id,
+        provenance=evidence.provenance,
+        corporate_action_coverage=coverage,
+        **values,
     )
 
 
@@ -408,13 +458,16 @@ def test_closure_proxy_requires_versioned_policy_and_currency_base_match() -> No
 
 
 def test_adjustment_result_factory_binds_canonical_total_return_contract() -> None:
-    dates = pd.bdate_range("2026-01-01", periods=4)
-    adjustment = apply_total_return_adjustments(pd.DataFrame({"date": dates, "close": [100.0, 101.0, 102.0, 104.0]}))
+    trusted = _total_return_series([100.0, 101.0, 102.0, 104.0])
+    adjustment = trusted._binding.artifact
     evidence = TotalReturnEvidence.from_adjustment_result(
         adjustment, instrument_id="VWCE", currency="EUR", known_at="2026-01-06", as_of="2026-01-06", source_id="adjustment-test", provenance="local-corporate-actions",
+        corporate_action_coverage=trusted._binding.corporate_action_coverage,
     )
     report = calculate_etf_economics("VWCE", _economics_records(), fund_total_return=evidence, benchmark_total_return=_total_return_series([100, 100.5, 101, 103], instrument_id="FTSE-ALL-WORLD"), as_of="2026-01-06", horizon_days=3)
+    assert adjustment.action_reconciliation == ()
     assert report.tracking_status == "available"
+    assert evidence.as_dict()["corporate_action_coverage"]["source_checksum"] == "c" * 64
     assert evidence.as_dict()["execution_allowed"] is False
 
 
@@ -452,7 +505,7 @@ def test_local_loaders_fail_closed_for_malformed_files_and_read_typed_csv(tmp_pa
     )
     payload["checksum"] = TotalReturnEvidence.checksum_for_frame(payload)
     payload.to_csv(evidence_path, index=False)
-    assert load_total_return_evidence(evidence_path) is not None
+    assert load_total_return_evidence(evidence_path) is None
     malformed = tmp_path / "bad.csv"
     pd.DataFrame({"date": ["2026-01-01"], "total_return_index": [100]}).to_csv(malformed, index=False)
     assert load_total_return_evidence(malformed) is None
@@ -469,6 +522,7 @@ def test_total_return_row_revisions_select_latest_eligible_and_exclude_future() 
             "total_return_index": [105.0, 150.0],
             "instrument_id": ["VWCE", "VWCE"],
             "currency": ["EUR", "EUR"],
+            "total_return_convention": ["reinvest_on_ex_date", "reinvest_on_ex_date"],
             "known_at": ["2026-01-06T12:00:00Z", "2026-01-07T00:00:00Z"],
         }
     )
@@ -529,6 +583,9 @@ def test_closure_policy_loader_accepts_local_json_and_fails_closed(tmp_path) -> 
                 "source_id": "policy-test",
                 "source_provenance": "unit-test",
                 "source_checksum": "sha256:closure-policy-test",
+                "effective_from": "2020-01-01",
+                "effective_until": "2099-12-31",
+                "known_at": "2020-01-01",
             }
         ),
         encoding="utf-8",
@@ -585,28 +642,9 @@ def test_required_closure_policy_absence_makes_complete_economics_partial() -> N
 
 
 def test_total_return_envelope_blocks_future_rows_and_report_lookahead() -> None:
-    frame = pd.DataFrame(
-        {
-            "date": pd.bdate_range("2026-01-01", periods=4),
-            "total_return_index": [100.0, 101.0, 102.0, 104.0],
-            "instrument_id": "VWCE",
-            "currency": "EUR",
-        }
-    )
+    evidence = _total_return_series([100, 101, 102, 104])
     with pytest.raises(EtfEconomicsError, match="extends beyond its as_of envelope"):
-        TotalReturnEvidence(
-            instrument_id="VWCE",
-            currency="EUR",
-            total_return_convention="reinvest_on_ex_date",
-            status="available",
-            reconciliation_status="reconciled",
-            source_id="test",
-            provenance="unit-test",
-            checksum=TotalReturnEvidence.checksum_for_frame(frame),
-            known_at="2026-01-06",
-            as_of="2026-01-02",
-            frame=frame,
-        )
+        _replace_evidence(evidence, evidence.frame.copy(deep=True), as_of="2026-01-02")
 
 
 def test_total_return_checksum_and_convention_are_verified() -> None:
@@ -684,3 +722,183 @@ def test_etf_economics_ui_renders_scalar_tracking_coverage() -> None:
     assert "coverage: 4/4 business_daily observations" in rendered
     assert "policy-test" in rendered
     assert report.closure_risk_proxy["policy_assumptions"]["aum_threshold"] == 100_000_000
+
+
+def test_rehashed_mutable_payload_is_not_a_trusted_total_return_artifact() -> None:
+    evidence = _total_return_series([100, 101, 102, 104])
+    mutated = evidence.frame.copy(deep=True)
+    mutated.loc[3, "total_return_index"] = 999.0
+    forged = replace(evidence, frame=mutated, checksum=TotalReturnEvidence.checksum_for_frame(mutated))
+
+    report = calculate_etf_economics(
+        "VWCE",
+        _economics_records(),
+        fund_total_return=forged,
+        benchmark_total_return=_total_return_series([100, 100.5, 101, 103], instrument_id="FTSE-ALL-WORLD"),
+        as_of="2026-01-06",
+        horizon_days=3,
+        closure_policy=_closure_policy(),
+    )
+
+    assert report.status == "unavailable"
+    assert "bound canonical artifact" in report.message
+
+
+def test_adjustment_result_without_corporate_action_coverage_is_rejected() -> None:
+    dates = pd.bdate_range("2026-01-01", periods=4)
+    adjustment = apply_total_return_adjustments(pd.DataFrame({"date": dates, "close": [100.0, 101.0, 102.0, 104.0]}))
+
+    with pytest.raises(EtfEconomicsError, match="trusted CorporateActionCoverage"):
+        TotalReturnEvidence.from_adjustment_result(
+            adjustment,
+            instrument_id="VWCE",
+            currency="EUR",
+            known_at="2026-01-06",
+            as_of="2026-01-06",
+            source_id="test",
+            provenance="unit-test",
+        )
+
+
+@pytest.mark.parametrize(
+    ("coverage", "message"),
+    [
+        (_corporate_action_coverage("OTHER", "2026-01-06", "2026-01-06"), "instrument mismatch"),
+        (_corporate_action_coverage("VWCE", "2026-01-05", "2026-01-05"), "does not cover"),
+        (_corporate_action_coverage("VWCE", "2026-01-06", "2026-01-07"), "known after"),
+        (
+            _corporate_action_coverage("VWCE", "2026-01-06", "2026-01-06", status="superseded"),
+            "must be active",
+        ),
+    ],
+)
+def test_invalid_corporate_action_coverage_is_rejected(
+    coverage: CorporateActionCoverage,
+    message: str,
+) -> None:
+    trusted = _total_return_series([100, 101, 102, 104])
+
+    with pytest.raises(EtfEconomicsError, match=message):
+        TotalReturnEvidence.from_adjustment_result(
+            trusted._binding.artifact,
+            instrument_id="VWCE",
+            currency="EUR",
+            known_at="2026-01-06",
+            as_of="2026-01-06",
+            source_id="test",
+            provenance="unit-test",
+            corporate_action_coverage=coverage,
+        )
+
+
+def test_mutated_corporate_action_coverage_fails_at_consumption() -> None:
+    fund = _total_return_series([100, 101, 102, 104])
+    object.__setattr__(fund._binding.corporate_action_coverage, "source_checksum", "d" * 64)
+
+    report = calculate_etf_economics(
+        "VWCE",
+        _economics_records(),
+        fund_total_return=fund,
+        benchmark_total_return=_total_return_series([100, 100.5, 101, 103], instrument_id="FTSE-ALL-WORLD"),
+        as_of="2026-01-06",
+        horizon_days=3,
+        closure_policy=_closure_policy(),
+    )
+
+    assert report.status == "unavailable"
+    assert "corporate-action coverage changed after binding" in report.message
+
+
+def test_total_return_source_provenance_is_required() -> None:
+    trusted = _total_return_series([100, 101, 102, 104])
+    artifact = trusted._binding.artifact
+
+    with pytest.raises(EtfEconomicsError, match="total-return source_id is required"):
+        TotalReturnEvidence.from_adjustment_result(
+            artifact,
+            instrument_id="VWCE",
+            currency="EUR",
+            known_at="2026-01-06",
+            as_of="2026-01-06",
+            source_id="",
+            provenance="unit-test",
+            corporate_action_coverage=trusted._binding.corporate_action_coverage,
+        )
+
+
+def test_row_known_at_before_observation_date_fails_closed() -> None:
+    evidence = _total_return_series([100, 101, 102, 104])
+    frame = evidence.frame.copy(deep=True)
+    frame["known_at"] = "2025-12-31T23:59:59Z"
+    bad = _replace_evidence(evidence, frame)
+
+    report = calculate_etf_economics(
+        "VWCE",
+        _economics_records(),
+        fund_total_return=bad,
+        benchmark_total_return=_total_return_series([100, 100.5, 101, 103], instrument_id="FTSE-ALL-WORLD"),
+        as_of="2026-01-06",
+        horizon_days=3,
+        closure_policy=_closure_policy(),
+    )
+
+    assert report.status == "unavailable"
+    assert "row known_at cannot precede observation date" in report.message
+
+
+def test_historical_closure_policy_interval_and_knowledge_guard() -> None:
+    policy = replace(
+        _closure_policy(),
+        effective_from="2026-01-07",
+        effective_until="2026-12-31",
+        known_at="2026-01-07",
+    )
+    report = calculate_etf_economics("VWCE", _economics_records(), as_of="2026-01-06", closure_policy=policy)
+
+    assert report.closure_risk_proxy["status"] == "unavailable"
+    assert "not applicable" in report.closure_risk_proxy["reason"]
+
+
+def test_report_preserves_total_return_lineage_and_tracking_units() -> None:
+    fund = _total_return_series([100, 101, 102, 104])
+    benchmark = _total_return_series([100, 100.5, 101, 103], instrument_id="FTSE-ALL-WORLD")
+    report = calculate_etf_economics(
+        "VWCE",
+        _economics_records(),
+        fund_total_return=fund,
+        benchmark_total_return=benchmark,
+        as_of="2026-01-06",
+        horizon_days=3,
+        closure_policy=_closure_policy(),
+    )
+
+    assert report.tracking_unit == "decimal_fraction"
+    assert report.fund_source_id == fund.source_id
+    assert report.fund_source_provenance == fund.provenance
+    assert report.fund_source_checksum == fund.checksum
+    assert report.fund_total_return_convention == fund.total_return_convention
+    assert report.fund_total_return_known_at == fund.known_at
+    assert report.fund_total_return_as_of == fund.as_of
+    assert report.benchmark_source_id == benchmark.source_id
+    assert report.benchmark_source_provenance == benchmark.provenance
+    assert report.benchmark_source_checksum == benchmark.checksum
+    assert report.benchmark_total_return_convention == benchmark.total_return_convention
+    assert report.benchmark_total_return_known_at == benchmark.known_at
+    assert report.benchmark_total_return_as_of == benchmark.as_of
+
+
+def test_closure_availability_requires_all_factors_and_fund_fee_unit() -> None:
+    record = {key: value for key, value in _economics_records()[0].items() if key != "flows"}
+    report = calculate_etf_economics("VWCE", [record], as_of="2026-01-06", closure_policy=_closure_policy())
+
+    assert report.closure_risk_proxy["status"] == "unavailable"
+    assert report.closure_risk_proxy["factor_coverage"]["ratio"] < 1.0
+    assert report.fund_metrics["fee_unit"] == "decimal_fraction"
+
+
+def test_available_economics_requires_fund_record_provenance() -> None:
+    record = {key: value for key, value in _economics_records()[0].items() if key not in {"source_id", "source_checksum"}}
+    report = calculate_etf_economics("VWCE", [record], as_of="2026-01-06")
+
+    assert report.status == "partial"
+    assert "fund_economics_provenance" in report.missing_evidence
