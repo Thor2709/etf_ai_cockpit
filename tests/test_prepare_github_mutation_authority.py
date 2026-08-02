@@ -573,6 +573,28 @@ def test_status_replay_prefix_accepts_unchanged_unresolved_dependency_without_ev
         status_transition=authoritative["status_transition"],
     )
 
+    for mutate in (
+        lambda edge: edge.pop("reviewer"),
+        lambda edge: edge.update(reviewer=[]),
+        lambda edge: edge.update(evidence_references=[""]),
+        lambda edge: edge.update(unexpected=True),
+    ):
+        malformed = copy.deepcopy(authoritative["dependency_edge_evidence"])
+        mutate(malformed["UPDATEV2-0015"])
+        with pytest.raises(
+            ValueError, match="status replay canonical dependency evidence is invalid"
+        ):
+            validate_status_replay_prefix_shape(
+                "ISSUE-0103",
+                authoritative["transition_history"],
+                authoritative["acceptance_evidence"],
+                programme_status=authoritative["programme_status"],
+                dependency_edge_evidence=malformed,
+                verified_commit=authoritative["verified_commit"],
+                verified_date=authoritative["verified_date"],
+                status_transition=authoritative["status_transition"],
+            )
+
 
 def test_control_state_loaders_reject_duplicate_nested_keys(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
