@@ -13,12 +13,14 @@ from typing import Any
 
 try:
     from scripts.issue_registry_core import (
+        CONTROL_ALLOWED_TRANSITIONS,
         control_state_record,
         load_control_state_at,
         validate_status_replay_prefix_shape,
     )
 except ModuleNotFoundError:
     from issue_registry_core import (  # type: ignore[no-redef]
+        CONTROL_ALLOWED_TRANSITIONS,
         control_state_record,
         load_control_state_at,
         validate_status_replay_prefix_shape,
@@ -269,7 +271,12 @@ def _validate_candidate_evidence(
         or not STABLE_ID_RE.fullmatch(str(expected_update.get("stable_id", "")))
         or not isinstance(expected_update.get("from_status"), str)
         or not expected_update.get("from_status")
-        or expected_update.get("to_status") != "integrated"
+        or expected_update.get("to_status")
+        not in {"ready", "in_progress", "integrated"}
+        or expected_update.get("to_status")
+        not in CONTROL_ALLOWED_TRANSITIONS.get(
+            str(expected_update.get("from_status")), frozenset()
+        )
     ):
         raise ValueError("status-completion candidate expected update identity is invalid")
     action_scope = evidence.get("action_scope")
@@ -281,6 +288,7 @@ def _validate_candidate_evidence(
         or action_scope[0].get("stable_id") != expected_update["stable_id"]
         or action_scope[0].get("managed_field_deltas") != ["Programme status"]
         or not isinstance(action_scope[0].get("remote_number"), int)
+        or action_scope[0].get("remote_state") != "open"
     ):
         raise ValueError("status-completion candidate action scope identity is invalid")
     mutation = evidence.get("mutation")

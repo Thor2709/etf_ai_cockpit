@@ -36,6 +36,10 @@ EVIDENCE_PREFIXES = (
     "docs/product-completion/programme/phases/",
     "docs/product-completion/reconciliation/",
 )
+CHECKPOINT_CHRONOLOGY_PATHS = {
+    "plans/active_codex_goal.md",
+    "plans/batch-b04-analysis-spine.md",
+}
 ORDINARY_PREFIXES = ("src/", "tests/", "configs/ui_acceptance.yaml")
 HIGH_RISK_PARTS = {
     "broker",
@@ -143,6 +147,8 @@ def classify_path(value: str) -> PathClassification:
         lowered.startswith(prefix.lower()) for prefix in EVIDENCE_PREFIXES
     ):
         return PathClassification(path, "E", "allowlisted-semantic-event-or-projection")
+    if lowered in CHECKPOINT_CHRONOLOGY_PATHS:
+        return PathClassification(path, "E", "allowlisted-checkpoint-chronology")
     if (
         lowered in PROTECTED_POLICY_PATHS
         or path in HIGH_RISK_NAMES

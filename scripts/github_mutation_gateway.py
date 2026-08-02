@@ -34,6 +34,7 @@ STABLE_ID_RE = re.compile(r"(?:ISSUE|UPDATEV2)-\d{4}")
 SHA_RE = re.compile(r"[0-9a-f]{40}")
 HASH_RE = re.compile(r"[0-9a-f]{64}")
 STATUS_RE = re.compile(r"^- Programme status: `([^`]+)`$", re.MULTILINE)
+SINGLE_HOP_STATUS_TARGETS = frozenset({"ready", "in_progress", "integrated"})
 BOT_AUTHORS = frozenset({"github-actions[bot]"})
 GITHUB_ACTIONS_BOT_USER_ID = "41898282"
 GITHUB_ACTIONS_APP_ID = "15368"
@@ -291,6 +292,22 @@ def _validate_run_attestation(attestation: dict[str, str]) -> None:
         raise ValueError("invalid_github_actions_run_attestation")
 
 
+def _validate_single_hop_status_transition(
+    from_status: object, to_status: object
+) -> None:
+    try:
+        from scripts.issue_registry_core import CONTROL_ALLOWED_TRANSITIONS
+    except ModuleNotFoundError:
+        from issue_registry_core import CONTROL_ALLOWED_TRANSITIONS  # type: ignore[no-redef]
+    if (
+        not isinstance(from_status, str)
+        or not isinstance(to_status, str)
+        or to_status not in SINGLE_HOP_STATUS_TARGETS
+        or to_status not in CONTROL_ALLOWED_TRANSITIONS.get(from_status, frozenset())
+    ):
+        raise ValueError("invalid_status_authority_transition")
+
+
 def _authority_id(value: dict[str, Any]) -> str:
     unsigned = dict(value)
     unsigned.pop("authority_id", None)
@@ -433,6 +450,9 @@ def parse_authority_ledger(data: bytes) -> list[dict[str, Any]]:
         elif kind == "status":
             if set(payload) != STATUS_AUTHORITY_KEYS:
                 raise ValueError("invalid_status_authority_fields")
+            _validate_single_hop_status_transition(
+                payload.get("from_status"), payload.get("to_status")
+            )
             for field in ("source_sha",):
                 if not SHA_RE.fullmatch(str(payload.get(field, ""))):
                     raise ValueError(f"invalid_status_authority_{field}")
@@ -769,6 +789,9 @@ def parse_event_comment(body: str) -> dict[str, Any] | None:
         raise ValueError("status_event_execution_authority")
     if not STABLE_ID_RE.fullmatch(str(value.get("stable_id", ""))):
         raise ValueError("invalid_status_event_stable_id")
+    _validate_single_hop_status_transition(
+        value.get("from_status"), value.get("to_status")
+    )
     for field in ("source_sha", "head_sha"):
         if not SHA_RE.fullmatch(str(value.get(field, ""))):
             raise ValueError(f"invalid_status_event_{field}")

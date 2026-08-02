@@ -386,8 +386,14 @@ def plan_actions(
             managed_deltas == ["Programme status"]
             and projection.get("status") == record.get("programme_status")
         )
+        pending_status_projection = (
+            managed_deltas == ["Programme status"]
+            and projection.get("accepted") is True
+            and projection.get("status") != record.get("programme_status")
+        )
         if (
             (desired_body != body and not status_only_projection)
+            or pending_status_projection
             or str(issue.get("title", "")) != str(record.get("title", ""))
         ):
             actions.append(_action("update", record, remote_number=issue["number"], body=desired_body))

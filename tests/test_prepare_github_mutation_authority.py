@@ -54,7 +54,7 @@ def _remote() -> list[dict[str, object]]:
     ]
 
 
-def _bootstrap() -> dict[str, object]:
+def _bootstrap(initial_status: str = "implemented_initially") -> dict[str, object]:
     return gateway.build_authority_record(
         "legacy_bootstrap",
         {
@@ -64,7 +64,7 @@ def _bootstrap() -> dict[str, object]:
                     "issue_number": 179,
                     "database_id": "4179",
                     "node_id": "ISSUE_NODE_179",
-                    "initial_status": "implemented_initially",
+                    "initial_status": initial_status,
                 }
             ]
         },
@@ -73,7 +73,9 @@ def _bootstrap() -> dict[str, object]:
     )
 
 
-def _repo(tmp_path: Path) -> tuple[Path, str, dict[str, object]]:
+def _repo(
+    tmp_path: Path, *, initial_status: str = "implemented_initially"
+) -> tuple[Path, str, dict[str, object]]:
     root = tmp_path / "repo"
     root.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
@@ -83,7 +85,7 @@ def _repo(tmp_path: Path) -> tuple[Path, str, dict[str, object]]:
         cwd=root,
         check=True,
     )
-    bootstrap = _bootstrap()
+    bootstrap = _bootstrap(initial_status)
     ledger = root / gateway.AUTHORITY_PATH
     ledger.parent.mkdir(parents=True)
     ledger.write_bytes(gateway.authority_ledger_bytes([bootstrap]))
@@ -175,6 +177,43 @@ def test_status_preparation_command_is_deterministic_and_repository_read_only(
     assert subprocess.check_output(
         ["git", "status", "--porcelain"], cwd=root, text=True
     ) == ""
+
+
+@pytest.mark.parametrize(
+    ("source_status", "target_status"),
+    [("planned", "ready"), ("ready", "in_progress")],
+)
+def test_status_preparation_accepts_one_legal_pending_hop(
+    tmp_path: Path, source_status: str, target_status: str
+) -> None:
+    root, source, bootstrap = _repo(tmp_path, initial_status=source_status)
+    remote = [
+        {
+            **_remote()[0],
+            "body": sync.managed_block(_record(source_status)),
+        }
+    ]
+    plan = sync.plan_actions(
+        {"records": [_record(target_status)]},
+        remote,
+        historical_map={},
+        authority_records=[bootstrap],
+    )
+
+    candidate_bytes, ledger_bytes, _manifest = prepare.prepare(
+        root, plan, remote, source_sha=source, mode="status"
+    )
+
+    assert candidate_bytes is not None
+    candidate = json.loads(candidate_bytes)
+    assert candidate["expected_update"] == {
+        "stable_id": "ISSUE-0179",
+        "from_status": source_status,
+        "to_status": target_status,
+    }
+    records = gateway.parse_authority_ledger(ledger_bytes)
+    assert records[-1]["authority_type"] == "status"
+    assert records[-1]["payload"]["to_status"] == target_status
 
 
 def test_create_preparation_emits_one_safe_append_without_candidate(

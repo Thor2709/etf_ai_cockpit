@@ -39,6 +39,22 @@ convergence is automatic; there is no manual `in_progress` /
 `implemented_initially` / `integrated` PR chain and no duplicate post-merge
 release package matrix. Use at most one watcher and no repetitive polling.
 
+A bounded convergence defect receives at most one demonstrated repair cycle in
+its owning lane. The exact reviewed head, live-plan checksum, focused guards
+and reusable-evidence identities remain mandatory. Existing schema-v2 status
+authority may append exactly one status-only legal forward hop whose target is
+`ready`, `in_progress` or `integrated`, bound to the same issue/remote
+identity, exact parent/head, candidate, plan, ledger and workflow attestation.
+The unchanged completion authority remains exactly two hops,
+`in_progress -> implemented_initially -> integrated`. No retry, compensation,
+ambiguous-write recovery or broader mutation authority is permitted.
+The exact active-goal and current `plans/BATCH-B04-ANALYSIS-SPINE.md`
+checkpoint chronology files are evidence-only and do not inflate an otherwise
+E control transaction; invented or other plan paths fail upward. Genuine H
+changes still run the complete serial Linux/Windows packaged gates.
+Where the contract permits, product lifecycle completion is atomic/automatic
+rather than a serial chain of administrative PRs.
+
 ## Bounded repo-local autonomy and lifecycle recovery
 
 The standing owner authorization covers bounded repo-local product, test,
@@ -49,10 +65,11 @@ deployments, broker/provider writes or execution. H-tier changes still require
 the full review and validation tier before acceptance.
 
 When a reviewed canonical lifecycle change omitted its GitHub projection, the
-writer may recover only the omitted managed status metadata from the exact
-reviewed head and live target snapshot. Recovery remains fail-closed and
-append-only; it must not invent history, retry an ambiguous write, compensate,
-or rewrite canonical state.
+existing sole writer may recover only one omitted managed status hop from the
+exact reviewed head and live target snapshot. The accepted comment projection
+is authoritative even when the legacy body status still carries its anchor.
+Recovery remains fail-closed and append-only; it must not invent history,
+retry an ambiguous write, compensate, or rewrite canonical state.
 
 The bounded `status-replay-candidate/3.0` contract supports one issue and
 exactly two ordered forward hops: `in_progress` to

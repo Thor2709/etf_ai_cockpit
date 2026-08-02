@@ -27,6 +27,20 @@ by a second byte-clean check. `validation-summary` is the normal CI interface;
 use at most one watcher and no repetitive polling. Raw artefacts are for
 failure, inconsistency, sampled audit or final certification.
 
+Bounded convergence defects receive at most one demonstrated repair cycle in
+the owning lane. The exact reviewed head, live-plan checksum and focused
+fail-closed guards remain required. Existing schema-v2 status authority may
+append exactly one legal status-only forward projection to `ready`,
+`in_progress` or `integrated`; the unchanged completion authority remains
+`in_progress -> implemented_initially -> integrated`. No retry, compensation,
+ambiguous-write recovery or broader mutation authority is added. The exact
+active-goal and current `plans/BATCH-B04-ANALYSIS-SPINE.md` checkpoint
+chronology files are evidence-only and do not inflate an otherwise E control
+transaction; invented or other plan paths fail upward. Genuine H changes still
+require the complete serial Linux/Windows packaged gates.
+Where the contract permits, product lifecycle work uses atomic/automatic
+completion rather than serial administrative PRs.
+
 The four-worker safe/unsafe pytest pilot is report-only and serial packaged
 Linux/Windows validation remains authoritative. `main` remains green. Read and
 update the relevant SDD/ADR for architecture or contract changes. Preflight
