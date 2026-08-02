@@ -59,9 +59,9 @@ All registry read-modify-write publishers use one exported persistent registry
 guard. Lock order is registry then disclosure/conflict stores (with the report
 snapshot guard outside that sequence), and already-locked private publication
 paths avoid recursive acquisition and lost concurrent updates. A v2 extraction
-identity must have equal single-row cardinality in the report and registry
-stores before re-import; a missing, duplicate or one-sided identity fails
-closed before publication.
+identity set must match exactly across the report and registry stores before
+re-import; a missing, duplicate or one-sided identity in any prior or incoming
+parser/plugin revision fails closed before publication.
 
 The Trust Evidence page exposes the three report kinds, field values,
 plugins, pages, checksums, authority, parser/review status, fingerprints,

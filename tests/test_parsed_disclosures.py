@@ -439,10 +439,12 @@ def test_parser_revision_reimport_retains_prior_review_as_separate_extraction(tm
 
 
 @pytest.mark.parametrize("missing_counterpart", ["report", "registry"])
+@pytest.mark.parametrize("revision_change", [False, True])
 def test_same_revision_reimport_rejects_cross_store_identity_gap(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     missing_counterpart: str,
+    revision_change: bool,
 ) -> None:
     import etf_cockpit.data.parsed_disclosures as module
     from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest
@@ -460,11 +462,17 @@ def test_same_revision_reimport_rejects_cross_store_identity_gap(
         conflict_destination=conflicts,
         raw_dir=tmp_path / "raw",
     )
-    fund_name = {"value": "Original"}
+    extraction = {"fund_name": "Original", "parser": "2.0", "template": "v1"}
     monkeypatch.setattr(
         module,
         "parse_etf_report_in_child",
-        lambda path, kind, **_kwargs: _v2_report_result(path, kind=kind, fund_name=fund_name["value"]),
+        lambda path, kind, **_kwargs: _v2_report_result(
+            path,
+            kind=kind,
+            fund_name=extraction["fund_name"],
+            parser_version=extraction["parser"],
+            template_version=extraction["template"],
+        ),
     )
     imported = module.import_etf_report(request)
 
@@ -488,9 +496,60 @@ def test_same_revision_reimport_rejects_cross_store_identity_gap(
             conflicts.with_suffix(".csv"),
         )
     }
-    fund_name["value"] = "Drifted"
+    extraction["fund_name"] = "Drifted"
+    if revision_change:
+        extraction.update(parser="2.1", template="v2")
 
-    with pytest.raises(ValueError, match="report and registry extraction state is inconsistent"):
+    with pytest.raises(ValueError, match="report and registry"):
+        module.import_etf_report(request)
+
+    assert {path: path.read_bytes() for path in prior} == prior
+
+
+def test_same_revision_reimport_rejects_physical_registry_duplicate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import etf_cockpit.data.parsed_disclosures as module
+    from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest
+
+    source = tmp_path / "prospectus.pdf"
+    source.write_bytes(b"duplicate registry identity")
+    reports, registry, conflicts = (tmp_path / name for name in ("reports.parquet", "registry.parquet", "conflicts.parquet"))
+    request = EtfReportImportRequest(
+        "VWCE",
+        "prospectus",
+        "issuer_document",
+        source_path=source,
+        destination=reports,
+        registry_destination=registry,
+        conflict_destination=conflicts,
+        raw_dir=tmp_path / "raw",
+    )
+    monkeypatch.setattr(
+        module,
+        "parse_etf_report_in_child",
+        lambda path, kind, **_kwargs: _v2_report_result(path, kind=kind),
+    )
+    imported = module.import_etf_report(request)
+    registry_frame = pd.read_parquet(registry)
+    report_row = registry_frame.loc[registry_frame["source_id"].astype(str).eq(imported.source_id)]
+    duplicated = pd.concat([registry_frame, report_row], ignore_index=True)
+    duplicated.to_parquet(registry, index=False)
+    duplicated.to_csv(registry.with_suffix(".csv"), index=False)
+    prior = {
+        path: path.read_bytes()
+        for path in (
+            reports,
+            reports.with_suffix(".csv"),
+            registry,
+            registry.with_suffix(".csv"),
+            conflicts,
+            conflicts.with_suffix(".csv"),
+        )
+    }
+
+    with pytest.raises(ValueError, match="duplicate source_id"):
         module.import_etf_report(request)
 
     assert {path: path.read_bytes() for path in prior} == prior

@@ -232,10 +232,35 @@ def _read_registry_fail_closed(path: Path) -> pd.DataFrame:
     if not candidate.exists() or not candidate.is_file():
         return pd.DataFrame()
     try:
-        pd.read_parquet(candidate)
+        raw = pd.read_parquet(candidate)
     except Exception as exc:
         raise ValueError(f"Fund document registry is corrupt: {candidate}") from exc
-    return read_document_registry(path=candidate)
+    normalised = read_document_registry(path=candidate)
+    if len(normalised) != len(raw):
+        raise ValueError(f"Fund document registry contains duplicate source_id: {candidate}")
+    return normalised
+
+
+def _validate_report_registry_identity_parity(
+    reports: pd.DataFrame,
+    registry: pd.DataFrame,
+) -> None:
+    report_ids = [
+        str(value).strip()
+        for value in reports.get("source_id", pd.Series(dtype=str)).tolist()
+        if str(value).strip().startswith("report:v2:")
+    ]
+    registry_ids = [
+        str(value).strip()
+        for value in registry.get("source_id", pd.Series(dtype=str)).tolist()
+        if str(value).strip().startswith("report:v2:")
+    ]
+    if len(report_ids) != len(set(report_ids)):
+        raise ValueError("ETF report store contains duplicate source_id")
+    if len(registry_ids) != len(set(registry_ids)):
+        raise ValueError("Fund document registry contains duplicate source_id")
+    if set(report_ids) != set(registry_ids):
+        raise ValueError("ETF report and registry v2 identity sets are inconsistent")
 
 
 def _kid_row(result: ParseResult[PriipsKidRecord], instrument_id: str, record: PriipsKidRecord) -> dict[str, Any]:
@@ -613,6 +638,7 @@ def import_etf_report(request: EtfReportImportRequest) -> EtfReportImportResult:
                 with persistent_file_guard(_guard_path(Path(request.conflict_destination)), timeout_seconds=request.timeout_seconds):
                     registry_existing = _read_registry_fail_closed(Path(request.registry_destination))
                     report_existing = _read_report_frame(Path(request.destination))
+                    _validate_report_registry_identity_parity(report_existing, registry_existing)
                     registry_match = registry_existing.loc[registry_existing["source_id"].astype(str).eq(source_id)] if not registry_existing.empty else pd.DataFrame()
                     report_match = report_existing.loc[report_existing["source_id"].astype(str).eq(source_id)] if not report_existing.empty else pd.DataFrame()
                     if len(registry_match) > 1:
