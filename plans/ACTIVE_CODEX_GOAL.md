@@ -71,6 +71,14 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   identity cardinality parity before re-import and leaves all stores unchanged
   on mismatch; both missing-report and missing-registry regressions are
   covered.
+- Both exact-head reviewer verdicts were collected before the next correction.
+  They additionally reproduced physical duplicate registry rows hidden by
+  normalization and prior-revision orphaning when a new parser/template
+  identity was imported. Consolidated correction
+  `84587edd346d06bfa469b9a1600a8789ff59b323` rejects raw duplicates and
+  requires equality of the complete v2 report/registry identity sets before
+  any incoming revision is processed; same- and changed-revision divergence
+  tests preserve every store byte-for-byte.
 
 ## Completed convergence repair checkpoint
 

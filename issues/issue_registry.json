@@ -26390,7 +26390,7 @@
         },
         {
           "evidence_references": [
-            "Product checkpoints 60430fdd29b37ac3e700a368417e07674ce36c7f, b14b5f272a69f9d2c8824fbb161316d3b5382caa and d95c28a89e24b22123f72d9ded63327b3445982f implement deterministic local ETF prospectus, annual-report and half-year-report parsing with typed checksum-bound import and review evidence, append-only parser/plugin extraction revisions, cross-store identity parity, atomic persistence and Trust Evidence UI integration",
+            "Product checkpoints 60430fdd29b37ac3e700a368417e07674ce36c7f, b14b5f272a69f9d2c8824fbb161316d3b5382caa, d95c28a89e24b22123f72d9ded63327b3445982f and 84587edd346d06bfa469b9a1600a8789ff59b323 implement deterministic local ETF prospectus, annual-report and half-year-report parsing with typed checksum-bound import and review evidence, append-only parser/plugin extraction revisions, complete cross-store identity-set parity and raw duplicate rejection, atomic persistence and Trust Evidence UI integration",
             "Focused post-rebase validation passed all 112 parser, persistence, concurrency, review-authority and UI cases with one expected Windows skip; Ruff, compile, programme-generation check and diff hygiene passed",
             "Child-process resource bounds, fail-closed malformed/tampered evidence reads, registry locking and execution_allowed=false preserve existing safety and authority boundaries; no network, OCR, scoring or external execution authority is added"
           ],
@@ -27697,7 +27697,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "ee5d3fe8198d8ee0c0347966eb0ecb6db1f9862d0a03d19abdb16627d125fbdc",
+    "programme_control_state_sha256": "fb3aa24b43240c342be6a5d9a48346ace50cdbab7ecd62edbb4aac705c9195a0",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

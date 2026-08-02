@@ -61,6 +61,15 @@ identity. Corrected checkpoint
 identity cardinality across both stores before re-import and preserves all
 bytes on failure; both divergence directions have regressions.
 
+Both exact-head reviewer verdicts were collected before correction. The
+remaining reproduced cases were a physical duplicate registry identity hidden
+by normalization and an orphaned prior revision bypassed by importing a new
+parser/template identity. Consolidated correction
+`84587edd346d06bfa469b9a1600a8789ff59b323` rejects raw duplicates and
+requires complete v2 report/registry identity-set equality before processing
+any incoming revision; same- and changed-revision divergence tests preserve
+all bytes on rejection.
+
 ## Completed ISSUE-0102 and current bounded readback repair
 
 Bounded repair PR #640 merged independently reviewed exact head
