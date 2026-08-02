@@ -1,12 +1,13 @@
-# Active Codex goal — H-tier replay control-state binding repair
+# Active Codex goal — ISSUE-0101 two-hop convergence recovery
 
 ## Objective
 
-Correct the bounded aggregate replay to read lifecycle history and acceptance
-evidence from the existing authoritative `programme_control_state.json`, not
-the generated registry projection that intentionally omits transition history.
-Preserve the exact two-hop contract, legacy authority bytes,
-`execution_allowed=false`, and all fail-closed safeguards.
+Converge the already merged ISSUE-0101 product through the bounded aggregate
+status replay: `in_progress -> implemented_initially -> integrated`. Bind both
+hops to product PR #633, merged product commit
+`0680429aa5c30477dc854ef80367a3cc5ff4010e`, and its completed review and
+protected validation evidence. Preserve `execution_allowed=false` and all
+fail-closed safeguards.
 
 The ISSUE-0177–0180 control-plane work is complete and frozen. Its complete
 former active-goal record and chronology are archived in
@@ -27,22 +28,32 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   `C:\Users\thor2\AppData\Local\Temp\issue0101-e-recovery-blocked-20260802`;
   patch SHA-256
   `2A2C65B7B5864D2A95ED641C46D0874667DFE50B20A551082C03B76DF531A4E2`.
-- Follow-up repair worktree:
-  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_replay_control_state`;
-  branch `codex/status-replay-control-state-20260802`; exact base and starting
-  head `ff10762e8c000b2f2c834073e27a664bc20de143`.
-- Current lane: bounded implementation and focused tests are complete;
-  independent review and fresh H-tier package gates remain pending.
-- Protected scope: canonical ISSUE-0101 status, generated projections,
-  workflows/permissions, product code, external systems and authority policy
+- Follow-up H-tier repair PR #635 merged independently approved exact head
+  `91aea56ec60d9dfb92968c30428c0a02a35b5652` as
+  `a4aadf36cc6c0f8cbb356fff96b572919cf5857f`. Run `30728917010` passed
+  classifier, preflight, supply-chain, Linux and Windows package gates and the
+  terminal summary; post-merge convergence run `30729715977` passed zero action.
+- Clean recovery worktree:
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0101_replay_v2`;
+  branch `codex/issue0101-two-hop-recovery-20260802-v2`; exact base and starting
+  head `a4aadf36cc6c0f8cbb356fff96b572919cf5857f` with an initially empty diff.
+- Canonical input records only ISSUE-0101
+  `in_progress -> implemented_initially -> integrated`; both hops share PR #633
+  review/validation evidence and verified product commit
+  `0680429aa5c30477dc854ef80367a3cc5ff4010e`.
+- Current lane: mechanical projection generation/check, E-tier guards,
+  exact-head review, merge and GitHub #241 convergence remain pending.
+- Protected scope: ISSUE-0101 product code, dependency edges,
+  workflows/permissions, external systems and all execution/authority policy
   remain unchanged.
 - Preserved rejected evidence path/hash:
   `C:\Users\thor2\AppData\Local\Temp\issue0101-invalid-recovery-evidence-20260802-001`;
   patch SHA-256
   `32488742f363e50f14c566b6890992e37a1a9843d0ed9ca7031fc32fc56e168c`.
-- Exact next action: review and validate the complete control-state binding
-  diff, merge only the accepted exact H-tier head, then restart ISSUE-0101
-  recovery from a new clean `origin/main` worktree.
+- Exact next action: generate all projections atomically, require byte-clean
+  check mode, prepare the bounded aggregate proposal/receipt, validate and
+  review the exact E-tier head, then merge and verify GitHub #241 reaches
+  canonical `integrated` without unrelated writes.
 
 ## Frozen delivery evidence and boundaries
 

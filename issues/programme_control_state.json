@@ -3436,6 +3436,28 @@
           "reviewed_date": "2026-07-28",
           "reviewer": "Codex root orchestrator",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product PR #633 merged as 0680429aa5c30477dc854ef80367a3cc5ff4010e",
+            "PR #633 independent exact-head review completed with no findings",
+            "Release gate run 30698727382 passed protected Linux and Windows package validation; 179 affected and 35 focused tests passed"
+          ],
+          "review_reference": "PR #633 completed exact-head review and protected validation evidence",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex independent reviewer and root orchestrator",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product PR #633 merged as 0680429aa5c30477dc854ef80367a3cc5ff4010e",
+            "PR #633 independent exact-head review completed with no findings",
+            "Release gate run 30698727382 passed protected Linux and Windows package validation; 179 affected and 35 focused tests passed"
+          ],
+          "review_reference": "PR #633 completed exact-head review and protected validation evidence",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex independent reviewer and root orchestrator",
+          "status": "integrated"
         }
       ],
       "dependency_edge_evidence": {
@@ -3453,11 +3475,11 @@
         }
       },
       "phase": "phase-03-stock-research",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "status_transition": {
-        "from": "ready",
-        "review_reference": "B04 ISSUE-0101 bounded cyclical-adapter implementation hand-off",
-        "to": "in_progress"
+        "from": "implemented_initially",
+        "review_reference": "PR #633 completed exact-head review and protected validation evidence",
+        "to": "integrated"
       },
       "transition_history": [
         {
@@ -3514,10 +3536,38 @@
           "reviewer": "Codex root orchestrator",
           "to": "in_progress",
           "verified_commit": "a5acc69cc6ac0eb9cb7ec86509b98eec330e6537"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Product PR #633 merged as 0680429aa5c30477dc854ef80367a3cc5ff4010e",
+            "PR #633 independent exact-head review completed with no findings",
+            "Release gate run 30698727382 passed protected Linux and Windows package validation; 179 affected and 35 focused tests passed"
+          ],
+          "from": "in_progress",
+          "review_reference": "PR #633 completed exact-head review and protected validation evidence",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex independent reviewer and root orchestrator",
+          "to": "implemented_initially",
+          "verified_commit": "0680429aa5c30477dc854ef80367a3cc5ff4010e"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Product PR #633 merged as 0680429aa5c30477dc854ef80367a3cc5ff4010e",
+            "PR #633 independent exact-head review completed with no findings",
+            "Release gate run 30698727382 passed protected Linux and Windows package validation; 179 affected and 35 focused tests passed"
+          ],
+          "from": "implemented_initially",
+          "review_reference": "PR #633 completed exact-head review and protected validation evidence",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex independent reviewer and root orchestrator",
+          "to": "integrated",
+          "verified_commit": "0680429aa5c30477dc854ef80367a3cc5ff4010e"
         }
       ],
-      "verified_commit": "a5acc69cc6ac0eb9cb7ec86509b98eec330e6537",
-      "verified_date": "2026-07-28"
+      "verified_commit": "0680429aa5c30477dc854ef80367a3cc5ff4010e",
+      "verified_date": "2026-08-02"
     },
     "ISSUE-0102": {
       "acceptance_evidence": [],
