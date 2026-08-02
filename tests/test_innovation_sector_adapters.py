@@ -6,12 +6,15 @@ from etf_cockpit.analysis.innovation_sector_adapters import (
     InnovationAdapterError,
     InnovationEventEvidence,
     InnovationMetricEvidence,
+    INNOVATION_CONFIDENCE_CAP,
+    INNOVATION_MANUAL_CONFIDENCE_CAP,
     build_innovation_projection,
     innovation_adapter_definitions,
     innovation_formula_registry,
     innovation_result_hash,
     innovation_source_digest,
     projection_payload,
+    verify_innovation_projection,
 )
 from etf_cockpit.analysis.peer_cohorts import AdapterRegistry
 from etf_cockpit.app.pages.instrument_detail import instrument_detail_page
@@ -221,13 +224,144 @@ def test_formula_registry_and_verified_ui_projection_are_versioned_and_fail_clos
 
     snapshot = build_snapshot()
     instrument_id = snapshot.config.universe.etfs[0].id
-    matching = _build("software", (_metric("gross_margin", "software", 0.8, unit="ratio"),), context=_context("software", instrument_id=instrument_id))
+    matching = _build(
+        "software", (_metric("gross_margin", "software", 0.8, unit="ratio"),),
+        events=(InnovationEventEvidence(
+            event_id="concentration-1", event_type="product_concentration",
+            title="Top customer disclosure", stage=None,
+            event_date="2025-06-30T00:00:00Z", period="FY2025",
+            source_id="issuer:concentration-1", source_authority=SourceAuthority.ISSUER,
+            as_of=EFFECTIVE, known_at="2025-02-15T00:00:00Z", concentration=0.6,
+        ),),
+        context=_context("software", instrument_id=instrument_id),
+    )
     matching_payload = projection_payload(matching)
     model = build_instrument_detail(snapshot, instrument_id, innovation_projection=matching_payload, innovation_source_digest=innovation_source_digest(matching.source_payload))
     assert model.sections["innovation"]["valuation_status"] == "confidence_capped_inapplicable"
     state = AppState(snapshot=snapshot, selected_etf=instrument_id, innovation_projection=matching_payload, innovation_source_digest=innovation_source_digest(matching.source_payload))
     rendered = instrument_detail_page(None, state)
-    assert "Innovation and Healthcare" in "\n".join(_text_values(rendered))
+    rendered_text = "\n".join(_text_values(rendered))
+    assert "Innovation and Healthcare" in rendered_text
+    assert "aggregate_confidence" in rendered_text
+    assert "concentration-1" in rendered_text
+
+
+def test_verified_projection_replays_all_metric_and_event_fields_after_rehash():
+    result = _build("biotech", (
+        _metric("cash_balance", "biotech", 120),
+        _metric("operating_cash_burn", "biotech", 30, unit="currency_per_month"),
+        _metric("shares_outstanding", "biotech", 100, unit="shares"),
+        _metric("potential_dilution_shares", "biotech", 20, unit="shares"),
+    ), events=(InnovationEventEvidence(
+        event_id="trial-1", event_type="trial_milestone", title="Phase 2 readout",
+        stage="phase_2", event_date="2025-06-30T00:00:00Z", period="FY2025",
+        source_id="registry:trial-1", source_authority=SourceAuthority.OFFICIAL,
+        as_of=EFFECTIVE, known_at="2025-02-15T00:00:00Z", outcome_probability=0.75,
+    ),))
+    payload = projection_payload(result)
+    digest = innovation_source_digest(result.source_payload)
+    mutations = (
+        ("metrics", {"source_authority": "manual"}),
+        ("events", {"event_date": "2025-07-01T00:00:00Z"}),
+        ("events", {"source_id": "forged:event"}),
+        ("events", {"probability_status": "not_applicable"}),
+    )
+    for field, changes in mutations:
+        forged = {**payload, field: [dict(row, **changes) for row in payload[field]]}
+        forged["result_hash"] = innovation_result_hash(forged)
+        with pytest.raises(InnovationAdapterError):
+            verify_innovation_projection(forged, expected_source_digest=digest)
+
+
+@pytest.mark.parametrize("mutation", [
+    lambda source: {**source, "extra": True},
+    lambda source: {key: value for key, value in source.items() if key != "events"},
+])
+def test_source_payload_extra_or_missing_keys_fail_closed_even_with_valid_projection_hash(mutation):
+    result = _build("software", (_metric("gross_margin", "software", 0.8, unit="ratio"),))
+    forged_source = mutation(dict(result.source_payload))
+    forged = {**projection_payload(result), "source_payload": forged_source}
+    forged["result_hash"] = innovation_result_hash(forged)
+    with pytest.raises(InnovationAdapterError):
+        verify_innovation_projection(forged, expected_source_digest=innovation_source_digest(forged_source))
+
+
+@pytest.mark.parametrize("remove_field", [False, True])
+def test_projection_extra_or_missing_schema_keys_fail_closed_after_rehash(remove_field):
+    result = _build("software", (_metric("gross_margin", "software", 0.8, unit="ratio"),))
+    forged = projection_payload(result)
+    if remove_field:
+        forged.pop("metrics")
+    else:
+        forged["unexpected"] = True
+    forged["result_hash"] = innovation_result_hash(forged)
+    with pytest.raises(InnovationAdapterError):
+        verify_innovation_projection(forged, expected_source_digest=innovation_source_digest(result.source_payload))
+
+
+@pytest.mark.parametrize("evidence", [
+    replace(_metric("gross_margin", "software", 0.8, unit="ratio"), as_of="2025-02-16T00:00:00Z"),
+    replace(_metric("gross_margin", "software", 0.8, unit="ratio"), known_at="2025-03-02T00:00:00Z"),
+])
+def test_metric_temporal_ordering_and_authority_are_fail_closed(evidence):
+    with pytest.raises(InnovationAdapterError, match="future-known"):
+        _build("software", (evidence,))
+
+
+def test_event_as_of_must_not_follow_known_at_but_future_milestone_date_is_allowed():
+    event = InnovationEventEvidence(
+        event_id="trial-1", event_type="trial_milestone", title="Phase 2 readout",
+        stage="phase_2", event_date="2030-06-30T00:00:00Z", period="FY2030",
+        source_id="registry:trial-1", source_authority=SourceAuthority.OFFICIAL,
+        as_of="2025-02-16T00:00:00Z", known_at="2025-02-15T00:00:00Z",
+    )
+    with pytest.raises(InnovationAdapterError, match="future-known"):
+        _build("biotech", (), events=(event,))
+    valid = replace(event, as_of=EFFECTIVE)
+    assert _build("biotech", (), events=(valid,)).events[0].event_date == "2030-06-30T00:00:00Z"
+    with pytest.raises(InnovationAdapterError, match="future-known"):
+        _build("biotech", (), events=(replace(valid, known_at="2025-03-02T00:00:00Z"),))
+
+
+def test_unregistered_adapter_fallback_is_rejected():
+    with pytest.raises(InnovationAdapterError, match="classification route"):
+        build_innovation_projection(
+            _context("software"), (_metric("gross_margin", "software", 0.8, unit="ratio"),),
+            registry=AdapterRegistry(), decision_time=DECISION,
+        )
+
+
+def test_concentration_timeline_and_manual_confidence_caps_are_explicit():
+    event = InnovationEventEvidence(
+        event_id="customer-1", event_type="product_concentration", title="Top customer disclosure",
+        stage=None, event_date="2025-06-30T00:00:00Z", period="FY2025",
+        source_id="issuer:customer-1", source_authority=SourceAuthority.MANUAL,
+        as_of=EFFECTIVE, known_at="2025-02-15T00:00:00Z", concentration=0.6,
+    )
+    full = (
+        _metric("recurring_revenue", "software", 800),
+        _metric("recurring_revenue_growth", "software", 0.2, unit="ratio"),
+        _metric("net_revenue_retention", "software", 1.12, unit="ratio"),
+        _metric("gross_margin", "software", 0.78, unit="ratio"),
+        _metric("free_cash_flow", "software", 120),
+        _metric("stock_compensation", "software", 45),
+        _metric("basic_shares", "software", 100, unit="shares"),
+        _metric("diluted_shares", "software", 110, unit="shares"),
+        _metric("dilution_rate", "software", 0.1, unit="ratio"),
+    )
+    capped = _build("software", full)
+    manual = _build("software", full, events=(event,))
+    assert capped.aggregate_confidence == INNOVATION_CONFIDENCE_CAP
+    assert capped.aggregate_confidence < 1
+    assert manual.aggregate_confidence == INNOVATION_MANUAL_CONFIDENCE_CAP
+    assert "confidence:sector_valuation_cap" in manual.limitations
+    assert "confidence:manual_evidence_cap" in manual.limitations
+    assert "manual evidence applies a further deterministic confidence cap" in manual.rationale
+    assert manual.concentration_timeline == ({
+        "event_id": "customer-1", "event_date": "2025-06-30T00:00:00Z",
+        "event_type": "product_concentration", "concentration": 0.6,
+        "source_id": "issuer:customer-1", "source_authority": "manual",
+    },)
 
 
 def _text_values(control):
