@@ -82,14 +82,17 @@ as `f245a3f1cf26f074acde50cb9f3e4e1b891bd60a` after H-tier run
 only ISSUE-0103 `ready -> in_progress` with zero-action readback; convergence
 `30759189762` passed and `execution_allowed=false` remains false.
 
-Completion preparation then failed closed before authority creation because
-the replay-prefix validator required a history event for unchanged legacy
-unresolved edge `UPDATEV2-0015`. The one bounded H-tier repair lane
-`codex/status-replay-unresolved-edge-20260802` starts clean at exact merge
-`f245a3f1cf26f074acde50cb9f3e4e1b891bd60a`. It permits only a structurally
-valid unchanged unresolved edge to lack a reviewed edge event; complete-edge
-evidence remains history-bound and dependency mutation during replay remains
-rejected. After protected merge, completion restarts from fresh exact main.
+Completion preparation first failed closed before authority creation on the
+unchanged unresolved `UPDATEV2-0015` placeholder. Bounded repair PR #647
+merged independently approved head `a7d70bc11a91e88ba2f3258da34b697fa02ef058`
+as `124a3f0279850ea034a93c9cb750a382bcfc35c9` after H-tier run
+`30759893469` passed. The fresh `codex/issue0103-completion-20260802-v2`
+lane starts at that exact main and records only
+`in_progress -> implemented_initially -> integrated`, bound to PR #646 and
+its merged product commit. Replay authority
+`b8487fad9581689407475c071bb164db6ebe47db1c7391209e24721ee5771226`
+preserves dependencies and `execution_allowed=false`; focused E-tier guards,
+exact-head review, merge and writer/readback verification remain.
 
 ## Prior convergence repair checkpoint (superseded)
 

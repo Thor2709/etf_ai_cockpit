@@ -3748,6 +3748,30 @@
           "reviewed_date": "2026-08-02",
           "reviewer": "Codex root orchestrator and independent reviewers",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product PR #646 merged exact independently approved head 31e12c1ee0a9390d13c91a5014e3f32915da4bf8 as f245a3f1cf26f074acde50cb9f3e4e1b891bd60a",
+            "Release run 30758046593 classified tier H and passed preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; status guard 30758046561 passed",
+            "Ordered writer run 30759189744 accepted ISSUE-0103 ready to in_progress with zero-action post-write readback; generic convergence run 30759189762 passed and execution_allowed remains false",
+            "Bounded replay-prefix repair PR #647 merged independently approved head a7d70bc11a91e88ba2f3258da34b697fa02ef058 as 124a3f0279850ea034a93c9cb750a382bcfc35c9 after H-tier run 30759893469 passed Linux, Windows and terminal validation"
+          ],
+          "review_reference": "PR #646 exact-head product, classifier and financial/PIT reviews plus PR #647 bounded replay-authority approval",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex independent reviewers and root orchestrator",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product PR #646 merged exact independently approved head 31e12c1ee0a9390d13c91a5014e3f32915da4bf8 as f245a3f1cf26f074acde50cb9f3e4e1b891bd60a",
+            "Release run 30758046593 classified tier H and passed preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; status guard 30758046561 passed",
+            "Ordered writer run 30759189744 accepted ISSUE-0103 ready to in_progress with zero-action post-write readback; generic convergence run 30759189762 passed and execution_allowed remains false",
+            "Bounded replay-prefix repair PR #647 merged independently approved head a7d70bc11a91e88ba2f3258da34b697fa02ef058 as 124a3f0279850ea034a93c9cb750a382bcfc35c9 after H-tier run 30759893469 passed Linux, Windows and terminal validation"
+          ],
+          "review_reference": "PR #646 exact-head product, classifier and financial/PIT reviews plus PR #647 bounded replay-authority approval",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex independent reviewers and root orchestrator",
+          "status": "integrated"
         }
       ],
       "dependency_edge_evidence": {
@@ -3773,11 +3797,11 @@
         }
       },
       "phase": "phase-04-etf-research",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "status_transition": {
-        "from": "ready",
-        "review_reference": "B04 ISSUE-0103 reviewed ETF economics implementation start",
-        "to": "in_progress"
+        "from": "implemented_initially",
+        "review_reference": "PR #646 exact-head product, classifier and financial/PIT reviews plus PR #647 bounded replay-authority approval",
+        "to": "integrated"
       },
       "transition_history": [
         {
@@ -3834,9 +3858,39 @@
           "reviewer": "Codex root orchestrator and independent reviewers",
           "to": "in_progress",
           "verified_commit": "2428af72525474d306cf9c04e6c9ecdaef213caa"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Product PR #646 merged exact independently approved head 31e12c1ee0a9390d13c91a5014e3f32915da4bf8 as f245a3f1cf26f074acde50cb9f3e4e1b891bd60a",
+            "Release run 30758046593 classified tier H and passed preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; status guard 30758046561 passed",
+            "Ordered writer run 30759189744 accepted ISSUE-0103 ready to in_progress with zero-action post-write readback; generic convergence run 30759189762 passed and execution_allowed remains false",
+            "Bounded replay-prefix repair PR #647 merged independently approved head a7d70bc11a91e88ba2f3258da34b697fa02ef058 as 124a3f0279850ea034a93c9cb750a382bcfc35c9 after H-tier run 30759893469 passed Linux, Windows and terminal validation"
+          ],
+          "from": "in_progress",
+          "review_reference": "PR #646 exact-head product, classifier and financial/PIT reviews plus PR #647 bounded replay-authority approval",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex independent reviewers and root orchestrator",
+          "to": "implemented_initially",
+          "verified_commit": "f245a3f1cf26f074acde50cb9f3e4e1b891bd60a"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Product PR #646 merged exact independently approved head 31e12c1ee0a9390d13c91a5014e3f32915da4bf8 as f245a3f1cf26f074acde50cb9f3e4e1b891bd60a",
+            "Release run 30758046593 classified tier H and passed preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; status guard 30758046561 passed",
+            "Ordered writer run 30759189744 accepted ISSUE-0103 ready to in_progress with zero-action post-write readback; generic convergence run 30759189762 passed and execution_allowed remains false",
+            "Bounded replay-prefix repair PR #647 merged independently approved head a7d70bc11a91e88ba2f3258da34b697fa02ef058 as 124a3f0279850ea034a93c9cb750a382bcfc35c9 after H-tier run 30759893469 passed Linux, Windows and terminal validation"
+          ],
+          "from": "implemented_initially",
+          "review_reference": "PR #646 exact-head product, classifier and financial/PIT reviews plus PR #647 bounded replay-authority approval",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex independent reviewers and root orchestrator",
+          "to": "integrated",
+          "verified_commit": "f245a3f1cf26f074acde50cb9f3e4e1b891bd60a"
         }
       ],
-      "verified_commit": "2428af72525474d306cf9c04e6c9ecdaef213caa",
+      "verified_commit": "f245a3f1cf26f074acde50cb9f3e4e1b891bd60a",
       "verified_date": "2026-08-02"
     },
     "ISSUE-0104": {

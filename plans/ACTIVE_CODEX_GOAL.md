@@ -116,15 +116,24 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   status guard `30758046561` passed. Writer `30759189744` applied only
   ISSUE-0103 `ready -> in_progress` with `zero_action_readback=true` and
   convergence `30759189762` passed with `execution_allowed=false`.
-- The first clean completion preparation failed closed before producing an
-  authority because the replay-prefix validator required an event for the
-  unchanged legacy `UPDATEV2-0015` unresolved edge. The one bounded repair lane
-  is `codex/status-replay-unresolved-edge-20260802` at exact base
-  `f245a3f1cf26f074acde50cb9f3e4e1b891bd60a`. Scope is only to permit a
-  structurally valid unchanged unresolved edge to lack a historical edge event;
-  reviewed complete edges remain event-bound and all dependency changes inside
-  replay remain rejected. Exact next action is H-tier validation, independent
-  review, protected merge, then a fresh ISSUE-0103 completion lane.
+- Bounded repair PR #647 merged independently approved exact head
+  `a7d70bc11a91e88ba2f3258da34b697fa02ef058` as
+  `124a3f0279850ea034a93c9cb750a382bcfc35c9`; H-tier run `30759893469`
+  passed Linux, Windows and terminal validation. It permits only the exact
+  unchanged blank unresolved placeholder to lack a historical edge event;
+  complete edges and all replay-time dependency changes remain rejected.
+- Fresh completion lane
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0103_completion_v2`,
+  branch `codex/issue0103-completion-20260802-v2`, started empty at exact base
+  `124a3f0279850ea034a93c9cb750a382bcfc35c9`. It records only ISSUE-0103
+  `in_progress -> implemented_initially -> integrated`, bound to product PR
+  #646, product merge `f245a3f1cf26f074acde50cb9f3e4e1b891bd60a`, the completed
+  reviews/gates and repair PR #647. Prepared replay authority
+  `b8487fad9581689407475c071bb164db6ebe47db1c7391209e24721ee5771226`
+  and candidate ref
+  `e2433978166039a7aa8f90c37d0d2bec80785589c04d7d34a8c52f849b507b86`
+  preserve `execution_allowed=false`. Exact next action is focused E-tier
+  validation, exact-head review, protected merge and writer/readback proof.
 
 ### Prior dependency-edge checkpoint (superseded)
 
