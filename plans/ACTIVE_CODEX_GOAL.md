@@ -15,6 +15,27 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 
 ## Current checkpoint
 
+- ISSUE-0102 dependency PR #638 merged exact reviewed head
+  `871ea037c594844a0de9e72e7dbabd3405244b76` as
+  `179e16c71328c43a9475dce60743a2d1aeda5aa7`. Run `30737461361` passed
+  classifier, preflight, supply chain, authoritative Linux/Windows package
+  gates and terminal validation; guard `30737461338` passed. Post-merge
+  convergence `30738361187` was zero action at checksum
+  `da979ae3fef7344ff4e492bd4468f8a3653e329f6121cb13ba9f2e2a003c1b8f`.
+- Clean readiness lane:
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0102_ready`;
+  branch `codex/issue0102-ready-20260802`; exact base and starting head
+  `179e16c71328c43a9475dce60743a2d1aeda5aa7`, initially empty.
+- Current scope advances only ISSUE-0102 `planned -> ready`, binds acceptance
+  evidence to PR #638 and its exact validation, and preserves all product code,
+  dependency edges, external authority and `execution_allowed=false`.
+- Exact next action: generate/check the complete projection, run the
+  classifier-selected H-tier validation required by checkpoint-plan changes,
+  obtain independent exact-head review, merge and verify convergence; then
+  advance ISSUE-0102 to `in_progress` for the bounded product handoff.
+
+### Prior dependency-edge checkpoint (superseded)
+
 - Current UTC date: `2026-08-02`.
 - ISSUE-0101 recovery PR #636 merged as
   `07da10ee0403033da30071eab5cfb5205c0af147`; bounded recognition repair PR

@@ -16606,7 +16606,19 @@
         "Recurring/pipeline metrics carry source and date.",
         "Generic valuation is replaced or confidence-capped where inapplicable."
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #638 merged the sole ISSUE-0102→ISSUE-0098 dependency edge as complete in 179e16c71328c43a9475dce60743a2d1aeda5aa7 from exact reviewed head 871ea037c594844a0de9e72e7dbabd3405244b76",
+            "Release run 30737461361 passed classifier, preflight, supply-chain, authoritative Linux and Windows package gates and terminal validation summary; standalone status guard 30737461338 passed",
+            "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0102 retains all software, semiconductor, healthcare and biotechnology implementation scope; convergence run 30738361187 was zero action and execution_allowed remains false"
+          ],
+          "review_reference": "B04 ISSUE-0102 readiness after complete ISSUE-0098 dependency review",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex root orchestrator",
+          "status": "ready"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [
         "ISSUE-0098"
@@ -16658,7 +16670,7 @@
       "package_status": "",
       "phase": "phase-03-stock-research",
       "priority": "P1",
-      "programme_status": "planned",
+      "programme_status": "ready",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0099-issue-0102-sector-specific-stock-adapters"
@@ -16688,7 +16700,7 @@
       ],
       "title": "Implement software, semiconductor, healthcare and biotechnology adapters",
       "ui_requirement": "Innovation/Healthcare panels with milestone and concentration timelines.",
-      "verified_commit": "fc734201b138d3f24fa68d8c07422322506d6fc5",
+      "verified_commit": "179e16c71328c43a9475dce60743a2d1aeda5aa7",
       "verified_date": "2026-08-02",
       "why": "Long-term quality and downside depend on recurring economics, R&D productivity, patents, pipeline and funding.",
       "write_conflict_group": "stock-research"
@@ -27580,7 +27592,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "649f6633d9209336de9bdc1c5d4e4a27ba884e998d4a365600aea9afc664d6b8",
+    "programme_control_state_sha256": "58a9ea4afb7d4b6ba4ff8c85ad8809969331f511aacb2b51cebc5b1d6ec52905",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

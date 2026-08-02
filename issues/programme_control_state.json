@@ -3570,7 +3570,19 @@
       "verified_date": "2026-08-02"
     },
     "ISSUE-0102": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #638 merged the sole ISSUE-0102→ISSUE-0098 dependency edge as complete in 179e16c71328c43a9475dce60743a2d1aeda5aa7 from exact reviewed head 871ea037c594844a0de9e72e7dbabd3405244b76",
+            "Release run 30737461361 passed classifier, preflight, supply-chain, authoritative Linux and Windows package gates and terminal validation summary; standalone status guard 30737461338 passed",
+            "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0102 retains all software, semiconductor, healthcare and biotechnology implementation scope; convergence run 30738361187 was zero action and execution_allowed remains false"
+          ],
+          "review_reference": "B04 ISSUE-0102 readiness after complete ISSUE-0098 dependency review",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex root orchestrator",
+          "status": "ready"
+        }
+      ],
       "dependency_edge_evidence": {
         "ISSUE-0098": {
           "contract_reference": "B04/ISSUE-0098/peer-cohort-adapter-contract-v1",
@@ -3586,11 +3598,11 @@
         }
       },
       "phase": "phase-03-stock-research",
-      "programme_status": "planned",
+      "programme_status": "ready",
       "status_transition": {
         "from": "planned",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "planned"
+        "review_reference": "B04 ISSUE-0102 readiness after complete ISSUE-0098 dependency review",
+        "to": "ready"
       },
       "transition_history": [
         {
@@ -3619,9 +3631,23 @@
           "reviewed_date": "2026-08-02",
           "reviewer": "Codex root orchestrator",
           "verified_commit": "fc734201b138d3f24fa68d8c07422322506d6fc5"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #638 merged the sole ISSUE-0102→ISSUE-0098 dependency edge as complete in 179e16c71328c43a9475dce60743a2d1aeda5aa7 from exact reviewed head 871ea037c594844a0de9e72e7dbabd3405244b76",
+            "Release run 30737461361 passed classifier, preflight, supply-chain, authoritative Linux and Windows package gates and terminal validation summary; standalone status guard 30737461338 passed",
+            "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0102 retains all software, semiconductor, healthcare and biotechnology implementation scope; convergence run 30738361187 was zero action and execution_allowed remains false"
+          ],
+          "from": "planned",
+          "review_reference": "B04 ISSUE-0102 readiness after complete ISSUE-0098 dependency review",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex root orchestrator",
+          "to": "ready",
+          "verified_commit": "179e16c71328c43a9475dce60743a2d1aeda5aa7"
         }
       ],
-      "verified_commit": "fc734201b138d3f24fa68d8c07422322506d6fc5",
+      "verified_commit": "179e16c71328c43a9475dce60743a2d1aeda5aa7",
       "verified_date": "2026-08-02"
     },
     "ISSUE-0103": {
