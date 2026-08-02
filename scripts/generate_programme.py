@@ -213,7 +213,8 @@ def run_convergence(
     evidence = recon / "github-sync-evidence.json"
     command = [
             sys.executable,
-            "scripts/sync_github_issues.py",
+            "-m",
+            "scripts.sync_github_issues",
             "--root",
             str(stage),
             "--plan-out",

@@ -54,6 +54,9 @@ E control transaction; invented or other plan paths fail upward. Genuine H
 changes still run the complete serial Linux/Windows packaged gates.
 Where the contract permits, product lifecycle completion is atomic/automatic
 rather than a serial chain of administrative PRs.
+Generic live convergence executes the synchroniser as a module from the
+mechanically staged repository root, so its imports and generated inputs are
+the reviewed staged tree. Acceptance still requires a zero-action readback.
 
 ## Bounded repo-local autonomy and lifecycle recovery
 

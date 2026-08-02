@@ -9,7 +9,7 @@ Current delivery mechanics are defined in
 to sole workers, Sol-low workers or old lifecycle PR chains describe past
 execution and are not current operational instructions.
 
-## Current ISSUE-0102 completion checkpoint
+## Completed ISSUE-0102 and current bounded readback repair
 
 Bounded repair PR #640 merged independently reviewed exact head
 `049cc5fac353b380090694f059412ec877df6cc1` as
@@ -26,12 +26,21 @@ and status guard `30744924900` passed. Ordered writer `30745092252`
 projected ISSUE-0102 `ready -> in_progress` with zero-action readback; generic
 convergence `30745092242` passed and `execution_allowed=false` remains false.
 
-The clean `codex/issue0102-complete-20260802` lane starts at that exact merge
-and records only `in_progress -> implemented_initially -> integrated` through
-the existing aggregate replay contract. Both hops bind to PR #641, reviewed
-head, merge commit and validation evidence. Product code, dependencies and
-authority surfaces are unchanged; mechanical generation/check, focused E-tier
-guards, exact-head review, merge and writer/readback verification remain.
+Completion PR #642 merged exact approved head
+`b9cf650af3b38e69e183b34b569fced99022fd3c` as
+`0848d93edbae6ecd228d0d1e1620dbd99722092c` after run `30745452805`
+passed both package platforms and terminal validation. Writer `30746368016`
+applied the two-hop aggregate, proved `zero_action_readback=true` and retained
+`execution_allowed=false`.
+
+A subsequent exact-main generic live reconciliation exposed one deterministic
+Windows import defect: the staged subprocess did not execute the synchroniser
+from the staged repository package root. The sole bounded repair lane is
+`codex/convergence-readback-module-20260802`, exact base
+`0848d93edbae6ecd228d0d1e1620dbd99722092c`. Module invocation plus one
+regression test now produce an exact zero-action live plan. H-tier review and
+full Linux/Windows gates remain before merge. Next in implementation order is
+ISSUE-0103; only its ISSUE-0084 dependency edge remains to be evidenced.
 
 ## Prior convergence repair checkpoint (superseded)
 

@@ -237,6 +237,60 @@ def test_fresh_zero_action_readback_accepts_inventory_checksum_drift(
         generate_programme._accept_reviewed_or_fresh_noop_sidecar(reviewed, generated)
 
 
+def test_convergence_invokes_sync_from_the_staged_repository(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stage = tmp_path / "stage"
+    reconciliation = stage / "docs/product-completion/reconciliation/test"
+    reconciliation.mkdir(parents=True)
+    (stage / generate_programme.MANIFEST_PATH).parent.mkdir(parents=True, exist_ok=True)
+    outputs = frozenset(
+        {"docs/product-completion/reconciliation/test/github-remote-summary.json"}
+    )
+    observed: dict[str, object] = {}
+
+    monkeypatch.setattr(generate_programme, "_verify_exact_head", lambda *_args: None)
+    monkeypatch.setattr(
+        generate_programme,
+        "stage_generation",
+        lambda *_args, **_kwargs: outputs,
+    )
+
+    def record_run(command: list[str], **kwargs: object) -> None:
+        observed["command"] = command
+        observed["cwd"] = kwargs["cwd"]
+
+    monkeypatch.setattr(generate_programme.subprocess, "run", record_run)
+    monkeypatch.setattr(
+        generate_programme,
+        "_validate_and_emit_convergence_evidence",
+        lambda *_args: None,
+    )
+    monkeypatch.setattr(
+        generate_programme,
+        "_accept_reviewed_or_fresh_noop_sidecar",
+        lambda *_args: None,
+    )
+    monkeypatch.setattr(generate_programme, "build_manifest", lambda *_args: b"{}\n")
+
+    generate_programme.run_convergence(
+        tmp_path,
+        stage,
+        expected_head="a" * 40,
+        main_ref="origin/main",
+        remote_snapshot=None,
+        reviewed_sidecar=tmp_path / "reviewed.sha256",
+    )
+
+    assert observed["command"][:3] == [
+        generate_programme.sys.executable,
+        "-m",
+        "scripts.sync_github_issues",
+    ]
+    assert observed["cwd"] == stage
+
+
 def test_consecutive_main_advances_each_use_their_fresh_exact_head(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
