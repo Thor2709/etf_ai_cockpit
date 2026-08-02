@@ -33,6 +33,26 @@ record is not implemented by this repair. Any future compensating-record
 mechanism requires explicit user approval and must document an anomaly without
 repeating or rewriting history.
 
+The H-tier status-completion repair adds one separate `status_replay` authority
+and `status-replay-candidate/3.0` contract. It is deliberately bounded to one
+issue and exactly two ordered legal forward transitions,
+`in_progress -> implemented_initially -> integrated`. The two canonical
+transition-history entries and two acceptance-evidence entries must preserve
+their declared prefixes, match exactly, share one reviewed product commit and
+review evidence, and pass the existing lifecycle validator independently.
+Both hops are carried by one aggregate proposal and one receipt bound to one
+authority, candidate, issue identity and reviewed head. Existing ISSUE-0180
+`status` authority, event and receipt bytes remain unchanged.
+
+The aggregate is semantically atomic: local validation replays both hops in
+memory and projection accepts the final status only when the proposal and its
+single receipt form a complete pair. This does not make GitHub transport
+atomic or provide server-side compare-and-swap; the transport still performs
+one proposal append followed by one receipt append. Partial, cancelled,
+erased or ambiguous writes remain spent and fail closed. The existing
+no-retry, no-compensation and no-ambiguous-write-recovery policy is unchanged.
+This contract is not a general replay framework or event store.
+
 The sole mutation workflow also obtains a fresh GitHub Actions OIDC token at
 startup and immediately before every possible issue POST. Its custom audience
 is the SHA-256 digest of the exact issue credential presented to the transport.

@@ -24,9 +24,12 @@ AUTHORITY_PATH = Path(".github/issue-transitions/github-mutation-authority.jsonl
 AUTHORITY_SCHEMA = "etf-ai-cockpit.github-mutation-authority/1.0"
 EVENT_PREFIX = "<!-- etf-ai-cockpit:status-event:v1 -->\n"
 EVENT_RECEIPT_PREFIX = "<!-- etf-ai-cockpit:status-event-acceptance:v1 -->\n"
+REPLAY_EVENT_PREFIX = "<!-- etf-ai-cockpit:status-replay:v1 -->\n"
+REPLAY_RECEIPT_PREFIX = "<!-- etf-ai-cockpit:status-replay-acceptance:v1 -->\n"
 CREATE_MARKER_TEMPLATE = "<!-- etf-ai-cockpit:create-mutation-id={} -->"
 CREATE_RECEIPT_PREFIX = "<!-- etf-ai-cockpit:create-acceptance:v1 -->\n"
 EVENT_SCHEMA = "etf-ai-cockpit.status-event/1.0"
+REPLAY_EVENT_SCHEMA = "etf-ai-cockpit.status-replay/1.0"
 STABLE_ID_RE = re.compile(r"(?:ISSUE|UPDATEV2)-\d{4}")
 SHA_RE = re.compile(r"[0-9a-f]{40}")
 HASH_RE = re.compile(r"[0-9a-f]{64}")
@@ -85,6 +88,68 @@ EVENT_RECEIPT_KEYS = {
     "ledger_blob_sha256",
     "candidate_blob_oid",
 }
+REPLAY_EVENT_KEYS = {
+    "schema_version",
+    "execution_allowed",
+    "stable_id",
+    "issue_number",
+    "database_id",
+    "node_id",
+    "from_status",
+    "to_status",
+    "reviewed_product_commit",
+    "hops",
+    "source_sha",
+    "head_sha",
+    "candidate_blob_sha256",
+    "plan_sha256",
+    "mutation_id",
+    "predecessor_event_id",
+    "predecessor_event_sha256",
+    "event_name",
+    "event_ref",
+    "run_attempt",
+    "event_before",
+    "event_after",
+    "actor",
+    "pusher",
+    "run_id",
+    "run_number",
+    "workflow_ref",
+    "repository",
+    "event_payload_sha256",
+    "authority_id",
+    "authority_sequence",
+    "ledger_blob_oid",
+    "ledger_blob_sha256",
+    "candidate_blob_oid",
+}
+REPLAY_RECEIPT_KEYS = {
+    "schema_version",
+    "execution_allowed",
+    "receipt_mutation_id",
+    "proposal_mutation_id",
+    "proposal_comment_id",
+    "proposal_comment_node_id",
+    "proposal_body_sha256",
+    "candidate_blob_sha256",
+    "head_sha",
+    "predecessor_event_id",
+    "predecessor_event_sha256",
+    "verified_postwrite_snapshot_sha256",
+    "authority_id",
+    "authority_sequence",
+    "source_sha",
+    "ledger_blob_oid",
+    "ledger_blob_sha256",
+    "candidate_blob_oid",
+    "stable_id",
+    "issue_number",
+    "database_id",
+    "node_id",
+    "reviewed_product_commit",
+    "hops_sha256",
+}
 CREATE_RECEIPT_KEYS = {
     "schema_version",
     "execution_allowed",
@@ -141,6 +206,22 @@ STATUS_AUTHORITY_KEYS = {
     "source_sha",
     "from_status",
     "to_status",
+    "candidate_path",
+    "candidate_blob_oid",
+    "candidate_blob_sha256",
+    "candidate_authority_ref",
+    "plan_sha256",
+}
+STATUS_REPLAY_AUTHORITY_KEYS = {
+    "stable_id",
+    "issue_number",
+    "database_id",
+    "node_id",
+    "source_sha",
+    "from_status",
+    "to_status",
+    "reviewed_product_commit",
+    "hops",
     "candidate_path",
     "candidate_blob_oid",
     "candidate_blob_sha256",
@@ -229,6 +310,27 @@ def candidate_authority_ref(payload: dict[str, Any]) -> str:
             "source_sha",
             "from_status",
             "to_status",
+            "plan_sha256",
+        )
+    }
+    return _sha256(_json_bytes(core))
+
+
+def replay_candidate_authority_ref(payload: dict[str, Any]) -> str:
+    """Return the non-circular semantic reference for the bounded replay contract."""
+
+    core = {
+        key: payload[key]
+        for key in (
+            "stable_id",
+            "issue_number",
+            "database_id",
+            "node_id",
+            "source_sha",
+            "from_status",
+            "to_status",
+            "reviewed_product_commit",
+            "hops",
             "plan_sha256",
         )
     }
@@ -348,6 +450,48 @@ def parse_authority_ledger(data: bytes) -> list[dict[str, Any]]:
                 != candidate_authority_ref(payload)
             ):
                 raise ValueError("invalid_status_authority_candidate_binding")
+            _validate_issue_identity_payload(payload, bootstrap_ids)
+            identity = (
+                int(payload["issue_number"]),
+                str(payload["database_id"]),
+                str(payload["node_id"]),
+            )
+            prior_identity = issue_identities.get(str(payload["stable_id"]))
+            if prior_identity is not None and prior_identity != identity:
+                raise ValueError("status_authority_issue_identity_changed")
+            if prior_identity is None and identity in issue_identities.values():
+                raise ValueError("status_authority_issue_identity_reused")
+            issue_identities[str(payload["stable_id"])] = identity
+        elif kind == "status_replay":
+            if set(payload) != STATUS_REPLAY_AUTHORITY_KEYS:
+                raise ValueError("invalid_status_replay_authority_fields")
+            for field in ("source_sha", "reviewed_product_commit"):
+                if not SHA_RE.fullmatch(str(payload.get(field, ""))):
+                    raise ValueError(f"invalid_status_replay_authority_{field}")
+            for field in (
+                "candidate_blob_sha256",
+                "candidate_authority_ref",
+                "plan_sha256",
+            ):
+                if not HASH_RE.fullmatch(str(payload.get(field, ""))):
+                    raise ValueError(f"invalid_status_replay_authority_{field}")
+            if (
+                payload.get("candidate_path") != AUTHORITY_CANDIDATE_PATH
+                or not re.fullmatch(
+                    r"[0-9a-f]{40,64}", str(payload.get("candidate_blob_oid", ""))
+                )
+                or payload.get("candidate_authority_ref")
+                != replay_candidate_authority_ref(payload)
+                or payload.get("from_status") != "in_progress"
+                or payload.get("to_status") != "integrated"
+                or not isinstance(payload.get("hops"), list)
+                or len(payload["hops"]) != 2
+            ):
+                raise ValueError("invalid_status_replay_authority_candidate_binding")
+            _validate_replay_hops(
+                payload["hops"],
+                reviewed_product_commit=str(payload["reviewed_product_commit"]),
+            )
             _validate_issue_identity_payload(payload, bootstrap_ids)
             identity = (
                 int(payload["issue_number"]),
@@ -712,6 +856,180 @@ def parse_event_receipt(body: str) -> dict[str, Any] | None:
     return value
 
 
+def _validate_replay_hops(
+    hops: Any, *, reviewed_product_commit: str | None = None
+) -> list[dict[str, Any]]:
+    if not isinstance(hops, list) or len(hops) != 2 or any(
+        not isinstance(hop, dict) for hop in hops
+    ):
+        raise ValueError("status_replay_requires_exactly_two_hops")
+    result = [dict(hop) for hop in hops]
+    if (
+        result[0].get("from") != "in_progress"
+        or result[0].get("to") != "implemented_initially"
+        or result[1].get("from") != "implemented_initially"
+        or result[1].get("to") != "integrated"
+    ):
+        raise ValueError("status_replay_hops_are_not_the_required_ordered_path")
+    if any(
+        hop.get("event_type") == "dependency_edge_update"
+        or "dependency_edge" in hop
+        for hop in result
+    ):
+        raise ValueError("status_replay_dependency_edge_is_not_allowed")
+    try:
+        from scripts.issue_registry_core import validate_control_transition_event
+    except ModuleNotFoundError:
+        from issue_registry_core import validate_control_transition_event  # type: ignore[no-redef]
+    previous = {
+        "programme_status": "in_progress",
+        "verified_commit": "0" * 40,
+        "dependency_edge_evidence": {},
+    }
+    for hop in result:
+        validate_control_transition_event("status-replay", previous, hop)
+        previous["programme_status"] = hop["to"]
+        previous["verified_commit"] = hop["verified_commit"]
+    if result[0]["verified_commit"] != result[1]["verified_commit"]:
+        raise ValueError("status_replay_hops_do_not_share_reviewed_product_commit")
+    if (
+        reviewed_product_commit is not None
+        and result[0]["verified_commit"] != reviewed_product_commit
+    ):
+        raise ValueError("status_replay_hops_do_not_match_reviewed_product_commit")
+    if any(
+        result[0].get(field) != result[1].get(field)
+        for field in (
+            "review_reference",
+            "evidence_references",
+            "reviewer",
+            "reviewed_date",
+        )
+    ):
+        raise ValueError("status_replay_hops_do_not_share_review_evidence")
+    return result
+
+
+def parse_replay_event_comment(body: str) -> dict[str, Any] | None:
+    if not body.startswith(REPLAY_EVENT_PREFIX):
+        return None
+    try:
+        value = json.loads(body[len(REPLAY_EVENT_PREFIX) :])
+    except json.JSONDecodeError as exc:
+        raise ValueError("invalid_status_replay_json") from exc
+    if not isinstance(value, dict) or set(value) != REPLAY_EVENT_KEYS:
+        raise ValueError("invalid_status_replay_fields")
+    if body != REPLAY_EVENT_PREFIX + _json_bytes(value).decode():
+        raise ValueError("noncanonical_status_replay")
+    if (
+        value.get("schema_version") != REPLAY_EVENT_SCHEMA
+        or value.get("execution_allowed") is not False
+        or value.get("from_status") != "in_progress"
+        or value.get("to_status") != "integrated"
+    ):
+        raise ValueError("invalid_status_replay_authority")
+    if not STABLE_ID_RE.fullmatch(str(value.get("stable_id", ""))):
+        raise ValueError("invalid_status_replay_stable_id")
+    if not isinstance(value.get("issue_number"), int) or value["issue_number"] <= 0:
+        raise ValueError("invalid_status_replay_issue_number")
+    for field in ("source_sha", "head_sha", "reviewed_product_commit"):
+        if not SHA_RE.fullmatch(str(value.get(field, ""))):
+            raise ValueError(f"invalid_status_replay_{field}")
+    for field in (
+        "candidate_blob_sha256",
+        "plan_sha256",
+        "mutation_id",
+        "predecessor_event_sha256",
+        "authority_id",
+        "ledger_blob_sha256",
+    ):
+        if not HASH_RE.fullmatch(str(value.get(field, ""))):
+            raise ValueError(f"invalid_status_replay_{field}")
+    if (
+        not value.get("database_id")
+        or not value.get("node_id")
+        or not isinstance(value.get("authority_sequence"), int)
+        or not re.fullmatch(r"[0-9a-f]{40,64}", str(value.get("ledger_blob_oid", "")))
+        or not re.fullmatch(r"[0-9a-f]{40,64}", str(value.get("candidate_blob_oid", "")))
+    ):
+        raise ValueError("invalid_status_replay_authority_binding")
+    _validate_replay_hops(
+        value.get("hops"),
+        reviewed_product_commit=str(value.get("reviewed_product_commit", "")),
+    )
+    if (
+        value.get("event_name") != "push"
+        or value.get("event_ref") != "refs/heads/main"
+        or value.get("run_attempt") != "1"
+        or value.get("event_before") != value.get("source_sha")
+        or value.get("event_after") != value.get("head_sha")
+        or not value.get("actor")
+        or not value.get("pusher")
+    ):
+        raise ValueError("invalid_status_replay_workflow_binding")
+    _validate_run_attestation(
+        {
+            key: str(value.get(key, ""))
+            for key in (
+                "run_id",
+                "run_number",
+                "workflow_ref",
+                "repository",
+                "event_payload_sha256",
+            )
+        }
+    )
+    return value
+
+
+def parse_replay_receipt(body: str) -> dict[str, Any] | None:
+    if not body.startswith(REPLAY_RECEIPT_PREFIX):
+        return None
+    try:
+        value = json.loads(body[len(REPLAY_RECEIPT_PREFIX) :])
+    except json.JSONDecodeError as exc:
+        raise ValueError("invalid_status_replay_receipt_json") from exc
+    if not isinstance(value, dict) or set(value) != REPLAY_RECEIPT_KEYS:
+        raise ValueError("invalid_status_replay_receipt_fields")
+    if body != REPLAY_RECEIPT_PREFIX + _json_bytes(value).decode():
+        raise ValueError("noncanonical_status_replay_receipt")
+    if (
+        value.get("schema_version") != "etf-ai-cockpit.status-replay-acceptance/1.0"
+        or value.get("execution_allowed") is not False
+    ):
+        raise ValueError("invalid_status_replay_receipt_authority")
+    for field in (
+        "receipt_mutation_id",
+        "proposal_mutation_id",
+        "proposal_body_sha256",
+        "candidate_blob_sha256",
+        "predecessor_event_sha256",
+        "verified_postwrite_snapshot_sha256",
+        "authority_id",
+        "ledger_blob_sha256",
+        "hops_sha256",
+    ):
+        if not HASH_RE.fullmatch(str(value.get(field, ""))):
+            raise ValueError(f"invalid_status_replay_receipt_{field}")
+    for field in ("head_sha", "source_sha", "reviewed_product_commit"):
+        if not SHA_RE.fullmatch(str(value.get(field, ""))):
+            raise ValueError(f"invalid_status_replay_receipt_{field}")
+    if (
+        not isinstance(value.get("issue_number"), int)
+        or value["issue_number"] <= 0
+        or not value.get("stable_id")
+        or not value.get("database_id")
+        or not value.get("node_id")
+        or not isinstance(value.get("authority_sequence"), int)
+        or not re.fullmatch(r"[0-9a-f]{40,64}", str(value.get("ledger_blob_oid", "")))
+        or not re.fullmatch(r"[0-9a-f]{40,64}", str(value.get("candidate_blob_oid", "")))
+        or not value.get("proposal_comment_id")
+        or not value.get("proposal_comment_node_id")
+    ):
+        raise ValueError("invalid_status_replay_receipt_binding")
+    return value
+
+
 def _acceptance_snapshot_sha256(
     snapshot: dict[str, Any], comments: list[dict[str, Any]] | None = None
 ) -> str:
@@ -757,6 +1075,121 @@ def build_event_receipt(
     return receipt, EVENT_RECEIPT_PREFIX + _json_bytes(receipt).decode()
 
 
+def build_replay_event(
+    *,
+    stable_id: str,
+    issue_number: int,
+    database_id: str,
+    node_id: str,
+    from_status: str,
+    to_status: str,
+    reviewed_product_commit: str,
+    hops: list[dict[str, Any]],
+    source_sha: str,
+    head_sha: str,
+    candidate_blob_sha256: str,
+    plan_sha256: str,
+    predecessor_event_id: str,
+    predecessor_event_sha256: str,
+    event_name: str,
+    event_ref: str,
+    run_attempt: str,
+    event_before: str,
+    event_after: str,
+    actor: str,
+    pusher: str,
+    run_id: str,
+    run_number: str,
+    workflow_ref: str,
+    repository: str,
+    event_payload_sha256: str,
+    authority_id: str,
+    authority_sequence: int,
+    ledger_blob_oid: str,
+    ledger_blob_sha256: str,
+    candidate_blob_oid: str,
+) -> tuple[dict[str, Any], str]:
+    identity = {
+        "stable_id": stable_id,
+        "issue_number": issue_number,
+        "database_id": database_id,
+        "node_id": node_id,
+        "from_status": from_status,
+        "to_status": to_status,
+        "reviewed_product_commit": reviewed_product_commit,
+        "hops": hops,
+        "source_sha": source_sha,
+        "head_sha": head_sha,
+        "candidate_blob_sha256": candidate_blob_sha256,
+        "plan_sha256": plan_sha256,
+        "predecessor_event_id": predecessor_event_id,
+        "predecessor_event_sha256": predecessor_event_sha256,
+        "execution_allowed": False,
+        "event_name": event_name,
+        "event_ref": event_ref,
+        "run_attempt": run_attempt,
+        "event_before": event_before,
+        "event_after": event_after,
+        "actor": actor,
+        "pusher": pusher,
+        "run_id": run_id,
+        "run_number": run_number,
+        "workflow_ref": workflow_ref,
+        "repository": repository,
+        "event_payload_sha256": event_payload_sha256,
+        "authority_id": authority_id,
+        "authority_sequence": authority_sequence,
+        "ledger_blob_oid": ledger_blob_oid,
+        "ledger_blob_sha256": ledger_blob_sha256,
+        "candidate_blob_oid": candidate_blob_oid,
+    }
+    event = {
+        "schema_version": REPLAY_EVENT_SCHEMA,
+        **identity,
+        "mutation_id": _sha256(_json_bytes(identity)),
+    }
+    return event, REPLAY_EVENT_PREFIX + _json_bytes(event).decode()
+
+
+def build_replay_receipt(
+    proposal: dict[str, Any],
+    proposal_comment: dict[str, Any],
+    proposal_snapshot: dict[str, Any],
+) -> tuple[dict[str, Any], str]:
+    identity = {
+        "proposal_mutation_id": proposal["mutation_id"],
+        "proposal_comment_id": proposal_comment["id"],
+        "proposal_comment_node_id": proposal_comment["node_id"],
+        "proposal_body_sha256": _sha256(proposal_comment["body"]),
+        "candidate_blob_sha256": proposal["candidate_blob_sha256"],
+        "head_sha": proposal["head_sha"],
+        "predecessor_event_id": proposal["predecessor_event_id"],
+        "predecessor_event_sha256": proposal["predecessor_event_sha256"],
+        "verified_postwrite_snapshot_sha256": _acceptance_snapshot_sha256(
+            proposal_snapshot
+        ),
+        "authority_id": proposal["authority_id"],
+        "authority_sequence": proposal["authority_sequence"],
+        "source_sha": proposal["source_sha"],
+        "ledger_blob_oid": proposal["ledger_blob_oid"],
+        "ledger_blob_sha256": proposal["ledger_blob_sha256"],
+        "candidate_blob_oid": proposal["candidate_blob_oid"],
+        "stable_id": proposal["stable_id"],
+        "issue_number": proposal["issue_number"],
+        "database_id": proposal["database_id"],
+        "node_id": proposal["node_id"],
+        "reviewed_product_commit": proposal["reviewed_product_commit"],
+        "hops_sha256": _sha256(_json_bytes(proposal["hops"])),
+        "execution_allowed": False,
+    }
+    receipt = {
+        "schema_version": "etf-ai-cockpit.status-replay-acceptance/1.0",
+        **identity,
+        "receipt_mutation_id": _sha256(_json_bytes(identity)),
+    }
+    return receipt, REPLAY_RECEIPT_PREFIX + _json_bytes(receipt).decode()
+
+
 def project_status_events(issue: dict[str, Any]) -> dict[str, Any]:
     snapshot = normalise_issue_snapshot(issue)
     matches = STATUS_RE.findall(snapshot["body"])
@@ -793,12 +1226,103 @@ def project_status_events(issue: dict[str, Any]) -> dict[str, Any]:
         comments = snapshot["comments"]
         while index < len(comments):
             comment = comments[index]
+            if parse_replay_receipt(comment["body"]) is not None:
+                raise ValueError("orphan_status_replay_receipt")
             if parse_event_receipt(comment["body"]) is not None:
                 raise ValueError("orphan_status_event_receipt")
+            replay_event = parse_replay_event_comment(comment["body"])
+            if replay_event is not None:
+                require_bot(comment)
+                if (
+                    replay_event["stable_id"] != stable_id
+                    or replay_event["issue_number"] != snapshot["number"]
+                    or replay_event["database_id"] != snapshot["id"]
+                    or replay_event["node_id"] != snapshot["node_id"]
+                    or replay_event["predecessor_event_id"] != predecessor_id
+                    or replay_event["predecessor_event_sha256"] != predecessor_hash
+                    or replay_event["from_status"] != status
+                ):
+                    raise ValueError("invalid_status_replay_predecessor_or_issue")
+                if index + 1 >= len(comments):
+                    raise ValueError("orphan_status_replay_proposal")
+                receipt_comment = comments[index + 1]
+                receipt = parse_replay_receipt(receipt_comment["body"])
+                if receipt is None:
+                    raise ValueError("orphan_status_replay_proposal")
+                require_bot(receipt_comment, receipt=True)
+                if (
+                    receipt["proposal_mutation_id"] != replay_event["mutation_id"]
+                    or receipt["proposal_comment_id"] != comment["id"]
+                    or receipt["proposal_comment_node_id"] != comment["node_id"]
+                    or receipt["proposal_body_sha256"] != _sha256(comment["body"])
+                    or receipt["candidate_blob_sha256"]
+                    != replay_event["candidate_blob_sha256"]
+                    or receipt["head_sha"] != replay_event["head_sha"]
+                    or receipt["predecessor_event_id"] != predecessor_id
+                    or receipt["predecessor_event_sha256"] != predecessor_hash
+                    or receipt["authority_id"] != replay_event["authority_id"]
+                    or receipt["authority_sequence"]
+                    != replay_event["authority_sequence"]
+                    or receipt["source_sha"] != replay_event["source_sha"]
+                    or receipt["ledger_blob_oid"] != replay_event["ledger_blob_oid"]
+                    or receipt["ledger_blob_sha256"]
+                    != replay_event["ledger_blob_sha256"]
+                    or receipt["candidate_blob_oid"]
+                    != replay_event["candidate_blob_oid"]
+                    or receipt["stable_id"] != stable_id
+                    or receipt["issue_number"] != snapshot["number"]
+                    or receipt["database_id"] != snapshot["id"]
+                    or receipt["node_id"] != snapshot["node_id"]
+                    or receipt["reviewed_product_commit"]
+                    != replay_event["reviewed_product_commit"]
+                    or receipt["hops_sha256"]
+                    != _sha256(_json_bytes(replay_event["hops"]))
+                    or receipt["verified_postwrite_snapshot_sha256"]
+                    != _acceptance_snapshot_sha256(snapshot, comments[: index + 1])
+                ):
+                    raise ValueError("invalid_status_replay_acceptance_pair")
+                hops = _validate_replay_hops(
+                    replay_event["hops"],
+                    reviewed_product_commit=str(
+                        replay_event["reviewed_product_commit"]
+                    ),
+                )
+                status = str(replay_event["to_status"])
+                predecessor_id = str(replay_event["mutation_id"])
+                predecessor_hash = _sha256(comment["body"])
+                event_count += len(hops)
+                authority_events.append(
+                    {
+                        "authority_id": replay_event["authority_id"],
+                        "authority_sequence": replay_event["authority_sequence"],
+                        "source_sha": replay_event["source_sha"],
+                        "head_sha": replay_event["head_sha"],
+                        "candidate_blob_oid": replay_event["candidate_blob_oid"],
+                        "candidate_blob_sha256": replay_event["candidate_blob_sha256"],
+                        "plan_sha256": replay_event["plan_sha256"],
+                        "ledger_blob_oid": replay_event["ledger_blob_oid"],
+                        "ledger_blob_sha256": replay_event["ledger_blob_sha256"],
+                        "proposal_comment_id": comment["id"],
+                        "receipt_comment_id": receipt_comment["id"],
+                        "receipt_mutation_id": receipt["receipt_mutation_id"],
+                        "proposal_body_sha256": _sha256(comment["body"]),
+                        "receipt_body_sha256": _sha256(receipt_comment["body"]),
+                        "authority_kind": "status_replay",
+                        "reviewed_product_commit": replay_event[
+                            "reviewed_product_commit"
+                        ],
+                        "hops": hops,
+                    }
+                )
+                index += 2
+                continue
             event = parse_event_comment(comment["body"])
             if event is None:
                 if comment["body"].startswith("<!-- etf-ai-cockpit:"):
-                    if parse_create_receipt(comment["body"]) is None:
+                    if (
+                        parse_create_receipt(comment["body"]) is None
+                        and parse_replay_receipt(comment["body"]) is None
+                    ):
                         raise ValueError("unknown_or_malformed_managed_comment")
                 index += 1
                 continue
@@ -1190,7 +1714,7 @@ def _status_authorities(
     return [
         record
         for record in records[1:]
-        if record["authority_type"] == "status"
+        if record["authority_type"] in {"status", "status_replay"}
         and record["payload"]["stable_id"] == stable_id
     ]
 
@@ -1227,7 +1751,7 @@ def validate_projected_git_binding(
     ).strip()
     if projected.get("ledger_blob_oid") != ledger_oid:
         raise ValueError("projected_authority_ledger_oid_mismatch")
-    if record["authority_type"] == "status":
+    if record["authority_type"] in {"status", "status_replay"}:
         candidate_path = str(payload["candidate_path"])
         candidate_bytes = _git_blob_bytes(root, head, Path(candidate_path))
         if candidate_bytes is None:
@@ -1326,11 +1850,27 @@ def reconcile_authority_ledger(
                 if (
                     event["authority_id"] != record["authority_id"]
                     or event["authority_sequence"] != record["sequence"]
+                    or (
+                        record["authority_type"] == "status_replay"
+                        and event.get("authority_kind") != "status_replay"
+                    )
+                    or (
+                        record["authority_type"] == "status"
+                        and event.get("authority_kind") not in {None, "status"}
+                    )
                     or event["source_sha"] != payload["source_sha"]
                     or event["candidate_blob_oid"] != payload["candidate_blob_oid"]
                     or event["candidate_blob_sha256"]
                     != payload["candidate_blob_sha256"]
                     or event["plan_sha256"] != payload["plan_sha256"]
+                    or (
+                        record["authority_type"] == "status_replay"
+                        and (
+                            event.get("reviewed_product_commit")
+                            != payload["reviewed_product_commit"]
+                            or event.get("hops") != payload["hops"]
+                        )
+                    )
                 ):
                     raise ValueError("status_authority_projection_binding_mismatch")
                 if root is not None:
@@ -1713,7 +2253,9 @@ def _mutation_comments(snapshot: dict[str, Any], mutation_id: str) -> list[dict[
     result = []
     for comment in normalise_issue_snapshot(snapshot)["comments"]:
         try:
-            event = parse_event_comment(comment["body"])
+            event = parse_event_comment(comment["body"]) or parse_replay_event_comment(
+                comment["body"]
+            )
         except ValueError:
             continue
         if event is not None and event["mutation_id"] == mutation_id:
@@ -1725,7 +2267,9 @@ def _receipt_comments(snapshot: dict[str, Any], mutation_id: str) -> list[dict[s
     result = []
     for comment in normalise_issue_snapshot(snapshot)["comments"]:
         try:
-            receipt = parse_event_receipt(comment["body"])
+            receipt = parse_event_receipt(comment["body"]) or parse_replay_receipt(
+                comment["body"]
+            )
         except ValueError:
             continue
         if receipt is not None and receipt["receipt_mutation_id"] == mutation_id:
@@ -1971,6 +2515,239 @@ def append_status_event(
         not projected.get("accepted")
         or projected.get("status") != to_status
         or projected.get("head_event_id") != event["mutation_id"]
+    ):
+        evidence["terminal_status"] = "conflict_after_write"
+        return evidence
+    evidence["accepted"] = True
+    evidence["terminal_status"] = "accepted"
+    return evidence
+
+
+def append_status_replay(
+    reviewed_snapshot: dict[str, Any],
+    *,
+    stable_id: str,
+    issue_number: int,
+    database_id: str,
+    node_id: str,
+    from_status: str,
+    to_status: str,
+    reviewed_product_commit: str,
+    hops: list[dict[str, Any]],
+    source_sha: str,
+    head_sha: str,
+    candidate_blob_sha256: str,
+    plan_sha256: str,
+    event_name: str,
+    event_ref: str,
+    run_attempt: str,
+    event_before: str,
+    event_after: str,
+    actor: str,
+    pusher: str,
+    run_id: str,
+    run_number: str,
+    workflow_ref: str,
+    repository: str,
+    event_payload_sha256: str,
+    authority_record: dict[str, Any] | None = None,
+    git_binding: dict[str, Any] | None = None,
+    transport: MutationTransport | None = None,
+    authority_revalidator: Callable[[], None] | None = None,
+) -> dict[str, Any]:
+    """Apply exactly one semantically atomic, two-hop status replay."""
+
+    if authority_record is None or git_binding is None:
+        raise MutationPolicyError(
+            "missing_committed_mutation_authority",
+            _policy_evidence("missing_committed_mutation_authority", plan_sha256),
+        )
+    payload = authority_record.get("payload")
+    if (
+        authority_record.get("authority_type") != "status_replay"
+        or not isinstance(payload, dict)
+        or authority_record.get("authority_id") != git_binding.get("authority_id")
+        or authority_record.get("sequence") != git_binding.get("authority_sequence")
+        or payload.get("stable_id") != stable_id
+        or payload.get("issue_number") != issue_number
+        or payload.get("database_id") != database_id
+        or payload.get("node_id") != node_id
+        or payload.get("from_status") != from_status
+        or payload.get("to_status") != to_status
+        or payload.get("reviewed_product_commit") != reviewed_product_commit
+        or payload.get("hops") != hops
+        or payload.get("source_sha") != source_sha
+        or payload.get("candidate_blob_sha256") != candidate_blob_sha256
+        or payload.get("plan_sha256") != plan_sha256
+    ):
+        raise MutationPolicyError(
+            "status_replay_request_authority_mismatch",
+            _policy_evidence("status_replay_request_authority_mismatch", plan_sha256),
+        )
+    _validate_replay_hops(hops, reviewed_product_commit=reviewed_product_commit)
+    reviewed = normalise_issue_snapshot(reviewed_snapshot)
+    if (
+        reviewed["number"] != issue_number
+        or reviewed["id"] != database_id
+        or reviewed["node_id"] != node_id
+    ):
+        raise MutationPolicyError(
+            "status_replay_issue_identity_mismatch",
+            _policy_evidence("status_replay_issue_identity_mismatch", plan_sha256),
+        )
+    eligibility = {
+        "event_name": event_name,
+        "event_ref": event_ref,
+        "run_attempt": run_attempt,
+        "event_before": event_before,
+        "event_after": event_after,
+        "actor": actor,
+        "pusher": pusher,
+        "run_id": run_id,
+        "run_number": run_number,
+        "workflow_ref": workflow_ref,
+        "repository": repository,
+        "event_payload_sha256": event_payload_sha256,
+    }
+    if (
+        event_name != "push"
+        or event_ref != "refs/heads/main"
+        or run_attempt != "1"
+        or event_before != source_sha
+        or event_after != head_sha
+        or not actor
+        or not pusher
+    ):
+        evidence = _policy_evidence("ineligible_status_replay_append_event", plan_sha256)
+        evidence["event_binding_sha256"] = _sha256(_json_bytes(eligibility))
+        raise MutationPolicyError("ineligible_status_replay_append_event", evidence)
+    try:
+        _validate_run_attestation(
+            {
+                key: eligibility[key]
+                for key in (
+                    "run_id",
+                    "run_number",
+                    "workflow_ref",
+                    "repository",
+                    "event_payload_sha256",
+                )
+            }
+        )
+    except ValueError as exc:
+        evidence = _policy_evidence(
+            "invalid_github_actions_run_attestation", plan_sha256
+        )
+        evidence["event_binding_sha256"] = _sha256(_json_bytes(eligibility))
+        raise MutationPolicyError(
+            "invalid_github_actions_run_attestation", evidence
+        ) from exc
+    projection = project_status_events(reviewed)
+    if not projection.get("accepted") or projection.get("status") != from_status:
+        raise MutationPolicyError(
+            "invalid_reviewed_status_replay_projection",
+            _policy_evidence("invalid_reviewed_status_replay_projection", plan_sha256),
+        )
+    event, body = build_replay_event(
+        stable_id=stable_id,
+        issue_number=issue_number,
+        database_id=database_id,
+        node_id=node_id,
+        from_status=from_status,
+        to_status=to_status,
+        reviewed_product_commit=reviewed_product_commit,
+        hops=hops,
+        source_sha=source_sha,
+        head_sha=head_sha,
+        candidate_blob_sha256=candidate_blob_sha256,
+        plan_sha256=plan_sha256,
+        predecessor_event_id=str(projection["head_event_id"]),
+        predecessor_event_sha256=str(projection["head_event_sha256"]),
+        authority_id=str(authority_record["authority_id"]),
+        authority_sequence=int(authority_record["sequence"]),
+        ledger_blob_oid=str(git_binding["ledger_blob_oid"]),
+        ledger_blob_sha256=str(git_binding["ledger_blob_sha256"]),
+        candidate_blob_oid=str(payload["candidate_blob_oid"]),
+        **eligibility,
+    )
+    evidence = {
+        "schema_version": "etf-ai-cockpit.github-mutation-evidence/1.0",
+        "execution_allowed": False,
+        "accepted": False,
+        "terminal_status": "failed",
+        "mutation_id": event["mutation_id"],
+        "plan_sha256": plan_sha256,
+        "event_sha256": _sha256(body),
+        "event_length": len(body.encode()),
+        "transport_writes": 0,
+        "transport_contract": "one_aggregate_proposal_one_receipt",
+        "replay_hops": hops,
+        "reviewed_product_commit": reviewed_product_commit,
+        "reviewed_snapshot": snapshot_evidence(reviewed),
+    }
+    gateway = transport or GhMutationTransport()
+    fresh = normalise_issue_snapshot(gateway.fetch_issue(reviewed["number"]))
+    evidence["prewrite_snapshot"] = snapshot_evidence(fresh)
+    if fresh != reviewed:
+        evidence["terminal_status"] = "stale_before_write"
+        raise MutationGatewayError("stale_before_write", evidence)
+    if any(
+        parsed is not None
+        and parsed.get("authority_id") == authority_record["authority_id"]
+        for comment in fresh["comments"]
+        for parsed in [
+            parse_replay_event_comment(comment["body"]),
+            parse_event_comment(comment["body"]),
+        ]
+    ):
+        evidence["terminal_status"] = "spent_authority_projection_exists"
+        raise MutationGatewayError("spent_authority_projection_exists", evidence)
+    if authority_revalidator is not None:
+        authority_revalidator()
+    try:
+        evidence["transport_writes"] = 1
+        gateway.append_comment(reviewed["number"], body)
+    except BaseException as exc:
+        if _is_ambiguous_write_error(exc):
+            evidence["terminal_status"] = "ambiguous_indeterminate"
+            raise MutationTransportError("ambiguous_indeterminate", evidence) from exc
+        evidence["terminal_status"] = "write_failed"
+        raise MutationTransportError("write_failed", evidence) from exc
+    after = normalise_issue_snapshot(gateway.fetch_issue(reviewed["number"]))
+    evidence["postwrite_snapshot"] = snapshot_evidence(after)
+    if not _postwrite_matches(fresh, after, body):
+        evidence["terminal_status"] = "conflict_after_write"
+        return evidence
+    proposal_comment = after["comments"][-1]
+    receipt, receipt_body = build_replay_receipt(event, proposal_comment, after)
+    evidence["receipt_mutation_id"] = receipt["receipt_mutation_id"]
+    if authority_revalidator is not None:
+        authority_revalidator()
+    receipt_fresh = normalise_issue_snapshot(gateway.fetch_issue(reviewed["number"]))
+    if receipt_fresh != after:
+        evidence["terminal_status"] = "stale_before_receipt"
+        return evidence
+    try:
+        evidence["transport_writes"] = 2
+        gateway.append_comment(reviewed["number"], receipt_body)
+    except BaseException as exc:
+        if _is_ambiguous_write_error(exc):
+            evidence["terminal_status"] = "receipt_ambiguous_indeterminate"
+            raise MutationTransportError(
+                "receipt_ambiguous_indeterminate", evidence
+            ) from exc
+        evidence["terminal_status"] = "receipt_write_failed"
+        raise MutationTransportError("receipt_write_failed", evidence) from exc
+    final = normalise_issue_snapshot(gateway.fetch_issue(reviewed["number"]))
+    if not _postwrite_matches(after, final, receipt_body):
+        evidence["terminal_status"] = "conflict_after_receipt"
+        return evidence
+    projected = project_status_events(final)
+    if (
+        not projected.get("accepted")
+        or projected.get("status") != to_status
+        or projected.get("head_event_id") != event["mutation_id"]
+        or projected.get("event_count", 0) < 2
     ):
         evidence["terminal_status"] = "conflict_after_write"
         return evidence

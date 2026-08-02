@@ -39,6 +39,34 @@ convergence is automatic; there is no manual `in_progress` /
 `implemented_initially` / `integrated` PR chain and no duplicate post-merge
 release package matrix. Use at most one watcher and no repetitive polling.
 
+## Bounded repo-local autonomy and lifecycle recovery
+
+The standing owner authorization covers bounded repo-local product, test,
+canonical, generator, CI/check and narrow authority work without a permission
+question. It does not authorize protected external actions such as GitHub
+writes outside the existing gateway, permission changes, releases,
+deployments, broker/provider writes or execution. H-tier changes still require
+the full review and validation tier before acceptance.
+
+When a reviewed canonical lifecycle change omitted its GitHub projection, the
+writer may recover only the omitted managed status metadata from the exact
+reviewed head and live target snapshot. Recovery remains fail-closed and
+append-only; it must not invent history, retry an ambiguous write, compensate,
+or rewrite canonical state.
+
+The bounded `status-replay-candidate/3.0` contract supports one issue and
+exactly two ordered forward hops: `in_progress` to
+`implemented_initially`, then `implemented_initially` to `integrated`. Each
+hop is independently checked by the canonical lifecycle validator. One
+aggregate proposal and one receipt bind both hops to the same issue, reviewed
+product commit, candidate/authority, canonical transition-history and
+acceptance-evidence prefixes, and exactly two appended entries. The aggregate
+is semantically atomic in the local replay and readback model, while GitHub
+still transports two ordinary append requests without server-side CAS. A
+partial, erased, cancelled or ambiguous request remains unresolved and is
+never retried or compensated. This is a bounded status-completion repair, not
+a general replay or event-sourcing framework.
+
 ## Validation tiers
 
 The additive `validation-classifier.v1` selects one tier from E/O/H/C and fails

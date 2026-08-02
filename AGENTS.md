@@ -113,6 +113,19 @@ benchmark guard → performance refactorer → benchmark guard → reviewer
 - Do not weaken tests or safety gates to obtain a pass.
 - Do not add production dependencies without explicit authority.
 
+## Autonomous bounded execution
+
+Standing owner authorization applies to bounded repo-local decisions: do not
+ask permission questions for ordinary in-scope edits, focused tests,
+canonical or generated-file work, CI/check work, or narrowly bounded internal
+authority repairs. Product and control-plane work may proceed autonomously at
+tiers E, O, H and C within the delegated files and safety rules; H-tier work
+requires full independent review and validation before handoff. When internal
+process instructions conflict, resolve the conflict with the smallest safe
+forward-progress change that preserves the stronger safety invariant. A
+bounded internal control repair is not owner-blocked merely because it is
+internal; protected external actions still require their existing authority.
+
 ## Testing
 
 The assigned implementation or test agent runs focused tests.

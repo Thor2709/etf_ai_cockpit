@@ -58,6 +58,20 @@ must use one canonical source-bearing validation path, not extend the partial
 duplicate verifier. Do not push or broaden into persistence, providers,
 shared classification or GitHub authority.
 
+`IN_PROGRESS/H-TIER REPAIR` the dedicated clean worktree
+`C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_status_replay` is at
+base/head `0680429aa5c30477dc854ef80367a3cc5ff4010e` on
+`codex/status-replay-two-hop-20260802`. The bounded scope is the additive
+single-issue, exactly-two-hop `status_replay` authority/projection repair and
+its focused adversarial tests plus durable policy/ADR/checkpoint text. The
+prior rejected ISSUE-0101 evidence remains preserved outside the repository at
+`C:\Users\thor2\AppData\Local\Temp\issue0101-invalid-recovery-evidence-20260802-001`
+with patch SHA-256
+`32488742f363e50f14c566b6890992e37a1a9843d0ed9ca7031fc32fc56e168c`; it is
+not transplanted. Focused H-tier validation is pending; no result is claimed
+here yet. Canonical ISSUE-0101 files, generated projections, workflow
+permissions, external systems and authority/retry policy remain protected.
+
 The entries below retain the chronological implementation and repair history.
 
 `MERGED` immutable dependency-only PR #608 from exact head
