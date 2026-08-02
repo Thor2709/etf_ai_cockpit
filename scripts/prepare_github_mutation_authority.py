@@ -14,10 +14,22 @@ try:
     from scripts import apply_reviewed_status_completion as completion
     from scripts import github_mutation_gateway as gateway
     from scripts import sync_github_issues as sync
+    from scripts.issue_registry_core import (
+        control_state_record,
+        load_control_state,
+        load_control_state_at,
+        validate_status_replay_prefix_shape,
+    )
 except ModuleNotFoundError:
     import apply_reviewed_status_completion as completion
     import github_mutation_gateway as gateway
     import sync_github_issues as sync
+    from issue_registry_core import (  # type: ignore[no-redef]
+        control_state_record,
+        load_control_state,
+        load_control_state_at,
+        validate_status_replay_prefix_shape,
+    )
 
 
 MANIFEST_NAME = "github-mutation-authority-preparation.json"
@@ -117,17 +129,36 @@ def prepare(
         if safe_action.get("managed_field_deltas") != ["Programme status"]:
             raise ValueError("status replay preparation action is not status-only")
         stable_id = str(action["stable_id"])
-        current_registry = _load_object(root / completion.REGISTRY_PATH)
-        source_record = completion._registry_record(
-            completion._registry_at(root, source_sha), stable_id, context="source"
+        source_record = control_state_record(
+            load_control_state_at(root, source_sha), stable_id, context="source"
         )
-        current_record = completion._registry_record(
-            current_registry, stable_id, context="current"
+        current_record = control_state_record(
+            load_control_state(root), stable_id, context="current"
         )
         source_history = source_record.get("transition_history")
         source_evidence = source_record.get("acceptance_evidence")
         current_history = current_record.get("transition_history")
         current_evidence = current_record.get("acceptance_evidence")
+        validate_status_replay_prefix_shape(
+            stable_id,
+            source_history,
+            source_evidence,
+            programme_status=source_record.get("programme_status"),
+            dependency_edge_evidence=source_record.get("dependency_edge_evidence"),
+            verified_commit=source_record.get("verified_commit"),
+            verified_date=source_record.get("verified_date"),
+            status_transition=source_record.get("status_transition"),
+        )
+        validate_status_replay_prefix_shape(
+            stable_id,
+            current_history,
+            current_evidence,
+            programme_status=current_record.get("programme_status"),
+            dependency_edge_evidence=current_record.get("dependency_edge_evidence"),
+            verified_commit=current_record.get("verified_commit"),
+            verified_date=current_record.get("verified_date"),
+            status_transition=current_record.get("status_transition"),
+        )
         if not all(
             isinstance(value, list)
             for value in (

@@ -11,6 +11,19 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
+try:
+    from scripts.issue_registry_core import (
+        control_state_record,
+        load_control_state_at,
+        validate_status_replay_prefix_shape,
+    )
+except ModuleNotFoundError:
+    from issue_registry_core import (  # type: ignore[no-redef]
+        control_state_record,
+        load_control_state_at,
+        validate_status_replay_prefix_shape,
+    )
+
 
 SCHEMA_VERSION = "validation-summary.v1"
 IDENTITY_KEYS = {
@@ -22,7 +35,6 @@ IDENTITY_KEYS = {
 }
 JOB_KEYS = {"classifier", "preflight", "supply_chain", "release_windows", "release_linux"}
 CANDIDATE_PATH = ".github/issue-transitions/post-merge-control-candidate.json"
-REGISTRY_PATH = "issues/issue_registry.json"
 CANDIDATE_EVIDENCE_SCHEMA = "etf-ai-cockpit.status-completion-evidence/1.0"
 CANDIDATE_REPLAY_SCHEMA = "etf-ai-cockpit.status-replay-candidate/3.0"
 CANDIDATE_UPDATE_KEYS = {"stable_id", "from_status", "to_status"}
@@ -179,23 +191,10 @@ def _committed_candidate_blob_sha256(root: Path, head: str) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _registry_record_at(root: Path, ref: str, stable_id: str) -> dict[str, Any]:
-    try:
-        payload = subprocess.check_output(
-            ["git", "show", f"{ref}:{REGISTRY_PATH}"], cwd=root, text=True
-        )
-        registry = json.loads(payload)
-    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
-        raise ValueError("status replay registry source is unavailable or malformed") from exc
-    records = registry.get("records") if isinstance(registry, dict) else None
-    matches = (
-        [record for record in records if record.get("canonical_id") == stable_id]
-        if isinstance(records, list)
-        else []
+def _control_state_record_at(root: Path, ref: str, stable_id: str) -> dict[str, Any]:
+    return control_state_record(
+        load_control_state_at(root, ref), stable_id, context="validation"
     )
-    if len(matches) != 1:
-        raise ValueError("status replay registry target is missing or ambiguous")
-    return matches[0]
 
 
 def _validate_candidate_evidence(
@@ -360,8 +359,39 @@ def _validate_replay_candidate_evidence(
         replay["transition_history_append"],
         reviewed_product_commit=str(replay["reviewed_product_commit"]),
     )
-    source_record = _registry_record_at(root, base, str(replay["stable_id"]))
-    current_record = _registry_record_at(root, head, str(replay["stable_id"]))
+    stable_id = str(replay["stable_id"])
+    source_record = _control_state_record_at(root, base, stable_id)
+    current_record = _control_state_record_at(root, head, stable_id)
+    validate_status_replay_prefix_shape(
+        stable_id,
+        replay.get("transition_history_prefix"),
+        replay.get("acceptance_evidence_prefix"),
+        programme_status=replay.get("from_status"),
+        dependency_edge_evidence=source_record.get("dependency_edge_evidence"),
+        verified_commit=source_record.get("verified_commit"),
+        verified_date=source_record.get("verified_date"),
+        status_transition=source_record.get("status_transition"),
+    )
+    validate_status_replay_prefix_shape(
+        stable_id,
+        source_record.get("transition_history"),
+        source_record.get("acceptance_evidence"),
+        programme_status=source_record.get("programme_status"),
+        dependency_edge_evidence=source_record.get("dependency_edge_evidence"),
+        verified_commit=source_record.get("verified_commit"),
+        verified_date=source_record.get("verified_date"),
+        status_transition=source_record.get("status_transition"),
+    )
+    validate_status_replay_prefix_shape(
+        stable_id,
+        current_record.get("transition_history"),
+        current_record.get("acceptance_evidence"),
+        programme_status=current_record.get("programme_status"),
+        dependency_edge_evidence=current_record.get("dependency_edge_evidence"),
+        verified_commit=current_record.get("verified_commit"),
+        verified_date=current_record.get("verified_date"),
+        status_transition=current_record.get("status_transition"),
+    )
     if (
         replay["transition_history_prefix"] != source_record.get("transition_history")
         or replay["acceptance_evidence_prefix"]
@@ -408,6 +438,7 @@ def _validate_replay_candidate_evidence(
         source_record,
         hops,
         replay["acceptance_evidence_append"],
+        stable_id=str(replay["stable_id"]),
     ) != current_record:
         raise ValueError("status replay candidate complete canonical projection is invalid")
     candidate_blob_sha256 = str(evidence.get("candidate_blob_sha256", ""))
@@ -450,6 +481,8 @@ def collect_summary(
     head: str,
     job_results: dict[str, str],
 ) -> dict[str, Any]:
+    if not SHA_RE.fullmatch(base) or not SHA_RE.fullmatch(head):
+        raise ValueError("validation summary base and head must be full lowercase Git SHAs")
     classifier_paths = list(artifacts_root.rglob("classifier.json"))
     if len(classifier_paths) != 1:
         raise ValueError("exactly one classifier artifact is required")

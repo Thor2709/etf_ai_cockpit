@@ -1,13 +1,12 @@
-# Active Codex goal — H-tier status-replay authority repair
+# Active Codex goal — H-tier replay control-state binding repair
 
 ## Objective
 
-Implement the smallest safe additive repair for aggregate GitHub status replay:
-one issue, exactly two ordered legal hops from `in_progress` to
-`implemented_initially` to `integrated`, with one aggregate proposal and one
-receipt. Preserve legacy ISSUE-0180 authority/event bytes, canonical
-point-in-time and safety invariants, `execution_allowed=false`, and the
-fail-closed no-retry/no-compensation policy.
+Correct the bounded aggregate replay to read lifecycle history and acceptance
+evidence from the existing authoritative `programme_control_state.json`, not
+the generated registry projection that intentionally omits transition history.
+Preserve the exact two-hop contract, legacy authority bytes,
+`execution_allowed=false`, and all fail-closed safeguards.
 
 The ISSUE-0177–0180 control-plane work is complete and frozen. Its complete
 former active-goal record and chronology are archived in
@@ -17,26 +16,33 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 ## Current checkpoint
 
 - Current UTC date: `2026-08-02`.
-- Repair worktree:
-  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_status_replay`;
-  branch `codex/status-replay-two-hop-20260802`; exact base and starting head
-  `0680429aa5c30477dc854ef80367a3cc5ff4010e`.
-- Current lane: bounded H-tier implementation is in progress; focused
-  validation, independent review and full package gates remain pending.
-- Owned scope: `status_replay` candidate/authority preparation, aggregate
-  projection/reconciliation/append, status-completion and validation-summary
-  compatibility, focused adversarial tests, and the requested durable policy,
-  workflow, batch and ADR text.
-- Protected scope: canonical ISSUE-0101 status and registry/control files,
-  generated projections, workflow permissions, external systems, broker or
-  execution authority, and legacy ISSUE-0180 status bytes remain unchanged.
+- Initial H-tier repair PR #634 merged exact reviewed head
+  `676aaaeedadcf04c3a4644f4d10902a2c05bd311` as
+  `ff10762e8c000b2f2c834073e27a664bc20de143`; run `30724545238` passed fresh
+  Linux and Windows package gates and terminal summary.
+- The first clean E recovery attempt failed closed before artifact creation:
+  replay preparation found that generated `issue_registry.json` omits the
+  authoritative transition history held in `programme_control_state.json`.
+- Preserved E attempt:
+  `C:\Users\thor2\AppData\Local\Temp\issue0101-e-recovery-blocked-20260802`;
+  patch SHA-256
+  `2A2C65B7B5864D2A95ED641C46D0874667DFE50B20A551082C03B76DF531A4E2`.
+- Follow-up repair worktree:
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_replay_control_state`;
+  branch `codex/status-replay-control-state-20260802`; exact base and starting
+  head `ff10762e8c000b2f2c834073e27a664bc20de143`.
+- Current lane: bounded implementation and focused tests are complete;
+  independent review and fresh H-tier package gates remain pending.
+- Protected scope: canonical ISSUE-0101 status, generated projections,
+  workflows/permissions, product code, external systems and authority policy
+  remain unchanged.
 - Preserved rejected evidence path/hash:
   `C:\Users\thor2\AppData\Local\Temp\issue0101-invalid-recovery-evidence-20260802-001`;
   patch SHA-256
   `32488742f363e50f14c566b6890992e37a1a9843d0ed9ca7031fc32fc56e168c`.
-- Exact next action: finish fresh H-tier focused/static/freshness/diff
-  evidence, then obtain independent review and the required Linux/Windows
-  package gates. No validation result is claimed until those checks complete.
+- Exact next action: review and validate the complete control-state binding
+  diff, merge only the accepted exact H-tier head, then restart ISSUE-0101
+  recovery from a new clean `origin/main` worktree.
 
 ## Frozen delivery evidence and boundaries
 

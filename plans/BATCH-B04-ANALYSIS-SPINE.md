@@ -74,6 +74,22 @@ permissions, external systems and authority/retry policy remain protected.
 
 The entries below retain the chronological implementation and repair history.
 
+`IN_PROGRESS/H-TIER FOLLOW-UP` initial repair PR #634 merged exact head
+`676aaaeedadcf04c3a4644f4d10902a2c05bd311` as
+`ff10762e8c000b2f2c834073e27a664bc20de143` after run `30724545238` passed
+both package gates. The first E recovery then failed closed before producing a
+candidate because replay preparation read lifecycle history from the generated
+registry rather than authoritative programme control state. Its uncommitted
+evidence is preserved at
+`C:\Users\thor2\AppData\Local\Temp\issue0101-e-recovery-blocked-20260802`
+with patch SHA-256
+`2A2C65B7B5864D2A95ED641C46D0874667DFE50B20A551082C03B76DF531A4E2`.
+The clean follow-up lane
+`C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_replay_control_state`
+on `codex/status-replay-control-state-20260802` binds preparation, apply and
+terminal validation to `issues/programme_control_state.json` without changing
+canonical ISSUE-0101, generated schema, workflows, product code or authority.
+
 `MERGED` immutable dependency-only PR #608 from exact head
 `937ec382dfab7acc74ad16e7e706b795c88e63a2` as
 `b11b1d6783438df03847d7a1b45c3a4d7c1f2385`. Its single documented

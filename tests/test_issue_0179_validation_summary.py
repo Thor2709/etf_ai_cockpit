@@ -357,6 +357,12 @@ def test_candidate_evidence_rejects_wrong_artifact_provenance(
         "wrong_source_status",
         "wrong_final_status",
         "unrelated_head_field",
+        "malformed_history_entry",
+        "malformed_evidence_entry",
+        "nested_dependency_mismatch",
+        "final_dependency_mismatch",
+        "missing_origin",
+        "missing_edge_history",
     ],
 )
 def test_replay_candidate_summary_rejects_unsafe_contract(
@@ -447,7 +453,17 @@ def test_replay_candidate_summary_rejects_unsafe_contract(
     elif mutation == "commit_mismatch":
         candidate["expected_replay"]["reviewed_product_commit"] = "8" * 40
         evidence["expected_replay"] = copy.deepcopy(candidate["expected_replay"])
-    else:
+    elif mutation not in {
+        "malformed_history_entry",
+        "malformed_evidence_entry",
+        "nested_dependency_mismatch",
+        "final_dependency_mismatch",
+        "missing_origin",
+        "missing_edge_history",
+        "wrong_source_status",
+        "wrong_final_status",
+        "unrelated_head_field",
+    }:
         candidate["expected_replay"]["transition_history_prefix"] = []
         evidence["expected_replay"] = copy.deepcopy(candidate["expected_replay"])
     monkeypatch.setattr(
@@ -455,7 +471,15 @@ def test_replay_candidate_summary_rejects_unsafe_contract(
     )
     source = {
         "canonical_id": "ISSUE-0179",
+        "dependency_edge_evidence": {},
         "programme_status": "in_progress",
+        "verified_commit": prior["verified_commit"],
+        "verified_date": prior["reviewed_date"],
+        "status_transition": {
+            "from": prior["from"],
+            "to": prior["to"],
+            "review_reference": prior["review_reference"],
+        },
         "transition_history": [prior],
         "acceptance_evidence": [prior_acceptance],
     }
@@ -468,13 +492,90 @@ def test_replay_candidate_summary_rejects_unsafe_contract(
         current["programme_status"] = "closed"
     elif mutation == "unrelated_head_field":
         current["owner"] = "unreviewed-owner"
+    elif mutation == "malformed_history_entry":
+        source["transition_history"][0] = "not-an-event"
+        current["transition_history"][0] = "not-an-event"
+        candidate["expected_replay"]["transition_history_prefix"][0] = "not-an-event"
+        evidence["expected_replay"] = copy.deepcopy(candidate["expected_replay"])
+    elif mutation == "malformed_evidence_entry":
+        source["acceptance_evidence"][0]["reviewed_date"] = "2026-02-30"
+        current["acceptance_evidence"][0]["reviewed_date"] = "2026-02-30"
+        candidate["expected_replay"]["acceptance_evidence_prefix"][0][
+            "reviewed_date"
+        ] = "2026-02-30"
+        evidence["expected_replay"] = copy.deepcopy(candidate["expected_replay"])
+    elif mutation in {"nested_dependency_mismatch", "final_dependency_mismatch"}:
+        edge_evidence = {
+            "schema_version": "1.0",
+            "state": "complete",
+            "evidence_references": prior["evidence_references"],
+            "contract_reference": "tests/replay.py#dependency",
+            "reviewer": prior["reviewer"],
+            "reviewed_date": prior["reviewed_date"],
+        }
+        edge = {"dependency": "ISSUE-0001", "evidence": edge_evidence}
+        source["transition_history"][0]["dependency_edge"] = copy.deepcopy(edge)
+        current["transition_history"][0]["dependency_edge"] = copy.deepcopy(edge)
+        candidate["expected_replay"]["transition_history_prefix"][0][
+            "dependency_edge"
+        ] = copy.deepcopy(edge)
+        source["dependency_edge_evidence"] = {"ISSUE-0001": copy.deepcopy(edge_evidence)}
+        current["dependency_edge_evidence"] = {"ISSUE-0001": copy.deepcopy(edge_evidence)}
+        if mutation == "nested_dependency_mismatch":
+            for record in (source, current):
+                record["transition_history"][0]["dependency_edge"]["evidence"][
+                    "reviewer"
+                ] = "different reviewer"
+            candidate["expected_replay"]["transition_history_prefix"][0][
+                "dependency_edge"
+            ]["evidence"]["reviewer"] = "different reviewer"
+            source["dependency_edge_evidence"]["ISSUE-0001"]["reviewer"] = "different reviewer"
+            current["dependency_edge_evidence"]["ISSUE-0001"]["reviewer"] = "different reviewer"
+        else:
+            source["dependency_edge_evidence"]["ISSUE-0001"]["reviewer"] = "different reviewer"
+            current["dependency_edge_evidence"]["ISSUE-0001"]["reviewer"] = "different reviewer"
+        evidence["expected_replay"] = copy.deepcopy(candidate["expected_replay"])
+    elif mutation == "missing_origin":
+        source["transition_history"].clear()
+        source["acceptance_evidence"].clear()
+        current["transition_history"].pop(0)
+        current["acceptance_evidence"].pop(0)
+        candidate["expected_replay"]["transition_history_prefix"] = []
+        candidate["expected_replay"]["acceptance_evidence_prefix"] = []
+        evidence["expected_replay"] = copy.deepcopy(candidate["expected_replay"])
+    elif mutation == "missing_edge_history":
+        missing_edge = {
+            "schema_version": "1.0",
+            "state": "complete",
+            "evidence_references": ["tests/replay.py"],
+            "contract_reference": "tests/replay.py#dependency",
+            "reviewer": "reviewer",
+            "reviewed_date": "2026-08-02",
+        }
+        source["dependency_edge_evidence"] = {"ISSUE-0001": missing_edge}
+        current["dependency_edge_evidence"] = {"ISSUE-0001": missing_edge}
     monkeypatch.setattr(
         validation_summary,
-        "_registry_record_at",
+        "_control_state_record_at",
         lambda _root, ref, _stable_id: source if ref == "a" * 40 else current,
     )
 
-    with pytest.raises(ValueError, match=r"status[ _]replay"):
+    expected_error = {
+        "reversed": "ordered",
+        "dependency": "dependency",
+        "commit_mismatch": "status_replay_hops_do_not_match_reviewed_product_commit",
+        "prefix_mismatch": "planned origin",
+        "wrong_source_status": "source status|canonical status|history",
+        "wrong_final_status": "projection|canonical status|history",
+        "unrelated_head_field": "projection",
+        "malformed_history_entry": "entries must be objects",
+        "malformed_evidence_entry": "reviewed_date",
+        "nested_dependency_mismatch": "dependency evidence is inconsistent",
+        "final_dependency_mismatch": "dependency history",
+        "missing_origin": "planned origin",
+        "missing_edge_history": "dependency history",
+    }[mutation]
+    with pytest.raises(ValueError, match=expected_error):
         validation_summary._validate_replay_candidate_evidence(
             evidence,
             candidate,
@@ -638,3 +739,14 @@ def test_workflow_keeps_artifact_names_and_writes_failed_terminal_evidence() -> 
     assert "HEAD_SHA: ${{ needs.classifier.outputs.head_sha }}" in workflow
     build_step = workflow.index("- name: Build and validate authoritative terminal evidence")
     assert "if: always()" in workflow[build_step : build_step + 120]
+
+
+def test_summary_rejects_symbolic_revision_before_artifact_reads(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="full lowercase Git SHAs"):
+        validation_summary.collect_summary(
+            tmp_path,
+            tmp_path / "missing-artifacts",
+            base="HEAD",
+            head="b" * 40,
+            job_results={},
+        )
