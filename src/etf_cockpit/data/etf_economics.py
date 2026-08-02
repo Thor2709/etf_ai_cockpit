@@ -464,6 +464,18 @@ class _TrustedTotalReturnBinding:
             raise EtfEconomicsError("total-return payload is not the bound canonical artifact")
         if _reconciliation_signature(tuple(reconciliations or ())) != self.reconciliation_signature:
             raise EtfEconomicsError("total-return corporate-action reconciliation changed after binding")
+        if cutoff is not None:
+            decision_time = pd.Timestamp(cutoff)
+            for reconciliation in tuple(reconciliations or ()):
+                selected_source = getattr(reconciliation, "selected_source_id", None)
+                for action in getattr(reconciliation, "observations", ()):
+                    if (
+                        getattr(action, "source_id", None) == selected_source
+                        and pd.Timestamp(getattr(action, "known_at", None)) > decision_time
+                    ):
+                        raise EtfEconomicsError(
+                            "total-return corporate action was not known at decision time"
+                        )
         if _coverage_signature(self.corporate_action_coverage) != self.coverage_signature:
             raise EtfEconomicsError("total-return corporate-action coverage changed after binding")
         if not is_canonical_corporate_action_coverage(self.corporate_action_coverage):

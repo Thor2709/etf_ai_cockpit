@@ -1087,6 +1087,66 @@ def test_corporate_actions_must_match_identity_currency_and_knowledge_envelope(
         )
 
 
+def test_future_known_selected_action_is_rejected_at_earlier_report_cutoff() -> None:
+    dates = pd.bdate_range("2026-01-01", periods=4)
+    action = CorporateAction(
+        action_id="DIV-FUTURE-KNOWLEDGE",
+        instrument_id="VWCE",
+        action_type="dividend",
+        announced_at="2026-01-01",
+        effective_at="2026-01-05",
+        ex_date="2026-01-05",
+        payable_at="2026-01-06",
+        known_at="2026-01-07",
+        revision=1,
+        source="unit-test",
+        source_id="action-future-test",
+        source_checksum="a" * 64,
+        amount=10.0,
+        currency="EUR",
+    )
+    artifact = apply_total_return_adjustments(
+        pd.DataFrame(
+            {
+                "date": dates,
+                "close": [100.0, 101.0, 102.0, 104.0],
+                "instrument_id": "VWCE",
+                "currency": "EUR",
+                "source_id": "test",
+                "provenance": "unit-test",
+            }
+        ),
+        actions=(action,),
+    )
+    fund = TotalReturnEvidence.from_adjustment_result(
+        artifact,
+        instrument_id="VWCE",
+        currency="EUR",
+        known_at="2026-01-07",
+        as_of="2026-01-06",
+        source_id="test",
+        provenance="unit-test",
+        corporate_action_coverage=_corporate_action_coverage(
+            "VWCE", "2026-01-06", "2026-01-06"
+        ),
+    )
+
+    report = calculate_etf_economics(
+        "VWCE",
+        _economics_records(),
+        fund_total_return=fund,
+        benchmark_total_return=_total_return_series(
+            [100, 100.5, 101, 103], instrument_id="FTSE-ALL-WORLD"
+        ),
+        as_of="2026-01-06T23:59:59Z",
+        horizon_days=3,
+        closure_policy=_closure_policy(),
+    )
+
+    assert report.status == "unavailable"
+    assert "corporate action was not known at decision time" in report.message
+
+
 def test_row_revision_known_at_cannot_exceed_evidence_envelope() -> None:
     evidence = _total_return_series([100, 101, 102, 104])
     frame = evidence.frame.assign(
