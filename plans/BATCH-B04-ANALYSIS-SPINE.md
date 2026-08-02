@@ -28,16 +28,23 @@ it is not an integration candidate.
 
 The clean v2 lane
 `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_updatev2_0018_v2` on
-`codex/updatev2-0018-product-20260802-v2` starts at exact main
-`745dfd9f747f95aa6cb0e3cbc6f25c4ac5a2de0c`. Its H-tier product scope is
+`codex/updatev2-0018-product-20260802-v2` is rebased onto exact main
+`772d297264c071f83bb668d2190723e969b12cde`. Its H-tier product scope is
 three explicit local ETF report kinds, page provenance, hard child-process
 resource bounds, immutable source identity, serialized atomic persistence,
 advisory fingerprint-bound review, bounded report-conflict visibility and the
 Trust Evidence surface. ISSUE-0104 scoring, providers, OCR, generative
 extraction, external writes and execution remain protected. Root focused
-validation passes 65 tests with one platform-specific skip plus Ruff, compile
-and diff hygiene; `score_eligible=false` and `execution_allowed=false` remain.
-Independent exact-head review and fresh Linux/Windows H gates are next.
+validation at `60430fdd29b37ac3e700a368417e07674ce36c7f` passes all 112
+focused cases with one platform-specific skip plus Ruff, compile, byte-clean
+generation and diff hygiene. The product transaction includes only the legal
+`ready -> in_progress` canonical hop and schema-v2 candidate/append-only
+authority for reviewed semantic plan
+`be182dd37470ce7ae8804f8ffc704e5f3bfdb7a1640d5a1afe883ef2ba28134a`;
+`score_eligible=false` and `execution_allowed=false` remain. Independent
+exact-head review and fresh Linux/Windows H gates are next, followed by
+ordered-writer and generic zero-action readback before compact two-hop
+completion.
 
 ## Completed ISSUE-0102 and current bounded readback repair
 

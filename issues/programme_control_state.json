@@ -8935,15 +8935,26 @@
           "reviewed_date": "2026-08-02",
           "reviewer": "Codex orchestrator",
           "status": "ready"
+        },
+        {
+          "evidence_references": [
+            "Exact product implementation checkpoint 60430fdd29b37ac3e700a368417e07674ce36c7f implements deterministic local ETF prospectus, annual-report and half-year-report parsing with typed checksum-bound import and review evidence, atomic persistence and Trust Evidence UI integration",
+            "Focused post-rebase validation passed all 112 parser, persistence, concurrency, review-authority and UI cases with one expected Windows skip; Ruff, compile, programme-generation check and diff hygiene passed",
+            "Child-process resource bounds, fail-closed malformed/tampered evidence reads, registry locking and execution_allowed=false preserve existing safety and authority boundaries; no network, OCR, scoring or external execution authority is added"
+          ],
+          "review_reference": "B04 UPDATEV2-0018 reviewed ETF report evidence implementation start",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex root orchestrator and independent reviewers",
+          "status": "in_progress"
         }
       ],
       "dependency_edge_evidence": {},
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "ready",
+      "programme_status": "in_progress",
       "status_transition": {
-        "from": "planned",
-        "review_reference": "UPDATEV2-0018 dependency-readiness review at exact origin/main 745dfd9f747f95aa6cb0e3cbc6f25c4ac5a2de0c",
-        "to": "ready"
+        "from": "ready",
+        "review_reference": "B04 UPDATEV2-0018 reviewed ETF report evidence implementation start",
+        "to": "in_progress"
       },
       "transition_history": [
         {
@@ -8957,9 +8968,23 @@
           "reviewer": "Codex orchestrator",
           "to": "ready",
           "verified_commit": "745dfd9f747f95aa6cb0e3cbc6f25c4ac5a2de0c"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Exact product implementation checkpoint 60430fdd29b37ac3e700a368417e07674ce36c7f implements deterministic local ETF prospectus, annual-report and half-year-report parsing with typed checksum-bound import and review evidence, atomic persistence and Trust Evidence UI integration",
+            "Focused post-rebase validation passed all 112 parser, persistence, concurrency, review-authority and UI cases with one expected Windows skip; Ruff, compile, programme-generation check and diff hygiene passed",
+            "Child-process resource bounds, fail-closed malformed/tampered evidence reads, registry locking and execution_allowed=false preserve existing safety and authority boundaries; no network, OCR, scoring or external execution authority is added"
+          ],
+          "from": "ready",
+          "review_reference": "B04 UPDATEV2-0018 reviewed ETF report evidence implementation start",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex root orchestrator and independent reviewers",
+          "to": "in_progress",
+          "verified_commit": "772d297264c071f83bb668d2190723e969b12cde"
         }
       ],
-      "verified_commit": "745dfd9f747f95aa6cb0e3cbc6f25c4ac5a2de0c",
+      "verified_commit": "772d297264c071f83bb668d2190723e969b12cde",
       "verified_date": "2026-08-02"
     },
     "UPDATEV2-0019": {

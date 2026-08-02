@@ -24,8 +24,9 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   `zero_action_readback=true`. Fresh generic readback plan
   `371b004ccb8c0ebabceaa5242bb705b793b3cb8093b80c31f7cb5e7be457f44a`
   has zero actions and reconciled authority head `f12d3055...`.
-- UPDATEV2-0018 is canonically and remotely `ready`, with no blocking
-  dependencies. ISSUE-0104 remains planned and structural-risk scoring is
+- UPDATEV2-0018 is remotely `ready` with no blocking dependencies. This
+  product transaction advances only its canonical lifecycle to
+  `in_progress`; ISSUE-0104 remains planned and structural-risk scoring is
   outside this product change.
 - The first uncommitted implementation failed independent review on reproduced
   persistence, source-binding, truncation and review-integrity defects. It is
@@ -44,12 +45,19 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   fingerprint-bound human review and Trust Evidence visibility. It adds no
   provider download, OCR, generative extraction, scoring, order or execution
   authority.
-- Pre-rebase focused validation passed 112 tests with one expected Windows
-  skip; independent whole-diff and risk reviews approved exact head
-  `6f41972a735b8dd8e98eac4c894685f027e06f99`. After rebase, rerun exact-head
-  review and fresh authoritative Linux/Windows H-tier gates before protected
-  product merge and automatic lifecycle completion. `score_eligible=false`
-  and `execution_allowed=false` remain enforced.
+- Post-rebase focused validation at implementation checkpoint
+  `60430fdd29b37ac3e700a368417e07674ce36c7f` passed all 112 parser,
+  persistence, concurrency, review-authority and UI cases with one expected
+  Windows skip; Ruff, compile, byte-clean generation and diff hygiene passed.
+  The reviewed one-action lifecycle plan
+  `be182dd37470ce7ae8804f8ffc704e5f3bfdb7a1640d5a1afe883ef2ba28134a`
+  binds UPDATEV2-0018/#158 `ready -> in_progress` to exact parent
+  `772d297264c071f83bb668d2190723e969b12cde`, append-only authority
+  `ff34fbd53c59e832db0ebddd5a325a1143f76f71cbd86b4d68c2e948a1782748`
+  and `execution_allowed=false`. Exact-head review and fresh authoritative
+  Linux/Windows H-tier gates are next; after merge, require ordered-writer and
+  generic zero-action readback before the existing two-hop completion
+  transaction.
 
 ## Completed convergence repair checkpoint
 
