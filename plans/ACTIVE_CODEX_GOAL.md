@@ -65,6 +65,12 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   extraction separately, preserves prior review history and fails closed when
   one declared revision produces a different fingerprint. Focused product
   validation now passes 113 cases with one expected Windows skip.
+- Risk re-review then reproduced a one-sided valid-store tamper that bypassed
+  same-revision drift detection. Corrected checkpoint
+  `d95c28a89e24b22123f72d9ded63327b3445982f` requires exact report/registry
+  identity cardinality parity before re-import and leaves all stores unchanged
+  on mismatch; both missing-report and missing-registry regressions are
+  covered.
 
 ## Completed convergence repair checkpoint
 

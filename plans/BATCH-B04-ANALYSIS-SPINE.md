@@ -54,6 +54,13 @@ fails closed on same-revision fingerprint drift. The focused product suite now
 passes 113 cases with one expected Windows skip; repeat exact-head review
 before the H gates.
 
+Risk re-review reproduced same-revision fingerprint drift when either the
+report or registry counterpart was replaced by a valid store lacking the v2
+identity. Corrected checkpoint
+`d95c28a89e24b22123f72d9ded63327b3445982f` now requires equal single-row
+identity cardinality across both stores before re-import and preserves all
+bytes on failure; both divergence directions have regressions.
+
 ## Completed ISSUE-0102 and current bounded readback repair
 
 Bounded repair PR #640 merged independently reviewed exact head
