@@ -44,6 +44,14 @@ Both hops are carried by one aggregate proposal and one receipt bound to one
 authority, candidate, issue identity and reviewed head. Existing ISSUE-0180
 `status` authority, event and receipt bytes remain unchanged.
 
+Replay-prefix validation requires every canonical dependency edge with
+reviewed evidence beyond `unresolved` to have the same dependency event in the
+history prefix. A structurally valid, unchanged `unresolved` legacy edge may
+remain absent from that event history because it records no reviewed edge
+transition. Source/current record equality still forbids adding, removing or
+changing that edge inside the replay. This exception neither resolves a
+dependency nor authorises dependency-edge mutation.
+
 Generic managed-comment validation recognises the replay proposal and replay
 acceptance markers as known authority comments. Their semantic validity still
 comes exclusively from the replay parser and ledger reconciliation; this

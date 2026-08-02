@@ -549,6 +549,31 @@ def test_authoritative_control_state_fixture_has_history_and_fails_closed() -> N
         control_state_record(malformed, "ISSUE-0101", context="fixture")
 
 
+def test_status_replay_prefix_accepts_unchanged_unresolved_dependency_without_event() -> None:
+    root = Path(__file__).resolve().parents[1]
+    control = json.loads(
+        (root / "issues/programme_control_state.json").read_text(encoding="utf-8")
+    )
+    authoritative = control_state_record(control, "ISSUE-0103", context="fixture")
+
+    assert authoritative["programme_status"] == "in_progress"
+    assert authoritative["dependency_edge_evidence"]["UPDATEV2-0015"]["state"] == "unresolved"
+    assert all(
+        event.get("dependency_edge", {}).get("dependency") != "UPDATEV2-0015"
+        for event in authoritative["transition_history"]
+    )
+    validate_status_replay_prefix_shape(
+        "ISSUE-0103",
+        authoritative["transition_history"],
+        authoritative["acceptance_evidence"],
+        programme_status=authoritative["programme_status"],
+        dependency_edge_evidence=authoritative["dependency_edge_evidence"],
+        verified_commit=authoritative["verified_commit"],
+        verified_date=authoritative["verified_date"],
+        status_transition=authoritative["status_transition"],
+    )
+
+
 def test_control_state_loaders_reject_duplicate_nested_keys(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     subprocess.run(

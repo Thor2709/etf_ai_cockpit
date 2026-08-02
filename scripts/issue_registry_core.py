@@ -1619,7 +1619,12 @@ def validate_status_replay_prefix_shape(
         for dependency, evidence in dependency_edge_evidence.items()
     ):
         raise ValueError(f"{issue_id}: status replay canonical dependency evidence is invalid")
-    if latest_edge_evidence != dependency_edge_evidence:
+    historical_edge_evidence = {
+        dependency: evidence
+        for dependency, evidence in dependency_edge_evidence.items()
+        if evidence.get("state") != "unresolved" or dependency in latest_edge_evidence
+    }
+    if latest_edge_evidence != historical_edge_evidence:
         raise ValueError(f"{issue_id}: status replay dependency history does not reach canonical state")
     terminal_event = transition_history[-1]
     terminal_status_event = ordinary_events[-1]

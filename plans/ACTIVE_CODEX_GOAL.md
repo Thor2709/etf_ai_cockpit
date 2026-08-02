@@ -109,18 +109,22 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   `market_adjustments.py` calculation/authority surface as H while preserving
   ordinary product and E-tier checkpoint classifications; fresh Linux and
   Windows package gates are mandatory before merge.
-- The product PR now carries the single automatic `ready -> in_progress`
-  lifecycle transaction. Its live reviewed plan has one status-only update for
-  ISSUE-0103 at semantic SHA
-  `a510143134719303b2d3e21ce22bcefe06b91f1cdab10bf8d1ccb3ae76afb1e1`;
-  authority ID
-  `b41017449b2a1c0a732e9cbc90180560f366f75498e41af8c218349a1b5e5491`
-  and candidate authority ref
-  `5870209390e4a6c6cd74f46799ea238a4cf0e414288300c538ce5cb11940b9e1`
-  bind exact base `2428af72525474d306cf9c04e6c9ecdaef213caa` with
-  `execution_allowed=false`. The projection is byte-clean and the status guard
-  passes. Exact next action is focused authority validation, a final independent
-  review of the frozen PR head, protected merge and zero-action writer/readback.
+- Product PR #646 merged independently approved exact head
+  `31e12c1ee0a9390d13c91a5014e3f32915da4bf8` as
+  `f245a3f1cf26f074acde50cb9f3e4e1b891bd60a`. H-tier run `30758046593`
+  passed preflight, supply chain, Linux, Windows and terminal validation;
+  status guard `30758046561` passed. Writer `30759189744` applied only
+  ISSUE-0103 `ready -> in_progress` with `zero_action_readback=true` and
+  convergence `30759189762` passed with `execution_allowed=false`.
+- The first clean completion preparation failed closed before producing an
+  authority because the replay-prefix validator required an event for the
+  unchanged legacy `UPDATEV2-0015` unresolved edge. The one bounded repair lane
+  is `codex/status-replay-unresolved-edge-20260802` at exact base
+  `f245a3f1cf26f074acde50cb9f3e4e1b891bd60a`. Scope is only to permit a
+  structurally valid unchanged unresolved edge to lack a historical edge event;
+  reviewed complete edges remain event-bound and all dependency changes inside
+  replay remain rejected. Exact next action is H-tier validation, independent
+  review, protected merge, then a fresh ISSUE-0103 completion lane.
 
 ### Prior dependency-edge checkpoint (superseded)
 

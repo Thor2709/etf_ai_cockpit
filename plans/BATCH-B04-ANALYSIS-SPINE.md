@@ -75,16 +75,21 @@ Exact reviewed product evidence commit
 economics, market-adjustment and UI tests plus independent whole-diff and
 financial/PIT approval. The narrowly corrected classifier treats the canonical
 `market_adjustments.py` calculation/authority surface as H while preserving
-ordinary product and E-tier checkpoint classification, so fresh Linux and
-Windows package gates are mandatory. The same product PR prepares only ISSUE-0103
-`ready -> in_progress`, bound to one live status-only plan at semantic SHA
-`a510143134719303b2d3e21ce22bcefe06b91f1cdab10bf8d1ccb3ae76afb1e1`,
-authority ID `b41017449b2a1c0a732e9cbc90180560f366f75498e41af8c218349a1b5e5491`
-and candidate ref
-`5870209390e4a6c6cd74f46799ea238a4cf0e414288300c538ce5cb11940b9e1`.
-Generated projections are byte-clean and the exact-base status guard passes;
-the next action is focused authority validation, final exact-head review,
-protected merge and zero-action post-write readback.
+ordinary product and E-tier checkpoint classification. Product PR #646 merged
+independently approved exact head `31e12c1ee0a9390d13c91a5014e3f32915da4bf8`
+as `f245a3f1cf26f074acde50cb9f3e4e1b891bd60a` after H-tier run
+`30758046593` and guard `30758046561` passed. Writer `30759189744` applied
+only ISSUE-0103 `ready -> in_progress` with zero-action readback; convergence
+`30759189762` passed and `execution_allowed=false` remains false.
+
+Completion preparation then failed closed before authority creation because
+the replay-prefix validator required a history event for unchanged legacy
+unresolved edge `UPDATEV2-0015`. The one bounded H-tier repair lane
+`codex/status-replay-unresolved-edge-20260802` starts clean at exact merge
+`f245a3f1cf26f074acde50cb9f3e4e1b891bd60a`. It permits only a structurally
+valid unchanged unresolved edge to lack a reviewed edge event; complete-edge
+evidence remains history-bound and dependency mutation during replay remains
+rejected. After protected merge, completion restarts from fresh exact main.
 
 ## Prior convergence repair checkpoint (superseded)
 
