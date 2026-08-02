@@ -105,9 +105,10 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   reviewers approved the corrected evidence after canonical-generator,
   append-only coverage, complete action-term, decision-time action/row,
   checksum, unit, closure-policy and UI-lineage counterexamples failed closed.
-  The automated classifier reports O, but the root declares H validation
-  because the correction touches canonical financial adjustment authority;
-  fresh Linux and Windows package gates are mandatory before merge.
+  The narrowly corrected classifier now treats the canonical
+  `market_adjustments.py` calculation/authority surface as H while preserving
+  ordinary product and E-tier checkpoint classifications; fresh Linux and
+  Windows package gates are mandatory before merge.
 - The product PR now carries the single automatic `ready -> in_progress`
   lifecycle transaction. Its live reviewed plan has one status-only update for
   ISSUE-0103 at semantic SHA
