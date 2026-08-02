@@ -469,8 +469,19 @@ def test_verified_eligibility_is_restored_after_conflict_rejection_but_invalid_s
     assert bool(after.loc[second.source_id, "evidence_eligible"]) is False
 
 
-@pytest.mark.parametrize("corruption", ["out_of_order", "stale_fingerprint", "top_level_mismatch"])
-def test_review_history_corruption_fails_closed_on_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, corruption: str) -> None:
+@pytest.mark.parametrize(
+    ("corruption", "field", "value"),
+    [
+        ("out_of_order", None, None),
+        ("stale_fingerprint", None, None),
+        ("top_level_mismatch", None, None),
+        ("score_authority", "score_eligible", True),
+        ("execution_authority", "execution_allowed", True),
+        ("manual_review_authority", "manual_review", True),
+        ("evidence_authority", "evidence_eligible", False),
+    ],
+)
+def test_review_history_corruption_fails_closed_on_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, corruption: str, field: str | None, value: object) -> None:
     import etf_cockpit.data.parsed_disclosures as module
     from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest, EtfReportReviewRequest
 
@@ -491,22 +502,25 @@ def test_review_history_corruption_fails_closed_on_read(tmp_path: Path, monkeypa
     elif corruption == "stale_fingerprint":
         history[-1]["extraction_sha256"] = "0" * 64
         frame.at[0, "review_history"] = json.dumps(history)
-    else:
+    elif corruption == "top_level_mismatch":
         frame.at[0, "verified_by"] = "forged-reviewer"
+    else:
+        assert field is not None
+        frame.at[0, field] = value
     frame.to_parquet(reports, index=False)
 
     with pytest.raises(ValueError, match="corrupt"):
         module.read_etf_report_records(reports)
 
 
-@pytest.mark.parametrize("legacy_kind", ["generic", "kid", "methodology"])
+@pytest.mark.parametrize("legacy_kind", ["generic", "kid", "methodology", "holdings"])
 def test_report_and_other_registry_writers_preserve_all_rows_concurrently(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, legacy_kind: str) -> None:
     import etf_cockpit.data.parsed_disclosures as module
     from etf_cockpit.data.fund_documents import import_etf_document
     from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest, EtfReportReviewRequest
 
     report_source = tmp_path / "report.pdf"
-    other_source = tmp_path / "other.pdf"
+    other_source = tmp_path / ("other.csv" if legacy_kind == "holdings" else "other.pdf")
     report_source.write_bytes(b"report concurrent")
     other_source.write_bytes(b"other concurrent")
     monkeypatch.setattr(module, "parse_etf_report_in_child", lambda path, kind, **_kwargs: _v2_report_result(path, kind=kind))
@@ -528,8 +542,20 @@ def test_report_and_other_registry_writers_preserve_all_rows_concurrently(tmp_pa
             import_etf_document(other_source, instrument_id="LYP6", document_type="factsheet", destination=registry)
         elif legacy_kind == "kid":
             module.persist_priips_kid_with_document(_kid_result(), "LYP6", other_source, destination=tmp_path / "kids.parquet", registry_destination=registry)
-        else:
+        elif legacy_kind == "methodology":
             module.persist_index_methodology_with_document(_methodology_result(), "LYP6", other_source, destination=tmp_path / "methods.parquet", registry_destination=registry)
+        else:
+            from etf_cockpit.data.fund_holdings import import_etf_holdings_with_document
+
+            pd.DataFrame({"security": ["Concurrent"], "ticker": ["OTHER"], "weight": [1.0]}).to_csv(other_source, index=False)
+            import_etf_holdings_with_document(
+                other_source,
+                "LYP6",
+                "2026-08-01",
+                holdings_destination=tmp_path / "holdings.parquet",
+                registry_destination=registry,
+                today="2026-08-02",
+            )
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = (pool.submit(report_writer), pool.submit(other_writer))

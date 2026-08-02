@@ -848,7 +848,7 @@ def _merge_report_row(existing: pd.DataFrame, incoming: dict[str, Any]) -> pd.Da
             incoming["evidence_eligible"] = prior.get("evidence_eligible", False)
         existing = existing.drop(index=matches[0])
     combined = pd.concat([existing, pd.DataFrame([incoming])], ignore_index=True)
-    return _read_report_frame_from_frame(combined)
+    return _read_report_frame_from_frame(combined, validate_authority=False)
 
 
 def _apply_conflict_eligibility(frame: pd.DataFrame, conflicts: pd.DataFrame, registry: pd.DataFrame) -> pd.DataFrame:
@@ -910,7 +910,7 @@ def _read_report_frame(path: Path) -> pd.DataFrame:
         raise ValueError(f"ETF report extraction store is corrupt: {path}") from exc
 
 
-def _read_report_frame_from_frame(frame: pd.DataFrame) -> pd.DataFrame:
+def _read_report_frame_from_frame(frame: pd.DataFrame, *, validate_authority: bool = True) -> pd.DataFrame:
     result = frame.copy()
     for column in REPORT_COLUMNS:
         if column not in result.columns:
@@ -921,6 +921,23 @@ def _read_report_frame_from_frame(frame: pd.DataFrame) -> pd.DataFrame:
         if fingerprint and fingerprint != _row_extraction_fingerprint(row):
             raise ValueError("stored extraction fingerprint does not match extraction")
         _review_history(row.get("review_history"), expected_fingerprint=fingerprint or None, row=row)
+    if validate_authority:
+        conflicts = build_etf_report_conflicts(result)
+        conflicted = set(conflicts["source_id_a"].astype(str)) | set(conflicts["source_id_b"].astype(str)) if not conflicts.empty else set()
+        for _, row in result.iterrows():
+            fingerprint = _cell_text(row.get("stored_extraction_sha256"))
+            registry_path = _cell_text(row.get("registry_path"))
+            eligible = (
+                _cell_text(row.get("verification_status")) == "verified"
+                and bool(fingerprint)
+                and fingerprint == _row_extraction_fingerprint(row)
+                and _row_is_verifiable(row)
+                and bool(registry_path)
+                and _row_binding_matches_registry(row, _read_registry_fail_closed(Path(registry_path)))
+                and str(row.get("source_id")) not in conflicted
+            )
+            if _strict_stored_bool(row.get("evidence_eligible"), "evidence_eligible") != eligible:
+                raise ValueError("evidence eligibility does not match persisted evidence")
     return result
 
 
@@ -1047,7 +1064,26 @@ def _review_history(
             or _cell_text(row.get("review_note"))
         ):
             raise ValueError("top-level review fields exist without review history")
+        decision = _cell_text(row.get("verification_status")) or "pending"
+        manual_review = _strict_stored_bool(row.get("manual_review"), "manual_review")
+        evidence_eligible = _strict_stored_bool(row.get("evidence_eligible"), "evidence_eligible")
+        score_eligible = _strict_stored_bool(row.get("score_eligible"), "score_eligible")
+        execution_allowed = _strict_stored_bool(row.get("execution_allowed"), "execution_allowed")
+        if manual_review != (decision != "verified"):
+            raise ValueError("manual-review authority does not match review status")
+        if decision != "verified" and evidence_eligible:
+            raise ValueError("unverified report cannot be evidence eligible")
+        if evidence_eligible and not _row_is_verifiable(row):
+            raise ValueError("incomplete report cannot be evidence eligible")
+        if score_eligible or execution_allowed:
+            raise ValueError("report authority flags exceed the allowed boundary")
     return parsed
+
+
+def _strict_stored_bool(value: Any, field: str) -> bool:
+    if type(value).__name__ not in {"bool", "bool_"}:
+        raise ValueError(f"{field} is not a stored boolean")
+    return bool(value)
 
 
 def _review_timestamp(item: dict[str, Any]) -> datetime:
