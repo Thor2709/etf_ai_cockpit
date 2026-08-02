@@ -16628,6 +16628,28 @@
           "reviewed_date": "2026-08-02",
           "reviewer": "Codex root orchestrator",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product PR #641 merged exact independently approved head 671ebac2ec5c0fbdd4afc6d9d0f1c953a1ffaa6b as 4a0b87a0a7e18633ffde1fa69e59baa40ce5e03e",
+            "Release run 30744924925 classified tier O and passed fresh authority preflight, product/protected preflight, supply chain and terminal validation; status guard 30744924900 passed",
+            "Ordered writer run 30745092252 accepted ISSUE-0102 ready to in_progress with zero-action post-write readback; generic convergence run 30745092242 passed and execution_allowed remains false"
+          ],
+          "review_reference": "PR #641 exact-head product review and tier-O validation",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex independent reviewer and root orchestrator",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product PR #641 merged exact independently approved head 671ebac2ec5c0fbdd4afc6d9d0f1c953a1ffaa6b as 4a0b87a0a7e18633ffde1fa69e59baa40ce5e03e",
+            "Release run 30744924925 classified tier O and passed fresh authority preflight, product/protected preflight, supply chain and terminal validation; status guard 30744924900 passed",
+            "Ordered writer run 30745092252 accepted ISSUE-0102 ready to in_progress with zero-action post-write readback; generic convergence run 30745092242 passed and execution_allowed remains false"
+          ],
+          "review_reference": "PR #641 exact-head product review and tier-O validation",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex independent reviewer and root orchestrator",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -16681,7 +16703,7 @@
       "package_status": "",
       "phase": "phase-03-stock-research",
       "priority": "P1",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0099-issue-0102-sector-specific-stock-adapters"
@@ -16711,7 +16733,7 @@
       ],
       "title": "Implement software, semiconductor, healthcare and biotechnology adapters",
       "ui_requirement": "Innovation/Healthcare panels with milestone and concentration timelines.",
-      "verified_commit": "874c9ef277350547ca3eca28d5d5c808d7dea7bb",
+      "verified_commit": "4a0b87a0a7e18633ffde1fa69e59baa40ce5e03e",
       "verified_date": "2026-08-02",
       "why": "Long-term quality and downside depend on recurring economics, R&D productivity, patents, pipeline and funding.",
       "write_conflict_group": "stock-research"
@@ -27603,7 +27625,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "729b90e41539bb68119c67e9c0c42391560f02ee16aa60c1173e282ff8c9738a",
+    "programme_control_state_sha256": "1d4145d67cc2c1b1a58b7fee4055b3c917de5289f80b239a16c793d56126d5e2",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
