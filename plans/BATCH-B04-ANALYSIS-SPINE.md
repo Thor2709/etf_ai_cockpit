@@ -40,14 +40,17 @@ Generic-readback repair PR #643 merged independently approved exact head
 convergence `30747829943` passed exact main with zero actions; the sole repair
 cycle is closed.
 
-The clean `codex/issue0103-dependency-20260802-v2` lane starts at that exact
-merge and records only ISSUE-0103→ISSUE-0084 as complete against the
-integrated point-in-time total-return interface. UPDATEV2-0015 remains
-closed-ledger resolved and ISSUE-0103 remains `planned`. The enforced
-schema-1.3 edge mode cannot co-authorize a status transition; after this edge
-merges, the existing one-hop writer will separately bind `planned -> ready` to
-the exact reviewed base. No product, dependency-list, permission or execution
-change is included.
+Dependency PR #644 merged corrected and independently approved exact head
+`8ff50cfc2ef0b1c6d291b57944082b5fde00877f` as
+`4324ee6af1321cf7ea60a6f03b381c1f1979edb0`; run `30748705677`, guard
+`30748705679` and exact-main convergence `30749425839` passed.
+
+The clean `codex/issue0103-ready-20260802` lane starts at that exact merge and
+advances only ISSUE-0103 `planned -> ready`. Its sole #243 status update has
+semantic SHA `78d6759c5b6812d17b5e3a93bcb3bb03111a64528a50e12162e11352047b769f`
+and status authority `43a7be21b37e56f896e4a9cb32a24932cf6309d12a9999bf85c7117049aa88b0`.
+The reviewed ISSUE-0084 edge, closed-ledger resolution, product scope,
+dependencies, permissions and `execution_allowed=false` remain unchanged.
 
 ## Prior convergence repair checkpoint (superseded)
 

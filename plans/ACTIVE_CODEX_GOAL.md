@@ -67,19 +67,24 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   package gates and terminal validation. Automatic exact-main convergence run
   `30747829943` then passed with zero create/update/close/reopen/blocked
   actions. The sole demonstrated repair cycle is complete and closed.
-- Current clean lane:
-  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0103_dependency_v2`;
-  branch `codex/issue0103-dependency-20260802-v2`; exact base
-  `bbe8a789d05a7df688661eb8e2370bb26583dc8f`, initially empty.
-- Current scope records only the ISSUE-0084 point-in-time total-return
-  interface as complete for ISSUE-0103. UPDATEV2-0015 remains resolved by its
-  closed ledger and ISSUE-0103 remains `planned`. The schema-1.3 guard
-  deliberately rejects combining dependency-edge and status authority, so the
-  existing single-hop writer will advance `planned -> ready` only from the
-  reviewed merged edge base. Product code, dependency lists, external
-  authority and execution policy are unchanged. Next is focused E-tier guards,
-  exact-head review, merge and zero-action edge readback, followed by the
-  bounded readiness writer and ISSUE-0103 product implementation.
+- Dependency PR #644 merged corrected and independently approved exact head
+  `8ff50cfc2ef0b1c6d291b57944082b5fde00877f` as
+  `4324ee6af1321cf7ea60a6f03b381c1f1979edb0`. Run `30748705677` passed
+  classifier, preflight, supply chain, authoritative Linux/Windows package
+  gates and terminal validation; guard `30748705679` passed. Exact-main
+  convergence `30749425839` passed.
+- Current clean readiness lane:
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0103_ready`;
+  branch `codex/issue0103-ready-20260802`; exact base
+  `4324ee6af1321cf7ea60a6f03b381c1f1979edb0`, initially empty.
+- Scope advances only ISSUE-0103 `planned -> ready`, preserving the reviewed
+  ISSUE-0084 edge, UPDATEV2-0015 closed-ledger resolution, product scope,
+  dependency lists and `execution_allowed=false`. The sole live #243 status
+  update has semantic SHA
+  `78d6759c5b6812d17b5e3a93bcb3bb03111a64528a50e12162e11352047b769f`
+  and authority `43a7be21b37e56f896e4a9cb32a24932cf6309d12a9999bf85c7117049aa88b0`.
+  Next is focused E-tier validation, exact-head review, merge, writer/readback,
+  then ISSUE-0103 product implementation.
 
 ### Prior dependency-edge checkpoint (superseded)
 
