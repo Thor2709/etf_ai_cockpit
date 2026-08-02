@@ -13,42 +13,26 @@ former active-goal record and chronology are archived in
 `plans/archive/ATOMIC_FAST_PATH_ISSUE-0179-0180_2026-07-31.md`. Current delivery
 mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 
-## Current convergence repair checkpoint
+## Completed convergence repair checkpoint
 
-- PR #639 merged as `26a3b5e7902b1c77df00d15f8e4ece472828f744`. Its
-  read-only Programme convergence run `30739727616` failed closed with exactly
-  one status-only update for the live plan at checksum
-  `4754b3f8b395c3c3d6595a4756a6c9c4a2b20bd2303516745212227f94a823cc`.
-- The bounded repair lane is
-  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_pending_status_convergence`
-  on branch `codex/pending-status-convergence-20260802`, based on exact SHA
-  `26a3b5e7902b1c77df00d15f8e4ece472828f744`. It remains an uncommitted local
-  repair lane; no new PR or merge is claimed here.
-- Scope is the single bounded authority repair: generalize the existing
-  schema-v2 status candidate and sole writer to one legal status-only hop to
-  `ready`, `in_progress` or `integrated`, while preserving the exact two-hop
-  `in_progress -> implemented_initially -> integrated` completion path. The
-  accepted comment projection is authoritative when the legacy body lags;
-  canonical ISSUE-0102 remains unchanged and `execution_allowed=false` is
-  preserved.
-- The abandoned read-only deferral attempt failed closed because live GitHub
-  #242 required an automatic pending projection. Its workflow, deferral script
-  and deferral-only tests were restored to base. The refreshed live plan still
-  contains exactly one status-only ISSUE-0102 update at checksum
-  `4754b3f8b395c3c3d6595a4756a6c9c4a2b20bd2303516745212227f94a823cc`.
-  Repository-only preparation produced status authority
-  `1e9de93977b28d6fc60f9992c6bad5f0fe4fc3f1a50a777376e6300810509ab1`
-  and candidate SHA-256
-  `25f4a2477a68702a584aae59e2a21be4cc9527aa6bc1642b163757f7c3bb9f21`
-  for `planned -> ready`, with `execution_allowed=false`.
-- Current local evidence: 286 focused authority/classifier/summary tests passed;
-  the root rerun of the four directly coupled suites passed 225 tests; Mypy,
-  targeted Ruff, compile, workflow YAML parsing, diff hygiene, atomic
-  generation and the second byte-clean generator check passed. H-tier CI and
-  independent reviewer/risk-reviewer approval remain pending; no PR or merge
-  is claimed.
+- Bounded repair PR #640 merged independently reviewed exact head
+  `049cc5fac353b380090694f059412ec877df6cc1` as
+  `874c9ef277350547ca3eca28d5d5c808d7dea7bb`. H-tier run `30743061770`
+  passed classifier, preflight, supply chain, authoritative Linux and Windows
+  package gates and terminal validation.
+- Ordered writer run `30743990686` accepted authority
+  `1e9de93977b28d6fc60f9992c6bad5f0fe4fc3f1a50a777376e6300810509ab1`,
+  projected ISSUE-0102 `planned -> ready`, preserved
+  `execution_allowed=false`, and recorded a zero-action post-write readback.
+  Generic convergence run `30743990684` also passed.
+- The permanent contract remains bounded to one legal pending status hop or
+  the exact two-hop `in_progress -> implemented_initially -> integrated`
+  completion replay. Only the exact active-goal and B04 checkpoint chronology
+  paths receive E-tier control classification; all protected runtime,
+  workflow, authority, security, persistence, financial, package and release
+  surfaces remain H-tier.
 
-## Current checkpoint
+## Current ISSUE-0102 product checkpoint
 
 - ISSUE-0102 dependency PR #638 merged exact reviewed head
   `871ea037c594844a0de9e72e7dbabd3405244b76` as
@@ -57,18 +41,22 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   gates and terminal validation; guard `30737461338` passed. Post-merge
   convergence `30738361187` was zero action at checksum
   `da979ae3fef7344ff4e492bd4468f8a3653e329f6121cb13ba9f2e2a003c1b8f`.
-- Clean readiness lane:
-  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0102_ready`;
-  branch `codex/issue0102-ready-20260802`; exact base and starting head
-  `179e16c71328c43a9475dce60743a2d1aeda5aa7`, initially empty.
-- Current scope advances only ISSUE-0102 `planned -> ready`, binds acceptance
-  evidence to PR #638 and its exact validation, and preserves all product code,
-  dependency edges, external authority and `execution_allowed=false`.
-- Exact next action: complete the authority repair, run canonical generation
-  followed by byte-clean check mode and the required focused/H evidence, then
-  obtain independent reviewer and risk-reviewer approval before any later
-  integration or automatic convergence. Do not change canonical ISSUE-0102 in
-  this lane.
+- Clean product lane:
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0102_product`;
+  branch `codex/issue0102-product-20260802`. Reviewed product commit
+  `297d0999d0bd232a1014f993e4d920da05f7110c` is preserved as an ancestor
+  after merging exact repaired main `874c9ef277350547ca3eca28d5d5c808d7dea7bb`.
+- Product scope is limited to software, semiconductor, healthcare/pharma and
+  biotechnology adapters, their source-linked evidence/replay rules and the
+  Innovation/Healthcare Instrument Detail surface. Root verification passed
+  113 focused checks and independent exact-product review passed 121 checks.
+- The same product PR records only ISSUE-0102 `ready -> in_progress` and
+  carries one reviewed pending-status authority. After exact-head O-tier
+  validation and merge, the ordered writer must project `in_progress` with a
+  zero-action readback before one compact E-tier completion transaction records
+  `in_progress -> implemented_initially -> integrated`. Product code,
+  dependency edges, external authority and `execution_allowed=false` must not
+  change during completion.
 
 ### Prior dependency-edge checkpoint (superseded)
 

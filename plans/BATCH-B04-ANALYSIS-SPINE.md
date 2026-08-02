@@ -9,7 +9,26 @@ Current delivery mechanics are defined in
 to sole workers, Sol-low workers or old lifecycle PR chains describe past
 execution and are not current operational instructions.
 
-## Current convergence repair checkpoint
+## Current ISSUE-0102 product checkpoint
+
+Bounded repair PR #640 merged independently reviewed exact head
+`049cc5fac353b380090694f059412ec877df6cc1` as
+`874c9ef277350547ca3eca28d5d5c808d7dea7bb`. H-tier run `30743061770`
+passed both authoritative package platforms and terminal validation. Ordered
+writer run `30743990686` projected ISSUE-0102 `planned -> ready` and proved a
+zero-action post-write readback; generic convergence run `30743990684` passed
+and `execution_allowed=false` remains unchanged.
+
+The clean `codex/issue0102-product-20260802` lane preserves independently
+approved product commit `297d0999d0bd232a1014f993e4d920da05f7110c` as an
+ancestor after merging exact repaired main. The product PR contains only the
+software, semiconductor, healthcare/pharma and biotechnology adapter/UI scope
+plus ISSUE-0102 `ready -> in_progress` and its single-hop authority. Root
+verification passed 113 focused checks and independent product review passed
+121. Exact-head O-tier validation, writer acceptance and zero-action readback
+are required before the compact two-hop E-tier completion transaction.
+
+## Prior convergence repair checkpoint (superseded)
 
 PR #639 merged as `26a3b5e7902b1c77df00d15f8e4ece472828f744`; its read-only
 Programme convergence run `30739727616` failed closed with exactly one
