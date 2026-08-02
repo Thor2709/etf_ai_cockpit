@@ -36,8 +36,8 @@ import etf_cockpit.services as services
 from etf_cockpit.services import build_snapshot
 
 
-def _write_artifact_manifest(path: Path) -> None:
-    Path(f"{path}.sha256").write_text(hashlib.sha256(path.read_bytes()).hexdigest(), encoding="utf-8")
+def _trusted_artifact_digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _prices(rows: int = 80) -> pd.DataFrame:
@@ -527,8 +527,15 @@ def test_irregular_and_monthly_series_are_unavailable() -> None:
 def test_local_loaders_fail_closed_for_malformed_files_and_read_typed_csv(tmp_path) -> None:
     economics_path = tmp_path / "economics.csv"
     pd.DataFrame(_economics_records()).to_csv(economics_path, index=False)
-    _write_artifact_manifest(economics_path)
-    assert len(load_etf_economics_records(economics_path)) == 3
+    assert load_etf_economics_records(economics_path) == ()
+    trusted_economics_sha = _trusted_artifact_digest(economics_path)
+    assert len(
+        load_etf_economics_records(
+            economics_path, trusted_sha256=trusted_economics_sha
+        )
+    ) == 3
+    economics_path.write_text(economics_path.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    assert load_etf_economics_records(economics_path, trusted_sha256=trusted_economics_sha) == ()
     evidence_path = tmp_path / "returns.csv"
     evidence = _total_return_series([100, 101, 102, 104])
     payload = evidence.frame.assign(
@@ -537,8 +544,9 @@ def test_local_loaders_fail_closed_for_malformed_files_and_read_typed_csv(tmp_pa
     )
     payload["checksum"] = TotalReturnEvidence.checksum_for_frame(payload)
     payload.to_csv(evidence_path, index=False)
-    _write_artifact_manifest(evidence_path)
-    assert load_total_return_evidence(evidence_path) is None
+    assert load_total_return_evidence(
+        evidence_path, trusted_sha256=_trusted_artifact_digest(evidence_path)
+    ) is None
     malformed = tmp_path / "bad.csv"
     pd.DataFrame({"date": ["2026-01-01"], "total_return_index": [100]}).to_csv(malformed, index=False)
     assert load_total_return_evidence(malformed) is None
@@ -623,8 +631,10 @@ def test_closure_policy_loader_accepts_local_json_and_fails_closed(tmp_path) -> 
         ),
         encoding="utf-8",
     )
-    _write_artifact_manifest(policy_path)
-    assert load_closure_proxy_policy(policy_path) == _closure_policy()
+    assert load_closure_proxy_policy(policy_path) is None
+    assert load_closure_proxy_policy(
+        policy_path, trusted_sha256=_trusted_artifact_digest(policy_path)
+    ) == _closure_policy()
     malformed = tmp_path / "malformed.json"
     malformed.write_text("{not-json", encoding="utf-8")
     assert load_closure_proxy_policy(malformed) is None
@@ -1015,6 +1025,66 @@ def test_economically_material_action_mutation_invalidates_bound_result() -> Non
 
     assert report.status == "unavailable"
     assert "canonical AdjustmentResult artifact changed" in report.message
+
+
+@pytest.mark.parametrize(
+    ("action_instrument", "action_currency", "action_known_at", "message"),
+    (
+        ("OTHER", "EUR", "2026-01-01", "instrument"),
+        ("VWCE", "USD", "2026-01-01", "currency"),
+        ("VWCE", "EUR", "2026-01-07", "not known"),
+    ),
+)
+def test_corporate_actions_must_match_identity_currency_and_knowledge_envelope(
+    action_instrument: str,
+    action_currency: str,
+    action_known_at: str,
+    message: str,
+) -> None:
+    dates = pd.bdate_range("2026-01-01", periods=4)
+    action = CorporateAction(
+        action_id="DIV-SCOPE",
+        instrument_id=action_instrument,
+        action_type="dividend",
+        announced_at="2026-01-01",
+        effective_at="2026-01-05",
+        ex_date="2026-01-05",
+        payable_at="2026-01-06",
+        known_at=action_known_at,
+        revision=1,
+        source="unit-test",
+        source_id="action-scope-test",
+        source_checksum="a" * 64,
+        amount=1.0,
+        currency=action_currency,
+    )
+    artifact = apply_total_return_adjustments(
+        pd.DataFrame(
+            {
+                "date": dates,
+                "close": [100.0, 101.0, 102.0, 104.0],
+                "instrument_id": "VWCE",
+                "currency": "EUR",
+                "source_id": "test",
+                "provenance": "unit-test",
+            }
+        ),
+        actions=(action,),
+    )
+
+    with pytest.raises(EtfEconomicsError, match=message):
+        TotalReturnEvidence.from_adjustment_result(
+            artifact,
+            instrument_id="VWCE",
+            currency="EUR",
+            known_at="2026-01-06",
+            as_of="2026-01-06",
+            source_id="test",
+            provenance="unit-test",
+            corporate_action_coverage=_corporate_action_coverage(
+                "VWCE", "2026-01-06", "2026-01-06"
+            ),
+        )
 
 
 def test_row_revision_known_at_cannot_exceed_evidence_envelope() -> None:

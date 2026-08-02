@@ -576,6 +576,15 @@ class TotalReturnEvidence:
             for item in reconciliations
         ):
             raise EtfEconomicsError("AdjustmentResult action reconciliation must be positive, selected and observed")
+        evidence_known_at = pd.Timestamp(_timestamp(known_at, "total-return known_at", required=True))
+        for reconciliation in reconciliations:
+            for action in reconciliation.observations:
+                if action.instrument_id != instrument_id:
+                    raise EtfEconomicsError("corporate action instrument does not match total-return identity")
+                if action.cash_amount > 0 and action.currency != _currency(currency, "total-return currency", required=True):
+                    raise EtfEconomicsError("corporate action currency does not match total-return currency")
+                if pd.Timestamp(action.known_at) > evidence_known_at:
+                    raise EtfEconomicsError("corporate action was not known within the total-return evidence envelope")
         _validate_corporate_action_coverage(
             corporate_action_coverage,
             instrument_id=instrument_id,
@@ -721,7 +730,7 @@ def _frame_checksum(frame: pd.DataFrame) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _read_local_frame(path: Path) -> pd.DataFrame | None:
+def _read_local_frame(path: Path, *, trusted_sha256: str | None = None) -> pd.DataFrame | None:
     candidates = [path]
     if path.suffix.lower() == ".parquet":
         candidates.append(path.with_suffix(".csv"))
@@ -730,7 +739,7 @@ def _read_local_frame(path: Path) -> pd.DataFrame | None:
     for candidate in candidates:
         if not candidate.exists():
             continue
-        if not _verified_local_artifact(candidate):
+        if not _matches_trusted_artifact(candidate, trusted_sha256):
             continue
         try:
             return pd.read_csv(candidate) if candidate.suffix.lower() == ".csv" else pd.read_parquet(candidate)
@@ -739,19 +748,26 @@ def _read_local_frame(path: Path) -> pd.DataFrame | None:
     return None
 
 
-def _verified_local_artifact(path: Path) -> bool:
-    manifest = Path(f"{path}.sha256")
+def _matches_trusted_artifact(path: Path, trusted_sha256: str | None) -> bool:
+    """Match authority supplied by a signed package or canonical store, never by the artifact."""
+
+    if trusted_sha256 is None:
+        return False
     try:
-        expected = manifest.read_text(encoding="utf-8").strip().split()[0].casefold()
+        expected = str(trusted_sha256).strip().casefold()
         if len(expected) != 64 or int(expected, 16) < 0:
             return False
         return hashlib.sha256(path.read_bytes()).hexdigest() == expected
-    except (OSError, IndexError, ValueError):
+    except (OSError, ValueError):
         return False
 
 
-def load_etf_economics_records(path: Path | None = None) -> tuple[EtfEconomicsObservation, ...]:
-    frame = _read_local_frame(path or ETF_ECONOMICS_PATH)
+def load_etf_economics_records(
+    path: Path | None = None,
+    *,
+    trusted_sha256: str | None = None,
+) -> tuple[EtfEconomicsObservation, ...]:
+    frame = _read_local_frame(path or ETF_ECONOMICS_PATH, trusted_sha256=trusted_sha256)
     if frame is None:
         return ()
     try:
@@ -760,8 +776,12 @@ def load_etf_economics_records(path: Path | None = None) -> tuple[EtfEconomicsOb
         return ()
 
 
-def load_total_return_evidence(path: Path | None = None) -> TotalReturnEvidence | None:
-    frame = _read_local_frame(path) if path is not None else None
+def load_total_return_evidence(
+    path: Path | None = None,
+    *,
+    trusted_sha256: str | None = None,
+) -> TotalReturnEvidence | None:
+    frame = _read_local_frame(path, trusted_sha256=trusted_sha256) if path is not None else None
     if frame is None:
         return None
     try:
@@ -770,7 +790,11 @@ def load_total_return_evidence(path: Path | None = None) -> TotalReturnEvidence 
         return None
 
 
-def load_closure_proxy_policy(path: Path | None = None) -> ClosureProxyPolicy | None:
+def load_closure_proxy_policy(
+    path: Path | None = None,
+    *,
+    trusted_sha256: str | None = None,
+) -> ClosureProxyPolicy | None:
     """Load one immutable local closure policy from JSON or one-row CSV."""
 
     target = path or ETF_CLOSURE_POLICY_PATH
@@ -782,7 +806,7 @@ def load_closure_proxy_policy(path: Path | None = None) -> ClosureProxyPolicy | 
     for candidate in candidates:
         if not candidate.exists():
             continue
-        if not _verified_local_artifact(candidate):
+        if not _matches_trusted_artifact(candidate, trusted_sha256):
             continue
         try:
             if candidate.suffix.lower() == ".json":
