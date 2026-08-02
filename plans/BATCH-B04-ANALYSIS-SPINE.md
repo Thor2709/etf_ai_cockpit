@@ -46,6 +46,14 @@ exact-head review and fresh Linux/Windows H gates are next, followed by
 ordered-writer and generic zero-action readback before compact two-hop
 completion.
 
+Whole-diff review rejected `3b67dc43...` after reproducing erased review
+history on parser/template revision. Corrected checkpoint
+`b14b5f272a69f9d2c8824fbb161316d3b5382caa` makes each parser/plugin
+revision a separate extraction identity, retains the prior reviewed row and
+fails closed on same-revision fingerprint drift. The focused product suite now
+passes 113 cases with one expected Windows skip; repeat exact-head review
+before the H gates.
+
 ## Completed ISSUE-0102 and current bounded readback repair
 
 Bounded repair PR #640 merged independently reviewed exact head

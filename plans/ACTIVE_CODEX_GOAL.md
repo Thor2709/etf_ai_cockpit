@@ -58,6 +58,13 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   Linux/Windows H-tier gates are next; after merge, require ordered-writer and
   generic zero-action readback before the existing two-hop completion
   transaction.
+- Exact-head review reproduced one audit defect at `3b67dc43...`:
+  parser/template revision re-import replaced the prior reviewed extraction.
+  Corrected checkpoint `b14b5f272a69f9d2c8824fbb161316d3b5382caa`
+  now derives source identity from parser and plugin revision, appends the new
+  extraction separately, preserves prior review history and fails closed when
+  one declared revision produces a different fingerprint. Focused product
+  validation now passes 113 cases with one expected Windows skip.
 
 ## Completed convergence repair checkpoint
 

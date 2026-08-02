@@ -8938,7 +8938,7 @@
         },
         {
           "evidence_references": [
-            "Exact product implementation checkpoint 60430fdd29b37ac3e700a368417e07674ce36c7f implements deterministic local ETF prospectus, annual-report and half-year-report parsing with typed checksum-bound import and review evidence, atomic persistence and Trust Evidence UI integration",
+            "Product checkpoints 60430fdd29b37ac3e700a368417e07674ce36c7f and b14b5f272a69f9d2c8824fbb161316d3b5382caa implement deterministic local ETF prospectus, annual-report and half-year-report parsing with typed checksum-bound import and review evidence, append-only parser/plugin extraction revisions, atomic persistence and Trust Evidence UI integration",
             "Focused post-rebase validation passed all 112 parser, persistence, concurrency, review-authority and UI cases with one expected Windows skip; Ruff, compile, programme-generation check and diff hygiene passed",
             "Child-process resource bounds, fail-closed malformed/tampered evidence reads, registry locking and execution_allowed=false preserve existing safety and authority boundaries; no network, OCR, scoring or external execution authority is added"
           ],
@@ -8972,7 +8972,7 @@
         {
           "allow_downgrade": false,
           "evidence_references": [
-            "Exact product implementation checkpoint 60430fdd29b37ac3e700a368417e07674ce36c7f implements deterministic local ETF prospectus, annual-report and half-year-report parsing with typed checksum-bound import and review evidence, atomic persistence and Trust Evidence UI integration",
+            "Product checkpoints 60430fdd29b37ac3e700a368417e07674ce36c7f and b14b5f272a69f9d2c8824fbb161316d3b5382caa implement deterministic local ETF prospectus, annual-report and half-year-report parsing with typed checksum-bound import and review evidence, append-only parser/plugin extraction revisions, atomic persistence and Trust Evidence UI integration",
             "Focused post-rebase validation passed all 112 parser, persistence, concurrency, review-authority and UI cases with one expected Windows skip; Ruff, compile, programme-generation check and diff hygiene passed",
             "Child-process resource bounds, fail-closed malformed/tampered evidence reads, registry locking and execution_allowed=false preserve existing safety and authority boundaries; no network, OCR, scoring or external execution authority is added"
           ],
