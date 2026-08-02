@@ -60,17 +60,26 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   product PR #641 and merge `4a0b87a0a7e18633ffde1fa69e59baa40ce5e03e`,
   and recorded `terminal_status=applied_and_verified`,
   `zero_action_readback=true` and `execution_allowed=false`.
-- Exact-main generic live reconciliation then demonstrated one bounded defect:
-  the staged subprocess invoked `sync_github_issues.py` as a file and resolved
-  an unrelated `scripts` namespace on Windows. The clean repair lane is
-  `codex/convergence-readback-module-20260802`, exact base
-  `0848d93edbae6ecd228d0d1e1620dbd99722092c`; it changes only the staged
-  module invocation, its regression test and durable checkpoints. The same
-  exact-head live readback now reports zero create/update/close/reopen/blocked
-  actions. H-tier review and gates are next; no second repair cycle is allowed.
-- After that repair, ISSUE-0103 is next in implementation order. Its
-  UPDATEV2-0015 dependency is resolved by the closed ledger; ISSUE-0084 still
-  requires one bounded dependency-evidence review before product work.
+- Bounded generic-readback repair PR #643 merged two independently approved
+  exact head `f8f28c94ae8f4a6f8f15dd8a5ad187cd35dafd2c` as
+  `bbe8a789d05a7df688661eb8e2370bb26583dc8f`. H-tier run `30746716333`
+  passed classifier, preflight, supply chain, authoritative Linux/Windows
+  package gates and terminal validation. Automatic exact-main convergence run
+  `30747829943` then passed with zero create/update/close/reopen/blocked
+  actions. The sole demonstrated repair cycle is complete and closed.
+- Current clean lane:
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0103_dependency_v2`;
+  branch `codex/issue0103-dependency-20260802-v2`; exact base
+  `bbe8a789d05a7df688661eb8e2370bb26583dc8f`, initially empty.
+- Current scope records only the ISSUE-0084 point-in-time total-return
+  interface as complete for ISSUE-0103. UPDATEV2-0015 remains resolved by its
+  closed ledger and ISSUE-0103 remains `planned`. The schema-1.3 guard
+  deliberately rejects combining dependency-edge and status authority, so the
+  existing single-hop writer will advance `planned -> ready` only from the
+  reviewed merged edge base. Product code, dependency lists, external
+  authority and execution policy are unchanged. Next is focused E-tier guards,
+  exact-head review, merge and zero-action edge readback, followed by the
+  bounded readiness writer and ISSUE-0103 product implementation.
 
 ### Prior dependency-edge checkpoint (superseded)
 

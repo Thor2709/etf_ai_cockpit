@@ -5816,9 +5816,9 @@
       "edges": [
         {
           "dependency_id": "ISSUE-0084",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
+          "evidence_state": "complete",
+          "reason_code": "EDGE_EVIDENCE_COMPLETE",
+          "resolved": true
         },
         {
           "dependency_id": "UPDATEV2-0015",
@@ -5829,9 +5829,9 @@
       ],
       "execution_allowed": false,
       "issue_id": "ISSUE-0103",
-      "ready": false,
+      "ready": true,
       "reason_codes": [
-        "BLOCKED_UNRESOLVED_DEPENDENCY"
+        "READY_BLOCKING_EDGES_RESOLVED"
       ],
       "required_inputs": []
     },
@@ -16766,12 +16766,16 @@
       "dependency_conversions": [],
       "dependency_edge_evidence": {
         "ISSUE-0084": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B04/ISSUE-0084/point-in-time-total-return-contract-v1",
+          "evidence_references": [
+            "PR #482 merged independently reviewed ISSUE-0084 product as 537e800dd78e9593e7769f41aecf6d79babb75f9; PR #484 completed integration as c6b5742d59b7cdb64c5dbd464efaa198c7234dd8",
+            "src/etf_cockpit/data/market_adjustments.py provides explicit corporate-action events, raw-to-adjusted and total-return derivation, income/price components, reconciliation, vintage lineage and unavailable states for ISSUE-0103 benchmark-relative consumers",
+            "tests/test_market_adjustments.py covers dividends/distributions, split and action sequences, total-return conventions, round-trip/reconciliation, as-of revisions, selected-currency returns and incomplete FX; ISSUE-0103 retains benchmark matching, fee/share-class history, AUM/flows and closure-proxy implementation"
+          ],
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         },
         "UPDATEV2-0015": {
           "contract_reference": "",
@@ -16827,8 +16831,8 @@
       ],
       "title": "Implement ETF economics, fee, tracking and closure-quality analysis",
       "ui_requirement": "ETF Economics panel with cost and tracking history.",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "ff9aa45be46302866fb4c9d89593d9ad9ba4b817",
+      "verified_date": "2026-08-02",
       "why": "Long-term ETF outcomes depend on realised tracking, fees, scale, age and operational viability.",
       "write_conflict_group": "etf-research"
     },
@@ -27625,7 +27629,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "1d4145d67cc2c1b1a58b7fee4055b3c917de5289f80b239a16c793d56126d5e2",
+    "programme_control_state_sha256": "58305daa29b5883f188652d3c8895985a341285e8f35d4f770acee928f3ce6e0",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

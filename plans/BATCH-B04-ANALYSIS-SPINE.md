@@ -33,14 +33,21 @@ passed both package platforms and terminal validation. Writer `30746368016`
 applied the two-hop aggregate, proved `zero_action_readback=true` and retained
 `execution_allowed=false`.
 
-A subsequent exact-main generic live reconciliation exposed one deterministic
-Windows import defect: the staged subprocess did not execute the synchroniser
-from the staged repository package root. The sole bounded repair lane is
-`codex/convergence-readback-module-20260802`, exact base
-`0848d93edbae6ecd228d0d1e1620dbd99722092c`. Module invocation plus one
-regression test now produce an exact zero-action live plan. H-tier review and
-full Linux/Windows gates remain before merge. Next in implementation order is
-ISSUE-0103; only its ISSUE-0084 dependency edge remains to be evidenced.
+Generic-readback repair PR #643 merged independently approved exact head
+`f8f28c94ae8f4a6f8f15dd8a5ad187cd35dafd2c` as
+`bbe8a789d05a7df688661eb8e2370bb26583dc8f` after H-tier run
+`30746716333` passed both package platforms and terminal validation. Automatic
+convergence `30747829943` passed exact main with zero actions; the sole repair
+cycle is closed.
+
+The clean `codex/issue0103-dependency-20260802-v2` lane starts at that exact
+merge and records only ISSUE-0103→ISSUE-0084 as complete against the
+integrated point-in-time total-return interface. UPDATEV2-0015 remains
+closed-ledger resolved and ISSUE-0103 remains `planned`. The enforced
+schema-1.3 edge mode cannot co-authorize a status transition; after this edge
+merges, the existing one-hop writer will separately bind `planned -> ready` to
+the exact reviewed base. No product, dependency-list, permission or execution
+change is included.
 
 ## Prior convergence repair checkpoint (superseded)
 

@@ -1,27 +1,25 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [
+  "allowed_dependency_edge_updates": [
     {
-      "from": "in_progress",
-      "issue_id": "ISSUE-0102",
-      "to": "integrated"
+      "dependency_id": "ISSUE-0084",
+      "issue_id": "ISSUE-0103"
     }
   ],
-  "base_commit": "4a0b87a0a7e18633ffde1fa69e59baa40ce5e03e",
-  "branch": "codex/issue0102-complete-20260802",
-  "issue_ids": [
-    "ISSUE-0102"
-  ],
+  "allowed_status_transitions": [],
+  "base_commit": "bbe8a789d05a7df688661eb8e2370bb26583dc8f",
+  "branch": "codex/issue0103-dependency-20260802-v2",
+  "issue_ids": [],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "fb1095c1f626815a4bcee77477f4c6b2ef5a69d06cb46055d1da887467cb9dc6",
+    "base_registry_sha256": "909205ec1bb3de9217b6d3946d8c75497853a465f0e0900c152417b9f27fdee3",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "909205ec1bb3de9217b6d3946d8c75497853a465f0e0900c152417b9f27fdee3",
-    "reason": "Replay only ISSUE-0102 from in_progress through implemented_initially to integrated against merged and independently reviewed product PR #641; preserve dependencies, product code, external authority and execution_allowed=false.",
+    "mode": "generation_base_and_dependency_edge_evidence",
+    "proposed_registry_sha256": "4644fea19dbd1c639cfd841cd75cc5f72f548be37ca06dcbc1d6e91da33a3863",
+    "reason": "Review only ISSUE-0103 to ISSUE-0084 against the integrated point-in-time total-return contract, leave ISSUE-0103 planned, and preserve product scope, lifecycle state, authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.2"
+  "schema_version": "1.3"
 }

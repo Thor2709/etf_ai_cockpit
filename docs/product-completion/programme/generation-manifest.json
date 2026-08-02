@@ -3,7 +3,7 @@
   "outputs": [
     {
       "path": ".github/status-transition-guard-manifest.json",
-      "sha256": "dc9ce6bd3e9df586037178a4d06769ccd09cc601c5fc3ca13d1fcedbd0b866cc"
+      "sha256": "16cf71414baa215a297c5c4fed11fd644bc7483bcdda0def75b5a8b38a4827fb"
     },
     {
       "path": "CHANGELOG.md",
@@ -15,7 +15,7 @@
     },
     {
       "path": "docs/product-completion/CURRENT_STATUS.json",
-      "sha256": "99eb7ce164438566a28969d758d36ffcdb98297b5211d06ac06faf25f79fee10"
+      "sha256": "d0e62a466c2e3090395c70637fd53dbdd1600a365dc540ad994fd409eca25c27"
     },
     {
       "path": "docs/product-completion/DELIVERY_WORKFLOW.md",
@@ -23,7 +23,7 @@
     },
     {
       "path": "docs/product-completion/PROGRESS.md",
-      "sha256": "ca08a52e2f56b19830a64e51e422855066c2d857a07cde78548b90d136a3a474"
+      "sha256": "c07e8d16e5031cc28e7c00151e9c3f79a36c03d1cc64a5eb2e6e86f73d1b6cc1"
     },
     {
       "path": "docs/product-completion/programme/git-workflow.md",
@@ -83,7 +83,7 @@
     },
     {
       "path": "docs/product-completion/programme/readiness.json",
-      "sha256": "0e2a7c10300f34f03ab53720026f5b6be9ad548d92ffa5dec38ec8d6f53657b4"
+      "sha256": "c99fc2a6a36d12dcddfc96acab53a45db0b714bcc4d70a8e2b26e89eb7edb30d"
     },
     {
       "path": "docs/product-completion/programme/roadmap.md",
@@ -151,7 +151,7 @@
     },
     {
       "path": "issues/issue_registry.json",
-      "sha256": "909205ec1bb3de9217b6d3946d8c75497853a465f0e0900c152417b9f27fdee3"
+      "sha256": "4644fea19dbd1c639cfd841cd75cc5f72f548be37ca06dcbc1d6e91da33a3863"
     },
     {
       "path": "issues/open.md",
@@ -159,7 +159,7 @@
     },
     {
       "path": "issues/programme_control_state.json",
-      "sha256": "1d4145d67cc2c1b1a58b7fee4055b3c917de5289f80b239a16c793d56126d5e2"
+      "sha256": "58305daa29b5883f188652d3c8895985a341285e8f35d4f770acee928f3ce6e0"
     }
   ],
   "schema_version": "programme-generation.v1"

@@ -3729,12 +3729,16 @@
       "acceptance_evidence": [],
       "dependency_edge_evidence": {
         "ISSUE-0084": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B04/ISSUE-0084/point-in-time-total-return-contract-v1",
+          "evidence_references": [
+            "PR #482 merged independently reviewed ISSUE-0084 product as 537e800dd78e9593e7769f41aecf6d79babb75f9; PR #484 completed integration as c6b5742d59b7cdb64c5dbd464efaa198c7234dd8",
+            "src/etf_cockpit/data/market_adjustments.py provides explicit corporate-action events, raw-to-adjusted and total-return derivation, income/price components, reconciliation, vintage lineage and unavailable states for ISSUE-0103 benchmark-relative consumers",
+            "tests/test_market_adjustments.py covers dividends/distributions, split and action sequences, total-return conventions, round-trip/reconciliation, as-of revisions, selected-currency returns and incomplete FX; ISSUE-0103 retains benchmark matching, fee/share-class history, AUM/flows and closure-proxy implementation"
+          ],
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         },
         "UPDATEV2-0015": {
           "contract_reference": "",
@@ -3752,8 +3756,37 @@
         "review_reference": "B00 canonical import from audited programme state",
         "to": "planned"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0084",
+            "evidence": {
+              "contract_reference": "B04/ISSUE-0084/point-in-time-total-return-contract-v1",
+              "evidence_references": [
+                "PR #482 merged independently reviewed ISSUE-0084 product as 537e800dd78e9593e7769f41aecf6d79babb75f9; PR #484 completed integration as c6b5742d59b7cdb64c5dbd464efaa198c7234dd8",
+                "src/etf_cockpit/data/market_adjustments.py provides explicit corporate-action events, raw-to-adjusted and total-return derivation, income/price components, reconciliation, vintage lineage and unavailable states for ISSUE-0103 benchmark-relative consumers",
+                "tests/test_market_adjustments.py covers dividends/distributions, split and action sequences, total-return conventions, round-trip/reconciliation, as-of revisions, selected-currency returns and incomplete FX; ISSUE-0103 retains benchmark matching, fee/share-class history, AUM/flows and closure-proxy implementation"
+              ],
+              "reviewed_date": "2026-08-02",
+              "reviewer": "Codex root orchestrator",
+              "schema_version": "1.0",
+              "state": "complete"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "PR #482 merged independently reviewed ISSUE-0084 product as 537e800dd78e9593e7769f41aecf6d79babb75f9; PR #484 completed integration as c6b5742d59b7cdb64c5dbd464efaa198c7234dd8",
+            "src/etf_cockpit/data/market_adjustments.py provides explicit corporate-action events, raw-to-adjusted and total-return derivation, income/price components, reconciliation, vintage lineage and unavailable states for ISSUE-0103 benchmark-relative consumers",
+            "tests/test_market_adjustments.py covers dividends/distributions, split and action sequences, total-return conventions, round-trip/reconciliation, as-of revisions, selected-currency returns and incomplete FX; ISSUE-0103 retains benchmark matching, fee/share-class history, AUM/flows and closure-proxy implementation"
+          ],
+          "review_reference": "B04 ISSUE-0103 dependency review against integrated ISSUE-0084 total-return contract",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex root orchestrator",
+          "verified_commit": "ff9aa45be46302866fb4c9d89593d9ad9ba4b817"
+        }
+      ],
+      "verified_commit": "ff9aa45be46302866fb4c9d89593d9ad9ba4b817",
+      "verified_date": "2026-08-02"
     },
     "ISSUE-0104": {
       "acceptance_evidence": [],
