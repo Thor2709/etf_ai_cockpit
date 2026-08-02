@@ -94,6 +94,39 @@ Configured agents:
 
 Only one agent may write within an overlapping production-code boundary. Review only a finished stable diff. Use `test_engineer` only when test design is independently substantial; the `implementer` owns ordinary focused tests.
 
+## Stable-head throughput
+
+Complete product documentation, checkpoints, lifecycle metadata and generated
+files before freezing a locally green, clean head. Against that same exact
+head, start whole-diff review, risk review and required hosted CI in parallel;
+also permit read-only next-issue preparation and disjoint-worktree
+implementation when dependency-safe. Do not overlap writers on shared files
+or canonical programme state. If review rejects the head, cancel or disregard
+its stale CI evidence.
+
+Launch all required reviewers together and wait for every verdict. Consolidate
+all valid findings into one bounded correction pass, run only the affected
+focused evidence, freeze one replacement head and repeat both reviews in
+parallel. A further correction cycle requires a newly demonstrated defect
+that could not reasonably have been included in the consolidated pass.
+
+Before opening a product PR, locally validate every legally includable
+lifecycle component: canonical transition, guard manifest, candidate,
+append-only authority record, generated projections, exact live dry-run plan,
+post-merge writer expectation and zero-action readback expectation. Never
+merge while required authority metadata is known to be absent, and never
+combine dependency-edge and lifecycle transactions where the guard forbids
+it.
+
+Run the smallest attributable local suite that proves changed product and
+authority boundaries. Broaden or rerun only when the diff, a reviewer finding,
+the classifier or repository contract requires it. Do not change a frozen
+head for cosmetic chronology or wording. Open a convergence repair only for a
+fresh deterministic failure on current exact main; add its exact regression,
+make one narrow correction and return to product work. Use one CI watcher and
+report only findings, exact heads, approvals, terminal gates, merges,
+writer/readback results and next-issue selection.
+
 ## Routing
 
 ```text

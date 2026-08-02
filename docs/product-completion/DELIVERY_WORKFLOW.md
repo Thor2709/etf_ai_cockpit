@@ -58,6 +58,44 @@ Generic live convergence executes the synchroniser as a module from the
 mechanically staged repository root, so its imports and generated inputs are
 the reviewed staged tree. Acceptance still requires a zero-action readback.
 
+## Stable-head throughput
+
+Before freezing a product head, complete required documentation, checkpoint,
+canonical transition, transition manifest, candidate, append-only authority
+record and mechanically generated projections. Validate the exact live dry-run
+plan plus the expected post-merge ordered writer and zero-action readback. Do
+not open or merge a product/readiness PR with known missing lifecycle
+authority, and do not combine dependency-edge and lifecycle changes when the
+guard prohibits that shape.
+
+Once the head is locally green and clean, launch whole-diff review, risk review
+and required exact-head hosted CI concurrently. Read-only preparation for the
+next canonical dependency-ready issue and implementation in a proven disjoint
+worktree may also proceed while immutable CI runs. Shared files and canonical
+programme state retain one writer. A review rejection invalidates or cancels
+the stale head's CI evidence.
+
+All required reviewers evaluate the same exact head and all verdicts are
+collected before correction. Valid findings are handled in one consolidated,
+bounded pass, followed by the smallest affected focused suite and one
+replacement exact-head review cycle. Another correction cycle requires a
+newly demonstrated defect that could not reasonably have been included in the
+consolidated pass.
+
+Do not rerun unchanged passing evidence because time elapsed or a read-only
+review completed. Broader local evidence is required only when the changed
+surface, a concrete reviewer risk, the classifier or this contract requires
+it; H-tier and other protected gates are never weakened. Frozen heads are not
+changed for cosmetic wording or chronology. Use one watcher per CI run and
+report only concrete failures/findings, exact heads, approvals, terminal
+gates, merges, writer/readback outcomes and next-issue selection.
+
+A convergence repair requires a fresh deterministic failure against current
+exact main. It reproduces that failure in one regression, makes the smallest
+repo-local correction without adjacent generalisation, completes once and
+returns immediately to product delivery. ISSUE-0177–0180 optimisation remains
+closed.
+
 ## Bounded repo-local autonomy and lifecycle recovery
 
 The standing owner authorization covers bounded repo-local product, test,

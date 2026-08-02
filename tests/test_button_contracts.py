@@ -29,6 +29,9 @@ def test_button_inventory_covers_registered_routes_and_control_metadata() -> Non
         "dashboard.score-row-expand.*",
         "dashboard.renew-import.file-picker",
         "filings.import.file-picker",
+        "etf-disclosures.import-report",
+        "etf-disclosures.verify-report",
+        "etf-disclosures.reject-report",
         "errors.retry.*",
     } <= keys
     assert {item.control_type for item in contracts} >= {"navigation", "button", "file_picker", "expandable"}

@@ -9,6 +9,73 @@ Current delivery mechanics are defined in
 to sole workers, Sol-low workers or old lifecycle PR chains describe past
 execution and are not current operational instructions.
 
+## Current UPDATEV2-0018 parser lane
+
+ISSUE-0103 completion PR #648 merged exact reviewed head
+`80647cd7b62bd5a9ce047747e6b0af6e9b44a064` as
+`745dfd9f747f95aa6cb0e3cbc6f25c4ac5a2de0c`. Writer `30761603662`
+accepted the exact two-hop aggregate with zero-action readback and
+`execution_allowed=false`; a fresh generic live reconciliation also returned
+zero actions at plan SHA
+`35324f6f663a8455b0501dd7f627b24807c72987dda19f532afb91e71dd20692`.
+
+Canonical order now selects ready no-dependency `UPDATEV2-0018`, which supplies
+the bounded report-extraction dependency for planned ISSUE-0104. The first
+uncommitted implementation was rejected on reproduced integrity defects and
+is preserved at
+`C:\Users\thor2\AppData\Local\Temp\updatev2-0018-rejected-attempt-20260802-001`;
+it is not an integration candidate.
+
+The clean v2 lane
+`C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_updatev2_0018_v2` on
+`codex/updatev2-0018-product-20260802-v2` is rebased onto exact main
+`772d297264c071f83bb668d2190723e969b12cde`. Its H-tier product scope is
+three explicit local ETF report kinds, page provenance, hard child-process
+resource bounds, immutable source identity, serialized atomic persistence,
+advisory fingerprint-bound review, bounded report-conflict visibility and the
+Trust Evidence surface. ISSUE-0104 scoring, providers, OCR, generative
+extraction, external writes and execution remain protected. Root focused
+validation at `60430fdd29b37ac3e700a368417e07674ce36c7f` passes all 112
+focused cases with one platform-specific skip plus Ruff, compile, byte-clean
+generation and diff hygiene. The product transaction includes only the legal
+`ready -> in_progress` canonical hop and schema-v2 candidate/append-only
+authority for reviewed semantic plan
+`be182dd37470ce7ae8804f8ffc704e5f3bfdb7a1640d5a1afe883ef2ba28134a`;
+`score_eligible=false` and `execution_allowed=false` remain. Independent
+exact-head review and fresh Linux/Windows H gates are next, followed by
+ordered-writer and generic zero-action readback before compact two-hop
+completion.
+
+Whole-diff review rejected `3b67dc43...` after reproducing erased review
+history on parser/template revision. Corrected checkpoint
+`b14b5f272a69f9d2c8824fbb161316d3b5382caa` makes each parser/plugin
+revision a separate extraction identity, retains the prior reviewed row and
+fails closed on same-revision fingerprint drift. The focused product suite now
+passes 113 cases with one expected Windows skip; repeat exact-head review
+before the H gates.
+
+Risk re-review reproduced same-revision fingerprint drift when either the
+report or registry counterpart was replaced by a valid store lacking the v2
+identity. Corrected checkpoint
+`d95c28a89e24b22123f72d9ded63327b3445982f` now requires equal single-row
+identity cardinality across both stores before re-import and preserves all
+bytes on failure; both divergence directions have regressions.
+
+Both exact-head reviewer verdicts were collected before correction. The
+remaining reproduced cases were a physical duplicate registry identity hidden
+by normalization and an orphaned prior revision bypassed by importing a new
+parser/template identity. Consolidated correction
+`84587edd346d06bfa469b9a1600a8789ff59b323` rejects raw duplicates and
+requires complete v2 report/registry identity-set equality before processing
+any incoming revision; same- and changed-revision divergence tests preserve
+all bytes on rejection.
+
+PR #651 run `30771627783` passed classifier, status guard and supply chain but
+protected preflight found the three new report-control keys missing from the
+UI acceptance inventory. The bounded product correction adds exactly those
+import/verify/reject contracts and explicit button-inventory coverage before a
+replacement exact head is frozen.
+
 ## Completed ISSUE-0102 and current bounded readback repair
 
 Bounded repair PR #640 merged independently reviewed exact head

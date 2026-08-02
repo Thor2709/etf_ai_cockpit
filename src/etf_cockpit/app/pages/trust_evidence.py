@@ -19,6 +19,8 @@ from etf_cockpit.application.ui_facade import (
     BENCHMARK_ATTRIBUTION_PATH,
     CORRELATION_CLUSTERS_PATH,
     ETF_DISCLOSURES_PATH,
+    ETF_REPORT_CONFLICTS_PATH,
+    ETF_REPORT_RECORDS_PATH,
     EVIDENCE_LEDGER_PATH,
     EVENT_CLEAN_PATH,
     FEATURE_DRIVERS_PATH,
@@ -33,6 +35,10 @@ from etf_cockpit.application.ui_facade import (
     NEWS_TIMESTAMP_VALIDATION_PATH,
     OAM_DISCOVERY_PATH,
     PRIIPS_KID_RECORDS_PATH,
+    EtfReportImportRequest,
+    EtfReportReviewRequest,
+    import_etf_report,
+    review_etf_report,
     PROVIDER_PROBE_PATH,
     SCORE_COMPONENTS_PATH,
     SCORE_HISTORY_PATH,
@@ -48,6 +54,7 @@ from etf_cockpit.application.ui_facade import (
     persist_index_methodology_with_document,
     persist_priips_kid_with_document,
     read_document_registry,
+    read_etf_report_records,
     sort_fundamental_evidence,
     sort_news_items,
     source_policy_rows,
@@ -234,11 +241,13 @@ def filings_page(page: ft.Page, state: AppState) -> ft.Control:
 def etf_disclosures_page(page: ft.Page, state: AppState) -> ft.Control:
     return _status_page(
         "ETF Disclosures",
-        "ETF factsheets, holdings, PRIIPs KIDs, reports and index methodology inventory. Partial coverage is shown explicitly.",
+        "ETF factsheets, holdings, PRIIPs KIDs, reports and index methodology inventory. Report reviews are advisory only; score_eligible=false and execution_allowed=false. Partial coverage is shown explicitly.",
         [
             ("ETF disclosure inventory", ETF_DISCLOSURES_PATH, ["instrument_id", "document_type", "source_id", "source_url", "source_authority", "as_of_date", "checksum", "coverage_status", "path"]),
             ("Parsed PRIIPs KID evidence", PRIIPS_KID_RECORDS_PATH, ["instrument_id", "isin", "sri", "cost_fields", "holding_period_years", "document_date", "extraction_confidence", "source_pages", "warnings", "source_sha256", "parser_version", "source_authority", "freshness_status", "manual_review", "score_eligible"]),
             ("Parsed index methodology evidence", INDEX_METHODOLOGY_RECORDS_PATH, ["instrument_id", "provider", "index_series", "version", "document_date", "eligibility_rules", "weighting_rules", "review_frequency", "caps", "source_pages", "warnings", "source_sha256", "parser_version", "source_authority", "freshness_status", "manual_review", "score_eligible"]),
+            ("ETF report evidence (prospectus / annual / half-year)", ETF_REPORT_RECORDS_PATH, ["instrument_id", "document_kind", "fund_name", "isin", "document_date", "reporting_period_end", "legal_structure", "securities_lending", "collateral_policy", "ongoing_costs", "holdings_count", "operational_risks", "language_plugin", "template_plugin", "source_pages", "source_sha256", "source_authority", "extraction_status", "verification_status", "extraction_sha256", "evidence_eligible", "score_eligible", "execution_allowed"]),
+            ("ETF report conflicts", ETF_REPORT_CONFLICTS_PATH, ["instrument_id", "field_name", "source_id_a", "source_id_b", "document_kind_a", "document_kind_b", "document_date_a", "document_date_b", "value_a", "value_b", "pages_a", "pages_b", "resolution_status", "requires_manual_review", "execution_allowed"]),
             ("ETF holdings evidence", FUND_HOLDINGS_PATH, ["instrument_id", "as_of_date", "source", "completeness", "freshness", "confidence", "authority", "score_eligible", "source_id"]),
             ("Source conflicts", SOURCE_CONFLICTS_PATH, ["instrument_id", "field_name", "canonical_value", "resolution_status", "requires_manual_review", "reason"]),
         ],
@@ -466,7 +475,7 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
         label="Document type",
         value="factsheet",
         width=190,
-        options=[ft.dropdown.Option(value) for value in ("factsheet", "kid", "prospectus_report", "methodology")],
+        options=[ft.dropdown.Option(value) for value in ("factsheet", "kid", "methodology")],
     )
     holdings_date_field = ft.TextField(label="Holdings as-of date", width=190)
     holdings_source_field = ft.TextField(
@@ -475,6 +484,18 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
         width=190,
         disabled=True,
     )
+    report_kind_field = ft.Dropdown(
+        label="Bounded report kind",
+        value="prospectus",
+        width=210,
+        options=[ft.dropdown.Option(value) for value in ("prospectus", "annual_report", "half_year_report")],
+    )
+    report_source_field = ft.TextField(label="Report source URL (optional)", width=330)
+    report_status = ft.Text("No bounded report imported in this view.", color=theme.MUTED, selectable=True)
+    review_source_field = ft.TextField(label="Review source ID", width=300)
+    review_fingerprint_field = ft.TextField(label="Exact extraction fingerprint", width=300)
+    review_reviewer_field = ft.TextField(label="Reviewer", width=160)
+    review_note_field = ft.TextField(label="Review note (optional)", width=260)
 
     async def import_document(_event: ft.ControlEvent) -> None:
         files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["pdf", "csv", "xlsx", "xls"], with_data=True)
@@ -499,6 +520,52 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
         except Exception as exc:
             state.fail_activity("Import ETF document", exc)
             result.value = f"ETF document import failed safely: {state.last_message or type(exc).__name__}; no data changed."
+        page.update()
+
+    async def import_report(_event: ft.ControlEvent) -> None:
+        files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["pdf"], with_data=True)
+        if not files:
+            report_status.value = "ETF report import cancelled; no data changed."
+            page.update()
+            return
+        selected = files[0]
+        suffix = Path(str(getattr(selected, "name", "report.pdf"))).suffix or ".pdf"
+        try:
+            with _materialise_picker_file(selected, suffix) as path:
+                if path is None:
+                    raise ValueError("a readable local PDF is required")
+                instrument_id = str(instrument_field.value or state.selected_etf or "").strip()
+                etf = next((item for item in state.snapshot.config.universe.etfs if item.id == instrument_id), None)
+                imported = import_etf_report(EtfReportImportRequest(
+                    instrument_id=instrument_id,
+                    document_kind=str(report_kind_field.value or "prospectus"),
+                    source_authority="issuer_document",
+                    source_path=path,
+                    expected_isin=etf.isin if etf is not None else None,
+                    source_url=str(report_source_field.value or "").strip(),
+                    configured_instrument_ids=tuple(state.snapshot.config.universe.configured_enabled_ids),
+                ))
+            row = read_etf_report_records().loc[lambda frame: frame["source_id"].astype(str).eq(imported.source_id)]
+            fingerprint = str(row.iloc[0]["stored_extraction_sha256"]) if not row.empty else ""
+            report_status.value = f"ETF {imported.document.document_kind} import: {imported.extraction_status}; source={imported.source_id}; fingerprint={fingerprint}; review remains advisory and non-executable."
+            review_source_field.value = imported.source_id
+            review_fingerprint_field.value = fingerprint
+        except Exception as exc:
+            report_status.value = f"ETF report import failed safely: {type(exc).__name__}; no parsed authority granted."
+        page.update()
+
+    def review_report(decision: str) -> None:
+        try:
+            review_etf_report(EtfReportReviewRequest(
+                source_id=str(review_source_field.value or "").strip(),
+                extraction_sha256=str(review_fingerprint_field.value or "").strip(),
+                reviewer=str(review_reviewer_field.value or "").strip(),
+                decision=decision,
+                note=str(review_note_field.value or "").strip() or None,
+            ))
+            report_status.value = f"ETF report review recorded as {decision}; score_eligible=false and execution_allowed=false remain enforced."
+        except Exception as exc:
+            report_status.value = f"ETF report review failed safely: {type(exc).__name__}; exact fingerprint and binding are required."
         page.update()
 
     async def import_holdings(_event: ft.ControlEvent) -> None:
@@ -628,9 +695,12 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             [
                 section_header("ETF disclosure import", "Local factsheets, KIDs, prospectuses/reports, holdings and methodologies are registered with checksums and explicit missing/invalid states. Parser controls remain available for KIDs and methodologies."),
                 ft.Row([instrument_field, document_type_field, document_date_field, ft.OutlinedButton("Register ETF document", key="etf-disclosures.import-document", icon=ft.Icons.UPLOAD_FILE, on_click=import_document)], wrap=True),
+                ft.Row([instrument_field, report_kind_field, report_source_field, ft.OutlinedButton("Import bounded report", key="etf-disclosures.import-report", icon=ft.Icons.UPLOAD_FILE, on_click=import_report)], wrap=True),
+                ft.Row([review_source_field, review_fingerprint_field, review_reviewer_field, review_note_field, ft.OutlinedButton("Verify report", key="etf-disclosures.verify-report", on_click=lambda _event: review_report("verified")), ft.OutlinedButton("Reject report", key="etf-disclosures.reject-report", on_click=lambda _event: review_report("rejected"))], wrap=True),
                 ft.Row([holdings_date_field, holdings_source_field, ft.OutlinedButton("Import ETF holdings", key="etf-disclosures.import-holdings", icon=ft.Icons.UPLOAD_FILE, on_click=import_holdings)], wrap=True),
                 ft.Row([provider_field, ft.OutlinedButton("Import PRIIPs KID", key="etf-disclosures.import-kid", icon=ft.Icons.UPLOAD_FILE, on_click=import_kid), ft.OutlinedButton("Import index methodology", key="etf-disclosures.import-methodology", icon=ft.Icons.UPLOAD_FILE, on_click=import_methodology)], wrap=True),
                 result,
+                report_status,
             ],
             spacing=8,
         )

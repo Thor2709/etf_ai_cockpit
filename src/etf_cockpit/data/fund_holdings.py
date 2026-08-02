@@ -15,6 +15,7 @@ from etf_cockpit.core.paths import CLEAN_DIR
 from etf_cockpit.data.fund_documents import (
     FUND_DOCUMENTS_PATH,
     build_document_inventory,
+    fund_document_registry_guard,
     read_document_registry,
     register_document,
 )
@@ -506,32 +507,33 @@ def import_etf_holdings_with_document(
         detail = ", ".join(result.warnings) or f"completeness={result.completeness}, freshness={result.freshness}"
         raise ValueError(f"Holdings import is invalid or ineligible; no data changed ({detail}).")
 
-    existing_holdings = _read_existing_holdings(holdings_destination)
-    merged_holdings = _merge_holdings_frame(existing_holdings, result.frame, instrument_id)
-    document = register_document(
-        candidate,
-        "holdings",
-        str(instrument_id).strip(),
-        "",
-        "issuer_document",
-        document_date=result.as_of,
-    )
-    existing_registry = read_document_registry(path=registry_destination)
-    instrument_ids = [str(item).strip() for item in configured_instrument_ids or () if str(item).strip()]
-    if not existing_registry.empty and "instrument_id" in existing_registry.columns:
-        instrument_ids.extend(value for value in existing_registry["instrument_id"].dropna().astype(str).map(str.strip) if value)
-    instrument_ids.append(str(instrument_id).strip())
-    inventory = build_document_inventory(instrument_ids, [*existing_registry.to_dict("records"), document])
+    with fund_document_registry_guard(registry_destination):
+        existing_holdings = _read_existing_holdings(holdings_destination)
+        merged_holdings = _merge_holdings_frame(existing_holdings, result.frame, instrument_id)
+        document = register_document(
+            candidate,
+            "holdings",
+            str(instrument_id).strip(),
+            "",
+            "issuer_document",
+            document_date=result.as_of,
+        )
+        existing_registry = read_document_registry(path=registry_destination)
+        instrument_ids = [str(item).strip() for item in configured_instrument_ids or () if str(item).strip()]
+        if not existing_registry.empty and "instrument_id" in existing_registry.columns:
+            instrument_ids.extend(value for value in existing_registry["instrument_id"].dropna().astype(str).map(str.strip) if value)
+        instrument_ids.append(str(instrument_id).strip())
+        inventory = build_document_inventory(instrument_ids, [*existing_registry.to_dict("records"), document])
 
-    holdings_csv_destination = holdings_destination.with_suffix(".csv")
-    registry_csv_destination = registry_destination.with_suffix(".csv")
-    requests = (
-        AtomicWriteRequest(holdings_destination, parquet_payload(merged_holdings), validate_parquet_file),
-        AtomicWriteRequest(holdings_csv_destination, merged_holdings.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
-        AtomicWriteRequest(registry_destination, parquet_payload(inventory), validate_parquet_file),
-        AtomicWriteRequest(registry_csv_destination, inventory.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
-    )
-    atomic_write_group(requests)
+        holdings_csv_destination = holdings_destination.with_suffix(".csv")
+        registry_csv_destination = registry_destination.with_suffix(".csv")
+        requests = (
+            AtomicWriteRequest(holdings_destination, parquet_payload(merged_holdings), validate_parquet_file),
+            AtomicWriteRequest(holdings_csv_destination, merged_holdings.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
+            AtomicWriteRequest(registry_destination, parquet_payload(inventory), validate_parquet_file),
+            AtomicWriteRequest(registry_csv_destination, inventory.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
+        )
+        atomic_write_group(requests)
     return result
 
 

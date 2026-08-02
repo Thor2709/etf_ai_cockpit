@@ -37,10 +37,14 @@ from etf_cockpit.data.fund_documents import (
     unavailable_document,
 )
 from etf_cockpit.data.parsed_disclosures import (
+    ETF_REPORT_CONFLICTS_PATH,
+    ETF_REPORT_RECORDS_PATH,
     INDEX_METHODOLOGY_RECORDS_PATH,
     KID_COLUMNS,
     METHODOLOGY_COLUMNS,
     PRIIPS_KID_RECORDS_PATH,
+    REPORT_COLUMNS,
+    REPORT_CONFLICT_COLUMNS,
 )
 from etf_cockpit.data.score_history import project_classification_score_frame
 from etf_cockpit.signals.feature_drivers import build_feature_drivers
@@ -425,6 +429,8 @@ def refresh_static_trust_artifacts(config: AppConfig) -> dict[str, Path]:
     _ensure_empty_if_missing(BENCHMARK_ATTRIBUTION_PATH, BENCHMARK_ATTRIBUTION_COLUMNS)
     _ensure_empty_if_missing(PRIIPS_KID_RECORDS_PATH, KID_COLUMNS)
     _ensure_empty_if_missing(INDEX_METHODOLOGY_RECORDS_PATH, METHODOLOGY_COLUMNS)
+    _ensure_empty_if_missing(ETF_REPORT_RECORDS_PATH, REPORT_COLUMNS)
+    _ensure_empty_if_missing(ETF_REPORT_CONFLICTS_PATH, REPORT_CONFLICT_COLUMNS)
     log_event(
         event_type="trust_artifacts",
         severity="info",
@@ -1354,8 +1360,8 @@ def _etf_disclosure_inventory(identity: pd.DataFrame, configured_etf_ids: Iterab
     inventory = build_document_inventory(sorted(instrument_ids), documents)
     if inventory.empty:
         return pd.DataFrame(columns=[
-            "document_id", "source_id", "instrument_id", "document_type", "path", "source_url",
-            "source_authority", "as_of_date", "ingested_at", "checksum", "coverage_status", "executable_authority",
+            "document_id", "source_id", "instrument_id", "document_type", "document_kind", "path", "source_url",
+            "source_authority", "as_of_date", "ingested_at", "checksum", "coverage_status", "extraction_status", "executable_authority",
         ])
     inventory = inventory.rename(columns={"authority": "source_authority", "document_date": "as_of_date"})
     inventory["document_id"] = inventory["source_id"]
@@ -1366,6 +1372,7 @@ def _etf_disclosure_inventory(identity: pd.DataFrame, configured_etf_ids: Iterab
         "source_id",
         "instrument_id",
         "document_type",
+        "document_kind",
         "path",
         "source_url",
         "source_authority",
@@ -1373,6 +1380,7 @@ def _etf_disclosure_inventory(identity: pd.DataFrame, configured_etf_ids: Iterab
         "ingested_at",
         "checksum",
         "coverage_status",
+        "extraction_status",
         "executable_authority",
     ]
     return inventory[columns]
@@ -1406,8 +1414,8 @@ def _canonical_etf_disclosure_inventory(instrument_ids: set[str]) -> pd.DataFram
                 row["document_type"] = document_type
                 rows.append(_disclosure_row(row))
     return pd.DataFrame(rows, columns=[
-        "document_id", "source_id", "instrument_id", "document_type", "path", "source_url",
-        "source_authority", "as_of_date", "ingested_at", "checksum", "coverage_status", "executable_authority",
+        "document_id", "source_id", "instrument_id", "document_type", "document_kind", "path", "source_url",
+        "source_authority", "as_of_date", "ingested_at", "checksum", "coverage_status", "extraction_status", "executable_authority",
     ])
 
 
@@ -1422,7 +1430,10 @@ def _disclosure_row(raw: dict[str, Any]) -> dict[str, Any]:
     source_id = _clean_text(raw.get("source_id") or raw.get("document_id"))
     checksum = _clean_text(raw.get("checksum") or raw.get("sha256"))
     coverage_status = _clean_text(raw.get("coverage_status"))
-    if coverage_status in {"", "unavailable"}:
+    extraction_status = _clean_text(raw.get("extraction_status"))
+    if extraction_status and extraction_status != "complete":
+        coverage_status = "unavailable"
+    elif coverage_status in {"", "unavailable"}:
         coverage_status = "available" if checksum or _clean_text(raw.get("path")) else "missing"
     as_of_date = raw.get("as_of_date") if raw.get("as_of_date") is not None else raw.get("document_date")
     if hasattr(as_of_date, "date"):
@@ -1436,6 +1447,7 @@ def _disclosure_row(raw: dict[str, Any]) -> dict[str, Any]:
         "source_id": source_id,
         "instrument_id": _clean_text(raw.get("instrument_id")),
         "document_type": _canonical_document_type_or_empty(raw.get("document_type")),
+        "document_kind": _clean_text(raw.get("document_kind")),
         "path": _clean_text(raw.get("path")),
         "source_url": _clean_text(raw.get("source_url")),
         "source_authority": _clean_text(raw.get("source_authority") or raw.get("authority")) or "unknown",
@@ -1443,6 +1455,7 @@ def _disclosure_row(raw: dict[str, Any]) -> dict[str, Any]:
         "ingested_at": _clean_text(raw.get("ingested_at")),
         "checksum": checksum,
         "coverage_status": coverage_status,
+        "extraction_status": extraction_status,
         "executable_authority": False,
     }
 
