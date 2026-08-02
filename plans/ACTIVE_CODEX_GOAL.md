@@ -49,6 +49,11 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   ancestry check. The bounded CI correction preserves full history when the
   trusted base commit is already present and keeps the existing fail-closed
   fallback when it is absent.
+- The next exact-head run passed authority preflight, supply chain and both
+  Linux/Windows package gates, then terminal validation failed closed because
+  validation-mode replay evidence omitted the already-validated replay hops
+  and reviewed product commit required by `validation_summary.py`. The bounded
+  evidence-projection correction adds only those two identities.
 - Protected scope: ISSUE-0101 product code, dependency edges,
   workflows/permissions, external systems and all execution/authority policy
   remain unchanged.

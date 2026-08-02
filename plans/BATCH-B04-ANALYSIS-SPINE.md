@@ -114,6 +114,14 @@ history, hiding the reviewed product commit from the ancestry check. The
 bounded correction skips that fetch when the trusted base commit is already
 present and retains the existing fail-closed fetch/check fallback otherwise.
 
+The corrected preflight then passed, as did supply chain and both authoritative
+Linux/Windows package gates. Terminal validation still failed closed because
+the validation-mode status-replay evidence omitted `replay_hops` and
+`reviewed_product_commit`, although both had already been validated against the
+candidate and ledger. The bounded follow-up projects exactly those two
+identities for the existing terminal verifier; replay and mutation authority
+remain unchanged.
+
 `MERGED` immutable dependency-only PR #608 from exact head
 `937ec382dfab7acc74ad16e7e706b795c88e63a2` as
 `b11b1d6783438df03847d7a1b45c3a4d7c1f2385`. Its single documented
