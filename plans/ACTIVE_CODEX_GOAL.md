@@ -32,7 +32,7 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   workflow, authority, security, persistence, financial, package and release
   surfaces remain H-tier.
 
-## Current ISSUE-0102 completion checkpoint
+## Completed ISSUE-0102 and current bounded readback repair
 
 - ISSUE-0102 dependency PR #638 merged exact reviewed head
   `871ea037c594844a0de9e72e7dbabd3405244b76` as
@@ -50,16 +50,27 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   `ready -> in_progress` and recorded `zero_action_readback=true`;
   generic convergence run `30745092242` passed and
   `execution_allowed=false` remains unchanged.
-- Clean completion lane:
-  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0102_complete`;
-  branch `codex/issue0102-complete-20260802`; exact base
-  `4a0b87a0a7e18633ffde1fa69e59baa40ce5e03e`, initially empty. Scope is
-  exactly the ordered two-hop replay
-  `in_progress -> implemented_initially -> integrated`, bound to PR #641,
-  its reviewed exact head, merge commit and completed validation evidence.
-  No product code, dependency edge, external authority or execution policy may
-  change. Exact next action is mechanical generation/check, status-replay
-  authority preparation, focused E-tier guards and exact-head review.
+- Completion PR #642 merged independently approved exact head
+  `b9cf650af3b38e69e183b34b569fced99022fd3c` as
+  `0848d93edbae6ecd228d0d1e1620dbd99722092c`. Run `30745452805` passed
+  classifier, preflight, supply chain, authoritative Linux/Windows package
+  gates and terminal validation; guard `30745452803` passed.
+- Ordered writer `30746368016` applied the sole ISSUE-0102 aggregate
+  `in_progress -> implemented_initially -> integrated`, bound both hops to
+  product PR #641 and merge `4a0b87a0a7e18633ffde1fa69e59baa40ce5e03e`,
+  and recorded `terminal_status=applied_and_verified`,
+  `zero_action_readback=true` and `execution_allowed=false`.
+- Exact-main generic live reconciliation then demonstrated one bounded defect:
+  the staged subprocess invoked `sync_github_issues.py` as a file and resolved
+  an unrelated `scripts` namespace on Windows. The clean repair lane is
+  `codex/convergence-readback-module-20260802`, exact base
+  `0848d93edbae6ecd228d0d1e1620dbd99722092c`; it changes only the staged
+  module invocation, its regression test and durable checkpoints. The same
+  exact-head live readback now reports zero create/update/close/reopen/blocked
+  actions. H-tier review and gates are next; no second repair cycle is allowed.
+- After that repair, ISSUE-0103 is next in implementation order. Its
+  UPDATEV2-0015 dependency is resolved by the closed ledger; ISSUE-0084 still
+  requires one bounded dependency-evidence review before product work.
 
 ### Prior dependency-edge checkpoint (superseded)
 

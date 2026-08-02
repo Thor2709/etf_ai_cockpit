@@ -40,6 +40,8 @@ transaction; invented or other plan paths fail upward. Genuine H changes still
 require the complete serial Linux/Windows packaged gates.
 Where the contract permits, product lifecycle work uses atomic/automatic
 completion rather than serial administrative PRs.
+Generic live convergence must execute the synchroniser from the mechanically
+staged repository import root and must finish with a zero-action readback.
 
 The four-worker safe/unsafe pytest pilot is report-only and serial packaged
 Linux/Windows validation remains authoritative. `main` remains green. Read and
