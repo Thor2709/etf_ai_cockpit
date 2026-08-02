@@ -15,6 +15,19 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 
 ## Current UPDATEV2-0018 checkpoint
 
+- Readiness PR #649 merged independently reviewed head
+  `8fe1b7ca9d02313def767e66e05838be236ec5ab` as
+  `efda3f3f8d9fbb075a902af37102b0752e5aba27` after release run
+  `30766666042` passed Linux, Windows and terminal validation. Automatic
+  convergence run `30767687270` then failed closed because the readiness PR
+  omitted the existing one-hop candidate and authority ledger append.
+- The single permitted repair cycle is isolated on clean branch
+  `codex/updatev2-0018-ready-authority-repair-20260802` at exact base
+  `efda3f3f8d9fbb075a902af37102b0752e5aba27`. It adds only the deterministic
+  UPDATEV2-0018/#158 `planned -> ready` candidate and one append-only authority
+  record for reviewed plan
+  `6bda2fed8424495b569499cb3ea1bfae11db7d2f78c192c924c4d43f2f97e1f8`;
+  `execution_allowed=false` remains unchanged.
 - Exact `origin/main` is
   `745dfd9f747f95aa6cb0e3cbc6f25c4ac5a2de0c`; the dedicated readiness lane
   `codex/updatev2-0018-ready-20260802` started byte-clean from that commit.
