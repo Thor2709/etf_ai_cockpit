@@ -1665,3 +1665,17 @@ dataset, model and policy version registry, dependency-manifest, compatibility,
 migration and deterministic invalidation contract. No product status,
 provider state, broker authority or `execution_allowed=false` changes in this
 transaction.
+
+## UPDATEV2-0018 readiness and product checkpoint — 2026-08-02
+
+`IN_PROGRESS` exact `origin/main`
+`745dfd9f747f95aa6cb0e3cbc6f25c4ac5a2de0c` selects UPDATEV2-0018 as the
+next implementation-order record, with deterministic readiness true and no
+blocking dependencies. Clean lane `codex/updatev2-0018-ready-20260802`
+records only `planned -> ready`, the allowlisted active/B04 chronology, and
+mechanically generated projections; `execution_allowed=false` remains
+unchanged. The isolated product implementation is stable at
+`6f41972a735b8dd8e98eac4c894685f027e06f99` pending independent exact-head
+review. After readiness converges, rebase that product head onto the new exact
+main and run fresh H-tier review and authoritative Linux/Windows package gates
+before merge and automatic lifecycle completion.
