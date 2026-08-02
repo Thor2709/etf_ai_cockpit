@@ -18,7 +18,7 @@
     "base_registry_sha256": "8cb31a9d94b0cd66eeb7cb5b4fed9d281a3da517e4fa2fe3adcd50d41b57e5c2",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "e5218347b3a6113f652a4f5fbca7d92da7ac0eb3cb46761582266dba42953445",
+    "proposed_registry_sha256": "1e9b223db9d1dbc97bec0d5d34113f9f40905fd19652ee3dd95929e32145370a",
     "reason": "Recover only ISSUE-0101 from in_progress through implemented_initially to integrated as one aggregate replay bound to product PR #633, merged product commit 0680429aa5c30477dc854ef80367a3cc5ff4010e and its completed review and validation evidence; preserve all dependency edges, permissions, authorities and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"

@@ -39,9 +39,9 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   head `a4aadf36cc6c0f8cbb356fff96b572919cf5857f` with an initially empty diff.
 - Canonical input records only ISSUE-0101
   `in_progress -> implemented_initially -> integrated`; both hops share PR #633
-  review/validation evidence and verified product commit
+  recorded independent review and tier-O validation evidence and verified product commit
   `0680429aa5c30477dc854ef80367a3cc5ff4010e`.
-- Current lane: mechanical projection generation/check, E-tier guards,
+- Current lane: mechanical projection generation/check, H-tier guards,
   exact-head review, merge and GitHub #241 convergence remain pending.
 - Protected scope: ISSUE-0101 product code, dependency edges,
   workflows/permissions, external systems and all execution/authority policy
@@ -52,7 +52,7 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   `32488742f363e50f14c566b6890992e37a1a9843d0ed9ca7031fc32fc56e168c`.
 - Exact next action: generate all projections atomically, require byte-clean
   check mode, prepare the bounded aggregate proposal/receipt, validate and
-  review the exact E-tier head, then merge and verify GitHub #241 reaches
+  review the exact H-tier head, then merge and verify GitHub #241 reaches
   canonical `integrated` without unrelated writes.
 
 ## Frozen delivery evidence and boundaries

@@ -16493,10 +16493,10 @@
         {
           "evidence_references": [
             "Product PR #633 merged as 0680429aa5c30477dc854ef80367a3cc5ff4010e",
-            "PR #633 independent exact-head review completed with no findings",
-            "Release gate run 30698727382 passed protected Linux and Windows package validation; 179 affected and 35 focused tests passed"
+            "PR #633 body records independent exact-diff review approved with no findings",
+            "Release run 30698727382 classified tier O and passed classifier, preflight, supply-chain and validation summary; package and pilot jobs were not required; 179 affected and 35 focused tests passed"
           ],
-          "review_reference": "PR #633 completed exact-head review and protected validation evidence",
+          "review_reference": "PR #633 recorded independent exact-diff review and tier-O validation evidence",
           "reviewed_date": "2026-08-02",
           "reviewer": "Codex independent reviewer and root orchestrator",
           "status": "implemented_initially"
@@ -16504,10 +16504,10 @@
         {
           "evidence_references": [
             "Product PR #633 merged as 0680429aa5c30477dc854ef80367a3cc5ff4010e",
-            "PR #633 independent exact-head review completed with no findings",
-            "Release gate run 30698727382 passed protected Linux and Windows package validation; 179 affected and 35 focused tests passed"
+            "PR #633 body records independent exact-diff review approved with no findings",
+            "Release run 30698727382 classified tier O and passed classifier, preflight, supply-chain and validation summary; package and pilot jobs were not required; 179 affected and 35 focused tests passed"
           ],
-          "review_reference": "PR #633 completed exact-head review and protected validation evidence",
+          "review_reference": "PR #633 recorded independent exact-diff review and tier-O validation evidence",
           "reviewed_date": "2026-08-02",
           "reviewer": "Codex independent reviewer and root orchestrator",
           "status": "integrated"
@@ -27576,7 +27576,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "b6a0f3eb4764966059f4216f6a8e0220e55e70a7dcf6a648b9facfd03cfa8bb8",
+    "programme_control_state_sha256": "9db583497ff31e87e79729ccc07173409c2ef19964f6e4e85d25db7a1ac6999c",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

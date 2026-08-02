@@ -101,10 +101,10 @@ on `codex/issue0101-two-hop-recovery-20260802-v2` starts at that exact merge.
 Canonical input records only ISSUE-0101
 `in_progress -> implemented_initially -> integrated`, with both hops bound to
 PR #633, product commit `0680429aa5c30477dc854ef80367a3cc5ff4010e`,
-completed review and protected validation evidence. Product code, dependency
+recorded independent review and tier-O product validation evidence. Product code, dependency
 edges, unrelated issue state, workflows, authority and
 `execution_allowed=false` remain unchanged. Mechanical generation/check,
-bounded proposal/receipt preparation, E-tier review, merge and GitHub #241
+bounded proposal/receipt preparation, H-tier review and full package gates, merge and GitHub #241
 convergence are pending.
 
 `MERGED` immutable dependency-only PR #608 from exact head

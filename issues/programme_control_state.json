@@ -3440,10 +3440,10 @@
         {
           "evidence_references": [
             "Product PR #633 merged as 0680429aa5c30477dc854ef80367a3cc5ff4010e",
-            "PR #633 independent exact-head review completed with no findings",
-            "Release gate run 30698727382 passed protected Linux and Windows package validation; 179 affected and 35 focused tests passed"
+            "PR #633 body records independent exact-diff review approved with no findings",
+            "Release run 30698727382 classified tier O and passed classifier, preflight, supply-chain and validation summary; package and pilot jobs were not required; 179 affected and 35 focused tests passed"
           ],
-          "review_reference": "PR #633 completed exact-head review and protected validation evidence",
+          "review_reference": "PR #633 recorded independent exact-diff review and tier-O validation evidence",
           "reviewed_date": "2026-08-02",
           "reviewer": "Codex independent reviewer and root orchestrator",
           "status": "implemented_initially"
@@ -3451,10 +3451,10 @@
         {
           "evidence_references": [
             "Product PR #633 merged as 0680429aa5c30477dc854ef80367a3cc5ff4010e",
-            "PR #633 independent exact-head review completed with no findings",
-            "Release gate run 30698727382 passed protected Linux and Windows package validation; 179 affected and 35 focused tests passed"
+            "PR #633 body records independent exact-diff review approved with no findings",
+            "Release run 30698727382 classified tier O and passed classifier, preflight, supply-chain and validation summary; package and pilot jobs were not required; 179 affected and 35 focused tests passed"
           ],
-          "review_reference": "PR #633 completed exact-head review and protected validation evidence",
+          "review_reference": "PR #633 recorded independent exact-diff review and tier-O validation evidence",
           "reviewed_date": "2026-08-02",
           "reviewer": "Codex independent reviewer and root orchestrator",
           "status": "integrated"
@@ -3478,7 +3478,7 @@
       "programme_status": "integrated",
       "status_transition": {
         "from": "implemented_initially",
-        "review_reference": "PR #633 completed exact-head review and protected validation evidence",
+        "review_reference": "PR #633 recorded independent exact-diff review and tier-O validation evidence",
         "to": "integrated"
       },
       "transition_history": [
@@ -3541,11 +3541,11 @@
           "allow_downgrade": false,
           "evidence_references": [
             "Product PR #633 merged as 0680429aa5c30477dc854ef80367a3cc5ff4010e",
-            "PR #633 independent exact-head review completed with no findings",
-            "Release gate run 30698727382 passed protected Linux and Windows package validation; 179 affected and 35 focused tests passed"
+            "PR #633 body records independent exact-diff review approved with no findings",
+            "Release run 30698727382 classified tier O and passed classifier, preflight, supply-chain and validation summary; package and pilot jobs were not required; 179 affected and 35 focused tests passed"
           ],
           "from": "in_progress",
-          "review_reference": "PR #633 completed exact-head review and protected validation evidence",
+          "review_reference": "PR #633 recorded independent exact-diff review and tier-O validation evidence",
           "reviewed_date": "2026-08-02",
           "reviewer": "Codex independent reviewer and root orchestrator",
           "to": "implemented_initially",
@@ -3555,11 +3555,11 @@
           "allow_downgrade": false,
           "evidence_references": [
             "Product PR #633 merged as 0680429aa5c30477dc854ef80367a3cc5ff4010e",
-            "PR #633 independent exact-head review completed with no findings",
-            "Release gate run 30698727382 passed protected Linux and Windows package validation; 179 affected and 35 focused tests passed"
+            "PR #633 body records independent exact-diff review approved with no findings",
+            "Release run 30698727382 classified tier O and passed classifier, preflight, supply-chain and validation summary; package and pilot jobs were not required; 179 affected and 35 focused tests passed"
           ],
           "from": "implemented_initially",
-          "review_reference": "PR #633 completed exact-head review and protected validation evidence",
+          "review_reference": "PR #633 recorded independent exact-diff review and tier-O validation evidence",
           "reviewed_date": "2026-08-02",
           "reviewer": "Codex independent reviewer and root orchestrator",
           "to": "integrated",
