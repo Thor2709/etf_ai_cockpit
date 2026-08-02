@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+import os
 import sys
+import time
 
 import pytest
 
@@ -35,6 +37,14 @@ class _Pdf:
 
 def _install_pdf(monkeypatch: pytest.MonkeyPatch, pages: list[str]) -> None:
     monkeypatch.setitem(sys.modules, "pdfplumber", SimpleNamespace(open=lambda _path: _Pdf(pages)))
+
+
+def _hanging_child(*_args: object) -> None:
+    time.sleep(30)
+
+
+def _crashing_child(*_args: object) -> None:
+    os._exit(71)
 
 
 def _complete(kind: str) -> list[str]:
@@ -109,6 +119,37 @@ def test_bounded_child_returns_a_result_for_a_local_snapshot(tmp_path: Path) -> 
     assert result.success is False
     assert result.parser_name == "etf_report"
     assert result.warnings
+
+
+@pytest.mark.parametrize("child_target", [_hanging_child, _crashing_child])
+def test_child_timeout_and_crash_fallback_hashes_only_with_bounded_stream(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, child_target: object
+) -> None:
+    from etf_cockpit.parsers import etf_report
+
+    source = tmp_path / "bounded.pdf"
+    source.write_bytes(b"bounded fallback source")
+    monkeypatch.setattr(etf_report, "_child_parse_entry", child_target)
+    monkeypatch.setattr(Path, "read_bytes", lambda _self: (_ for _ in ()).throw(AssertionError("unbounded read_bytes")))
+
+    result = parse_etf_report_in_child(source, "prospectus", timeout_seconds=0.2, max_file_bytes=1024)
+
+    assert result.success is False
+    assert result.source_sha256
+    assert result.warnings[0].code == "resource_blocked"
+
+
+def test_exported_child_api_rejects_oversized_file_before_spawn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from etf_cockpit.parsers import etf_report
+
+    source = tmp_path / "oversized.pdf"
+    source.write_bytes(b"12345")
+    monkeypatch.setattr(etf_report.mp, "get_context", lambda _method: (_ for _ in ()).throw(AssertionError("child spawned")))
+
+    result = parse_etf_report_in_child(source, "prospectus", max_file_bytes=4)
+
+    assert result.success is False
+    assert result.warnings[0].code == "document_too_large"
 
 
 def test_memory_limit_configuration_has_a_platform_specific_stdlib_path(monkeypatch: pytest.MonkeyPatch) -> None:

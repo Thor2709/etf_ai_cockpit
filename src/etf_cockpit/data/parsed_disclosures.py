@@ -17,6 +17,7 @@ from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.paths import CLEAN_DIR, RAW_DIR
 from etf_cockpit.data.fund_documents import (
     FUND_DOCUMENTS_PATH,
+    fund_document_registry_guard,
     build_document_inventory,
     read_document_registry,
     register_document,
@@ -188,13 +189,6 @@ def _persist_with_document(
         rows = [_methodology_row(result, instrument_id, record) for record in result.records]
         if not rows:
             rows = [_methodology_unavailable_row(result, instrument_id)]
-    existing = _read_frame(destination, columns)
-    incoming = pd.DataFrame(rows, columns=columns)
-    combined = pd.concat([existing, incoming], ignore_index=True) if not existing.empty else incoming
-    if not combined.empty:
-        combined = combined.drop_duplicates(subset=["source_id"], keep="last").sort_values("source_id", kind="stable").reset_index(drop=True)
-
-    registry_existing = _read_registry_fail_closed(registry_destination)
     if result.success or document_available is True:
         document = register_document(
             Path(document_path),
@@ -207,19 +201,29 @@ def _persist_with_document(
     else:
         warning_codes = ", ".join(item.code for item in result.warnings) or "parse_failed"
         document = unavailable_document(instrument_id, document_type, warning_codes)
-    ids = [str(item).strip() for item in configured_instrument_ids if str(item).strip()]
-    if not registry_existing.empty and "instrument_id" in registry_existing.columns:
-        ids.extend(value for value in registry_existing["instrument_id"].dropna().astype(str).map(str.strip) if value)
-    ids.append(str(instrument_id).strip())
-    inventory = build_document_inventory(ids, [*registry_existing.to_dict("records"), document])
-
-    requests = (
-        AtomicWriteRequest(destination, parquet_payload(combined), validate_parquet_file),
-        AtomicWriteRequest(destination.with_suffix(".csv"), combined.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
-        AtomicWriteRequest(registry_destination, parquet_payload(inventory), validate_parquet_file),
-        AtomicWriteRequest(registry_destination.with_suffix(".csv"), inventory.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
-    )
-    atomic_write_group(requests)
+    # All registry publishers acquire the registry guard first, then their
+    # disclosure-store guard. This keeps one lock order across report/KID/
+    # methodology and generic imports.
+    with fund_document_registry_guard(registry_destination):
+        with persistent_file_guard(_guard_path(destination), timeout_seconds=5.0):
+            existing = _read_frame(destination, columns)
+            incoming = pd.DataFrame(rows, columns=columns)
+            combined = pd.concat([existing, incoming], ignore_index=True) if not existing.empty else incoming
+            if not combined.empty:
+                combined = combined.drop_duplicates(subset=["source_id"], keep="last").sort_values("source_id", kind="stable").reset_index(drop=True)
+            registry_existing = _read_registry_fail_closed(registry_destination)
+            ids = [str(item).strip() for item in configured_instrument_ids if str(item).strip()]
+            if not registry_existing.empty and "instrument_id" in registry_existing.columns:
+                ids.extend(value for value in registry_existing["instrument_id"].dropna().astype(str).map(str.strip) if value)
+            ids.append(str(instrument_id).strip())
+            inventory = build_document_inventory(ids, [*registry_existing.to_dict("records"), document])
+            requests = (
+                AtomicWriteRequest(destination, parquet_payload(combined), validate_parquet_file),
+                AtomicWriteRequest(destination.with_suffix(".csv"), combined.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
+                AtomicWriteRequest(registry_destination, parquet_payload(inventory), validate_parquet_file),
+                AtomicWriteRequest(registry_destination.with_suffix(".csv"), inventory.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
+            )
+            atomic_write_group(requests)
     return destination
 
 
@@ -551,67 +555,85 @@ def import_etf_report(request: EtfReportImportRequest) -> EtfReportImportResult:
     if expected_checksum and checksum != expected_checksum:
         raise ValueError("source checksum does not match expected_sha256")
     snapshot_path = Path(request.raw_dir) / "etf_reports" / f"{checksum}.pdf"
-    # The snapshot is created before any decode and is immutable by checksum.
-    if not snapshot_path.exists():
-        atomic_write_bytes(snapshot_path, snapshot, validator=lambda path: _file_checksum(path) == checksum)
-    elif _file_checksum(snapshot_path) != checksum:
-        raise ValueError("immutable ETF report snapshot is corrupt")
-    parse_result = parse_etf_report_in_child(
-        snapshot_path,
-        kind,
-        expected_isin=request.expected_isin,
-        expected_document_date=request.expected_document_date,
-        max_file_bytes=request.max_file_bytes,
-        max_pages=request.max_pages,
-        max_page_chars=request.max_page_chars,
-        max_total_chars=request.max_total_chars,
-        timeout_seconds=request.timeout_seconds,
-        memory_limit_bytes=request.memory_limit_bytes,
-    )
-    if any(item.code == "document_date_mismatch" for item in parse_result.warnings):
-        raise ValueError("source document_date does not match expected_document_date")
-    if parse_result.source_sha256 != checksum:
-        raise ValueError("parser result checksum is not bound to retained snapshot")
-    if parse_result.records and parse_result.records[0].document_kind != kind:
-        raise ValueError("parser result document kind is not bound to import request")
-    record = parse_result.records[0] if parse_result.records else None
-    document_date = record.document_date if record is not None else None
-    source_id = report_source_id(instrument, kind, checksum, document_date, authority)
-    extraction_status = _report_extraction_status(parse_result)
-    document = _register_report_document(
-        snapshot_path,
-        instrument_id=instrument,
-        document_kind=kind,
-        source_url=request.source_url,
-        authority=authority,
-        sha256=checksum,
-        document_date=document_date,
-        extraction_status=extraction_status,
-        source_id=source_id,
-    )
-    report_row = _report_row(parse_result, record, request, document, source_id, extraction_status)
-    with persistent_file_guard(_guard_path(Path(request.registry_destination)), timeout_seconds=request.timeout_seconds):
-        with persistent_file_guard(_guard_path(Path(request.destination)), timeout_seconds=request.timeout_seconds):
-            with persistent_file_guard(_guard_path(Path(request.conflict_destination)), timeout_seconds=request.timeout_seconds):
-                registry_existing = _read_registry_fail_closed(Path(request.registry_destination))
-                report_existing = _read_report_frame(Path(request.destination))
-                registry_match = registry_existing.loc[registry_existing["source_id"].astype(str).eq(source_id)] if not registry_existing.empty else pd.DataFrame()
-                if len(registry_match) > 1:
-                    raise ValueError("same-ID registry extraction is corrupt: duplicate source_id")
-                if len(registry_match) == 1:
-                    prior_registry = registry_match.iloc[0]
-                    for field, old_field in (("instrument_id", "instrument_id"), ("document_kind", "document_kind"), ("source_sha256", "sha256"), ("source_authority", "authority"), ("document_date", "document_date")):
-                        if _cell_text(prior_registry.get(old_field)) != _cell_text(document.__dict__.get(field) if field != "source_sha256" else checksum):
-                            raise ValueError(f"same-ID registry identity mismatch: {field}")
-                combined = _merge_report_row(report_existing, report_row)
-                ids = [str(item).strip() for item in request.configured_instrument_ids if str(item).strip()]
-                if not registry_existing.empty and "instrument_id" in registry_existing.columns:
-                    ids.extend(value for value in registry_existing["instrument_id"].dropna().astype(str).map(str.strip) if value)
-                ids.append(instrument)
-                inventory = build_document_inventory(ids, [*registry_existing.to_dict("records"), document])
-                conflicts = build_etf_report_conflicts(combined)
-                combined = _apply_conflict_eligibility(combined, conflicts)
-                _write_report_group(combined, inventory, conflicts, Path(request.destination), Path(request.registry_destination), Path(request.conflict_destination))
+    snapshot_guard = _guard_path(snapshot_path)
+    # A checksum-specific guard remains held from first publication through
+    # decode and the final atomic group, preventing a mutable retained file
+    # from diverging from its registry and extraction identities.
+    with persistent_file_guard(snapshot_guard, timeout_seconds=request.timeout_seconds):
+        if not snapshot_path.exists():
+            atomic_write_bytes(snapshot_path, snapshot, validator=lambda path: _validate_snapshot(path, snapshot, checksum))
+        elif not _snapshot_matches(snapshot_path, snapshot, checksum):
+            raise ValueError("immutable ETF report snapshot is corrupt")
+        parse_result = parse_etf_report_in_child(
+            snapshot_path,
+            kind,
+            expected_isin=request.expected_isin,
+            expected_document_date=request.expected_document_date,
+            max_file_bytes=request.max_file_bytes,
+            max_pages=request.max_pages,
+            max_page_chars=request.max_page_chars,
+            max_total_chars=request.max_total_chars,
+            timeout_seconds=request.timeout_seconds,
+            memory_limit_bytes=request.memory_limit_bytes,
+        )
+        if any(item.code == "document_date_mismatch" for item in parse_result.warnings):
+            raise ValueError("source document_date does not match expected_document_date")
+        if parse_result.source_sha256 != checksum:
+            raise ValueError("parser result checksum is not bound to retained snapshot")
+        if parse_result.records and parse_result.records[0].document_kind != kind:
+            raise ValueError("parser result document kind is not bound to import request")
+        record = parse_result.records[0] if parse_result.records else None
+        document_date = record.document_date if record is not None else None
+        source_id = report_source_id(instrument, kind, checksum, document_date, authority)
+        extraction_status = _report_extraction_status(parse_result)
+        document = _register_report_document(
+            snapshot_path,
+            instrument_id=instrument,
+            document_kind=kind,
+            source_url=request.source_url,
+            authority=authority,
+            sha256=checksum,
+            document_date=document_date,
+            extraction_status=extraction_status,
+            source_id=source_id,
+        )
+        report_row = _report_row(parse_result, record, request, document, source_id, extraction_status)
+        with fund_document_registry_guard(Path(request.registry_destination), timeout_seconds=request.timeout_seconds):
+            with persistent_file_guard(_guard_path(Path(request.destination)), timeout_seconds=request.timeout_seconds):
+                with persistent_file_guard(_guard_path(Path(request.conflict_destination)), timeout_seconds=request.timeout_seconds):
+                    registry_existing = _read_registry_fail_closed(Path(request.registry_destination))
+                    report_existing = _read_report_frame(Path(request.destination))
+                    registry_match = registry_existing.loc[registry_existing["source_id"].astype(str).eq(source_id)] if not registry_existing.empty else pd.DataFrame()
+                    if len(registry_match) > 1:
+                        raise ValueError("same-ID registry extraction is corrupt: duplicate source_id")
+                    if len(registry_match) == 1:
+                        prior_registry = registry_match.iloc[0]
+                        identity = {
+                            "instrument_id": document.instrument_id,
+                            "document_kind": document.document_kind,
+                            "source_sha256": checksum,
+                            "source_authority": document.authority,
+                            "document_date": document.document_date,
+                        }
+                        for field, old_field in (("instrument_id", "instrument_id"), ("document_kind", "document_kind"), ("source_sha256", "sha256"), ("source_authority", "authority"), ("document_date", "document_date")):
+                            if _cell_text(prior_registry.get(old_field)) != _cell_text(identity[field]):
+                                raise ValueError(f"same-ID registry identity mismatch: {field}")
+                    combined = _merge_report_row(report_existing, report_row)
+                    ids = [str(item).strip() for item in request.configured_instrument_ids if str(item).strip()]
+                    if not registry_existing.empty and "instrument_id" in registry_existing.columns:
+                        ids.extend(value for value in registry_existing["instrument_id"].dropna().astype(str).map(str.strip) if value)
+                    ids.append(instrument)
+                    registry_records = registry_existing.to_dict("records")
+                    if registry_match.empty:
+                        registry_records.append(document)
+                    inventory = build_document_inventory(ids, registry_records)
+                    inventory = _preserve_registry_rows(inventory, registry_existing)
+                    conflicts = build_etf_report_conflicts(combined)
+                    combined = _apply_conflict_eligibility(combined, conflicts, inventory)
+                    _write_report_group(
+                        combined, inventory, conflicts, Path(request.destination), Path(request.registry_destination),
+                        Path(request.conflict_destination), snapshot_path=snapshot_path, snapshot=snapshot, snapshot_sha256=checksum,
+                    )
     return EtfReportImportResult(source_id, document, parse_result, extraction_status, Path(request.destination), Path(request.registry_destination), Path(request.conflict_destination))
 
 
@@ -639,7 +661,7 @@ def review_etf_report(
     if decision not in {"verified", "rejected"}:
         raise ValueError("review decision must be verified or rejected")
     conflict_path = Path(conflict_destination or Path(destination).with_name("etf_report_conflicts.parquet"))
-    with persistent_file_guard(_guard_path(Path(registry_destination)), timeout_seconds=5.0):
+    with fund_document_registry_guard(Path(registry_destination), timeout_seconds=5.0):
         with persistent_file_guard(_guard_path(Path(destination)), timeout_seconds=5.0):
             with persistent_file_guard(_guard_path(conflict_path), timeout_seconds=5.0):
                 frame = _read_report_frame(Path(destination))
@@ -648,11 +670,14 @@ def review_etf_report(
                     raise ValueError("review source_id is not bound to exactly one extraction")
                 index = matches[0]
                 row = frame.loc[index].copy()
+                stored_registry_path = _cell_text(row.get("registry_path"))
+                if not stored_registry_path or Path(stored_registry_path).resolve() != Path(registry_destination).resolve():
+                    raise ValueError("review registry_destination does not match extraction registry_path")
                 actual_fingerprint = _row_extraction_fingerprint(row)
                 if actual_fingerprint != fingerprint or str(row.get("stored_extraction_sha256", "")) != fingerprint:
                     raise ValueError("review fingerprint does not match stored extraction")
                 _validate_report_binding(row, Path(registry_destination))
-                history = _review_history(row.get("review_history"))
+                history = _review_history(row.get("review_history"), expected_fingerprint=fingerprint, row=row)
                 now = datetime.now(timezone.utc)
                 if history:
                     last = _review_timestamp(history[-1])
@@ -664,7 +689,13 @@ def review_etf_report(
                     current_conflicts = build_etf_report_conflicts(frame)
                     if source_id in set(current_conflicts.get("source_id_a", ())) | set(current_conflicts.get("source_id_b", ())):
                         raise ValueError("conflicting report evidence requires manual resolution")
-                history.append({"decision": decision, "reviewer": reviewer, "note": str(request.note or "").strip(), "reviewed_at": now.isoformat(timespec="seconds")})
+                history.append({
+                    "decision": decision,
+                    "reviewer": reviewer,
+                    "note": str(request.note or "").strip(),
+                    "reviewed_at": now.isoformat(timespec="seconds"),
+                    "extraction_sha256": fingerprint,
+                })
                 frame.at[index, "verification_status"] = decision
                 frame.at[index, "verified_by"] = reviewer
                 frame.at[index, "verified_at"] = now.isoformat(timespec="seconds")
@@ -675,8 +706,8 @@ def review_etf_report(
                 frame.at[index, "score_eligible"] = False
                 frame.at[index, "execution_allowed"] = False
                 conflicts = build_etf_report_conflicts(frame)
-                frame = _apply_conflict_eligibility(frame, conflicts)
                 registry = _read_registry_fail_closed(Path(registry_destination))
+                frame = _apply_conflict_eligibility(frame, conflicts, registry)
                 _write_report_group(frame, registry, conflicts, Path(destination), Path(registry_destination), conflict_path, include_registry=False)
     return Path(destination)
 
@@ -784,6 +815,17 @@ def _report_row(result: ParseResult[EtfReportRecord], record: EtfReportRecord | 
     return row
 
 
+def _preserve_registry_rows(inventory: pd.DataFrame, existing: pd.DataFrame) -> pd.DataFrame:
+    """Keep byte-relevant registry state for identities already persisted."""
+
+    if inventory.empty or existing.empty:
+        return inventory
+    existing_ids = set(existing["source_id"].dropna().astype(str))
+    retained = existing.loc[existing["source_id"].astype(str).isin(set(inventory["source_id"].astype(str))), inventory.columns]
+    additions = inventory.loc[~inventory["source_id"].astype(str).isin(existing_ids)]
+    return pd.concat([retained, additions], ignore_index=True)[inventory.columns]
+
+
 def _merge_report_row(existing: pd.DataFrame, incoming: dict[str, Any]) -> pd.DataFrame:
     if existing.empty:
         return pd.DataFrame([incoming], columns=REPORT_COLUMNS)
@@ -804,25 +846,43 @@ def _merge_report_row(existing: pd.DataFrame, incoming: dict[str, Any]) -> pd.Da
             incoming["review_history"] = prior.get("review_history", "[]")
             incoming["manual_review"] = prior.get("manual_review", True)
             incoming["evidence_eligible"] = prior.get("evidence_eligible", False)
-        else:
-            incoming["review_history"] = prior.get("review_history", "[]")
         existing = existing.drop(index=matches[0])
     combined = pd.concat([existing, pd.DataFrame([incoming])], ignore_index=True)
     return _read_report_frame_from_frame(combined)
 
 
-def _apply_conflict_eligibility(frame: pd.DataFrame, conflicts: pd.DataFrame) -> pd.DataFrame:
+def _apply_conflict_eligibility(frame: pd.DataFrame, conflicts: pd.DataFrame, registry: pd.DataFrame) -> pd.DataFrame:
     result = frame.copy()
     conflicted = set(conflicts["source_id_a"].astype(str)) | set(conflicts["source_id_b"].astype(str)) if not conflicts.empty else set()
     for index, row in result.iterrows():
         result.at[index, "score_eligible"] = False
         result.at[index, "execution_allowed"] = False
-        if str(row.get("source_id")) in conflicted:
-            result.at[index, "evidence_eligible"] = False
+        fingerprint = _cell_text(row.get("stored_extraction_sha256"))
+        eligible = (
+            _cell_text(row.get("verification_status")) == "verified"
+            and bool(fingerprint)
+            and fingerprint == _row_extraction_fingerprint(row)
+            and _row_is_verifiable(row)
+            and _row_binding_matches_registry(row, registry)
+            and str(row.get("source_id")) not in conflicted
+        )
+        result.at[index, "evidence_eligible"] = eligible
     return result
 
 
-def _write_report_group(frame: pd.DataFrame, registry: pd.DataFrame, conflicts: pd.DataFrame, destination: Path, registry_destination: Path, conflict_destination: Path, *, include_registry: bool = True) -> None:
+def _write_report_group(
+    frame: pd.DataFrame,
+    registry: pd.DataFrame,
+    conflicts: pd.DataFrame,
+    destination: Path,
+    registry_destination: Path,
+    conflict_destination: Path,
+    *,
+    include_registry: bool = True,
+    snapshot_path: Path | None = None,
+    snapshot: bytes | None = None,
+    snapshot_sha256: str | None = None,
+) -> None:
     requests = [
         AtomicWriteRequest(destination, parquet_payload(frame[REPORT_COLUMNS]), validate_parquet_file),
         AtomicWriteRequest(destination.with_suffix(".csv"), frame[REPORT_COLUMNS].to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
@@ -834,6 +894,10 @@ def _write_report_group(frame: pd.DataFrame, registry: pd.DataFrame, conflicts: 
             AtomicWriteRequest(registry_destination, parquet_payload(registry), validate_parquet_file),
             AtomicWriteRequest(registry_destination.with_suffix(".csv"), registry.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
         ))
+    if snapshot_path is not None:
+        if snapshot is None or snapshot_sha256 is None:
+            raise ValueError("snapshot bytes and checksum are required together")
+        requests.append(AtomicWriteRequest(snapshot_path, snapshot, lambda path: _validate_snapshot(path, snapshot, snapshot_sha256)))
     atomic_write_group(requests)
 
 
@@ -851,7 +915,13 @@ def _read_report_frame_from_frame(frame: pd.DataFrame) -> pd.DataFrame:
     for column in REPORT_COLUMNS:
         if column not in result.columns:
             result[column] = None
-    return result[REPORT_COLUMNS].sort_values("source_id", kind="stable").reset_index(drop=True)
+    result = result[REPORT_COLUMNS].sort_values("source_id", kind="stable").reset_index(drop=True)
+    for _, row in result.iterrows():
+        fingerprint = _cell_text(row.get("stored_extraction_sha256"))
+        if fingerprint and fingerprint != _row_extraction_fingerprint(row):
+            raise ValueError("stored extraction fingerprint does not match extraction")
+        _review_history(row.get("review_history"), expected_fingerprint=fingerprint or None, row=row)
+    return result
 
 
 def _report_extraction_status(result: ParseResult[EtfReportRecord]) -> str:
@@ -869,14 +939,22 @@ def _report_extraction_status(result: ParseResult[EtfReportRecord]) -> str:
 
 def _validate_report_binding(row: pd.Series, registry_path: Path) -> None:
     registry = _read_registry_fail_closed(registry_path)
+    if not _row_binding_matches_registry(row, registry):
+        raise ValueError("report extraction is not bound to its exact registry identity")
+
+
+def _row_binding_matches_registry(row: pd.Series, registry: pd.DataFrame) -> bool:
+    if registry.empty or "source_id" not in registry.columns:
+        return False
     matches = registry.loc[registry["source_id"].astype(str).eq(str(row["source_id"]))]
     if len(matches) != 1:
-        raise ValueError("report extraction is not bound to a registry row")
+        return False
     registered = matches.iloc[0]
     for field in ("instrument_id", "document_kind", "source_sha256", "source_authority", "document_date"):
         registry_field = {"source_sha256": "sha256", "source_authority": "authority"}.get(field, field)
         if _cell_text(registered.get(registry_field)) != _cell_text(row.get(field)):
-            raise ValueError(f"report binding mismatch: {field}")
+            return False
+    return True
 
 
 def _row_is_verifiable(row: pd.Series) -> bool:
@@ -930,17 +1008,45 @@ def _jsonable(value: Any) -> Any:
     return value.item() if hasattr(value, "item") else value
 
 
-def _review_history(value: Any) -> list[dict[str, Any]]:
+def _review_history(
+    value: Any,
+    *,
+    expected_fingerprint: str | None = None,
+    row: pd.Series | None = None,
+) -> list[dict[str, Any]]:
     try:
         parsed = json.loads(str(value or "[]"))
     except (TypeError, json.JSONDecodeError) as exc:
         raise ValueError("review history is corrupt") from exc
     if not isinstance(parsed, list):
         raise ValueError("review history is corrupt")
+    prior: datetime | None = None
     for item in parsed:
         if not isinstance(item, dict):
             raise ValueError("review history is corrupt")
-        _review_timestamp(item)
+        timestamp = _review_timestamp(item)
+        if prior is not None and timestamp < prior:
+            raise ValueError("review history is not ordered")
+        prior = timestamp
+        if expected_fingerprint is not None and _cell_text(item.get("extraction_sha256")) != expected_fingerprint:
+            raise ValueError("review history fingerprint does not match extraction")
+    if row is not None:
+        if parsed:
+            final = parsed[-1]
+            if (
+                _cell_text(row.get("verification_status")) != _cell_text(final.get("decision"))
+                or _cell_text(row.get("verified_by")) != _cell_text(final.get("reviewer"))
+                or _cell_text(row.get("verified_at")) != _cell_text(final.get("reviewed_at"))
+                or _cell_text(row.get("review_note")) != _cell_text(final.get("note"))
+            ):
+                raise ValueError("top-level review fields do not match review history")
+        elif (
+            _cell_text(row.get("verification_status")) not in {"", "pending"}
+            or _cell_text(row.get("verified_by"))
+            or _cell_text(row.get("verified_at"))
+            or _cell_text(row.get("review_note"))
+        ):
+            raise ValueError("top-level review fields exist without review history")
     return parsed
 
 
@@ -966,6 +1072,29 @@ def _file_checksum(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _snapshot_matches(path: Path, expected: bytes, expected_sha256: str) -> bool:
+    digest = hashlib.sha256()
+    offset = 0
+    try:
+        with Path(path).open("rb") as handle:
+            while offset < len(expected):
+                chunk = handle.read(min(1024 * 1024, len(expected) - offset))
+                if not chunk or chunk != expected[offset:offset + len(chunk)]:
+                    return False
+                digest.update(chunk)
+                offset += len(chunk)
+            if handle.read(1):
+                return False
+    except OSError:
+        return False
+    return offset == len(expected) and digest.hexdigest() == expected_sha256
+
+
+def _validate_snapshot(path: Path, expected: bytes, expected_sha256: str) -> None:
+    if not _snapshot_matches(path, expected, expected_sha256):
+        raise ValueError("immutable ETF report snapshot validation failed")
 
 
 def _guard_path(path: Path) -> Path:

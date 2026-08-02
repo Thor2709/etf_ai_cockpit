@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
+import hashlib
+import json
 from pathlib import Path
+import shutil
+from threading import Barrier
 
 import pandas as pd
 import pytest
@@ -336,3 +342,202 @@ def test_v2_conflict_store_retains_both_sources_and_recomputes_after_rejection(t
     annual = read_etf_report_records(reports).loc[lambda frame: frame["document_kind"].eq("annual_report")].iloc[0]
     review_etf_report(EtfReportReviewRequest(str(annual["source_id"]), str(annual["extraction_sha256"]), "analyst", "rejected", "conflicting source"), destination=reports, registry_destination=registry, conflict_destination=conflicts)
     assert read_etf_report_conflicts(conflicts).empty
+
+
+def test_exact_report_reimport_preserves_review_registry_and_conflicts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import etf_cockpit.data.parsed_disclosures as module
+    from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest, EtfReportReviewRequest
+
+    monkeypatch.setattr(module, "parse_etf_report_in_child", lambda path, kind, **_kwargs: _v2_report_result(path, kind=kind, fund_name="Annual" if kind == "annual_report" else "Prospectus"))
+    reports, registry, conflicts = (tmp_path / name for name in ("reports.parquet", "registry.parquet", "conflicts.parquet"))
+    raw = tmp_path / "raw"
+    prospectus = tmp_path / "prospectus.pdf"
+    annual = tmp_path / "annual.pdf"
+    prospectus.write_bytes(b"prospectus")
+    annual.write_bytes(b"annual")
+    request = EtfReportImportRequest("VWCE", "prospectus", "issuer_document", source_path=prospectus, destination=reports, registry_destination=registry, conflict_destination=conflicts, raw_dir=raw)
+    first = module.import_etf_report(request)
+    row = module.read_etf_report_records(reports).iloc[0]
+    module.review_etf_report(EtfReportReviewRequest(first.source_id, str(row["extraction_sha256"]), "analyst", "verified"), destination=reports, registry_destination=registry, conflict_destination=conflicts)
+    module.import_etf_report(EtfReportImportRequest("VWCE", "annual_report", "issuer_document", source_path=annual, destination=reports, registry_destination=registry, conflict_destination=conflicts, raw_dir=raw))
+    before_row = module.read_etf_report_records(reports).loc[lambda frame: frame["source_id"].eq(first.source_id)].iloc[0].copy()
+    before_registry = pd.read_parquet(registry).sort_values("source_id").reset_index(drop=True)
+    before_conflicts = module.read_etf_report_conflicts(conflicts).copy()
+
+    repeated = module.import_etf_report(request)
+
+    after_row = module.read_etf_report_records(reports).loc[lambda frame: frame["source_id"].eq(first.source_id)].iloc[0]
+    assert repeated.source_id == first.source_id
+    assert after_row["extraction_sha256"] == before_row["extraction_sha256"]
+    assert after_row["verification_status"] == before_row["verification_status"] == "verified"
+    assert after_row["review_history"] == before_row["review_history"]
+    pd.testing.assert_frame_equal(pd.read_parquet(registry).sort_values("source_id").reset_index(drop=True), before_registry)
+    pd.testing.assert_frame_equal(module.read_etf_report_conflicts(conflicts), before_conflicts)
+
+
+def test_review_rejects_copied_registry_destination(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import etf_cockpit.data.parsed_disclosures as module
+    from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest, EtfReportReviewRequest
+
+    source = tmp_path / "report.pdf"
+    source.write_bytes(b"report")
+    monkeypatch.setattr(module, "parse_etf_report_in_child", lambda path, kind, **_kwargs: _v2_report_result(path, kind=kind))
+    reports, registry, conflicts = (tmp_path / name for name in ("reports.parquet", "registry.parquet", "conflicts.parquet"))
+    imported = module.import_etf_report(EtfReportImportRequest("VWCE", "prospectus", "issuer_document", source_path=source, destination=reports, registry_destination=registry, conflict_destination=conflicts, raw_dir=tmp_path / "raw"))
+    copied = tmp_path / "copied-registry.parquet"
+    shutil.copy2(registry, copied)
+    row = module.read_etf_report_records(reports).iloc[0]
+
+    with pytest.raises(ValueError, match="registry_destination"):
+        module.review_etf_report(EtfReportReviewRequest(imported.source_id, str(row["extraction_sha256"]), "analyst", "verified"), destination=reports, registry_destination=copied, conflict_destination=conflicts)
+
+
+def test_snapshot_is_reasserted_if_mutated_after_registry_registration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import etf_cockpit.data.parsed_disclosures as module
+    from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest
+
+    source = tmp_path / "report.pdf"
+    expected = b"immutable snapshot"
+    source.write_bytes(expected)
+    monkeypatch.setattr(module, "parse_etf_report_in_child", lambda path, kind, **_kwargs: _v2_report_result(path, kind=kind))
+    real_register = module._register_report_document
+
+    def mutate_after_registration(path: Path, **kwargs):
+        document = real_register(path, **kwargs)
+        path.write_bytes(b"mutated after registration")
+        return document
+
+    monkeypatch.setattr(module, "_register_report_document", mutate_after_registration)
+    result = module.import_etf_report(EtfReportImportRequest("VWCE", "prospectus", "issuer_document", source_path=source, destination=tmp_path / "reports.parquet", registry_destination=tmp_path / "registry.parquet", conflict_destination=tmp_path / "conflicts.parquet", raw_dir=tmp_path / "raw"))
+    snapshot = tmp_path / "raw" / "etf_reports" / f"{result.document.sha256}.pdf"
+    assert snapshot.read_bytes() == expected
+    assert hashlib.sha256(snapshot.read_bytes()).hexdigest() == result.document.sha256
+    snapshot.write_bytes(b"corrupt retained snapshot")
+    with pytest.raises(ValueError, match="snapshot is corrupt"):
+        module.import_etf_report(EtfReportImportRequest("VWCE", "prospectus", "issuer_document", source_path=source, destination=tmp_path / "reports.parquet", registry_destination=tmp_path / "registry.parquet", conflict_destination=tmp_path / "conflicts.parquet", raw_dir=tmp_path / "raw"))
+
+
+def test_report_atomic_group_rolls_back_report_registry_conflict_and_snapshot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import etf_cockpit.data.parsed_disclosures as module
+    from etf_cockpit.core import atomic_io
+    from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest
+
+    source = tmp_path / "report.pdf"
+    source.write_bytes(b"atomic snapshot")
+    monkeypatch.setattr(module, "parse_etf_report_in_child", lambda path, kind, **_kwargs: _v2_report_result(path, kind=kind))
+    request = EtfReportImportRequest("VWCE", "prospectus", "issuer_document", source_path=source, destination=tmp_path / "reports.parquet", registry_destination=tmp_path / "registry.parquet", conflict_destination=tmp_path / "conflicts.parquet", raw_dir=tmp_path / "raw")
+    imported = module.import_etf_report(request)
+    snapshot = tmp_path / "raw" / "etf_reports" / f"{imported.document.sha256}.pdf"
+    paths = (request.destination, request.destination.with_suffix(".csv"), request.registry_destination, request.registry_destination.with_suffix(".csv"), request.conflict_destination, request.conflict_destination.with_suffix(".csv"), snapshot)
+    prior = {path: path.read_bytes() for path in paths}
+    real_group = atomic_io.atomic_write_group
+
+    def fail_snapshot_stage(requests, **kwargs):
+        changed = []
+        for item in tuple(requests):
+            validator = (lambda _path: (_ for _ in ()).throw(OSError("snapshot validation failed"))) if item.destination.resolve() == snapshot.resolve() else item.validator
+            changed.append(atomic_io.AtomicWriteRequest(item.destination, item.payload, validator))
+        return real_group(tuple(changed), **kwargs)
+
+    monkeypatch.setattr(module, "atomic_write_group", fail_snapshot_stage)
+    with pytest.raises(OSError, match="snapshot validation failed"):
+        module.import_etf_report(request)
+    assert {path: path.read_bytes() for path in paths} == prior
+
+
+def test_verified_eligibility_is_restored_after_conflict_rejection_but_invalid_stays_false(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import etf_cockpit.data.parsed_disclosures as module
+    from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest, EtfReportReviewRequest
+
+    monkeypatch.setattr(module, "parse_etf_report_in_child", lambda path, kind, **_kwargs: _v2_report_result(path, kind=kind, fund_name="Annual" if kind == "annual_report" else "Prospectus"))
+    reports, registry, conflicts = (tmp_path / name for name in ("reports.parquet", "registry.parquet", "conflicts.parquet"))
+    raw = tmp_path / "raw"
+    prospectus = tmp_path / "p.pdf"
+    annual = tmp_path / "a.pdf"
+    prospectus.write_bytes(b"p")
+    annual.write_bytes(b"a")
+    first = module.import_etf_report(EtfReportImportRequest("VWCE", "prospectus", "issuer_document", source_path=prospectus, destination=reports, registry_destination=registry, conflict_destination=conflicts, raw_dir=raw))
+    first_row = module.read_etf_report_records(reports).iloc[0]
+    module.review_etf_report(EtfReportReviewRequest(first.source_id, str(first_row["extraction_sha256"]), "analyst", "verified"), destination=reports, registry_destination=registry, conflict_destination=conflicts)
+    second = module.import_etf_report(EtfReportImportRequest("VWCE", "annual_report", "issuer_document", source_path=annual, destination=reports, registry_destination=registry, conflict_destination=conflicts, raw_dir=raw))
+    during = module.read_etf_report_records(reports).set_index("source_id")
+    assert bool(during.loc[first.source_id, "evidence_eligible"]) is False
+    assert bool(during.loc[second.source_id, "evidence_eligible"]) is False
+    module.review_etf_report(EtfReportReviewRequest(second.source_id, str(during.loc[second.source_id, "extraction_sha256"]), "analyst", "rejected"), destination=reports, registry_destination=registry, conflict_destination=conflicts)
+    after = module.read_etf_report_records(reports).set_index("source_id")
+    assert bool(after.loc[first.source_id, "evidence_eligible"]) is True
+    assert bool(after.loc[second.source_id, "evidence_eligible"]) is False
+
+
+@pytest.mark.parametrize("corruption", ["out_of_order", "stale_fingerprint", "top_level_mismatch"])
+def test_review_history_corruption_fails_closed_on_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, corruption: str) -> None:
+    import etf_cockpit.data.parsed_disclosures as module
+    from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest, EtfReportReviewRequest
+
+    source = tmp_path / "report.pdf"
+    source.write_bytes(b"review")
+    monkeypatch.setattr(module, "parse_etf_report_in_child", lambda path, kind, **_kwargs: _v2_report_result(path, kind=kind))
+    reports, registry, conflicts = (tmp_path / name for name in ("reports.parquet", "registry.parquet", "conflicts.parquet"))
+    imported = module.import_etf_report(EtfReportImportRequest("VWCE", "prospectus", "issuer_document", source_path=source, destination=reports, registry_destination=registry, conflict_destination=conflicts, raw_dir=tmp_path / "raw"))
+    row = module.read_etf_report_records(reports).iloc[0]
+    module.review_etf_report(EtfReportReviewRequest(imported.source_id, str(row["extraction_sha256"]), "analyst", "verified"), destination=reports, registry_destination=registry, conflict_destination=conflicts)
+    frame = pd.read_parquet(reports)
+    history = json.loads(frame.at[0, "review_history"])
+    if corruption == "out_of_order":
+        earlier = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(timespec="seconds")
+        history.append({**history[-1], "reviewed_at": earlier})
+        frame.at[0, "review_history"] = json.dumps(history)
+        frame.at[0, "verified_at"] = earlier
+    elif corruption == "stale_fingerprint":
+        history[-1]["extraction_sha256"] = "0" * 64
+        frame.at[0, "review_history"] = json.dumps(history)
+    else:
+        frame.at[0, "verified_by"] = "forged-reviewer"
+    frame.to_parquet(reports, index=False)
+
+    with pytest.raises(ValueError, match="corrupt"):
+        module.read_etf_report_records(reports)
+
+
+@pytest.mark.parametrize("legacy_kind", ["generic", "kid", "methodology"])
+def test_report_and_other_registry_writers_preserve_all_rows_concurrently(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, legacy_kind: str) -> None:
+    import etf_cockpit.data.parsed_disclosures as module
+    from etf_cockpit.data.fund_documents import import_etf_document
+    from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest, EtfReportReviewRequest
+
+    report_source = tmp_path / "report.pdf"
+    other_source = tmp_path / "other.pdf"
+    report_source.write_bytes(b"report concurrent")
+    other_source.write_bytes(b"other concurrent")
+    monkeypatch.setattr(module, "parse_etf_report_in_child", lambda path, kind, **_kwargs: _v2_report_result(path, kind=kind))
+    registry = tmp_path / "registry.parquet"
+    report_request = EtfReportImportRequest("VWCE", "prospectus", "issuer_document", source_path=report_source, destination=tmp_path / "reports.parquet", registry_destination=registry, conflict_destination=tmp_path / "conflicts.parquet", raw_dir=tmp_path / "raw")
+    imported = module.import_etf_report(report_request)
+    initial = module.read_etf_report_records(report_request.destination).iloc[0]
+    module.review_etf_report(EtfReportReviewRequest(imported.source_id, str(initial["extraction_sha256"]), "analyst", "verified"), destination=report_request.destination, registry_destination=registry, conflict_destination=report_request.conflict_destination)
+    expected_history = module.read_etf_report_records(report_request.destination).iloc[0]["review_history"]
+    barrier = Barrier(2)
+
+    def report_writer() -> None:
+        barrier.wait()
+        module.import_etf_report(report_request)
+
+    def other_writer() -> None:
+        barrier.wait()
+        if legacy_kind == "generic":
+            import_etf_document(other_source, instrument_id="LYP6", document_type="factsheet", destination=registry)
+        elif legacy_kind == "kid":
+            module.persist_priips_kid_with_document(_kid_result(), "LYP6", other_source, destination=tmp_path / "kids.parquet", registry_destination=registry)
+        else:
+            module.persist_index_methodology_with_document(_methodology_result(), "LYP6", other_source, destination=tmp_path / "methods.parquet", registry_destination=registry)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = (pool.submit(report_writer), pool.submit(other_writer))
+        for future in futures:
+            future.result(timeout=20)
+    stored = pd.read_parquet(registry)
+    assert stored.loc[stored["source_id"].astype(str).str.startswith("report:v2:")].shape[0] == 1
+    assert stored.loc[(stored["instrument_id"] == "LYP6") & (stored["coverage_status"] == "available")].shape[0] == 1
+    retained = module.read_etf_report_records(report_request.destination).iloc[0]
+    assert retained["verification_status"] == "verified"
+    assert retained["review_history"] == expected_history

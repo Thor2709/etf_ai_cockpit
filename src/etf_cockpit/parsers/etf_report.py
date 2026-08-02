@@ -360,6 +360,11 @@ def parse_etf_report_in_child(
 
     if timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be positive")
+    if max_file_bytes <= 0:
+        raise ValueError("max_file_bytes must be positive")
+    source_sha, _bounded_payload, oversized = _sha256_bounded_file(Path(path), max_file_bytes)
+    if oversized:
+        return _failure("document_too_large", "ETF report exceeds the bounded file limit", source_sha)
     context = mp.get_context("spawn")
     parent, child = context.Pipe(duplex=False)
     process = context.Process(target=_child_parse_entry, args=(child, Path(path), document_kind, expected_isin, expected_document_date, max_file_bytes, max_pages, max_page_chars, max_total_chars, memory_limit_bytes))
@@ -372,15 +377,15 @@ def parse_etf_report_in_child(
         if process.is_alive():
             process.kill()
             process.join(2.0)
-        return _failure("resource_blocked", "ETF report parser child exceeded its hard timeout", _sha256_if_present(Path(path)))
+        return _failure("resource_blocked", "ETF report parser child exceeded its hard timeout", source_sha)
     if process.exitcode != 0 or not parent.poll():
-        return _failure("resource_blocked", "ETF report parser child crashed or returned no result", _sha256_if_present(Path(path)))
+        return _failure("resource_blocked", "ETF report parser child crashed or returned no result", source_sha)
     try:
         result = parent.recv()
     except (EOFError, OSError):
-        return _failure("resource_blocked", "ETF report parser child result was malformed", _sha256_if_present(Path(path)))
+        return _failure("resource_blocked", "ETF report parser child result was malformed", source_sha)
     if not isinstance(result, ParseResult):
-        return _failure("resource_blocked", "ETF report parser child result was malformed", _sha256_if_present(Path(path)))
+        return _failure("resource_blocked", "ETF report parser child result was malformed", source_sha)
     return result
 
 
@@ -504,13 +509,6 @@ def _pages_location(item: EtfReportFieldEvidence) -> str:
 
 def _failure(code: str, message: str, source_sha: str) -> ParseResult[EtfReportRecord]:
     return ParseResult((), (ParseWarning(code, message, "error", "document"),), "etf_report", PARSER_VERSION, source_sha, False)
-
-
-def _sha256_if_present(path: Path) -> str:
-    try:
-        return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else ""
-    except OSError:
-        return ""
 
 
 __all__ = [

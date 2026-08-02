@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -9,6 +10,7 @@ from typing import Iterable
 import pandas as pd
 
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
+from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.paths import CLEAN_DIR
 
 
@@ -30,6 +32,21 @@ _DOCUMENT_TYPE_ALIASES = {
     "methodology": "methodology",
     "index_methodology": "methodology",
 }
+
+
+def registry_guard_path(destination: Path) -> Path:
+    """Return the single inter-process guard used by every registry writer."""
+
+    candidate = Path(destination)
+    return candidate.with_name(candidate.name + ".guard")
+
+
+@contextmanager
+def fund_document_registry_guard(destination: Path, *, timeout_seconds: float = 5.0):
+    """Serialize a complete registry read-modify-write transaction."""
+
+    with persistent_file_guard(registry_guard_path(Path(destination)), timeout_seconds=timeout_seconds):
+        yield
 
 
 @dataclass(frozen=True)
@@ -269,6 +286,19 @@ def write_document_registry(
     destination: Path = FUND_DOCUMENTS_PATH,
 ) -> Path:
     """Persist the registry and CSV mirror in one atomic transaction."""
+    destination = Path(destination)
+    with fund_document_registry_guard(destination):
+        _write_document_registry_locked(documents, destination=destination)
+    return destination
+
+
+def _write_document_registry_locked(
+    documents: Iterable[FundDocument | dict[str, object]] | pd.DataFrame,
+    *,
+    destination: Path,
+) -> None:
+    """Write a registry while the caller holds ``fund_document_registry_guard``."""
+
     frame = _registry_frame(documents)
     destination = Path(destination)
     csv_destination = destination.with_suffix(".csv")
@@ -277,7 +307,6 @@ def write_document_registry(
         AtomicWriteRequest(csv_destination, frame.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
     )
     atomic_write_group(requests)
-    return destination
 
 
 def import_etf_document(
@@ -310,13 +339,14 @@ def import_etf_document(
         document_date=document_date,
         expected_sha256=expected_sha256,
     )
-    existing = read_document_registry(path=destination)
-    ids = [str(item).strip() for item in configured_instrument_ids or () if str(item).strip()]
-    if not existing.empty and "instrument_id" in existing.columns:
-        ids.extend(value for value in existing["instrument_id"].dropna().astype(str).map(str.strip) if value)
-    ids.append(str(instrument_id).strip())
-    inventory = build_document_inventory(ids, [*existing.to_dict("records"), document])
-    write_document_registry(inventory, destination=destination)
+    with fund_document_registry_guard(destination):
+        existing = read_document_registry(path=destination)
+        ids = [str(item).strip() for item in configured_instrument_ids or () if str(item).strip()]
+        if not existing.empty and "instrument_id" in existing.columns:
+            ids.extend(value for value in existing["instrument_id"].dropna().astype(str).map(str.strip) if value)
+        ids.append(str(instrument_id).strip())
+        inventory = build_document_inventory(ids, [*existing.to_dict("records"), document])
+        _write_document_registry_locked(inventory, destination=destination)
     return document
 
 
@@ -373,7 +403,7 @@ def _register_report_document(
     resolved = Path(path)
     if not resolved.is_file():
         raise ValueError(f"Retained report snapshot is missing: {resolved}")
-    actual = hashlib.sha256(resolved.read_bytes()).hexdigest()
+    actual = _streaming_sha256(resolved)
     if actual != checksum:
         raise ValueError("retained report snapshot checksum mismatch")
     authority_value = str(authority or "").strip()
@@ -394,3 +424,11 @@ def _register_report_document(
         kind,
         status,
     )
+
+
+def _streaming_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
