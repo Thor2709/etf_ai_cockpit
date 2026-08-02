@@ -22,8 +22,9 @@ advances only ISSUE-0102 `planned -> ready`. Acceptance evidence is bound to
 the reviewed complete ISSUE-0098 edge while all software, semiconductor,
 healthcare and biotechnology implementation scope remains pending. Product
 code, dependencies, GitHub authority and `execution_allowed=false` are
-unchanged. Mechanical generation/check, E-tier validation, exact-head review,
-merge and convergence are next.
+unchanged. Mechanical generation/check, classifier-selected H-tier validation
+for the checkpoint-plan changes, exact-head review, merge and convergence are
+next.
 
 `IN_PROGRESS` ISSUE-0101 is converged and ISSUE-0102 is the next
 implementation-order product record. Recovery PR #636 merged as

@@ -29,7 +29,8 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 - Current scope advances only ISSUE-0102 `planned -> ready`, binds acceptance
   evidence to PR #638 and its exact validation, and preserves all product code,
   dependency edges, external authority and `execution_allowed=false`.
-- Exact next action: generate/check the complete projection, run E-tier guards,
+- Exact next action: generate/check the complete projection, run the
+  classifier-selected H-tier validation required by checkpoint-plan changes,
   obtain independent exact-head review, merge and verify convergence; then
   advance ISSUE-0102 to `in_progress` for the bounded product handoff.
 
