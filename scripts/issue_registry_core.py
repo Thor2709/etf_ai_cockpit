@@ -1440,6 +1440,28 @@ _EDGE_EVIDENCE_KEYS = {
 }
 
 
+def _status_replay_edge_evidence_errors(
+    issue_id: str, dependency: str, evidence: object
+) -> list[str]:
+    errors = _validate_edge_evidence(issue_id, dependency, evidence)
+    if not isinstance(evidence, dict) or set(evidence) != _EDGE_EVIDENCE_KEYS:
+        return [*errors, f"{issue_id}->{dependency}: edge evidence fields are malformed"]
+    references = evidence.get("evidence_references")
+    if not isinstance(references, list) or not all(
+        isinstance(reference, str) and reference.strip() for reference in references
+    ):
+        errors.append(f"{issue_id}->{dependency}: edge evidence references are malformed")
+    for field in ("contract_reference", "reviewer", "reviewed_date"):
+        if not isinstance(evidence.get(field), str):
+            errors.append(f"{issue_id}->{dependency}: edge evidence {field} is malformed")
+    if evidence.get("state") == "unresolved" and (
+        references != []
+        or any(evidence.get(field) != "" for field in ("contract_reference", "reviewer", "reviewed_date"))
+    ):
+        errors.append(f"{issue_id}->{dependency}: unresolved edge evidence must be blank")
+    return errors
+
+
 def _validate_review_date(issue_id: str, value: object, *, context: str) -> None:
     if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
         raise ValueError(f"{issue_id}: {context} reviewed_date must be YYYY-MM-DD")
@@ -1615,11 +1637,16 @@ def validate_status_replay_prefix_shape(
         isinstance(dependency, str)
         and ISSUE_ID_RE.fullmatch(dependency) is not None
         and isinstance(evidence, dict)
-        and not _validate_edge_evidence(issue_id, dependency, evidence)
+        and not _status_replay_edge_evidence_errors(issue_id, dependency, evidence)
         for dependency, evidence in dependency_edge_evidence.items()
     ):
         raise ValueError(f"{issue_id}: status replay canonical dependency evidence is invalid")
-    if latest_edge_evidence != dependency_edge_evidence:
+    historical_edge_evidence = {
+        dependency: evidence
+        for dependency, evidence in dependency_edge_evidence.items()
+        if evidence.get("state") != "unresolved" or dependency in latest_edge_evidence
+    }
+    if latest_edge_evidence != historical_edge_evidence:
         raise ValueError(f"{issue_id}: status replay dependency history does not reach canonical state")
     terminal_event = transition_history[-1]
     terminal_status_event = ordinary_events[-1]
