@@ -3581,6 +3581,17 @@
           "reviewed_date": "2026-08-02",
           "reviewer": "Codex root orchestrator",
           "status": "ready"
+        },
+        {
+          "evidence_references": [
+            "Exact product commit 297d0999d0bd232a1014f993e4d920da05f7110c implements the software, semiconductor, healthcare/pharma and biotechnology adapters plus Innovation/Healthcare Instrument Detail evidence without external execution authority",
+            "Independent final product review approved exact commit 297d0999d0bd232a1014f993e4d920da05f7110c after 121 focused adapter, UI, architecture, replay, Ruff, compile and YAML checks; root verification passed 113 focused checks",
+            "The reviewed product commit is preserved as an ancestor of the current product lane after merging exact main 874c9ef277350547ca3eca28d5d5c808d7dea7bb; execution_allowed remains false and completion will use the bounded automatic lifecycle contract"
+          ],
+          "review_reference": "B04 ISSUE-0102 reviewed implementation start and product checkpoint",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex root orchestrator",
+          "status": "in_progress"
         }
       ],
       "dependency_edge_evidence": {
@@ -3598,11 +3609,11 @@
         }
       },
       "phase": "phase-03-stock-research",
-      "programme_status": "ready",
+      "programme_status": "in_progress",
       "status_transition": {
-        "from": "planned",
-        "review_reference": "B04 ISSUE-0102 readiness after complete ISSUE-0098 dependency review",
-        "to": "ready"
+        "from": "ready",
+        "review_reference": "B04 ISSUE-0102 reviewed implementation start and product checkpoint",
+        "to": "in_progress"
       },
       "transition_history": [
         {
@@ -3645,9 +3656,23 @@
           "reviewer": "Codex root orchestrator",
           "to": "ready",
           "verified_commit": "179e16c71328c43a9475dce60743a2d1aeda5aa7"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Exact product commit 297d0999d0bd232a1014f993e4d920da05f7110c implements the software, semiconductor, healthcare/pharma and biotechnology adapters plus Innovation/Healthcare Instrument Detail evidence without external execution authority",
+            "Independent final product review approved exact commit 297d0999d0bd232a1014f993e4d920da05f7110c after 121 focused adapter, UI, architecture, replay, Ruff, compile and YAML checks; root verification passed 113 focused checks",
+            "The reviewed product commit is preserved as an ancestor of the current product lane after merging exact main 874c9ef277350547ca3eca28d5d5c808d7dea7bb; execution_allowed remains false and completion will use the bounded automatic lifecycle contract"
+          ],
+          "from": "ready",
+          "review_reference": "B04 ISSUE-0102 reviewed implementation start and product checkpoint",
+          "reviewed_date": "2026-08-02",
+          "reviewer": "Codex root orchestrator",
+          "to": "in_progress",
+          "verified_commit": "874c9ef277350547ca3eca28d5d5c808d7dea7bb"
         }
       ],
-      "verified_commit": "179e16c71328c43a9475dce60743a2d1aeda5aa7",
+      "verified_commit": "874c9ef277350547ca3eca28d5d5c808d7dea7bb",
       "verified_date": "2026-08-02"
     },
     "ISSUE-0103": {

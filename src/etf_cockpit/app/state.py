@@ -171,6 +171,8 @@ class AppState:
     real_asset_projection: dict[str, object] | None = None
     cyclical_projection: dict[str, object] | None = None
     cyclical_source_digest: str | None = None
+    innovation_projection: dict[str, object] | None = None
+    innovation_source_digest: str | None = None
     evidence_mode: str = "default"
     application_api: LocalApplicationApi = field(init=False, repr=False)
 

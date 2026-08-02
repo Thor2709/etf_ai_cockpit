@@ -3,23 +3,23 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "planned",
+      "from": "ready",
       "issue_id": "ISSUE-0102",
-      "to": "ready"
+      "to": "in_progress"
     }
   ],
-  "base_commit": "179e16c71328c43a9475dce60743a2d1aeda5aa7",
-  "branch": "codex/issue0102-ready-20260802",
+  "base_commit": "874c9ef277350547ca3eca28d5d5c808d7dea7bb",
+  "branch": "codex/issue0102-product-20260802",
   "issue_ids": [
     "ISSUE-0102"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "bf2825edf29f7d0ac446409aacb0b19f067ce98159fed492d555ba79e1e8dbf0",
+    "base_registry_sha256": "c253c75b769a4f15667a560be8d8309a0fd108c706f37791fe380ac5c587d4a4",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "c253c75b769a4f15667a560be8d8309a0fd108c706f37791fe380ac5c587d4a4",
-    "reason": "Advance only ISSUE-0102 from planned to ready after PR #638 merged its reviewed complete ISSUE-0098 peer-framework dependency edge; preserve implementation scope, dependencies, acceptance criteria, authority and execution_allowed=false.",
+    "proposed_registry_sha256": "fb1095c1f626815a4bcee77477f4c6b2ef5a69d06cb46055d1da887467cb9dc6",
+    "reason": "Advance only ISSUE-0102 from ready to in_progress in the reviewed product PR; preserve dependencies, acceptance criteria, external authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
