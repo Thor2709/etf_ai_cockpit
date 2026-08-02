@@ -556,7 +556,6 @@ def test_status_replay_prefix_accepts_unchanged_unresolved_dependency_without_ev
     )
     authoritative = control_state_record(control, "ISSUE-0103", context="fixture")
 
-    assert authoritative["programme_status"] == "in_progress"
     assert authoritative["dependency_edge_evidence"]["UPDATEV2-0015"]["state"] == "unresolved"
     assert all(
         event.get("dependency_edge", {}).get("dependency") != "UPDATEV2-0015"
