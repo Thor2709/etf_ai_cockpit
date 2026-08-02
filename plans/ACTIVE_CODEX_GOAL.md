@@ -73,18 +73,54 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   classifier, preflight, supply chain, authoritative Linux/Windows package
   gates and terminal validation; guard `30748705679` passed. Exact-main
   convergence `30749425839` passed.
-- Current clean readiness lane:
-  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0103_ready`;
-  branch `codex/issue0103-ready-20260802`; exact base
-  `4324ee6af1321cf7ea60a6f03b381c1f1979edb0`, initially empty.
-- Scope advances only ISSUE-0103 `planned -> ready`, preserving the reviewed
-  ISSUE-0084 edge, UPDATEV2-0015 closed-ledger resolution, product scope,
-  dependency lists and `execution_allowed=false`. The sole live #243 status
-  update has semantic SHA
-  `78d6759c5b6812d17b5e3a93bcb3bb03111a64528a50e12162e11352047b769f`
-  and authority `43a7be21b37e56f896e4a9cb32a24932cf6309d12a9999bf85c7117049aa88b0`.
-  Next is focused E-tier validation, exact-head review, merge, writer/readback,
-  then ISSUE-0103 product implementation.
+- ISSUE-0103 readiness PR #645 merged independently approved exact head
+  `5b5edb44307244e231582e268e227fcf63c211a1` as
+  `2428af72525474d306cf9c04e6c9ecdaef213caa`. Run `30749699624` passed
+  classifier, preflight, supply chain, authoritative Linux/Windows package
+  gates and terminal validation; its status guard passed. Ordered writer
+  `30750550860` applied only ISSUE-0103 `planned -> ready`, returned
+  `terminal_status=applied_and_verified`, `zero_action_readback=true` and
+  retained `execution_allowed=false`; automatic convergence `30750550864`
+  passed.
+- A fresh generic exact-main live reconciliation from merge
+  `2428af72525474d306cf9c04e6c9ecdaef213caa` produced zero create, update,
+  close, reopen or blocked actions at plan SHA
+  `4b5797a809179b80f1f964cd4080bff436411e23544b7abb4e5cb0ead42df71f`.
+- Current clean product lane:
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0103_product`;
+  branch `codex/issue0103-product-20260802`; exact base and starting head
+  `2428af72525474d306cf9c04e6c9ecdaef213caa`, with an empty initial diff.
+  Scope is the bounded ISSUE-0103 ETF economics implementation and focused
+  tests/UI exposure while preserving ISSUE-0106 liquidity, all authority
+  boundaries and `execution_allowed=false`.
+- The finished bounded product diff adds typed local ETF economics and
+  canonical total-return evidence, explicit fee/AUM/flow units, known-at
+  replay, matched business-daily tracking metadata, a versioned
+  provenance-bound closure proxy policy, normal snapshot loading and the ETF
+  Economics panel. Existing ISSUE-0106 liquidity code remains byte-identical.
+- Exact reviewed product evidence commit
+  `1d3e7515c78d73cbd5d767d4ede2f82f838b0077` is immutable. Root validation
+  passed 187 affected economics, market-adjustment and UI tests plus Ruff,
+  compile and diff hygiene. Independent whole-diff and financial/point-in-time
+  reviewers approved the corrected evidence after canonical-generator,
+  append-only coverage, complete action-term, decision-time action/row,
+  checksum, unit, closure-policy and UI-lineage counterexamples failed closed.
+  The narrowly corrected classifier now treats the canonical
+  `market_adjustments.py` calculation/authority surface as H while preserving
+  ordinary product and E-tier checkpoint classifications; fresh Linux and
+  Windows package gates are mandatory before merge.
+- The product PR now carries the single automatic `ready -> in_progress`
+  lifecycle transaction. Its live reviewed plan has one status-only update for
+  ISSUE-0103 at semantic SHA
+  `a510143134719303b2d3e21ce22bcefe06b91f1cdab10bf8d1ccb3ae76afb1e1`;
+  authority ID
+  `b41017449b2a1c0a732e9cbc90180560f366f75498e41af8c218349a1b5e5491`
+  and candidate authority ref
+  `5870209390e4a6c6cd74f46799ea238a4cf0e414288300c538ce5cb11940b9e1`
+  bind exact base `2428af72525474d306cf9c04e6c9ecdaef213caa` with
+  `execution_allowed=false`. The projection is byte-clean and the status guard
+  passes. Exact next action is focused authority validation, a final independent
+  review of the frozen PR head, protected merge and zero-action writer/readback.
 
 ### Prior dependency-edge checkpoint (superseded)
 

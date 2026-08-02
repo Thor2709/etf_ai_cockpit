@@ -54,6 +54,12 @@ def test_classifier_fails_unknown_and_protected_tooling_upward() -> None:
     assert build_report(["unexpected.file"])["tier"] == "H"
     assert build_report(["scripts/update_programme_status.py"])["tier"] == "H"
     assert build_report([".github/workflows/release-gate.yml"])["tier"] == "H"
+    canonical_financial = build_report(
+        ["src/etf_cockpit/data/market_adjustments.py"]
+    )
+    assert canonical_financial["tier"] == "H"
+    assert canonical_financial["package_gate_required"] is True
+    assert build_report(["src/etf_cockpit/data/etf_economics.py"])["tier"] == "O"
 
 
 def test_ordinary_cadence_requires_central_gate_after_two_issues() -> None:

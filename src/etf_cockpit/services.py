@@ -21,7 +21,13 @@ from etf_cockpit.chatgpt_bridge.schemas import ChatGPTAudit, ChatGPTAuditV2
 from etf_cockpit.core.config import AppConfig, load_config
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_bytes, atomic_write_group
 from etf_cockpit.core.logging import append_jsonl, configure_logging
-from etf_cockpit.core.paths import BACKTESTS_DIR, FORECASTS_DIR, ensure_project_dirs
+from etf_cockpit.core.paths import (
+    BACKTESTS_DIR,
+    ETF_BENCHMARK_TOTAL_RETURN_PATH,
+    ETF_FUND_TOTAL_RETURN_PATH,
+    FORECASTS_DIR,
+    ensure_project_dirs,
+)
 from etf_cockpit.core.timing import record_cache_event, timed_step
 from etf_cockpit.core.types import DataQualityReport, ForecastResult, SignalResult
 from etf_cockpit.core.versioning import (
@@ -31,6 +37,14 @@ from etf_cockpit.core.versioning import (
     settings_bound_run_id,
 )
 from etf_cockpit.data.duckdb_store import initialise_store, load_holdings, load_prices, write_features
+from etf_cockpit.data.etf_economics import (
+    ClosureProxyPolicy,
+    EtfEconomicsObservation,
+    TotalReturnEvidence,
+    load_closure_proxy_policy,
+    load_etf_economics_records,
+    load_total_return_evidence,
+)
 from etf_cockpit.data.fx_data import commit_fx_import, fx_data_inventory, load_fx_rates, validate_fx_rates
 from etf_cockpit.data.fundamentals import load_fundamental_evidence
 from etf_cockpit.data.import_pipeline import commit_price_import, rollback_latest_price_import as rollback_price_store
@@ -112,6 +126,10 @@ class CockpitSnapshot:
     model_inventory: list[LocalModelStatus]
     # Revision of the canonical universe used to build cached derived data.
     universe_revision: str = ""
+    etf_economics_records: tuple[EtfEconomicsObservation, ...] = ()
+    etf_fund_total_return: TotalReturnEvidence | None = None
+    etf_benchmark_total_return: TotalReturnEvidence | None = None
+    etf_closure_policy: ClosureProxyPolicy | None = None
 
 
 class DataService:
@@ -1023,6 +1041,10 @@ def _build_snapshot(force_sample: bool = False) -> CockpitSnapshot:
         )
     )
     backtest = _empty_backtest_report("Backtest skipped because no clean prices exist for the current two-tier universe yet.") if prices.empty else BacktestService(config, universe_revision=universe_revision).load_or_run_backtest(data_report.as_of_date)
+    etf_economics_records = load_etf_economics_records()
+    etf_fund_total_return = load_total_return_evidence(ETF_FUND_TOTAL_RETURN_PATH)
+    etf_benchmark_total_return = load_total_return_evidence(ETF_BENCHMARK_TOTAL_RETURN_PATH)
+    etf_closure_policy = load_closure_proxy_policy()
     return CockpitSnapshot(
         config=config,
         prices=prices,
@@ -1036,6 +1058,10 @@ def _build_snapshot(force_sample: bool = False) -> CockpitSnapshot:
         model_status=status,
         model_inventory=inventory,
         universe_revision=universe_revision,
+        etf_economics_records=etf_economics_records,
+        etf_fund_total_return=etf_fund_total_return,
+        etf_benchmark_total_return=etf_benchmark_total_return,
+        etf_closure_policy=etf_closure_policy,
     )
 
 

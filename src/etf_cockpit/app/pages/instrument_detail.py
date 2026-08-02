@@ -262,7 +262,6 @@ def _render_evidence_section(
             "changes",
             "document_inventory",
             "statement_history",
-            "coverage",
             "pairs",
             "concentrations",
         }:
@@ -471,6 +470,7 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
         _render_evidence_section("Price history", model.sections.get("price"), subtitle="Adjusted-price history, latest value/date and freshness."),
         _render_evidence_section("ETF Liquidity", model.sections.get("etf_liquidity"), subtitle="Rolling turnover, spread/gap proxies, zero-volume days, quote/NAV evidence and primary-market context remain explicit."),
         _render_etf_order_preview(page, state, selected, model.sections.get("etf_liquidity")),
+        _render_evidence_section("ETF Economics", model.sections.get("etf_economics"), subtitle="Historical fees, share-class metrics, matched point-in-time tracking and closure-quality proxy evidence; missing values remain unavailable."),
         _render_evidence_section("Evidence Score", model.sections.get("scores"), subtitle="Authority score, quality, final label/reason and blocked gates; execution_allowed=false."),
         _render_evidence_section(
             "Peer cohort and adapter lineage",

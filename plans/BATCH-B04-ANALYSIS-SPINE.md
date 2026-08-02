@@ -45,12 +45,46 @@ Dependency PR #644 merged corrected and independently approved exact head
 `4324ee6af1321cf7ea60a6f03b381c1f1979edb0`; run `30748705677`, guard
 `30748705679` and exact-main convergence `30749425839` passed.
 
-The clean `codex/issue0103-ready-20260802` lane starts at that exact merge and
-advances only ISSUE-0103 `planned -> ready`. Its sole #243 status update has
-semantic SHA `78d6759c5b6812d17b5e3a93bcb3bb03111a64528a50e12162e11352047b769f`
-and status authority `43a7be21b37e56f896e4a9cb32a24932cf6309d12a9999bf85c7117049aa88b0`.
-The reviewed ISSUE-0084 edge, closed-ledger resolution, product scope,
-dependencies, permissions and `execution_allowed=false` remain unchanged.
+Readiness PR #645 merged independently approved exact head
+`5b5edb44307244e231582e268e227fcf63c211a1` as
+`2428af72525474d306cf9c04e6c9ecdaef213caa`; run `30749699624` passed both
+package platforms and terminal validation. Writer `30750550860` applied only
+ISSUE-0103 `planned -> ready` with zero-action readback; convergence
+`30750550864` passed. A fresh generic exact-main live reconciliation then
+returned zero actions at plan SHA
+`4b5797a809179b80f1f964cd4080bff436411e23544b7abb4e5cb0ead42df71f`.
+
+The clean `codex/issue0103-product-20260802` lane starts at exact merge
+`2428af72525474d306cf9c04e6c9ecdaef213caa` with an empty diff. Its bounded
+scope is ISSUE-0103 ETF economics, fee, tracking and closure-quality analysis,
+focused tests and the ETF Economics panel. Existing ISSUE-0106 liquidity,
+permissions, authority boundaries and `execution_allowed=false` must remain
+unchanged.
+
+The finished product diff uses typed local total-return evidence, explicit
+identity/currency/convention/checksum and known-at replay, declared
+business-daily tracking coverage, explicit fee and currency-amount units, and
+a versioned provenance-bound closure proxy policy. Normal snapshot loading
+feeds the ETF Economics panel; absent or inconsistent evidence fails closed.
+Root validation passed 120 focused/relevant tests and the final 30-test
+economics suite, Ruff, compile, architecture and diff checks. Independent
+whole-diff and financial/point-in-time reviews approved the corrected stable
+diff; ISSUE-0106 liquidity is byte-identical and `execution_allowed=false`.
+Exact reviewed product evidence commit
+`1d3e7515c78d73cbd5d767d4ede2f82f838b0077` is immutable after 187 affected
+economics, market-adjustment and UI tests plus independent whole-diff and
+financial/PIT approval. The narrowly corrected classifier treats the canonical
+`market_adjustments.py` calculation/authority surface as H while preserving
+ordinary product and E-tier checkpoint classification, so fresh Linux and
+Windows package gates are mandatory. The same product PR prepares only ISSUE-0103
+`ready -> in_progress`, bound to one live status-only plan at semantic SHA
+`a510143134719303b2d3e21ce22bcefe06b91f1cdab10bf8d1ccb3ae76afb1e1`,
+authority ID `b41017449b2a1c0a732e9cbc90180560f366f75498e41af8c218349a1b5e5491`
+and candidate ref
+`5870209390e4a6c6cd74f46799ea238a4cf0e414288300c538ce5cb11940b9e1`.
+Generated projections are byte-clean and the exact-base status guard passes;
+the next action is focused authority validation, final exact-head review,
+protected merge and zero-action post-write readback.
 
 ## Prior convergence repair checkpoint (superseded)
 

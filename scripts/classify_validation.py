@@ -40,6 +40,9 @@ CHECKPOINT_CHRONOLOGY_PATHS = {
     "plans/active_codex_goal.md",
     "plans/batch-b04-analysis-spine.md",
 }
+HIGH_RISK_EXACT_PATHS = {
+    "src/etf_cockpit/data/market_adjustments.py",
+}
 ORDINARY_PREFIXES = ("src/", "tests/", "configs/ui_acceptance.yaml")
 HIGH_RISK_PARTS = {
     "broker",
@@ -151,6 +154,7 @@ def classify_path(value: str) -> PathClassification:
         return PathClassification(path, "E", "allowlisted-checkpoint-chronology")
     if (
         lowered in PROTECTED_POLICY_PATHS
+        or lowered in HIGH_RISK_EXACT_PATHS
         or path in HIGH_RISK_NAMES
         or any(lowered.startswith(prefix.lower()) for prefix in HIGH_RISK_PREFIXES)
         or parsed_path.name.endswith("_store.py")
