@@ -98,13 +98,16 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   replay, matched business-daily tracking metadata, a versioned
   provenance-bound closure proxy policy, normal snapshot loading and the ETF
   Economics panel. Existing ISSUE-0106 liquidity code remains byte-identical.
-- Product evidence commit
-  `21f3ed4e3e5b47f2db9dcf719fd01fcda3f5c34b` is immutable. Root validation
-  passed 120 focused economics, instrument-detail, UI and architecture tests
-  plus targeted Ruff, compile and diff hygiene; the final economics regression
-  suite passed 30 tests. Independent whole-diff and financial/point-in-time
-  reviewers approved the stable corrected diff after all mismatch, look-ahead,
-  checksum, non-finite, unit and UI counterexamples failed closed.
+- Exact reviewed product evidence commit
+  `1d3e7515c78d73cbd5d767d4ede2f82f838b0077` is immutable. Root validation
+  passed 187 affected economics, market-adjustment and UI tests plus Ruff,
+  compile and diff hygiene. Independent whole-diff and financial/point-in-time
+  reviewers approved the corrected evidence after canonical-generator,
+  append-only coverage, complete action-term, decision-time action/row,
+  checksum, unit, closure-policy and UI-lineage counterexamples failed closed.
+  The automated classifier reports O, but the root declares H validation
+  because the correction touches canonical financial adjustment authority;
+  fresh Linux and Windows package gates are mandatory before merge.
 - The product PR now carries the single automatic `ready -> in_progress`
   lifecycle transaction. Its live reviewed plan has one status-only update for
   ISSUE-0103 at semantic SHA

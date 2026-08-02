@@ -18,7 +18,7 @@
     "base_registry_sha256": "9fdd67899334b5766d23bdaca3816fde2bf0674127b17d628f105073f9a7c639",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "15572cba806b2b5be98ab43e2f264ead8dbc834a1b2a09f250ec916001aadb9d",
+    "proposed_registry_sha256": "9eca065d4f3c513c99e5e37e4d7ca762ea01442a19b108183b4e20ff6b3a33b0",
     "reason": "Advance only ISSUE-0103 from ready to in_progress alongside its exact reviewed product evidence; preserve dependencies, acceptance criteria, authority boundaries and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
