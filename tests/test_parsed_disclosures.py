@@ -438,6 +438,64 @@ def test_parser_revision_reimport_retains_prior_review_as_separate_extraction(tm
     }
 
 
+@pytest.mark.parametrize("missing_counterpart", ["report", "registry"])
+def test_same_revision_reimport_rejects_cross_store_identity_gap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    missing_counterpart: str,
+) -> None:
+    import etf_cockpit.data.parsed_disclosures as module
+    from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest
+
+    source = tmp_path / "prospectus.pdf"
+    source.write_bytes(b"cross-store identity")
+    reports, registry, conflicts = (tmp_path / name for name in ("reports.parquet", "registry.parquet", "conflicts.parquet"))
+    request = EtfReportImportRequest(
+        "VWCE",
+        "prospectus",
+        "issuer_document",
+        source_path=source,
+        destination=reports,
+        registry_destination=registry,
+        conflict_destination=conflicts,
+        raw_dir=tmp_path / "raw",
+    )
+    fund_name = {"value": "Original"}
+    monkeypatch.setattr(
+        module,
+        "parse_etf_report_in_child",
+        lambda path, kind, **_kwargs: _v2_report_result(path, kind=kind, fund_name=fund_name["value"]),
+    )
+    imported = module.import_etf_report(request)
+
+    if missing_counterpart == "report":
+        empty_reports = pd.DataFrame(columns=module.REPORT_COLUMNS)
+        empty_reports.to_parquet(reports, index=False)
+        empty_reports.to_csv(reports.with_suffix(".csv"), index=False)
+    else:
+        registry_frame = pd.read_parquet(registry)
+        without_report = registry_frame.loc[~registry_frame["source_id"].astype(str).eq(imported.source_id)]
+        without_report.to_parquet(registry, index=False)
+        without_report.to_csv(registry.with_suffix(".csv"), index=False)
+    prior = {
+        path: path.read_bytes()
+        for path in (
+            reports,
+            reports.with_suffix(".csv"),
+            registry,
+            registry.with_suffix(".csv"),
+            conflicts,
+            conflicts.with_suffix(".csv"),
+        )
+    }
+    fund_name["value"] = "Drifted"
+
+    with pytest.raises(ValueError, match="report and registry extraction state is inconsistent"):
+        module.import_etf_report(request)
+
+    assert {path: path.read_bytes() for path in prior} == prior
+
+
 def test_review_rejects_copied_registry_destination(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import etf_cockpit.data.parsed_disclosures as module
     from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest, EtfReportReviewRequest

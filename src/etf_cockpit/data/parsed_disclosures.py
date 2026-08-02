@@ -614,8 +614,13 @@ def import_etf_report(request: EtfReportImportRequest) -> EtfReportImportResult:
                     registry_existing = _read_registry_fail_closed(Path(request.registry_destination))
                     report_existing = _read_report_frame(Path(request.destination))
                     registry_match = registry_existing.loc[registry_existing["source_id"].astype(str).eq(source_id)] if not registry_existing.empty else pd.DataFrame()
+                    report_match = report_existing.loc[report_existing["source_id"].astype(str).eq(source_id)] if not report_existing.empty else pd.DataFrame()
                     if len(registry_match) > 1:
                         raise ValueError("same-ID registry extraction is corrupt: duplicate source_id")
+                    if len(report_match) > 1:
+                        raise ValueError("same-ID report extraction is corrupt: duplicate source_id")
+                    if registry_match.empty != report_match.empty:
+                        raise ValueError("same-ID report and registry extraction state is inconsistent")
                     if len(registry_match) == 1:
                         prior_registry = registry_match.iloc[0]
                         identity = {
