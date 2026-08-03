@@ -216,6 +216,16 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   changing lifecycle or execution authority. The complete focused parity suite
   passes 124 tests; Ruff, compile and diff hygiene pass. Freeze one replacement
   head and repeat both reviews plus fresh H-tier gates.
+- Exact head `1bcf863e6402e9cb7d883d319bd0e09b4210bc2f` was rejected after
+  both reviewers completed. The complete new finding set is strict stored
+  boolean handling for `parse_success`, numeric document-family binding,
+  duplicate-registry cache identity and explicit derivative/synthetic
+  negation. Release run `30803686888` was cancelled and is stale.
+- Residual correction commit `875b893fd87d386475cdc3d0815acbe1d24d6c66`
+  covers those four reproduced cases only. The focused suite passes 130 tests;
+  Ruff, compile and diff hygiene pass, and `execution_allowed=false` is
+  unchanged. Freeze the replacement head for both exact-head reviews and fresh
+  H-tier hosted gates.
 
 ## Completed UPDATEV2-0018 product checkpoint
 
