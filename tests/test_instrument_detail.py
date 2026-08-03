@@ -101,34 +101,6 @@ def test_instrument_detail_scoreboard_reader_hides_classification_invalidated_sc
     assert panel["execution_allowed"] is False
 
 
-def test_score_panel_prefers_current_structurally_capped_signal_confidence_including_zero() -> None:
-    from etf_cockpit.app.selectors.instrument_detail import _score_panel
-
-    class Signal:
-        blocked_by = []
-        authority_decision = None
-        total_score = 0.8
-        canonical_score = None
-        research_state = "available"
-        reason_long = "Current signal evidence."
-        warnings = []
-        supporting_metrics = {"canonical_evidence_confidence_10": 0.0}
-
-    panel = _score_panel(
-        Signal(),
-        {
-            "canonical_evidence_confidence_10": 9.0,
-            "final_label": "hold",
-            "one_line_reason": "Current signal evidence.",
-            "freshness_status": "fresh",
-        },
-        {"crowding": {}, "attribution": {}},
-        {},
-    )
-
-    assert panel["canonical_evidence_confidence_10"] == 0.0
-
-
 def test_instrument_detail_exposes_identity_lineage_from_application_facade(monkeypatch) -> None:
     from etf_cockpit.app.selectors import instrument_detail as selector
 
@@ -390,7 +362,7 @@ def test_instrument_detail_driver_panel_normalises_legacy_store_columns(tmp_path
 def test_instrument_detail_has_required_sections_for_primary_and_sparebanken() -> None:
     snapshot = build_snapshot()
     model = build_instrument_detail(snapshot, snapshot.config.universe.enabled_ids[0])
-    assert {"identity", "price", "scores", "risk", "attribution", "fundamentals", "etf_disclosures", "etf_structure", "news", "forecasts", "backtests", "history", "journal", "run_changes"} <= set(model.sections)
+    assert {"identity", "price", "scores", "risk", "attribution", "fundamentals", "etf_disclosures", "news", "forecasts", "backtests", "history", "journal", "run_changes"} <= set(model.sections)
     assert model.instrument_id
 
 

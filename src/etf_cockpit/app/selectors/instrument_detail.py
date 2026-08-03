@@ -13,6 +13,7 @@ from etf_cockpit.application.ui_facade import (
     EVENT_CLEAN_PATH,
     FUNDAMENTAL_CLEAN_PATH,
     FUND_HOLDINGS_PATH,
+    ETF_METADATA_CLEAN_PATH,
     NEWS_CLEAN_PATH,
     assess_fundamental_row,
     build_market_clock_diagnostics,
@@ -46,6 +47,7 @@ from etf_cockpit.core.paths import DERIVED_DIR
 from etf_cockpit.core.paths import ETF_QUOTES_PATH
 from etf_cockpit.features.etf_economics import calculate_etf_liquidity
 from etf_cockpit.services import CockpitSnapshot
+from etf_cockpit.data.etf_structure import STRUCTURAL_FIELDS
 from etf_cockpit.application.ui_facade import SimpleInstrumentScore
 from etf_cockpit.application.ui_facade import load_peer_cohort_projection
 from etf_cockpit.application.ui_facade import load_financial_institution_projection
@@ -761,14 +763,45 @@ def _etf_structure_panel(
     holdings: pd.DataFrame | None = None,
     decision_time: object = None,
 ) -> dict[str, Any]:
+    local_factsheet_rows = _local_structure_rows(ETF_METADATA_CLEAN_PATH, "factsheet") if supplemental_rows is None else supplemental_rows
+    local_holdings_rows = _local_structure_rows(FUND_HOLDINGS_PATH, "holdings") if holdings is None else holdings
     return load_etf_structure_projection(
         instrument_id,
         document_registry=document_registry,
         report_records=report_records,
-        supplemental_rows=supplemental_rows,
-        holdings=holdings,
+        supplemental_rows=local_factsheet_rows,
+        holdings=local_holdings_rows,
         decision_time=decision_time,
     )
+
+
+def _local_structure_rows(path: object, default_document_type: str) -> pd.DataFrame:
+    """Expose only explicitly sourced structural fields from local imports."""
+
+    frame = _load_parquet(path)
+    if frame.empty:
+        return pd.DataFrame()
+    records: list[dict[str, object]] = []
+    for source in frame.to_dict("records"):
+        instrument_id = source.get("instrument_id", source.get("etf_id"))
+        common = {
+            "instrument_id": instrument_id,
+            "source_id": source.get("source_id"),
+            "document_type": source.get("document_type") or default_document_type,
+            "checksum": source.get("checksum") or source.get("sha256"),
+            "document_date": source.get("document_date") or source.get("as_of_date") or source.get("as_of"),
+            "known_at": source.get("known_at") or source.get("ingested_at") or source.get("imported_at"),
+            "page": source.get("page") or source.get("source_page"),
+            "confidence": source.get("confidence"),
+            "status": source.get("status", "unknown"),
+        }
+        if source.get("field_name") or source.get("field"):
+            records.append({**common, "field_name": source.get("field_name") or source.get("field"), "value": source.get("value")})
+            continue
+        for field_name in STRUCTURAL_FIELDS:
+            if field_name in source and source[field_name] is not None:
+                records.append({**common, "field_name": field_name, "value": source[field_name]})
+    return pd.DataFrame(records)
 
 
 def _friction_panel(instrument_id: str, *, candidate_score: SimpleInstrumentScore | None = None) -> dict[str, Any]:

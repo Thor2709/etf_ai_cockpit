@@ -72,8 +72,22 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   files. The resulting six-file affected test selection passes 107 tests with
   one expected skip in 87.9 seconds; Ruff, compile and diff hygiene pass. It
   does not change canonical/lifecycle authority or `execution_allowed=false`.
-  Freeze one checkpoint head, then run both
-  independent reviews and fresh H-tier hosted validation in parallel.
+  Replacement head `db8dfe4560912ccc885d2f3ec355af4984ece77a` was
+  rejected only after both parallel reviewers completed. Their consolidated
+  findings are persisted numeric-evidence binding, equal-time append-order
+  replay, duplicate registry identity rejection, standard local
+  factsheet/holdings reachability, and structural evidence propagation through
+  the yfinance signal/backtest path. Release run `30783547607` again timed out
+  the broad changed-test selection at 120 seconds before Linux/Windows began;
+  its evidence is stale.
+- One final bounded correction covers all five findings and moves the remaining
+  ISSUE-0104 Instrument Detail assertions to a dedicated focused module while
+  restoring the slow broad module exactly to base. The resulting changed-test
+  selection passes 94 tests with one expected skip in 68.3 seconds; the direct
+  26-test correction suite passes in 17.9 seconds including command overhead.
+  Ruff, compile and diff hygiene pass. Record the correction commit, freeze a
+  new checkpoint head, then run both independent reviews and fresh H-tier
+  hosted validation in parallel.
 
 ## Completed UPDATEV2-0018 product checkpoint
 

@@ -53,8 +53,25 @@ regressions out of the slow broad test modules. The final six-file affected
 selection passes 107 tests with one expected skip in 87.9 seconds; Ruff,
 compile and diff hygiene pass. Canonical/lifecycle authority and
 `execution_allowed=false` are unchanged. Freeze one checkpoint head, then
-repeat both independent reviews and fresh H-tier
-hosted validation in parallel.
+repeat both independent reviews and fresh H-tier hosted validation in
+parallel.
+
+Replacement exact head `db8dfe4560912ccc885d2f3ec355af4984ece77a` is also
+rejected after both parallel reviewers completed. The complete finding set is
+persisted reviewed numeric-evidence binding, equal-time append-order replay,
+duplicate registry identity rejection, standard local factsheet/holdings
+reachability, and yfinance signal/backtest structural-evidence propagation.
+Release run `30783547607` timed out the broad affected suite at 120 seconds
+before package jobs began, so its evidence is stale.
+
+One final bounded correction covers all five findings and relocates the
+remaining Instrument Detail assertions into a dedicated focused module while
+restoring the broad module exactly to base. The final changed-test selection
+passes 94 tests with one expected skip in 68.3 seconds; the direct 26-test
+correction suite passes in 17.9 seconds including command overhead. Ruff,
+compile and diff hygiene pass. Record the correction commit, freeze a new
+checkpoint head, then repeat both independent reviews and fresh H-tier hosted
+validation in parallel.
 
 ## Completed UPDATEV2-0018 parser lane
 

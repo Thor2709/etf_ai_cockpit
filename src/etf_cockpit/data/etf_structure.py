@@ -117,6 +117,7 @@ def calculate_structural_stress(
     haircut_fraction: object,
     concentration_limit_fraction: object,
     registry: object = None,
+    report_records: object = None,
     candidates: object = None,
     decision_time: object = None,
     instrument_id: str = "",
@@ -135,7 +136,7 @@ def calculate_structural_stress(
         field_name="exposure",
         bounds=(Decimal("0"), Decimal("1")),
         registry=registry,
-        candidates=candidates,
+        report_records=report_records,
         decision=decision,
         instrument_id=instrument_id,
     )
@@ -145,7 +146,7 @@ def calculate_structural_stress(
         field_name="collateral_fraction",
         bounds=(Decimal("0"), Decimal("1")),
         registry=registry,
-        candidates=candidates,
+        report_records=report_records,
         decision=decision,
         instrument_id=instrument_id,
     )
@@ -155,7 +156,7 @@ def calculate_structural_stress(
         field_name="haircut_fraction",
         bounds=(Decimal("0"), Decimal("1")),
         registry=registry,
-        candidates=candidates,
+        report_records=report_records,
         decision=decision,
         instrument_id=instrument_id,
     )
@@ -165,7 +166,7 @@ def calculate_structural_stress(
         field_name="concentration_limit_fraction",
         bounds=(Decimal("0"), Decimal("1")),
         registry=registry,
-        candidates=candidates,
+        report_records=report_records,
         decision=decision,
         instrument_id=instrument_id,
     )
@@ -258,6 +259,7 @@ def project_etf_structure(
         calculate_structural_stress(
             **numeric_inputs,
             registry=registry,
+            report_records=report_records,
             candidates=numeric_candidates,
             decision_time=decision,
             instrument_id=target,
@@ -446,10 +448,20 @@ def _rows(value: object) -> list[dict[str, object]]:
 def _bound_registry(target: str, rows: list[dict[str, object]], decision: datetime | None) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     bound: list[dict[str, object]] = []
     rejected: list[dict[str, object]] = []
+    scoped_rows = [row for row in rows if str(row.get("instrument_id") or "").strip() == target]
+    source_counts: dict[str, int] = {}
+    for row in scoped_rows:
+        source_id = _text(row.get("source_id"))
+        if source_id:
+            source_counts[source_id] = source_counts.get(source_id, 0) + 1
+    duplicate_source_ids = {source_id for source_id, count in source_counts.items() if count > 1}
     for row in rows:
         if str(row.get("instrument_id") or "").strip() != target:
             continue
         source_id = _text(row.get("source_id"))
+        if source_id in duplicate_source_ids:
+            rejected.append({"reason_code": "duplicate_registry_source_id", "source_id": source_id})
+            continue
         checksum = _text(row.get("sha256")) or _text(row.get("checksum"))
         document_date = _date_text(row.get("document_date"))
         known_at = _date_time_text(row.get("known_at")) or _date_time_text(row.get("ingested_at"))
@@ -538,12 +550,6 @@ def _selected_review_event(row: Mapping[str, object], checksum: str, decision: d
         _, selected, selected_at = max(matching, key=lambda item: (item[2], item[0]))
         decision_value = _text(selected.get("decision"))
         if decision_value != "verified":
-            return None, "report_review_rejected_at_decision_time"
-        if any(
-            _text(item.get("decision")) == "rejected"
-            and reviewed_at >= selected_at
-            for _, item, reviewed_at in matching
-        ):
             return None, "report_review_rejected_at_decision_time"
         identity_payload = {
             "source_id": _text(row.get("source_id")) or "unavailable",
@@ -798,6 +804,7 @@ def _decimal_input(
     field_name: str,
     bounds: tuple[Decimal, Decimal] | None = None,
     registry: object = None,
+    report_records: object = None,
     candidates: object = None,
     decision: datetime | None = None,
     instrument_id: str = "",
@@ -812,7 +819,7 @@ def _decimal_input(
     if not _numeric_provenance_is_bound(
         value,
         registry,
-        candidates,
+        report_records,
         decision,
         instrument_id,
         field_name,
@@ -831,7 +838,7 @@ def _decimal_input(
 def _numeric_provenance_is_bound(
     value: NumericEvidence,
     registry: object,
-    candidates: object,
+    report_records: object,
     decision: datetime | None,
     instrument_id: str,
     field_name: str,
@@ -852,35 +859,58 @@ def _numeric_provenance_is_bound(
     matches = [row for row in registry_rows if _text(row.get("source_id")) == source_id]
     if len(matches) != 1:
         return False
-    row = matches[0]
-    registered_checksum = _text(row.get("sha256")) or _text(row.get("checksum"))
-    registered_date = _date_text(row.get("document_date"))
-    registered_known_at = _date_time_text(row.get("known_at")) or _date_time_text(row.get("ingested_at"))
+    registered = matches[0]
+    registered_checksum = _text(registered.get("sha256")) or _text(registered.get("checksum"))
+    registered_date = _date_text(registered.get("document_date"))
+    registered_known_at = _date_time_text(registered.get("known_at")) or _date_time_text(registered.get("ingested_at"))
     if checksum != registered_checksum or document_date != registered_date or known_at != registered_known_at:
         return False
-    if instrument_id and _text(row.get("instrument_id")) != instrument_id:
+    if instrument_id and _text(registered.get("instrument_id")) != instrument_id:
         return False
     if decision is not None and _parse_timestamp(known_at) > decision:
         return False
-    candidate_rows: list[NumericEvidence] = []
-    if candidates is not None and not isinstance(candidates, (str, bytes, Mapping, pd.DataFrame)):
-        try:
-            candidate_rows = [item for item in candidates if isinstance(item, NumericEvidence)]
-        except TypeError:
-            candidate_rows = []
-    return any(
-        item.source_id == source_id
-        and item.checksum == checksum
-        and _date_text(item.document_date) == document_date
-        and _date_time_text(item.known_at) == known_at
-        and _page(item.page) == page
-        and _confidence_value(item.confidence) == confidence
-        and item.field_name == field_name
-        and item.unit == unit
-        and item.normalized_value == normalized_value
-        and item.instrument_id == instrument_id
-        and str(item.status).casefold() in _USABLE_STATUSES
-        for item in candidate_rows
+    for report_row in _rows(report_records):
+        if str(report_row.get("instrument_id") or "").strip() != instrument_id or _text(report_row.get("source_id")) != source_id:
+            continue
+        if not _report_identity_matches(report_row, row_checksum=checksum, row_date=document_date, row_known_at=known_at, registered=registered):
+            continue
+        review_event, _ = _selected_review_event(report_row, checksum, decision)
+        if review_event is None:
+            continue
+        for item in _json_rows(report_row.get("field_evidence")):
+            if _canonical_field(item.get("field_name")) != field_name:
+                continue
+            item_value = _normalise_decimal(item.get("value"))
+            item_unit = _text(item.get("unit"))
+            item_page = _page(item.get("source_page")) or _first_page(item.get("candidate_pages"))
+            item_confidence = _confidence_value(item.get("confidence"))
+            item_status = str(item.get("status") or "unknown").casefold()
+            if (
+                item_status in _USABLE_STATUSES
+                and item_unit == unit
+                and item_value == normalized_value
+                and item_page == page
+                and item_confidence == confidence
+            ):
+                return True
+    return False
+
+
+def _report_identity_matches(
+    row: Mapping[str, object],
+    *,
+    row_checksum: str,
+    row_date: str,
+    row_known_at: str,
+    registered: Mapping[str, object],
+) -> bool:
+    return (
+        (_text(row.get("source_sha256")) or _text(row.get("sha256")) or _text(row.get("checksum"))) == row_checksum
+        and _date_text(row.get("document_date")) == row_date
+        and _date_time_text(row.get("known_at")) == row_known_at
+        and row_checksum == (_text(registered.get("checksum")) or _text(registered.get("sha256")))
+        and row_date == _date_text(registered.get("document_date"))
+        and row_known_at == (_date_time_text(registered.get("known_at")) or _date_time_text(registered.get("ingested_at")))
     )
 
 

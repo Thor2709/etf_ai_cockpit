@@ -15,6 +15,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+# The script adds the local source tree before its application imports.
+# ruff: noqa: E402
 from etf_cockpit.backtest.engine import run_backtest
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.paths import FORECASTS_DIR, REPORTS_DIR
@@ -22,6 +24,10 @@ from etf_cockpit.data.import_pipeline import commit_price_import
 from etf_cockpit.data.reference_data import commit_reference_import
 from etf_cockpit.data.validation import validate_prices
 from etf_cockpit.data.yfinance_provider import YFinanceProvider
+from etf_cockpit.data.etf_structure import structure_confidence_caps
+from etf_cockpit.data.fund_documents import read_document_registry
+from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
+from etf_cockpit.data.parsed_disclosures import read_etf_report_records
 from etf_cockpit.features.feature_pipeline import compute_features, latest_features
 from etf_cockpit.models.forecast_scores import forecast_component_maps
 from etf_cockpit.models.registry import model_availability
@@ -73,6 +79,17 @@ def main() -> int:
 
     reference_summary = _fetch_reference_data(provider, config, skip=args.skip_reference)
     holdings = load_holdings()
+    structure_registry, structure_reports, structure_holdings = _load_local_structural_evidence()
+    try:
+        structure_caps = structure_confidence_caps(
+            config.universe.enabled_ids,
+            document_registry=structure_registry,
+            report_records=structure_reports,
+            holdings=structure_holdings,
+            decision_time=effective_as_of,
+        )
+    except (OSError, TypeError, ValueError):
+        structure_caps = {str(instrument_id): 0.0 for instrument_id in config.universe.enabled_ids}
     data_report = validate_prices(prices, as_of_date=effective_as_of)
     if target_policy_issues(config):
         data_report = data_report.__class__(
@@ -105,8 +122,15 @@ def main() -> int:
         toto_available=status["toto"],
         timesfm_available=status["timesfm"],
         forecast_scores=forecast_component_maps(forecasts_frame),
+        structure_confidence_caps=structure_caps,
     )
-    backtest = run_backtest(config, prices)
+    backtest = run_backtest(
+        config,
+        prices,
+        structure_document_registry=structure_registry,
+        structure_report_records=structure_reports,
+        structure_holdings=structure_holdings,
+    )
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -151,6 +175,18 @@ def main() -> int:
     print(f"Backtest quality: {backtest.quality_label}")
     print(f"Wrote {report_path}")
     return 0
+
+
+def _load_local_structural_evidence() -> tuple[object, object, object]:
+    """Load the same optional local structural inputs for signals and backtests."""
+
+    try:
+        registry = read_document_registry()
+        reports = read_etf_report_records()
+        holdings = pd.read_parquet(FUND_HOLDINGS_PATH) if FUND_HOLDINGS_PATH.exists() else pd.DataFrame()
+        return registry, reports, holdings
+    except (OSError, TypeError, ValueError):
+        return None, None, None
 
 
 def _fetch_reference_data(provider: YFinanceProvider, config, *, skip: bool) -> dict[str, object]:

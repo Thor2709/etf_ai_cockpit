@@ -49,6 +49,22 @@ def _report(source_id: str = "report:v2:one", *, replication: str = "Synthetic s
     }
     for field, value in values.items():
         evidence.append({"field_name": field, "value": value, "source_page": 4, "confidence": "high", "status": "extracted"})
+    evidence.extend(
+        {
+            "field_name": field,
+            "value": value,
+            "unit": unit,
+            "source_page": 4,
+            "confidence": "high",
+            "status": "extracted",
+        }
+        for field, value, unit in (
+            ("exposure", "0.4", "fraction_of_nav"),
+            ("collateral_fraction", "0.8", "fraction_of_exposure"),
+            ("haircut_fraction", "0.1", "scenario_haircut_fraction"),
+            ("concentration_limit_fraction", "0.25", "fraction_of_collateral"),
+        )
+    )
     return pd.DataFrame([{
         "instrument_id": "ETF-1",
         "source_id": source_id,
@@ -83,6 +99,18 @@ def test_projection_requires_exact_registry_binding_and_preserves_provenance() -
     assert projection["documents"]["prospectus"]["status"] == "available"
     assert projection["documents"]["holdings"]["status"] == "unknown"
     assert projection["execution_allowed"] is False
+
+
+def test_duplicate_registry_source_id_is_quarantined_instead_of_last_row_win() -> None:
+    duplicate_registry = pd.concat(
+        [_registry(), _registry()],
+        ignore_index=True,
+    )
+    projection = project_etf_structure("ETF-1", document_registry=duplicate_registry, report_records=_report())
+
+    assert projection["fields"]["replication_method"]["status"] == "unknown"
+    assert projection["documents"]["prospectus"]["status"] == "unknown"
+    assert any(item["reason_code"] == "duplicate_registry_source_id" for item in projection["rejected_candidates"])
 
 
 def test_pending_report_rows_are_not_structural_evidence() -> None:
@@ -244,6 +272,7 @@ def test_numeric_stress_uses_bound_fraction_nav_formulas_and_rejects_implicit_va
     stress = calculate_structural_stress(
         **evidence,
         registry=_registry(),
+        report_records=_report(),
         candidates=candidates,
         decision_time="2026-07-03T00:00:00Z",
         instrument_id="ETF-1",
@@ -254,6 +283,7 @@ def test_numeric_stress_uses_bound_fraction_nav_formulas_and_rejects_implicit_va
         haircut_fraction=NumericEvidence("0.1", "scenario_haircut_fraction"),
         concentration_limit_fraction=NumericEvidence("0.25", "fraction_of_collateral"),
         registry=_registry(),
+        report_records=_report(),
         candidates=candidates,
     )
 
@@ -320,6 +350,7 @@ def test_numeric_stress_rejects_changed_value_unit_and_repurposed_textual_candid
         stress = calculate_structural_stress(
             **inputs,
             registry=registry,
+            report_records=_report(),
             candidates=list(valid.values()),
             instrument_id="ETF-1",
         )
@@ -398,6 +429,35 @@ def test_review_history_replays_before_verification_at_verification_and_after_re
     assert rejected["fields"]["replication_method"]["status"] == "unknown"
 
 
+def test_review_history_same_timestamp_replays_append_order() -> None:
+    for history, expected in (
+        (
+            [
+                {"decision": "rejected", "reviewer": "auditor", "reviewed_at": "2026-07-04T00:00:00Z", "extraction_sha256": "b" * 64},
+                {"decision": "verified", "reviewer": "analyst", "reviewed_at": "2026-07-04T00:00:00Z", "extraction_sha256": "b" * 64},
+            ],
+            "resolved",
+        ),
+        (
+            [
+                {"decision": "verified", "reviewer": "analyst", "reviewed_at": "2026-07-04T00:00:00Z", "extraction_sha256": "b" * 64},
+                {"decision": "rejected", "reviewer": "auditor", "reviewed_at": "2026-07-04T00:00:00Z", "extraction_sha256": "b" * 64},
+            ],
+            "unknown",
+        ),
+    ):
+        report = _report()
+        report.loc[0, "review_history"] = json.dumps(history)
+        projection = project_etf_structure(
+            "ETF-1",
+            document_registry=_registry(),
+            report_records=report,
+            decision_time="2026-07-05T00:00:00Z",
+        )
+
+        assert projection["fields"]["replication_method"]["status"] == expected
+
+
 def test_structure_projection_uses_distinct_numeric_candidates_and_rejects_input_status() -> None:
     from etf_cockpit.application.ui_facade import load_etf_structure_projection
 
@@ -428,6 +488,27 @@ def test_structure_projection_uses_distinct_numeric_candidates_and_rejects_input
         numeric_inputs=numeric, numeric_candidates=list(numeric.values()),
     )
     assert facade_projection["stress"]["status"] == "available"
+
+
+def test_numeric_stress_does_not_authenticate_caller_created_candidates() -> None:
+    numeric = {
+        field: NumericEvidence(value, unit, "report:v2:one", "2026-07-01", 4, "high", "2026-07-02T00:00:00Z", CHECKSUM, "ETF-1", field)
+        for field, value, unit in (
+            ("exposure", "0.4", "fraction_of_nav"),
+            ("collateral_fraction", "0.8", "fraction_of_exposure"),
+            ("haircut_fraction", "0.1", "scenario_haircut_fraction"),
+            ("concentration_limit_fraction", "0.25", "fraction_of_collateral"),
+        )
+    }
+    stress = calculate_structural_stress(
+        **numeric,
+        registry=_registry(),
+        candidates=list(numeric.values()),
+        decision_time="2026-07-03T00:00:00Z",
+        instrument_id="ETF-1",
+    )
+
+    assert stress["status"] == "unavailable"
 
 
 def test_no_derivatives_and_no_securities_lending_do_not_activate_risk_branches() -> None:
