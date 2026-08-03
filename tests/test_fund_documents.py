@@ -156,6 +156,17 @@ def test_generic_document_import_rejects_report_kinds_and_v2_registry_has_kind_s
     assert {"document_kind", "extraction_status"} <= set(inventory.columns)
 
 
+def test_explicit_sfdr_registration_is_retained_as_an_optional_versioned_family(tmp_path: Path) -> None:
+    source = tmp_path / "sfdr.pdf"
+    source.write_bytes(b"sfdr article 8 v2")
+    document = register_document(source, "sfdr_disclosure", "VWCE", "", "issuer_document", document_date="2026-07-10")
+    inventory = build_document_inventory(["VWCE"], [document])
+
+    row = inventory.loc[inventory["document_type"].eq("sfdr")].iloc[0]
+    assert row["source_id"] == document.source_id
+    assert row["coverage_status"] == "available"
+
+
 def test_trust_artifact_inventory_emits_missing_rows_for_each_configured_instrument(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

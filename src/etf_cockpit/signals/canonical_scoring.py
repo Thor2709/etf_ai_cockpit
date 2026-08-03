@@ -8,7 +8,7 @@ move to the separated outputs.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 import hashlib
 import json
@@ -202,6 +202,7 @@ def build_canonical_score(
     legacy_penalties: Mapping[str, float] | None = None,
     policy: ScorePolicy | None = None,
     source_vintage_hash: str | None = None,
+    structure_confidence_cap: float | None = None,
 ) -> CanonicalScore:
     selected_policy = policy or load_score_policy(asset_type)
     timestamp = str(decision_time.isoformat() if isinstance(decision_time, date) else decision_time)
@@ -246,6 +247,10 @@ def build_canonical_score(
         contributions.extend(group_contributions)
     overall_coverage = total_active / total_configured if total_configured else 0.0
     confidence = _confidence_score(source_components, overall_coverage)
+    if structure_confidence_cap is not None:
+        cap = _bounded_structure_cap(structure_confidence_cap)
+        confidence = None if confidence is None else round(min(confidence, 10.0 * cap), 1)
+        warnings.append(f"structure_confidence_cap:{cap:.3f}")
     legacy_raw = _legacy_composite(source_components, legacy_component_weights, legacy_penalties)
     vintage_hash = source_vintage_hash or source_vintage_fingerprint(source_components, timestamp)
     return CanonicalScore(
@@ -267,6 +272,15 @@ def build_canonical_score(
         warnings=tuple(dict.fromkeys(warnings)),
         explanations=tuple(dict.fromkeys(explanations)),
     )
+
+
+def apply_structure_confidence_cap(score: CanonicalScore, cap: float) -> CanonicalScore:
+    """Cap evidence confidence only; preserve attractiveness and return outputs."""
+
+    bounded = _bounded_structure_cap(cap)
+    confidence = None if score.evidence_confidence_10 is None else round(min(score.evidence_confidence_10, 10.0 * bounded), 1)
+    warning = f"structure_confidence_cap:{bounded:.3f}"
+    return replace(score, evidence_confidence_10=confidence, warnings=tuple(dict.fromkeys((*score.warnings, warning))))
 
 
 def canonical_score_from_simple_components(
@@ -302,6 +316,7 @@ def canonical_score_from_signal_row(
     *,
     toto_available: bool = False,
     timesfm_available: bool = False,
+    structure_confidence_cap: float | None = None,
 ) -> CanonicalScore:
     instrument_id = str(row.get("etf_id") or row.get("instrument_id") or "unknown")
     as_of = str(decision_time.isoformat() if isinstance(decision_time, date) else decision_time)
@@ -333,6 +348,7 @@ def canonical_score_from_signal_row(
             "cost_penalty": _number(row.get("cost_penalty")) or 0.0,
             "turnover_penalty": _number(row.get("turnover_penalty")) or 0.0,
         },
+        structure_confidence_cap=structure_confidence_cap,
     )
 
 
@@ -386,6 +402,14 @@ def _confidence_score(components: Iterable[CanonicalComponent], coverage: float)
         uncertainty = {"low": 1.0, "medium": 0.8, "high": 0.5}.get(component.uncertainty.casefold(), 0.4)
         values.append(authority * freshness * uncertainty)
     return round(max(0.0, min(10.0, 10.0 * (sum(values) / len(values)) * coverage)), 1)
+
+
+def _bounded_structure_cap(value: object) -> float:
+    try:
+        cap = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0.0
+    return cap if math.isfinite(cap) and 0.0 <= cap <= 1.0 else 0.0
 
 
 def _legacy_composite(

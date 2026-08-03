@@ -31,6 +31,8 @@ _DOCUMENT_TYPE_ALIASES = {
     "holdings": "holdings",
     "methodology": "methodology",
     "index_methodology": "methodology",
+    "sfdr": "sfdr",
+    "sfdr_disclosure": "sfdr",
 }
 
 
@@ -242,6 +244,13 @@ def build_document_inventory(
                 rows.extend(sorted(matches, key=lambda item: (item.document_date or "", item.source_id), reverse=True))
             else:
                 rows.append(replace(unavailable_document(instrument_id, document_type, "document_not_available"), coverage_status="missing"))
+        # Optional disclosure families such as SFDR are retained when they are
+        # explicitly registered, without expanding the legacy inventory's
+        # mandatory missing-row contract.
+        extra_types = sorted({document.document_type for document in unique.values() if document.instrument_id == instrument_id and document.document_type not in DOCUMENT_TYPES})
+        for document_type in extra_types:
+            matches = [document for document in unique.values() if document.instrument_id == instrument_id and document.document_type == document_type]
+            rows.extend(sorted(matches, key=lambda item: (item.document_date or "", item.source_id), reverse=True))
     frame = pd.DataFrame([asdict(item) for item in rows])
     if frame.empty:
         return pd.DataFrame(columns=_DOCUMENT_COLUMNS)

@@ -17,6 +17,7 @@ from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.types import DataQualityReport
 from etf_cockpit.data.validation import validate_prices
 from etf_cockpit.data.provenance import sha256_dataframe
+from etf_cockpit.data.etf_structure import structure_confidence_caps
 from etf_cockpit.features.feature_pipeline import compute_features, latest_features
 from etf_cockpit.portfolio.costs import COST_MODEL_ID, estimate_rebalance_cost
 from etf_cockpit.signals.quality_momentum import FRAME_COLUMNS, QUALITY_MOMENTUM_VERSION, build_quality_momentum_frame, quality_momentum_weights
@@ -177,6 +178,9 @@ def run_backtest(
     initial_value_eur: float = 10000,
     rebalance_frequency_days: int = 21,
     transaction_cost_bps: float | None = None,
+    structure_document_registry: object = None,
+    structure_report_records: object = None,
+    structure_supplemental_rows: object = None,
 ) -> BacktestReport:
     pivot_raw = _price_pivot(prices)
     columns = [column for column in config.universe.enabled_ids if column in pivot_raw.columns]
@@ -312,6 +316,13 @@ def run_backtest(
             report = validate_prices(truncated_prices, as_of_date=dt.date(), min_history_days=180)
             if report.status == "Blocked":
                 report = DataQualityReport(as_of_date=dt.date(), issues=[issue for issue in report.issues if issue.code != "insufficient_history"])
+            structure_caps = structure_confidence_caps(
+                columns,
+                document_registry=structure_document_registry,
+                report_records=structure_report_records,
+                supplemental_rows=structure_supplemental_rows,
+                decision_time=dt.date(),
+            )
             signals = generate_signals(
                 config,
                 latest,
@@ -319,6 +330,7 @@ def run_backtest(
                 report,
                 as_of_date=dt.date(),
                 run_id=f"backtest_{dt:%Y%m%d}",
+                structure_confidence_caps=structure_caps,
             )
             signal_weight = weights["signal_strategy"].copy()
             target = target_weights(config, columns)

@@ -7,7 +7,7 @@ import flet as ft
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
-from etf_cockpit.app.selectors.instrument_detail import InstrumentDetailViewModel, build_etf_disclosure_panel, build_etf_liquidity_panel, build_instrument_detail
+from etf_cockpit.app.selectors.instrument_detail import InstrumentDetailViewModel, build_etf_disclosure_panel, build_etf_structure_panel, build_etf_liquidity_panel, build_instrument_detail
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import bitemporal_history_summary
 
@@ -42,6 +42,50 @@ def render_etf_disclosure_panel(model: InstrumentDetailViewModel) -> ft.Control:
         )
         body = ft.Column([metadata, *[ft.Text(line, color=theme.MUTED, selectable=True, size=11) for line in [*document_lines, holdings_line, kid_line, methodology_line] or ["No local disclosure rows are available."]]], spacing=4)
     return panel(ft.Column([section_header("ETF disclosure evidence", "Document inventory and normalised holdings quality for the selected instrument; unavailable values stay explicit."), body], spacing=8))
+
+
+def render_etf_structure_panel(model: InstrumentDetailViewModel) -> ft.Control:
+    """Render structural evidence, provenance, conflicts, versions and stresses."""
+
+    structure = build_etf_structure_panel(model)
+    fields = structure.get("fields", {}) if isinstance(structure.get("fields"), dict) else {}
+    documents = structure.get("documents", {}) if isinstance(structure.get("documents"), dict) else {}
+    field_lines = []
+    for field_name, field in fields.items():
+        if not isinstance(field, Mapping):
+            continue
+        field_lines.append(
+            f"{field_name}: status={field.get('status', 'unknown')} | value={field.get('value', 'unavailable')} | "
+            f"document={field.get('document_id', 'unavailable')} | date={field.get('document_date', 'unavailable')} | "
+            f"page={field.get('page', 'unavailable')} | confidence={field.get('confidence', 0.0)} | "
+            f"known_at={field.get('known_at', 'unavailable')}"
+        )
+    document_lines = [
+        f"{family}: status={value.get('status', 'unknown')} | source_id={value.get('source_id', 'unavailable')} | "
+        f"date={value.get('document_date', 'unavailable')} | version={value.get('version', 'unavailable')} | "
+        f"checksum={value.get('checksum', 'unavailable')}"
+        for family, value in documents.items()
+        if isinstance(value, Mapping)
+    ]
+    versions = structure.get("versions", [])
+    version_lines = [
+        f"version {row.get('family', 'document')}: {row.get('version', 'unavailable')} | date={row.get('document_date', 'unavailable')} | source_id={row.get('source_id', 'unavailable')}"
+        for row in versions
+        if isinstance(row, Mapping)
+    ]
+    stress = structure.get("stress", {}) if isinstance(structure.get("stress"), Mapping) else {}
+    lines = [
+        f"status={structure.get('status', 'unavailable')} | evidence_confidence_cap={structure.get('evidence_confidence_cap', 0.0)} | confidence_version={structure.get('confidence_version', 'unavailable')}",
+        f"flags={structure.get('flags', [])} | conflicts={structure.get('conflict_fields', [])} | limitations={structure.get('confidence_limitation', 'unavailable')}",
+        f"stress: status={stress.get('status', 'unavailable')} | unsecured={stress.get('unsecured', 'unavailable')} | concentration={stress.get('concentration', 'unavailable')} | formula={stress.get('formula_version', 'unavailable')}",
+        "Legal and sustainability labels are context-only; no alpha or expected return is derived from them.",
+        "execution_allowed=false",
+        *document_lines,
+        *version_lines,
+        *field_lines,
+    ]
+    body = ft.Column([ft.Text(line, color=theme.MUTED, selectable=True, size=11) for line in lines], spacing=4)
+    return panel(ft.Column([section_header("ETF Structure & Documents", "Document-bound replication, legal, counterparty, lending and collateral evidence with explicit unknown, conflict and numeric-stress limitations."), body], spacing=8))
 
 
 def render_news_context_panel(model: InstrumentDetailViewModel) -> ft.Control:
@@ -560,6 +604,7 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
             _render_feature_driver_panel(model.sections.get("feature_drivers")),
             _render_crowding_attribution_panel(model.sections),
             render_etf_disclosure_panel(model),
+            render_etf_structure_panel(model),
             render_news_context_panel(model),
             render_event_calendar_panel(model),
             *rows,

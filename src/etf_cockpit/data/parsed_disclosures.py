@@ -1024,14 +1024,18 @@ def _row_is_verifiable(row: pd.Series) -> bool:
         evidence = json.loads(str(row.get("field_evidence") or "[]"))
     except (TypeError, json.JSONDecodeError):
         return False
-    required = set(REPORT_FIELDS[:3]) | {"legal_structure"}
+    required = set(REPORT_FIELDS[:3])
     if str(row.get("document_kind")) in {"annual_report", "half_year_report"}:
         required.add("reporting_period_end")
     by_field = {str(item.get("field_name")): item for item in evidence if isinstance(item, dict)}
     warning_codes = _warning_codes(row.get("warnings"))
     if warning_codes & {"field_conflict", "page_text_limit", "total_text_limit", "page_limit_applied", "required_field_missing", "identity_mismatch"}:
         return False
-    return all(by_field.get(field, {}).get("status") == "extracted" and by_field[field].get("candidate_pages") for field in required)
+    legal_structure_ok = any(
+        by_field.get(field, {}).get("status") == "extracted" and by_field[field].get("candidate_pages")
+        for field in ("legal_structure", "legal_form")
+    )
+    return legal_structure_ok and all(by_field.get(field, {}).get("status") == "extracted" and by_field[field].get("candidate_pages") for field in required)
 
 
 def _warning_codes(value: Any) -> set[str]:

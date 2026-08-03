@@ -19,9 +19,12 @@ field-excerpt bounds fail closed.  No retry, network access, OCR, model or
 generative extraction is involved.
 
 Every structured field has status, value, candidates, page provenance, the
-matched label and a bounded excerpt.  Required structural fields are
-`fund_name`, `ISIN`, `document_date` and `legal_structure`; annual and
-half-year reports additionally require `reporting_period_end`.  Unsupported
+matched label and a bounded excerpt.  Parser version `2.1` appends narrow,
+label-anchored fields for replication, derivatives, counterparties, collateral,
+lending, domicile, legal form and concentration limits; no existing parser
+version is rewritten. Required identity fields are `fund_name`, `ISIN`,
+`document_date` and `legal_structure` (or an extracted `legal_form`); annual and
+half-year reports additionally require `reporting_period_end`. Unsupported
 language/template, malformed identity dates, identity mismatch, missing
 required fields, decode failure and resource limits remain explicit failed
 registry states and are never `available`.
@@ -66,4 +69,18 @@ parser/plugin revision fails closed before publication.
 The Trust Evidence page exposes the three report kinds, field values,
 plugins, pages, checksums, authority, parser/review status, fingerprints,
 typed Verify/Reject controls and the conflict table.  This surface does not
-feed ISSUE-0104 structural scoring or any execution authority.
+grant any execution authority; the ISSUE-0104 projection consumes its
+document-bound evidence separately.
+
+ISSUE-0104 consumes these rows through the local
+`etf-structure-documents.v1` projection. Structural and supplemental
+candidates are usable only when instrument, registry source ID, checksum,
+document date, page, confidence and registry `known_at` bind exactly. The
+projection selects the latest usable factsheet, prospectus/report and holdings
+family revision as of decision time, while retaining explicit resolved,
+unknown, conflict and unusable states. Unknown/conflicted evidence contributes
+zero to the versioned evidence-confidence cap; it does not alter attractiveness,
+expected return, weights or execution. Synthetic structures require direct
+counterparty and collateral terms, lending requires direct collateral terms,
+and legal/SFDR labels remain context-only. Numeric unsecured and concentration
+stresses are available only for explicit, valid decimal-fraction inputs.

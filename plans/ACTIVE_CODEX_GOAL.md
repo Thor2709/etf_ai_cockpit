@@ -13,25 +13,25 @@ former active-goal record and chronology are archived in
 `plans/archive/ATOMIC_FAST_PATH_ISSUE-0179-0180_2026-07-31.md`. Current delivery
 mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 
-## Current ISSUE-0104 readiness checkpoint
+## Current ISSUE-0104 product checkpoint
 
-- Dependency PR #653 merged independently approved exact head
-  `38e66a4a50cd7ce8833afa5daaaafdf99cd0a0aa` as exact main
-  `5f9aff22ed95ff0075b457ee72412b244d2373b6`. Release run
-  `30774981009` and status guard `30774981069` passed; exact-main convergence
-  `30775335504` produced zero GitHub actions. Canonical readiness is now
-  `READY_BLOCKING_EDGES_RESOLVED`.
-- Clean lane
-  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0104_ready`,
-  branch `codex/issue0104-ready-20260803`, started empty from that exact main
-  and records only ISSUE-0104 `planned -> ready`, its append-only one-hop
-  authority, allowlisted chronology and mechanically generated projections.
-- The exact live plan contains one managed Programme-status update for GitHub
-  issue #244 at semantic SHA
-  `c5ea7e26c434487e209588b616c63eb60edacaddb95df0a4ba0ed3ad173f3ffc`.
-  Product code, dependency edges and external authority are unchanged;
-  `execution_allowed=false` remains. Exact guard, candidate/readback
-  validation, focused E-tier checks and stable-head review precede merge.
+- Readiness PR #654 merged independently approved exact head
+  `92523800cbbb83a307b9250867b495e722b5196c` as
+  `fca004a529cccc3b0d4251fc600a897035298014`. Release run
+  `30775791157` and guard `30775791108` passed. Ordered writer
+  `30776243636` returned `applied_and_verified` with
+  `zero_action_readback=true`; fresh generic exact-main convergence is
+  zero-action at plan SHA
+  `f60115aa8e2cf9655974050b590864231261317ad82250a89563a1e6bf27571e`.
+- Canonical and GitHub issue #244 now agree on `ready`. Clean product lane
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0104_product`,
+  branch `codex/issue0104-product-20260803`, starts empty at exact main
+  `fca004a529cccc3b0d4251fc600a897035298014`.
+- Bounded scope is ETF structural/legal/counterparty/lending/collateral
+  analysis with per-field document/date/page/confidence, explicit unknown and
+  conflict states, evidence-gated numeric stress and a Structure & Documents
+  panel. It must not invent values or alpha, inherit stock credit metrics,
+  enable execution, or broaden provider/parser authority.
 
 ## Completed UPDATEV2-0018 product checkpoint
 

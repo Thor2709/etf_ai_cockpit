@@ -9,6 +9,10 @@ ports and application commands.
 from collections.abc import Mapping
 from pathlib import Path
 
+from etf_cockpit.data.etf_structure import project_etf_structure
+from etf_cockpit.data.fund_documents import read_document_registry
+from etf_cockpit.data.parsed_disclosures import read_etf_report_records
+
 from etf_cockpit.analysis.fixed_income_analytics import (
     FixedIncomeAnalyticsError,
     FixedIncomeValuationInput,
@@ -97,10 +101,13 @@ from etf_cockpit.analysis.innovation_sector_adapters import (
     unavailable_innovation_projection,
     verify_innovation_projection,
 )
+
+
 from etf_cockpit.data.manual_notes import *  # noqa: F401,F403
 from etf_cockpit.data.news_context import *  # noqa: F401,F403
 from etf_cockpit.data.oam_adapters import *  # noqa: F401,F403
 from etf_cockpit.data.parsed_disclosures import *  # noqa: F401,F403
+from etf_cockpit.data.etf_structure import *  # noqa: F401,F403
 from etf_cockpit.data.provider_registry import *  # noqa: F401,F403
 from etf_cockpit.data.privacy import *  # noqa: F401,F403
 from etf_cockpit.data.reference_data import *  # noqa: F401,F403
@@ -134,6 +141,44 @@ from etf_cockpit.portfolio.risk_analytics import *  # noqa: F401,F403
 from etf_cockpit.application.portfolio_sandbox import *  # noqa: F401,F403
 from etf_cockpit.application.overlap import *  # noqa: F401,F403
 from etf_cockpit.signals.simple_scores import *  # noqa: F401,F403
+
+
+def load_etf_structure_projection(
+    instrument_id: str,
+    *,
+    document_registry: object = None,
+    report_records: object = None,
+    supplemental_rows: object = None,
+    holdings: object = None,
+    decision_time: object = None,
+    numeric_inputs: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """Load the local ETF structural read model without provider access."""
+
+    try:
+        registry = read_document_registry() if document_registry is None else document_registry
+        reports = read_etf_report_records() if report_records is None else report_records
+        return project_etf_structure(
+            instrument_id,
+            document_registry=registry,
+            report_records=reports,
+            supplemental_rows=supplemental_rows,
+            holdings=holdings,
+            decision_time=decision_time,
+            numeric_inputs=numeric_inputs,
+        )
+    except (OSError, TypeError, ValueError):
+        return {
+            "contract": "etf-structure-documents.v1",
+            "instrument_id": str(instrument_id),
+            "status": "unavailable",
+            "fields": {},
+            "documents": {family: {"status": "unknown", "execution_allowed": False} for family in ("factsheet", "prospectus", "holdings")},
+            "versions": [],
+            "flags": ["structure_evidence_invalid"],
+            "evidence_confidence_cap": 0.0,
+            "execution_allowed": False,
+        }
 
 
 def load_identity_projection(

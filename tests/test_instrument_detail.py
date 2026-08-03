@@ -362,7 +362,7 @@ def test_instrument_detail_driver_panel_normalises_legacy_store_columns(tmp_path
 def test_instrument_detail_has_required_sections_for_primary_and_sparebanken() -> None:
     snapshot = build_snapshot()
     model = build_instrument_detail(snapshot, snapshot.config.universe.enabled_ids[0])
-    assert {"identity", "price", "scores", "risk", "attribution", "fundamentals", "etf_disclosures", "news", "forecasts", "backtests", "history", "journal", "run_changes"} <= set(model.sections)
+    assert {"identity", "price", "scores", "risk", "attribution", "fundamentals", "etf_disclosures", "etf_structure", "news", "forecasts", "backtests", "history", "journal", "run_changes"} <= set(model.sections)
     assert model.instrument_id
 
 

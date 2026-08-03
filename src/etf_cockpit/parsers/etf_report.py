@@ -19,7 +19,7 @@ from typing import Any
 from etf_cockpit.parsers.contracts import ParseResult, ParseWarning
 
 
-PARSER_VERSION = "2.0"
+PARSER_VERSION = "2.1"
 REPORT_KINDS = ("prospectus", "annual_report", "half_year_report")
 DEFAULT_MAX_FILE_BYTES = 50 * 1024 * 1024
 DEFAULT_MAX_PAGES = 250
@@ -49,7 +49,16 @@ REPORT_FIELDS = (
     "document_date",
     "reporting_period_end",
     "legal_structure",
+    "legal_form",
+    "domicile",
+    "replication_method",
+    "derivatives",
+    "counterparties",
+    "collateral_terms",
+    "concentration_limits",
     "securities_lending",
+    "lending_policy",
+    "lending_revenue_split",
     "collateral_policy",
     "ongoing_costs",
     "holdings_count",
@@ -137,8 +146,17 @@ _EN_FIELDS = (
     _FieldPattern("isin", "ISIN", r"\bISIN\s*:\s*(?P<value>[A-Z]{2}[A-Z0-9]{10})\b"),
     _FieldPattern("document_date", "Document date", r"(?:document\s+date|dated)\s*:\s*(?P<value>[^\n]{1,80})"),
     _FieldPattern("reporting_period_end", "Reporting period ended", r"(?:reporting\s+period\s+ended|period\s+ended|for\s+the\s+(?:year|half[- ]year)\s+ended)\s*:\s*(?P<value>[^\n]{1,80})"),
-    _FieldPattern("legal_structure", "Legal structure", r"(?:legal\s+structure|legal\s+form|fund\s+structure)\s*:\s*(?P<value>[^\n]{1,300})"),
+    _FieldPattern("legal_structure", "Legal structure", r"(?:legal\s+structure|fund\s+structure)\s*:\s*(?P<value>[^\n]{1,300})"),
+    _FieldPattern("legal_form", "Legal form", r"(?:legal\s+form)\s*:\s*(?P<value>[^\n]{1,300})"),
+    _FieldPattern("domicile", "Domicile", r"(?:fund\s+)?domicile\s*:\s*(?P<value>[^\n]{1,160})"),
+    _FieldPattern("replication_method", "Replication method", r"replication\s+method\s*:\s*(?P<value>[^\n]{1,300})"),
+    _FieldPattern("derivatives", "Derivatives", r"(?:derivatives?|derivative\s+use)\s*:\s*(?P<value>[^\n]{1,500})"),
+    _FieldPattern("counterparties", "Counterparties", r"counterpart(?:y|ies)\s*:\s*(?P<value>[^\n]{1,500})"),
+    _FieldPattern("collateral_terms", "Collateral terms", r"collateral\s+terms\s*:\s*(?P<value>[^\n]{1,500})"),
+    _FieldPattern("concentration_limits", "Concentration limits", r"concentration\s+limits?\s*:\s*(?P<value>[^\n]{1,500})"),
     _FieldPattern("securities_lending", "Securities lending", r"(?:securities\s+lending|stock\s+lending)\s*:\s*(?P<value>[^\n]{1,500})"),
+    _FieldPattern("lending_policy", "Lending policy", r"lending\s+policy\s*:\s*(?P<value>[^\n]{1,500})"),
+    _FieldPattern("lending_revenue_split", "Lending revenue split", r"(?:lending\s+revenue\s+split|revenue\s+split)\s*:\s*(?P<value>[^\n]{1,240})"),
     _FieldPattern("collateral_policy", "Collateral policy", r"(?:collateral\s+policy|collateral)\s*:\s*(?P<value>[^\n]{1,500})"),
     _FieldPattern("ongoing_costs", "Ongoing charges", r"(?:ongoing\s+(?:charges|costs)|total\s+expense\s+ratio|management\s+fee)\s*:\s*(?P<value>[^\n]{1,80})"),
     _FieldPattern("holdings_count", "Number of holdings", r"(?:number\s+of\s+holdings|total\s+holdings)\s*:\s*(?P<value>[^\n]{1,80})"),
@@ -313,7 +331,10 @@ def parse_etf_report(
                 "truncated": "field_output_truncated",
             }[item.status]
             warnings.append(ParseWarning(code, f"Bounded report field is {item.status}: {item.field_name}", severity, _pages_location(item)))
-        elif item.status == "unknown" and item.field_name in required:
+        elif item.status == "unknown" and item.field_name in required and not (
+            item.field_name == "legal_structure"
+            and any(candidate.field_name == "legal_form" and candidate.status == "extracted" for candidate in evidence)
+        ):
             warnings.append(ParseWarning("required_field_missing", f"Required report field is unavailable: {item.field_name}", "error", "document"))
     expected = str(expected_isin or "").strip().upper()
     actual = str(fields.get("isin") or "").strip().upper()

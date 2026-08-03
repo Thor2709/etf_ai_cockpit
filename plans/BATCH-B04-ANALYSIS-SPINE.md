@@ -9,21 +9,21 @@ Current delivery mechanics are defined in
 to sole workers, Sol-low workers or old lifecycle PR chains describe past
 execution and are not current operational instructions.
 
-## Current ISSUE-0104 readiness lane
+## Current ISSUE-0104 product lane
 
-Dependency PR #653 merged independently approved exact head
-`38e66a4a50cd7ce8833afa5daaaafdf99cd0a0aa` as exact main
-`5f9aff22ed95ff0075b457ee72412b244d2373b6`; release and guard checks passed,
-and convergence `30775335504` returned zero GitHub actions. Both ISSUE-0104
-blocking dependencies are now resolved and deterministic readiness is true.
+Readiness PR #654 merged independently approved exact head
+`92523800cbbb83a307b9250867b495e722b5196c` as
+`fca004a529cccc3b0d4251fc600a897035298014`. Writer `30776243636` applied and
+verified the sole `planned -> ready` projection with zero-action readback;
+fresh generic convergence is zero action at
+`f60115aa8e2cf9655974050b590864231261317ad82250a89563a1e6bf27571e`.
 
-Clean branch `codex/issue0104-ready-20260803` records only ISSUE-0104
-`planned -> ready`, append-only one-hop authority, allowlisted chronology and
-mechanically generated projections. Its live semantic plan
-`c5ea7e26c434487e209588b616c63eb60edacaddb95df0a4ba0ed3ad173f3ffc`
-contains one managed update for GitHub issue #244. Product code and dependency
-edges are unchanged and `execution_allowed=false`; exact E-tier validation,
-review, merge and zero-action readback are next before the product lane.
+Clean branch `codex/issue0104-product-20260803` now implements the bounded
+structural/legal/counterparty/lending/collateral analysis contract and ETF
+Structure & Documents panel from exact main. Every structural field retains
+document/date/page/confidence; unknowns and cross-document conflicts remain
+explicit, numeric stress requires numeric evidence, stock credit metrics and
+legal/sustainability alpha are prohibited, and `execution_allowed=false`.
 
 ## Completed UPDATEV2-0018 parser lane
 

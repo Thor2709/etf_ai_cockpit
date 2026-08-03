@@ -31,6 +31,7 @@ from etf_cockpit.application.ui_facade import (
     load_fixed_income_risk_projection,
     load_fixed_income_market_data_projection,
     load_fixed_income_analytics_projection,
+    load_etf_structure_projection,
     load_simple_scoreboard,
     load_statement_evidence,
     load_paper_trade_rows,
@@ -83,6 +84,7 @@ _SECTION_NAMES = (
     "attribution",
     "fundamentals",
     "etf_disclosures",
+    "etf_structure",
     "etf_holdings",
     "etf_overlap",
     "news",
@@ -743,6 +745,32 @@ def build_etf_disclosure_panel(model: InstrumentDetailViewModel) -> dict[str, An
     return value if isinstance(value, dict) else {"status": "unavailable", "document_inventory": [], "holdings": {"status": "unavailable"}, "kid": {"status": "unavailable"}, "methodology": {"status": "unavailable"}}
 
 
+def build_etf_structure_panel(model: InstrumentDetailViewModel) -> dict[str, Any]:
+    """Return the reusable structural/legal ETF panel model."""
+
+    value = model.sections.get("etf_structure")
+    return value if isinstance(value, dict) else {"status": "unavailable", "fields": {}, "documents": {}, "versions": [], "flags": ["structure_evidence_unavailable"], "execution_allowed": False}
+
+
+def _etf_structure_panel(
+    instrument_id: str,
+    *,
+    document_registry: pd.DataFrame | None = None,
+    report_records: pd.DataFrame | None = None,
+    supplemental_rows: object = None,
+    holdings: pd.DataFrame | None = None,
+    decision_time: object = None,
+) -> dict[str, Any]:
+    return load_etf_structure_projection(
+        instrument_id,
+        document_registry=document_registry,
+        report_records=report_records,
+        supplemental_rows=supplemental_rows,
+        holdings=holdings,
+        decision_time=decision_time,
+    )
+
+
 def _friction_panel(instrument_id: str, *, candidate_score: SimpleInstrumentScore | None = None) -> dict[str, Any]:
     fields = (
         "gross_expected_edge_bps",
@@ -1281,6 +1309,8 @@ def build_instrument_detail(
     holdings: pd.DataFrame | None = None,
     kid_records: pd.DataFrame | None = None,
     methodology_records: pd.DataFrame | None = None,
+    report_records: pd.DataFrame | None = None,
+    structure_rows: object = None,
     fundamentals: pd.DataFrame | None = None,
     news: pd.DataFrame | None = None,
     events: pd.DataFrame | None = None,
@@ -1414,6 +1444,14 @@ def build_instrument_detail(
             }
         )
     disclosure = _etf_disclosure_panel(instrument_id, document_registry=document_registry, holdings=holdings, kid_records=kid_records, methodology_records=methodology_records)
+    structure = _etf_structure_panel(
+        instrument_id,
+        document_registry=document_registry,
+        report_records=report_records,
+        supplemental_rows=structure_rows,
+        holdings=holdings,
+        decision_time=decision_time,
+    )
     overlap = build_direct_overlap_view(
         snapshot,
         [str(item.id) for item in snapshot.config.universe.etfs if bool(item.enabled)],
@@ -1501,6 +1539,7 @@ def build_instrument_detail(
             "attribution": _attribution_panel(derived, scoreboard),
             "fundamentals": _fundamentals_panel(instrument_id, fundamentals),
             "etf_disclosures": disclosure,
+            "etf_structure": structure,
             "etf_holdings": disclosure.get("exposure", _unavailable("ETF holdings/exposure unavailable.")),
             "etf_overlap": direct_overlap_payload(overlap),
             "news": _news_panel(instrument_id, news),

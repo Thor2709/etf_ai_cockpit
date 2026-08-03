@@ -51,7 +51,7 @@ def _complete(kind: str) -> list[str]:
     title = {"prospectus": "ETF Prospectus", "annual_report": "Annual report", "half_year_report": "Half-year report"}[kind]
     return [
         f"{title}\nFund name: Evidence ETF\nISIN: IE00B4L5Y983\nDocument date: 14 July 2026\nLegal structure: Irish UCITS investment company",
-        "Reporting period ended: 30 June 2026\nSecurities lending: Up to 50% of net assets.\nCollateral policy: Daily margining at 102%.\nOngoing charges: 0.22%\nNumber of holdings: 3612\nOperational risks: Depositary and settlement risk.",
+        "Reporting period ended: 30 June 2026\nReplication method: Physical full replication\nDerivatives: None\nCounterparties: None\nCollateral terms: Not applicable\nConcentration limits: Single issuer 20%\nDomicile: Ireland\nLegal form: Investment company\nLending policy: Up to 50% of net assets\nLending revenue split: Fund 75%, agent 25%\nSecurities lending: Up to 50% of net assets.\nCollateral policy: Daily margining at 102%.\nOngoing charges: 0.22%\nNumber of holdings: 3612\nOperational risks: Depositary and settlement risk.",
     ]
 
 
@@ -67,8 +67,9 @@ def test_three_explicit_kinds_return_page_bound_field_evidence(tmp_path: Path, m
     record = result.records[0]
     assert record.document_kind == kind
     assert set(record.structured_fields) == {
-        "fund_name", "isin", "document_date", "reporting_period_end", "legal_structure",
-        "securities_lending", "collateral_policy", "ongoing_costs", "holdings_count", "operational_risks",
+        "fund_name", "isin", "document_date", "reporting_period_end", "legal_structure", "legal_form", "domicile",
+        "replication_method", "derivatives", "counterparties", "collateral_terms", "concentration_limits",
+        "securities_lending", "lending_policy", "lending_revenue_split", "collateral_policy", "ongoing_costs", "holdings_count", "operational_risks",
     }
     evidence = {item.field_name: item for item in record.field_evidence}
     assert evidence["legal_structure"].pages == (1,)
