@@ -246,6 +246,16 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   paths without lifecycle or authority changes. Four attributable focused
   suites pass 182 tests total; Ruff, compile and diff hygiene pass. Freeze the
   replacement head for both exact-head reviews and fresh H-tier hosted gates.
+- Exact head `a7862cb70e33afd6c12f4db2656abb88e7ac8ae5` was rejected after
+  both reviewers completed. The complete finding set is point-in-time conflict
+  eligibility, same-clause contradiction safety, structural identity-alias
+  agreement and typed-channel type/kind agreement. Release run `30811214008`
+  was cancelled and is stale.
+- Point-in-time correction commit
+  `55582bf9169db7da3a2a293c76e6a8b8f48b8939` covers only those
+  reproduced paths. Four focused suites pass 202 tests total; Ruff, compile and
+  diff hygiene pass. Freeze the replacement head for both exact-head reviews
+  and fresh H-tier hosted gates.
 
 ## Completed UPDATEV2-0018 product checkpoint
 
