@@ -16890,7 +16890,19 @@
         "Conflicts between factsheet, prospectus and holdings are visible.",
         "Synthetic/counterparty risk does not inherit stock credit metrics without evidence."
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Dependency PR #653 merged independently approved exact head 38e66a4a50cd7ce8833afa5daaaafdf99cd0a0aa as 5f9aff22ed95ff0075b457ee72412b244d2373b6",
+            "Release run 30774981009 passed the exact E-tier classifier, protected preflight, supply-chain and terminal validation; status guard 30774981069 passed",
+            "Exact-main convergence run 30775335504 produced a zero-action GitHub readback; UPDATEV2-0015 is DEPENDENCY_LEDGER_CLOSED, UPDATEV2-0018 edge evidence is complete, deterministic readiness is READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
+          ],
+          "review_reference": "B04 ISSUE-0104 readiness after reviewed UPDATEV2-0018 report-evidence dependency edge",
+          "reviewed_date": "2026-08-03",
+          "reviewer": "Codex independent reviewer and root orchestrator",
+          "status": "ready"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [
         "UPDATEV2-0015",
@@ -16948,7 +16960,7 @@
       "package_status": "",
       "phase": "phase-04-etf-research",
       "priority": "P0/P1",
-      "programme_status": "planned",
+      "programme_status": "ready",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -16976,7 +16988,7 @@
       ],
       "title": "Implement ETF structural, legal, counterparty, lending and collateral risk analysis",
       "ui_requirement": "ETF Structure & Documents panel.",
-      "verified_commit": "7bffd0c57a992f599008a658425fc23575b9aef8",
+      "verified_commit": "5f9aff22ed95ff0075b457ee72412b244d2373b6",
       "verified_date": "2026-08-03",
       "why": "Two ETFs with similar exposure can have materially different structural risks.",
       "write_conflict_group": "etf-research"
@@ -27723,7 +27735,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "cc3b87a104f173d6a4cd11f7ca2b806a05cd513589355cbcd0f1ed3cd29e87db",
+    "programme_control_state_sha256": "1cba8ec5575d0a2ab9f52046ae4105980de9c68d585605f65e7085a19cc69dad",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

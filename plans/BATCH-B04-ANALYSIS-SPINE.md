@@ -9,22 +9,21 @@ Current delivery mechanics are defined in
 to sole workers, Sol-low workers or old lifecycle PR chains describe past
 execution and are not current operational instructions.
 
-## Current ISSUE-0104 dependency lane
+## Current ISSUE-0104 readiness lane
 
-UPDATEV2-0018 completion PR #652 merged independently approved exact head
-`5b260ee9eae199f38f32c5f7410a04d63803af4f` as
-`d0c3e3216dabafdffcd6f7f32c24122a629747f7`. Writer `30774651448`
-accepted the exact two-hop replay with zero-action readback and generic
-convergence `30774651452` produced no patch; canonical and GitHub now agree on
-`integrated` with `execution_allowed=false`.
+Dependency PR #653 merged independently approved exact head
+`38e66a4a50cd7ce8833afa5daaaafdf99cd0a0aa` as exact main
+`5f9aff22ed95ff0075b457ee72412b244d2373b6`; release and guard checks passed,
+and convergence `30775335504` returned zero GitHub actions. Both ISSUE-0104
+blocking dependencies are now resolved and deterministic readiness is true.
 
-Canonical order selects ISSUE-0104 next, but readiness remains false until its
-UPDATEV2-0018 edge receives reviewed evidence. Clean lane
-`codex/issue0104-dependency-updatev2-0018-20260803` starts at exact main
-`d0c3e3216dabafdffcd6f7f32c24122a629747f7` and records only that edge against
-the integrated bounded report parser, provenance, conflict and review
-contract. ISSUE-0104 remains `planned`; no status transition, dependency list,
-product code or execution authority changes.
+Clean branch `codex/issue0104-ready-20260803` records only ISSUE-0104
+`planned -> ready`, append-only one-hop authority, allowlisted chronology and
+mechanically generated projections. Its live semantic plan
+`c5ea7e26c434487e209588b616c63eb60edacaddb95df0a4ba0ed3ad173f3ffc`
+contains one managed update for GitHub issue #244. Product code and dependency
+edges are unchanged and `execution_allowed=false`; exact E-tier validation,
+review, merge and zero-action readback are next before the product lane.
 
 ## Completed UPDATEV2-0018 parser lane
 
