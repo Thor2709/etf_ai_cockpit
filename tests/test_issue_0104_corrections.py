@@ -299,6 +299,7 @@ def test_report_legal_form_conflict_is_cross_kind_and_not_temporally_invented() 
 
 def test_cross_kind_stable_conflict_remains_unusable_in_canonical_projection() -> None:
     from etf_cockpit.data.etf_structure import project_etf_structure
+    from etf_cockpit.data.parsed_disclosures import report_extraction_fingerprint
 
     checksum_a, checksum_b = "a" * 64, "b" * 64
     registry = pd.DataFrame([
@@ -307,15 +308,22 @@ def test_cross_kind_stable_conflict_remains_unusable_in_canonical_projection() -
     ])
 
     def report(source_id: str, kind: str, checksum: str, value: str, document_date: str, known_at: str) -> dict[str, object]:
-        return {
+        row = {
+            "schema_version": 2.1,
             "instrument_id": "ETF-1", "source_id": source_id, "document_type": "prospectus_report", "document_kind": kind,
             "source_sha256": checksum, "document_date": document_date, "known_at": known_at,
             "verification_status": "verified", "evidence_eligible": True, "extraction_sha256": "c" * 64,
             "stored_extraction_sha256": "c" * 64,
             "verified_by": "analyst", "verified_at": known_at, "review_note": "",
+            "manual_review": False, "score_eligible": False, "execution_allowed": False,
             "review_history": json.dumps([{"decision": "verified", "reviewer": "analyst", "note": "", "reviewed_at": known_at, "extraction_sha256": "c" * 64}]),
             "field_evidence": json.dumps([{"field_name": "legal_form", "value": value, "source_page": 2, "candidate_pages": [2], "confidence": "high", "status": "extracted"}]),
         }
+        fingerprint = report_extraction_fingerprint(pd.Series(row))
+        row["extraction_sha256"] = fingerprint
+        row["stored_extraction_sha256"] = fingerprint
+        row["review_history"] = json.dumps([{**item, "extraction_sha256": fingerprint} for item in json.loads(row["review_history"])])
+        return row
 
     reports = pd.DataFrame([
         report("prospectus-1", "prospectus", checksum_a, "ICAV", "2025-01-01", "2025-01-02T00:00:00Z"),
@@ -350,6 +358,69 @@ def test_inconsistent_current_review_state_fails_closed_through_supplied_facade(
 
     assert projection["fields"]["legal_form"]["status"] == "unknown"
     assert projection["fields"]["legal_form"]["value"] is None
+
+
+def _valid_supplied_structure_inputs() -> tuple[pd.DataFrame, pd.DataFrame]:
+    from test_etf_structure import _registry, _report
+
+    return _registry(), _report()
+
+
+def test_supplied_facade_rejects_structural_field_mutation_without_fingerprint_update() -> None:
+    from etf_cockpit.application.ui_facade import load_etf_structure_projection
+
+    registry, reports = _valid_supplied_structure_inputs()
+    evidence = json.loads(reports.loc[0, "field_evidence"])
+    next(item for item in evidence if item["field_name"] == "legal_form")["value"] = "Forged legal form"
+    reports.loc[0, "field_evidence"] = json.dumps(evidence)
+
+    projection = load_etf_structure_projection("ETF-1", document_registry=registry, report_records=reports)
+
+    assert projection["fields"]["legal_form"]["status"] == "unknown"
+    assert projection["stress"]["status"] == "unavailable"
+    assert projection["execution_allowed"] is False
+
+
+def test_supplied_facade_rejects_numeric_quartet_mutation_without_fingerprint_update() -> None:
+    from etf_cockpit.application.ui_facade import load_etf_structure_projection
+
+    registry, reports = _valid_supplied_structure_inputs()
+    evidence = json.loads(reports.loc[0, "field_evidence"])
+    next(item for item in evidence if item["field_name"] == "exposure")["value"] = "0.9"
+    reports.loc[0, "field_evidence"] = json.dumps(evidence)
+
+    projection = load_etf_structure_projection("ETF-1", document_registry=registry, report_records=reports)
+
+    assert projection["stress"]["status"] == "unavailable"
+    assert projection["fields"]["replication_method"]["status"] == "unknown"
+    assert projection["execution_allowed"] is False
+
+
+def test_supplied_facade_rejects_malformed_review_authority_flags() -> None:
+    from etf_cockpit.application.ui_facade import load_etf_structure_projection
+
+    registry, reports = _valid_supplied_structure_inputs()
+    reports["score_eligible"] = reports["score_eligible"].astype(object)
+    reports.loc[0, "score_eligible"] = "false"
+
+    projection = load_etf_structure_projection("ETF-1", document_registry=registry, report_records=reports)
+
+    assert projection["fields"]["legal_form"]["status"] == "unknown"
+    assert projection["evidence_confidence_cap"] == 0.0
+    assert projection["execution_allowed"] is False
+
+
+def test_supplied_facade_rejects_duplicate_report_source_ids() -> None:
+    from etf_cockpit.application.ui_facade import load_etf_structure_projection
+
+    registry, reports = _valid_supplied_structure_inputs()
+    reports = pd.concat([reports, reports], ignore_index=True)
+
+    projection = load_etf_structure_projection("ETF-1", document_registry=registry, report_records=reports)
+
+    assert projection["fields"]["legal_form"]["status"] == "unknown"
+    assert projection["evidence_confidence_cap"] == 0.0
+    assert projection["execution_allowed"] is False
 
 
 def test_real_report_numeric_fields_survive_parse_import_review_readback_and_projection(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -316,13 +316,21 @@ def project_etf_structure(
     target = str(instrument_id or "").strip()
     registry_rows = _rows(document_registry)
     decision = _timestamp(decision_time) if decision_time is not None else None
+    supplied_report_error: str | None = None
+    try:
+        validated_reports = _validated_report_rows(report_records)
+    except ValueError as exc:
+        validated_reports = []
+        supplied_report_error = str(exc)
     registry, rejected_registry = _bound_registry(target, registry_rows, decision)
-    candidates, rejected_candidates = _report_candidates(report_records, registry, target, decision)
+    candidates, rejected_candidates = _report_candidates(validated_reports, registry, target, decision)
     supplemental, supplemental_rejections = _supplemental_candidates(supplemental_rows, registry, target, decision)
     holding_candidates, holding_rejections = _supplemental_candidates(holdings, registry, target, decision, default_document_type="holdings")
     candidates.extend(supplemental)
     candidates.extend(holding_candidates)
     rejected = [*rejected_registry, *rejected_candidates, *supplemental_rejections, *holding_rejections]
+    if supplied_report_error:
+        rejected.append({"reason_code": "supplied_report_records_invalid", "detail": supplied_report_error})
     selected_sources = _latest_sources(registry, candidates)
     usable = [item for item in candidates if item.source_id in selected_sources.get(_family(item.document_type), set())]
     source_vintage = {
@@ -359,7 +367,7 @@ def project_etf_structure(
     matrix = _document_matrix(registry, selected_sources, usable)
     flags = _risk_flags(fields)
     derived_numeric_inputs, derived_numeric_candidates = _report_numeric_inputs(
-        report_records, registry, target, decision, selected_sources
+        validated_reports, registry, target, decision, selected_sources
     )
     effective_numeric_inputs = numeric_inputs if numeric_inputs is not None else derived_numeric_inputs
     effective_numeric_candidates = numeric_candidates if numeric_candidates is not None else derived_numeric_candidates
@@ -367,7 +375,7 @@ def project_etf_structure(
         calculate_structural_stress(
             **effective_numeric_inputs,
             registry=registry,
-            report_records=report_records,
+            report_records=validated_reports,
             candidates=effective_numeric_candidates,
             decision_time=decision,
             instrument_id=target,
@@ -551,6 +559,12 @@ def _rows(value: object) -> list[dict[str, object]]:
         return result
     except TypeError:
         return []
+
+
+def _validated_report_rows(value: object) -> list[dict[str, object]]:
+    from etf_cockpit.data.parsed_disclosures import validate_supplied_etf_report_records
+
+    return validate_supplied_etf_report_records(value).to_dict("records")
 
 
 def _bound_registry(target: str, rows: list[dict[str, object]], decision: datetime | None) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
@@ -1111,6 +1125,10 @@ def _numeric_provenance_is_bound(
     normalized_value: Decimal | None,
     unit: str,
 ) -> bool:
+    try:
+        validated_report_rows = _validated_report_rows(report_records)
+    except ValueError:
+        return False
     source_id = _text(value.source_id)
     checksum = _text(value.checksum)
     document_date = _date_text(value.document_date)
@@ -1137,7 +1155,7 @@ def _numeric_provenance_is_bound(
         return False
     if decision is not None and _parse_timestamp(known_at) > decision:
         return False
-    for report_row in _rows(report_records):
+    for report_row in validated_report_rows:
         if str(report_row.get("instrument_id") or "").strip() != instrument_id or _text(report_row.get("source_id")) != source_id:
             continue
         if not _report_identity_matches(report_row, row_checksum=checksum, row_date=document_date, row_known_at=known_at, registered=registered):

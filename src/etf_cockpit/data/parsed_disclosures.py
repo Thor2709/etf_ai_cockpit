@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from enum import StrEnum
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any, Iterable
 
 import pandas as pd
@@ -1042,6 +1043,62 @@ def _read_report_frame_from_frame(frame: pd.DataFrame, *, validate_authority: bo
     return result
 
 
+def report_extraction_fingerprint(row: pd.Series | Mapping[str, Any]) -> str:
+    """Return the schema-aware fingerprint used by canonical report readback."""
+
+    return _row_extraction_fingerprint(row if isinstance(row, pd.Series) else pd.Series(dict(row)))
+
+
+def validate_supplied_etf_report_records(value: object) -> pd.DataFrame:
+    """Validate caller-supplied report rows before structural evidence use.
+
+    Supplied frames do not pass through the canonical parquet reader.  Keep the
+    same extraction fingerprint and review-authority boundary here, while
+    leaving registry binding to the structural projection that owns it.
+    """
+
+    if value is None:
+        return pd.DataFrame(columns=REPORT_COLUMNS)
+    if isinstance(value, pd.DataFrame):
+        frame = value.copy()
+    elif isinstance(value, Mapping):
+        frame = pd.DataFrame([dict(value)])
+    else:
+        try:
+            frame = pd.DataFrame([dict(item) for item in value if isinstance(item, Mapping)])  # type: ignore[union-attr]
+        except (TypeError, ValueError) as exc:
+            raise ValueError("supplied ETF report records are not tabular") from exc
+    if bool(frame.columns.duplicated().any()):
+        raise ValueError("supplied ETF report records contain duplicate columns")
+
+    source_ids = frame.get("source_id", pd.Series(dtype=object)).map(_cell_text)
+    if source_ids[source_ids.ne("")].duplicated(keep=False).any():
+        raise ValueError("supplied ETF report records contain duplicate source_id/report identity")
+
+    for row in frame.to_dict("records"):
+        series = pd.Series(row)
+        stored_fingerprint = _cell_text(row.get("stored_extraction_sha256"))
+        if stored_fingerprint:
+            if not _is_sha256_fingerprint(stored_fingerprint) or not _fingerprint_matches(series, stored_fingerprint, legacy_allowed=False):
+                raise ValueError("supplied report extraction fingerprint does not match extraction")
+
+        status = _cell_text(row.get("verification_status"))
+        history_value = row.get("review_history")
+        history_text = _cell_text(history_value)
+        has_review_history = history_text not in {"", "[]"}
+        if status in {"verified", "rejected"} or has_review_history or row.get("evidence_eligible") is True:
+            if not stored_fingerprint:
+                raise ValueError("reviewed supplied report is missing stored extraction fingerprint")
+            _review_history(series.get("review_history"), expected_fingerprint=stored_fingerprint)
+            _strict_stored_bool(row.get("manual_review"), "manual_review")
+            _strict_stored_bool(row.get("evidence_eligible"), "evidence_eligible")
+            score_eligible = _strict_stored_bool(row.get("score_eligible"), "score_eligible")
+            execution_allowed = _strict_stored_bool(row.get("execution_allowed"), "execution_allowed")
+            if score_eligible or execution_allowed:
+                raise ValueError("reviewed supplied report authority flags exceed the allowed boundary")
+    return frame
+
+
 def _report_extraction_status(result: ParseResult[EtfReportRecord]) -> str:
     if result.success:
         return "complete"
@@ -1356,5 +1413,6 @@ __all__ = [
     "REPORT_CONFLICT_COLUMNS", "REPORT_RAW_DIR", "ReportSourceAuthority", "build_etf_report_conflicts", "import_etf_report",
     "persist_index_methodology", "persist_index_methodology_result", "persist_index_methodology_with_document", "persist_priips_kid",
     "persist_priips_kid_result", "persist_priips_kid_with_document", "read_etf_report_conflicts", "read_etf_report_records",
-    "read_index_methodology_records", "read_priips_kid_records", "review_etf_report", "review_etf_report_record",
+    "read_index_methodology_records", "read_priips_kid_records", "report_extraction_fingerprint", "review_etf_report", "review_etf_report_record",
+    "validate_supplied_etf_report_records",
 ]

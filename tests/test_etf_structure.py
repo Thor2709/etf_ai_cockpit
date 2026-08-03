@@ -13,6 +13,7 @@ from etf_cockpit.data.etf_structure import (
     project_etf_structure,
     structure_confidence_caps,
 )
+from etf_cockpit.data.parsed_disclosures import report_extraction_fingerprint
 
 
 CHECKSUM = "a" * 64
@@ -66,7 +67,8 @@ def _report(source_id: str = "report:v2:one", *, replication: str = "Synthetic s
             ("concentration_limit_fraction", "0.25", "fraction_of_collateral"),
         )
     )
-    return pd.DataFrame([{
+    frame = pd.DataFrame([{
+        "schema_version": 2.1,
         "instrument_id": "ETF-1",
         "source_id": source_id,
         "document_type": "prospectus_report",
@@ -84,8 +86,27 @@ def _report(source_id: str = "report:v2:one", *, replication: str = "Synthetic s
         "extraction_sha256": "b" * 64,
         "stored_extraction_sha256": "b" * 64,
         "evidence_eligible": True,
+        "manual_review": False,
+        "score_eligible": False,
+        "execution_allowed": False,
         "field_evidence": json.dumps(evidence),
     }])
+    fingerprint = report_extraction_fingerprint(frame.iloc[0])
+    frame.loc[0, "extraction_sha256"] = fingerprint
+    frame.loc[0, "stored_extraction_sha256"] = fingerprint
+    frame.loc[0, "review_history"] = json.dumps([{
+        "decision": "verified", "reviewer": "analyst", "note": "", "reviewed_at": "2026-07-02T12:00:00+00:00", "extraction_sha256": fingerprint,
+    }])
+    return frame
+
+
+def _refresh_report_fingerprint(frame: pd.DataFrame) -> pd.DataFrame:
+    fingerprint = report_extraction_fingerprint(frame.iloc[0])
+    frame.loc[0, "extraction_sha256"] = fingerprint
+    frame.loc[0, "stored_extraction_sha256"] = fingerprint
+    history = json.loads(frame.loc[0, "review_history"])
+    frame.loc[0, "review_history"] = json.dumps([{**item, "extraction_sha256": fingerprint} for item in history])
+    return frame
 
 
 def test_projection_requires_exact_registry_binding_and_preserves_provenance() -> None:
@@ -153,6 +174,7 @@ def test_physical_no_lending_does_not_require_synthetic_fields() -> None:
     ]
     report = _report()
     report.loc[0, "field_evidence"] = json.dumps(evidence)
+    _refresh_report_fingerprint(report)
     projection = project_etf_structure("ETF-1", document_registry=_registry(), report_records=report)
 
     assert projection["applicable_fields"] == [
@@ -169,6 +191,7 @@ def test_synthetic_and_lending_applicability_requires_direct_terms() -> None:
     evidence = [item for item in evidence if item["field_name"] not in {"counterparties", "collateral_terms", "lending_revenue_split", "lending_policy"}]
     evidence.append({"field_name": "lending_policy", "value": "Lending enabled up to 10%", "source_page": 4, "confidence": "high", "status": "extracted"})
     report.loc[0, "field_evidence"] = json.dumps(evidence)
+    _refresh_report_fingerprint(report)
     projection = project_etf_structure("ETF-1", document_registry=_registry(), report_records=report)
 
     assert {"counterparties", "collateral_terms", "lending_revenue_split"}.issubset(projection["applicable_fields"])
@@ -184,6 +207,7 @@ def test_synthetic_and_lending_evidence_require_direct_terms() -> None:
     evidence = json.loads(report.loc[0, "field_evidence"])
     evidence = [item for item in evidence if item["field_name"] not in {"counterparties", "collateral_terms"}]
     report.loc[0, "field_evidence"] = json.dumps(evidence)
+    _refresh_report_fingerprint(report)
     projection = project_etf_structure("ETF-1", document_registry=_registry(), report_records=report)
 
     assert "synthetic_counterparty_evidence_missing_or_conflicted" in projection["flags"]
@@ -426,6 +450,7 @@ def test_cap_mapping_is_point_in_time_and_rejects_future_revision() -> None:
         if item["field_name"] == "counterparties":
             item["confidence"] = "low"
     new_report.loc[0, "field_evidence"] = json.dumps(new_evidence)
+    _refresh_report_fingerprint(new_report)
     reports = pd.concat([old_report, new_report], ignore_index=True)
 
     before_import = structure_confidence_caps(
@@ -445,6 +470,8 @@ def test_review_history_replays_before_verification_at_verification_and_after_re
         {"decision": "verified", "reviewer": "analyst", "note": "", "reviewed_at": "2026-07-04T00:00:00Z", "extraction_sha256": "b" * 64},
         {"decision": "rejected", "reviewer": "auditor", "note": "recheck", "reviewed_at": "2026-07-06T00:00:00Z", "extraction_sha256": "b" * 64},
     ]
+    fingerprint = report.loc[0, "stored_extraction_sha256"]
+    history = [{**item, "extraction_sha256": fingerprint} for item in history]
     report.loc[0, "review_history"] = json.dumps(history)
     report.loc[0, "verified_by"] = "auditor"
     report.loc[0, "verified_at"] = "2026-07-06T00:00:00Z"
@@ -480,6 +507,8 @@ def test_review_history_same_timestamp_replays_append_order() -> None:
         ),
     ):
         report = _report()
+        fingerprint = report.loc[0, "stored_extraction_sha256"]
+        history = [{**item, "extraction_sha256": fingerprint} for item in history]
         report.loc[0, "review_history"] = json.dumps(history)
         latest = history[-1]
         report.loc[0, "verification_status"] = latest["decision"]
@@ -598,6 +627,7 @@ def test_report_document_family_mismatch_fails_closed() -> None:
     report = _report()
     report.loc[0, "document_type"] = "annual_report"
     report.loc[0, "document_kind"] = "annual_report"
+    _refresh_report_fingerprint(report)
     projection = project_etf_structure("ETF-1", document_registry=_registry(document_type="factsheet", document_kind="factsheet"), report_records=report)
 
     assert projection["fields"]["replication_method"]["status"] == "unknown"
