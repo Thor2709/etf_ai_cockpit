@@ -9,7 +9,24 @@ Current delivery mechanics are defined in
 to sole workers, Sol-low workers or old lifecycle PR chains describe past
 execution and are not current operational instructions.
 
-## Current UPDATEV2-0018 parser lane
+## Current ISSUE-0104 dependency lane
+
+UPDATEV2-0018 completion PR #652 merged independently approved exact head
+`5b260ee9eae199f38f32c5f7410a04d63803af4f` as
+`d0c3e3216dabafdffcd6f7f32c24122a629747f7`. Writer `30774651448`
+accepted the exact two-hop replay with zero-action readback and generic
+convergence `30774651452` produced no patch; canonical and GitHub now agree on
+`integrated` with `execution_allowed=false`.
+
+Canonical order selects ISSUE-0104 next, but readiness remains false until its
+UPDATEV2-0018 edge receives reviewed evidence. Clean lane
+`codex/issue0104-dependency-updatev2-0018-20260803` starts at exact main
+`d0c3e3216dabafdffcd6f7f32c24122a629747f7` and records only that edge against
+the integrated bounded report parser, provenance, conflict and review
+contract. ISSUE-0104 remains `planned`; no status transition, dependency list,
+product code or execution authority changes.
+
+## Completed UPDATEV2-0018 parser lane
 
 ISSUE-0103 completion PR #648 merged exact reviewed head
 `80647cd7b62bd5a9ce047747e6b0af6e9b44a064` as
