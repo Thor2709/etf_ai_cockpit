@@ -98,7 +98,11 @@ def load_local_structural_evidence(
     registry = registry_reader()
     reports = report_reader()
     factsheet = _read_local_structural_rows(factsheet_path, "factsheet")
-    holdings = pd.read_parquet(holdings_path) if Path(holdings_path).exists() else pd.DataFrame()
+    try:
+        holdings = pd.read_parquet(holdings_path) if Path(holdings_path).exists() else pd.DataFrame()
+    except Exception as exc:
+        raise ValueError(f"Canonical holdings store is corrupt: {holdings_path}") from exc
+    _validate_canonical_frame(holdings, "holdings", holdings_path)
     return LocalStructuralEvidence(registry, reports, factsheet, holdings)
 
 
@@ -108,9 +112,13 @@ def _read_local_structural_rows(path: object, default_document_type: str) -> pd.
     candidate = Path(path)
     if not candidate.is_file():
         return pd.DataFrame()
-    frame = pd.read_parquet(candidate)
+    try:
+        frame = pd.read_parquet(candidate)
+    except Exception as exc:
+        raise ValueError(f"Canonical {default_document_type} store is corrupt: {candidate}") from exc
     if frame.empty:
         return pd.DataFrame()
+    _validate_canonical_frame(frame, default_document_type, candidate)
     records: list[dict[str, object]] = []
     for source in frame.to_dict("records"):
         common = {
@@ -127,10 +135,21 @@ def _read_local_structural_rows(path: object, default_document_type: str) -> pd.
         if source.get("field_name") or source.get("field"):
             records.append({**common, "field_name": source.get("field_name") or source.get("field"), "value": source.get("value")})
             continue
-        for field_name in STRUCTURAL_FIELDS:
-            if field_name in source and source[field_name] is not None:
-                records.append({**common, "field_name": field_name, "value": source[field_name]})
+        # A structural claim is accepted only through the explicit
+        # field/value columns.  Ordinary analytical columns are not evidence.
     return pd.DataFrame(records)
+
+
+def _validate_canonical_frame(frame: pd.DataFrame, document_type: str, path: object) -> None:
+    """Reject valid Parquet files that cannot be canonical evidence stores."""
+
+    if bool(frame.columns.duplicated().any()):
+        raise ValueError(f"Canonical {document_type} store has duplicate columns: {path}")
+    # ``source_id`` is retained for legacy local fixtures; the projection
+    # still rejects it later when the exact instrument binding is absent.
+    identity_columns = {"instrument_id", "etf_id", "fund_id", "source_id"}
+    if not identity_columns.intersection(frame.columns):
+        raise ValueError(f"Canonical {document_type} store is missing instrument identity: {path}")
 
 
 @dataclass(frozen=True)
@@ -658,15 +677,17 @@ def _supplemental_candidates(value: object, registry: list[dict[str, object]], t
         field = _canonical_field(row.get("field_name", row.get("field")))
         if field not in STRUCTURAL_FIELDS:
             continue
-        source_id = _text(row.get("source_id"))
+        # Holdings keep their internal fundhold identity for cache lineage,
+        # while document_source_id binds structural claims to the registry.
+        source_id = _text(row.get("document_source_id")) or _text(row.get("registered_source_id")) or _text(row.get("source_id"))
         registered = registry_by_id.get(source_id or "")
         document_type = _text(row.get("document_type")) or default_document_type
-        page = _page(row.get("page", row.get("source_page")))
+        page = _page(row.get("page", row.get("source_page", row.get("document_page"))))
         value_text = _text(row.get("value"))
-        row_checksum = _text(row.get("checksum")) or _text(row.get("sha256"))
-        row_date = _date_text(row.get("document_date"))
-        row_known_at = _date_time_text(row.get("known_at"))
-        status = (_text(row.get("status")) or _text(row.get("coverage_status")) or "extracted").casefold()
+        row_checksum = _text(row.get("checksum")) or _text(row.get("sha256")) or _text(row.get("document_checksum"))
+        row_date = _date_text(row.get("document_date")) or _date_text(row.get("as_of"))
+        row_known_at = _date_time_text(row.get("known_at")) or _date_time_text(row.get("document_known_at"))
+        status = (_text(row.get("status")) or _text(row.get("coverage_status")) or _text(row.get("document_status")) or "extracted").casefold()
         reason = None
         if str(row.get("instrument_id") or "").strip() != target or not source_id or registered is None:
             reason = "candidate_not_bound_to_registry"
@@ -683,7 +704,8 @@ def _supplemental_candidates(value: object, registry: list[dict[str, object]], t
         if reason:
             rejected.append({"field_name": field, "reason_code": reason, "source_id": source_id or "unavailable"})
             continue
-        candidate, candidate_reason = _make_candidate(target, field, value_text, source_id, registered, page, row.get("confidence"), decision, status=status)
+        confidence = row.get("structural_confidence") if "structural_confidence" in row else row.get("confidence")
+        candidate, candidate_reason = _make_candidate(target, field, value_text, source_id, registered, page, confidence, decision, status=status)
         if candidate is None:
             rejected.append({"field_name": field, "reason_code": candidate_reason, "source_id": source_id})
         else:

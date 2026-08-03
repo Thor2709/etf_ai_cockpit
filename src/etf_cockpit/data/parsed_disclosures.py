@@ -779,7 +779,10 @@ def build_etf_report_conflicts(frame: pd.DataFrame) -> pd.DataFrame:
     if frame.empty:
         return pd.DataFrame(columns=REPORT_CONFLICT_COLUMNS)
     candidates = frame.loc[~frame["verification_status"].astype(str).eq("rejected")].copy()
-    stable = {"fund_name", "isin", "legal_structure"}
+    # These identify the fund/share class or its durable legal domicile/form.
+    # Other structural fields can change between report vintages and therefore
+    # remain period-bound rather than being treated as timeless conflicts.
+    stable = {"fund_name", "isin", "legal_structure", "legal_form", "domicile"}
     varying = set(REPORT_FIELDS) - stable - {"document_date", "reporting_period_end"}
     for instrument_id, group in candidates.groupby("instrument_id", sort=True):
         latest: dict[str, pd.Series] = {}

@@ -37,6 +37,11 @@ _REQUIRED_HOLDINGS_COLUMNS = (
     "authority",
     "score_eligible",
 )
+_HOLDING_CANONICAL_COLUMNS = (
+    "security", "weight", "isin", "ticker", "sector", "region", "country", "currency", "issuer", "company",
+    "holding_id", "holding_id_namespace", "security_id", "security_id_namespace", "exchange", "venue",
+    "identity_type", "identity_namespace", "identity_value", "instrument_type",
+)
 
 
 @dataclass(frozen=True)
@@ -174,6 +179,13 @@ def normalise_holdings(
     ):
         if column in clean.columns and column not in selected.columns:
             selected[column] = clean[column]
+    # Preserve explicit structural claims for the shared read model. These
+    # are optional and are never inferred from ordinary holding columns.
+    for column in ("field_name", "field", "value", "page", "source_page", "status"):
+        if column in clean.columns and column not in selected.columns:
+            selected[column] = clean[column]
+    if "confidence" in clean.columns:
+        selected["structural_confidence"] = clean["confidence"]
     duplicate_count = int(selected.duplicated(keep="first").sum())
     if duplicate_count:
         selected = selected.drop_duplicates(keep="first").reset_index(drop=True)
@@ -206,7 +218,7 @@ def normalise_holdings(
     if name_only_manual_review:
         confidence = min(confidence, 0.55)
     score_eligible = completeness == "full" and freshness == "fresh" and authority == "issuer" and not name_only_manual_review
-    canonical = _canonical_holdings_json(selected)
+    canonical = _canonical_holdings_json(selected[[column for column in _HOLDING_CANONICAL_COLUMNS if column in selected.columns]])
     source_id = "fundhold:" + hashlib.sha256(f"{instrument}|{as_of_date.isoformat()}|{source}|{canonical}".encode("utf-8")).hexdigest()[:24]
     selected["instrument_id"] = instrument
     selected["as_of"] = as_of_date.isoformat()
@@ -402,30 +414,7 @@ def _holdings_write_reasons(result: HoldingsNormalisationResult, frame: pd.DataF
     if "holding_name" in frame.columns and not frame["holding_name"].astype(str).str.strip().eq(frame["security"].astype(str).str.strip()).all():
         reasons.append("mismatched summary=holding_name")
 
-    canonical_columns = ["security", "weight"] + [
-        column
-        for column in (
-            "isin",
-            "ticker",
-            "sector",
-            "region",
-            "country",
-            "currency",
-            "issuer",
-            "company",
-            "holding_id",
-            "holding_id_namespace",
-            "security_id",
-            "security_id_namespace",
-            "exchange",
-            "venue",
-            "identity_type",
-            "identity_namespace",
-            "identity_value",
-            "instrument_type",
-        )
-        if column in frame.columns
-    ]
+    canonical_columns = [column for column in _HOLDING_CANONICAL_COLUMNS if column in frame.columns]
     canonical = _canonical_holdings_json(frame[canonical_columns])
     expected_source_id = "fundhold:" + hashlib.sha256(
         f"{instrument_values.iloc[0]}|{as_of_date.isoformat() if as_of_date else result.as_of}|{result.source}|{canonical}".encode("utf-8")
@@ -518,6 +507,7 @@ def import_etf_holdings_with_document(
             "issuer_document",
             document_date=result.as_of,
         )
+        merged_holdings = _attach_document_binding(merged_holdings, document)
         existing_registry = read_document_registry(path=registry_destination)
         instrument_ids = [str(item).strip() for item in configured_instrument_ids or () if str(item).strip()]
         if not existing_registry.empty and "instrument_id" in existing_registry.columns:
@@ -534,6 +524,27 @@ def import_etf_holdings_with_document(
             AtomicWriteRequest(registry_csv_destination, inventory.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
         )
         atomic_write_group(requests)
+    return result
+
+
+def _attach_document_binding(frame: pd.DataFrame, document: object) -> pd.DataFrame:
+    """Expose the registered document identity without replacing fundhold IDs."""
+
+    result = frame.copy()
+    instrument_id = str(getattr(document, "instrument_id", "")).strip()
+    mask = result["instrument_id"].astype(str).str.strip().eq(instrument_id)
+    bindings = {
+        "document_source_id": str(getattr(document, "source_id", "")),
+        "document_checksum": str(getattr(document, "sha256", "")),
+        "document_date": getattr(document, "document_date", None),
+        "document_known_at": str(getattr(document, "ingested_at", "")),
+        "document_type": "holdings",
+        "document_status": str(getattr(document, "coverage_status", "unavailable")),
+    }
+    for column, value in bindings.items():
+        if column not in result.columns:
+            result[column] = None
+        result.loc[mask, column] = value
     return result
 
 

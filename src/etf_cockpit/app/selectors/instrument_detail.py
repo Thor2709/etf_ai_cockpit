@@ -764,26 +764,39 @@ def _etf_structure_panel(
     holdings: pd.DataFrame | None = None,
     decision_time: object = None,
 ) -> dict[str, Any]:
-    evidence = None
-    if any(value is None for value in (document_registry, report_records, supplemental_rows, holdings)):
-        evidence = load_local_structural_evidence(
-            registry_reader=(lambda: document_registry) if document_registry is not None else read_document_registry,
-            report_reader=(lambda: report_records) if report_records is not None else read_etf_report_records,
-            factsheet_path=ETF_METADATA_CLEAN_PATH,
-            holdings_path=FUND_HOLDINGS_PATH,
+    try:
+        evidence = None
+        if any(value is None for value in (document_registry, report_records, supplemental_rows, holdings)):
+            evidence = load_local_structural_evidence(
+                registry_reader=(lambda: document_registry) if document_registry is not None else read_document_registry,
+                report_reader=(lambda: report_records) if report_records is not None else read_etf_report_records,
+                factsheet_path=ETF_METADATA_CLEAN_PATH,
+                holdings_path=FUND_HOLDINGS_PATH,
+            )
+        local_registry = document_registry if document_registry is not None else evidence.document_registry
+        local_reports = report_records if report_records is not None else evidence.report_records
+        local_factsheet_rows = supplemental_rows if supplemental_rows is not None else evidence.supplemental_rows
+        local_holdings_rows = holdings if holdings is not None else evidence.holdings
+        return load_etf_structure_projection(
+            instrument_id,
+            document_registry=local_registry,
+            report_records=local_reports,
+            supplemental_rows=local_factsheet_rows,
+            holdings=local_holdings_rows,
+            decision_time=decision_time,
         )
-    local_registry = document_registry if document_registry is not None else evidence.document_registry
-    local_reports = report_records if report_records is not None else evidence.report_records
-    local_factsheet_rows = supplemental_rows if supplemental_rows is not None else evidence.supplemental_rows
-    local_holdings_rows = holdings if holdings is not None else evidence.holdings
-    return load_etf_structure_projection(
-        instrument_id,
-        document_registry=local_registry,
-        report_records=local_reports,
-        supplemental_rows=local_factsheet_rows,
-        holdings=local_holdings_rows,
-        decision_time=decision_time,
-    )
+    except Exception:
+        return {
+            "contract": "etf-structure-documents.v1",
+            "instrument_id": str(instrument_id),
+            "status": "unavailable",
+            "fields": {},
+            "documents": {family: {"status": "unknown", "execution_allowed": False} for family in ("factsheet", "prospectus", "holdings")},
+            "versions": [],
+            "flags": ["structure_evidence_invalid"],
+            "evidence_confidence_cap": 0.0,
+            "execution_allowed": False,
+        }
 
 
 def _friction_panel(instrument_id: str, *, candidate_score: SimpleInstrumentScore | None = None) -> dict[str, Any]:

@@ -131,6 +131,7 @@ def validate_etf_metadata(
     normalised["provider"] = _first_available_series(frame, ("provider", "issuer", "source"), "manual_import")
     normalised["factsheet_url"] = _first_available_series(frame, ("factsheet_url", "url"), "")
     normalised["staleness_status"] = _staleness_for_frame(normalised, "etf_factsheet", today=today)
+    normalised = _preserve_structural_provenance(frame, normalised, id_resolution.etf_ids, "factsheet")
 
     metadata = _metadata_for_reference_frame(
         normalised,
@@ -207,6 +208,7 @@ def validate_etf_holdings(
     normalised["sector"] = _first_available_series(frame, ("sector", "industry"), "")
     normalised["source"] = _first_available_series(frame, ("source", "provider"), "manual_import")
     normalised["staleness_status"] = _staleness_for_frame(normalised, "etf_holdings", today=today)
+    normalised = _preserve_structural_provenance(frame, normalised, id_resolution.etf_ids, "holdings")
     if errors:
         return ReferenceValidation(_empty_etf_holdings_frame(), errors, warnings, None)
 
@@ -423,6 +425,42 @@ def _first_available_series(frame: pd.DataFrame, columns: Iterable[str], default
     if column is None:
         return pd.Series([default] * len(frame), index=frame.index)
     return frame[column].fillna(default).astype(str).str.strip().replace("", default)
+
+
+def _preserve_structural_provenance(
+    source: pd.DataFrame,
+    normalised: pd.DataFrame,
+    instrument_ids: pd.Series,
+    document_type: str,
+) -> pd.DataFrame:
+    """Carry only explicitly supplied structural evidence into the clean store.
+
+    The reference normalisers still own their legacy analytical columns, but
+    the structural read model needs the exact document binding supplied by an
+    importer.  In particular, do not turn ordinary factsheet/holdings columns
+    into structural claims merely because their names happen to match.
+    """
+
+    result = normalised.copy()
+    result["instrument_id"] = instrument_ids
+    for output, inputs in (
+        ("source_id", ("source_id",)),
+        ("checksum", ("checksum", "sha256")),
+        ("document_date", ("document_date", "as_of_date", "as_of")),
+        ("known_at", ("known_at", "ingested_at", "imported_at")),
+        ("page", ("page", "source_page")),
+        ("status", ("status", "coverage_status", "extraction_status")),
+        ("confidence", ("confidence",)),
+        ("field_name", ("field_name", "field")),
+        ("value", ("value",)),
+    ):
+        column = _first_present(source, inputs)
+        if column is not None:
+            result[output] = source[column].to_numpy()
+    if "source_id" in result.columns:
+        result["document_type"] = document_type
+        result["document_kind"] = document_type
+    return result
 
 
 def _empty_etf_metadata_frame() -> pd.DataFrame:

@@ -106,6 +106,152 @@ def test_instrument_detail_standard_loading_reaches_local_factsheet_and_holdings
     assert projection["execution_allowed"] is False
 
 
+@pytest.mark.parametrize("corrupt_kind", ["factsheet", "holdings"])
+def test_instrument_detail_malformed_canonical_structure_is_unavailable(tmp_path, monkeypatch, corrupt_kind: str) -> None:
+    import etf_cockpit.app.selectors.instrument_detail as selector
+
+    factsheet_path = tmp_path / "etf_metadata.parquet"
+    holdings_path = tmp_path / "fund_holdings.parquet"
+    corrupt_path = factsheet_path if corrupt_kind == "factsheet" else holdings_path
+    corrupt_path.write_bytes(b"not a parquet file")
+    monkeypatch.setattr(selector, "ETF_METADATA_CLEAN_PATH", factsheet_path)
+    monkeypatch.setattr(selector, "FUND_HOLDINGS_PATH", holdings_path)
+
+    projection = selector._etf_structure_panel(
+        "ETF-1",
+        document_registry=pd.DataFrame(),
+        report_records=pd.DataFrame(),
+        supplemental_rows=pd.DataFrame(),
+        holdings=None,
+    )
+
+    assert projection["status"] == "unavailable"
+    assert projection["flags"] == ["structure_evidence_invalid"]
+    assert projection["evidence_confidence_cap"] == 0.0
+    assert projection["execution_allowed"] is False
+
+
+@pytest.mark.parametrize("corrupt_kind", ["factsheet", "holdings"])
+def test_instrument_detail_schema_malformed_canonical_structure_is_unavailable(tmp_path, monkeypatch, corrupt_kind: str) -> None:
+    import etf_cockpit.app.selectors.instrument_detail as selector
+
+    factsheet_path = tmp_path / "etf_metadata.parquet"
+    holdings_path = tmp_path / "fund_holdings.parquet"
+    corrupt_path = factsheet_path if corrupt_kind == "factsheet" else holdings_path
+    pd.DataFrame({"broken": [1]}).to_parquet(corrupt_path, index=False)
+    monkeypatch.setattr(selector, "ETF_METADATA_CLEAN_PATH", factsheet_path)
+    monkeypatch.setattr(selector, "FUND_HOLDINGS_PATH", holdings_path)
+
+    projection = selector._etf_structure_panel(
+        "ETF-1",
+        document_registry=pd.DataFrame(),
+        report_records=pd.DataFrame(),
+        supplemental_rows=pd.DataFrame(),
+        holdings=None,
+    )
+
+    assert projection["status"] == "unavailable"
+    assert projection["execution_allowed"] is False
+
+
+def test_real_canonical_writers_preserve_bindings_through_shared_projection_and_backtest(tmp_path) -> None:
+    from etf_cockpit.backtest.engine import backtest_input_checksum, run_backtest
+    from etf_cockpit.data.etf_structure import load_local_structural_evidence, project_etf_structure, structure_confidence_caps
+    from etf_cockpit.data.fund_documents import import_etf_document
+    from etf_cockpit.data.fund_holdings import import_etf_holdings_with_document
+    from etf_cockpit.data.providers import ManualLocalFileProvider
+    from etf_cockpit.data.reference_data import commit_reference_import
+
+    registry_path = tmp_path / "fund_documents.parquet"
+    factsheet_document = tmp_path / "factsheet.pdf"
+    factsheet_document.write_bytes(b"issuer factsheet")
+    registered_factsheet = import_etf_document(
+        factsheet_document,
+        instrument_id="ETF-1",
+        document_type="factsheet",
+        document_date="2026-07-10",
+        destination=registry_path,
+        configured_instrument_ids=["ETF-1"],
+    )
+    factsheet_source = tmp_path / "factsheet.csv"
+    pd.DataFrame([{
+        "as_of_date": "2026-07-10",
+        "etf_id": "ETF-1",
+        "source_id": registered_factsheet.source_id,
+        "checksum": registered_factsheet.sha256,
+        "document_date": registered_factsheet.document_date,
+        "known_at": registered_factsheet.ingested_at,
+        "page": 1,
+        "status": "extracted",
+        "confidence": "high",
+        "field_name": "domicile",
+        "value": "Ireland",
+    }]).to_csv(factsheet_source, index=False)
+    factsheet_result = ManualLocalFileProvider().import_file(factsheet_source, "etf_metadata")
+    factsheet_path = tmp_path / "etf_metadata.parquet"
+    commit_reference_import(factsheet_result, "etf_metadata", clean_path=factsheet_path, raw_dir=tmp_path / "raw", snapshots_dir=tmp_path / "snapshots")
+
+    holdings_source = tmp_path / "holdings.csv"
+    pd.DataFrame([
+        {"security": "A", "ticker": "A", "weight": 0.6, "field_name": "legal_form", "value": "ICAV", "page": 2, "confidence": "high", "status": "extracted"},
+        {"security": "B", "ticker": "B", "weight": 0.4, "field_name": "legal_form", "value": "ICAV", "page": 2, "confidence": "high", "status": "extracted"},
+    ]).to_csv(holdings_source, index=False)
+    holdings_path = tmp_path / "fund_holdings.parquet"
+    import_etf_holdings_with_document(
+        holdings_source,
+        "ETF-1",
+        "2026-07-10",
+        holdings_destination=holdings_path,
+        registry_destination=registry_path,
+        today="2026-07-11",
+    )
+    registry = pd.read_parquet(registry_path)
+    stored_holdings = pd.read_parquet(holdings_path)
+    assert stored_holdings["source_id"].astype(str).str.startswith("fundhold:").all()
+    assert stored_holdings["document_source_id"].nunique() == 1
+
+    evidence = load_local_structural_evidence(
+        registry_reader=lambda: registry,
+        report_reader=pd.DataFrame,
+        factsheet_path=factsheet_path,
+        holdings_path=holdings_path,
+    )
+    projection = project_etf_structure(
+        "ETF-1",
+        document_registry=evidence.document_registry,
+        report_records=evidence.report_records,
+        supplemental_rows=evidence.supplemental_rows,
+        holdings=evidence.holdings,
+    )
+    assert projection["fields"]["domicile"]["document_id"] == registered_factsheet.source_id
+    assert projection["fields"]["legal_form"]["document_id"] == stored_holdings["document_source_id"].iloc[0]
+    assert projection["execution_allowed"] is False
+
+    caps = structure_confidence_caps(["ETF-1"], document_registry=registry, supplemental_rows=evidence.supplemental_rows, holdings=evidence.holdings)
+    assert caps["ETF-1"] > 0.0
+    assert caps.provenance["ETF-1"]["structure_provenance_hash"] != "unavailable"
+    config = services.load_config()
+    prices = generate_sample_prices(config, periods=260, end_date=date(2026, 7, 10))
+    report = run_backtest(config, prices, structure_document_registry=registry, structure_supplemental_rows=evidence.supplemental_rows, structure_holdings=evidence.holdings)
+    assert report.metadata["input_checksum"] == backtest_input_checksum(config, prices, pd.DataFrame(), structure_document_registry=registry, structure_supplemental_rows=evidence.supplemental_rows, structure_holdings=evidence.holdings)
+
+
+def test_report_legal_form_conflict_is_cross_kind_and_not_temporally_invented() -> None:
+    from etf_cockpit.data.parsed_disclosures import build_etf_report_conflicts
+
+    rows = pd.DataFrame([
+        {"instrument_id": "ETF-1", "source_id": "prospectus-1", "document_kind": "prospectus", "document_date": "2025-01-01", "imported_at": "2025-01-02", "legal_form": "ICAV", "verification_status": "verified"},
+        {"instrument_id": "ETF-1", "source_id": "annual-1", "document_kind": "annual_report", "document_date": "2026-01-01", "imported_at": "2026-01-02", "legal_form": "Unit trust", "verification_status": "verified"},
+    ])
+
+    conflicts = build_etf_report_conflicts(rows)
+
+    legal = conflicts.loc[conflicts["field_name"].eq("legal_form")]
+    assert len(legal) == 1
+    assert set(legal[["document_kind_a", "document_kind_b"]].iloc[0]) == {"prospectus", "annual_report"}
+    assert legal.iloc[0]["reporting_period_end"] == ""
+
+
 def test_instrument_detail_keeps_required_structure_section() -> None:
     model = InstrumentDetailViewModel(
         instrument_id="ETF-1",
