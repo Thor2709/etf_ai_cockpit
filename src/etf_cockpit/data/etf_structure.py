@@ -16,6 +16,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import re
 import pandas as pd
 
 
@@ -224,6 +225,21 @@ def calculate_structural_stress(
     """
 
     decision = _timestamp(decision_time) if decision_time is not None else None
+    inputs = {
+        "exposure": exposure,
+        "collateral_fraction": collateral_fraction,
+        "haircut_fraction": haircut_fraction,
+        "concentration_limit_fraction": concentration_limit_fraction,
+    }
+    if not _numeric_quartet_has_one_reviewed_revision(
+        inputs,
+        candidates,
+        registry=registry,
+        report_records=report_records,
+        decision=decision,
+        instrument_id=instrument_id,
+    ):
+        return _unavailable_stress("numeric_evidence_not_one_reviewed_revision")
     amount = _decimal_input(
         exposure,
         allowed_units={"fraction_of_nav"},
@@ -314,7 +330,7 @@ def project_etf_structure(
     """Project latest usable structural evidence as of ``decision_time``."""
 
     target = str(instrument_id or "").strip()
-    registry_rows = _rows(document_registry)
+    registry_rows = _strict_rows(document_registry, "document registry")
     decision = _timestamp(decision_time) if decision_time is not None else None
     supplied_report_error: str | None = None
     try:
@@ -324,8 +340,22 @@ def project_etf_structure(
         supplied_report_error = str(exc)
     registry, rejected_registry = _bound_registry(target, registry_rows, decision)
     candidates, rejected_candidates = _report_candidates(validated_reports, registry, target, decision)
-    supplemental, supplemental_rejections = _supplemental_candidates(supplemental_rows, registry, target, decision)
-    holding_candidates, holding_rejections = _supplemental_candidates(holdings, registry, target, decision, default_document_type="holdings")
+    supplemental, supplemental_rejections = _supplemental_candidates(
+        _strict_channel_rows(supplemental_rows, "supplemental rows", "factsheet"),
+        registry,
+        target,
+        decision,
+        channel_family="factsheet",
+        default_document_type="factsheet",
+    )
+    holding_candidates, holding_rejections = _supplemental_candidates(
+        _strict_channel_rows(holdings, "holdings", "holdings"),
+        registry,
+        target,
+        decision,
+        channel_family="holdings",
+        default_document_type="holdings",
+    )
     candidates.extend(supplemental)
     candidates.extend(holding_candidates)
     rejected = [*rejected_registry, *rejected_candidates, *supplemental_rejections, *holding_rejections]
@@ -477,7 +507,17 @@ def structure_confidence_caps(
     """
 
     caps = StructureConfidenceCaps()
-    registry_rows = _rows(document_registry)
+    try:
+        registry_rows = _strict_rows(document_registry, "document registry")
+        supplemental = _strict_channel_rows(supplemental_rows, "supplemental rows", "factsheet")
+        holding_rows = _strict_channel_rows(holdings, "holdings", "holdings")
+    except ValueError:
+        registry_rows = []
+        supplemental = []
+        holding_rows = []
+        invalid_channels = True
+    else:
+        invalid_channels = False
     try:
         report_rows = _validated_report_rows(report_records)
     except ValueError:
@@ -485,9 +525,7 @@ def structure_confidence_caps(
         invalid_reports = True
     else:
         invalid_reports = False
-    supplemental = _rows(supplemental_rows)
-    holding_rows = _rows(holdings)
-    if invalid_reports:
+    if invalid_reports or invalid_channels:
         for instrument_id in instrument_ids:
             target = str(instrument_id)
             caps[target] = 0.0
@@ -546,7 +584,9 @@ def structure_input_checksum(
 ) -> str:
     """Fingerprint every local structural input that can change a projection."""
 
-    registry_rows = _rows(document_registry)
+    registry_rows = _strict_rows(document_registry, "document registry")
+    supplemental = _strict_channel_rows(supplemental_rows, "supplemental rows", "factsheet")
+    holding_rows = _strict_channel_rows(holdings, "holdings", "holdings")
     duplicate_registry_ids = _duplicate_source_ids(registry_rows)
     if duplicate_registry_ids:
         raise ValueError(f"document registry contains duplicate source_id values: {', '.join(sorted(duplicate_registry_ids))}")
@@ -557,8 +597,8 @@ def structure_input_checksum(
         "confidence_version": STRUCTURE_CONFIDENCE_VERSION,
         "document_registry": _stable_rows(registry_rows),
         "report_records": _stable_rows(validated_reports),
-        "supplemental_rows": _stable_rows(supplemental_rows),
-        "holdings": _stable_rows(holdings),
+        "supplemental_rows": _stable_rows(supplemental),
+        "holdings": _stable_rows(holding_rows),
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")).hexdigest()
 
@@ -582,6 +622,35 @@ def _rows(value: object) -> list[dict[str, object]]:
         return result
     except TypeError:
         return []
+
+
+def _strict_rows(value: object, channel: str) -> list[dict[str, object]]:
+    if value is None:
+        return []
+    if isinstance(value, pd.DataFrame):
+        if bool(value.columns.duplicated().any()):
+            raise ValueError(f"{channel} contain duplicate columns")
+        return [{str(key): item for key, item in row.items()} for row in value.to_dict("records")]
+    if isinstance(value, Mapping):
+        return [dict(value)]
+    if isinstance(value, (str, bytes)):
+        raise ValueError(f"{channel} contain a non-mapping member")
+    try:
+        items = list(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{channel} are not tabular") from exc
+    if any(not isinstance(item, Mapping) for item in items):
+        raise ValueError(f"{channel} contain a non-mapping member")
+    return [dict(item) for item in items]
+
+
+def _strict_channel_rows(value: object, channel: str, family: str) -> list[dict[str, object]]:
+    rows = _strict_rows(value, channel)
+    for row in rows:
+        claimed_type = _text(row.get("document_type")) or _text(row.get("document_kind"))
+        if claimed_type and _family(claimed_type) != family:
+            raise ValueError(f"{channel} contain a claim outside the {family} channel")
+    return rows
 
 
 def _validated_report_rows(value: object) -> list[dict[str, object]]:
@@ -794,7 +863,15 @@ def _review_timestamp_matches(value: object, expected: datetime) -> bool:
         return False
 
 
-def _supplemental_candidates(value: object, registry: list[dict[str, object]], target: str, decision: datetime | None, *, default_document_type: str | None = None) -> tuple[list[StructureCandidate], list[dict[str, object]]]:
+def _supplemental_candidates(
+    value: object,
+    registry: list[dict[str, object]],
+    target: str,
+    decision: datetime | None,
+    *,
+    channel_family: str,
+    default_document_type: str,
+) -> tuple[list[StructureCandidate], list[dict[str, object]]]:
     result: list[StructureCandidate] = []
     rejected: list[dict[str, object]] = []
     registry_by_id = {str(row["source_id"]): row for row in registry}
@@ -816,6 +893,8 @@ def _supplemental_candidates(value: object, registry: list[dict[str, object]], t
         reason = None
         if str(row.get("instrument_id") or "").strip() != target or not source_id or registered is None:
             reason = "candidate_not_bound_to_registry"
+        elif _family(document_type or "") != channel_family:
+            reason = "candidate_channel_family_mismatch"
         elif not document_type or _family(document_type) != _family(str(registered.get("document_type") or registered.get("document_kind") or "")):
             reason = "candidate_document_family_mismatch"
         elif not value_text or page is None:
@@ -923,7 +1002,14 @@ def _risk_flags(fields: Mapping[str, Mapping[str, object]]) -> list[str]:
             flags.append("synthetic_counterparty_evidence_missing_or_conflicted")
         if fields.get("collateral_terms", {}).get("status") != "resolved":
             flags.append("synthetic_collateral_evidence_missing_or_conflicted")
-    lending_enabled = _positive_disclosure(lending, ("allow", "enabled", "up to", "may lend", "lending"), negative_terms=("no lending", "no securities lending", "not permitted", "prohibited", "not allowed"))
+    lending_enabled = _positive_disclosure(
+        lending,
+        ("allow", "enabled", "up to", "may lend", "lending"),
+        negative_terms=(
+            "no lending", "no securities lending", "lending is not used", "not used", "none",
+            "not permitted", "prohibited", "not allowed",
+        ),
+    )
     if lending_enabled and fields.get("collateral_terms", {}).get("status") != "resolved":
         flags.append("lending_collateral_terms_missing_or_conflicted")
     if fields.get("concentration_limits", {}).get("status") in {"unknown", "conflict", "unusable"}:
@@ -947,7 +1033,14 @@ def _applicable_fields(fields: Mapping[str, Mapping[str, object]]) -> tuple[tupl
     derivatives = str(fields.get("derivatives", {}).get("value") or "").casefold()
     lending = str(fields.get("lending_policy", {}).get("value") or "").casefold()
     synthetic_or_derivatives = _synthetic_or_derivative_disclosure(replication, derivatives)
-    lending_enabled = _positive_disclosure(lending, ("allow", "enabled", "up to", "may lend", "lending"), negative_terms=("no lending", "no securities lending", "not permitted", "prohibited", "not allowed"))
+    lending_enabled = _positive_disclosure(
+        lending,
+        ("allow", "enabled", "up to", "may lend", "lending"),
+        negative_terms=(
+            "no lending", "no securities lending", "lending is not used", "not used", "none",
+            "not permitted", "prohibited", "not allowed",
+        ),
+    )
     if synthetic_or_derivatives:
         for field in ("counterparties", "collateral_terms"):
             if field not in applicable:
@@ -974,11 +1067,45 @@ def _synthetic_or_derivative_disclosure(replication: str, derivatives: str) -> b
     return _positive_disclosure(replication, terms) or _positive_disclosure(derivatives, terms)
 
 
-def _positive_disclosure(value: str, positive_terms: Iterable[str], *, negative_terms: Iterable[str] = ("no derivative", "no synthetic", "no swaps", "non synthetic", "not synthetic", "not used", "none used", "none", "not permitted", "prohibited", "not allowed")) -> bool:
-    text = " ".join(str(value or "").casefold().replace("-", " ").split())
-    if any(term in text for term in negative_terms):
+def _positive_disclosure(
+    value: str,
+    positive_terms: Iterable[str],
+    *,
+    negative_terms: Iterable[str] = (
+        "no derivative",
+        "no derivatives",
+        "no use of derivative",
+        "no use of derivatives",
+        "does not use derivative",
+        "does not use derivatives",
+        "no synthetic",
+        "no swaps",
+        "non synthetic",
+        "not synthetic",
+        "not used",
+        "none used",
+        "none",
+        "not permitted",
+        "prohibited",
+        "not allowed",
+    ),
+) -> bool:
+    clauses = [clause for clause in re.split(r"[;,\.\n]+", str(value or "").casefold()) if clause.strip()]
+    for clause in clauses:
+        normalized = " ".join(re.sub(r"[^a-z0-9]+", " ", clause).split())
+        positive = any(_bounded_phrase(normalized, term, optional_plural=True) for term in positive_terms)
+        negative = any(_bounded_phrase(normalized, term) for term in negative_terms)
+        if positive and not negative:
+            return True
+    return False
+
+
+def _bounded_phrase(text: str, phrase: str, *, optional_plural: bool = False) -> bool:
+    normalized = " ".join(re.sub(r"[^a-z0-9]+", " ", str(phrase).casefold()).split())
+    if not normalized:
         return False
-    return any(term in text for term in positive_terms)
+    suffix = "s?" if optional_plural and " " not in normalized else ""
+    return re.search(rf"(?<![a-z0-9]){re.escape(normalized)}{suffix}(?![a-z0-9])", text) is not None
 
 
 def _field_payload(field: str, *, status: str, candidate: StructureCandidate | None = None, candidates: Iterable[StructureCandidate] = ()) -> dict[str, object]:
@@ -1153,6 +1280,47 @@ def _decimal_input(
     return number
 
 
+def _numeric_quartet_has_one_reviewed_revision(
+    inputs: Mapping[str, object],
+    candidates: object,
+    *,
+    registry: object,
+    report_records: object,
+    decision: datetime | None,
+    instrument_id: str,
+) -> bool:
+    if set(inputs) != set(_NUMERIC_UNITS) or any(not isinstance(value, NumericEvidence) for value in inputs.values()):
+        return False
+    if isinstance(candidates, (str, bytes, Mapping)) or candidates is None:
+        return False
+    try:
+        candidate_values = list(candidates)  # type: ignore[arg-type]
+    except TypeError:
+        return False
+    if any(not isinstance(value, NumericEvidence) for value in candidate_values):
+        return False
+    typed_inputs = {field: value for field, value in inputs.items() if isinstance(value, NumericEvidence)}
+    if len(candidate_values) != len(_NUMERIC_UNITS) or any(
+        [candidate for candidate in candidate_values if candidate.field_name == field] != [value]
+        for field, value in typed_inputs.items()
+    ):
+        return False
+    bindings = {
+        _numeric_provenance_binding(
+            value,
+            registry,
+            report_records,
+            decision,
+            instrument_id,
+            field,
+            value.normalized_value,
+            value.unit,
+        )
+        for field, value in typed_inputs.items()
+    }
+    return None not in bindings and len(bindings) == 1
+
+
 def _numeric_provenance_is_bound(
     value: NumericEvidence,
     registry: object,
@@ -1163,10 +1331,32 @@ def _numeric_provenance_is_bound(
     normalized_value: Decimal | None,
     unit: str,
 ) -> bool:
+    return _numeric_provenance_binding(
+        value,
+        registry,
+        report_records,
+        decision,
+        instrument_id,
+        field_name,
+        normalized_value,
+        unit,
+    ) is not None
+
+
+def _numeric_provenance_binding(
+    value: NumericEvidence,
+    registry: object,
+    report_records: object,
+    decision: datetime | None,
+    instrument_id: str,
+    field_name: str,
+    normalized_value: Decimal | None,
+    unit: str,
+) -> tuple[str, str, str, str, str] | None:
     try:
         validated_report_rows = _validated_report_rows(report_records)
     except ValueError:
-        return False
+        return None
     source_id = _text(value.source_id)
     checksum = _text(value.checksum)
     document_date = _date_text(value.document_date)
@@ -1174,25 +1364,28 @@ def _numeric_provenance_is_bound(
     page = _page(value.page)
     confidence = _confidence_value(value.confidence)
     if not source_id or not checksum or not document_date or not known_at or page is None or confidence is None:
-        return False
+        return None
     if not instrument_id or _text(value.instrument_id) != instrument_id:
-        return False
+        return None
     if value.field_name != field_name or value.unit != unit or normalized_value is None or str(value.status).casefold() not in _USABLE_STATUSES:
-        return False
-    registry_rows = _rows(registry)
+        return None
+    try:
+        registry_rows = _strict_rows(registry, "document registry")
+    except ValueError:
+        return None
     matches = [row for row in registry_rows if _text(row.get("source_id")) == source_id]
     if len(matches) != 1:
-        return False
+        return None
     registered = matches[0]
     registered_checksum = _text(registered.get("sha256")) or _text(registered.get("checksum"))
     registered_date = _date_text(registered.get("document_date"))
     registered_known_at = _date_time_text(registered.get("known_at")) or _date_time_text(registered.get("ingested_at"))
     if checksum != registered_checksum or document_date != registered_date or known_at != registered_known_at:
-        return False
+        return None
     if instrument_id and _text(registered.get("instrument_id")) != instrument_id:
-        return False
+        return None
     if decision is not None and _parse_timestamp(known_at) > decision:
-        return False
+        return None
     for report_row in validated_report_rows:
         if str(report_row.get("instrument_id") or "").strip() != instrument_id or _text(report_row.get("source_id")) != source_id:
             continue
@@ -1216,8 +1409,14 @@ def _numeric_provenance_is_bound(
                 and item_page == page
                 and item_confidence == confidence
             ):
-                return True
-    return False
+                return (
+                    source_id,
+                    checksum,
+                    document_date,
+                    known_at,
+                    str(review_event.get("event_id") or ""),
+                )
+    return None
 
 
 def _report_identity_matches(

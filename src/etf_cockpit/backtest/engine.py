@@ -357,6 +357,7 @@ def run_backtest(
             target = target_weights(config, columns)
             for signal in signals:
                 canonical = signal.canonical_score
+                structural_identity = structure_caps.provenance.get(signal.etf_id, {})
                 signal_rows.append(
                     {
                         "date": dt.date(),
@@ -371,6 +372,10 @@ def run_backtest(
                         "formula_version": canonical.formula_version if canonical else "unavailable",
                         "formula_checksum": canonical.formula_checksum if canonical else "unavailable",
                         "source_vintage_hash": canonical.source_vintage_hash if canonical else "unavailable",
+                        "structural_confidence_cap": float(structure_caps.get(signal.etf_id, 0.0)),
+                        "structural_provenance_hash": str(
+                            structural_identity.get("structure_provenance_hash", "unavailable")
+                        ),
                     }
                 )
                 if signal.etf_id not in signal_weight:

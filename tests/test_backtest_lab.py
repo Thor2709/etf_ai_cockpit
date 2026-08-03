@@ -147,11 +147,18 @@ def test_quality_momentum_checksum_verifies_exact_persisted_csv_bytes(tmp_path) 
 def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
     tmp_path, monkeypatch
 ) -> None:
+    from etf_cockpit.data.etf_structure import LocalStructuralEvidence
+
     config = load_config()
     prices = generate_sample_prices(config, periods=360, end_date=pd.Timestamp("2026-06-26").date())
     monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path)
     monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
     monkeypatch.setattr(services, "load_fundamental_evidence", pd.DataFrame)
+    monkeypatch.setattr(
+        services,
+        "_load_local_structural_evidence",
+        lambda: LocalStructuralEvidence(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()),
+    )
     monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: {})
     service = services.BacktestService(config, universe_revision="test-revision")
 

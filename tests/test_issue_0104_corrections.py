@@ -753,49 +753,34 @@ def test_current_review_metadata_mismatch_remains_unknown_in_structure_projectio
 
 def test_numeric_stress_does_not_mix_partial_quartets_across_report_revisions() -> None:
     from etf_cockpit.data.etf_structure import project_etf_structure
+    from test_etf_structure import _refresh_report_fingerprint, _registry, _report
 
-    checksum = "a" * 64
-    registry = pd.DataFrame([
-        {
-            "instrument_id": "ETF-1", "source_id": "prospectus-1", "document_type": "prospectus_report", "document_kind": "prospectus",
-            "sha256": checksum, "document_date": "2026-01-01", "known_at": "2026-01-02T00:00:00Z", "coverage_status": "available",
-        },
-        {
-            "instrument_id": "ETF-1", "source_id": "annual-1", "document_type": "annual_report", "document_kind": "annual_report",
-            "sha256": checksum, "document_date": "2026-02-01", "known_at": "2026-02-02T00:00:00Z", "coverage_status": "available",
-        },
-    ])
-
-    def report(source_id: str, document_type: str, document_date: str, known_at: str, numeric_fields: tuple[tuple[str, str, str], ...]) -> dict[str, object]:
-        evidence = [{"field_name": "legal_form", "value": "ICAV", "source_page": 1, "confidence": "high", "status": "extracted"}]
-        evidence.extend(
-            {"field_name": field, "value": value, "unit": unit, "source_page": 2, "confidence": "high", "status": "extracted"}
-            for field, value, unit in numeric_fields
-        )
-        return {
-            "instrument_id": "ETF-1", "source_id": source_id, "document_type": document_type, "document_kind": document_type,
-            "source_sha256": checksum, "document_date": document_date, "known_at": known_at,
-            "verification_status": "verified", "verified_by": "analyst", "verified_at": "2026-02-03T00:00:00Z", "review_note": "",
-            "evidence_eligible": True, "extraction_sha256": "b" * 64, "stored_extraction_sha256": "b" * 64,
-            "review_history": json.dumps([{"decision": "verified", "reviewer": "analyst", "note": "", "reviewed_at": "2026-02-03T00:00:00Z", "extraction_sha256": "b" * 64}]),
-            "field_evidence": json.dumps(evidence),
-        }
-
-    reports = pd.DataFrame([
-        report("prospectus-1", "prospectus_report", "2026-01-01", "2026-01-02T00:00:00Z", (
-            ("exposure", "0.4", "fraction_of_nav"),
-            ("collateral_fraction", "0.8", "fraction_of_exposure"),
-        )),
-        report("annual-1", "annual_report", "2026-02-01", "2026-02-02T00:00:00Z", (
-            ("haircut_fraction", "0.1", "scenario_haircut_fraction"),
-            ("concentration_limit_fraction", "0.25", "fraction_of_collateral"),
-        )),
-    ])
+    checksum_b = "b" * 64
+    registry_a = _registry(source_id="prospectus-1", document_date="2026-01-01", known_at="2026-01-02T00:00:00Z")
+    registry_b = _registry(source_id="prospectus-2", document_date="2026-02-01", known_at="2026-02-02T00:00:00Z")
+    registry_b.loc[0, ["sha256", "checksum"]] = checksum_b
+    registry = pd.concat([registry_a, registry_b], ignore_index=True)
+    report_a = _report(source_id="prospectus-1", document_date="2026-01-01", known_at="2026-01-02T00:00:00Z")
+    report_b = _report(source_id="prospectus-2", document_date="2026-02-01", known_at="2026-02-02T00:00:00Z")
+    report_b.loc[0, "source_sha256"] = checksum_b
+    for report, excluded in (
+        (report_a, {"haircut_fraction", "concentration_limit_fraction"}),
+        (report_b, {"exposure", "collateral_fraction"}),
+    ):
+        evidence = [
+            item for item in json.loads(report.loc[0, "field_evidence"])
+            if item["field_name"] not in excluded
+        ]
+        report.loc[0, "field_evidence"] = json.dumps(evidence)
+        _refresh_report_fingerprint(report)
+    reports = pd.concat([report_a, report_b], ignore_index=True)
 
     projection = project_etf_structure("ETF-1", document_registry=registry, report_records=reports)
 
     assert projection["stress"]["status"] == "unavailable"
     assert "provenance" not in projection["stress"]
+
+
 def test_instrument_detail_keeps_required_structure_section() -> None:
     model = InstrumentDetailViewModel(
         instrument_id="ETF-1",
@@ -818,6 +803,8 @@ def test_real_backtest_signature_accepts_structural_holdings() -> None:
 
 
 def test_real_260_session_backtest_accepts_structural_holdings() -> None:
+    from etf_cockpit.data.etf_structure import structure_confidence_caps
+
     config = services.load_config()
     prices = generate_sample_prices(config, periods=260, end_date=date(2026, 7, 10))
     holdings = pd.DataFrame([{"instrument_id": config.universe.enabled_ids[0], "source_id": "holdings-1", "weight": 0.4}])
@@ -828,6 +815,18 @@ def test_real_260_session_backtest_accepts_structural_holdings() -> None:
     assert report.metadata["input_checksum"] == backtest_input_checksum(
         config, prices, pd.DataFrame(), structure_holdings=holdings
     )
+    assert not report.signal_log.empty
+    assert {"structural_confidence_cap", "structural_provenance_hash"}.issubset(report.signal_log.columns)
+    assert report.signal_log["structural_confidence_cap"].between(0.0, 1.0).all()
+    assert report.signal_log["structural_provenance_hash"].astype(str).str.len().gt(0).all()
+    for row in report.signal_log.to_dict("records"):
+        caps = structure_confidence_caps(
+            [row["etf_id"]], holdings=holdings, decision_time=row["date"]
+        )
+        assert row["structural_confidence_cap"] == caps[row["etf_id"]]
+        assert row["structural_provenance_hash"] == caps.provenance[row["etf_id"]][
+            "structure_provenance_hash"
+        ]
 
 
 def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path, monkeypatch) -> None:
@@ -889,7 +888,12 @@ def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path,
             results=results,
             equity_curves=pd.DataFrame({"signal_strategy": [100.0]}, index=pd.to_datetime(["2026-07-10"])),
             trade_log=pd.DataFrame(columns=["event"]),
-            signal_log=pd.DataFrame(columns=["event"]),
+            signal_log=pd.DataFrame([{
+                "date": "2026-07-10",
+                "etf_id": config_arg.universe.enabled_ids[0],
+                "structural_confidence_cap": 0.5,
+                "structural_provenance_hash": "c" * 64,
+            }]),
             ai_added_value=False,
             quality_label="low",
             metadata={
@@ -933,7 +937,13 @@ def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path,
     service.run_backtest()
     assert captured["structure_holdings"].equals(holdings)
     assert captured["structure_supplemental_rows"]["source_id"].tolist() == ["factsheet-1"]
-    assert service._load_cached_backtest() is not None
+    persisted_signal_log = pd.read_csv(services.BACKTESTS_DIR / "signal_log.csv")
+    assert persisted_signal_log.loc[0, "structural_confidence_cap"] == 0.5
+    assert persisted_signal_log.loc[0, "structural_provenance_hash"] == "c" * 64
+    cached = service._load_cached_backtest()
+    assert cached is not None
+    assert cached.signal_log.loc[0, "structural_confidence_cap"] == 0.5
+    assert cached.signal_log.loc[0, "structural_provenance_hash"] == "c" * 64
 
     changed = holdings.copy()
     changed.loc[0, "weight"] = 0.6
@@ -1019,7 +1029,10 @@ def test_canonical_report_reader_fails_closed_on_duplicate_source_id(tmp_path) -
     from etf_cockpit.data.parsed_disclosures import read_etf_report_records
 
     path = tmp_path / "etf_report_records.parquet"
-    pd.DataFrame([{"source_id": "duplicate"}, {"source_id": "duplicate"}]).to_parquet(path, index=False)
+    pd.DataFrame([
+        {"schema_version": 2.1, "source_id": "duplicate"},
+        {"schema_version": 2.1, "source_id": "duplicate"},
+    ]).to_parquet(path, index=False)
 
     with pytest.raises(ValueError, match="duplicate source_id"):
         read_etf_report_records(path)

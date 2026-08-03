@@ -1009,6 +1009,8 @@ def _read_report_frame_from_frame(frame: pd.DataFrame, *, validate_authority: bo
     source_columns = tuple(original_columns or (str(column) for column in frame.columns))
     legacy_allowed = _legacy_fingerprint_allowed(source_columns)
     result = frame.copy()
+    for _, row in result.iterrows():
+        _validate_report_schema_version(row.get("schema_version"), legacy_allowed=legacy_allowed)
     for column in REPORT_COLUMNS:
         if column not in result.columns:
             result[column] = None
@@ -1074,6 +1076,7 @@ def validate_supplied_etf_report_records(value: object) -> pd.DataFrame:
         frame = pd.DataFrame([dict(item) for item in items])
     if bool(frame.columns.duplicated().any()):
         raise ValueError("supplied ETF report records contain duplicate columns")
+    legacy_allowed = _legacy_fingerprint_allowed(tuple(str(column) for column in frame.columns))
 
     source_ids = frame.get("source_id", pd.Series(dtype=object)).map(_cell_text)
     if source_ids[source_ids.ne("")].duplicated(keep=False).any():
@@ -1081,10 +1084,11 @@ def validate_supplied_etf_report_records(value: object) -> pd.DataFrame:
 
     for row in frame.to_dict("records"):
         series = pd.Series(row)
+        _validate_report_schema_version(series.get("schema_version"), legacy_allowed=legacy_allowed)
         _strict_stored_bool(series.get("parse_success"), "parse_success")
         stored_fingerprint = _cell_text(row.get("stored_extraction_sha256"))
         if stored_fingerprint:
-            if not _is_sha256_fingerprint(stored_fingerprint) or not _fingerprint_matches(series, stored_fingerprint, legacy_allowed=False):
+            if not _is_sha256_fingerprint(stored_fingerprint) or not _fingerprint_matches(series, stored_fingerprint, legacy_allowed=legacy_allowed):
                 raise ValueError("supplied report extraction fingerprint does not match extraction")
 
         history = _review_history(series.get("review_history"), expected_fingerprint=stored_fingerprint or None, row=series)
@@ -1209,6 +1213,17 @@ def _report_schema_version(value: Any) -> float:
         return float(value)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _validate_report_schema_version(value: Any, *, legacy_allowed: bool) -> float:
+    if isinstance(value, bool) or type(value).__name__ not in {"int", "int64", "float", "float64"}:
+        raise ValueError("report schema_version is missing or malformed")
+    version = float(value)
+    if version == REPORT_SCHEMA_VERSION:
+        return version
+    if version == 2.0 and legacy_allowed:
+        return version
+    raise ValueError("report schema_version is unsupported")
 
 
 def _is_legacy_report_row(row: pd.Series | dict[str, Any]) -> bool:

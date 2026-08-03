@@ -241,15 +241,22 @@ def test_factsheet_prospectus_and_holdings_conflicts_remain_visible() -> None:
         ],
         ignore_index=True,
     )
-    rows = pd.DataFrame(
-        [
-            {"instrument_id": "ETF-1", "source_id": "factsheet-1", "document_type": "factsheet", "checksum": CHECKSUM, "document_date": "2026-07-01", "known_at": "2026-07-02T00:00:00Z", "field_name": "replication_method", "value": "Physical", "page": 1, "confidence": "high"},
-            {"instrument_id": "ETF-1", "source_id": "prospectus-1", "document_type": "prospectus_report", "checksum": CHECKSUM, "document_date": "2026-07-01", "known_at": "2026-07-02T00:00:00Z", "field_name": "replication_method", "value": "Synthetic swap", "page": 2, "confidence": "high"},
-            {"instrument_id": "ETF-1", "source_id": "holdings-1", "document_type": "holdings", "checksum": CHECKSUM, "document_date": "2026-07-01", "known_at": "2026-07-02T00:00:00Z", "field_name": "replication_method", "value": "Physical sampled", "page": 3, "confidence": "high"},
-        ]
-    )
+    factsheet = pd.DataFrame([{
+        "instrument_id": "ETF-1", "source_id": "factsheet-1", "document_type": "factsheet",
+        "checksum": CHECKSUM, "document_date": "2026-07-01", "known_at": "2026-07-02T00:00:00Z",
+        "field_name": "replication_method", "value": "Physical", "page": 1, "confidence": "high",
+    }])
+    holdings = pd.DataFrame([{
+        "instrument_id": "ETF-1", "source_id": "holdings-1", "document_type": "holdings",
+        "checksum": CHECKSUM, "document_date": "2026-07-01", "known_at": "2026-07-02T00:00:00Z",
+        "field_name": "replication_method", "value": "Physical sampled", "page": 3, "confidence": "high",
+    }])
+    report = _report(source_id="prospectus-1", replication="Synthetic swap")
 
-    projection = project_etf_structure("ETF-1", document_registry=registry, supplemental_rows=rows)
+    projection = project_etf_structure(
+        "ETF-1", document_registry=registry, report_records=report,
+        supplemental_rows=factsheet, holdings=holdings,
+    )
 
     assert projection["fields"]["replication_method"]["status"] == "conflict"
     assert len(projection["fields"]["replication_method"]["candidates"]) == 3
@@ -286,6 +293,9 @@ def test_non_usable_supplemental_statuses_never_resolve(document_type: str, stat
 
 
 def test_supplemental_rows_without_page_or_exact_identity_fail_closed() -> None:
+    from etf_cockpit.application.ui_facade import load_etf_structure_projection
+    from etf_cockpit.data.etf_structure import structure_input_checksum
+
     rows = pd.DataFrame([{
         "instrument_id": "ETF-1",
         "source_id": "report:v2:one",
@@ -294,11 +304,14 @@ def test_supplemental_rows_without_page_or_exact_identity_fail_closed() -> None:
         "value": "Physical",
         "confidence": "high",
     }])
-    projection = project_etf_structure("ETF-1", document_registry=_registry(), supplemental_rows=rows)
+    with pytest.raises(ValueError, match="outside the factsheet channel"):
+        project_etf_structure("ETF-1", document_registry=_registry(), supplemental_rows=rows)
+    with pytest.raises(ValueError, match="outside the factsheet channel"):
+        structure_input_checksum(document_registry=_registry(), supplemental_rows=rows)
+    projection = load_etf_structure_projection("ETF-1", document_registry=_registry(), supplemental_rows=rows)
 
-    assert projection["fields"]["replication_method"]["status"] == "unusable"
-    assert projection["fields"]["replication_method"]["value"] is None
-    assert any(item["reason_code"] == "candidate_page_or_value_missing" for item in projection["rejected_candidates"])
+    assert projection["status"] == "unavailable"
+    assert projection["evidence_confidence_cap"] == 0.0
 
 
 def test_numeric_stress_uses_bound_fraction_nav_formulas_and_rejects_implicit_values() -> None:
@@ -428,6 +441,43 @@ def test_numeric_stress_rejects_changed_value_unit_and_repurposed_textual_candid
             instrument_id="ETF-1",
         )
         assert stress["status"] == "unavailable"
+
+
+def test_numeric_stress_rejects_mixed_reviewed_report_revisions() -> None:
+    checksum_b = "b" * 64
+    registry_a = _registry(source_id="report-a", document_date="2026-06-01", known_at="2026-06-02T00:00:00Z")
+    registry_b = _registry(source_id="report-b", document_date="2026-07-01", known_at="2026-07-02T00:00:00Z")
+    registry_b.loc[0, ["sha256", "checksum"]] = checksum_b
+    registry = pd.concat([registry_a, registry_b], ignore_index=True)
+    report_a = _report(source_id="report-a", document_date="2026-06-01", known_at="2026-06-02T00:00:00Z")
+    report_b = _report(source_id="report-b")
+    report_b.loc[0, "source_sha256"] = checksum_b
+    _refresh_report_fingerprint(report_b)
+    reports = pd.concat([report_a, report_b], ignore_index=True)
+
+    def numeric(field: str, value: str, unit: str, source_id: str, checksum: str, document_date: str, known_at: str) -> NumericEvidence:
+        return NumericEvidence(
+            value, unit, source_id, document_date, 4, "high", known_at, checksum, "ETF-1", field
+        )
+
+    inputs = {
+        "exposure": numeric("exposure", "0.4", "fraction_of_nav", "report-a", CHECKSUM, "2026-06-01", "2026-06-02T00:00:00Z"),
+        "collateral_fraction": numeric("collateral_fraction", "0.8", "fraction_of_exposure", "report-a", CHECKSUM, "2026-06-01", "2026-06-02T00:00:00Z"),
+        "haircut_fraction": numeric("haircut_fraction", "0.1", "scenario_haircut_fraction", "report-b", checksum_b, "2026-07-01", "2026-07-02T00:00:00Z"),
+        "concentration_limit_fraction": numeric("concentration_limit_fraction", "0.25", "fraction_of_collateral", "report-b", checksum_b, "2026-07-01", "2026-07-02T00:00:00Z"),
+    }
+
+    stress = calculate_structural_stress(
+        **inputs,
+        registry=registry,
+        report_records=reports,
+        candidates=list(inputs.values()),
+        decision_time="2026-07-03T00:00:00Z",
+        instrument_id="ETF-1",
+    )
+
+    assert stress["status"] == "unavailable"
+    assert stress["reason_code"] == "numeric_evidence_not_one_reviewed_revision"
 
 
 def test_structure_projection_identity_changes_with_evidence_and_cap_is_part_of_identity() -> None:
@@ -663,6 +713,50 @@ def test_explicit_synthetic_and_derivative_negations_remain_negative_through_fac
     assert not any(flag.startswith("synthetic_") for flag in projection["flags"])
 
 
+@pytest.mark.parametrize("derivatives", ["No use of derivatives", "Does not use derivatives"])
+def test_clause_bounded_derivative_negations_remain_negative(derivatives: str) -> None:
+    report = _report(replication="Physical replication")
+    evidence = json.loads(report.loc[0, "field_evidence"])
+    next(item for item in evidence if item["field_name"] == "derivatives")["value"] = derivatives
+    report.loc[0, "field_evidence"] = json.dumps(evidence)
+    _refresh_report_fingerprint(report)
+
+    projection = project_etf_structure("ETF-1", document_registry=_registry(), report_records=report)
+
+    assert "counterparties" not in projection["applicable_fields"]
+    assert "collateral_terms" not in projection["applicable_fields"]
+
+
+@pytest.mark.parametrize("lending", ["Securities lending: none", "Lending is not used"])
+def test_clause_bounded_lending_negations_remain_negative(lending: str) -> None:
+    report = _report(replication="Physical replication")
+    evidence = json.loads(report.loc[0, "field_evidence"])
+    next(item for item in evidence if item["field_name"] == "derivatives")["value"] = "No use of derivatives"
+    next(item for item in evidence if item["field_name"] == "lending_policy")["value"] = lending
+    report.loc[0, "field_evidence"] = json.dumps(evidence)
+    _refresh_report_fingerprint(report)
+
+    projection = project_etf_structure("ETF-1", document_registry=_registry(), report_records=report)
+
+    assert "lending_revenue_split" not in projection["applicable_fields"]
+    assert not any(flag.startswith("lending_") for flag in projection["flags"])
+
+
+def test_contradictory_derivative_clauses_fail_closed_as_positive_risk() -> None:
+    report = _report(replication="Physical replication")
+    evidence = json.loads(report.loc[0, "field_evidence"])
+    evidence = [item for item in evidence if item["field_name"] not in {"counterparties", "collateral_terms"}]
+    next(item for item in evidence if item["field_name"] == "derivatives")["value"] = "No derivatives; uses swaps"
+    report.loc[0, "field_evidence"] = json.dumps(evidence)
+    _refresh_report_fingerprint(report)
+
+    projection = project_etf_structure("ETF-1", document_registry=_registry(), report_records=report)
+
+    assert {"counterparties", "collateral_terms"}.issubset(projection["applicable_fields"])
+    assert projection["evidence_confidence_cap"] < 1.0
+    assert "synthetic_counterparty_evidence_missing_or_conflicted" in projection["flags"]
+
+
 def test_replication_negation_does_not_suppress_separate_positive_derivative_disclosure() -> None:
     from etf_cockpit.application.ui_facade import load_etf_structure_projection
 
@@ -809,6 +903,108 @@ def test_pending_ineligible_rows_still_require_stored_parse_success_boolean(read
             disclosures._read_report_frame_from_frame(report, validate_authority=False)
         else:
             disclosures.validate_supplied_etf_report_records(report)
+
+
+@pytest.mark.parametrize("schema_version", [None, "2.1", 999.0])
+@pytest.mark.parametrize("reader", ["canonical", "supplied"])
+def test_report_schema_version_is_validated_before_fingerprint_and_authority(
+    reader: str, schema_version: object
+) -> None:
+    import etf_cockpit.data.parsed_disclosures as disclosures
+
+    report = _report()
+    if schema_version is None:
+        report = report.drop(columns=["schema_version"])
+    else:
+        report["schema_version"] = report["schema_version"].astype(object)
+        report.loc[0, "schema_version"] = schema_version
+
+    with pytest.raises(ValueError, match="schema_version"):
+        if reader == "canonical":
+            disclosures._read_report_frame_from_frame(report, validate_authority=False)
+        else:
+            disclosures.validate_supplied_etf_report_records(report)
+
+
+def test_recognized_legacy_report_container_remains_accepted_when_explicitly_versioned() -> None:
+    import etf_cockpit.data.parsed_disclosures as disclosures
+
+    report = _report()
+    legacy = report.drop(
+        columns=list(set(disclosures.REPORT_COLUMNS) - set(disclosures._LEGACY_REPORT_COLUMNS)),
+        errors="ignore",
+    )
+    legacy.loc[0, "schema_version"] = 2
+    fingerprint = disclosures._row_extraction_fingerprint(
+        legacy.iloc[0], columns=disclosures._LEGACY_REPORT_COLUMNS
+    )
+    legacy.loc[0, "extraction_sha256"] = fingerprint
+    legacy.loc[0, "stored_extraction_sha256"] = fingerprint
+    history = json.loads(legacy.loc[0, "review_history"])
+    legacy.loc[0, "review_history"] = json.dumps([
+        {**item, "extraction_sha256": fingerprint} for item in history
+    ])
+
+    supplied = disclosures.validate_supplied_etf_report_records(legacy)
+
+    assert supplied.loc[0, "schema_version"] == 2
+
+
+@pytest.mark.parametrize("channel", ["registry", "supplemental", "holdings"])
+@pytest.mark.parametrize("corruption", ["member", "columns"])
+def test_structural_channels_reject_malformed_members_and_duplicate_columns(
+    channel: str, corruption: str
+) -> None:
+    from etf_cockpit.data.etf_structure import structure_input_checksum
+
+    registry: object = _registry(document_type="factsheet", document_kind="factsheet")
+    supplemental: object = pd.DataFrame()
+    holdings: object = pd.DataFrame()
+    malformed: object
+    if corruption == "member":
+        malformed = [{"instrument_id": "ETF-1"}, "corrupt"]
+    else:
+        malformed = pd.concat([pd.DataFrame([{"instrument_id": "ETF-1"}])] * 2, axis=1)
+    if channel == "registry":
+        registry = malformed
+    elif channel == "supplemental":
+        supplemental = malformed
+    else:
+        holdings = malformed
+
+    assert structure_confidence_caps(
+        ["ETF-1"], document_registry=registry, supplemental_rows=supplemental, holdings=holdings
+    )["ETF-1"] == 0.0
+    with pytest.raises(ValueError, match="non-mapping|duplicate columns"):
+        structure_input_checksum(
+            document_registry=registry, supplemental_rows=supplemental, holdings=holdings
+        )
+
+
+def test_valid_plus_corrupt_structural_channel_cannot_share_valid_cache_identity() -> None:
+    from etf_cockpit.data.etf_structure import structure_input_checksum
+
+    registry = _registry(source_id="factsheet-1", document_type="factsheet", document_kind="factsheet")
+    valid_row = {
+        "instrument_id": "ETF-1",
+        "source_id": "factsheet-1",
+        "document_type": "factsheet",
+        "checksum": CHECKSUM,
+        "document_date": "2026-07-01",
+        "known_at": "2026-07-02T00:00:00Z",
+        "field_name": "replication_method",
+        "value": "Physical",
+        "page": 1,
+        "confidence": "high",
+    }
+    valid_checksum = structure_input_checksum(document_registry=registry, supplemental_rows=[valid_row])
+
+    assert valid_checksum
+    with pytest.raises(ValueError, match="non-mapping member"):
+        structure_input_checksum(
+            document_registry=registry,
+            supplemental_rows=[valid_row, "corrupt"],
+        )
 
 
 def test_duplicate_registry_source_ids_fail_closed_for_structure_and_backtest_cache_identity() -> None:
