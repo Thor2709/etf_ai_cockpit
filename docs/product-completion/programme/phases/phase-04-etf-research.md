@@ -48,7 +48,7 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | ID | Priority | Programme state | Owner | Blocking dependencies | Required inputs | Downstream issues | Related issues |
 |---|---|---|---|---|---|---|---|
 | `ISSUE-0103` | `P0/P1` | `integrated` | `etf-research` | `ISSUE-0084`, `UPDATEV2-0015` | - | - | - |
-| `ISSUE-0104` | `P0/P1` | `ready` | `etf-research` | `UPDATEV2-0015`, `UPDATEV2-0018` | - | `ISSUE-0107` | - |
+| `ISSUE-0104` | `P0/P1` | `in_progress` | `etf-research` | `UPDATEV2-0015`, `UPDATEV2-0018` | - | `ISSUE-0107` | - |
 | `ISSUE-0105` | `P0` | `planned` | `etf-research` | `ISSUE-0082`, `UPDATEV2-0016` | - | `ISSUE-0108`, `ISSUE-0162`, `ISSUE-0172` | - |
 | `ISSUE-0106` | `P0/P1` | `implemented_initially` | `etf-research` | `ISSUE-0128` | - | - | - |
 | `ISSUE-0107` | `P1/P2` | `planned` | `etf-research` | `ISSUE-0088`, `ISSUE-0104` | - | - | - |

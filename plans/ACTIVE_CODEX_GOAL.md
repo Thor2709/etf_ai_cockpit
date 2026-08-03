@@ -32,6 +32,24 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   conflict states, evidence-gated numeric stress and a Structure & Documents
   panel. It must not invent values or alpha, inherit stock credit metrics,
   enable execution, or broaden provider/parser authority.
+- Product evidence commit
+  `8a69a94919bf93d584778659ee01be030c020ce7` implements that bounded scope.
+  The affected structure, scoring, parser, document, instrument-detail,
+  backtest, recovery and publication suite passes 87 tests with one expected
+  skip. The projection generator is byte-clean.
+- The product transaction carries the single legal `ready -> in_progress`
+  hop. Its live status-only plan SHA is
+  `6f0f011be2cfca6b24865e05fba0bd7356c083e6824ca570975ffe8d3c4b5d7d`;
+  append-only authority
+  `3410411c01d92c04b7a47a456d1b17c50da1645dc5d08a72459f1020697902fe`
+  and candidate ref
+  `6b69892b1f5cca48be58e9768d3d93e6abfa5c380a0694c6cf43d98128e80155`
+  bind issue #244 to exact parent
+  `fca004a529cccc3b0d4251fc600a897035298014` with
+  `execution_allowed=false`. Before merge, freeze one exact head, run both
+  independent reviews and required H-tier Linux/Windows validation in
+  parallel, then require the ordered writer and a generic zero-action
+  readback.
 
 ## Completed UPDATEV2-0018 product checkpoint
 
