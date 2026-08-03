@@ -16999,7 +16999,7 @@
       ],
       "title": "Implement ETF structural, legal, counterparty, lending and collateral risk analysis",
       "ui_requirement": "ETF Structure & Documents panel.",
-      "verified_commit": "8a69a94919bf93d584778659ee01be030c020ce7",
+      "verified_commit": "fca004a529cccc3b0d4251fc600a897035298014",
       "verified_date": "2026-08-03",
       "why": "Two ETFs with similar exposure can have materially different structural risks.",
       "write_conflict_group": "etf-research"
@@ -27746,7 +27746,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "8e318001a777a0bba5d56c5a2c4b50739a04c72ae77eabf7574dd2aa86d7029b",
+    "programme_control_state_sha256": "6790bbef790c7ccd03a7d324b532cc3fa1cce943e925ad0ed09f2aa01df0f88d",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

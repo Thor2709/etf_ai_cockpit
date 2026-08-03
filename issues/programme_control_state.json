@@ -4001,10 +4001,10 @@
           "reviewed_date": "2026-08-03",
           "reviewer": "Codex root orchestrator; independent exact-head reviews pending",
           "to": "in_progress",
-          "verified_commit": "8a69a94919bf93d584778659ee01be030c020ce7"
+          "verified_commit": "fca004a529cccc3b0d4251fc600a897035298014"
         }
       ],
-      "verified_commit": "8a69a94919bf93d584778659ee01be030c020ce7",
+      "verified_commit": "fca004a529cccc3b0d4251fc600a897035298014",
       "verified_date": "2026-08-03"
     },
     "ISSUE-0105": {
