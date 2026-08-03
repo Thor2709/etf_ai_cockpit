@@ -125,6 +125,29 @@ release-hardening and architecture suite reaches 100% with one expected skip
 and no failures. Ruff, compile and diff hygiene pass. Freeze one checkpoint
 head, then repeat both reviews and fresh H-tier hosted validation in parallel.
 
+Exact head `ab8b7c0a79a52749eae68cf78165247f63893b7f` is rejected after
+both parallel reviewers completed. The full collected set is cross-kind legal
+conflicts projected as resolved, numeric stress unreachable through a real
+canonical parse/review/readback path, and inconsistent current review
+eligibility accepted through older verified history. Status guard
+`30792984804` passed. Stale release run `30792984780` passed preflight and
+Windows; it was cancelled after rejection while Linux was running, so Linux
+and terminal results are not reusable.
+
+The sole next pass corrects those three demonstrated defects and adds their
+focused regressions without changing lifecycle, authority, dependencies,
+providers or `execution_allowed=false`. Freeze one replacement head after the
+focused suite, then repeat both reviews and fresh H-tier hosted validation.
+
+Consolidated correction commit
+`fd0e6cb8957351427c0066c769ce4c820c973bf2` preserves valid point-in-time
+review replay while rejecting inconsistent current state, keeps cross-kind
+stable conflicts unresolved, and carries four typed fraction inputs through
+real PDF parse, reviewed persistence, readback and structural stress. The
+focused parser/disclosure/structure/correction suite reaches 100% with one
+expected skip; the direct review-history follow-up passes 20 tests. Ruff,
+compile and diff hygiene pass. Freeze the replacement checkpoint head.
+
 ## Completed UPDATEV2-0018 parser lane
 
 ISSUE-0103 completion PR #648 merged exact reviewed head
