@@ -33,14 +33,15 @@ from etf_cockpit.application.ui_facade import (
     load_fixed_income_market_data_projection,
     load_fixed_income_analytics_projection,
     load_etf_structure_projection,
+    load_local_structural_evidence,
     load_simple_scoreboard,
     load_statement_evidence,
     load_paper_trade_rows,
     read_document_registry,
+    read_etf_report_records,
     read_index_methodology_records,
     read_priips_kid_records,
     score_history_frame,
-    STRUCTURAL_FIELDS,
     sort_news_items,
     sort_calendar_events,
 )
@@ -763,45 +764,26 @@ def _etf_structure_panel(
     holdings: pd.DataFrame | None = None,
     decision_time: object = None,
 ) -> dict[str, Any]:
-    local_factsheet_rows = _local_structure_rows(ETF_METADATA_CLEAN_PATH, "factsheet") if supplemental_rows is None else supplemental_rows
-    local_holdings_rows = _local_structure_rows(FUND_HOLDINGS_PATH, "holdings") if holdings is None else holdings
+    evidence = None
+    if any(value is None for value in (document_registry, report_records, supplemental_rows, holdings)):
+        evidence = load_local_structural_evidence(
+            registry_reader=(lambda: document_registry) if document_registry is not None else read_document_registry,
+            report_reader=(lambda: report_records) if report_records is not None else read_etf_report_records,
+            factsheet_path=ETF_METADATA_CLEAN_PATH,
+            holdings_path=FUND_HOLDINGS_PATH,
+        )
+    local_registry = document_registry if document_registry is not None else evidence.document_registry
+    local_reports = report_records if report_records is not None else evidence.report_records
+    local_factsheet_rows = supplemental_rows if supplemental_rows is not None else evidence.supplemental_rows
+    local_holdings_rows = holdings if holdings is not None else evidence.holdings
     return load_etf_structure_projection(
         instrument_id,
-        document_registry=document_registry,
-        report_records=report_records,
+        document_registry=local_registry,
+        report_records=local_reports,
         supplemental_rows=local_factsheet_rows,
         holdings=local_holdings_rows,
         decision_time=decision_time,
     )
-
-
-def _local_structure_rows(path: object, default_document_type: str) -> pd.DataFrame:
-    """Expose only explicitly sourced structural fields from local imports."""
-
-    frame = _load_parquet(path)
-    if frame.empty:
-        return pd.DataFrame()
-    records: list[dict[str, object]] = []
-    for source in frame.to_dict("records"):
-        instrument_id = source.get("instrument_id", source.get("etf_id"))
-        common = {
-            "instrument_id": instrument_id,
-            "source_id": source.get("source_id"),
-            "document_type": source.get("document_type") or default_document_type,
-            "checksum": source.get("checksum") or source.get("sha256"),
-            "document_date": source.get("document_date") or source.get("as_of_date") or source.get("as_of"),
-            "known_at": source.get("known_at") or source.get("ingested_at") or source.get("imported_at"),
-            "page": source.get("page") or source.get("source_page"),
-            "confidence": source.get("confidence"),
-            "status": source.get("status", "unknown"),
-        }
-        if source.get("field_name") or source.get("field"):
-            records.append({**common, "field_name": source.get("field_name") or source.get("field"), "value": source.get("value")})
-            continue
-        for field_name in STRUCTURAL_FIELDS:
-            if field_name in source and source[field_name] is not None:
-                records.append({**common, "field_name": field_name, "value": source[field_name]})
-    return pd.DataFrame(records)
 
 
 def _friction_panel(instrument_id: str, *, candidate_score: SimpleInstrumentScore | None = None) -> dict[str, Any]:

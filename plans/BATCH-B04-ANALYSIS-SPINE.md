@@ -92,6 +92,22 @@ Direct correction, architecture and document suites pass 57 tests; the final
 locally. Ruff, compile and diff hygiene pass. Freeze the next exact review
 head.
 
+Exact head `c50647a809ccbe84649b05e43fb0025c8354d9f3` is rejected after
+both reviewers completed. The complete defects are an incorrect real-backtest
+checksum keyword, omitted factsheet evidence in shared score/backtest/cache
+loading, duplicate persisted report identities, and multi-row pre-2.1
+migration losing untouched-row fingerprint context. Release run `30787415201`
+passed preflight and reached both H-tier package jobs; Linux and Windows both
+failed the deterministic real-backtest defect, so that evidence is stale.
+
+One final narrow correction covers all four reproduced defects. It includes a
+real 260-session structural-holdings backtest, shared factsheet/holdings
+score/service/cache/yfinance loading, duplicate report-reader rejection and
+reviewed/unreviewed multi-row migration. The 111-case affected selection
+passes 110 tests with one expected skip in 35.7 seconds; architecture, Ruff,
+compile and diff hygiene pass. Record the correction commit and freeze the
+replacement exact head.
+
 ## Completed UPDATEV2-0018 parser lane
 
 ISSUE-0103 completion PR #648 merged exact reviewed head

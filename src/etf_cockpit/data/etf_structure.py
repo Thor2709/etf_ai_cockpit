@@ -8,13 +8,14 @@ document registry at a known point in time.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field as dataclass_field
 from datetime import date, datetime, time, timezone
 from decimal import Decimal, InvalidOperation
 import hashlib
 import json
 import math
+from pathlib import Path
 import pandas as pd
 
 
@@ -56,6 +57,80 @@ _NUMERIC_UNITS = {
     "haircut_fraction": "scenario_haircut_fraction",
     "concentration_limit_fraction": "fraction_of_collateral",
 }
+
+
+@dataclass(frozen=True)
+class LocalStructuralEvidence:
+    """Canonical local structural inputs shared by score and backtest paths."""
+
+    document_registry: object
+    report_records: object
+    supplemental_rows: object
+    holdings: object
+
+
+def load_local_structural_evidence(
+    *,
+    registry_reader: Callable[[], object] | None = None,
+    report_reader: Callable[[], object] | None = None,
+    factsheet_path: object = None,
+    holdings_path: object = None,
+) -> LocalStructuralEvidence:
+    """Load canonical local registry, reports, factsheet rows and holdings."""
+
+    if registry_reader is None:
+        from etf_cockpit.data.fund_documents import read_document_registry
+
+        registry_reader = read_document_registry
+    if report_reader is None:
+        from etf_cockpit.data.parsed_disclosures import read_etf_report_records
+
+        report_reader = read_etf_report_records
+    if factsheet_path is None:
+        from etf_cockpit.data.reference_data import ETF_METADATA_CLEAN_PATH
+
+        factsheet_path = ETF_METADATA_CLEAN_PATH
+    if holdings_path is None:
+        from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
+
+        holdings_path = FUND_HOLDINGS_PATH
+
+    registry = registry_reader()
+    reports = report_reader()
+    factsheet = _read_local_structural_rows(factsheet_path, "factsheet")
+    holdings = pd.read_parquet(holdings_path) if Path(holdings_path).exists() else pd.DataFrame()
+    return LocalStructuralEvidence(registry, reports, factsheet, holdings)
+
+
+def _read_local_structural_rows(path: object, default_document_type: str) -> pd.DataFrame:
+    """Adapt canonical reference rows to the structural projection contract."""
+
+    candidate = Path(path)
+    if not candidate.is_file():
+        return pd.DataFrame()
+    frame = pd.read_parquet(candidate)
+    if frame.empty:
+        return pd.DataFrame()
+    records: list[dict[str, object]] = []
+    for source in frame.to_dict("records"):
+        common = {
+            "instrument_id": source.get("instrument_id", source.get("etf_id")),
+            "source_id": source.get("source_id"),
+            "document_type": source.get("document_type") or default_document_type,
+            "checksum": source.get("checksum") or source.get("sha256"),
+            "document_date": source.get("document_date") or source.get("as_of_date") or source.get("as_of"),
+            "known_at": source.get("known_at") or source.get("ingested_at") or source.get("imported_at"),
+            "page": source.get("page") or source.get("source_page"),
+            "confidence": source.get("confidence"),
+            "status": source.get("status", "unknown"),
+        }
+        if source.get("field_name") or source.get("field"):
+            records.append({**common, "field_name": source.get("field_name") or source.get("field"), "value": source.get("value")})
+            continue
+        for field_name in STRUCTURAL_FIELDS:
+            if field_name in source and source[field_name] is not None:
+                records.append({**common, "field_name": field_name, "value": source[field_name]})
+    return pd.DataFrame(records)
 
 
 @dataclass(frozen=True)
@@ -1074,8 +1149,8 @@ def _parse_timestamp(value: str) -> datetime:
 
 __all__ = [
     "BASE_REQUIRED_STRUCTURE_FIELDS", "DOCUMENT_FAMILIES", "NumericCandidate", "NumericEvidence", "STRESS_FORMULA_VERSION", "STRUCTURAL_FIELDS", "StructureCandidate",
-    "STRUCTURE_CONFIDENCE_VERSION", "STRUCTURE_SCHEMA_VERSION", "build_etf_structure_analysis", "build_etf_structure_projection",
-    "STRUCTURE_PROJECTION_VERSION", "calculate_counterparty_collateral_stress", "calculate_structural_stress", "project_etf_structure", "structure_confidence_caps", "structure_input_checksum",
+    "LocalStructuralEvidence", "STRUCTURE_CONFIDENCE_VERSION", "STRUCTURE_SCHEMA_VERSION", "build_etf_structure_analysis", "build_etf_structure_projection",
+    "STRUCTURE_PROJECTION_VERSION", "calculate_counterparty_collateral_stress", "calculate_structural_stress", "load_local_structural_evidence", "project_etf_structure", "structure_confidence_caps", "structure_input_checksum",
 ]
 
 

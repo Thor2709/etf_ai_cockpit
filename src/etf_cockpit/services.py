@@ -45,7 +45,7 @@ from etf_cockpit.data.etf_economics import (
     load_etf_economics_records,
     load_total_return_evidence,
 )
-from etf_cockpit.data.etf_structure import structure_confidence_caps
+from etf_cockpit.data.etf_structure import load_local_structural_evidence, structure_confidence_caps
 from etf_cockpit.data.fx_data import commit_fx_import, fx_data_inventory, load_fx_rates, validate_fx_rates
 from etf_cockpit.data.fund_documents import read_document_registry
 from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
@@ -55,6 +55,7 @@ from etf_cockpit.data.manual_notes import commit_manual_news_import, load_manual
 from etf_cockpit.data.parsed_disclosures import read_etf_report_records
 from etf_cockpit.data.providers import GenericHTTPProvider, ManualLocalFileProvider, ProviderResult
 from etf_cockpit.data.reference_data import (
+    ETF_METADATA_CLEAN_PATH,
     commit_reference_import,
     normalise_reference_dataset_type,
     reference_data_inventory,
@@ -102,18 +103,27 @@ def _cache_matches_universe(path: Path, revision: str, settings_revision: str | 
     )
 
 
-def _load_structure_caps(instrument_ids: object, decision_time: object, *, holdings: object = None) -> dict[str, float]:
+def _load_local_structural_evidence():
+    return load_local_structural_evidence(
+        registry_reader=read_document_registry,
+        report_reader=read_etf_report_records,
+        factsheet_path=ETF_METADATA_CLEAN_PATH,
+        holdings_path=FUND_HOLDINGS_PATH,
+    )
+
+
+def _load_structure_caps(instrument_ids: object, decision_time: object) -> dict[str, float]:
     """Load local structural evidence once at the signal service boundary."""
 
     ids = [str(item) for item in instrument_ids] if instrument_ids is not None else []
     try:
-        registry = read_document_registry()
-        reports = read_etf_report_records()
+        evidence = _load_local_structural_evidence()
         return structure_confidence_caps(
             ids,
-            document_registry=registry,
-            report_records=reports,
-            holdings=holdings,
+            document_registry=evidence.document_registry,
+            report_records=evidence.report_records,
+            supplemental_rows=evidence.supplemental_rows,
+            holdings=evidence.holdings,
             decision_time=decision_time,
         )
     except Exception:
@@ -785,7 +795,7 @@ class SignalService:
         report = DataService(self.config).validate_prices(prices, as_of_date=effective_date, holdings=holdings)
         status = model_availability(self.config)
         forecasts = load_latest_forecasts(universe_revision=_current_universe_revision())
-        structure_caps = _load_structure_caps(self.config.universe.enabled_ids, effective_date, holdings=holdings)
+        structure_caps = _load_structure_caps(self.config.universe.enabled_ids, effective_date)
         return generate_signals(
             self.config,
             latest,
@@ -871,21 +881,18 @@ class BacktestService:
         prices = load_prices()
         fundamentals = load_fundamental_evidence()
         try:
-            structure_registry = read_document_registry()
-            structure_reports = read_etf_report_records()
-            structure_holdings = pd.read_parquet(FUND_HOLDINGS_PATH) if FUND_HOLDINGS_PATH.exists() else pd.DataFrame()
+            structure_evidence = _load_local_structural_evidence()
         except Exception:
-            structure_registry = None
-            structure_reports = None
-            structure_holdings = None
+            structure_evidence = None
         try:
             report = run_backtest(
                 self.config,
                 prices,
                 fundamentals=fundamentals,
-                structure_document_registry=structure_registry,
-                structure_report_records=structure_reports,
-                structure_holdings=structure_holdings,
+                structure_document_registry=(structure_evidence.document_registry if structure_evidence else None),
+                structure_report_records=(structure_evidence.report_records if structure_evidence else None),
+                structure_supplemental_rows=(structure_evidence.supplemental_rows if structure_evidence else None),
+                structure_holdings=(structure_evidence.holdings if structure_evidence else None),
             )
         except BacktestDataUnavailableError as exc:
             return _empty_backtest_report(str(exc))
@@ -974,20 +981,17 @@ class BacktestService:
             if metadata.get("quality_momentum_strategy_version") != QUALITY_MOMENTUM_VERSION:
                 return None
             try:
-                structure_registry = read_document_registry()
-                structure_reports = read_etf_report_records()
-                structure_holdings = pd.read_parquet(FUND_HOLDINGS_PATH) if FUND_HOLDINGS_PATH.exists() else pd.DataFrame()
+                structure_evidence = _load_local_structural_evidence()
             except Exception:
-                structure_registry = None
-                structure_reports = None
-                structure_holdings = None
+                structure_evidence = None
             if metadata.get("input_checksum") != backtest_input_checksum(
                 self.config,
                 load_prices(),
                 load_fundamental_evidence(),
-                structure_document_registry=structure_registry,
-                structure_report_records=structure_reports,
-                structure_holdings=structure_holdings,
+                structure_document_registry=(structure_evidence.document_registry if structure_evidence else None),
+                structure_report_records=(structure_evidence.report_records if structure_evidence else None),
+                structure_supplemental_rows=(structure_evidence.supplemental_rows if structure_evidence else None),
+                structure_holdings=(structure_evidence.holdings if structure_evidence else None),
             ):
                 return None
             if not quality_evidence_path.exists():
@@ -1075,7 +1079,7 @@ def _build_snapshot(force_sample: bool = False) -> CockpitSnapshot:
     status = model_availability(config)
     inventory = model_diagnostics(config)
     forecasts = load_latest_forecasts(universe_revision=universe_revision)
-    structure_caps = _load_structure_caps(config.universe.enabled_ids, data_report.as_of_date, holdings=holdings)
+    structure_caps = _load_structure_caps(config.universe.enabled_ids, data_report.as_of_date)
     signals = (
         []
         if latest.empty

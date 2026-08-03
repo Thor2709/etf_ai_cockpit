@@ -889,6 +889,7 @@ def _preserve_registry_rows(inventory: pd.DataFrame, existing: pd.DataFrame) -> 
 def _merge_report_row(existing: pd.DataFrame, incoming: dict[str, Any]) -> pd.DataFrame:
     if existing.empty:
         return pd.DataFrame([incoming], columns=REPORT_COLUMNS)
+    existing = _migrate_legacy_report_rows(existing)
     matches = existing.index[existing["source_id"].astype(str).eq(str(incoming["source_id"]))]
     if len(matches) > 1:
         raise ValueError("same-ID report extraction is corrupt: duplicate source_id")
@@ -916,6 +917,23 @@ def _merge_report_row(existing: pd.DataFrame, incoming: dict[str, Any]) -> pd.Da
         existing = existing.drop(index=matches[0])
     combined = pd.concat([existing, pd.DataFrame([incoming])], ignore_index=True)
     return _read_report_frame_from_frame(combined, validate_authority=False)
+
+
+def _migrate_legacy_report_rows(frame: pd.DataFrame) -> pd.DataFrame:
+    """Migrate every pre-2.1 row before publishing a multi-row reimport."""
+
+    result = frame.copy()
+    result["schema_version"] = result["schema_version"].astype(object)
+    for index, row in result.iterrows():
+        if not _is_legacy_report_row(row):
+            continue
+        result.at[index, "schema_version"] = REPORT_SCHEMA_VERSION
+        fingerprint = _row_extraction_fingerprint(result.loc[index])
+        result.at[index, "extraction_sha256"] = fingerprint
+        result.at[index, "stored_extraction_sha256"] = fingerprint
+        result.at[index, "review_history"] = _rebind_review_history(row.get("review_history"), fingerprint)
+    result.attrs.update(frame.attrs)
+    return result
 
 
 def _apply_conflict_eligibility(frame: pd.DataFrame, conflicts: pd.DataFrame, registry: pd.DataFrame) -> pd.DataFrame:
@@ -977,6 +995,8 @@ def _read_report_frame(path: Path) -> pd.DataFrame:
         result = _read_report_frame_from_frame(source, original_columns=original_columns)
         result.attrs["_original_columns"] = original_columns
         return result
+    except ValueError as exc:
+        raise ValueError(f"ETF report extraction store is corrupt: {path}: {exc}") from exc
     except Exception as exc:
         raise ValueError(f"ETF report extraction store is corrupt: {path}") from exc
 
@@ -988,6 +1008,9 @@ def _read_report_frame_from_frame(frame: pd.DataFrame, *, validate_authority: bo
     for column in REPORT_COLUMNS:
         if column not in result.columns:
             result[column] = None
+    source_ids = result["source_id"].map(_cell_text)
+    if source_ids[source_ids.ne("")].duplicated(keep=False).any():
+        raise ValueError("ETF report extraction store contains duplicate source_id")
     result = result[REPORT_COLUMNS].sort_values("source_id", kind="stable").reset_index(drop=True)
     _backfill_legacy_known_at(result)
     for _, row in result.iterrows():

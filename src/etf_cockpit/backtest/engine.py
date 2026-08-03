@@ -237,7 +237,7 @@ def run_backtest(
             structure_document_registry=structure_document_registry,
             structure_report_records=structure_report_records,
             structure_supplemental_rows=structure_supplemental_rows,
-            holdings=structure_holdings,
+            structure_holdings=structure_holdings,
         ),
     }
     if missing_observation_rows:

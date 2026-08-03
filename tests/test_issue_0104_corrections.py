@@ -19,6 +19,7 @@ from etf_cockpit.app.selectors.instrument_detail import (
 )
 from etf_cockpit.backtest.engine import BacktestReport, backtest_input_checksum, run_backtest
 from etf_cockpit.data.fund_documents import read_document_registry
+from etf_cockpit.data.sample_data import generate_sample_prices
 from etf_cockpit.signals.quality_momentum import FRAME_COLUMNS, QUALITY_MOMENTUM_VERSION
 
 
@@ -126,6 +127,19 @@ def test_real_backtest_signature_accepts_structural_holdings() -> None:
     assert parameters["structure_holdings"].kind is inspect.Parameter.KEYWORD_ONLY
 
 
+def test_real_260_session_backtest_accepts_structural_holdings() -> None:
+    config = services.load_config()
+    prices = generate_sample_prices(config, periods=260, end_date=date(2026, 7, 10))
+    holdings = pd.DataFrame([{"instrument_id": config.universe.enabled_ids[0], "source_id": "holdings-1", "weight": 0.4}])
+
+    report = run_backtest(config, prices, structure_holdings=holdings)
+
+    assert report.metadata["complete_price_rows"] == 260
+    assert report.metadata["input_checksum"] == backtest_input_checksum(
+        config, prices, pd.DataFrame(), structure_holdings=holdings
+    )
+
+
 def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path, monkeypatch) -> None:
     config = services.load_config()
     prices = pd.DataFrame([{"etf_id": config.universe.enabled_ids[0], "date": "2026-07-10", "adjusted_close": 100.0}])
@@ -135,6 +149,9 @@ def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path,
     holdings_path = tmp_path / "fund_holdings.parquet"
     holdings = pd.DataFrame([{"instrument_id": config.universe.enabled_ids[0], "source_id": "holdings-1", "weight": 0.4}])
     holdings.to_parquet(holdings_path, index=False)
+    factsheet_path = tmp_path / "etf_metadata.parquet"
+    factsheet = pd.DataFrame([{"instrument_id": config.universe.enabled_ids[0], "source_id": "factsheet-1", "field_name": "domicile", "value": "IE"}])
+    factsheet.to_parquet(factsheet_path, index=False)
     captured: dict[str, object] = {}
 
     def fake_run_backtest(
@@ -151,6 +168,7 @@ def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path,
         structure_holdings=None,
     ):
         captured["structure_holdings"] = structure_holdings.copy()
+        captured["structure_supplemental_rows"] = structure_supplemental_rows.copy()
         evidence = pd.DataFrame(columns=FRAME_COLUMNS)
         checksum = backtest_input_checksum(
             config_arg,
@@ -209,6 +227,7 @@ def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path,
 
     monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path / "backtests")
     monkeypatch.setattr(services, "FUND_HOLDINGS_PATH", holdings_path)
+    monkeypatch.setattr(services, "ETF_METADATA_CLEAN_PATH", factsheet_path)
     monkeypatch.setattr(services, "load_prices", lambda: prices)
     monkeypatch.setattr(services, "load_fundamental_evidence", lambda: fundamentals)
     monkeypatch.setattr(services, "read_document_registry", lambda: registry)
@@ -223,6 +242,7 @@ def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path,
     service = services.BacktestService(config, universe_revision="universe-1")
     service.run_backtest()
     assert captured["structure_holdings"].equals(holdings)
+    assert captured["structure_supplemental_rows"]["source_id"].tolist() == ["factsheet-1"]
     assert service._load_cached_backtest() is not None
 
     changed = holdings.copy()
@@ -244,6 +264,16 @@ def test_canonical_document_registry_fails_closed_on_duplicate_source_id(tmp_pat
         read_document_registry(path=path)
 
 
+def test_canonical_report_reader_fails_closed_on_duplicate_source_id(tmp_path) -> None:
+    from etf_cockpit.data.parsed_disclosures import read_etf_report_records
+
+    path = tmp_path / "etf_report_records.parquet"
+    pd.DataFrame([{"source_id": "duplicate"}, {"source_id": "duplicate"}]).to_parquet(path, index=False)
+
+    with pytest.raises(ValueError, match="duplicate source_id"):
+        read_etf_report_records(path)
+
+
 def test_yfinance_script_reuses_local_structural_evidence_for_signals_and_backtest(tmp_path, monkeypatch) -> None:
     script_path = Path(__file__).parents[1] / "scripts" / "run_yfinance_analysis.py"
     spec = importlib.util.spec_from_file_location("issue_0104_run_yfinance_analysis", script_path)
@@ -259,7 +289,10 @@ def test_yfinance_script_reuses_local_structural_evidence_for_signals_and_backte
     reports = pd.DataFrame([{"source_id": "local-report"}])
     structural_holdings = pd.DataFrame([{"source_id": "local-holdings"}])
     structural_holdings_path = tmp_path / "fund_holdings.parquet"
+    factsheet = pd.DataFrame([{"source_id": "local-factsheet", "field_name": "domicile", "value": "IE"}])
+    factsheet_path = tmp_path / "etf_metadata.parquet"
     structural_holdings.to_parquet(structural_holdings_path, index=False)
+    factsheet.to_parquet(factsheet_path, index=False)
     signal_call: dict[str, object] = {}
     backtest_call: dict[str, object] = {}
     caps_call: dict[str, object] = {}
@@ -277,11 +310,12 @@ def test_yfinance_script_reuses_local_structural_evidence_for_signals_and_backte
     def fake_latest_features(features_arg, as_of_date):
         return pd.DataFrame()
 
-    def fake_structure_caps(instrument_ids, *, document_registry, report_records, holdings, decision_time):
+    def fake_structure_caps(instrument_ids, *, document_registry, report_records, supplemental_rows, holdings, decision_time):
         caps_call.update(
             {
                 "document_registry": document_registry,
                 "report_records": report_records,
+                "supplemental_rows": supplemental_rows,
                 "holdings": holdings,
                 "decision_time": decision_time,
             }
@@ -320,6 +354,7 @@ def test_yfinance_script_reuses_local_structural_evidence_for_signals_and_backte
             {
                 "structure_document_registry": structure_document_registry,
                 "structure_report_records": structure_report_records,
+                "structure_supplemental_rows": structure_supplemental_rows,
                 "structure_holdings": structure_holdings,
             }
         )
@@ -338,6 +373,7 @@ def test_yfinance_script_reuses_local_structural_evidence_for_signals_and_backte
     monkeypatch.setattr(analysis, "read_document_registry", lambda: registry)
     monkeypatch.setattr(analysis, "read_etf_report_records", lambda: reports)
     monkeypatch.setattr(analysis, "FUND_HOLDINGS_PATH", structural_holdings_path)
+    monkeypatch.setattr(analysis, "ETF_METADATA_CLEAN_PATH", factsheet_path)
     monkeypatch.setattr(analysis, "structure_confidence_caps", fake_structure_caps)
     monkeypatch.setattr(analysis, "generate_signals", fake_generate_signals)
     monkeypatch.setattr(analysis, "run_backtest", fake_run_backtest_for_script)
@@ -348,5 +384,7 @@ def test_yfinance_script_reuses_local_structural_evidence_for_signals_and_backte
     assert signal_call["structure_confidence_caps"] == {instrument: 0.5}
     assert backtest_call["structure_document_registry"].equals(registry)
     assert backtest_call["structure_report_records"].equals(reports)
+    assert backtest_call["structure_supplemental_rows"]["source_id"].tolist() == ["local-factsheet"]
     assert backtest_call["structure_holdings"].equals(structural_holdings)
+    assert caps_call["supplemental_rows"]["source_id"].tolist() == ["local-factsheet"]
     assert caps_call["holdings"].equals(structural_holdings)

@@ -24,10 +24,11 @@ from etf_cockpit.data.import_pipeline import commit_price_import
 from etf_cockpit.data.reference_data import commit_reference_import
 from etf_cockpit.data.validation import validate_prices
 from etf_cockpit.data.yfinance_provider import YFinanceProvider
-from etf_cockpit.data.etf_structure import structure_confidence_caps
+from etf_cockpit.data.etf_structure import LocalStructuralEvidence, load_local_structural_evidence, structure_confidence_caps
 from etf_cockpit.data.fund_documents import read_document_registry
 from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
 from etf_cockpit.data.parsed_disclosures import read_etf_report_records
+from etf_cockpit.data.reference_data import ETF_METADATA_CLEAN_PATH
 from etf_cockpit.features.feature_pipeline import compute_features, latest_features
 from etf_cockpit.models.forecast_scores import forecast_component_maps
 from etf_cockpit.models.registry import model_availability
@@ -79,12 +80,17 @@ def main() -> int:
 
     reference_summary = _fetch_reference_data(provider, config, skip=args.skip_reference)
     holdings = load_holdings()
-    structure_registry, structure_reports, structure_holdings = _load_local_structural_evidence()
+    structure_evidence = _load_local_structural_evidence()
+    structure_registry = structure_evidence.document_registry
+    structure_reports = structure_evidence.report_records
+    structure_supplemental_rows = structure_evidence.supplemental_rows
+    structure_holdings = structure_evidence.holdings
     try:
         structure_caps = structure_confidence_caps(
             config.universe.enabled_ids,
             document_registry=structure_registry,
             report_records=structure_reports,
+            supplemental_rows=structure_supplemental_rows,
             holdings=structure_holdings,
             decision_time=effective_as_of,
         )
@@ -129,6 +135,7 @@ def main() -> int:
         prices,
         structure_document_registry=structure_registry,
         structure_report_records=structure_reports,
+        structure_supplemental_rows=structure_supplemental_rows,
         structure_holdings=structure_holdings,
     )
 
@@ -177,16 +184,18 @@ def main() -> int:
     return 0
 
 
-def _load_local_structural_evidence() -> tuple[object, object, object]:
-    """Load the same optional local structural inputs for signals and backtests."""
+def _load_local_structural_evidence() -> LocalStructuralEvidence:
+    """Load the same canonical local structural inputs for signals and backtests."""
 
     try:
-        registry = read_document_registry()
-        reports = read_etf_report_records()
-        holdings = pd.read_parquet(FUND_HOLDINGS_PATH) if FUND_HOLDINGS_PATH.exists() else pd.DataFrame()
-        return registry, reports, holdings
+        return load_local_structural_evidence(
+            registry_reader=read_document_registry,
+            report_reader=read_etf_report_records,
+            factsheet_path=ETF_METADATA_CLEAN_PATH,
+            holdings_path=FUND_HOLDINGS_PATH,
+        )
     except (OSError, TypeError, ValueError):
-        return None, None, None
+        return LocalStructuralEvidence(None, None, None, None)
 
 
 def _fetch_reference_data(provider: YFinanceProvider, config, *, skip: bool) -> dict[str, object]:

@@ -105,6 +105,21 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   tests; the resulting 108-case affected selection passes with one expected
   skip in 76.3 seconds locally. Ruff, compile and diff hygiene pass. Record the
   next exact review head.
+- Exact head `c50647a809ccbe84649b05e43fb0025c8354d9f3` was rejected
+  after both reviewers completed. The consolidated defects are an incorrect
+  real-backtest checksum keyword, omitted factsheet evidence in shared
+  score/backtest/cache loading, duplicate persisted report identities, and
+  multi-row pre-2.1 migration losing untouched-row fingerprint context.
+  Release run `30787415201` passed preflight and started both H-tier package
+  jobs; Linux and Windows both failed the deterministic real-backtest defect,
+  so all evidence for that head is stale.
+- One final narrow correction fixes all four reproduced defects. A real
+  260-session structural-holdings backtest, shared factsheet/holdings
+  score/service/cache/yfinance loading, duplicate report-reader rejection and
+  reviewed/unreviewed multi-row migration are covered. The 111-case affected
+  selection passes 110 tests with one expected skip in 35.7 seconds;
+  architecture, Ruff, compile and diff hygiene pass. Record the correction
+  commit and freeze the replacement exact head.
 
 ## Completed UPDATEV2-0018 product checkpoint
 
