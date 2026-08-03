@@ -50,6 +50,24 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   independent reviews and required H-tier Linux/Windows validation in
   parallel, then require the ordered writer and a generic zero-action
   readback.
+- First frozen head `b4d5e8ad59df2ee35b63a43258b0c05041320623`
+  was rejected after both independent verdicts were collected. The reviewers
+  reproduced six defects: unrelated numeric-provenance reuse, missing
+  structure cache/vintage identity, uncapped UI confidence precedence,
+  incomplete report-row identity, pre-2.1 fingerprint incompatibility and
+  acceptance of unreviewed report evidence. Its two hosted preflight attempts
+  also exceeded the unchanged 120-second affected-test window, so all review
+  and CI evidence for that head is stale.
+- Consolidated correction commit
+  `54c221cd8b0f2669b0fafb80c24925a03e2d9add` fixes all six findings without
+  touching canonical/lifecycle authority. It requires exact typed numeric
+  value/unit/field provenance, verified eligible and fully identity-bound
+  report rows, structure-aware score/backtest/cache identities, capped signal
+  confidence precedence and exact pre-2.1 fingerprint compatibility. Focused
+  corrected evidence passes 134 combined product regressions, the separate
+  18-test Instrument Detail suite, a final 49-test structure/disclosure rerun,
+  Ruff, compile and diff hygiene. Next is one replacement exact head followed
+  by both independent reviews and fresh H-tier hosted validation in parallel.
 
 ## Completed UPDATEV2-0018 product checkpoint
 

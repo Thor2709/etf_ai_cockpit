@@ -38,6 +38,18 @@ run whole-diff review, financial/point-in-time risk review and H-tier hosted
 validation in parallel, then require the ordered writer and generic
 zero-action readback after merge.
 
+First frozen head `b4d5e8ad59df2ee35b63a43258b0c05041320623` is rejected
+and its twice-timed-out hosted preflight evidence is stale. Both reviewer
+verdicts were collected before one consolidated correction. Commit
+`54c221cd8b0f2669b0fafb80c24925a03e2d9add` now binds numeric values and
+units to typed source candidates, includes structure in score/backtest/cache
+identity, prefers current capped signal confidence, requires verified eligible
+exact report identity and preserves exact pre-2.1 extraction fingerprints.
+Corrected focused evidence passes 134 combined regressions, 18 Instrument
+Detail tests, a final 49-test structure/disclosure rerun, Ruff, compile and
+diff hygiene. Freeze one replacement head and repeat both independent reviews
+and fresh H-tier hosted validation in parallel.
+
 ## Completed UPDATEV2-0018 parser lane
 
 ISSUE-0103 completion PR #648 merged exact reviewed head
