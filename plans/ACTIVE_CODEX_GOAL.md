@@ -97,13 +97,14 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   96-case affected selection in 99.45 seconds but reproduced the protected
   presentation-boundary violation caused by a direct selector implementation
   import; package jobs did not start.
-- One bounded follow-up fixes the full collected set, routes the structural
+- Bounded follow-up commit
+  `004c8218d84fbbfb000a8efd85452594afb8611c` fixes the full collected set, routes the structural
   field contract through the existing application facade, and replaces the
   88.69-second hosted full-snapshot assertion with a focused section-routing
   regression. Direct correction, architecture and document suites pass 57
   tests; the resulting 108-case affected selection passes with one expected
   skip in 76.3 seconds locally. Ruff, compile and diff hygiene pass. Record the
-  correction commit and freeze the next exact review head.
+  next exact review head.
 
 ## Completed UPDATEV2-0018 product checkpoint
 

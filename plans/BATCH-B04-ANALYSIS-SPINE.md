@@ -83,13 +83,14 @@ numeric instrument binding. Stale release run `30785676406` passed its
 presentation boundary because the selector directly imported an implementation
 constant; package jobs did not start.
 
-One bounded follow-up covers the full set, exports the structural-field
+Bounded follow-up commit `004c8218d84fbbfb000a8efd85452594afb8611c`
+covers the full set, exports the structural-field
 contract through the existing application facade, and replaces the
 88.69-second hosted full-snapshot test with focused section-routing evidence.
 Direct correction, architecture and document suites pass 57 tests; the final
 108-case affected selection passes with one expected skip in 76.3 seconds
-locally. Ruff, compile and diff hygiene pass. Record the correction commit and
-freeze the next exact review head.
+locally. Ruff, compile and diff hygiene pass. Freeze the next exact review
+head.
 
 ## Completed UPDATEV2-0018 parser lane
 
