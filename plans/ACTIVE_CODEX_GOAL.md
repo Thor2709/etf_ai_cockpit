@@ -158,6 +158,23 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   focused parser/disclosure/structure/correction suite reaches 100% with one
   expected skip; the direct review-history follow-up passes 20 tests. Ruff,
   compile and diff hygiene pass. Freeze the replacement checkpoint head.
+- Exact head `6bdb98a489bd046175432d833626751cf73900ec` is rejected
+  after both reviewers completed. The complete newly demonstrated set is
+  partial-token acceptance of percentage/suffixed numeric stress values and
+  malformed or metadata-inconsistent review history falling back to trusted
+  top-level verification fields. Status guard `30795502020` passed. Release
+  run `30795502035` was cancelled after rejection, so its package and terminal
+  evidence is stale.
+- Make one narrow parser/review-state correction with real-path regressions,
+  preserving valid historical review replay and all prior fixes. Freeze one
+  new exact head and repeat both reviews plus fresh H-tier gates.
+- Narrow correction commit
+  `be211955a1a4dde05723e03388c65b4c471d9ca2` requires complete bare-decimal
+  stress tokens, rejects percent/suffix/backtracking cases through the real
+  reviewed path, and fails closed on malformed or current-metadata-inconsistent
+  review history. Valid verified-before-rejection replay remains covered. The
+  focused correction/structure/parser suite passes 71 tests with one expected
+  skip; Ruff, compile and diff hygiene pass. Freeze the checkpoint head.
 
 ## Completed UPDATEV2-0018 product checkpoint
 
