@@ -3894,7 +3894,19 @@
       "verified_date": "2026-08-02"
     },
     "ISSUE-0104": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Dependency PR #653 merged independently approved exact head 38e66a4a50cd7ce8833afa5daaaafdf99cd0a0aa as 5f9aff22ed95ff0075b457ee72412b244d2373b6",
+            "Release run 30774981009 passed the exact E-tier classifier, protected preflight, supply-chain and terminal validation; status guard 30774981069 passed",
+            "Exact-main convergence run 30775335504 produced a zero-action GitHub readback; UPDATEV2-0015 is DEPENDENCY_LEDGER_CLOSED, UPDATEV2-0018 edge evidence is complete, deterministic readiness is READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
+          ],
+          "review_reference": "B04 ISSUE-0104 readiness after reviewed UPDATEV2-0018 report-evidence dependency edge",
+          "reviewed_date": "2026-08-03",
+          "reviewer": "Codex independent reviewer and root orchestrator",
+          "status": "ready"
+        }
+      ],
       "dependency_edge_evidence": {
         "UPDATEV2-0015": {
           "contract_reference": "",
@@ -3918,11 +3930,11 @@
         }
       },
       "phase": "phase-04-etf-research",
-      "programme_status": "planned",
+      "programme_status": "ready",
       "status_transition": {
         "from": "planned",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "planned"
+        "review_reference": "B04 ISSUE-0104 readiness after reviewed UPDATEV2-0018 report-evidence dependency edge",
+        "to": "ready"
       },
       "transition_history": [
         {
@@ -3951,9 +3963,23 @@
           "reviewed_date": "2026-08-03",
           "reviewer": "Codex root orchestrator",
           "verified_commit": "7bffd0c57a992f599008a658425fc23575b9aef8"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Dependency PR #653 merged independently approved exact head 38e66a4a50cd7ce8833afa5daaaafdf99cd0a0aa as 5f9aff22ed95ff0075b457ee72412b244d2373b6",
+            "Release run 30774981009 passed the exact E-tier classifier, protected preflight, supply-chain and terminal validation; status guard 30774981069 passed",
+            "Exact-main convergence run 30775335504 produced a zero-action GitHub readback; UPDATEV2-0015 is DEPENDENCY_LEDGER_CLOSED, UPDATEV2-0018 edge evidence is complete, deterministic readiness is READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
+          ],
+          "from": "planned",
+          "review_reference": "B04 ISSUE-0104 readiness after reviewed UPDATEV2-0018 report-evidence dependency edge",
+          "reviewed_date": "2026-08-03",
+          "reviewer": "Codex independent reviewer and root orchestrator",
+          "to": "ready",
+          "verified_commit": "5f9aff22ed95ff0075b457ee72412b244d2373b6"
         }
       ],
-      "verified_commit": "7bffd0c57a992f599008a658425fc23575b9aef8",
+      "verified_commit": "5f9aff22ed95ff0075b457ee72412b244d2373b6",
       "verified_date": "2026-08-03"
     },
     "ISSUE-0105": {

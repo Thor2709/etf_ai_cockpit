@@ -13,26 +13,25 @@ former active-goal record and chronology are archived in
 `plans/archive/ATOMIC_FAST_PATH_ISSUE-0179-0180_2026-07-31.md`. Current delivery
 mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 
-## Current ISSUE-0104 dependency checkpoint
+## Current ISSUE-0104 readiness checkpoint
 
-- UPDATEV2-0018 completion PR #652 merged independently approved exact head
-  `5b260ee9eae199f38f32c5f7410a04d63803af4f` as
-  `d0c3e3216dabafdffcd6f7f32c24122a629747f7`. Run `30773717557`
-  passed Linux, Windows and terminal validation; writer `30774651448`
-  accepted the exact two-hop replay with `zero_action_readback=true`, and
-  generic convergence `30774651452` produced no patch. GitHub issue #158 and
-  canonical UPDATEV2-0018 now agree on `integrated`; `execution_allowed=false`
-  is unchanged.
-- Canonical order selects ISSUE-0104 next, but its UPDATEV2-0018 dependency
-  edge remains unresolved even though the dependency is integrated. Clean lane
-  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0104_dependency_0018`,
-  branch `codex/issue0104-dependency-updatev2-0018-20260803`, started empty at
-  exact main `d0c3e3216dabafdffcd6f7f32c24122a629747f7`.
-- This transaction records only the reviewed UPDATEV2-0018 report-evidence
-  contract for ISSUE-0104. It leaves ISSUE-0104 `planned`, changes no
-  dependency list or product code, and does not combine edge evidence with a
-  lifecycle transition. After protected merge, canonical readiness should be
-  true and the separate legal `planned -> ready` transaction is next.
+- Dependency PR #653 merged independently approved exact head
+  `38e66a4a50cd7ce8833afa5daaaafdf99cd0a0aa` as exact main
+  `5f9aff22ed95ff0075b457ee72412b244d2373b6`. Release run
+  `30774981009` and status guard `30774981069` passed; exact-main convergence
+  `30775335504` produced zero GitHub actions. Canonical readiness is now
+  `READY_BLOCKING_EDGES_RESOLVED`.
+- Clean lane
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0104_ready`,
+  branch `codex/issue0104-ready-20260803`, started empty from that exact main
+  and records only ISSUE-0104 `planned -> ready`, its append-only one-hop
+  authority, allowlisted chronology and mechanically generated projections.
+- The exact live plan contains one managed Programme-status update for GitHub
+  issue #244 at semantic SHA
+  `c5ea7e26c434487e209588b616c63eb60edacaddb95df0a4ba0ed3ad173f3ffc`.
+  Product code, dependency edges and external authority are unchanged;
+  `execution_allowed=false` remains. Exact guard, candidate/readback
+  validation, focused E-tier checks and stable-head review precede merge.
 
 ## Completed UPDATEV2-0018 product checkpoint
 
