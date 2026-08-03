@@ -235,6 +235,17 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   reproduced paths. The focused suite passes 153 tests; Ruff, compile and diff
   hygiene pass, and execution/lifecycle authority is unchanged. Freeze the
   replacement head for both exact-head reviews and fresh H-tier hosted gates.
+- Exact head `ea5a7863876a7bff8ce32812de115a74590ed120` was rejected after
+  both reviewers completed. The consolidated acceptance gaps are supported
+  report schemas, one-revision numeric quartets, strict typed input channels
+  and cache identity, clause-aware contradiction handling, and per-decision
+  backtest structural provenance. Release run `30807318004` was cancelled and
+  is stale.
+- Complete provenance correction commit
+  `e858f5a8c0d57690ed7456baf7132d0a47ccc434` covers those reproduced
+  paths without lifecycle or authority changes. Four attributable focused
+  suites pass 182 tests total; Ruff, compile and diff hygiene pass. Freeze the
+  replacement head for both exact-head reviews and fresh H-tier hosted gates.
 
 ## Completed UPDATEV2-0018 product checkpoint
 
