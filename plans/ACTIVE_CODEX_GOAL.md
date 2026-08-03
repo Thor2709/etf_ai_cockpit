@@ -66,12 +66,13 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   binding. Hosted release run `30781501084` deterministically exceeded the
   120-second changed-test preflight because two regressions had been placed in
   slow broad modules; Linux and Windows package jobs therefore did not start.
-- One bounded follow-up corrects all collected findings and relocates those
+- Bounded follow-up commit
+  `df215ae1810ffea55a50f96747305d9dccba52ca` corrects all collected findings and relocates those
   regressions into the directly focused structure and instrument-detail test
   files. The resulting six-file affected test selection passes 107 tests with
   one expected skip in 87.9 seconds; Ruff, compile and diff hygiene pass. It
   does not change canonical/lifecycle authority or `execution_allowed=false`.
-  Record the correction commit, freeze one checkpoint head, then run both
+  Freeze one checkpoint head, then run both
   independent reviews and fresh H-tier hosted validation in parallel.
 
 ## Completed UPDATEV2-0018 product checkpoint

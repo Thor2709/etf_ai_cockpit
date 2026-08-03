@@ -47,12 +47,13 @@ negation-safe disclosure classification, and independent report-family
 binding. Release run `30781501084` also reproduced the 120-second changed-test
 timeout before Linux or Windows packaging began.
 
-One bounded follow-up covers every collected finding and moves the two new
+Bounded follow-up commit `df215ae1810ffea55a50f96747305d9dccba52ca`
+covers every collected finding and moves the two new
 regressions out of the slow broad test modules. The final six-file affected
 selection passes 107 tests with one expected skip in 87.9 seconds; Ruff,
 compile and diff hygiene pass. Canonical/lifecycle authority and
-`execution_allowed=false` are unchanged. Record the correction commit, freeze
-one checkpoint head, then repeat both independent reviews and fresh H-tier
+`execution_allowed=false` are unchanged. Freeze one checkpoint head, then
+repeat both independent reviews and fresh H-tier
 hosted validation in parallel.
 
 ## Completed UPDATEV2-0018 parser lane
