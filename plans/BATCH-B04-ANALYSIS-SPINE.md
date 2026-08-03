@@ -64,12 +64,13 @@ reachability, and yfinance signal/backtest structural-evidence propagation.
 Release run `30783547607` timed out the broad affected suite at 120 seconds
 before package jobs began, so its evidence is stale.
 
-One final bounded correction covers all five findings and relocates the
+Final bounded correction commit `8ed78afef51893f50809d44db03da845c482dca5`
+covers all five findings and relocates the
 remaining Instrument Detail assertions into a dedicated focused module while
 restoring the broad module exactly to base. The final changed-test selection
 passes 94 tests with one expected skip in 68.3 seconds; the direct 26-test
 correction suite passes in 17.9 seconds including command overhead. Ruff,
-compile and diff hygiene pass. Record the correction commit, freeze a new
+compile and diff hygiene pass. Freeze a new
 checkpoint head, then repeat both independent reviews and fresh H-tier hosted
 validation in parallel.
 

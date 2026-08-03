@@ -80,12 +80,13 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   the yfinance signal/backtest path. Release run `30783547607` again timed out
   the broad changed-test selection at 120 seconds before Linux/Windows began;
   its evidence is stale.
-- One final bounded correction covers all five findings and moves the remaining
+- Final bounded correction commit
+  `8ed78afef51893f50809d44db03da845c482dca5` covers all five findings and moves the remaining
   ISSUE-0104 Instrument Detail assertions to a dedicated focused module while
   restoring the slow broad module exactly to base. The resulting changed-test
   selection passes 94 tests with one expected skip in 68.3 seconds; the direct
   26-test correction suite passes in 17.9 seconds including command overhead.
-  Ruff, compile and diff hygiene pass. Record the correction commit, freeze a
+  Ruff, compile and diff hygiene pass. Freeze a
   new checkpoint head, then run both independent reviews and fresh H-tier
   hosted validation in parallel.
 
