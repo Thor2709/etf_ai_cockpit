@@ -26,6 +26,7 @@ def _registry(*, source_id: str = "report:v2:one", document_type: str = "prospec
             "source_id": source_id,
             "document_type": document_type,
             "document_kind": document_kind,
+            "authority": "issuer_document",
             "sha256": CHECKSUM,
             "checksum": CHECKSUM,
             "document_date": document_date,
@@ -36,8 +37,16 @@ def _registry(*, source_id: str = "report:v2:one", document_type: str = "prospec
     )
 
 
+def _required_report_evidence(document_date: str) -> list[dict[str, object]]:
+    return [
+        {"field_name": "fund_name", "value": "ETF One", "source_page": 1, "candidate_pages": [1], "confidence": "high", "status": "extracted"},
+        {"field_name": "isin", "value": "IE00TEST0001", "source_page": 1, "candidate_pages": [1], "confidence": "high", "status": "extracted"},
+        {"field_name": "document_date", "value": document_date, "source_page": 1, "candidate_pages": [1], "confidence": "high", "status": "extracted"},
+    ]
+
+
 def _report(source_id: str = "report:v2:one", *, replication: str = "Synthetic swap", document_date: str = "2026-07-01", known_at: str = "2026-07-02T00:00:00+00:00") -> pd.DataFrame:
-    evidence = []
+    evidence = _required_report_evidence(document_date)
     values = {
         "replication_method": replication,
         "derivatives": "Total return swap",
@@ -50,13 +59,14 @@ def _report(source_id: str = "report:v2:one", *, replication: str = "Synthetic s
         "concentration_limits": "10% counterparty limit",
     }
     for field, value in values.items():
-        evidence.append({"field_name": field, "value": value, "source_page": 4, "confidence": "high", "status": "extracted"})
+        evidence.append({"field_name": field, "value": value, "source_page": 4, "candidate_pages": [4], "confidence": "high", "status": "extracted"})
     evidence.extend(
         {
             "field_name": field,
             "value": value,
             "unit": unit,
             "source_page": 4,
+            "candidate_pages": [4],
             "confidence": "high",
             "status": "extracted",
         }
@@ -74,6 +84,7 @@ def _report(source_id: str = "report:v2:one", *, replication: str = "Synthetic s
         "document_type": "prospectus_report",
         "document_kind": "prospectus",
         "source_sha256": CHECKSUM,
+        "source_authority": "issuer_document",
         "document_date": document_date,
         "known_at": known_at,
         "verification_status": "verified",
@@ -89,6 +100,9 @@ def _report(source_id: str = "report:v2:one", *, replication: str = "Synthetic s
         "manual_review": False,
         "score_eligible": False,
         "execution_allowed": False,
+        "extraction_status": "complete",
+        "parse_success": True,
+        "warnings": "[]",
         "field_evidence": json.dumps(evidence),
     }])
     fingerprint = report_extraction_fingerprint(frame.iloc[0])
@@ -140,6 +154,10 @@ def test_pending_report_rows_are_not_structural_evidence() -> None:
     pending = _report()
     pending.loc[0, "verification_status"] = "pending"
     pending.loc[0, "evidence_eligible"] = False
+    pending.loc[0, "manual_review"] = True
+    pending.loc[0, "verified_by"] = ""
+    pending.loc[0, "verified_at"] = ""
+    pending.loc[0, "review_note"] = ""
     pending.loc[0, "review_history"] = "[]"
 
     projection = project_etf_structure("ETF-1", document_registry=_registry(), report_records=pending)
@@ -168,8 +186,8 @@ def test_physical_no_lending_does_not_require_synthetic_fields() -> None:
         "concentration_limits": "10% issuer limit",
         "lending_policy": "Not permitted",
     }
-    evidence = [
-        {"field_name": field, "value": value, "source_page": 4, "confidence": "high", "status": "extracted"}
+    evidence = _required_report_evidence("2026-07-01") + [
+        {"field_name": field, "value": value, "source_page": 4, "candidate_pages": [4], "confidence": "high", "status": "extracted"}
         for field, value in values.items()
     ]
     report = _report()
@@ -478,6 +496,7 @@ def test_review_history_replays_before_verification_at_verification_and_after_re
     report.loc[0, "review_note"] = "recheck"
     report.loc[0, "verification_status"] = "rejected"
     report.loc[0, "evidence_eligible"] = False
+    report.loc[0, "manual_review"] = True
 
     before = project_etf_structure("ETF-1", document_registry=_registry(), report_records=report, decision_time="2026-07-03T00:00:00Z")
     verified = project_etf_structure("ETF-1", document_registry=_registry(), report_records=report, decision_time="2026-07-05T00:00:00Z")
@@ -516,6 +535,7 @@ def test_review_history_same_timestamp_replays_append_order() -> None:
         report.loc[0, "verified_at"] = latest["reviewed_at"]
         report.loc[0, "review_note"] = latest.get("note", "")
         report.loc[0, "evidence_eligible"] = latest["decision"] == "verified"
+        report.loc[0, "manual_review"] = latest["decision"] != "verified"
         projection = project_etf_structure(
             "ETF-1",
             document_registry=_registry(),
@@ -626,7 +646,6 @@ def test_no_derivatives_and_no_securities_lending_do_not_activate_risk_branches(
 def test_report_document_family_mismatch_fails_closed() -> None:
     report = _report()
     report.loc[0, "document_type"] = "annual_report"
-    report.loc[0, "document_kind"] = "annual_report"
     _refresh_report_fingerprint(report)
     projection = project_etf_structure("ETF-1", document_registry=_registry(document_type="factsheet", document_kind="factsheet"), report_records=report)
 
@@ -637,17 +656,16 @@ def test_report_document_family_mismatch_fails_closed() -> None:
 def test_backtest_input_checksum_includes_structural_evidence() -> None:
     config = load_config()
     prices = pd.DataFrame({"date": ["2026-01-01"], "etf_id": [config.universe.enabled_ids[0]], "adjusted_close": [100.0]})
-    registry = pd.DataFrame([{
-        "instrument_id": config.universe.enabled_ids[0], "source_id": "report:v2:one", "document_type": "prospectus_report", "document_kind": "prospectus",
-        "sha256": "a" * 64, "document_date": "2026-01-01", "ingested_at": "2026-01-02T00:00:00+00:00",
-    }])
-    reports = pd.DataFrame([{
-        "instrument_id": config.universe.enabled_ids[0], "source_id": "report:v2:one", "document_type": "prospectus_report", "document_kind": "prospectus",
-        "source_sha256": "a" * 64, "document_date": "2026-01-01", "known_at": "2026-01-02T00:00:00+00:00",
-        "verification_status": "verified", "evidence_eligible": True, "field_evidence": "[]",
-    }])
+    registry = _registry(document_date="2026-01-01", known_at="2026-01-02T00:00:00+00:00")
+    registry.loc[0, "instrument_id"] = config.universe.enabled_ids[0]
+    reports = _report(document_date="2026-01-01", known_at="2026-01-02T00:00:00+00:00")
+    reports.loc[0, "instrument_id"] = config.universe.enabled_ids[0]
+    _refresh_report_fingerprint(reports)
     changed = reports.copy()
-    changed.loc[0, "field_evidence"] = '[{"field_name":"legal_structure","value":"UCITS"}]'
+    changed_evidence = json.loads(changed.loc[0, "field_evidence"])
+    next(item for item in changed_evidence if item["field_name"] == "legal_form")["value"] = "UCITS trust"
+    changed.loc[0, "field_evidence"] = json.dumps(changed_evidence)
+    _refresh_report_fingerprint(changed)
 
     first = backtest_input_checksum(config, prices, None, structure_document_registry=registry, structure_report_records=reports)
     second = backtest_input_checksum(config, prices, None, structure_document_registry=registry, structure_report_records=changed)

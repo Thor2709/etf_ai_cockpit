@@ -518,6 +518,21 @@ _NUMERIC_UNITS = {
 _BARE_DECIMAL_FRACTION = re.compile(r"\A(?:\d+(?:\.\d+)?|\.\d+)\Z")
 
 
+def normalise_bare_decimal_fraction(value: object) -> Decimal | None:
+    """Parse one complete bare decimal fraction using the report grammar."""
+
+    if isinstance(value, bool):
+        return None
+    raw_value = str(value).strip()
+    if not _BARE_DECIMAL_FRACTION.fullmatch(raw_value):
+        return None
+    try:
+        number = Decimal(raw_value)
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    return number if number.is_finite() and Decimal("0") <= number <= Decimal("1") else None
+
+
 def _normalise_numeric_fractions(
     evidence: list[EtfReportFieldEvidence], fields: dict[str, str | None]
 ) -> tuple[list[EtfReportFieldEvidence], dict[str, str | None]]:
@@ -525,15 +540,8 @@ def _normalise_numeric_fractions(
     for index, item in enumerate(updated):
         if item.field_name not in _NUMERIC_UNITS or not item.value:
             continue
-        raw_value = str(item.value).strip()
-        if not _BARE_DECIMAL_FRACTION.fullmatch(raw_value):
-            number = None
-        else:
-            try:
-                number = Decimal(raw_value)
-            except (InvalidOperation, TypeError, ValueError):
-                number = None
-        if number is None or not number.is_finite() or not Decimal("0") <= number <= Decimal("1"):
+        number = normalise_bare_decimal_fraction(item.value)
+        if number is None:
             fields[item.field_name] = None
             updated[index] = EtfReportFieldEvidence(
                 item.field_name, None, item.source_page, "low", "malformed", item.candidates,
@@ -602,6 +610,7 @@ __all__ = [
     "canonical_report_kind",
     "configure_memory_limit",
     "memory_limit_backend",
+    "normalise_bare_decimal_fraction",
     "parse_etf_report",
     "parse_etf_report_in_child",
 ]

@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field as dataclass_field
 from datetime import date, datetime, time, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 import hashlib
 import json
 import math
@@ -478,9 +478,27 @@ def structure_confidence_caps(
 
     caps = StructureConfidenceCaps()
     registry_rows = _rows(document_registry)
-    report_rows = _rows(report_records)
+    try:
+        report_rows = _validated_report_rows(report_records)
+    except ValueError:
+        report_rows = []
+        invalid_reports = True
+    else:
+        invalid_reports = False
     supplemental = _rows(supplemental_rows)
     holding_rows = _rows(holdings)
+    if invalid_reports:
+        for instrument_id in instrument_ids:
+            target = str(instrument_id)
+            caps[target] = 0.0
+            caps.provenance[target] = {
+                "structure_projection_version": STRUCTURE_PROJECTION_VERSION,
+                "structure_schema_version": STRUCTURE_SCHEMA_VERSION,
+                "structure_confidence_version": STRUCTURE_CONFIDENCE_VERSION,
+                "structure_provenance_hash": "unavailable",
+                "structure_confidence_cap": 0.0,
+            }
+        return caps
     if not any((registry_rows, report_rows, supplemental, holding_rows)):
         for instrument_id in instrument_ids:
             target = str(instrument_id)
@@ -528,12 +546,13 @@ def structure_input_checksum(
 ) -> str:
     """Fingerprint every local structural input that can change a projection."""
 
+    validated_reports = _validated_report_rows(report_records)
     payload = {
         "projection_version": STRUCTURE_PROJECTION_VERSION,
         "schema_version": STRUCTURE_SCHEMA_VERSION,
         "confidence_version": STRUCTURE_CONFIDENCE_VERSION,
         "document_registry": _stable_rows(document_registry),
-        "report_records": _stable_rows(report_records),
+        "report_records": _stable_rows(validated_reports),
         "supplemental_rows": _stable_rows(supplemental_rows),
         "holdings": _stable_rows(holdings),
     }
@@ -570,9 +589,8 @@ def _validated_report_rows(value: object) -> list[dict[str, object]]:
 def _bound_registry(target: str, rows: list[dict[str, object]], decision: datetime | None) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     bound: list[dict[str, object]] = []
     rejected: list[dict[str, object]] = []
-    scoped_rows = [row for row in rows if str(row.get("instrument_id") or "").strip() == target]
     source_counts: dict[str, int] = {}
-    for row in scoped_rows:
+    for row in rows:
         source_id = _text(row.get("source_id"))
         if source_id:
             source_counts[source_id] = source_counts.get(source_id, 0) + 1
@@ -613,6 +631,16 @@ def _report_candidates(value: object, registry: list[dict[str, object]], target:
         report_families = {_family(item) for item in report_types if item}
         if not report_families or not report_families.issubset({registry_family}):
             rejected.append({"reason_code": "candidate_document_family_mismatch", "source_id": source_id})
+            continue
+        report_kind = _text(row.get("document_kind"))
+        registry_kind = _text(registered.get("document_kind"))
+        if not report_kind or not registry_kind or report_kind != registry_kind:
+            rejected.append({"reason_code": "candidate_document_kind_mismatch", "source_id": source_id})
+            continue
+        report_authority = _text(row.get("source_authority"))
+        registry_authority = _text(registered.get("authority")) or _text(registered.get("source_authority"))
+        if not report_authority or not registry_authority or report_authority != registry_authority:
+            rejected.append({"reason_code": "candidate_source_authority_mismatch", "source_id": source_id})
             continue
         row_checksum = _text(row.get("source_sha256")) or _text(row.get("sha256")) or _text(row.get("checksum"))
         row_date = _date_text(row.get("document_date"))
@@ -1197,6 +1225,8 @@ def _report_identity_matches(
         and row_checksum == (_text(registered.get("checksum")) or _text(registered.get("sha256")))
         and row_date == _date_text(registered.get("document_date"))
         and row_known_at == (_date_time_text(registered.get("known_at")) or _date_time_text(registered.get("ingested_at")))
+        and _text(row.get("document_kind")) == _text(registered.get("document_kind"))
+        and _text(row.get("source_authority")) == (_text(registered.get("authority")) or _text(registered.get("source_authority")))
     )
 
 
@@ -1242,13 +1272,9 @@ def _json_rows(value: object) -> list[dict[str, object]]:
 
 
 def _normalise_decimal(value: object) -> Decimal | None:
-    if isinstance(value, bool):
-        return None
-    try:
-        number = Decimal(str(value))
-    except (InvalidOperation, TypeError, ValueError):
-        return None
-    return number if number.is_finite() else None
+    from etf_cockpit.parsers.etf_report import normalise_bare_decimal_fraction
+
+    return normalise_bare_decimal_fraction(value)
 
 
 def _stored_true(value: object) -> bool:

@@ -303,21 +303,30 @@ def test_cross_kind_stable_conflict_remains_unusable_in_canonical_projection() -
 
     checksum_a, checksum_b = "a" * 64, "b" * 64
     registry = pd.DataFrame([
-        {"instrument_id": "ETF-1", "source_id": "prospectus-1", "document_type": "prospectus_report", "document_kind": "prospectus", "sha256": checksum_a, "document_date": "2025-01-01", "known_at": "2025-01-02T00:00:00Z", "coverage_status": "available"},
-        {"instrument_id": "ETF-1", "source_id": "annual-1", "document_type": "prospectus_report", "document_kind": "annual_report", "sha256": checksum_b, "document_date": "2026-01-01", "known_at": "2026-01-02T00:00:00Z", "coverage_status": "available"},
+        {"instrument_id": "ETF-1", "source_id": "prospectus-1", "document_type": "prospectus_report", "document_kind": "prospectus", "authority": "issuer_document", "sha256": checksum_a, "document_date": "2025-01-01", "known_at": "2025-01-02T00:00:00Z", "coverage_status": "available"},
+        {"instrument_id": "ETF-1", "source_id": "annual-1", "document_type": "prospectus_report", "document_kind": "annual_report", "authority": "issuer_document", "sha256": checksum_b, "document_date": "2026-01-01", "known_at": "2026-01-02T00:00:00Z", "coverage_status": "available"},
     ])
 
     def report(source_id: str, kind: str, checksum: str, value: str, document_date: str, known_at: str) -> dict[str, object]:
+        evidence = [
+            {"field_name": "fund_name", "value": "ETF One", "source_page": 1, "candidate_pages": [1], "confidence": "high", "status": "extracted"},
+            {"field_name": "isin", "value": "IE00TEST0001", "source_page": 1, "candidate_pages": [1], "confidence": "high", "status": "extracted"},
+            {"field_name": "document_date", "value": document_date, "source_page": 1, "candidate_pages": [1], "confidence": "high", "status": "extracted"},
+            {"field_name": "legal_form", "value": value, "source_page": 2, "candidate_pages": [2], "confidence": "high", "status": "extracted"},
+        ]
+        if kind == "annual_report":
+            evidence.append({"field_name": "reporting_period_end", "value": document_date, "source_page": 1, "candidate_pages": [1], "confidence": "high", "status": "extracted"})
         row = {
             "schema_version": 2.1,
             "instrument_id": "ETF-1", "source_id": source_id, "document_type": "prospectus_report", "document_kind": kind,
-            "source_sha256": checksum, "document_date": document_date, "known_at": known_at,
+            "source_sha256": checksum, "source_authority": "issuer_document", "document_date": document_date, "known_at": known_at,
             "verification_status": "verified", "evidence_eligible": True, "extraction_sha256": "c" * 64,
             "stored_extraction_sha256": "c" * 64,
             "verified_by": "analyst", "verified_at": known_at, "review_note": "",
             "manual_review": False, "score_eligible": False, "execution_allowed": False,
+            "extraction_status": "complete", "parse_success": True, "warnings": "[]",
             "review_history": json.dumps([{"decision": "verified", "reviewer": "analyst", "note": "", "reviewed_at": known_at, "extraction_sha256": "c" * 64}]),
-            "field_evidence": json.dumps([{"field_name": "legal_form", "value": value, "source_page": 2, "candidate_pages": [2], "confidence": "high", "status": "extracted"}]),
+            "field_evidence": json.dumps(evidence),
         }
         fingerprint = report_extraction_fingerprint(pd.Series(row))
         row["extraction_sha256"] = fingerprint
@@ -421,6 +430,114 @@ def test_supplied_facade_rejects_duplicate_report_source_ids() -> None:
     assert projection["fields"]["legal_form"]["status"] == "unknown"
     assert projection["evidence_confidence_cap"] == 0.0
     assert projection["execution_allowed"] is False
+
+
+@pytest.mark.parametrize("mutation", ["manual_review", "unverifiable", "review_metadata"])
+def test_supplied_facade_enforces_canonical_review_and_verifiability_semantics(mutation: str) -> None:
+    from etf_cockpit.application.ui_facade import load_etf_structure_projection
+    from test_etf_structure import _refresh_report_fingerprint
+
+    registry, reports = _valid_supplied_structure_inputs()
+    if mutation == "manual_review":
+        reports.loc[0, "manual_review"] = True
+    elif mutation == "unverifiable":
+        reports.loc[0, "extraction_status"] = "incomplete"
+        _refresh_report_fingerprint(reports)
+    else:
+        reports.loc[0, "verified_at"] = "2026-07-03T00:00:00+00:00"
+
+    projection = load_etf_structure_projection("ETF-1", document_registry=registry, report_records=reports)
+
+    assert projection["fields"]["legal_form"]["status"] == "unknown"
+    assert projection["evidence_confidence_cap"] == 0.0
+    assert projection["execution_allowed"] is False
+
+
+def test_duplicate_report_columns_fail_closed_before_projection_caps_and_cache_identity() -> None:
+    from etf_cockpit.application.ui_facade import load_etf_structure_projection
+    from etf_cockpit.data.etf_structure import structure_confidence_caps, structure_input_checksum
+
+    registry, reports = _valid_supplied_structure_inputs()
+    valid_checksum = structure_input_checksum(document_registry=registry, report_records=reports)
+    malformed = pd.concat([reports, reports[["field_evidence"]]], axis=1)
+
+    projection = load_etf_structure_projection("ETF-1", document_registry=registry, report_records=malformed)
+    caps = structure_confidence_caps(["ETF-1"], document_registry=registry, report_records=malformed)
+
+    assert projection["fields"]["legal_form"]["status"] == "unknown"
+    assert caps["ETF-1"] == 0.0
+    assert valid_checksum
+    with pytest.raises(ValueError, match="duplicate columns"):
+        structure_input_checksum(document_registry=registry, report_records=malformed)
+
+
+def test_non_mapping_supplied_report_member_fails_closed_without_discarding_it() -> None:
+    from etf_cockpit.application.ui_facade import load_etf_structure_projection
+    from etf_cockpit.data.etf_structure import structure_confidence_caps, structure_input_checksum
+
+    registry, reports = _valid_supplied_structure_inputs()
+    malformed = [*reports.to_dict("records"), "not-a-report-row"]
+
+    projection = load_etf_structure_projection("ETF-1", document_registry=registry, report_records=malformed)
+
+    assert projection["fields"]["legal_form"]["status"] == "unknown"
+    assert structure_confidence_caps(["ETF-1"], document_registry=registry, report_records=malformed)["ETF-1"] == 0.0
+    with pytest.raises(ValueError, match="non-mapping member"):
+        structure_input_checksum(document_registry=registry, report_records=malformed)
+
+
+@pytest.mark.parametrize(
+    ("registry_field", "replacement", "reason_code"),
+    [
+        ("document_kind", "annual_report", "candidate_document_kind_mismatch"),
+        ("authority", "local_user_import", "candidate_source_authority_mismatch"),
+    ],
+)
+def test_supplied_report_requires_exact_registry_kind_and_authority_binding(
+    registry_field: str, replacement: str, reason_code: str
+) -> None:
+    from etf_cockpit.data.etf_structure import project_etf_structure
+
+    registry, reports = _valid_supplied_structure_inputs()
+    registry.loc[0, registry_field] = replacement
+
+    projection = project_etf_structure("ETF-1", document_registry=registry, report_records=reports)
+
+    assert projection["fields"]["legal_form"]["status"] == "unknown"
+    assert any(item["reason_code"] == reason_code for item in projection["rejected_candidates"])
+
+
+@pytest.mark.parametrize("value", ["1e-1", "0.1%", "0.1 suffix", "0.1 trailing"])
+def test_supplied_numeric_evidence_requires_complete_bare_decimal_grammar(value: str) -> None:
+    from etf_cockpit.application.ui_facade import load_etf_structure_projection
+    from test_etf_structure import _refresh_report_fingerprint
+
+    registry, reports = _valid_supplied_structure_inputs()
+    evidence = json.loads(reports.loc[0, "field_evidence"])
+    next(item for item in evidence if item["field_name"] == "exposure")["value"] = value
+    reports.loc[0, "field_evidence"] = json.dumps(evidence)
+    _refresh_report_fingerprint(reports)
+
+    projection = load_etf_structure_projection("ETF-1", document_registry=registry, report_records=reports)
+
+    assert projection["fields"]["legal_form"]["status"] == "resolved"
+    assert projection["stress"]["status"] == "unavailable"
+    assert projection["execution_allowed"] is False
+
+
+def test_registry_source_id_duplicates_are_rejected_across_instruments() -> None:
+    from etf_cockpit.data.etf_structure import project_etf_structure, structure_confidence_caps
+
+    registry, reports = _valid_supplied_structure_inputs()
+    other = registry.copy()
+    other.loc[0, "instrument_id"] = "ETF-2"
+    duplicate_registry = pd.concat([registry, other], ignore_index=True)
+
+    projection = project_etf_structure("ETF-1", document_registry=duplicate_registry, report_records=reports)
+
+    assert projection["fields"]["legal_form"]["status"] == "unknown"
+    assert any(item["reason_code"] == "duplicate_registry_source_id" for item in projection["rejected_candidates"])
+    assert structure_confidence_caps(["ETF-1"], document_registry=duplicate_registry, report_records=reports)["ETF-1"] == 0.0
 
 
 def test_real_report_numeric_fields_survive_parse_import_review_readback_and_projection(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -718,7 +835,7 @@ def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path,
     prices = pd.DataFrame([{"etf_id": config.universe.enabled_ids[0], "date": "2026-07-10", "adjusted_close": 100.0}])
     fundamentals = pd.DataFrame()
     registry = pd.DataFrame([{"instrument_id": config.universe.enabled_ids[0], "source_id": "registry-1"}])
-    reports = pd.DataFrame([{"instrument_id": config.universe.enabled_ids[0], "source_id": "report-1"}])
+    reports = pd.DataFrame()
     holdings_path = tmp_path / "fund_holdings.parquet"
     holdings = pd.DataFrame([{"instrument_id": config.universe.enabled_ids[0], "source_id": "holdings-1", "weight": 0.4}])
     holdings.to_parquet(holdings_path, index=False)

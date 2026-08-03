@@ -1065,9 +1065,12 @@ def validate_supplied_etf_report_records(value: object) -> pd.DataFrame:
         frame = pd.DataFrame([dict(value)])
     else:
         try:
-            frame = pd.DataFrame([dict(item) for item in value if isinstance(item, Mapping)])  # type: ignore[union-attr]
+            items = list(value)  # type: ignore[arg-type]
         except (TypeError, ValueError) as exc:
             raise ValueError("supplied ETF report records are not tabular") from exc
+        if any(not isinstance(item, Mapping) for item in items):
+            raise ValueError("supplied ETF report records contain a non-mapping member")
+        frame = pd.DataFrame([dict(item) for item in items])
     if bool(frame.columns.duplicated().any()):
         raise ValueError("supplied ETF report records contain duplicate columns")
 
@@ -1082,20 +1085,11 @@ def validate_supplied_etf_report_records(value: object) -> pd.DataFrame:
             if not _is_sha256_fingerprint(stored_fingerprint) or not _fingerprint_matches(series, stored_fingerprint, legacy_allowed=False):
                 raise ValueError("supplied report extraction fingerprint does not match extraction")
 
-        status = _cell_text(row.get("verification_status"))
-        history_value = row.get("review_history")
-        history_text = _cell_text(history_value)
-        has_review_history = history_text not in {"", "[]"}
-        if status in {"verified", "rejected"} or has_review_history or row.get("evidence_eligible") is True:
-            if not stored_fingerprint:
-                raise ValueError("reviewed supplied report is missing stored extraction fingerprint")
-            _review_history(series.get("review_history"), expected_fingerprint=stored_fingerprint)
-            _strict_stored_bool(row.get("manual_review"), "manual_review")
-            _strict_stored_bool(row.get("evidence_eligible"), "evidence_eligible")
-            score_eligible = _strict_stored_bool(row.get("score_eligible"), "score_eligible")
-            execution_allowed = _strict_stored_bool(row.get("execution_allowed"), "execution_allowed")
-            if score_eligible or execution_allowed:
-                raise ValueError("reviewed supplied report authority flags exceed the allowed boundary")
+        history = _review_history(series.get("review_history"), expected_fingerprint=stored_fingerprint or None, row=series)
+        if history and not stored_fingerprint:
+            raise ValueError("reviewed supplied report is missing stored extraction fingerprint")
+        if any(item["decision"] == "verified" for item in history) and not _row_is_verifiable(series):
+            raise ValueError("supplied report was not verifiable at review time")
     return frame
 
 
