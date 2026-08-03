@@ -175,6 +175,23 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   review history. Valid verified-before-rejection replay remains covered. The
   focused correction/structure/parser suite passes 71 tests with one expected
   skip; Ruff, compile and diff hygiene pass. Freeze the checkpoint head.
+- Exact head `86f6ba03e19cfe948ff852d9eb6ca84e3beef8b1` is rejected after
+  both reviewers completed. The complete finding set is canonical readback
+  accepting an empty reviewer/unsupported review decision, supplied projection
+  accepting missing or empty verified history, and numeric stress combining a
+  quartet across unrelated report revisions. Status guard `30797521767`
+  passed; release run `30797521771` was cancelled after rejection and is stale.
+- Correct those three exact authority/provenance cases only: verified evidence
+  requires one semantically valid history, and all stress inputs must share one
+  exact reviewed report revision. Preserve valid historical replay and all
+  previous strict-token behavior, then freeze one replacement head.
+- Consolidated correction commit
+  `044375c91d9e56334266f7860c738609fc3508fe` enforces semantically complete
+  review history in canonical and supplied readback and binds each numeric
+  stress quartet to one report revision while preserving valid historical
+  replay. The attributable focused suite passes 117 tests with one expected
+  skip; Ruff, compile and diff hygiene pass. Freeze one exact replacement head
+  for parallel whole-diff review, risk review and fresh H-tier hosted gates.
 
 ## Completed UPDATEV2-0018 product checkpoint
 
