@@ -202,6 +202,20 @@ authority-flag and duplicate-ID regressions pass within a 112-test focused
 suite; Ruff, compile and diff hygiene pass. Freeze one replacement head and
 repeat both exact-head reviews plus fresh H-tier hosted gates.
 
+Exact head `750ee1be352f3b7c8852d2d779ec4abf352997b1` was rejected after
+both reviewers completed. Newly reproduced parity gaps covered canonical
+review/manual/verifiability semantics, original-container schema identity,
+non-mapping members, exact document-kind/source-authority binding, bare decimal
+grammar and global registry source identity. Release run `30801792515` was
+cancelled after rejection and is stale.
+
+Final parity correction commit
+`673f30f073427e03d181f6a5bcad4e908a4d01ee` applies those exact
+canonical rules to every supplied projection, cap and cache path without
+changing lifecycle or execution authority. The complete focused parity suite
+passes 124 tests; Ruff, compile and diff hygiene pass. Freeze one replacement
+head and repeat both reviews plus fresh H-tier gates.
+
 ## Completed UPDATEV2-0018 parser lane
 
 ISSUE-0103 completion PR #648 merged exact reviewed head
