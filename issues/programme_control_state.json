@@ -3905,12 +3905,16 @@
           "state": "unresolved"
         },
         "UPDATEV2-0018": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B04/UPDATEV2-0018/etf-report-evidence-contract-v1",
+          "evidence_references": [
+            "Product PR #651 merged independently approved exact head ccff5d7421d01df7bdcbfde3f3158893f5c449f2 as 7bffd0c57a992f599008a658425fc23575b9aef8; completion PR #652 merged as d0c3e3216dabafdffcd6f7f32c24122a629747f7",
+            "src/etf_cockpit/parsers/etf_report.py and src/etf_cockpit/data/parsed_disclosures.py provide bounded prospectus, annual and half-year extraction with typed legal_structure, securities_lending, collateral_policy and operational_risks fields, page provenance, confidence, immutable checksums, explicit unknown/conflict states and versioned reviewed persistence",
+            "tests/test_etf_report_parser.py, tests/test_parsed_disclosures.py and tests/ui/test_etf_report_ui.py cover explicit report kinds, field/page evidence, missing and conflicting states, review binding and non-executable UI; score_eligible=false and execution_allowed=false remain enforced"
+          ],
+          "reviewed_date": "2026-08-03",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         }
       },
       "phase": "phase-04-etf-research",
@@ -3920,8 +3924,37 @@
         "review_reference": "B00 canonical import from audited programme state",
         "to": "planned"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "dependency_edge": {
+            "dependency": "UPDATEV2-0018",
+            "evidence": {
+              "contract_reference": "B04/UPDATEV2-0018/etf-report-evidence-contract-v1",
+              "evidence_references": [
+                "Product PR #651 merged independently approved exact head ccff5d7421d01df7bdcbfde3f3158893f5c449f2 as 7bffd0c57a992f599008a658425fc23575b9aef8; completion PR #652 merged as d0c3e3216dabafdffcd6f7f32c24122a629747f7",
+                "src/etf_cockpit/parsers/etf_report.py and src/etf_cockpit/data/parsed_disclosures.py provide bounded prospectus, annual and half-year extraction with typed legal_structure, securities_lending, collateral_policy and operational_risks fields, page provenance, confidence, immutable checksums, explicit unknown/conflict states and versioned reviewed persistence",
+                "tests/test_etf_report_parser.py, tests/test_parsed_disclosures.py and tests/ui/test_etf_report_ui.py cover explicit report kinds, field/page evidence, missing and conflicting states, review binding and non-executable UI; score_eligible=false and execution_allowed=false remain enforced"
+              ],
+              "reviewed_date": "2026-08-03",
+              "reviewer": "Codex root orchestrator",
+              "schema_version": "1.0",
+              "state": "complete"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "Product PR #651 merged independently approved exact head ccff5d7421d01df7bdcbfde3f3158893f5c449f2 as 7bffd0c57a992f599008a658425fc23575b9aef8; completion PR #652 merged as d0c3e3216dabafdffcd6f7f32c24122a629747f7",
+            "src/etf_cockpit/parsers/etf_report.py and src/etf_cockpit/data/parsed_disclosures.py provide bounded prospectus, annual and half-year extraction with typed legal_structure, securities_lending, collateral_policy and operational_risks fields, page provenance, confidence, immutable checksums, explicit unknown/conflict states and versioned reviewed persistence",
+            "tests/test_etf_report_parser.py, tests/test_parsed_disclosures.py and tests/ui/test_etf_report_ui.py cover explicit report kinds, field/page evidence, missing and conflicting states, review binding and non-executable UI; score_eligible=false and execution_allowed=false remain enforced"
+          ],
+          "review_reference": "B04 ISSUE-0104 dependency review against integrated UPDATEV2-0018 report-evidence contract",
+          "reviewed_date": "2026-08-03",
+          "reviewer": "Codex root orchestrator",
+          "verified_commit": "7bffd0c57a992f599008a658425fc23575b9aef8"
+        }
+      ],
+      "verified_commit": "7bffd0c57a992f599008a658425fc23575b9aef8",
+      "verified_date": "2026-08-03"
     },
     "ISSUE-0105": {
       "acceptance_evidence": [],

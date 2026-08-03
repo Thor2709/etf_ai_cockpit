@@ -2189,16 +2189,16 @@
         },
         {
           "dependency_id": "UPDATEV2-0018",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
+          "evidence_state": "complete",
+          "reason_code": "EDGE_EVIDENCE_COMPLETE",
+          "resolved": true
         }
       ],
       "execution_allowed": false,
       "issue_id": "ISSUE-0104",
-      "ready": false,
+      "ready": true,
       "reason_codes": [
-        "BLOCKED_UNRESOLVED_DEPENDENCY"
+        "READY_BLOCKING_EDGES_RESOLVED"
       ],
       "required_inputs": []
     },
@@ -5232,6 +5232,7 @@
     "ISSUE-0090",
     "ISSUE-0099",
     "ISSUE-0103",
+    "ISSUE-0104",
     "ISSUE-0106",
     "ISSUE-0155",
     "ISSUE-0156",
@@ -5301,5 +5302,5 @@
     "ISSUE-0062"
   ],
   "schema_version": "1.0",
-  "source_registry_sha256": "c6dbfb4423d9a5f7cd977c79420f6ae12b7c623a5c33bd326f2fa404e0a70748"
+  "source_registry_sha256": "1aed7efdd4c9a3b1b9eab64842129e70df926ee1763997503b0f449fbf98a358"
 }

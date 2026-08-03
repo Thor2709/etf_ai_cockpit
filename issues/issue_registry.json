@@ -5850,16 +5850,16 @@
         },
         {
           "dependency_id": "UPDATEV2-0018",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
+          "evidence_state": "complete",
+          "reason_code": "EDGE_EVIDENCE_COMPLETE",
+          "resolved": true
         }
       ],
       "execution_allowed": false,
       "issue_id": "ISSUE-0104",
-      "ready": false,
+      "ready": true,
       "reason_codes": [
-        "BLOCKED_UNRESOLVED_DEPENDENCY"
+        "READY_BLOCKING_EDGES_RESOLVED"
       ],
       "required_inputs": []
     },
@@ -16917,12 +16917,16 @@
           "state": "unresolved"
         },
         "UPDATEV2-0018": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "B04/UPDATEV2-0018/etf-report-evidence-contract-v1",
+          "evidence_references": [
+            "Product PR #651 merged independently approved exact head ccff5d7421d01df7bdcbfde3f3158893f5c449f2 as 7bffd0c57a992f599008a658425fc23575b9aef8; completion PR #652 merged as d0c3e3216dabafdffcd6f7f32c24122a629747f7",
+            "src/etf_cockpit/parsers/etf_report.py and src/etf_cockpit/data/parsed_disclosures.py provide bounded prospectus, annual and half-year extraction with typed legal_structure, securities_lending, collateral_policy and operational_risks fields, page provenance, confidence, immutable checksums, explicit unknown/conflict states and versioned reviewed persistence",
+            "tests/test_etf_report_parser.py, tests/test_parsed_disclosures.py and tests/ui/test_etf_report_ui.py cover explicit report kinds, field/page evidence, missing and conflicting states, review binding and non-executable UI; score_eligible=false and execution_allowed=false remain enforced"
+          ],
+          "reviewed_date": "2026-08-03",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         }
       },
       "downstream_issues": [
@@ -16972,8 +16976,8 @@
       ],
       "title": "Implement ETF structural, legal, counterparty, lending and collateral risk analysis",
       "ui_requirement": "ETF Structure & Documents panel.",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "7bffd0c57a992f599008a658425fc23575b9aef8",
+      "verified_date": "2026-08-03",
       "why": "Two ETFs with similar exposure can have materially different structural risks.",
       "write_conflict_group": "etf-research"
     },
@@ -27719,7 +27723,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "f8cf2c7d74d5b696c4b01e52bb23dad3c09bf01fffe030328a560852e20f2ebe",
+    "programme_control_state_sha256": "cc3b87a104f173d6a4cd11f7ca2b806a05cd513589355cbcd0f1ed3cd29e87db",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

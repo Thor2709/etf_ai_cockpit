@@ -13,7 +13,28 @@ former active-goal record and chronology are archived in
 `plans/archive/ATOMIC_FAST_PATH_ISSUE-0179-0180_2026-07-31.md`. Current delivery
 mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 
-## Current UPDATEV2-0018 product checkpoint
+## Current ISSUE-0104 dependency checkpoint
+
+- UPDATEV2-0018 completion PR #652 merged independently approved exact head
+  `5b260ee9eae199f38f32c5f7410a04d63803af4f` as
+  `d0c3e3216dabafdffcd6f7f32c24122a629747f7`. Run `30773717557`
+  passed Linux, Windows and terminal validation; writer `30774651448`
+  accepted the exact two-hop replay with `zero_action_readback=true`, and
+  generic convergence `30774651452` produced no patch. GitHub issue #158 and
+  canonical UPDATEV2-0018 now agree on `integrated`; `execution_allowed=false`
+  is unchanged.
+- Canonical order selects ISSUE-0104 next, but its UPDATEV2-0018 dependency
+  edge remains unresolved even though the dependency is integrated. Clean lane
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0104_dependency_0018`,
+  branch `codex/issue0104-dependency-updatev2-0018-20260803`, started empty at
+  exact main `d0c3e3216dabafdffcd6f7f32c24122a629747f7`.
+- This transaction records only the reviewed UPDATEV2-0018 report-evidence
+  contract for ISSUE-0104. It leaves ISSUE-0104 `planned`, changes no
+  dependency list or product code, and does not combine edge evidence with a
+  lifecycle transition. After protected merge, canonical readiness should be
+  true and the separate legal `planned -> ready` transaction is next.
+
+## Completed UPDATEV2-0018 product checkpoint
 
 - Readiness PR #649 merged as
   `efda3f3f8d9fbb075a902af37102b0752e5aba27` after full Linux/Windows
