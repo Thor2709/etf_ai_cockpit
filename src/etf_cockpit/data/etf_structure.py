@@ -641,15 +641,44 @@ def _report_candidates(value: object, registry: list[dict[str, object]], target:
 
 def _selected_review_event(row: Mapping[str, object], checksum: str, decision: datetime | None) -> tuple[dict[str, object] | None, str | None]:
     fingerprint = _text(row.get("stored_extraction_sha256")) or _text(row.get("extraction_sha256"))
-    history = _json_rows(row.get("review_history"))
+    history = _review_history_rows(row)
+    if history is None:
+        return None, "report_review_history_malformed"
     matching: list[tuple[int, dict[str, object], datetime]] = []
     current_status = _text(row.get("verification_status"))
     current_evidence_eligible = _stored_true(row.get("evidence_eligible"))
     if history:
-        current_decision = _text(history[-1].get("decision"))
+        validated_history: list[tuple[dict[str, object], datetime]] = []
+        previous_at: datetime | None = None
+        for item in history:
+            event_decision = _text(item.get("decision"))
+            event_reviewer = _text(item.get("reviewer"))
+            event_fingerprint = _text(item.get("extraction_sha256"))
+            event_reviewed_at = _text(item.get("reviewed_at"))
+            if event_decision not in {"verified", "rejected"} or not event_reviewer or not event_fingerprint or not event_reviewed_at:
+                return None, "report_review_history_malformed"
+            try:
+                reviewed_at = _parse_timestamp(event_reviewed_at)
+            except (TypeError, ValueError):
+                return None, "report_review_history_malformed"
+            if previous_at is not None and reviewed_at < previous_at:
+                return None, "report_review_history_malformed"
+            previous_at = reviewed_at
+            validated_history.append((item, reviewed_at))
+        latest, latest_at = validated_history[-1]
+        current_decision = _text(latest.get("decision"))
+        top_level_fingerprint = _text(row.get("extraction_sha256"))
+        if top_level_fingerprint and fingerprint and top_level_fingerprint != fingerprint:
+            return None, "report_review_state_inconsistent"
         if (
             current_status != current_decision
+            or type(row.get("evidence_eligible")).__name__ not in {"bool", "bool_"}
             or current_evidence_eligible != (current_decision == "verified")
+            or not fingerprint
+            or _text(latest.get("extraction_sha256")) != fingerprint
+            or _text(row.get("verified_by")) != _text(latest.get("reviewer"))
+            or _review_timestamp_matches(row.get("verified_at"), latest_at) is False
+            or (_text(row.get("review_note")) or "") != (_text(latest.get("note")) or "")
         ):
             return None, "report_review_state_inconsistent"
     for index, item in enumerate(history):
@@ -690,6 +719,27 @@ def _selected_review_event(row: Mapping[str, object], checksum: str, decision: d
         }
         return identity_payload, None
     return None, "report_review_not_verified_at_decision_time" if decision is not None else "report_evidence_not_eligible"
+
+
+def _review_history_rows(row: Mapping[str, object]) -> list[dict[str, object]] | None:
+    if "review_history" not in row:
+        return []
+    value = row.get("review_history")
+    if isinstance(value, (str, bytes, bytearray)):
+        try:
+            value = json.loads(value)
+        except (TypeError, ValueError):
+            return None
+    if not isinstance(value, list) or any(not isinstance(item, Mapping) for item in value):
+        return None
+    return [dict(item) for item in value]
+
+
+def _review_timestamp_matches(value: object, expected: datetime) -> bool:
+    try:
+        return _parse_timestamp(str(value)) == expected
+    except (TypeError, ValueError):
+        return False
 
 
 def _supplemental_candidates(value: object, registry: list[dict[str, object]], target: str, decision: datetime | None, *, default_document_type: str | None = None) -> tuple[list[StructureCandidate], list[dict[str, object]]]:

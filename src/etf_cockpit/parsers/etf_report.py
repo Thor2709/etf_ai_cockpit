@@ -168,10 +168,10 @@ _EN_FIELDS = (
     _FieldPattern("ongoing_costs", "Ongoing charges", r"(?:ongoing\s+(?:charges|costs)|total\s+expense\s+ratio|management\s+fee)\s*:\s*(?P<value>[^\n]{1,80})"),
     _FieldPattern("holdings_count", "Number of holdings", r"(?:number\s+of\s+holdings|total\s+holdings)\s*:\s*(?P<value>[^\n]{1,80})"),
     _FieldPattern("operational_risks", "Operational risks", r"(?:operational\s+risks?|operational\s+risk\s+factors?)\s*:\s*(?P<value>[^\n]{1,500})"),
-    _FieldPattern("exposure", "Exposure", r"exposure\s*:\s*(?P<value>(?:\d+(?:\.\d+)?|\.\d+))(?!\s*%)", "fraction_of_nav"),
-    _FieldPattern("collateral_fraction", "Collateral fraction", r"collateral\s+fraction\s*:\s*(?P<value>(?:\d+(?:\.\d+)?|\.\d+))(?!\s*%)", "fraction_of_exposure"),
-    _FieldPattern("haircut_fraction", "Haircut fraction", r"haircut\s+fraction\s*:\s*(?P<value>(?:\d+(?:\.\d+)?|\.\d+))(?!\s*%)", "scenario_haircut_fraction"),
-    _FieldPattern("concentration_limit_fraction", "Concentration limit fraction", r"concentration\s+limit\s+fraction\s*:\s*(?P<value>(?:\d+(?:\.\d+)?|\.\d+))(?!\s*%)", "fraction_of_collateral"),
+    _FieldPattern("exposure", "Exposure", r"exposure\s*:\s*(?P<value>[^\n]*)(?=\n|\Z)", "fraction_of_nav"),
+    _FieldPattern("collateral_fraction", "Collateral fraction", r"collateral\s+fraction\s*:\s*(?P<value>[^\n]*)(?=\n|\Z)", "fraction_of_exposure"),
+    _FieldPattern("haircut_fraction", "Haircut fraction", r"haircut\s+fraction\s*:\s*(?P<value>[^\n]*)(?=\n|\Z)", "scenario_haircut_fraction"),
+    _FieldPattern("concentration_limit_fraction", "Concentration limit fraction", r"concentration\s+limit\s+fraction\s*:\s*(?P<value>[^\n]*)(?=\n|\Z)", "fraction_of_collateral"),
 )
 
 _PLUGINS = tuple(
@@ -515,6 +515,7 @@ _NUMERIC_UNITS = {
     "haircut_fraction": "scenario_haircut_fraction",
     "concentration_limit_fraction": "fraction_of_collateral",
 }
+_BARE_DECIMAL_FRACTION = re.compile(r"\A(?:\d+(?:\.\d+)?|\.\d+)\Z")
 
 
 def _normalise_numeric_fractions(
@@ -524,10 +525,14 @@ def _normalise_numeric_fractions(
     for index, item in enumerate(updated):
         if item.field_name not in _NUMERIC_UNITS or not item.value:
             continue
-        try:
-            number = Decimal(item.value)
-        except (InvalidOperation, TypeError, ValueError):
+        raw_value = str(item.value).strip()
+        if not _BARE_DECIMAL_FRACTION.fullmatch(raw_value):
             number = None
+        else:
+            try:
+                number = Decimal(raw_value)
+            except (InvalidOperation, TypeError, ValueError):
+                number = None
         if number is None or not number.is_finite() or not Decimal("0") <= number <= Decimal("1"):
             fields[item.field_name] = None
             updated[index] = EtfReportFieldEvidence(

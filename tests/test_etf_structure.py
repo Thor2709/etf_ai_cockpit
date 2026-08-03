@@ -445,7 +445,9 @@ def test_review_history_replays_before_verification_at_verification_and_after_re
         {"decision": "rejected", "reviewer": "auditor", "note": "recheck", "reviewed_at": "2026-07-06T00:00:00Z", "extraction_sha256": "b" * 64},
     ]
     report.loc[0, "review_history"] = json.dumps(history)
-    report.loc[0, "verified_at"] = "2026-07-04T00:00:00Z"
+    report.loc[0, "verified_by"] = "auditor"
+    report.loc[0, "verified_at"] = "2026-07-06T00:00:00Z"
+    report.loc[0, "review_note"] = "recheck"
     report.loc[0, "verification_status"] = "rejected"
     report.loc[0, "evidence_eligible"] = False
 
@@ -478,6 +480,12 @@ def test_review_history_same_timestamp_replays_append_order() -> None:
     ):
         report = _report()
         report.loc[0, "review_history"] = json.dumps(history)
+        latest = history[-1]
+        report.loc[0, "verification_status"] = latest["decision"]
+        report.loc[0, "verified_by"] = latest["reviewer"]
+        report.loc[0, "verified_at"] = latest["reviewed_at"]
+        report.loc[0, "review_note"] = latest.get("note", "")
+        report.loc[0, "evidence_eligible"] = latest["decision"] == "verified"
         projection = project_etf_structure(
             "ETF-1",
             document_registry=_registry(),
