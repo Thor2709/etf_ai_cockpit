@@ -399,8 +399,8 @@ def read_document_registry(*, path: Path = FUND_DOCUMENTS_PATH) -> pd.DataFrame:
         return pd.DataFrame(columns=_DOCUMENT_COLUMNS)
     try:
         frame = pd.read_parquet(destination)
-    except Exception:
-        return pd.DataFrame(columns=_DOCUMENT_COLUMNS)
+    except Exception as exc:
+        raise ValueError(f"Fund document registry is corrupt: {destination}") from exc
     return _registry_frame(frame, deduplicate=False)
 
 

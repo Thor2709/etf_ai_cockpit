@@ -980,10 +980,7 @@ class BacktestService:
                 metadata = {}
             if metadata.get("quality_momentum_strategy_version") != QUALITY_MOMENTUM_VERSION:
                 return None
-            try:
-                structure_evidence = _load_local_structural_evidence()
-            except Exception:
-                structure_evidence = None
+            structure_evidence = _load_local_structural_evidence()
             if metadata.get("input_checksum") != backtest_input_checksum(
                 self.config,
                 load_prices(),

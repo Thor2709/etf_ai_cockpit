@@ -915,7 +915,7 @@ def _risk_flags(fields: Mapping[str, Mapping[str, object]]) -> list[str]:
     replication = str(fields.get("replication_method", {}).get("value") or "").casefold()
     derivatives = str(fields.get("derivatives", {}).get("value") or "").casefold()
     lending = str(fields.get("lending_policy", {}).get("value") or "").casefold()
-    synthetic = _positive_disclosure(f"{replication} {derivatives}", ("synthetic", "swap", "derivative"))
+    synthetic = _synthetic_or_derivative_disclosure(replication, derivatives)
     if fields.get("replication_method", {}).get("status") in {"unknown", "conflict", "unusable"}:
         flags.append("replication_structure_unknown_or_conflicted")
     if synthetic:
@@ -946,7 +946,7 @@ def _applicable_fields(fields: Mapping[str, Mapping[str, object]]) -> tuple[tupl
     replication = str(fields.get("replication_method", {}).get("value") or "").casefold()
     derivatives = str(fields.get("derivatives", {}).get("value") or "").casefold()
     lending = str(fields.get("lending_policy", {}).get("value") or "").casefold()
-    synthetic_or_derivatives = _positive_disclosure(f"{replication} {derivatives}", ("synthetic", "swap", "derivative"))
+    synthetic_or_derivatives = _synthetic_or_derivative_disclosure(replication, derivatives)
     lending_enabled = _positive_disclosure(lending, ("allow", "enabled", "up to", "may lend", "lending"), negative_terms=("no lending", "no securities lending", "not permitted", "prohibited", "not allowed"))
     if synthetic_or_derivatives:
         for field in ("counterparties", "collateral_terms"):
@@ -969,7 +969,12 @@ def _applicable_fields(fields: Mapping[str, Mapping[str, object]]) -> tuple[tupl
     return tuple(applicable), evidence
 
 
-def _positive_disclosure(value: str, positive_terms: Iterable[str], *, negative_terms: Iterable[str] = ("no derivative", "no swaps", "not synthetic", "not used", "none used", "none", "not permitted", "prohibited", "not allowed")) -> bool:
+def _synthetic_or_derivative_disclosure(replication: str, derivatives: str) -> bool:
+    terms = ("synthetic", "swap", "derivative")
+    return _positive_disclosure(replication, terms) or _positive_disclosure(derivatives, terms)
+
+
+def _positive_disclosure(value: str, positive_terms: Iterable[str], *, negative_terms: Iterable[str] = ("no derivative", "no synthetic", "no swaps", "non synthetic", "not synthetic", "not used", "none used", "none", "not permitted", "prohibited", "not allowed")) -> bool:
     text = " ".join(str(value or "").casefold().replace("-", " ").split())
     if any(term in text for term in negative_terms):
         return False

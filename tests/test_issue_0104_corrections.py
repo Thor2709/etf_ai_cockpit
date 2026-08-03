@@ -954,6 +954,67 @@ def test_canonical_document_registry_fails_closed_on_duplicate_source_id(tmp_pat
         read_document_registry(path=path)
 
 
+def test_canonical_document_registry_fails_closed_on_corrupt_store(tmp_path) -> None:
+    path = tmp_path / "fund_documents.parquet"
+    path.write_bytes(b"not a parquet document registry")
+
+    with pytest.raises(ValueError, match="registry is corrupt"):
+        read_document_registry(path=path)
+
+
+def test_backtest_cache_is_invalidated_when_structural_loader_raises(tmp_path, monkeypatch) -> None:
+    config = services.load_config()
+    prices = pd.DataFrame(
+        [{"etf_id": config.universe.enabled_ids[0], "date": "2026-07-10", "adjusted_close": 100.0}]
+    )
+    fundamentals = pd.DataFrame()
+    evidence = pd.DataFrame(columns=FRAME_COLUMNS)
+    backtests = tmp_path / "backtests"
+    backtests.mkdir()
+    results = pd.DataFrame(
+        [
+            {
+                "strategy_name": strategy,
+                "calmar": 1.0,
+                "backtest_quality": "low",
+                "return_hit_rate": 0.5,
+                "average_win_return": 0.1,
+                "average_loss_return": -0.1,
+                "payoff_ratio": 1.0,
+                "expected_value_per_period": 0.0,
+                "payoff_asymmetry_warning": "none",
+            }
+            for strategy in ("momentum_only", "signal_strategy", "quality_momentum")
+        ]
+    )
+    results.to_csv(backtests / "backtest_results.csv", index=False)
+    pd.DataFrame({"signal_strategy": [100.0]}, index=pd.to_datetime(["2026-07-10"])).to_csv(
+        backtests / "equity_curves.csv"
+    )
+    evidence.to_csv(backtests / "quality_momentum_evidence.csv", index=False)
+    metadata = {
+        "input_checksum": backtest_input_checksum(config, prices, fundamentals),
+        "quality_momentum_strategy_version": QUALITY_MOMENTUM_VERSION,
+        "quality_momentum_evidence_checksum": services.quality_momentum_evidence_checksum(evidence),
+    }
+    (backtests / "backtest_metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+
+    monkeypatch.setattr(services, "BACKTESTS_DIR", backtests)
+    monkeypatch.setattr(services, "load_prices", lambda: prices)
+    monkeypatch.setattr(services, "load_fundamental_evidence", lambda: fundamentals)
+    monkeypatch.setattr(services, "current_settings_revision", lambda: "settings-1")
+    for path in (backtests / "backtest_results.csv", backtests / "equity_curves.csv"):
+        services._write_universe_cache_metadata(path, "universe-1", "settings-1")
+
+    def raise_structural_corruption():
+        raise ValueError("structural store is corrupt")
+
+    monkeypatch.setattr(services, "_load_local_structural_evidence", raise_structural_corruption)
+
+    service = services.BacktestService(config, universe_revision="universe-1")
+    assert service._load_cached_backtest() is None
+
+
 def test_canonical_report_reader_fails_closed_on_duplicate_source_id(tmp_path) -> None:
     from etf_cockpit.data.parsed_disclosures import read_etf_report_records
 

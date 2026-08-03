@@ -1018,6 +1018,7 @@ def _read_report_frame_from_frame(frame: pd.DataFrame, *, validate_authority: bo
     result = result[REPORT_COLUMNS].sort_values("source_id", kind="stable").reset_index(drop=True)
     _backfill_legacy_known_at(result)
     for _, row in result.iterrows():
+        _strict_stored_bool(row.get("parse_success"), "parse_success")
         fingerprint = _cell_text(row.get("stored_extraction_sha256"))
         if fingerprint and not _fingerprint_matches(row, fingerprint, legacy_allowed=legacy_allowed):
             raise ValueError("stored extraction fingerprint does not match extraction")
@@ -1080,6 +1081,7 @@ def validate_supplied_etf_report_records(value: object) -> pd.DataFrame:
 
     for row in frame.to_dict("records"):
         series = pd.Series(row)
+        _strict_stored_bool(series.get("parse_success"), "parse_success")
         stored_fingerprint = _cell_text(row.get("stored_extraction_sha256"))
         if stored_fingerprint:
             if not _is_sha256_fingerprint(stored_fingerprint) or not _fingerprint_matches(series, stored_fingerprint, legacy_allowed=False):

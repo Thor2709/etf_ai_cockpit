@@ -663,6 +663,59 @@ def test_explicit_synthetic_and_derivative_negations_remain_negative_through_fac
     assert not any(flag.startswith("synthetic_") for flag in projection["flags"])
 
 
+def test_replication_negation_does_not_suppress_separate_positive_derivative_disclosure() -> None:
+    from etf_cockpit.application.ui_facade import load_etf_structure_projection
+
+    report = _report()
+    evidence = json.loads(report.loc[0, "field_evidence"])
+    evidence = [item for item in evidence if item["field_name"] not in {"counterparties", "collateral_terms"}]
+    for item in evidence:
+        if item["field_name"] == "replication_method":
+            item["value"] = "Physical replication; not synthetic"
+        elif item["field_name"] == "derivatives":
+            item["value"] = "Uses exchange-traded derivatives"
+    report.loc[0, "field_evidence"] = json.dumps(evidence)
+    _refresh_report_fingerprint(report)
+
+    projection = load_etf_structure_projection("ETF-1", document_registry=_registry(), report_records=report)
+    caps = structure_confidence_caps(["ETF-1"], document_registry=_registry(), report_records=report)
+
+    assert {"counterparties", "collateral_terms"}.issubset(projection["applicable_fields"])
+    assert "synthetic_counterparty_evidence_missing_or_conflicted" in projection["flags"]
+    assert "synthetic_collateral_evidence_missing_or_conflicted" in projection["flags"]
+    assert projection["evidence_confidence_cap"] < 1.0
+    assert caps["ETF-1"] == projection["evidence_confidence_cap"]
+
+
+@pytest.mark.parametrize(
+    ("replication", "derivatives"),
+    [
+        ("Non-synthetic", "None used"),
+        ("Physical replication", "No synthetic derivatives"),
+    ],
+)
+def test_locally_negated_synthetic_disclosures_remain_negative_through_facade(
+    replication: str, derivatives: str
+) -> None:
+    from etf_cockpit.application.ui_facade import load_etf_structure_projection
+
+    report = _report()
+    evidence = json.loads(report.loc[0, "field_evidence"])
+    for item in evidence:
+        if item["field_name"] == "replication_method":
+            item["value"] = replication
+        elif item["field_name"] == "derivatives":
+            item["value"] = derivatives
+    report.loc[0, "field_evidence"] = json.dumps(evidence)
+    _refresh_report_fingerprint(report)
+
+    projection = load_etf_structure_projection("ETF-1", document_registry=_registry(), report_records=report)
+
+    assert "counterparties" not in projection["applicable_fields"]
+    assert "collateral_terms" not in projection["applicable_fields"]
+    assert not any(flag.startswith("synthetic_") for flag in projection["flags"])
+
+
 def test_report_document_family_mismatch_fails_closed() -> None:
     report = _report()
     report.loc[0, "document_type"] = "annual_report"
@@ -722,7 +775,7 @@ def test_parse_success_requires_stored_boolean_true_in_canonical_and_supplied_pa
     report.loc[0, "parse_success"] = parse_success
     _refresh_report_fingerprint(report)
 
-    with pytest.raises(ValueError, match="incomplete report cannot be evidence eligible"):
+    with pytest.raises(ValueError, match="parse_success is not a stored boolean"):
         disclosures._read_report_frame_from_frame(report, validate_authority=False)
 
     projection = load_etf_structure_projection("ETF-1", document_registry=_registry(), report_records=report)
@@ -733,6 +786,29 @@ def test_parse_success_requires_stored_boolean_true_in_canonical_and_supplied_pa
     assert projection["evidence_confidence_cap"] == 0.0
     assert caps["ETF-1"] == 0.0
     assert projection["execution_allowed"] is False
+
+
+@pytest.mark.parametrize("reader", ["canonical", "supplied"])
+def test_pending_ineligible_rows_still_require_stored_parse_success_boolean(reader: str) -> None:
+    import etf_cockpit.data.parsed_disclosures as disclosures
+
+    report = _report()
+    report["parse_success"] = report["parse_success"].astype(object)
+    report.loc[0, "parse_success"] = "false"
+    report.loc[0, "verification_status"] = "pending"
+    report.loc[0, "verified_by"] = ""
+    report.loc[0, "verified_at"] = ""
+    report.loc[0, "review_note"] = ""
+    report.loc[0, "review_history"] = "[]"
+    report.loc[0, "evidence_eligible"] = False
+    report.loc[0, "manual_review"] = True
+    _refresh_report_fingerprint(report)
+
+    with pytest.raises(ValueError, match="parse_success is not a stored boolean"):
+        if reader == "canonical":
+            disclosures._read_report_frame_from_frame(report, validate_authority=False)
+        else:
+            disclosures.validate_supplied_etf_report_records(report)
 
 
 def test_duplicate_registry_source_ids_fail_closed_for_structure_and_backtest_cache_identity() -> None:
