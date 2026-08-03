@@ -100,13 +100,13 @@ migration losing untouched-row fingerprint context. Release run `30787415201`
 passed preflight and reached both H-tier package jobs; Linux and Windows both
 failed the deterministic real-backtest defect, so that evidence is stale.
 
-One final narrow correction covers all four reproduced defects. It includes a
+Final narrow correction commit `853ade3f6ee042ad579201d5797f32ed06b81ad0`
+covers all four reproduced defects. It includes a
 real 260-session structural-holdings backtest, shared factsheet/holdings
 score/service/cache/yfinance loading, duplicate report-reader rejection and
 reviewed/unreviewed multi-row migration. The 111-case affected selection
 passes 110 tests with one expected skip in 35.7 seconds; architecture, Ruff,
-compile and diff hygiene pass. Record the correction commit and freeze the
-replacement exact head.
+compile and diff hygiene pass. Freeze the replacement exact head.
 
 ## Completed UPDATEV2-0018 parser lane
 

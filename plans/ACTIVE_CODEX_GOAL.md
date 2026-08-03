@@ -113,13 +113,14 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   Release run `30787415201` passed preflight and started both H-tier package
   jobs; Linux and Windows both failed the deterministic real-backtest defect,
   so all evidence for that head is stale.
-- One final narrow correction fixes all four reproduced defects. A real
+- Final narrow correction commit
+  `853ade3f6ee042ad579201d5797f32ed06b81ad0` fixes all four reproduced defects. A real
   260-session structural-holdings backtest, shared factsheet/holdings
   score/service/cache/yfinance loading, duplicate report-reader rejection and
   reviewed/unreviewed multi-row migration are covered. The 111-case affected
   selection passes 110 tests with one expected skip in 35.7 seconds;
-  architecture, Ruff, compile and diff hygiene pass. Record the correction
-  commit and freeze the replacement exact head.
+  architecture, Ruff, compile and diff hygiene pass. Freeze the replacement
+  exact head.
 
 ## Completed UPDATEV2-0018 product checkpoint
 
