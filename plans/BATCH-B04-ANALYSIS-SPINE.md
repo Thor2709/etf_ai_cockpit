@@ -108,6 +108,23 @@ reviewed/unreviewed multi-row migration. The 111-case affected selection
 passes 110 tests with one expected skip in 35.7 seconds; architecture, Ruff,
 compile and diff hygiene pass. Freeze the replacement exact head.
 
+Replacement exact head `e9a672994541918b2a974e30a8d164c2cfd83314` is
+rejected after both parallel reviewers completed. The complete findings are
+fail-closed malformed canonical factsheet/holdings handling, preservation of
+real writer structural provenance, and stable cross-kind `legal_form`
+conflicts. Stale release run `30789907061` reached both H-tier package jobs;
+Linux and Windows failed, so none of its evidence is reusable.
+
+Consolidated correction commit
+`6e31cc5ae050b953066ad5374d3c5d4f6efdadf9` closes all three findings. It uses
+real factsheet-document/reference and holdings-document writers in the
+regression, proves their exact bindings survive the shared projection and
+backtest, and retains `execution_allowed=false`. Four direct adversarial cases
+pass; the combined affected structure, scoring, parser, document, holdings,
+release-hardening and architecture suite reaches 100% with one expected skip
+and no failures. Ruff, compile and diff hygiene pass. Freeze one checkpoint
+head, then repeat both reviews and fresh H-tier hosted validation in parallel.
+
 ## Completed UPDATEV2-0018 parser lane
 
 ISSUE-0103 completion PR #648 merged exact reviewed head

@@ -121,6 +121,23 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   selection passes 110 tests with one expected skip in 35.7 seconds;
   architecture, Ruff, compile and diff hygiene pass. Freeze the replacement
   exact head.
+- Replacement exact head `e9a672994541918b2a974e30a8d164c2cfd83314`
+  was rejected after both parallel reviewers completed. The consolidated
+  findings are fail-closed handling for malformed canonical factsheet/holdings
+  stores, preservation of real canonical-writer structural provenance, and
+  stable cross-kind `legal_form` conflict detection. Hosted release run
+  `30789907061` reached both H-tier package jobs, but Linux and Windows failed;
+  all review and CI evidence for that head is stale.
+- Consolidated correction commit
+  `6e31cc5ae050b953066ad5374d3c5d4f6efdadf9` fails malformed structural stores
+  closed in the selector, carries explicit factsheet and holdings document
+  bindings through the real canonical writers and shared projection/backtest,
+  and makes `legal_form`/`domicile` stable cross-kind conflict fields. Four
+  direct adversarial cases pass; the combined affected structure, scoring,
+  parser, document, holdings, release-hardening and architecture suite reaches
+  100% with one expected skip and no failures. Ruff, compile and diff hygiene
+  pass. Freeze the checkpoint head for parallel reviews and fresh H-tier
+  hosted validation.
 
 ## Completed UPDATEV2-0018 product checkpoint
 
