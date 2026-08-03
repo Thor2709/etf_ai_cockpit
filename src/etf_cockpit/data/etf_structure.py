@@ -126,6 +126,7 @@ def _read_local_structural_rows(path: object, default_document_type: str) -> pd.
             "instrument_id": source.get("instrument_id", source.get("etf_id")),
             "source_id": source.get("source_id"),
             "document_type": source.get("document_type") or default_document_type,
+            "document_kind": source.get("document_kind"),
             "checksum": source.get("checksum") or source.get("sha256"),
             "document_date": source.get("document_date") or source.get("as_of_date") or source.get("as_of"),
             "known_at": source.get("known_at") or source.get("ingested_at") or source.get("imported_at"),
@@ -339,6 +340,7 @@ def project_etf_structure(
         validated_reports = []
         supplied_report_error = str(exc)
     registry, rejected_registry = _bound_registry(target, registry_rows, decision)
+    visible_report_conflicts = _visible_report_conflict_fields(validated_reports, registry, target)
     candidates, rejected_candidates = _report_candidates(validated_reports, registry, target, decision)
     supplemental, supplemental_rejections = _supplemental_candidates(
         _strict_channel_rows(supplemental_rows, "supplemental rows", "factsheet"),
@@ -377,6 +379,9 @@ def project_etf_structure(
     fields: dict[str, dict[str, object]] = {}
     for field in STRUCTURAL_FIELDS:
         applicable = [item for item in usable if item.field_name == field]
+        if field in visible_report_conflicts:
+            fields[field] = _field_payload(field, status="conflict", candidates=applicable)
+            continue
         invalid_for_field = any(item.get("field_name") == field for item in rejected if isinstance(item, dict))
         if not applicable:
             status = "unusable" if invalid_for_field else "unknown"
@@ -630,9 +635,13 @@ def _strict_rows(value: object, channel: str) -> list[dict[str, object]]:
     if isinstance(value, pd.DataFrame):
         if bool(value.columns.duplicated().any()):
             raise ValueError(f"{channel} contain duplicate columns")
-        return [{str(key): item for key, item in row.items()} for row in value.to_dict("records")]
+        rows = [{str(key): item for key, item in row.items()} for row in value.to_dict("records")]
+        _require_identity_alias_agreement(rows, channel)
+        return rows
     if isinstance(value, Mapping):
-        return [dict(value)]
+        rows = [dict(value)]
+        _require_identity_alias_agreement(rows, channel)
+        return rows
     if isinstance(value, (str, bytes)):
         raise ValueError(f"{channel} contain a non-mapping member")
     try:
@@ -641,22 +650,131 @@ def _strict_rows(value: object, channel: str) -> list[dict[str, object]]:
         raise ValueError(f"{channel} are not tabular") from exc
     if any(not isinstance(item, Mapping) for item in items):
         raise ValueError(f"{channel} contain a non-mapping member")
-    return [dict(item) for item in items]
+    rows = [dict(item) for item in items]
+    _require_identity_alias_agreement(rows, channel)
+    return rows
 
 
 def _strict_channel_rows(value: object, channel: str, family: str) -> list[dict[str, object]]:
     rows = _strict_rows(value, channel)
     for row in rows:
-        claimed_type = _text(row.get("document_type")) or _text(row.get("document_kind"))
-        if claimed_type and _family(claimed_type) != family:
+        claimed_families = {
+            _family(value)
+            for value in (_text(row.get("document_type")), _text(row.get("document_kind")))
+            if value
+        }
+        if claimed_families and claimed_families != {family}:
             raise ValueError(f"{channel} contain a claim outside the {family} channel")
     return rows
+
+
+def _require_identity_alias_agreement(rows: Iterable[Mapping[str, object]], channel: str) -> None:
+    for row in rows:
+        if not _identity_aliases_agree(row):
+            raise ValueError(f"{channel} contain contradictory identity aliases")
+
+
+def _identity_aliases_agree(row: Mapping[str, object]) -> bool:
+    document_families = {
+        _family(value)
+        for value in (_text(row.get("document_type")), _text(row.get("document_kind")))
+        if value
+    }
+    return len(document_families) <= 1 and all((
+        _aliases_agree(row, ("source_sha256", "sha256", "checksum", "document_checksum"), _text),
+        _aliases_agree(row, ("document_date", "as_of", "as_of_date"), _date_text),
+        _aliases_agree(row, ("known_at", "ingested_at", "document_known_at"), _date_time_text),
+    ))
+
+
+def _aliases_agree(
+    row: Mapping[str, object],
+    aliases: tuple[str, ...],
+    normalizer: Callable[[object], str | None],
+) -> bool:
+    values: list[str] = []
+    for alias in aliases:
+        if not _text(row.get(alias)):
+            continue
+        try:
+            normalized = normalizer(row.get(alias))
+        except (TypeError, ValueError):
+            return False
+        if not normalized:
+            return False
+        values.append(normalized)
+    return len(set(values)) <= 1
+
+
+def _agreed_alias(
+    row: Mapping[str, object],
+    aliases: tuple[str, ...],
+    normalizer: Callable[[object], str | None],
+) -> str | None:
+    if not _aliases_agree(row, aliases, normalizer):
+        return None
+    for alias in aliases:
+        if _text(row.get(alias)):
+            return normalizer(row.get(alias))
+    return None
 
 
 def _validated_report_rows(value: object) -> list[dict[str, object]]:
     from etf_cockpit.data.parsed_disclosures import validate_supplied_etf_report_records
 
-    return validate_supplied_etf_report_records(value).to_dict("records")
+    rows = validate_supplied_etf_report_records(value).to_dict("records")
+    _require_identity_alias_agreement(rows, "report records")
+    return rows
+
+
+def _visible_report_conflict_fields(
+    rows: list[dict[str, object]],
+    registry: list[dict[str, object]],
+    target: str,
+) -> set[str]:
+    from etf_cockpit.data.parsed_disclosures import build_etf_report_conflicts
+
+    registry_by_id = {str(row.get("source_id")): row for row in registry}
+    visible: list[dict[str, object]] = []
+    for row in rows:
+        source_id = _text(row.get("source_id"))
+        registered = registry_by_id.get(source_id or "")
+        if (
+            registered is None
+            or _text(row.get("instrument_id")) != target
+            or _text(row.get("verification_status")) == "rejected"
+        ):
+            continue
+        checksum = _agreed_alias(registered, ("sha256", "checksum"), _text)
+        document_date = _agreed_alias(
+            registered, ("document_date", "as_of", "as_of_date"), _date_text
+        )
+        known_at = _agreed_alias(registered, ("known_at", "ingested_at"), _date_time_text)
+        if (
+            not checksum
+            or not document_date
+            or not known_at
+            or not _report_identity_matches(
+                row,
+                row_checksum=checksum,
+                row_date=document_date,
+                row_known_at=known_at,
+                registered=registered,
+            )
+        ):
+            continue
+        visible.append(row)
+    if len(visible) < 2:
+        return set()
+    visible_frame = pd.DataFrame(visible)
+    if "imported_at" not in visible_frame:
+        visible_frame["imported_at"] = visible_frame.get("known_at", "")
+    conflicts = build_etf_report_conflicts(visible_frame)
+    return {
+        _canonical_field(field)
+        for field in conflicts.get("field_name", pd.Series(dtype=object)).astype(str)
+        if _canonical_field(field) in STRUCTURAL_FIELDS
+    }
 
 
 def _bound_registry(target: str, rows: list[dict[str, object]], decision: datetime | None) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
@@ -670,9 +788,9 @@ def _bound_registry(target: str, rows: list[dict[str, object]], decision: dateti
         if source_id in duplicate_source_ids:
             rejected.append({"reason_code": "duplicate_registry_source_id", "source_id": source_id})
             continue
-        checksum = _text(row.get("sha256")) or _text(row.get("checksum"))
-        document_date = _date_text(row.get("document_date"))
-        known_at = _date_time_text(row.get("known_at")) or _date_time_text(row.get("ingested_at"))
+        checksum = _agreed_alias(row, ("sha256", "checksum"), _text)
+        document_date = _agreed_alias(row, ("document_date", "as_of", "as_of_date"), _date_text)
+        known_at = _agreed_alias(row, ("known_at", "ingested_at"), _date_time_text)
         if not source_id or not checksum or not document_date or not known_at:
             rejected.append({"reason_code": "registry_identity_incomplete", "source_id": source_id or "unavailable"})
             continue
@@ -699,6 +817,9 @@ def _report_candidates(value: object, registry: list[dict[str, object]], target:
     registry_by_id = {str(row["source_id"]): row for row in registry}
     for row in _rows(value):
         source_id = _text(row.get("source_id"))
+        row_known_at = _agreed_alias(row, ("known_at", "ingested_at"), _date_time_text)
+        if decision is not None and row_known_at and _parse_timestamp(row_known_at) > decision:
+            continue
         registered = registry_by_id.get(source_id or "")
         if not source_id or registered is None or str(row.get("instrument_id") or "").strip() != target:
             rejected.append({"reason_code": "candidate_not_bound_to_registry", "source_id": source_id or "unavailable"})
@@ -716,19 +837,18 @@ def _report_candidates(value: object, registry: list[dict[str, object]], target:
         if not report_authority or not registry_authority or report_authority != registry_authority:
             rejected.append({"reason_code": "candidate_source_authority_mismatch", "source_id": source_id})
             continue
-        row_checksum = _text(row.get("source_sha256")) or _text(row.get("sha256")) or _text(row.get("checksum"))
-        row_date = _date_text(row.get("document_date"))
-        row_known_at = _date_time_text(row.get("known_at"))
+        row_checksum = _agreed_alias(row, ("source_sha256", "sha256", "checksum"), _text)
+        row_date = _agreed_alias(row, ("document_date", "as_of", "as_of_date"), _date_text)
         if not row_checksum or not row_date or not row_known_at:
             rejected.append({"reason_code": "report_identity_incomplete", "source_id": source_id})
             continue
-        if row_checksum != _text(registered.get("checksum")):
+        if row_checksum != _agreed_alias(registered, ("sha256", "checksum"), _text):
             rejected.append({"reason_code": "candidate_checksum_mismatch", "source_id": source_id})
             continue
-        if row_date and row_date != _date_text(registered.get("document_date")):
+        if row_date and row_date != _agreed_alias(registered, ("document_date", "as_of", "as_of_date"), _date_text):
             rejected.append({"reason_code": "candidate_date_mismatch", "source_id": source_id})
             continue
-        if row_known_at != (_date_time_text(registered.get("known_at")) or _date_time_text(registered.get("ingested_at"))):
+        if row_known_at != _agreed_alias(registered, ("known_at", "ingested_at"), _date_time_text):
             rejected.append({"reason_code": "candidate_known_at_mismatch", "source_id": source_id})
             continue
         review_event, review_reason = _selected_review_event(row, row_checksum, decision)
@@ -886,9 +1006,13 @@ def _supplemental_candidates(
         document_type = _text(row.get("document_type")) or default_document_type
         page = _page(row.get("page", row.get("source_page", row.get("document_page"))))
         value_text = _text(row.get("value"))
-        row_checksum = _text(row.get("checksum")) or _text(row.get("sha256")) or _text(row.get("document_checksum"))
-        row_date = _date_text(row.get("document_date")) or _date_text(row.get("as_of"))
-        row_known_at = _date_time_text(row.get("known_at")) or _date_time_text(row.get("document_known_at"))
+        row_checksum = _agreed_alias(
+            row, ("source_sha256", "sha256", "checksum", "document_checksum"), _text
+        )
+        row_date = _agreed_alias(row, ("document_date", "as_of", "as_of_date"), _date_text)
+        row_known_at = _agreed_alias(
+            row, ("known_at", "ingested_at", "document_known_at"), _date_time_text
+        )
         status = (_text(row.get("status")) or _text(row.get("coverage_status")) or _text(row.get("document_status")) or "extracted").casefold()
         reason = None
         if str(row.get("instrument_id") or "").strip() != target or not source_id or registered is None:
@@ -901,7 +1025,11 @@ def _supplemental_candidates(
             reason = "candidate_page_or_value_missing"
         elif not row_checksum or not row_date or not row_known_at:
             reason = "candidate_registry_binding_incomplete"
-        elif row_checksum != _text(registered.get("checksum")) or row_date != _date_text(registered.get("document_date")) or row_known_at != _date_time_text(registered.get("known_at")):
+        elif (
+            row_checksum != _agreed_alias(registered, ("sha256", "checksum"), _text)
+            or row_date != _agreed_alias(registered, ("document_date", "as_of", "as_of_date"), _date_text)
+            or row_known_at != _agreed_alias(registered, ("known_at", "ingested_at"), _date_time_text)
+        ):
             reason = "candidate_registry_binding_mismatch"
         elif status not in _USABLE_STATUSES:
             reason = "candidate_unusable"
@@ -923,9 +1051,9 @@ def _make_candidate(target: str, field: str, value: str, source_id: str, registe
     confidence_value = _confidence_value(confidence)
     if confidence_value is None:
         return None, "candidate_confidence_invalid"
-    known_at = _date_time_text(registered.get("known_at")) or _date_time_text(registered.get("ingested_at"))
-    checksum = _text(registered.get("checksum")) or _text(registered.get("sha256"))
-    document_date = _date_text(registered.get("document_date"))
+    known_at = _agreed_alias(registered, ("known_at", "ingested_at"), _date_time_text)
+    checksum = _agreed_alias(registered, ("sha256", "checksum"), _text)
+    document_date = _agreed_alias(registered, ("document_date", "as_of", "as_of_date"), _date_text)
     if not known_at or not checksum or not document_date:
         return None, "candidate_registry_binding_incomplete"
     if decision is not None and _parse_timestamp(known_at) > decision:
@@ -1006,7 +1134,8 @@ def _risk_flags(fields: Mapping[str, Mapping[str, object]]) -> list[str]:
         lending,
         ("allow", "enabled", "up to", "may lend", "lending"),
         negative_terms=(
-            "no lending", "no securities lending", "lending is not used", "not used", "none",
+            "no lending", "no securities lending", "securities lending none",
+            "lending is not used", "not used", "none",
             "not permitted", "prohibited", "not allowed",
         ),
     )
@@ -1037,7 +1166,8 @@ def _applicable_fields(fields: Mapping[str, Mapping[str, object]]) -> tuple[tupl
         lending,
         ("allow", "enabled", "up to", "may lend", "lending"),
         negative_terms=(
-            "no lending", "no securities lending", "lending is not used", "not used", "none",
+            "no lending", "no securities lending", "securities lending none",
+            "lending is not used", "not used", "none",
             "not permitted", "prohibited", "not allowed",
         ),
     )
@@ -1079,6 +1209,8 @@ def _positive_disclosure(
         "does not use derivative",
         "does not use derivatives",
         "no synthetic",
+        "no synthetic derivative",
+        "no synthetic derivatives",
         "no swaps",
         "non synthetic",
         "not synthetic",
@@ -1093,19 +1225,39 @@ def _positive_disclosure(
     clauses = [clause for clause in re.split(r"[;,\.\n]+", str(value or "").casefold()) if clause.strip()]
     for clause in clauses:
         normalized = " ".join(re.sub(r"[^a-z0-9]+", " ", clause).split())
-        positive = any(_bounded_phrase(normalized, term, optional_plural=True) for term in positive_terms)
-        negative = any(_bounded_phrase(normalized, term) for term in negative_terms)
-        if positive and not negative:
+        positive_spans = [
+            span
+            for term in positive_terms
+            for span in _bounded_phrase_spans(normalized, term, optional_plural=True)
+        ]
+        negative_spans = [
+            span
+            for term in negative_terms
+            for span in _bounded_phrase_spans(normalized, term)
+        ]
+        if positive_spans and not negative_spans:
+            return True
+        if any(
+            not any(negative_start <= positive_start and positive_end <= negative_end for negative_start, negative_end in negative_spans)
+            for positive_start, positive_end in positive_spans
+        ):
             return True
     return False
 
 
-def _bounded_phrase(text: str, phrase: str, *, optional_plural: bool = False) -> bool:
+def _bounded_phrase_spans(
+    text: str, phrase: str, *, optional_plural: bool = False
+) -> list[tuple[int, int]]:
     normalized = " ".join(re.sub(r"[^a-z0-9]+", " ", str(phrase).casefold()).split())
     if not normalized:
-        return False
+        return []
     suffix = "s?" if optional_plural and " " not in normalized else ""
-    return re.search(rf"(?<![a-z0-9]){re.escape(normalized)}{suffix}(?![a-z0-9])", text) is not None
+    return [
+        match.span()
+        for match in re.finditer(
+            rf"(?<![a-z0-9]){re.escape(normalized)}{suffix}(?![a-z0-9])", text
+        )
+    ]
 
 
 def _field_payload(field: str, *, status: str, candidate: StructureCandidate | None = None, candidates: Iterable[StructureCandidate] = ()) -> dict[str, object]:
@@ -1179,9 +1331,9 @@ def _report_numeric_inputs(
         registered = registry_by_id.get(source_id or "")
         if source_id not in selected or registered is None or _text(row.get("instrument_id")) != target:
             continue
-        checksum = _text(registered.get("checksum")) or _text(registered.get("sha256"))
-        document_date = _date_text(registered.get("document_date"))
-        known_at = _date_time_text(registered.get("known_at")) or _date_time_text(registered.get("ingested_at"))
+        checksum = _agreed_alias(registered, ("sha256", "checksum"), _text)
+        document_date = _agreed_alias(registered, ("document_date", "as_of", "as_of_date"), _date_text)
+        known_at = _agreed_alias(registered, ("known_at", "ingested_at"), _date_time_text)
         if not checksum or not document_date or not known_at or not _report_identity_matches(
             row,
             row_checksum=checksum,
@@ -1377,9 +1529,9 @@ def _numeric_provenance_binding(
     if len(matches) != 1:
         return None
     registered = matches[0]
-    registered_checksum = _text(registered.get("sha256")) or _text(registered.get("checksum"))
-    registered_date = _date_text(registered.get("document_date"))
-    registered_known_at = _date_time_text(registered.get("known_at")) or _date_time_text(registered.get("ingested_at"))
+    registered_checksum = _agreed_alias(registered, ("sha256", "checksum"), _text)
+    registered_date = _agreed_alias(registered, ("document_date", "as_of", "as_of_date"), _date_text)
+    registered_known_at = _agreed_alias(registered, ("known_at", "ingested_at"), _date_time_text)
     if checksum != registered_checksum or document_date != registered_date or known_at != registered_known_at:
         return None
     if instrument_id and _text(registered.get("instrument_id")) != instrument_id:
@@ -1428,12 +1580,14 @@ def _report_identity_matches(
     registered: Mapping[str, object],
 ) -> bool:
     return (
-        (_text(row.get("source_sha256")) or _text(row.get("sha256")) or _text(row.get("checksum"))) == row_checksum
-        and _date_text(row.get("document_date")) == row_date
-        and _date_time_text(row.get("known_at")) == row_known_at
-        and row_checksum == (_text(registered.get("checksum")) or _text(registered.get("sha256")))
-        and row_date == _date_text(registered.get("document_date"))
-        and row_known_at == (_date_time_text(registered.get("known_at")) or _date_time_text(registered.get("ingested_at")))
+        _identity_aliases_agree(row)
+        and _identity_aliases_agree(registered)
+        and _agreed_alias(row, ("source_sha256", "sha256", "checksum"), _text) == row_checksum
+        and _agreed_alias(row, ("document_date", "as_of", "as_of_date"), _date_text) == row_date
+        and _agreed_alias(row, ("known_at", "ingested_at"), _date_time_text) == row_known_at
+        and row_checksum == _agreed_alias(registered, ("sha256", "checksum"), _text)
+        and row_date == _agreed_alias(registered, ("document_date", "as_of", "as_of_date"), _date_text)
+        and row_known_at == _agreed_alias(registered, ("known_at", "ingested_at"), _date_time_text)
         and _report_family_matches_registry(row, registered)
         and _text(row.get("document_kind")) == _text(registered.get("document_kind"))
         and _text(row.get("source_authority")) == (_text(registered.get("authority")) or _text(registered.get("source_authority")))
@@ -1441,10 +1595,17 @@ def _report_identity_matches(
 
 
 def _report_family_matches_registry(row: Mapping[str, object], registered: Mapping[str, object]) -> bool:
-    registry_family = _family(str(registered.get("document_kind") or registered.get("document_type") or ""))
-    report_types = [_text(row.get("document_type")), _text(row.get("document_kind"))]
-    report_families = {_family(item) for item in report_types if item}
-    return bool(registry_family and report_families and report_families.issubset({registry_family}))
+    registry_families = {
+        _family(value)
+        for value in (_text(registered.get("document_type")), _text(registered.get("document_kind")))
+        if value
+    }
+    report_families = {
+        _family(value)
+        for value in (_text(row.get("document_type")), _text(row.get("document_kind")))
+        if value
+    }
+    return len(registry_families) == 1 and report_families == registry_families
 
 
 def _unavailable_stress(reason_code: str = "numeric_evidence_not_supplied") -> dict[str, object]:

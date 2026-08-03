@@ -757,6 +757,32 @@ def test_contradictory_derivative_clauses_fail_closed_as_positive_risk() -> None
     assert "synthetic_counterparty_evidence_missing_or_conflicted" in projection["flags"]
 
 
+@pytest.mark.parametrize(
+    ("field", "wording", "required_field"),
+    [
+        ("derivatives", "No derivatives but uses swaps", "counterparties"),
+        ("lending_policy", "Securities lending is not used but may lend up to 10%", "lending_revenue_split"),
+    ],
+)
+def test_same_clause_positive_and_negative_wording_activates_risk_branch(
+    field: str, wording: str, required_field: str
+) -> None:
+    report = _report(replication="Physical replication")
+    evidence = json.loads(report.loc[0, "field_evidence"])
+    evidence = [item for item in evidence if item["field_name"] != required_field]
+    next(item for item in evidence if item["field_name"] == field)["value"] = wording
+    if field == "lending_policy":
+        next(item for item in evidence if item["field_name"] == "derivatives")["value"] = "No derivatives"
+    report.loc[0, "field_evidence"] = json.dumps(evidence)
+    _refresh_report_fingerprint(report)
+
+    projection = project_etf_structure("ETF-1", document_registry=_registry(), report_records=report)
+
+    assert required_field in projection["applicable_fields"]
+    assert projection["fields"][required_field]["status"] == "unknown"
+    assert projection["evidence_confidence_cap"] < 1.0
+
+
 def test_replication_negation_does_not_suppress_separate_positive_derivative_disclosure() -> None:
     from etf_cockpit.application.ui_facade import load_etf_structure_projection
 
@@ -1005,6 +1031,123 @@ def test_valid_plus_corrupt_structural_channel_cannot_share_valid_cache_identity
             document_registry=registry,
             supplemental_rows=[valid_row, "corrupt"],
         )
+
+
+@pytest.mark.parametrize("channel", ["registry", "report", "supplemental", "holdings"])
+@pytest.mark.parametrize(
+    ("alias", "replacement"),
+    [
+        ("checksum", "b" * 64),
+        ("as_of", "2026-07-09"),
+        ("ingested_at", "2026-07-09T00:00:00Z"),
+    ],
+)
+def test_all_populated_identity_aliases_must_agree(
+    channel: str, alias: str, replacement: str
+) -> None:
+    from etf_cockpit.application.ui_facade import load_etf_structure_projection
+    from etf_cockpit.data.etf_structure import structure_input_checksum
+
+    registry: object = _registry()
+    reports: object = _report()
+    supplemental: object = None
+    holdings: object = None
+    if channel == "registry":
+        registry = _registry()
+        registry[alias] = replacement
+    elif channel == "report":
+        reports = _report()
+        reports[alias] = replacement
+    elif channel == "supplemental":
+        registry = _registry(source_id="factsheet-1", document_type="factsheet", document_kind="factsheet")
+        reports = None
+        supplemental_row = {
+            "instrument_id": "ETF-1", "source_id": "factsheet-1", "document_type": "factsheet",
+            "checksum": CHECKSUM, "document_date": "2026-07-01", "known_at": "2026-07-02T00:00:00Z",
+            "field_name": "legal_form", "value": "ICAV", "page": 1, "confidence": "high",
+        }
+        supplemental_row["sha256" if alias == "checksum" else alias] = replacement
+        supplemental = [supplemental_row]
+    else:
+        registry = _registry(source_id="holdings-1", document_type="holdings", document_kind="holdings")
+        reports = None
+        holdings_row = {
+            "instrument_id": "ETF-1", "source_id": "holdings-1", "document_type": "holdings",
+            "checksum": CHECKSUM, "document_date": "2026-07-01", "known_at": "2026-07-02T00:00:00Z",
+            "field_name": "legal_form", "value": "ICAV", "page": 1, "confidence": "high",
+        }
+        holdings_row["sha256" if alias == "checksum" else alias] = replacement
+        holdings = [holdings_row]
+
+    projection = load_etf_structure_projection(
+        "ETF-1", document_registry=registry, report_records=reports,
+        supplemental_rows=supplemental, holdings=holdings,
+    )
+
+    assert projection.get("evidence_confidence_cap", 0.0) == 0.0
+    assert projection["execution_allowed"] is False
+    with pytest.raises(ValueError, match="contradictory identity aliases"):
+        structure_input_checksum(
+            document_registry=registry, report_records=reports,
+            supplemental_rows=supplemental, holdings=holdings,
+        )
+
+
+@pytest.mark.parametrize("channel", ["registry", "report", "supplemental", "holdings"])
+def test_document_type_and_kind_must_agree_on_channel_family(channel: str) -> None:
+    from etf_cockpit.application.ui_facade import load_etf_structure_projection
+    from etf_cockpit.data.etf_structure import structure_input_checksum
+
+    registry: object = _registry()
+    reports: object = _report()
+    supplemental: object = None
+    holdings: object = None
+    if channel == "registry":
+        registry = _registry()
+        registry.loc[0, "document_kind"] = "holdings"
+    elif channel == "report":
+        reports = _report()
+        reports.loc[0, "document_kind"] = "holdings"
+        _refresh_report_fingerprint(reports)
+    elif channel == "supplemental":
+        registry = _registry(source_id="factsheet-1", document_type="factsheet", document_kind="factsheet")
+        reports = None
+        supplemental = [{"instrument_id": "ETF-1", "document_type": "factsheet", "document_kind": "holdings"}]
+    else:
+        registry = _registry(source_id="holdings-1", document_type="holdings", document_kind="holdings")
+        reports = None
+        holdings = [{"instrument_id": "ETF-1", "document_type": "holdings", "document_kind": "factsheet"}]
+
+    projection = load_etf_structure_projection(
+        "ETF-1", document_registry=registry, report_records=reports,
+        supplemental_rows=supplemental, holdings=holdings,
+    )
+
+    assert projection.get("evidence_confidence_cap", 0.0) == 0.0
+    with pytest.raises(ValueError, match="contradictory identity aliases"):
+        structure_input_checksum(
+            document_registry=registry, report_records=reports,
+            supplemental_rows=supplemental, holdings=holdings,
+        )
+
+
+def test_canonical_structural_row_loader_preserves_document_kind(tmp_path) -> None:
+    from etf_cockpit.data.etf_structure import _read_local_structural_rows
+
+    path = tmp_path / "factsheet.parquet"
+    pd.DataFrame([{
+        "instrument_id": "ETF-1",
+        "source_id": "factsheet-1",
+        "document_type": "factsheet",
+        "document_kind": "holdings",
+        "field_name": "legal_form",
+        "value": "ICAV",
+    }]).to_parquet(path, index=False)
+
+    loaded = _read_local_structural_rows(path, "factsheet")
+
+    assert loaded.loc[0, "document_type"] == "factsheet"
+    assert loaded.loc[0, "document_kind"] == "holdings"
 
 
 def test_duplicate_registry_source_ids_fail_closed_for_structure_and_backtest_cache_identity() -> None:

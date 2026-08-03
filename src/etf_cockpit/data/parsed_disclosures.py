@@ -746,9 +746,6 @@ def review_etf_report(
                 if decision == "verified":
                     if not _row_is_verifiable(row):
                         raise ValueError("only a complete, fully evidenced extraction can be verified")
-                    current_conflicts = build_etf_report_conflicts(frame)
-                    if source_id in set(current_conflicts.get("source_id_a", ())) | set(current_conflicts.get("source_id_b", ())):
-                        raise ValueError("conflicting report evidence requires manual resolution")
                 history.append({
                     "decision": decision,
                     "reviewer": reviewer,
@@ -942,7 +939,6 @@ def _migrate_legacy_report_rows(frame: pd.DataFrame) -> pd.DataFrame:
 
 def _apply_conflict_eligibility(frame: pd.DataFrame, conflicts: pd.DataFrame, registry: pd.DataFrame) -> pd.DataFrame:
     result = frame.copy()
-    conflicted = set(conflicts["source_id_a"].astype(str)) | set(conflicts["source_id_b"].astype(str)) if not conflicts.empty else set()
     for index, row in result.iterrows():
         result.at[index, "score_eligible"] = False
         result.at[index, "execution_allowed"] = False
@@ -953,7 +949,6 @@ def _apply_conflict_eligibility(frame: pd.DataFrame, conflicts: pd.DataFrame, re
             and _fingerprint_matches(row, fingerprint, legacy_allowed=_legacy_fingerprint_allowed(result.attrs.get("_original_columns")))
             and _row_is_verifiable(row)
             and _row_binding_matches_registry(row, registry)
-            and str(row.get("source_id")) not in conflicted
         )
         result.at[index, "evidence_eligible"] = eligible
     return result
@@ -1026,8 +1021,6 @@ def _read_report_frame_from_frame(frame: pd.DataFrame, *, validate_authority: bo
             raise ValueError("stored extraction fingerprint does not match extraction")
         _review_history(row.get("review_history"), expected_fingerprint=fingerprint or None, row=row)
     if validate_authority:
-        conflicts = build_etf_report_conflicts(result)
-        conflicted = set(conflicts["source_id_a"].astype(str)) | set(conflicts["source_id_b"].astype(str)) if not conflicts.empty else set()
         for _, row in result.iterrows():
             fingerprint = _cell_text(row.get("stored_extraction_sha256"))
             registry_path = _cell_text(row.get("registry_path"))
@@ -1038,7 +1031,6 @@ def _read_report_frame_from_frame(frame: pd.DataFrame, *, validate_authority: bo
                 and _row_is_verifiable(row)
                 and bool(registry_path)
                 and _row_binding_matches_registry(row, _read_registry_fail_closed(Path(registry_path)))
-                and str(row.get("source_id")) not in conflicted
             )
             if _strict_stored_bool(row.get("evidence_eligible"), "evidence_eligible") != eligible:
                 raise ValueError("evidence eligibility does not match persisted evidence")
@@ -1125,20 +1117,55 @@ def _row_binding_matches_registry(row: pd.Series, registry: pd.DataFrame) -> boo
     if len(matches) != 1:
         return False
     registered = matches.iloc[0]
-    registered_family = _document_family(registered.get("document_kind") or registered.get("document_type"))
+    registered_families = {
+        _document_family(registered.get(field))
+        for field in ("document_type", "document_kind")
+        if _cell_text(registered.get(field))
+    }
     row_families = {
         _document_family(row.get(field))
         for field in ("document_type", "document_kind")
         if _cell_text(row.get(field))
     }
-    if not registered_family or not row_families or not row_families.issubset({registered_family}):
+    if len(registered_families) != 1 or row_families != registered_families:
         return False
-    for field in ("instrument_id", "document_kind", "source_sha256", "source_authority", "document_date", "known_at"):
-        registry_field = {"source_sha256": "sha256", "source_authority": "authority", "known_at": "ingested_at"}.get(field, field)
-        registered_value = _registry_known_at(registered) if field == "known_at" else registered.get(registry_field)
-        if _cell_text(registered_value) != _cell_text(row.get(field)):
+    alias_groups = (
+        (("source_sha256", "sha256", "checksum"), ("sha256", "checksum"), "text"),
+        (("document_date", "as_of", "as_of_date"), ("document_date", "as_of", "as_of_date"), "date"),
+        (("known_at", "ingested_at"), ("known_at", "ingested_at"), "timestamp"),
+    )
+    for row_aliases, registry_aliases, kind in alias_groups:
+        row_value = _agreed_identity_alias(row, row_aliases, kind)
+        registered_value = _agreed_identity_alias(registered, registry_aliases, kind)
+        if not row_value or row_value != registered_value:
+            return False
+    for field, registry_field in (
+        ("instrument_id", "instrument_id"),
+        ("document_kind", "document_kind"),
+        ("source_authority", "authority"),
+    ):
+        if _cell_text(registered.get(registry_field)) != _cell_text(row.get(field)):
             return False
     return True
+
+
+def _agreed_identity_alias(row: Any, aliases: tuple[str, ...], kind: str) -> str | None:
+    values: list[str] = []
+    for alias in aliases:
+        raw = row.get(alias)
+        if not _cell_text(raw):
+            continue
+        try:
+            if kind == "timestamp":
+                normalized = pd.Timestamp(raw).isoformat()
+            elif kind == "date":
+                normalized = pd.Timestamp(raw).date().isoformat()
+            else:
+                normalized = _cell_text(raw).casefold()
+        except (TypeError, ValueError):
+            return None
+        values.append(normalized)
+    return values[0] if values and len(set(values)) == 1 else None
 
 
 def _document_family(value: Any) -> str:

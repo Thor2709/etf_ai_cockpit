@@ -266,6 +266,8 @@ def _v2_report_result(
     success: bool = True,
     parser_version: str = "2.0",
     template_version: str = "v1",
+    legal_structure: str = "Irish UCITS investment company",
+    document_date: str = "2026-07-14",
 ) -> ParseResult:
     from etf_cockpit.parsers.etf_report import EtfReportFieldEvidence, EtfReportRecord
 
@@ -273,14 +275,14 @@ def _v2_report_result(
 
     checksum = hashlib.sha256(path.read_bytes()).hexdigest()
     values = {
-        "fund_name": fund_name, "isin": "IE00B4L5Y983", "document_date": "2026-07-14",
+        "fund_name": fund_name, "isin": "IE00B4L5Y983", "document_date": document_date,
         "reporting_period_end": "2026-06-30" if kind != "prospectus" else None,
-        "legal_structure": "Irish UCITS investment company", "securities_lending": "Up to 50%",
+        "legal_structure": legal_structure, "securities_lending": "Up to 50%",
         "collateral_policy": "Daily margining", "ongoing_costs": "0.22%", "holdings_count": "3612",
         "operational_risks": "Settlement risk",
     }
     evidence = tuple(EtfReportFieldEvidence(field, value, 1, "high", "extracted" if value is not None else "unknown", (value,) if value is not None else (), field, (1,) if value is not None else ()) for field, value in values.items())
-    record = EtfReportRecord(kind, "en", "language.en.v1", f"template.{kind.replace('_', '-')}.english.{template_version}", "2026-07-14", values, evidence, (1,), "high" if success else "partial", () if success else ("required_field_missing",), checksum)
+    record = EtfReportRecord(kind, "en", "language.en.v1", f"template.{kind.replace('_', '-')}.english.{template_version}", document_date, values, evidence, (1,), "high" if success else "partial", () if success else ("required_field_missing",), checksum)
     return ParseResult((record,), (), "etf_report", parser_version, checksum, success)
 
 
@@ -386,6 +388,113 @@ def test_v2_conflict_store_retains_both_sources_and_recomputes_after_rejection(t
     annual = read_etf_report_records(reports).loc[lambda frame: frame["document_kind"].eq("annual_report")].iloc[0]
     review_etf_report(EtfReportReviewRequest(str(annual["source_id"]), str(annual["extraction_sha256"]), "analyst", "rejected", "conflicting source"), destination=reports, registry_destination=registry, conflict_destination=conflicts)
     assert read_etf_report_conflicts(conflicts).empty
+
+
+def test_canonical_conflict_visibility_is_point_in_time_for_projection_and_backtest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import etf_cockpit.data.fund_documents as fund_documents
+    import etf_cockpit.data.parsed_disclosures as module
+    from etf_cockpit.backtest.engine import run_backtest
+    from etf_cockpit.core.config import load_config
+    from etf_cockpit.data.etf_structure import project_etf_structure
+    from etf_cockpit.data.fund_documents import read_document_registry
+    from etf_cockpit.data.sample_data import generate_sample_prices
+    from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest, EtfReportReviewRequest
+
+    class FrozenDateTime(datetime):
+        current = datetime(2026, 4, 1, tzinfo=timezone.utc)
+
+        @classmethod
+        def now(cls, tz=None):
+            value = cls.current
+            return value if tz is None else value.astimezone(tz)
+
+    config = load_config()
+    instrument_id = config.universe.enabled_ids[0]
+    reports, registry, conflicts = (
+        tmp_path / name for name in ("reports.parquet", "registry.parquet", "conflicts.parquet")
+    )
+    raw = tmp_path / "raw"
+    prospectus = tmp_path / "prospectus.pdf"
+    annual = tmp_path / "annual.pdf"
+    prospectus.write_bytes(b"prospectus")
+    annual.write_bytes(b"annual")
+
+    def parse(path: Path, kind: str, **_kwargs):
+        legal = "Irish UCITS investment company" if kind == "prospectus" else "Unit trust"
+        return _v2_report_result(path, kind=kind, legal_structure=legal, document_date="2026-03-31")
+
+    monkeypatch.setattr(module, "datetime", FrozenDateTime)
+    monkeypatch.setattr(fund_documents, "datetime", FrozenDateTime)
+    monkeypatch.setattr(module, "parse_etf_report_in_child", parse)
+
+    first = module.import_etf_report(EtfReportImportRequest(
+        instrument_id, "prospectus", "issuer_document", source_path=prospectus,
+        destination=reports, registry_destination=registry, conflict_destination=conflicts, raw_dir=raw,
+    ))
+    FrozenDateTime.current = datetime(2026, 4, 2, tzinfo=timezone.utc)
+    first_row = module.read_etf_report_records(reports).iloc[0]
+    module.review_etf_report(
+        EtfReportReviewRequest(first.source_id, str(first_row["extraction_sha256"]), "analyst", "verified"),
+        destination=reports, registry_destination=registry, conflict_destination=conflicts,
+    )
+    before_reports = module.read_etf_report_records(reports)
+    before_registry = read_document_registry(path=registry)
+    before = project_etf_structure(
+        instrument_id, document_registry=before_registry, report_records=before_reports,
+        decision_time="2026-04-02T00:00:00Z",
+    )
+
+    FrozenDateTime.current = datetime(2026, 4, 10, tzinfo=timezone.utc)
+    second = module.import_etf_report(EtfReportImportRequest(
+        instrument_id, "annual_report", "issuer_document", source_path=annual,
+        destination=reports, registry_destination=registry, conflict_destination=conflicts, raw_dir=raw,
+    ))
+    FrozenDateTime.current = datetime(2026, 4, 11, tzinfo=timezone.utc)
+    current = module.read_etf_report_records(reports)
+    second_row = current.loc[current["source_id"].eq(second.source_id)].iloc[0]
+    module.review_etf_report(
+        EtfReportReviewRequest(second.source_id, str(second_row["extraction_sha256"]), "analyst", "verified"),
+        destination=reports, registry_destination=registry, conflict_destination=conflicts,
+    )
+    after_reports = module.read_etf_report_records(reports)
+    after_registry = read_document_registry(path=registry)
+    historical = project_etf_structure(
+        instrument_id, document_registry=after_registry, report_records=after_reports,
+        decision_time="2026-04-02T00:00:00Z",
+    )
+    after = project_etf_structure(
+        instrument_id, document_registry=after_registry, report_records=after_reports,
+        decision_time="2026-04-12T00:00:00Z",
+    )
+
+    assert before["fields"]["legal_form"]["status"] == "resolved"
+    assert historical["fields"]["legal_form"] == before["fields"]["legal_form"]
+    assert historical["structure_provenance_hash"] == before["structure_provenance_hash"]
+    assert after["fields"]["legal_form"]["status"] == "conflict"
+    assert after["fields"]["legal_form"]["value"] is None
+    assert after["execution_allowed"] is False
+
+    prices = generate_sample_prices(config, periods=260, end_date=datetime(2026, 8, 31).date())
+    before_backtest = run_backtest(
+        config, prices, structure_document_registry=before_registry,
+        structure_report_records=before_reports,
+    )
+    after_backtest = run_backtest(
+        config, prices, structure_document_registry=after_registry,
+        structure_report_records=after_reports,
+    )
+    before_rows = before_backtest.signal_log.loc[
+        before_backtest.signal_log["etf_id"].eq(instrument_id)
+        & pd.to_datetime(before_backtest.signal_log["date"]).ge("2026-04-12")
+    ]
+    after_rows = after_backtest.signal_log.loc[
+        after_backtest.signal_log["etf_id"].eq(instrument_id)
+        & pd.to_datetime(after_backtest.signal_log["date"]).ge("2026-04-12")
+    ]
+    assert not before_rows.empty and not after_rows.empty
+    assert before_rows["structural_confidence_cap"].max() > after_rows["structural_confidence_cap"].max()
 
 
 def test_exact_report_reimport_preserves_review_registry_and_conflicts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -738,7 +847,7 @@ def test_report_atomic_group_rolls_back_report_registry_conflict_and_snapshot(tm
     assert {path: path.read_bytes() for path in paths} == prior
 
 
-def test_verified_eligibility_is_restored_after_conflict_rejection_but_invalid_stays_false(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_review_eligibility_remains_separate_from_conflict_and_rejection_authority(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import etf_cockpit.data.parsed_disclosures as module
     from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest, EtfReportReviewRequest
 
@@ -754,7 +863,7 @@ def test_verified_eligibility_is_restored_after_conflict_rejection_but_invalid_s
     module.review_etf_report(EtfReportReviewRequest(first.source_id, str(first_row["extraction_sha256"]), "analyst", "verified"), destination=reports, registry_destination=registry, conflict_destination=conflicts)
     second = module.import_etf_report(EtfReportImportRequest("VWCE", "annual_report", "issuer_document", source_path=annual, destination=reports, registry_destination=registry, conflict_destination=conflicts, raw_dir=raw))
     during = module.read_etf_report_records(reports).set_index("source_id")
-    assert bool(during.loc[first.source_id, "evidence_eligible"]) is False
+    assert bool(during.loc[first.source_id, "evidence_eligible"]) is True
     assert bool(during.loc[second.source_id, "evidence_eligible"]) is False
     module.review_etf_report(EtfReportReviewRequest(second.source_id, str(during.loc[second.source_id, "extraction_sha256"]), "analyst", "rejected"), destination=reports, registry_destination=registry, conflict_destination=conflicts)
     after = module.read_etf_report_records(reports).set_index("source_id")
