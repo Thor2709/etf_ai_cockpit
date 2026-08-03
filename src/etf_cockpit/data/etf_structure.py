@@ -651,11 +651,23 @@ def _selected_review_event(row: Mapping[str, object], checksum: str, decision: d
         validated_history: list[tuple[dict[str, object], datetime]] = []
         previous_at: datetime | None = None
         for item in history:
-            event_decision = _text(item.get("decision"))
-            event_reviewer = _text(item.get("reviewer"))
-            event_fingerprint = _text(item.get("extraction_sha256"))
-            event_reviewed_at = _text(item.get("reviewed_at"))
-            if event_decision not in {"verified", "rejected"} or not event_reviewer or not event_fingerprint or not event_reviewed_at:
+            event_decision = item.get("decision")
+            event_reviewer = item.get("reviewer")
+            event_fingerprint = item.get("extraction_sha256")
+            event_reviewed_at = item.get("reviewed_at")
+            event_note = item.get("note")
+            if (
+                not isinstance(event_decision, str)
+                or event_decision not in {"verified", "rejected"}
+                or not isinstance(event_reviewer, str)
+                or not event_reviewer.strip()
+                or "note" not in item
+                or not isinstance(event_note, str)
+                or not isinstance(event_fingerprint, str)
+                or not _is_sha256_fingerprint(event_fingerprint)
+                or not isinstance(event_reviewed_at, str)
+                or not event_reviewed_at
+            ):
                 return None, "report_review_history_malformed"
             try:
                 reviewed_at = _parse_timestamp(event_reviewed_at)
@@ -666,7 +678,7 @@ def _selected_review_event(row: Mapping[str, object], checksum: str, decision: d
             previous_at = reviewed_at
             validated_history.append((item, reviewed_at))
         latest, latest_at = validated_history[-1]
-        current_decision = _text(latest.get("decision"))
+        current_decision = latest["decision"]
         top_level_fingerprint = _text(row.get("extraction_sha256"))
         if top_level_fingerprint and fingerprint and top_level_fingerprint != fingerprint:
             return None, "report_review_state_inconsistent"
@@ -675,10 +687,13 @@ def _selected_review_event(row: Mapping[str, object], checksum: str, decision: d
             or type(row.get("evidence_eligible")).__name__ not in {"bool", "bool_"}
             or current_evidence_eligible != (current_decision == "verified")
             or not fingerprint
-            or _text(latest.get("extraction_sha256")) != fingerprint
-            or _text(row.get("verified_by")) != _text(latest.get("reviewer"))
-            or _review_timestamp_matches(row.get("verified_at"), latest_at) is False
-            or (_text(row.get("review_note")) or "") != (_text(latest.get("note")) or "")
+            or latest["extraction_sha256"] != fingerprint
+            or not isinstance(row.get("verified_by"), str)
+            or row.get("verified_by") != latest["reviewer"]
+            or not isinstance(row.get("verified_at"), str)
+            or not _review_timestamp_matches(row.get("verified_at"), latest_at)
+            or not isinstance(row.get("review_note"), str)
+            or row.get("review_note") != latest["note"]
         ):
             return None, "report_review_state_inconsistent"
     for index, item in enumerate(history):
@@ -708,22 +723,12 @@ def _selected_review_event(row: Mapping[str, object], checksum: str, decision: d
             json.dumps(identity_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
         return identity_payload, None
-    if decision is None and str(row.get("verification_status") or "").strip().casefold() == "verified" and _stored_true(row.get("evidence_eligible")):
-        identity_payload = {
-            "source_id": _text(row.get("source_id")) or "unavailable",
-            "extraction_sha256": fingerprint or checksum,
-            "reviewed_at": _date_time_text(row.get("verified_at")) or "unavailable",
-            "reviewer": _text(row.get("verified_by")) or "unavailable",
-            "decision": "verified",
-            "event_id": "current-top-level-review",
-        }
-        return identity_payload, None
     return None, "report_review_not_verified_at_decision_time" if decision is not None else "report_evidence_not_eligible"
 
 
 def _review_history_rows(row: Mapping[str, object]) -> list[dict[str, object]] | None:
     if "review_history" not in row:
-        return []
+        return None
     value = row.get("review_history")
     if isinstance(value, (str, bytes, bytearray)):
         try:
@@ -983,8 +988,13 @@ def _report_numeric_inputs(
     """Build typed stress inputs only from reviewed, selected report evidence."""
 
     registry_by_id = {str(row.get("source_id")): row for row in registry}
-    selected = selected_sources.get("prospectus", set())
-    by_field: dict[str, list[NumericEvidence]] = {field: [] for field in _NUMERIC_UNITS}
+    selected = {
+        source_id
+        for family in ("prospectus", "annual_report", "half_year_report")
+        for source_id in selected_sources.get(family, set())
+    }
+    by_source: dict[str, dict[str, list[NumericEvidence]]] = {}
+    source_row_counts: dict[str, int] = {}
     for row in _rows(report_records):
         source_id = _text(row.get("source_id"))
         registered = registry_by_id.get(source_id or "")
@@ -1004,6 +1014,8 @@ def _report_numeric_inputs(
         review_event, _ = _selected_review_event(row, checksum, decision)
         if review_event is None:
             continue
+        source_row_counts[source_id] = source_row_counts.get(source_id, 0) + 1
+        source_fields = by_source.setdefault(source_id, {field: [] for field in _NUMERIC_UNITS})
         for item in _json_rows(row.get("field_evidence")):
             field = _canonical_field(item.get("field_name"))
             unit = _text(item.get("unit"))
@@ -1025,15 +1037,29 @@ def _report_numeric_inputs(
                 status=status,
             )
             if status in _USABLE_STATUSES and candidate.normalized_value is not None:
-                by_field[field].append(candidate)
-    if any(not values for values in by_field.values()):
+                source_fields[field].append(candidate)
+
+    complete: list[tuple[tuple[str, str, str], dict[str, NumericEvidence]]] = []
+    for source_id, fields in by_source.items():
+        if source_row_counts.get(source_id) != 1 or any(not values for values in fields.values()):
+            continue
+        chosen: dict[str, NumericEvidence] = {}
+        for field, values in fields.items():
+            distinct = {(item.normalized_value, item.unit) for item in values}
+            if len(distinct) != 1:
+                break
+            chosen[field] = max(values, key=lambda item: (item.document_date, item.known_at, item.source_id, item.page or 0))
+        else:
+            registered = registry_by_id[source_id]
+            ordering = (
+                _date_text(registered.get("document_date")),
+                _date_time_text(registered.get("known_at")) or _date_time_text(registered.get("ingested_at")),
+                source_id,
+            )
+            complete.append((ordering, chosen))
+    if not complete:
         return {}, []
-    chosen: dict[str, NumericEvidence] = {}
-    for field, values in by_field.items():
-        distinct = {(item.normalized_value, item.unit) for item in values}
-        if len(distinct) != 1:
-            return {}, []
-        chosen[field] = max(values, key=lambda item: (item.document_date, item.known_at, item.source_id, item.page or 0))
+    chosen = max(complete, key=lambda item: item[0])[1]
     return chosen, list(chosen.values())
 
 
@@ -1209,6 +1235,10 @@ def _normalise_decimal(value: object) -> Decimal | None:
 
 def _stored_true(value: object) -> bool:
     return type(value).__name__ in {"bool", "bool_"} and bool(value)
+
+
+def _is_sha256_fingerprint(value: object) -> bool:
+    return isinstance(value, str) and len(value) == 64 and all(character in "0123456789abcdefABCDEF" for character in value)
 
 
 def _stable_rows(value: object) -> list[object]:

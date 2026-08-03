@@ -506,6 +506,31 @@ def test_malformed_review_history_remains_unknown_in_structure_projection(histor
     assert projection["stress"]["status"] == "unavailable"
 
 
+@pytest.mark.parametrize("history_mode", ["missing", "empty"])
+def test_supplied_projection_requires_a_nonempty_review_history(history_mode: str) -> None:
+    from etf_cockpit.data.etf_structure import project_etf_structure
+
+    checksum = "a" * 64
+    registry = pd.DataFrame([{
+        "instrument_id": "ETF-1", "source_id": "report-1", "document_type": "prospectus_report", "document_kind": "prospectus",
+        "sha256": checksum, "document_date": "2026-01-01", "known_at": "2026-01-02T00:00:00Z", "coverage_status": "available",
+    }])
+    reports = pd.DataFrame([{
+        "instrument_id": "ETF-1", "source_id": "report-1", "document_type": "prospectus_report", "document_kind": "prospectus",
+        "source_sha256": checksum, "document_date": "2026-01-01", "known_at": "2026-01-02T00:00:00Z",
+        "verification_status": "verified", "verified_by": "analyst", "verified_at": "2026-01-03T00:00:00Z", "review_note": "",
+        "evidence_eligible": True, "extraction_sha256": "b" * 64, "stored_extraction_sha256": "b" * 64,
+        "field_evidence": json.dumps([{"field_name": "legal_form", "value": "ICAV", "source_page": 1, "confidence": "high", "status": "extracted"}]),
+    }])
+    if history_mode == "empty":
+        reports.loc[0, "review_history"] = "[]"
+
+    projection = project_etf_structure("ETF-1", document_registry=registry, report_records=reports)
+
+    assert projection["fields"]["legal_form"]["status"] == "unknown"
+    assert projection["stress"]["status"] == "unavailable"
+
+
 @pytest.mark.parametrize("field", ["verified_by", "verified_at", "review_note", "extraction_sha256", "verification_status", "evidence_eligible"])
 def test_current_review_metadata_mismatch_remains_unknown_in_structure_projection(field: str) -> None:
     from etf_cockpit.data.etf_structure import project_etf_structure
@@ -536,6 +561,53 @@ def test_current_review_metadata_mismatch_remains_unknown_in_structure_projectio
 
     assert projection["fields"]["legal_form"]["status"] == "unknown"
     assert projection["fields"]["legal_form"]["value"] is None
+
+
+def test_numeric_stress_does_not_mix_partial_quartets_across_report_revisions() -> None:
+    from etf_cockpit.data.etf_structure import project_etf_structure
+
+    checksum = "a" * 64
+    registry = pd.DataFrame([
+        {
+            "instrument_id": "ETF-1", "source_id": "prospectus-1", "document_type": "prospectus_report", "document_kind": "prospectus",
+            "sha256": checksum, "document_date": "2026-01-01", "known_at": "2026-01-02T00:00:00Z", "coverage_status": "available",
+        },
+        {
+            "instrument_id": "ETF-1", "source_id": "annual-1", "document_type": "annual_report", "document_kind": "annual_report",
+            "sha256": checksum, "document_date": "2026-02-01", "known_at": "2026-02-02T00:00:00Z", "coverage_status": "available",
+        },
+    ])
+
+    def report(source_id: str, document_type: str, document_date: str, known_at: str, numeric_fields: tuple[tuple[str, str, str], ...]) -> dict[str, object]:
+        evidence = [{"field_name": "legal_form", "value": "ICAV", "source_page": 1, "confidence": "high", "status": "extracted"}]
+        evidence.extend(
+            {"field_name": field, "value": value, "unit": unit, "source_page": 2, "confidence": "high", "status": "extracted"}
+            for field, value, unit in numeric_fields
+        )
+        return {
+            "instrument_id": "ETF-1", "source_id": source_id, "document_type": document_type, "document_kind": document_type,
+            "source_sha256": checksum, "document_date": document_date, "known_at": known_at,
+            "verification_status": "verified", "verified_by": "analyst", "verified_at": "2026-02-03T00:00:00Z", "review_note": "",
+            "evidence_eligible": True, "extraction_sha256": "b" * 64, "stored_extraction_sha256": "b" * 64,
+            "review_history": json.dumps([{"decision": "verified", "reviewer": "analyst", "note": "", "reviewed_at": "2026-02-03T00:00:00Z", "extraction_sha256": "b" * 64}]),
+            "field_evidence": json.dumps(evidence),
+        }
+
+    reports = pd.DataFrame([
+        report("prospectus-1", "prospectus_report", "2026-01-01", "2026-01-02T00:00:00Z", (
+            ("exposure", "0.4", "fraction_of_nav"),
+            ("collateral_fraction", "0.8", "fraction_of_exposure"),
+        )),
+        report("annual-1", "annual_report", "2026-02-01", "2026-02-02T00:00:00Z", (
+            ("haircut_fraction", "0.1", "scenario_haircut_fraction"),
+            ("concentration_limit_fraction", "0.25", "fraction_of_collateral"),
+        )),
+    ])
+
+    projection = project_etf_structure("ETF-1", document_registry=registry, report_records=reports)
+
+    assert projection["stress"]["status"] == "unavailable"
+    assert "provenance" not in projection["stress"]
 def test_instrument_detail_keeps_required_structure_section() -> None:
     model = InstrumentDetailViewModel(
         instrument_id="ETF-1",

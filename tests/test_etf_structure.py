@@ -77,6 +77,7 @@ def _report(source_id: str = "report:v2:one", *, replication: str = "Synthetic s
         "verification_status": "verified",
         "verified_by": "analyst",
         "verified_at": "2026-07-02T12:00:00+00:00",
+        "review_note": "",
         "review_history": json.dumps([{
             "decision": "verified", "reviewer": "analyst", "note": "", "reviewed_at": "2026-07-02T12:00:00+00:00", "extraction_sha256": "b" * 64,
         }]),
@@ -464,16 +465,16 @@ def test_review_history_replays_before_verification_at_verification_and_after_re
 def test_review_history_same_timestamp_replays_append_order() -> None:
     for history, expected in (
         (
-            [
-                {"decision": "rejected", "reviewer": "auditor", "reviewed_at": "2026-07-04T00:00:00Z", "extraction_sha256": "b" * 64},
-                {"decision": "verified", "reviewer": "analyst", "reviewed_at": "2026-07-04T00:00:00Z", "extraction_sha256": "b" * 64},
+                [
+                    {"decision": "rejected", "reviewer": "auditor", "note": "", "reviewed_at": "2026-07-04T00:00:00Z", "extraction_sha256": "b" * 64},
+                    {"decision": "verified", "reviewer": "analyst", "note": "", "reviewed_at": "2026-07-04T00:00:00Z", "extraction_sha256": "b" * 64},
             ],
             "resolved",
         ),
         (
-            [
-                {"decision": "verified", "reviewer": "analyst", "reviewed_at": "2026-07-04T00:00:00Z", "extraction_sha256": "b" * 64},
-                {"decision": "rejected", "reviewer": "auditor", "reviewed_at": "2026-07-04T00:00:00Z", "extraction_sha256": "b" * 64},
+                [
+                    {"decision": "verified", "reviewer": "analyst", "note": "", "reviewed_at": "2026-07-04T00:00:00Z", "extraction_sha256": "b" * 64},
+                    {"decision": "rejected", "reviewer": "auditor", "note": "", "reviewed_at": "2026-07-04T00:00:00Z", "extraction_sha256": "b" * 64},
             ],
             "unknown",
         ),

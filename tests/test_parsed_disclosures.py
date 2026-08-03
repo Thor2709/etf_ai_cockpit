@@ -768,6 +768,8 @@ def test_verified_eligibility_is_restored_after_conflict_rejection_but_invalid_s
         ("out_of_order", None, None),
         ("stale_fingerprint", None, None),
         ("top_level_mismatch", None, None),
+        ("blank_reviewer", None, None),
+        ("unsupported_decision", None, None),
         ("score_authority", "score_eligible", True),
         ("execution_authority", "execution_allowed", True),
         ("manual_review_authority", "manual_review", True),
@@ -797,6 +799,12 @@ def test_review_history_corruption_fails_closed_on_read(tmp_path: Path, monkeypa
         frame.at[0, "review_history"] = json.dumps(history)
     elif corruption == "top_level_mismatch":
         frame.at[0, "verified_by"] = "forged-reviewer"
+    elif corruption == "blank_reviewer":
+        history[-1]["reviewer"] = ""
+        frame.at[0, "review_history"] = json.dumps(history)
+    elif corruption == "unsupported_decision":
+        history[-1]["decision"] = "approved"
+        frame.at[0, "review_history"] = json.dumps(history)
     else:
         assert field is not None
         frame.at[0, field] = value

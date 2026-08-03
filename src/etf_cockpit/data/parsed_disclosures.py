@@ -1231,20 +1231,36 @@ def _review_history(
     for item in parsed:
         if not isinstance(item, dict):
             raise ValueError("review history is corrupt")
+        decision = item.get("decision")
+        reviewer = item.get("reviewer")
+        note = item.get("note")
+        fingerprint = item.get("extraction_sha256")
+        if not isinstance(decision, str) or decision not in {"verified", "rejected"}:
+            raise ValueError("review history decision is invalid")
+        if not isinstance(reviewer, str) or not reviewer.strip():
+            raise ValueError("review history reviewer is invalid")
+        if "note" not in item or not isinstance(note, str):
+            raise ValueError("review history note is invalid")
+        if not isinstance(fingerprint, str) or not _is_sha256_fingerprint(fingerprint):
+            raise ValueError("review history fingerprint is invalid")
         timestamp = _review_timestamp(item)
         if prior is not None and timestamp < prior:
             raise ValueError("review history is not ordered")
         prior = timestamp
-        if expected_fingerprint is not None and _cell_text(item.get("extraction_sha256")) != expected_fingerprint:
+        if expected_fingerprint is not None and fingerprint != expected_fingerprint:
             raise ValueError("review history fingerprint does not match extraction")
     if row is not None:
         if parsed:
             final = parsed[-1]
             if (
-                _cell_text(row.get("verification_status")) != _cell_text(final.get("decision"))
-                or _cell_text(row.get("verified_by")) != _cell_text(final.get("reviewer"))
-                or _cell_text(row.get("verified_at")) != _cell_text(final.get("reviewed_at"))
-                or _cell_text(row.get("review_note")) != _cell_text(final.get("note"))
+                not isinstance(row.get("verification_status"), str)
+                or row.get("verification_status") != final["decision"]
+                or not isinstance(row.get("verified_by"), str)
+                or row.get("verified_by") != final["reviewer"]
+                or not isinstance(row.get("verified_at"), str)
+                or row.get("verified_at") != final["reviewed_at"]
+                or not isinstance(row.get("review_note"), str)
+                or row.get("review_note") != final["note"]
             ):
                 raise ValueError("top-level review fields do not match review history")
         elif (
@@ -1278,12 +1294,19 @@ def _strict_stored_bool(value: Any, field: str) -> bool:
 
 def _review_timestamp(item: dict[str, Any]) -> datetime:
     try:
-        timestamp = datetime.fromisoformat(str(item["reviewed_at"]).replace("Z", "+00:00"))
+        raw_timestamp = item["reviewed_at"]
+        if not isinstance(raw_timestamp, str):
+            raise ValueError("timestamp is not a string")
+        timestamp = datetime.fromisoformat(raw_timestamp.replace("Z", "+00:00"))
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("review history timestamp is malformed") from exc
     if timestamp.tzinfo is None or timestamp > datetime.now(timezone.utc):
         raise ValueError("review history timestamp is invalid or in the future")
     return timestamp
+
+
+def _is_sha256_fingerprint(value: object) -> bool:
+    return isinstance(value, str) and len(value) == 64 and all(character in "0123456789abcdefABCDEF" for character in value)
 
 
 def _cell_text(value: Any) -> str:
