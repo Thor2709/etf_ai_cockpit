@@ -192,6 +192,18 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   replay. The attributable focused suite passes 117 tests with one expected
   skip; Ruff, compile and diff hygiene pass. Freeze one exact replacement head
   for parallel whole-diff review, risk review and fresh H-tier hosted gates.
+- Exact head `387d7de921dcc189a8479da2c11af155d2e22965` was rejected after
+  both reviewers completed. The consolidated finding set is one supplied-frame
+  trust-boundary gap: extraction content was not recomputed against its stored
+  fingerprint, malformed score/execution flags were accepted, and duplicate
+  report identities bypassed canonical readback validation. Release run
+  `30799282419` was cancelled after rejection and is stale.
+- Correction commit `1c53cea7a03dc40afea1c1f0742e7d294ab52843` routes supplied
+  report frames through schema-aware fingerprint, review-authority and unique
+  identity validation before structural or numeric use. Facade-level mutation,
+  authority-flag and duplicate-ID regressions pass within a 112-test focused
+  suite; Ruff, compile and diff hygiene pass. Freeze one replacement head and
+  repeat both exact-head reviews plus fresh H-tier hosted gates.
 
 ## Completed UPDATEV2-0018 product checkpoint
 
