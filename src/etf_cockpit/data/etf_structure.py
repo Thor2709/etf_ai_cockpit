@@ -9,15 +9,17 @@ document registry at a known point in time.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 from datetime import date, datetime, time, timezone
 from decimal import Decimal, InvalidOperation
+import hashlib
 import json
 import math
 import pandas as pd
 
 
 STRUCTURE_SCHEMA_VERSION = 1
+STRUCTURE_PROJECTION_VERSION = "etf-structure-documents.v1"
 STRUCTURE_CONFIDENCE_VERSION = "etf-structure-confidence.v1"
 STRESS_FORMULA_VERSION = "etf-structure-stress.v1"
 STRUCTURAL_FIELDS = (
@@ -48,6 +50,12 @@ _FIELD_ALIASES = {
 _CONFIDENCE = {"high": 1.0, "medium": 0.75, "partial": 0.5, "low": 0.25, "unknown": 0.0}
 _USABLE_STATUSES = {"extracted", "resolved", "available", "complete", "imported", "mapped"}
 _REPORT_KINDS = {"prospectus", "annual_report", "half_year_report"}
+_NUMERIC_UNITS = {
+    "exposure": "fraction_of_nav",
+    "collateral_fraction": "fraction_of_exposure",
+    "haircut_fraction": "scenario_haircut_fraction",
+    "concentration_limit_fraction": "fraction_of_collateral",
+}
 
 
 @dataclass(frozen=True)
@@ -69,7 +77,7 @@ class StructureCandidate:
 
 @dataclass(frozen=True)
 class NumericEvidence:
-    """A numeric input with an explicit decimal-fraction unit and binding."""
+    """An immutable, typed numeric candidate with an exact source binding."""
 
     value: object
     unit: str
@@ -81,6 +89,24 @@ class NumericEvidence:
     checksum: str = ""
     instrument_id: str = ""
     field_name: str = ""
+    status: str = "extracted"
+    normalized_value: Decimal | None = dataclass_field(init=False, default=None)
+
+    def __post_init__(self) -> None:
+        expected_unit = _NUMERIC_UNITS.get(str(self.field_name or "").strip())
+        unit = str(self.unit or "").strip()
+        normalized = _normalise_decimal(self.value)
+        if expected_unit != unit or normalized is None:
+            normalized = None
+        object.__setattr__(self, "normalized_value", normalized)
+
+
+class StructureConfidenceCaps(dict[str, float]):
+    """Float-compatible caps carrying the structural provenance used to derive them."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.provenance: dict[str, dict[str, object]] = {}
 
 
 def calculate_structural_stress(
@@ -105,6 +131,7 @@ def calculate_structural_stress(
     amount = _decimal_input(
         exposure,
         allowed_units={"fraction_of_nav"},
+        field_name="exposure",
         bounds=(Decimal("0"), Decimal("1")),
         registry=registry,
         candidates=candidates,
@@ -114,6 +141,7 @@ def calculate_structural_stress(
     collateral = _decimal_input(
         collateral_fraction,
         allowed_units={"fraction_of_exposure"},
+        field_name="collateral_fraction",
         bounds=(Decimal("0"), Decimal("1")),
         registry=registry,
         candidates=candidates,
@@ -123,6 +151,7 @@ def calculate_structural_stress(
     haircut = _decimal_input(
         haircut_fraction,
         allowed_units={"scenario_haircut_fraction"},
+        field_name="haircut_fraction",
         bounds=(Decimal("0"), Decimal("1")),
         registry=registry,
         candidates=candidates,
@@ -132,6 +161,7 @@ def calculate_structural_stress(
     limit = _decimal_input(
         concentration_limit_fraction,
         allowed_units={"fraction_of_collateral"},
+        field_name="concentration_limit_fraction",
         bounds=(Decimal("0"), Decimal("1")),
         registry=registry,
         candidates=candidates,
@@ -240,9 +270,23 @@ def project_etf_structure(
         status = "partial"
     else:
         status = "available"
+    structure_identity = {
+        "structure_projection_version": STRUCTURE_PROJECTION_VERSION,
+        "structure_schema_version": STRUCTURE_SCHEMA_VERSION,
+        "structure_confidence_version": STRUCTURE_CONFIDENCE_VERSION,
+        "structure_provenance_hash": _structure_provenance_hash(
+            fields=fields,
+            documents=matrix,
+            versions=versions,
+            rejected_candidates=rejected,
+            applicable_fields=applicable_fields,
+            applicability_evidence=applicability_evidence,
+        ),
+        "structure_confidence_cap": confidence_cap,
+    }
     return {
         "schema_version": STRUCTURE_SCHEMA_VERSION,
-        "contract": "etf-structure-documents.v1",
+        "contract": STRUCTURE_PROJECTION_VERSION,
         "instrument_id": target,
         "status": status,
         "fields": fields,
@@ -268,6 +312,8 @@ def project_etf_structure(
         "evidence_confidence_cap": confidence_cap,
         "confidence_cap": confidence_cap,
         "coverage_cap": confidence_cap,
+        **structure_identity,
+        "structure_identity": structure_identity,
         "confidence_limitation": "Unknown and conflicted structural evidence contributes 0; this caps evidence confidence only.",
         "stress": stress,
         "alpha_eligible": False,
@@ -297,23 +343,68 @@ def structure_confidence_caps(
     rows for every point-in-time projection.
     """
 
-    caps: dict[str, float] = {}
+    caps = StructureConfidenceCaps()
+    registry_rows = _rows(document_registry)
+    report_rows = _rows(report_records)
+    supplemental = _rows(supplemental_rows)
+    holding_rows = _rows(holdings)
+    if not any((registry_rows, report_rows, supplemental, holding_rows)):
+        for instrument_id in instrument_ids:
+            target = str(instrument_id)
+            caps[target] = 0.0
+            caps.provenance[target] = {
+                "structure_projection_version": STRUCTURE_PROJECTION_VERSION,
+                "structure_schema_version": STRUCTURE_SCHEMA_VERSION,
+                "structure_confidence_version": STRUCTURE_CONFIDENCE_VERSION,
+                "structure_provenance_hash": "unavailable",
+                "structure_confidence_cap": 0.0,
+            }
+        return caps
     for instrument_id in instrument_ids:
         target = str(instrument_id)
         try:
             projection = project_etf_structure(
                 target,
-                document_registry=document_registry,
-                report_records=report_records,
-                supplemental_rows=supplemental_rows,
-                holdings=holdings,
+                document_registry=registry_rows,
+                report_records=report_rows,
+                supplemental_rows=supplemental,
+                holdings=holding_rows,
                 decision_time=decision_time,
             )
             cap = projection.get("evidence_confidence_cap", 0.0)
             caps[target] = float(cap) if isinstance(cap, (int, float)) and math.isfinite(float(cap)) else 0.0
+            caps.provenance[target] = dict(projection.get("structure_identity", {}))
         except Exception:
             caps[target] = 0.0
+            caps.provenance[target] = {
+                "structure_projection_version": STRUCTURE_PROJECTION_VERSION,
+                "structure_schema_version": STRUCTURE_SCHEMA_VERSION,
+                "structure_confidence_version": STRUCTURE_CONFIDENCE_VERSION,
+                "structure_provenance_hash": "unavailable",
+                "structure_confidence_cap": 0.0,
+            }
     return caps
+
+
+def structure_input_checksum(
+    *,
+    document_registry: object = None,
+    report_records: object = None,
+    supplemental_rows: object = None,
+    holdings: object = None,
+) -> str:
+    """Fingerprint every local structural input that can change a projection."""
+
+    payload = {
+        "projection_version": STRUCTURE_PROJECTION_VERSION,
+        "schema_version": STRUCTURE_SCHEMA_VERSION,
+        "confidence_version": STRUCTURE_CONFIDENCE_VERSION,
+        "document_registry": _stable_rows(document_registry),
+        "report_records": _stable_rows(report_records),
+        "supplemental_rows": _stable_rows(supplemental_rows),
+        "holdings": _stable_rows(holdings),
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")).hexdigest()
 
 
 def _rows(value: object) -> list[dict[str, object]]:
@@ -368,13 +459,23 @@ def _report_candidates(value: object, registry: list[dict[str, object]], target:
         if not source_id or registered is None or str(row.get("instrument_id") or "").strip() != target:
             rejected.append({"reason_code": "candidate_not_bound_to_registry", "source_id": source_id or "unavailable"})
             continue
+        if str(row.get("verification_status") or "").strip().casefold() != "verified" or not _stored_true(row.get("evidence_eligible")):
+            rejected.append({"reason_code": "report_evidence_not_eligible", "source_id": source_id})
+            continue
         row_checksum = _text(row.get("source_sha256")) or _text(row.get("sha256")) or _text(row.get("checksum"))
         row_date = _date_text(row.get("document_date"))
-        if row_checksum and row_checksum != _text(registered.get("checksum")):
+        row_known_at = _date_time_text(row.get("known_at"))
+        if not row_checksum or not row_date or not row_known_at:
+            rejected.append({"reason_code": "report_identity_incomplete", "source_id": source_id})
+            continue
+        if row_checksum != _text(registered.get("checksum")):
             rejected.append({"reason_code": "candidate_checksum_mismatch", "source_id": source_id})
             continue
         if row_date and row_date != _date_text(registered.get("document_date")):
             rejected.append({"reason_code": "candidate_date_mismatch", "source_id": source_id})
+            continue
+        if row_known_at != (_date_time_text(registered.get("known_at")) or _date_time_text(registered.get("ingested_at"))):
+            rejected.append({"reason_code": "candidate_known_at_mismatch", "source_id": source_id})
             continue
         evidence = _json_rows(row.get("field_evidence"))
         for item in evidence:
@@ -617,6 +718,7 @@ def _decimal_input(
     value: object,
     *,
     allowed_units: set[str],
+    field_name: str,
     bounds: tuple[Decimal, Decimal] | None = None,
     registry: object = None,
     candidates: object = None,
@@ -626,13 +728,21 @@ def _decimal_input(
     if not isinstance(value, NumericEvidence):
         return None
     raw, unit = value.value, value.unit
-    if str(unit or "").strip().casefold() not in allowed_units or isinstance(raw, bool):
+    if value.field_name != field_name or unit not in allowed_units or isinstance(raw, bool):
         return None
-    if not _numeric_provenance_is_bound(value, registry, candidates, decision, instrument_id):
+    if not _numeric_provenance_is_bound(
+        value,
+        registry,
+        candidates,
+        decision,
+        instrument_id,
+        field_name,
+        value.normalized_value,
+        unit,
+    ):
         return None
-    try:
-        number = Decimal(str(raw))
-    except (InvalidOperation, TypeError, ValueError):
+    number = value.normalized_value
+    if number is None:
         return None
     if not number.is_finite() or (bounds is not None and not bounds[0] <= number <= bounds[1]) or (bounds is None and number < 0):
         return None
@@ -645,6 +755,9 @@ def _numeric_provenance_is_bound(
     candidates: object,
     decision: datetime | None,
     instrument_id: str,
+    field_name: str,
+    normalized_value: Decimal | None,
+    unit: str,
 ) -> bool:
     source_id = _text(value.source_id)
     checksum = _text(value.checksum)
@@ -652,8 +765,9 @@ def _numeric_provenance_is_bound(
     known_at = _date_time_text(value.known_at)
     page = _page(value.page)
     confidence = _confidence_value(value.confidence)
-    field_name = _canonical_field(value.field_name)
-    if not source_id or not checksum or not document_date or not known_at or page is None or confidence is None or not field_name:
+    if not source_id or not checksum or not document_date or not known_at or page is None or confidence is None:
+        return False
+    if value.field_name != field_name or value.unit != unit or normalized_value is None:
         return False
     registry_rows = _rows(registry)
     matches = [row for row in registry_rows if _text(row.get("source_id")) == source_id]
@@ -669,21 +783,24 @@ def _numeric_provenance_is_bound(
         return False
     if decision is not None and _parse_timestamp(known_at) > decision:
         return False
-    candidate_rows = []
+    candidate_rows: list[NumericEvidence] = []
     if candidates is not None and not isinstance(candidates, (str, bytes, Mapping, pd.DataFrame)):
         try:
-            candidate_rows = [item for item in candidates if isinstance(item, StructureCandidate)]
+            candidate_rows = [item for item in candidates if isinstance(item, NumericEvidence)]
         except TypeError:
             candidate_rows = []
     return any(
         item.source_id == source_id
         and item.checksum == checksum
-        and item.document_date == document_date
-        and item.known_at == known_at
-        and item.page == page
-        and item.confidence == confidence
+        and _date_text(item.document_date) == document_date
+        and _date_time_text(item.known_at) == known_at
+        and _page(item.page) == page
+        and _confidence_value(item.confidence) == confidence
         and item.field_name == field_name
-        and item.status in _USABLE_STATUSES
+        and item.unit == unit
+        and item.normalized_value == normalized_value
+        and item.instrument_id == instrument_id
+        and str(item.status).casefold() in _USABLE_STATUSES
         for item in candidate_rows
     )
 
@@ -710,6 +827,69 @@ def _json_rows(value: object) -> list[dict[str, object]]:
         except (TypeError, ValueError):
             return []
     return _rows(value)
+
+
+def _normalise_decimal(value: object) -> Decimal | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    return number if number.is_finite() else None
+
+
+def _stored_true(value: object) -> bool:
+    return type(value).__name__ in {"bool", "bool_"} and bool(value)
+
+
+def _stable_rows(value: object) -> list[object]:
+    rows = _rows(value)
+    normalised = [
+        {str(key): _stable_value(item) for key, item in sorted(row.items(), key=lambda pair: str(pair[0]))}
+        for row in rows
+    ]
+    return sorted(normalised, key=lambda row: json.dumps(row, sort_keys=True, separators=(",", ":"), default=str))
+
+
+def _stable_value(value: object) -> object:
+    if value is None:
+        return None
+    if isinstance(value, Mapping):
+        return {str(key): _stable_value(item) for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))}
+    if isinstance(value, (list, tuple)):
+        return [_stable_value(item) for item in value]
+    if isinstance(value, float) and math.isnan(value):
+        return None
+    if hasattr(value, "item"):
+        try:
+            return _stable_value(value.item())
+        except (AttributeError, ValueError):
+            pass
+    return value
+
+
+def _structure_provenance_hash(
+    *,
+    fields: Mapping[str, object],
+    documents: Mapping[str, object],
+    versions: object,
+    rejected_candidates: object,
+    applicable_fields: object,
+    applicability_evidence: object,
+) -> str:
+    payload = {
+        "projection_version": STRUCTURE_PROJECTION_VERSION,
+        "schema_version": STRUCTURE_SCHEMA_VERSION,
+        "confidence_version": STRUCTURE_CONFIDENCE_VERSION,
+        "fields": _stable_value(fields),
+        "documents": _stable_value(documents),
+        "versions": _stable_value(versions),
+        "rejected_candidates": _stable_value(rejected_candidates),
+        "applicable_fields": _stable_value(applicable_fields),
+        "applicability_evidence": _stable_value(applicability_evidence),
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")).hexdigest()
 
 
 def _text(value: object) -> str | None:
@@ -777,7 +957,10 @@ def _parse_timestamp(value: str) -> datetime:
 
 
 __all__ = [
-    "BASE_REQUIRED_STRUCTURE_FIELDS", "DOCUMENT_FAMILIES", "NumericEvidence", "STRESS_FORMULA_VERSION", "STRUCTURAL_FIELDS", "StructureCandidate",
+    "BASE_REQUIRED_STRUCTURE_FIELDS", "DOCUMENT_FAMILIES", "NumericCandidate", "NumericEvidence", "STRESS_FORMULA_VERSION", "STRUCTURAL_FIELDS", "StructureCandidate",
     "STRUCTURE_CONFIDENCE_VERSION", "STRUCTURE_SCHEMA_VERSION", "build_etf_structure_analysis", "build_etf_structure_projection",
-    "calculate_counterparty_collateral_stress", "calculate_structural_stress", "project_etf_structure", "structure_confidence_caps",
+    "STRUCTURE_PROJECTION_VERSION", "calculate_counterparty_collateral_stress", "calculate_structural_stress", "project_etf_structure", "structure_confidence_caps", "structure_input_checksum",
 ]
+
+
+NumericCandidate = NumericEvidence

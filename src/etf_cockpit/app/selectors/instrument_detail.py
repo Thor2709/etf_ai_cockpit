@@ -1108,6 +1108,14 @@ def _score_panel(signal: Any, scoreboard: Mapping[str, Any], derived: Mapping[st
     signal_score = _safe_float(getattr(signal, "total_score", None))
     canonical = getattr(signal, "canonical_score", None)
     canonical_payload = canonical.as_dict() if canonical is not None else {}
+    signal_metrics = getattr(signal, "supporting_metrics", {})
+    signal_confidence = (
+        _safe_float(signal_metrics.get("canonical_evidence_confidence_10"))
+        if isinstance(signal_metrics, Mapping)
+        else None
+    )
+    canonical_confidence = _safe_float(canonical_payload.get("evidence_confidence_10"))
+    scoreboard_confidence = _safe_float(scoreboard.get("canonical_evidence_confidence_10"))
     freshness = _safe_text(scoreboard.get("freshness_status"))
     freshness_valid = freshness is not None
     numeric_available = any(value is not None for value in (evidence_score, quality, signal_score))
@@ -1120,7 +1128,13 @@ def _score_panel(signal: Any, scoreboard: Mapping[str, Any], derived: Mapping[st
         "canonical_attractiveness_10": _safe_float(scoreboard.get("canonical_attractiveness_10")) or _safe_float(canonical_payload.get("attractiveness_10")),
         "canonical_expected_return_10": _safe_float(scoreboard.get("canonical_expected_return_10")) or _safe_float(canonical_payload.get("expected_return_10")),
         "canonical_risk_implementation_10": _safe_float(scoreboard.get("canonical_risk_implementation_10")) or _safe_float(canonical_payload.get("risk_implementation_10")),
-        "canonical_evidence_confidence_10": _safe_float(scoreboard.get("canonical_evidence_confidence_10")) or _safe_float(canonical_payload.get("evidence_confidence_10")),
+        "canonical_evidence_confidence_10": (
+            signal_confidence
+            if signal_confidence is not None
+            else canonical_confidence
+            if canonical_confidence is not None
+            else scoreboard_confidence
+        ),
         "canonical_coverage": _safe_float(scoreboard.get("canonical_coverage")) or _safe_float(canonical_payload.get("coverage")) or 0.0,
         "formula_version": scoreboard.get("formula_version") or canonical_payload.get("formula_version", "unavailable"),
         "formula_checksum": scoreboard.get("formula_checksum") or canonical_payload.get("formula_checksum", "unavailable"),

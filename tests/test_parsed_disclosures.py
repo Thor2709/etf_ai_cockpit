@@ -297,6 +297,7 @@ def test_v2_import_is_typed_checksum_bound_and_review_time_is_store_generated(tm
     imported = import_etf_report(EtfReportImportRequest("VWCE", "prospectus", "issuer_document", source_path=source, destination=report_path, registry_destination=registry_path, conflict_destination=conflict_path, raw_dir=tmp_path / "raw"))
     row = read_etf_report_records(report_path).iloc[0]
     assert imported.source_id.startswith("report:v2:")
+    assert row["schema_version"] == 2.1
     assert row["source_sha256"] == imported.document.sha256
     assert row["verification_status"] == "pending"
     assert bool(row["evidence_eligible"]) is False
@@ -309,6 +310,36 @@ def test_v2_import_is_typed_checksum_bound_and_review_time_is_store_generated(tm
     assert bool(verified["score_eligible"]) is False
     assert bool(verified["execution_allowed"]) is False
     assert "reviewed_at" in str(verified["review_history"])
+
+
+def test_pre_21_report_fingerprint_loads_after_report_columns_expand(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import etf_cockpit.data.parsed_disclosures as module
+    from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest, import_etf_report, read_etf_report_records
+
+    source = tmp_path / "legacy-report.pdf"
+    source.write_bytes(b"legacy report")
+    monkeypatch.setattr(module, "parse_etf_report_in_child", lambda path, kind, **_kwargs: _v2_report_result(path, kind=kind))
+    reports = tmp_path / "reports.parquet"
+    registry = tmp_path / "fund_documents.parquet"
+    imported = import_etf_report(
+        EtfReportImportRequest(
+            "VWCE", "prospectus", "issuer_document", source_path=source, destination=reports,
+            registry_destination=registry, conflict_destination=tmp_path / "conflicts.parquet", raw_dir=tmp_path / "raw",
+        )
+    )
+    current = read_etf_report_records(reports)
+    legacy = current.drop(columns=["known_at", "legal_form", "domicile", "replication_method", "derivatives", "counterparties", "collateral_terms", "concentration_limits", "lending_policy", "lending_revenue_split"]).copy()
+    legacy["schema_version"] = 2
+    legacy_fingerprint = module._row_extraction_fingerprint(legacy.iloc[0], columns=module._LEGACY_REPORT_COLUMNS)
+    assert legacy_fingerprint != module._row_extraction_fingerprint(legacy.iloc[0])
+    legacy["extraction_sha256"] = legacy_fingerprint
+    legacy["stored_extraction_sha256"] = legacy_fingerprint
+    legacy.to_parquet(reports, index=False)
+
+    loaded = read_etf_report_records(reports).iloc[0]
+    assert loaded["source_id"] == imported.source_id
+    assert loaded["stored_extraction_sha256"] == legacy_fingerprint
+    assert loaded["known_at"]
 
 
 def test_failed_v2_parse_remains_checksum_backed_but_never_available(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

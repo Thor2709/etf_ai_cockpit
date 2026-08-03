@@ -203,6 +203,7 @@ def build_canonical_score(
     policy: ScorePolicy | None = None,
     source_vintage_hash: str | None = None,
     structure_confidence_cap: float | None = None,
+    structure_provenance: Mapping[str, object] | None = None,
 ) -> CanonicalScore:
     selected_policy = policy or load_score_policy(asset_type)
     timestamp = str(decision_time.isoformat() if isinstance(decision_time, date) else decision_time)
@@ -247,12 +248,19 @@ def build_canonical_score(
         contributions.extend(group_contributions)
     overall_coverage = total_active / total_configured if total_configured else 0.0
     confidence = _confidence_score(source_components, overall_coverage)
+    structure_identity = dict(structure_provenance or {})
     if structure_confidence_cap is not None:
         cap = _bounded_structure_cap(structure_confidence_cap)
         confidence = None if confidence is None else round(min(confidence, 10.0 * cap), 1)
         warnings.append(f"structure_confidence_cap:{cap:.3f}")
+        structure_identity["structure_confidence_cap"] = cap
     legacy_raw = _legacy_composite(source_components, legacy_component_weights, legacy_penalties)
-    vintage_hash = source_vintage_hash or source_vintage_fingerprint(source_components, timestamp)
+    vintage_hash = source_vintage_fingerprint(
+        source_components,
+        timestamp,
+        source_vintage_hash=source_vintage_hash,
+        structure_provenance=structure_identity or None,
+    )
     return CanonicalScore(
         instrument_id=str(instrument_id),
         asset_type=str(asset_type).upper(),
@@ -317,6 +325,7 @@ def canonical_score_from_signal_row(
     toto_available: bool = False,
     timesfm_available: bool = False,
     structure_confidence_cap: float | None = None,
+    structure_provenance: Mapping[str, object] | None = None,
 ) -> CanonicalScore:
     instrument_id = str(row.get("etf_id") or row.get("instrument_id") or "unknown")
     as_of = str(decision_time.isoformat() if isinstance(decision_time, date) else decision_time)
@@ -349,10 +358,17 @@ def canonical_score_from_signal_row(
             "turnover_penalty": _number(row.get("turnover_penalty")) or 0.0,
         },
         structure_confidence_cap=structure_confidence_cap,
+        structure_provenance=structure_provenance,
     )
 
 
-def source_vintage_fingerprint(components: Iterable[CanonicalComponent], decision_time: str) -> str:
+def source_vintage_fingerprint(
+    components: Iterable[CanonicalComponent],
+    decision_time: str,
+    *,
+    source_vintage_hash: str | None = None,
+    structure_provenance: Mapping[str, object] | None = None,
+) -> str:
     payload = {
         "decision_time": decision_time,
         "sources": sorted(
@@ -367,6 +383,10 @@ def source_vintage_fingerprint(components: Iterable[CanonicalComponent], decisio
             key=lambda value: (str(value["source_id"]), str(value["source_vintage_hash"])),
         ),
     }
+    if source_vintage_hash is not None:
+        payload["source_vintage_hash"] = source_vintage_hash
+    if structure_provenance:
+        payload["structure_provenance"] = dict(structure_provenance)
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 

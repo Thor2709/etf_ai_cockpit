@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import date, datetime, timezone
 from math import isfinite
+from collections.abc import Mapping
 
 import pandas as pd
 
@@ -69,6 +70,11 @@ def generate_signals(
     signals: list[SignalResult] = []
     for _, row in scored.sort_values("total_score", ascending=False).iterrows():
         structure_cap = _structure_cap_for_row(structure_confidence_caps, str(row["etf_id"]))
+        structure_provenance = (
+            getattr(structure_confidence_caps, "provenance", {}).get(str(row["etf_id"]))
+            if isinstance(getattr(structure_confidence_caps, "provenance", {}), Mapping)
+            else None
+        )
         canonical_score = canonical_score_from_signal_row(
             row,
             config,
@@ -76,6 +82,7 @@ def generate_signals(
             toto_available=toto_available,
             timesfm_available=timesfm_available,
             structure_confidence_cap=structure_cap,
+            structure_provenance=structure_provenance,
         )
         canonical_total_score = canonical_score.legacy_composite_raw
         total_score = float(canonical_total_score if canonical_total_score is not None else row["total_score"])
@@ -163,6 +170,8 @@ def generate_signals(
                 "canonical_risk_implementation_10": canonical_score.risk_implementation_10,
                 "canonical_evidence_confidence_10": canonical_score.evidence_confidence_10,
                 "structure_confidence_cap": structure_cap,
+                "structure_projection_version": (structure_provenance or {}).get("structure_projection_version", "unavailable"),
+                "structure_provenance_hash": (structure_provenance or {}).get("structure_provenance_hash", "unavailable"),
                 "canonical_coverage": canonical_score.coverage,
                 "formula_version": canonical_score.formula_version,
                 "formula_checksum": canonical_score.formula_checksum,

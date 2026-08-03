@@ -6,7 +6,6 @@ import pandas as pd
 
 from etf_cockpit.data.etf_structure import (
     NumericEvidence,
-    StructureCandidate,
     calculate_structural_stress,
     project_etf_structure,
     structure_confidence_caps,
@@ -33,7 +32,7 @@ def _registry(*, source_id: str = "report:v2:one", document_type: str = "prospec
     )
 
 
-def _report(source_id: str = "report:v2:one", *, replication: str = "Synthetic swap") -> pd.DataFrame:
+def _report(source_id: str = "report:v2:one", *, replication: str = "Synthetic swap", document_date: str = "2026-07-01", known_at: str = "2026-07-02T00:00:00+00:00") -> pd.DataFrame:
     evidence = []
     values = {
         "replication_method": replication,
@@ -51,6 +50,11 @@ def _report(source_id: str = "report:v2:one", *, replication: str = "Synthetic s
     return pd.DataFrame([{
         "instrument_id": "ETF-1",
         "source_id": source_id,
+        "source_sha256": CHECKSUM,
+        "document_date": document_date,
+        "known_at": known_at,
+        "verification_status": "verified",
+        "evidence_eligible": True,
         "field_evidence": json.dumps(evidence),
     }])
 
@@ -68,6 +72,18 @@ def test_projection_requires_exact_registry_binding_and_preserves_provenance() -
     assert projection["documents"]["prospectus"]["status"] == "available"
     assert projection["documents"]["holdings"]["status"] == "unknown"
     assert projection["execution_allowed"] is False
+
+
+def test_pending_report_rows_are_not_structural_evidence() -> None:
+    pending = _report()
+    pending.loc[0, "verification_status"] = "pending"
+    pending.loc[0, "evidence_eligible"] = False
+
+    projection = project_etf_structure("ETF-1", document_registry=_registry(), report_records=pending)
+
+    assert projection["fields"]["replication_method"]["status"] == "unknown"
+    assert projection["evidence_confidence_cap"] == 0.0
+    assert any(item["reason_code"] == "report_evidence_not_eligible" for item in projection["rejected_candidates"])
 
 
 def test_unknown_structure_caps_confidence_without_stock_credit_fallback() -> None:
@@ -174,10 +190,24 @@ def test_supplemental_rows_without_page_or_exact_identity_fail_closed() -> None:
 
 def test_numeric_stress_uses_bound_fraction_nav_formulas_and_rejects_implicit_values() -> None:
     candidates = [
-        StructureCandidate(
-            "ETF-1", field, "direct document evidence", "report:v2:one", "prospectus", "2026-07-01", 4, 1.0, "2026-07-02T00:00:00+00:00", CHECKSUM
+        NumericEvidence(
+            value,
+            unit,
+            source_id="report:v2:one",
+            document_date="2026-07-01",
+            page=4,
+            confidence="high",
+            known_at="2026-07-02T00:00:00Z",
+            checksum=CHECKSUM,
+            instrument_id="ETF-1",
+            field_name=field,
         )
-        for field in ("exposure", "collateral_fraction", "haircut_fraction", "concentration_limit_fraction")
+        for field, value, unit in (
+            ("exposure", "0.4", "fraction_of_nav"),
+            ("collateral_fraction", "0.8", "fraction_of_exposure"),
+            ("haircut_fraction", "0.1", "scenario_haircut_fraction"),
+            ("concentration_limit_fraction", "0.25", "fraction_of_collateral"),
+        )
     ]
     evidence = {
         field: NumericEvidence(
@@ -224,10 +254,8 @@ def test_numeric_stress_uses_bound_fraction_nav_formulas_and_rejects_implicit_va
 
 
 def test_numeric_stress_rejects_unbound_and_future_provenance() -> None:
-    candidate = StructureCandidate(
-        "ETF-1", "exposure", "direct document evidence", "report:v2:one", "prospectus", "2026-07-01", 4, 1.0, "2026-07-02T00:00:00+00:00", CHECKSUM
-    )
-    base = NumericEvidence("0.4", "fraction_of_nav", "report:v2:one", "2026-07-01", 4, "high", "2026-07-02T00:00:00Z", CHECKSUM, "ETF-1", "exposure")
+    candidate = NumericEvidence("0.4", "fraction_of_nav", "report:v2:one", "2026-07-01", 4, "high", "2026-07-02T00:00:00Z", CHECKSUM, "ETF-1", "exposure")
+    base = candidate
     future = NumericEvidence("0.4", "fraction_of_nav", "report:v2:one", "2026-07-01", 4, "high", "2026-07-10T00:00:00Z", CHECKSUM, "ETF-1", "exposure")
     invalid = calculate_structural_stress(
         exposure=base,
@@ -253,11 +281,60 @@ def test_numeric_stress_rejects_unbound_and_future_provenance() -> None:
     assert rejected_future["status"] == "unavailable"
 
 
+def test_numeric_stress_rejects_changed_value_unit_and_repurposed_textual_candidate() -> None:
+    registry = _registry()
+    valid = {
+        field: NumericEvidence(value, unit, "report:v2:one", "2026-07-01", 4, "high", "2026-07-02T00:00:00Z", CHECKSUM, "ETF-1", field)
+        for field, value, unit in (
+            ("exposure", "0.4", "fraction_of_nav"),
+            ("collateral_fraction", "0.8", "fraction_of_exposure"),
+            ("haircut_fraction", "0.1", "scenario_haircut_fraction"),
+            ("concentration_limit_fraction", "0.25", "fraction_of_collateral"),
+        )
+    }
+    altered = NumericEvidence(
+        "0.5", "fraction_of_nav", "report:v2:one", "2026-07-01", 4, "high", "2026-07-02T00:00:00Z", CHECKSUM, "ETF-1", "exposure"
+    )
+    wrong_unit = NumericEvidence(
+        "0.4", "percent", "report:v2:one", "2026-07-01", 4, "high", "2026-07-02T00:00:00Z", CHECKSUM, "ETF-1", "exposure"
+    )
+    repurposed = NumericEvidence(
+        "0.4", "fraction_of_nav", "report:v2:one", "2026-07-01", 4, "high", "2026-07-02T00:00:00Z", CHECKSUM, "ETF-1", "collateral_terms"
+    )
+
+    for value in (altered, wrong_unit, repurposed):
+        inputs = dict(valid)
+        inputs["exposure"] = value
+        stress = calculate_structural_stress(
+            **inputs,
+            registry=registry,
+            candidates=list(valid.values()),
+            instrument_id="ETF-1",
+        )
+        assert stress["status"] == "unavailable"
+
+
+def test_structure_projection_identity_changes_with_evidence_and_cap_is_part_of_identity() -> None:
+    first = project_etf_structure("ETF-1", document_registry=_registry(), report_records=_report())
+    changed = _report()
+    evidence = json.loads(changed.loc[0, "field_evidence"])
+    evidence[0]["value"] = "Physical"
+    changed.loc[0, "field_evidence"] = json.dumps(evidence)
+    second = project_etf_structure("ETF-1", document_registry=_registry(), report_records=changed)
+
+    assert first["structure_projection_version"] == "etf-structure-documents.v1"
+    assert first["structure_provenance_hash"] != second["structure_provenance_hash"]
+    assert first["structure_identity"]["structure_confidence_cap"] == first["evidence_confidence_cap"]
+
+
 def test_latest_usable_prospectus_revision_is_selected_as_of_decision_time() -> None:
     old = _registry(source_id="old", document_date="2026-06-01", known_at="2026-06-02T00:00:00Z")
     new = _registry(source_id="new", document_date="2026-07-15", known_at="2026-07-16T00:00:00Z")
     registry = pd.concat([old, new], ignore_index=True)
-    reports = pd.concat([_report("old", replication="Physical"), _report("new", replication="Synthetic")], ignore_index=True)
+    reports = pd.concat([
+        _report("old", replication="Physical", document_date="2026-06-01", known_at="2026-06-02T00:00:00+00:00"),
+        _report("new", replication="Synthetic", document_date="2026-07-15", known_at="2026-07-16T00:00:00+00:00"),
+    ], ignore_index=True)
 
     projection = project_etf_structure("ETF-1", document_registry=registry, report_records=reports, decision_time="2026-07-10T00:00:00Z")
     assert projection["fields"]["replication_method"]["value"] == "Physical"
@@ -268,8 +345,8 @@ def test_cap_mapping_is_point_in_time_and_rejects_future_revision() -> None:
     old = _registry(source_id="old", document_date="2026-06-01", known_at="2026-06-02T00:00:00Z")
     new = _registry(source_id="new", document_date="2026-07-15", known_at="2026-07-16T00:00:00Z")
     registry = pd.concat([old, new], ignore_index=True)
-    old_report = _report("old", replication="Physical")
-    new_report = _report("new", replication="Synthetic")
+    old_report = _report("old", replication="Physical", document_date="2026-06-01", known_at="2026-06-02T00:00:00+00:00")
+    new_report = _report("new", replication="Synthetic", document_date="2026-07-15", known_at="2026-07-16T00:00:00+00:00")
     new_evidence = json.loads(new_report.loc[0, "field_evidence"])
     for item in new_evidence:
         if item["field_name"] == "counterparties":

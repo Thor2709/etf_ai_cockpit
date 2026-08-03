@@ -109,6 +109,28 @@ def test_structure_confidence_cap_only_changes_evidence_confidence() -> None:
     assert "structure_confidence_cap:0.000" in capped.warnings
 
 
+def test_structural_provenance_and_cap_are_in_source_vintage_identity() -> None:
+    components = [_component("momentum", 0.5), _component("trend", 0.5), _component("relative_strength", 0.5), _component("risk", 0.5, "risk_implementation")]
+    first = build_canonical_score(
+        instrument_id="ETF-1",
+        asset_type="ETF",
+        decision_time="2026-07-10",
+        components=components,
+        structure_confidence_cap=0.0,
+        structure_provenance={"structure_projection_version": "etf-structure-documents.v1", "structure_provenance_hash": "a" * 64},
+    )
+    second = build_canonical_score(
+        instrument_id="ETF-1",
+        asset_type="ETF",
+        decision_time="2026-07-10",
+        components=components,
+        structure_confidence_cap=1.0,
+        structure_provenance={"structure_projection_version": "etf-structure-documents.v1", "structure_provenance_hash": "b" * 64},
+    )
+
+    assert first.source_vintage_hash != second.source_vintage_hash
+
+
 def test_legacy_migration_composite_omits_missing_components_instead_of_neutralising_them() -> None:
     score = build_canonical_score(
         instrument_id="ETF-1",

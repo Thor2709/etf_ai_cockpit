@@ -17,7 +17,7 @@ from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.types import DataQualityReport
 from etf_cockpit.data.validation import validate_prices
 from etf_cockpit.data.provenance import sha256_dataframe
-from etf_cockpit.data.etf_structure import structure_confidence_caps
+from etf_cockpit.data.etf_structure import structure_confidence_caps, structure_input_checksum
 from etf_cockpit.features.feature_pipeline import compute_features, latest_features
 from etf_cockpit.portfolio.costs import COST_MODEL_ID, estimate_rebalance_cost
 from etf_cockpit.signals.quality_momentum import FRAME_COLUMNS, QUALITY_MOMENTUM_VERSION, build_quality_momentum_frame, quality_momentum_weights
@@ -45,6 +45,11 @@ def backtest_input_checksum(
     config: AppConfig,
     prices: pd.DataFrame,
     fundamentals: pd.DataFrame | None,
+    *,
+    structure_document_registry: object = None,
+    structure_report_records: object = None,
+    structure_supplemental_rows: object = None,
+    structure_holdings: object = None,
 ) -> str:
     """Fingerprint every local input that can change a cached backtest."""
 
@@ -69,6 +74,12 @@ def backtest_input_checksum(
     payload = {
         "prices": _stable(prices, ("date", "etf_id", "instrument_id")),
         "fundamentals": _stable(fundamentals, ("instrument_id", "as_of_date", "available_at", "evidence_checksum")),
+        "structure": structure_input_checksum(
+            document_registry=structure_document_registry,
+            report_records=structure_report_records,
+            supplemental_rows=structure_supplemental_rows,
+            holdings=structure_holdings,
+        ),
         "universe": universe_payload,
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
@@ -218,7 +229,14 @@ def run_backtest(
         "not_enough_data_policy": "fail_closed",
         "quality_momentum_strategy_version": QUALITY_MOMENTUM_VERSION,
         "quality_momentum_evidence": "pending",
-        "input_checksum": backtest_input_checksum(config, prices, fundamentals),
+        "input_checksum": backtest_input_checksum(
+            config,
+            prices,
+            fundamentals,
+            structure_document_registry=structure_document_registry,
+            structure_report_records=structure_report_records,
+            structure_supplemental_rows=structure_supplemental_rows,
+        ),
     }
     if missing_observation_rows:
         metadata["data_warning"] = "Incomplete adjusted-price rows were excluded; no forward-fill was applied."

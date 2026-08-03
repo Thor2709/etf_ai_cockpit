@@ -969,10 +969,18 @@ class BacktestService:
                 metadata = {}
             if metadata.get("quality_momentum_strategy_version") != QUALITY_MOMENTUM_VERSION:
                 return None
+            try:
+                structure_registry = read_document_registry()
+                structure_reports = read_etf_report_records()
+            except Exception:
+                structure_registry = None
+                structure_reports = None
             if metadata.get("input_checksum") != backtest_input_checksum(
                 self.config,
                 load_prices(),
                 load_fundamental_evidence(),
+                structure_document_registry=structure_registry,
+                structure_report_records=structure_reports,
             ):
                 return None
             if not quality_evidence_path.exists():
