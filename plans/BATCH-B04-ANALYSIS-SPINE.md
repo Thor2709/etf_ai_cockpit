@@ -91,6 +91,9 @@ replay authority `6d5f03adc998d774a53d517bcb110d7d02da442ce8dbf8a42a545723871974
 and candidate ref
 `bc7b8e36f23681298376e15fe631b463001b2ffeaf253038383395aa849800b3`
 bind the aggregate transaction and preserve `execution_allowed=false`.
+Exact H-reviewed range `772d2972...ccff5d74` refreshes the reusable-evidence
+sidecar so the control-only E-tier completion uses focused guards without
+repeating unchanged product package validation.
 
 ## Completed ISSUE-0102 and current bounded readback repair
 
