@@ -38,17 +38,22 @@ run whole-diff review, financial/point-in-time risk review and H-tier hosted
 validation in parallel, then require the ordered writer and generic
 zero-action readback after merge.
 
-First frozen head `b4d5e8ad59df2ee35b63a43258b0c05041320623` is rejected
-and its twice-timed-out hosted preflight evidence is stale. Both reviewer
-verdicts were collected before one consolidated correction. Commit
-`54c221cd8b0f2669b0fafb80c24925a03e2d9add` now binds numeric values and
-units to typed source candidates, includes structure in score/backtest/cache
-identity, prefers current capped signal confidence, requires verified eligible
-exact report identity and preserves exact pre-2.1 extraction fingerprints.
-Corrected focused evidence passes 134 combined regressions, 18 Instrument
-Detail tests, a final 49-test structure/disclosure rerun, Ruff, compile and
-diff hygiene. Freeze one replacement head and repeat both independent reviews
-and fresh H-tier hosted validation in parallel.
+First frozen head `b4d5e8ad59df2ee35b63a43258b0c05041320623` and replacement
+head `68b5b5e2a436183c9a9c89c1b9a2fe1096325a3a` are rejected; their review
+and CI evidence is stale. The replacement reviewers jointly required
+point-in-time review-history replay, reachable typed numeric stress with input
+status validation, strict legacy-fingerprint scope and reviewed-row migration,
+negation-safe disclosure classification, and independent report-family
+binding. Release run `30781501084` also reproduced the 120-second changed-test
+timeout before Linux or Windows packaging began.
+
+One bounded follow-up covers every collected finding and moves the two new
+regressions out of the slow broad test modules. The final six-file affected
+selection passes 107 tests with one expected skip in 87.9 seconds; Ruff,
+compile and diff hygiene pass. Canonical/lifecycle authority and
+`execution_allowed=false` are unchanged. Record the correction commit, freeze
+one checkpoint head, then repeat both independent reviews and fresh H-tier
+hosted validation in parallel.
 
 ## Completed UPDATEV2-0018 parser lane
 

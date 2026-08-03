@@ -58,16 +58,21 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   acceptance of unreviewed report evidence. Its two hosted preflight attempts
   also exceeded the unchanged 120-second affected-test window, so all review
   and CI evidence for that head is stale.
-- Consolidated correction commit
-  `54c221cd8b0f2669b0fafb80c24925a03e2d9add` fixes all six findings without
-  touching canonical/lifecycle authority. It requires exact typed numeric
-  value/unit/field provenance, verified eligible and fully identity-bound
-  report rows, structure-aware score/backtest/cache identities, capped signal
-  confidence precedence and exact pre-2.1 fingerprint compatibility. Focused
-  corrected evidence passes 134 combined product regressions, the separate
-  18-test Instrument Detail suite, a final 49-test structure/disclosure rerun,
-  Ruff, compile and diff hygiene. Next is one replacement exact head followed
-  by both independent reviews and fresh H-tier hosted validation in parallel.
+- Replacement head `68b5b5e2a436183c9a9c89c1b9a2fe1096325a3a`
+  was also rejected after both independent verdicts completed. The collected
+  findings were point-in-time review-history replay, typed numeric-stress
+  reachability and status, strict legacy-fingerprint scope and reviewed-row
+  migration, negated derivative/lending wording, and independent report-family
+  binding. Hosted release run `30781501084` deterministically exceeded the
+  120-second changed-test preflight because two regressions had been placed in
+  slow broad modules; Linux and Windows package jobs therefore did not start.
+- One bounded follow-up corrects all collected findings and relocates those
+  regressions into the directly focused structure and instrument-detail test
+  files. The resulting six-file affected test selection passes 107 tests with
+  one expected skip in 87.9 seconds; Ruff, compile and diff hygiene pass. It
+  does not change canonical/lifecycle authority or `execution_allowed=false`.
+  Record the correction commit, freeze one checkpoint head, then run both
+  independent reviews and fresh H-tier hosted validation in parallel.
 
 ## Completed UPDATEV2-0018 product checkpoint
 

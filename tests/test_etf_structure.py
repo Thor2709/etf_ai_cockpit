@@ -4,6 +4,8 @@ import json
 
 import pandas as pd
 
+from etf_cockpit.backtest.engine import backtest_input_checksum
+from etf_cockpit.core.config import load_config
 from etf_cockpit.data.etf_structure import (
     NumericEvidence,
     calculate_structural_stress,
@@ -50,10 +52,19 @@ def _report(source_id: str = "report:v2:one", *, replication: str = "Synthetic s
     return pd.DataFrame([{
         "instrument_id": "ETF-1",
         "source_id": source_id,
+        "document_type": "prospectus_report",
+        "document_kind": "prospectus",
         "source_sha256": CHECKSUM,
         "document_date": document_date,
         "known_at": known_at,
         "verification_status": "verified",
+        "verified_by": "analyst",
+        "verified_at": "2026-07-02T12:00:00+00:00",
+        "review_history": json.dumps([{
+            "decision": "verified", "reviewer": "analyst", "note": "", "reviewed_at": "2026-07-02T12:00:00+00:00", "extraction_sha256": "b" * 64,
+        }]),
+        "extraction_sha256": "b" * 64,
+        "stored_extraction_sha256": "b" * 64,
         "evidence_eligible": True,
         "field_evidence": json.dumps(evidence),
     }])
@@ -78,6 +89,7 @@ def test_pending_report_rows_are_not_structural_evidence() -> None:
     pending = _report()
     pending.loc[0, "verification_status"] = "pending"
     pending.loc[0, "evidence_eligible"] = False
+    pending.loc[0, "review_history"] = "[]"
 
     projection = project_etf_structure("ETF-1", document_registry=_registry(), report_records=pending)
 
@@ -363,3 +375,105 @@ def test_cap_mapping_is_point_in_time_and_rejects_future_revision() -> None:
 
     assert before_import["ETF-1"] == 1.0
     assert after_import["ETF-1"] < before_import["ETF-1"]
+
+
+def test_review_history_replays_before_verification_at_verification_and_after_rejection() -> None:
+    report = _report()
+    history = [
+        {"decision": "verified", "reviewer": "analyst", "note": "", "reviewed_at": "2026-07-04T00:00:00Z", "extraction_sha256": "b" * 64},
+        {"decision": "rejected", "reviewer": "auditor", "note": "recheck", "reviewed_at": "2026-07-06T00:00:00Z", "extraction_sha256": "b" * 64},
+    ]
+    report.loc[0, "review_history"] = json.dumps(history)
+    report.loc[0, "verified_at"] = "2026-07-04T00:00:00Z"
+    report.loc[0, "verification_status"] = "rejected"
+    report.loc[0, "evidence_eligible"] = False
+
+    before = project_etf_structure("ETF-1", document_registry=_registry(), report_records=report, decision_time="2026-07-03T00:00:00Z")
+    verified = project_etf_structure("ETF-1", document_registry=_registry(), report_records=report, decision_time="2026-07-05T00:00:00Z")
+    rejected = project_etf_structure("ETF-1", document_registry=_registry(), report_records=report, decision_time="2026-07-07T00:00:00Z")
+
+    assert before["fields"]["replication_method"]["status"] == "unknown"
+    assert verified["fields"]["replication_method"]["status"] == "resolved"
+    assert verified["source_vintage"]["report:v2:one"]["reviewed_at"] == "2026-07-04T00:00:00Z"
+    assert rejected["fields"]["replication_method"]["status"] == "unknown"
+
+
+def test_structure_projection_uses_distinct_numeric_candidates_and_rejects_input_status() -> None:
+    from etf_cockpit.application.ui_facade import load_etf_structure_projection
+
+    numeric = {
+        field: NumericEvidence(value, unit, "report:v2:one", "2026-07-01", 4, "high", "2026-07-02T00:00:00Z", CHECKSUM, "ETF-1", field)
+        for field, value, unit in (
+            ("exposure", "0.4", "fraction_of_nav"),
+            ("collateral_fraction", "0.8", "fraction_of_exposure"),
+            ("haircut_fraction", "0.1", "scenario_haircut_fraction"),
+            ("concentration_limit_fraction", "0.25", "fraction_of_collateral"),
+        )
+    }
+    structural = project_etf_structure(
+        "ETF-1", document_registry=_registry(), report_records=_report(),
+        numeric_inputs=numeric, numeric_candidates=list(numeric.values()),
+    )
+    rejected_input = dict(numeric)
+    rejected_input["exposure"] = NumericEvidence("0.4", "fraction_of_nav", "report:v2:one", "2026-07-01", 4, "high", "2026-07-02T00:00:00Z", CHECKSUM, "ETF-1", "exposure", status="rejected")
+    rejected = project_etf_structure(
+        "ETF-1", document_registry=_registry(), report_records=_report(),
+        numeric_inputs=rejected_input, numeric_candidates=list(rejected_input.values()),
+    )
+
+    assert structural["stress"]["status"] == "available"
+    assert rejected["stress"]["status"] == "unavailable"
+    facade_projection = load_etf_structure_projection(
+        "ETF-1", document_registry=_registry(), report_records=_report(),
+        numeric_inputs=numeric, numeric_candidates=list(numeric.values()),
+    )
+    assert facade_projection["stress"]["status"] == "available"
+
+
+def test_no_derivatives_and_no_securities_lending_do_not_activate_risk_branches() -> None:
+    report = _report()
+    evidence = json.loads(report.loc[0, "field_evidence"])
+    for item in evidence:
+        if item["field_name"] == "replication_method":
+            item["value"] = "Physical"
+        elif item["field_name"] == "derivatives":
+            item["value"] = "No derivatives"
+        elif item["field_name"] == "lending_policy":
+            item["value"] = "No securities lending"
+    report.loc[0, "field_evidence"] = json.dumps(evidence)
+    projection = project_etf_structure("ETF-1", document_registry=_registry(), report_records=report)
+
+    assert "counterparties" not in projection["applicable_fields"]
+    assert "lending_revenue_split" not in projection["applicable_fields"]
+    assert not any(flag.startswith(("synthetic_", "lending_")) for flag in projection["flags"])
+
+
+def test_report_document_family_mismatch_fails_closed() -> None:
+    report = _report()
+    report.loc[0, "document_type"] = "annual_report"
+    report.loc[0, "document_kind"] = "annual_report"
+    projection = project_etf_structure("ETF-1", document_registry=_registry(document_type="factsheet", document_kind="factsheet"), report_records=report)
+
+    assert projection["fields"]["replication_method"]["status"] == "unknown"
+    assert any(item["reason_code"] == "candidate_document_family_mismatch" for item in projection["rejected_candidates"])
+
+
+def test_backtest_input_checksum_includes_structural_evidence() -> None:
+    config = load_config()
+    prices = pd.DataFrame({"date": ["2026-01-01"], "etf_id": [config.universe.enabled_ids[0]], "adjusted_close": [100.0]})
+    registry = pd.DataFrame([{
+        "instrument_id": config.universe.enabled_ids[0], "source_id": "report:v2:one", "document_type": "prospectus_report", "document_kind": "prospectus",
+        "sha256": "a" * 64, "document_date": "2026-01-01", "ingested_at": "2026-01-02T00:00:00+00:00",
+    }])
+    reports = pd.DataFrame([{
+        "instrument_id": config.universe.enabled_ids[0], "source_id": "report:v2:one", "document_type": "prospectus_report", "document_kind": "prospectus",
+        "source_sha256": "a" * 64, "document_date": "2026-01-01", "known_at": "2026-01-02T00:00:00+00:00",
+        "verification_status": "verified", "evidence_eligible": True, "field_evidence": "[]",
+    }])
+    changed = reports.copy()
+    changed.loc[0, "field_evidence"] = '[{"field_name":"legal_structure","value":"UCITS"}]'
+
+    first = backtest_input_checksum(config, prices, None, structure_document_registry=registry, structure_report_records=reports)
+    second = backtest_input_checksum(config, prices, None, structure_document_registry=registry, structure_report_records=changed)
+
+    assert first != second

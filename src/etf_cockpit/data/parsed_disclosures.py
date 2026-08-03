@@ -733,7 +733,7 @@ def review_etf_report(
                 stored_registry_path = _cell_text(row.get("registry_path"))
                 if not stored_registry_path or Path(stored_registry_path).resolve() != Path(registry_destination).resolve():
                     raise ValueError("review registry_destination does not match extraction registry_path")
-                if not _fingerprint_matches(row, fingerprint) or str(row.get("stored_extraction_sha256", "")) != fingerprint:
+                if not _fingerprint_matches(row, fingerprint, legacy_allowed=_legacy_fingerprint_allowed(frame.attrs.get("_original_columns"))) or str(row.get("stored_extraction_sha256", "")) != fingerprint:
                     raise ValueError("review fingerprint does not match stored extraction")
                 _validate_report_binding(row, Path(registry_destination))
                 history = _review_history(row.get("review_history"), expected_fingerprint=fingerprint, row=row)
@@ -898,7 +898,8 @@ def _merge_report_row(existing: pd.DataFrame, incoming: dict[str, Any]) -> pd.Da
             if _cell_text(prior.get(field)) != _cell_text(incoming.get(field)):
                 raise ValueError(f"same-ID report identity mismatch: {field}")
         prior_fingerprint = str(prior.get("stored_extraction_sha256") or "")
-        if prior_fingerprint and _fingerprint_matches_rows(prior, incoming, prior_fingerprint):
+        legacy_allowed = _legacy_fingerprint_allowed(existing.attrs.get("_original_columns"))
+        if prior_fingerprint and _fingerprint_matches_rows(prior, incoming, prior_fingerprint, legacy_allowed=legacy_allowed):
             incoming["verification_status"] = prior.get("verification_status", "pending")
             incoming["verified_by"] = prior.get("verified_by")
             incoming["verified_at"] = prior.get("verified_at")
@@ -906,6 +907,10 @@ def _merge_report_row(existing: pd.DataFrame, incoming: dict[str, Any]) -> pd.Da
             incoming["review_history"] = prior.get("review_history", "[]")
             incoming["manual_review"] = prior.get("manual_review", True)
             incoming["evidence_eligible"] = prior.get("evidence_eligible", False)
+            incoming["score_eligible"] = prior.get("score_eligible", False)
+            incoming["execution_allowed"] = prior.get("execution_allowed", False)
+            if legacy_allowed and str(incoming.get("stored_extraction_sha256") or "") != prior_fingerprint:
+                incoming["review_history"] = _rebind_review_history(incoming.get("review_history"), str(incoming["stored_extraction_sha256"]))
         else:
             raise ValueError("same-ID report extraction fingerprint mismatch")
         existing = existing.drop(index=matches[0])
@@ -923,7 +928,7 @@ def _apply_conflict_eligibility(frame: pd.DataFrame, conflicts: pd.DataFrame, re
         eligible = (
             _cell_text(row.get("verification_status")) == "verified"
             and bool(fingerprint)
-            and _fingerprint_matches(row, fingerprint)
+            and _fingerprint_matches(row, fingerprint, legacy_allowed=_legacy_fingerprint_allowed(result.attrs.get("_original_columns")))
             and _row_is_verifiable(row)
             and _row_binding_matches_registry(row, registry)
             and str(row.get("source_id")) not in conflicted
@@ -967,12 +972,18 @@ def _read_report_frame(path: Path) -> pd.DataFrame:
     if not path.is_file():
         return pd.DataFrame(columns=REPORT_COLUMNS)
     try:
-        return _read_report_frame_from_frame(pd.read_parquet(path))
+        source = pd.read_parquet(path)
+        original_columns = tuple(str(column) for column in source.columns)
+        result = _read_report_frame_from_frame(source, original_columns=original_columns)
+        result.attrs["_original_columns"] = original_columns
+        return result
     except Exception as exc:
         raise ValueError(f"ETF report extraction store is corrupt: {path}") from exc
 
 
-def _read_report_frame_from_frame(frame: pd.DataFrame, *, validate_authority: bool = True) -> pd.DataFrame:
+def _read_report_frame_from_frame(frame: pd.DataFrame, *, validate_authority: bool = True, original_columns: tuple[str, ...] | None = None) -> pd.DataFrame:
+    source_columns = tuple(original_columns or (str(column) for column in frame.columns))
+    legacy_allowed = _legacy_fingerprint_allowed(source_columns)
     result = frame.copy()
     for column in REPORT_COLUMNS:
         if column not in result.columns:
@@ -981,7 +992,7 @@ def _read_report_frame_from_frame(frame: pd.DataFrame, *, validate_authority: bo
     _backfill_legacy_known_at(result)
     for _, row in result.iterrows():
         fingerprint = _cell_text(row.get("stored_extraction_sha256"))
-        if fingerprint and not _fingerprint_matches(row, fingerprint):
+        if fingerprint and not _fingerprint_matches(row, fingerprint, legacy_allowed=legacy_allowed):
             raise ValueError("stored extraction fingerprint does not match extraction")
         _review_history(row.get("review_history"), expected_fingerprint=fingerprint or None, row=row)
     if validate_authority:
@@ -993,7 +1004,7 @@ def _read_report_frame_from_frame(frame: pd.DataFrame, *, validate_authority: bo
             eligible = (
                 _cell_text(row.get("verification_status")) == "verified"
                 and bool(fingerprint)
-                and _fingerprint_matches(row, fingerprint)
+                and _fingerprint_matches(row, fingerprint, legacy_allowed=legacy_allowed)
                 and _row_is_verifiable(row)
                 and bool(registry_path)
                 and _row_binding_matches_registry(row, _read_registry_fail_closed(Path(registry_path)))
@@ -1001,6 +1012,7 @@ def _read_report_frame_from_frame(frame: pd.DataFrame, *, validate_authority: bo
             )
             if _strict_stored_bool(row.get("evidence_eligible"), "evidence_eligible") != eligible:
                 raise ValueError("evidence eligibility does not match persisted evidence")
+    result.attrs["_original_columns"] = source_columns
     return result
 
 
@@ -1030,12 +1042,32 @@ def _row_binding_matches_registry(row: pd.Series, registry: pd.DataFrame) -> boo
     if len(matches) != 1:
         return False
     registered = matches.iloc[0]
+    registered_family = _document_family(registered.get("document_kind") or registered.get("document_type"))
+    row_families = {
+        _document_family(row.get(field))
+        for field in ("document_type", "document_kind")
+        if _cell_text(row.get(field))
+    }
+    if not registered_family or not row_families or not row_families.issubset({registered_family}):
+        return False
     for field in ("instrument_id", "document_kind", "source_sha256", "source_authority", "document_date", "known_at"):
         registry_field = {"source_sha256": "sha256", "source_authority": "authority", "known_at": "ingested_at"}.get(field, field)
         registered_value = _registry_known_at(registered) if field == "known_at" else registered.get(registry_field)
         if _cell_text(registered_value) != _cell_text(row.get(field)):
             return False
     return True
+
+
+def _document_family(value: Any) -> str:
+    normalized = _cell_text(value).casefold().replace("-", "_").replace(" ", "_")
+    if normalized in {"prospectus", "prospectus_report", "annual_report", "half_year_report", "half_year", "semi_annual_report"}:
+        return "prospectus"
+    return {
+        "factsheet": "factsheet",
+        "holdings": "holdings",
+        "kid": "kid",
+        "priips_kid": "kid",
+    }.get(normalized, normalized)
 
 
 def _row_is_verifiable(row: pd.Series) -> bool:
@@ -1099,21 +1131,34 @@ def _is_legacy_report_row(row: pd.Series | dict[str, Any]) -> bool:
     return _report_schema_version(row.get("schema_version")) < REPORT_SCHEMA_VERSION
 
 
-def _fingerprint_matches(row: pd.Series, fingerprint: str) -> bool:
+def _fingerprint_matches(row: pd.Series, fingerprint: str, *, legacy_allowed: bool = False) -> bool:
     if fingerprint == _row_extraction_fingerprint(row):
         return True
-    return _is_legacy_report_row(row) and fingerprint == _row_extraction_fingerprint(row, columns=_LEGACY_REPORT_COLUMNS)
+    return legacy_allowed and _is_legacy_report_row(row) and fingerprint == _row_extraction_fingerprint(row, columns=_LEGACY_REPORT_COLUMNS)
 
 
-def _fingerprint_matches_rows(prior: pd.Series, incoming: dict[str, Any], fingerprint: str) -> bool:
+def _fingerprint_matches_rows(prior: pd.Series, incoming: dict[str, Any], fingerprint: str, *, legacy_allowed: bool = False) -> bool:
     incoming_series = pd.Series(incoming)
     if fingerprint == _row_extraction_fingerprint(incoming_series):
         return True
-    if not _is_legacy_report_row(prior):
+    if not legacy_allowed or not _is_legacy_report_row(prior):
         return False
     legacy_incoming = incoming_series.copy()
     legacy_incoming["schema_version"] = prior.get("schema_version")
     return fingerprint == _row_extraction_fingerprint(legacy_incoming, columns=_LEGACY_REPORT_COLUMNS)
+
+
+def _legacy_fingerprint_allowed(original_columns: object) -> bool:
+    if original_columns is None:
+        return False
+    columns = {str(column) for column in original_columns}
+    added_columns = set(REPORT_COLUMNS) - set(_LEGACY_REPORT_COLUMNS)
+    return not (columns & added_columns)
+
+
+def _rebind_review_history(value: Any, fingerprint: str) -> str:
+    history = _review_history(value)
+    return _json([{**item, "extraction_sha256": fingerprint} for item in history])
 
 
 def _registry_known_at(row: Any) -> str:

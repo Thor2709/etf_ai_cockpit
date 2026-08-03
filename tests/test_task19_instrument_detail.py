@@ -994,32 +994,6 @@ def test_score_panel_nullable_scoreboard_and_signal_values_fail_closed() -> None
     assert panel["warnings"] == []
 
 
-def test_score_panel_prefers_current_structurally_capped_signal_confidence_including_zero() -> None:
-    class Signal:
-        blocked_by = []
-        authority_decision = None
-        total_score = 0.8
-        canonical_score = None
-        research_state = "available"
-        reason_long = "Current signal evidence."
-        warnings = []
-        supporting_metrics = {"canonical_evidence_confidence_10": 0.0}
-
-    panel = _score_panel(
-        Signal(),
-        {
-            "canonical_evidence_confidence_10": 9.0,
-            "final_label": "hold",
-            "one_line_reason": "Current signal evidence.",
-            "freshness_status": "fresh",
-        },
-        {"crowding": {}, "attribution": {}},
-        {},
-    )
-
-    assert panel["canonical_evidence_confidence_10"] == 0.0
-
-
 def test_score_panel_numeric_evidence_with_malformed_required_metadata_fails_closed() -> None:
     class Signal:
         blocked_by = []

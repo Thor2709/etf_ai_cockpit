@@ -152,6 +152,7 @@ def load_etf_structure_projection(
     holdings: object = None,
     decision_time: object = None,
     numeric_inputs: Mapping[str, object] | None = None,
+    numeric_candidates: object = None,
 ) -> dict[str, object]:
     """Load the local ETF structural read model without provider access."""
 
@@ -166,6 +167,7 @@ def load_etf_structure_projection(
             holdings=holdings,
             decision_time=decision_time,
             numeric_inputs=numeric_inputs,
+            numeric_candidates=numeric_candidates,
         )
     except (OSError, TypeError, ValueError):
         return {

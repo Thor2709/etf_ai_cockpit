@@ -340,6 +340,11 @@ def test_pre_21_report_fingerprint_loads_after_report_columns_expand(tmp_path: P
     assert loaded["source_id"] == imported.source_id
     assert loaded["stored_extraction_sha256"] == legacy_fingerprint
     assert loaded["known_at"]
+    tampered = legacy.copy()
+    tampered["legal_form"] = "tampered on disk"
+    tampered.to_parquet(reports, index=False)
+    with pytest.raises(ValueError, match="extraction store is corrupt"):
+        read_etf_report_records(reports)
 
 
 def test_failed_v2_parse_remains_checksum_backed_but_never_available(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -412,6 +417,37 @@ def test_exact_report_reimport_preserves_review_registry_and_conflicts(tmp_path:
     assert after_row["review_history"] == before_row["review_history"]
     pd.testing.assert_frame_equal(pd.read_parquet(registry).sort_values("source_id").reset_index(drop=True), before_registry)
     pd.testing.assert_frame_equal(module.read_etf_report_conflicts(conflicts), before_conflicts)
+
+
+def test_reviewed_pre_21_same_source_reimport_migrates_fingerprint_with_history(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import etf_cockpit.data.parsed_disclosures as module
+    from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest, EtfReportReviewRequest
+
+    monkeypatch.setattr(module, "parse_etf_report_in_child", lambda path, kind, **_kwargs: _v2_report_result(path, kind=kind))
+    reports, registry, conflicts = (tmp_path / name for name in ("reports.parquet", "registry.parquet", "conflicts.parquet"))
+    source = tmp_path / "legacy-reimport.pdf"
+    source.write_bytes(b"legacy reimport")
+    request = EtfReportImportRequest("VWCE", "prospectus", "issuer_document", source_path=source, destination=reports, registry_destination=registry, conflict_destination=conflicts, raw_dir=tmp_path / "raw")
+    imported = module.import_etf_report(request)
+    current = module.read_etf_report_records(reports)
+    current_row = current.iloc[0]
+    module.review_etf_report(EtfReportReviewRequest(imported.source_id, str(current_row["extraction_sha256"]), "analyst", "verified"), destination=reports, registry_destination=registry, conflict_destination=conflicts)
+    reviewed = module.read_etf_report_records(reports).iloc[0]
+    legacy = module.read_etf_report_records(reports).drop(columns=["known_at", "legal_form", "domicile", "replication_method", "derivatives", "counterparties", "collateral_terms", "concentration_limits", "lending_policy", "lending_revenue_split"]).copy()
+    legacy["schema_version"] = 2
+    legacy_fingerprint = module._row_extraction_fingerprint(legacy.iloc[0], columns=module._LEGACY_REPORT_COLUMNS)
+    legacy["extraction_sha256"] = legacy_fingerprint
+    legacy["stored_extraction_sha256"] = legacy_fingerprint
+    legacy["review_history"] = json.dumps([{**item, "extraction_sha256": legacy_fingerprint} for item in json.loads(str(reviewed["review_history"]))])
+    legacy.to_parquet(reports, index=False)
+
+    module.import_etf_report(request)
+    after = module.read_etf_report_records(reports).iloc[0]
+    after_history = json.loads(str(after["review_history"]))
+
+    assert after["verification_status"] == "verified"
+    assert after["stored_extraction_sha256"] != legacy_fingerprint
+    assert after_history and {item["extraction_sha256"] for item in after_history} == {after["stored_extraction_sha256"]}
 
 
 def test_parser_revision_reimport_retains_prior_review_as_separate_extraction(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

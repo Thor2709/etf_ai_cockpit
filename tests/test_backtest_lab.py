@@ -9,7 +9,6 @@ from etf_cockpit.app.pages.backtests import backtests_page
 from etf_cockpit.backtest.engine import (
     BacktestDataUnavailableError,
     _execution_evidence,
-    backtest_input_checksum,
     quality_momentum_evidence_checksum,
     run_backtest,
 )
@@ -17,37 +16,6 @@ from etf_cockpit.backtest.metrics import tail_event_diagnostics
 from etf_cockpit.core.config import load_config
 from etf_cockpit.data.sample_data import generate_sample_prices
 from etf_cockpit import services
-
-
-def test_backtest_input_checksum_includes_structural_evidence() -> None:
-    config = load_config()
-    prices = pd.DataFrame({"date": ["2026-01-01"], "etf_id": [config.universe.enabled_ids[0]], "adjusted_close": [100.0]})
-    registry = pd.DataFrame([{
-        "instrument_id": config.universe.enabled_ids[0],
-        "source_id": "report:v2:one",
-        "document_type": "prospectus_report",
-        "document_kind": "prospectus",
-        "sha256": "a" * 64,
-        "document_date": "2026-01-01",
-        "ingested_at": "2026-01-02T00:00:00+00:00",
-    }])
-    reports = pd.DataFrame([{
-        "instrument_id": config.universe.enabled_ids[0],
-        "source_id": "report:v2:one",
-        "source_sha256": "a" * 64,
-        "document_date": "2026-01-01",
-        "known_at": "2026-01-02T00:00:00+00:00",
-        "verification_status": "verified",
-        "evidence_eligible": True,
-        "field_evidence": "[]",
-    }])
-    changed = reports.copy()
-    changed.loc[0, "field_evidence"] = '[{"field_name":"legal_structure","value":"UCITS"}]'
-
-    first = backtest_input_checksum(config, prices, None, structure_document_registry=registry, structure_report_records=reports)
-    second = backtest_input_checksum(config, prices, None, structure_document_registry=registry, structure_report_records=changed)
-
-    assert first != second
 
 
 def test_tail_event_diagnostics_expose_worst_windows_and_loss_clustering() -> None:

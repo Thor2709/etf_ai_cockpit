@@ -73,6 +73,7 @@ class StructureCandidate:
     known_at: str
     checksum: str
     status: str = "extracted"
+    review_event: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -204,6 +205,7 @@ def project_etf_structure(
     holdings: object = None,
     decision_time: object = None,
     numeric_inputs: Mapping[str, object] | None = None,
+    numeric_candidates: object = None,
 ) -> dict[str, object]:
     """Project latest usable structural evidence as of ``decision_time``."""
 
@@ -219,6 +221,16 @@ def project_etf_structure(
     rejected = [*rejected_registry, *rejected_candidates, *supplemental_rejections, *holding_rejections]
     selected_sources = _latest_sources(registry, candidates)
     usable = [item for item in candidates if item.source_id in selected_sources.get(_family(item.document_type), set())]
+    source_vintage = {
+        source_id: dict(event)
+        for source_id, event in sorted(
+            {
+                item.source_id: item.review_event
+                for item in usable
+                if item.review_event
+            }.items()
+        )
+    }
 
     fields: dict[str, dict[str, object]] = {}
     for field in STRUCTURAL_FIELDS:
@@ -246,7 +258,7 @@ def project_etf_structure(
         calculate_structural_stress(
             **numeric_inputs,
             registry=registry,
-            candidates=usable,
+            candidates=numeric_candidates,
             decision_time=decision,
             instrument_id=target,
         )
@@ -281,8 +293,10 @@ def project_etf_structure(
             rejected_candidates=rejected,
             applicable_fields=applicable_fields,
             applicability_evidence=applicability_evidence,
+            source_vintage=source_vintage,
         ),
         "structure_confidence_cap": confidence_cap,
+        "source_vintage": source_vintage,
     }
     return {
         "schema_version": STRUCTURE_SCHEMA_VERSION,
@@ -314,6 +328,7 @@ def project_etf_structure(
         "coverage_cap": confidence_cap,
         **structure_identity,
         "structure_identity": structure_identity,
+        "source_vintage": source_vintage,
         "confidence_limitation": "Unknown and conflicted structural evidence contributes 0; this caps evidence confidence only.",
         "stress": stress,
         "alpha_eligible": False,
@@ -459,8 +474,11 @@ def _report_candidates(value: object, registry: list[dict[str, object]], target:
         if not source_id or registered is None or str(row.get("instrument_id") or "").strip() != target:
             rejected.append({"reason_code": "candidate_not_bound_to_registry", "source_id": source_id or "unavailable"})
             continue
-        if str(row.get("verification_status") or "").strip().casefold() != "verified" or not _stored_true(row.get("evidence_eligible")):
-            rejected.append({"reason_code": "report_evidence_not_eligible", "source_id": source_id})
+        registry_family = _family(str(registered.get("document_kind") or registered.get("document_type") or ""))
+        report_types = [_text(row.get("document_type")), _text(row.get("document_kind"))]
+        report_families = {_family(item) for item in report_types if item}
+        if not report_families or not report_families.issubset({registry_family}):
+            rejected.append({"reason_code": "candidate_document_family_mismatch", "source_id": source_id})
             continue
         row_checksum = _text(row.get("source_sha256")) or _text(row.get("sha256")) or _text(row.get("checksum"))
         row_date = _date_text(row.get("document_date"))
@@ -477,6 +495,10 @@ def _report_candidates(value: object, registry: list[dict[str, object]], target:
         if row_known_at != (_date_time_text(registered.get("known_at")) or _date_time_text(registered.get("ingested_at"))):
             rejected.append({"reason_code": "candidate_known_at_mismatch", "source_id": source_id})
             continue
+        review_event, review_reason = _selected_review_event(row, row_checksum, decision)
+        if review_event is None:
+            rejected.append({"reason_code": review_reason or "report_evidence_not_eligible", "source_id": source_id})
+            continue
         evidence = _json_rows(row.get("field_evidence"))
         for item in evidence:
             field = _canonical_field(item.get("field_name"))
@@ -489,12 +511,62 @@ def _report_candidates(value: object, registry: list[dict[str, object]], target:
                 if status not in {"unknown", ""}:
                     rejected.append({"field_name": field, "reason_code": "candidate_unusable", "source_id": source_id})
                 continue
-            candidate, reason = _make_candidate(target, field, value_text, source_id, registered, page, item.get("confidence"), decision)
+            candidate, reason = _make_candidate(target, field, value_text, source_id, registered, page, item.get("confidence"), decision, review_event=review_event)
             if candidate is None:
                 rejected.append({"field_name": field, "reason_code": reason, "source_id": source_id})
             else:
                 result.append(candidate)
     return result, rejected
+
+
+def _selected_review_event(row: Mapping[str, object], checksum: str, decision: datetime | None) -> tuple[dict[str, object] | None, str | None]:
+    fingerprint = _text(row.get("stored_extraction_sha256")) or _text(row.get("extraction_sha256"))
+    history = _json_rows(row.get("review_history"))
+    matching: list[tuple[int, dict[str, object], datetime]] = []
+    for index, item in enumerate(history):
+        event_fingerprint = _text(item.get("extraction_sha256"))
+        if not fingerprint or event_fingerprint != fingerprint:
+            continue
+        try:
+            reviewed_at = _parse_timestamp(str(item.get("reviewed_at")))
+        except (TypeError, ValueError):
+            continue
+        if decision is not None and reviewed_at > decision:
+            continue
+        matching.append((index, item, reviewed_at))
+    if matching:
+        _, selected, selected_at = max(matching, key=lambda item: (item[2], item[0]))
+        decision_value = _text(selected.get("decision"))
+        if decision_value != "verified":
+            return None, "report_review_rejected_at_decision_time"
+        if any(
+            _text(item.get("decision")) == "rejected"
+            and reviewed_at >= selected_at
+            for _, item, reviewed_at in matching
+        ):
+            return None, "report_review_rejected_at_decision_time"
+        identity_payload = {
+            "source_id": _text(row.get("source_id")) or "unavailable",
+            "extraction_sha256": fingerprint,
+            "reviewed_at": _text(selected.get("reviewed_at")) or "unavailable",
+            "reviewer": _text(selected.get("reviewer")) or "unavailable",
+            "decision": decision_value,
+        }
+        identity_payload["event_id"] = hashlib.sha256(
+            json.dumps(identity_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        return identity_payload, None
+    if decision is None and str(row.get("verification_status") or "").strip().casefold() == "verified" and _stored_true(row.get("evidence_eligible")):
+        identity_payload = {
+            "source_id": _text(row.get("source_id")) or "unavailable",
+            "extraction_sha256": fingerprint or checksum,
+            "reviewed_at": _date_time_text(row.get("verified_at")) or "unavailable",
+            "reviewer": _text(row.get("verified_by")) or "unavailable",
+            "decision": "verified",
+            "event_id": "current-top-level-review",
+        }
+        return identity_payload, None
+    return None, "report_review_not_verified_at_decision_time" if decision is not None else "report_evidence_not_eligible"
 
 
 def _supplemental_candidates(value: object, registry: list[dict[str, object]], target: str, decision: datetime | None, *, default_document_type: str | None = None) -> tuple[list[StructureCandidate], list[dict[str, object]]]:
@@ -535,7 +607,7 @@ def _supplemental_candidates(value: object, registry: list[dict[str, object]], t
     return result, rejected
 
 
-def _make_candidate(target: str, field: str, value: str, source_id: str, registered: Mapping[str, object], page: int | None, confidence: object, decision: datetime | None, *, status: str = "extracted") -> tuple[StructureCandidate | None, str]:
+def _make_candidate(target: str, field: str, value: str, source_id: str, registered: Mapping[str, object], page: int | None, confidence: object, decision: datetime | None, *, status: str = "extracted", review_event: Mapping[str, object] | None = None) -> tuple[StructureCandidate | None, str]:
     if page is None or page <= 0:
         return None, "candidate_page_invalid"
     confidence_value = _confidence_value(confidence)
@@ -548,7 +620,7 @@ def _make_candidate(target: str, field: str, value: str, source_id: str, registe
         return None, "candidate_registry_binding_incomplete"
     if decision is not None and _parse_timestamp(known_at) > decision:
         return None, "candidate_not_known_at_decision_time"
-    return StructureCandidate(target, field, value, source_id, _text(registered.get("document_type")) or _text(registered.get("document_kind")) or "unknown", document_date, page, confidence_value, known_at, checksum, status), ""
+    return StructureCandidate(target, field, value, source_id, _text(registered.get("document_type")) or _text(registered.get("document_kind")) or "unknown", document_date, page, confidence_value, known_at, checksum, status, dict(review_event) if review_event else None), ""
 
 
 def _latest_sources(registry: list[dict[str, object]], candidates: Iterable[StructureCandidate] = ()) -> dict[str, set[str]]:
@@ -609,7 +681,7 @@ def _risk_flags(fields: Mapping[str, Mapping[str, object]]) -> list[str]:
     replication = str(fields.get("replication_method", {}).get("value") or "").casefold()
     derivatives = str(fields.get("derivatives", {}).get("value") or "").casefold()
     lending = str(fields.get("lending_policy", {}).get("value") or "").casefold()
-    synthetic = any(token in f"{replication} {derivatives}" for token in ("synthetic", "swap", "derivative"))
+    synthetic = _positive_disclosure(f"{replication} {derivatives}", ("synthetic", "swap", "derivative"))
     if fields.get("replication_method", {}).get("status") in {"unknown", "conflict", "unusable"}:
         flags.append("replication_structure_unknown_or_conflicted")
     if synthetic:
@@ -617,7 +689,7 @@ def _risk_flags(fields: Mapping[str, Mapping[str, object]]) -> list[str]:
             flags.append("synthetic_counterparty_evidence_missing_or_conflicted")
         if fields.get("collateral_terms", {}).get("status") != "resolved":
             flags.append("synthetic_collateral_evidence_missing_or_conflicted")
-    lending_enabled = any(token in lending for token in ("allow", "enabled", "up to", "may lend", "lending")) and not any(token in lending for token in ("not permitted", "prohibited", "no lending"))
+    lending_enabled = _positive_disclosure(lending, ("allow", "enabled", "up to", "may lend", "lending"), negative_terms=("no lending", "no securities lending", "not permitted", "prohibited", "not allowed"))
     if lending_enabled and fields.get("collateral_terms", {}).get("status") != "resolved":
         flags.append("lending_collateral_terms_missing_or_conflicted")
     if fields.get("concentration_limits", {}).get("status") in {"unknown", "conflict", "unusable"}:
@@ -640,11 +712,8 @@ def _applicable_fields(fields: Mapping[str, Mapping[str, object]]) -> tuple[tupl
     replication = str(fields.get("replication_method", {}).get("value") or "").casefold()
     derivatives = str(fields.get("derivatives", {}).get("value") or "").casefold()
     lending = str(fields.get("lending_policy", {}).get("value") or "").casefold()
-    synthetic_or_derivatives = any(token in f"{replication} {derivatives}" for token in ("synthetic", "swap", "derivative"))
-    lending_enabled = (
-        any(token in lending for token in ("allow", "enabled", "up to", "may lend", "lending"))
-        and not any(token in lending for token in ("not permitted", "prohibited", "no lending"))
-    )
+    synthetic_or_derivatives = _positive_disclosure(f"{replication} {derivatives}", ("synthetic", "swap", "derivative"))
+    lending_enabled = _positive_disclosure(lending, ("allow", "enabled", "up to", "may lend", "lending"), negative_terms=("no lending", "no securities lending", "not permitted", "prohibited", "not allowed"))
     if synthetic_or_derivatives:
         for field in ("counterparties", "collateral_terms"):
             if field not in applicable:
@@ -666,6 +735,13 @@ def _applicable_fields(fields: Mapping[str, Mapping[str, object]]) -> tuple[tupl
     return tuple(applicable), evidence
 
 
+def _positive_disclosure(value: str, positive_terms: Iterable[str], *, negative_terms: Iterable[str] = ("no derivatives", "no swaps", "not used", "none used", "none", "not permitted", "prohibited", "not allowed")) -> bool:
+    text = " ".join(str(value or "").casefold().replace("-", " ").split())
+    if any(term in text for term in negative_terms):
+        return False
+    return any(term in text for term in positive_terms)
+
+
 def _field_payload(field: str, *, status: str, candidate: StructureCandidate | None = None, candidates: Iterable[StructureCandidate] = ()) -> dict[str, object]:
     items = tuple(candidates)
     if candidate is None and items:
@@ -682,13 +758,14 @@ def _field_payload(field: str, *, status: str, candidate: StructureCandidate | N
         "confidence": candidate.confidence if candidate is not None and status == "resolved" else 0.0,
         "known_at": candidate.known_at if candidate is not None and status == "resolved" else "unavailable",
         "checksum": candidate.checksum if candidate is not None and status == "resolved" else "unavailable",
+        "review_event": dict(candidate.review_event) if candidate is not None and status == "resolved" and candidate.review_event else None,
         "candidates": [_candidate_payload(item) for item in items],
         "execution_allowed": False,
     }
 
 
 def _candidate_payload(item: StructureCandidate) -> dict[str, object]:
-    return {"value": item.value, "source_id": item.source_id, "document_type": item.document_type, "document_date": item.document_date, "page": item.page, "confidence": item.confidence, "known_at": item.known_at, "checksum": item.checksum}
+    return {"value": item.value, "source_id": item.source_id, "document_type": item.document_type, "document_date": item.document_date, "page": item.page, "confidence": item.confidence, "known_at": item.known_at, "checksum": item.checksum, "review_event": dict(item.review_event) if item.review_event else None}
 
 
 def _family(document_type: str) -> str:
@@ -730,6 +807,8 @@ def _decimal_input(
     raw, unit = value.value, value.unit
     if value.field_name != field_name or unit not in allowed_units or isinstance(raw, bool):
         return None
+    if str(value.status).casefold() not in _USABLE_STATUSES:
+        return None
     if not _numeric_provenance_is_bound(
         value,
         registry,
@@ -767,7 +846,7 @@ def _numeric_provenance_is_bound(
     confidence = _confidence_value(value.confidence)
     if not source_id or not checksum or not document_date or not known_at or page is None or confidence is None:
         return False
-    if value.field_name != field_name or value.unit != unit or normalized_value is None:
+    if value.field_name != field_name or value.unit != unit or normalized_value is None or str(value.status).casefold() not in _USABLE_STATUSES:
         return False
     registry_rows = _rows(registry)
     matches = [row for row in registry_rows if _text(row.get("source_id")) == source_id]
@@ -877,6 +956,7 @@ def _structure_provenance_hash(
     rejected_candidates: object,
     applicable_fields: object,
     applicability_evidence: object,
+    source_vintage: object,
 ) -> str:
     payload = {
         "projection_version": STRUCTURE_PROJECTION_VERSION,
@@ -888,6 +968,7 @@ def _structure_provenance_hash(
         "rejected_candidates": _stable_value(rejected_candidates),
         "applicable_fields": _stable_value(applicable_fields),
         "applicability_evidence": _stable_value(applicability_evidence),
+        "source_vintage": _stable_value(source_vintage),
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")).hexdigest()
 
