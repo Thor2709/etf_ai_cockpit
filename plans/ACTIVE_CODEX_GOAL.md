@@ -108,9 +108,10 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   and candidate ref
   `bc7b8e36f23681298376e15fe631b463001b2ffeaf253038383395aa849800b3`
   preserve `execution_allowed=false`. Reusable evidence is refreshed to the
-  exact H-reviewed range `772d2972...ccff5d74`, allowing this control-only
-  E-tier transaction to use focused guards without repeating unchanged
-  product package validation.
+  exact H-reviewed range `772d2972...ccff5d74` for subsequent eligible
+  control-only transactions. Because the sidecar itself changes here, the
+  classifier correctly withholds reuse for this PR and requires fresh package
+  gates rather than accepting self-authorised evidence.
 
 ## Completed convergence repair checkpoint
 
