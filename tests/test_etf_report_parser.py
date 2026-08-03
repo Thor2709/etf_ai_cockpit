@@ -70,6 +70,7 @@ def test_three_explicit_kinds_return_page_bound_field_evidence(tmp_path: Path, m
         "fund_name", "isin", "document_date", "reporting_period_end", "legal_structure", "legal_form", "domicile",
         "replication_method", "derivatives", "counterparties", "collateral_terms", "concentration_limits",
         "securities_lending", "lending_policy", "lending_revenue_split", "collateral_policy", "ongoing_costs", "holdings_count", "operational_risks",
+        "exposure", "collateral_fraction", "haircut_fraction", "concentration_limit_fraction",
     }
     evidence = {item.field_name: item for item in record.field_evidence}
     assert evidence["legal_structure"].pages == (1,)

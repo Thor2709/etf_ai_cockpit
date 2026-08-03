@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from datetime import date
+import json
 import inspect
 import importlib.util
 from pathlib import Path
+import sys
 from types import SimpleNamespace
 
 import pandas as pd
@@ -250,6 +252,124 @@ def test_report_legal_form_conflict_is_cross_kind_and_not_temporally_invented() 
     assert len(legal) == 1
     assert set(legal[["document_kind_a", "document_kind_b"]].iloc[0]) == {"prospectus", "annual_report"}
     assert legal.iloc[0]["reporting_period_end"] == ""
+
+
+def test_cross_kind_stable_conflict_remains_unusable_in_canonical_projection() -> None:
+    from etf_cockpit.data.etf_structure import project_etf_structure
+
+    checksum_a, checksum_b = "a" * 64, "b" * 64
+    registry = pd.DataFrame([
+        {"instrument_id": "ETF-1", "source_id": "prospectus-1", "document_type": "prospectus_report", "document_kind": "prospectus", "sha256": checksum_a, "document_date": "2025-01-01", "known_at": "2025-01-02T00:00:00Z", "coverage_status": "available"},
+        {"instrument_id": "ETF-1", "source_id": "annual-1", "document_type": "prospectus_report", "document_kind": "annual_report", "sha256": checksum_b, "document_date": "2026-01-01", "known_at": "2026-01-02T00:00:00Z", "coverage_status": "available"},
+    ])
+
+    def report(source_id: str, kind: str, checksum: str, value: str, document_date: str, known_at: str) -> dict[str, object]:
+        return {
+            "instrument_id": "ETF-1", "source_id": source_id, "document_type": "prospectus_report", "document_kind": kind,
+            "source_sha256": checksum, "document_date": document_date, "known_at": known_at,
+            "verification_status": "verified", "evidence_eligible": True, "extraction_sha256": "c" * 64,
+            "stored_extraction_sha256": "c" * 64,
+            "review_history": json.dumps([{"decision": "verified", "reviewer": "analyst", "note": "", "reviewed_at": known_at, "extraction_sha256": "c" * 64}]),
+            "field_evidence": json.dumps([{"field_name": "legal_form", "value": value, "source_page": 2, "candidate_pages": [2], "confidence": "high", "status": "extracted"}]),
+        }
+
+    reports = pd.DataFrame([
+        report("prospectus-1", "prospectus", checksum_a, "ICAV", "2025-01-01", "2025-01-02T00:00:00Z"),
+        report("annual-1", "annual_report", checksum_b, "Unit trust", "2026-01-01", "2026-01-02T00:00:00Z"),
+    ])
+
+    projection = project_etf_structure("ETF-1", document_registry=registry, report_records=reports, decision_time="2026-02-01T00:00:00Z")
+
+    assert projection["fields"]["legal_form"]["status"] == "conflict"
+    assert projection["fields"]["legal_form"]["value"] is None
+    assert projection["fields"]["legal_form"]["confidence"] == 0.0
+    assert projection["evidence_confidence_cap"] == 0.0
+
+
+def test_inconsistent_current_review_state_fails_closed_through_supplied_facade() -> None:
+    from etf_cockpit.application.ui_facade import load_etf_structure_projection
+
+    checksum = "a" * 64
+    registry = pd.DataFrame([{"instrument_id": "ETF-1", "source_id": "report-1", "document_type": "prospectus_report", "document_kind": "prospectus", "sha256": checksum, "document_date": "2026-01-01", "known_at": "2026-01-02T00:00:00Z", "coverage_status": "available"}])
+    history = [{"decision": "verified", "reviewer": "analyst", "note": "", "reviewed_at": "2026-01-03T00:00:00Z", "extraction_sha256": "b" * 64}]
+    reports = pd.DataFrame([{
+        "instrument_id": "ETF-1", "source_id": "report-1", "document_type": "prospectus_report", "document_kind": "prospectus",
+        "source_sha256": checksum, "document_date": "2026-01-01", "known_at": "2026-01-02T00:00:00Z",
+        "verification_status": "rejected", "evidence_eligible": False, "extraction_sha256": "b" * 64, "stored_extraction_sha256": "b" * 64,
+        "review_history": json.dumps(history),
+        "field_evidence": json.dumps([{"field_name": "legal_form", "value": "ICAV", "source_page": 1, "confidence": "high", "status": "extracted"}]),
+    }])
+
+    projection = load_etf_structure_projection(
+        "ETF-1", document_registry=registry, report_records=reports, decision_time="2026-01-04T00:00:00Z"
+    )
+
+    assert projection["fields"]["legal_form"]["status"] == "unknown"
+    assert projection["fields"]["legal_form"]["value"] is None
+
+
+def test_real_report_numeric_fields_survive_parse_import_review_readback_and_projection(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import etf_cockpit.data.parsed_disclosures as disclosures
+    from etf_cockpit.data.etf_structure import project_etf_structure
+    from etf_cockpit.parsers.etf_report import parse_etf_report
+
+    class Page:
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+        def extract_text(self) -> str:
+            return self.text
+
+    class Pdf:
+        def __init__(self, pages: list[str]) -> None:
+            self.pages = [Page(page) for page in pages]
+
+        def __enter__(self) -> "Pdf":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    monkeypatch.setitem(sys.modules, "pdfplumber", SimpleNamespace(open=lambda _path: Pdf([
+        "ETF Prospectus\nFund name: Evidence ETF\nISIN: IE00B4L5Y983\nDocument date: 14 July 2026\nLegal structure: Irish UCITS investment company\nDomicile: Ireland\nLegal form: Investment company",
+        "Replication method: Physical full replication\nDerivatives: None\nExposure: 0.4\nCollateral fraction: 0.8\nHaircut fraction: 0.1\nConcentration limit fraction: 0.25",
+    ])))
+
+    def real_child(path: Path, kind: str, **kwargs: object):
+        return parse_etf_report(
+            path, kind, expected_isin=kwargs.get("expected_isin"), expected_document_date=kwargs.get("expected_document_date"),
+            max_file_bytes=int(kwargs["max_file_bytes"]), max_pages=int(kwargs["max_pages"]),
+            max_page_chars=int(kwargs["max_page_chars"]), max_total_chars=int(kwargs["max_total_chars"]),
+        )
+
+    monkeypatch.setattr(disclosures, "parse_etf_report_in_child", real_child)
+    source = tmp_path / "report.pdf"
+    source.write_bytes(b"canonical report snapshot")
+    report_path, registry_path, conflict_path = (tmp_path / name for name in ("reports.parquet", "registry.parquet", "conflicts.parquet"))
+    imported = disclosures.import_etf_report(disclosures.EtfReportImportRequest(
+        "ETF-1", "prospectus", "issuer_document", source_path=source, expected_isin="IE00B4L5Y983",
+        destination=report_path, registry_destination=registry_path, conflict_destination=conflict_path, raw_dir=tmp_path / "raw",
+    ))
+    pending = disclosures.read_etf_report_records(report_path).iloc[0]
+    disclosures.review_etf_report(
+        disclosures.EtfReportReviewRequest(imported.source_id, str(pending["extraction_sha256"]), "analyst", "verified"),
+        destination=report_path, registry_destination=registry_path, conflict_destination=conflict_path,
+    )
+    readback = disclosures.read_etf_report_records(report_path)
+    evidence = {item["field_name"]: item for item in json.loads(str(readback.iloc[0]["field_evidence"]))}
+    projection = project_etf_structure(
+        "ETF-1", document_registry=pd.read_parquet(registry_path), report_records=readback,
+        decision_time="2026-08-04T00:00:00Z",
+    )
+
+    assert {field: evidence[field]["unit"] for field in ("exposure", "collateral_fraction", "haircut_fraction", "concentration_limit_fraction")} == {
+        "exposure": "fraction_of_nav", "collateral_fraction": "fraction_of_exposure", "haircut_fraction": "scenario_haircut_fraction", "concentration_limit_fraction": "fraction_of_collateral",
+    }
+    assert evidence["exposure"]["source_page"] == 2
+    assert readback.iloc[0]["source_sha256"] == imported.document.sha256
+    assert projection["stress"]["status"] == "available"
+    assert projection["stress"]["provenance"]["exposure"]["checksum"] == imported.document.sha256
+    assert projection["stress"]["provenance"]["exposure"]["page"] == 2
 
 
 def test_instrument_detail_keeps_required_structure_section() -> None:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation
 import hashlib
 import multiprocessing as mp
 import os
@@ -63,6 +64,10 @@ REPORT_FIELDS = (
     "ongoing_costs",
     "holdings_count",
     "operational_risks",
+    "exposure",
+    "collateral_fraction",
+    "haircut_fraction",
+    "concentration_limit_fraction",
 )
 REQUIRED_FIELDS = {
     "fund_name",
@@ -85,6 +90,7 @@ class EtfReportFieldEvidence:
     matched_label: str | None
     candidate_pages: tuple[int, ...] = ()
     source_excerpt: str = ""
+    unit: str | None = None
 
     @property
     def pages(self) -> tuple[int, ...]:
@@ -129,6 +135,7 @@ class _FieldPattern:
     field_name: str
     label: str
     expression: str
+    unit: str | None = None
 
 
 @dataclass(frozen=True)
@@ -161,6 +168,10 @@ _EN_FIELDS = (
     _FieldPattern("ongoing_costs", "Ongoing charges", r"(?:ongoing\s+(?:charges|costs)|total\s+expense\s+ratio|management\s+fee)\s*:\s*(?P<value>[^\n]{1,80})"),
     _FieldPattern("holdings_count", "Number of holdings", r"(?:number\s+of\s+holdings|total\s+holdings)\s*:\s*(?P<value>[^\n]{1,80})"),
     _FieldPattern("operational_risks", "Operational risks", r"(?:operational\s+risks?|operational\s+risk\s+factors?)\s*:\s*(?P<value>[^\n]{1,500})"),
+    _FieldPattern("exposure", "Exposure", r"exposure\s*:\s*(?P<value>(?:\d+(?:\.\d+)?|\.\d+))(?!\s*%)", "fraction_of_nav"),
+    _FieldPattern("collateral_fraction", "Collateral fraction", r"collateral\s+fraction\s*:\s*(?P<value>(?:\d+(?:\.\d+)?|\.\d+))(?!\s*%)", "fraction_of_exposure"),
+    _FieldPattern("haircut_fraction", "Haircut fraction", r"haircut\s+fraction\s*:\s*(?P<value>(?:\d+(?:\.\d+)?|\.\d+))(?!\s*%)", "scenario_haircut_fraction"),
+    _FieldPattern("concentration_limit_fraction", "Concentration limit fraction", r"concentration\s+limit\s+fraction\s*:\s*(?P<value>(?:\d+(?:\.\d+)?|\.\d+))(?!\s*%)", "fraction_of_collateral"),
 )
 
 _PLUGINS = tuple(
@@ -318,6 +329,7 @@ def parse_etf_report(
     evidence = [_extract_field(pattern, pages) for pattern in plugin.fields]
     fields = {item.field_name: item.value for item in evidence}
     evidence, fields = _normalise_dates(evidence, fields)
+    evidence, fields = _normalise_numeric_fractions(evidence, fields)
     required = set(REQUIRED_FIELDS)
     if kind in {"annual_report", "half_year_report"}:
         required.add("reporting_period_end")
@@ -466,17 +478,17 @@ def _extract_field(pattern: _FieldPattern, pages: list[str]) -> EtfReportFieldEv
             grouped[key][1].add(number)
             grouped[key][2].append(page[max(0, match.start() - 80): match.end() + 80])
     if not grouped:
-        return EtfReportFieldEvidence(pattern.field_name, None, None, "unknown", "unknown", (), pattern.label)
+        return EtfReportFieldEvidence(pattern.field_name, None, None, "unknown", "unknown", (), pattern.label, unit=pattern.unit)
     values = tuple(item[0] for item in grouped.values())
     candidate_pages = tuple(sorted(page for _, pages_for_value, _ in grouped.values() for page in pages_for_value))
     excerpts = " | ".join(f"page {page}: {excerpt}" for value, pages_for_value, excerpts_for_value in grouped.values() for page in sorted(pages_for_value) for excerpt in excerpts_for_value)
     excerpts = " ".join(excerpts.split())[:MAX_EXCERPT_CHARS]
     if len(values) > 1:
-        return EtfReportFieldEvidence(pattern.field_name, None, None, "low", "conflict", values, pattern.label, candidate_pages, excerpts)
+        return EtfReportFieldEvidence(pattern.field_name, None, None, "low", "conflict", values, pattern.label, candidate_pages, excerpts, pattern.unit)
     value, pages_for_value, _ = next(iter(grouped.values()))
     if len(value) > MAX_FIELD_VALUE_CHARS:
-        return EtfReportFieldEvidence(pattern.field_name, None, min(pages_for_value), "low", "truncated", (value[:MAX_FIELD_VALUE_CHARS],), pattern.label, tuple(sorted(pages_for_value)), excerpts)
-    return EtfReportFieldEvidence(pattern.field_name, value, min(pages_for_value), "high", "extracted", values, pattern.label, tuple(sorted(pages_for_value)), excerpts)
+        return EtfReportFieldEvidence(pattern.field_name, None, min(pages_for_value), "low", "truncated", (value[:MAX_FIELD_VALUE_CHARS],), pattern.label, tuple(sorted(pages_for_value)), excerpts, pattern.unit)
+    return EtfReportFieldEvidence(pattern.field_name, value, min(pages_for_value), "high", "extracted", values, pattern.label, tuple(sorted(pages_for_value)), excerpts, pattern.unit)
 
 
 def _normalise_dates(evidence: list[EtfReportFieldEvidence], fields: dict[str, str | None]) -> tuple[list[EtfReportFieldEvidence], dict[str, str | None]]:
@@ -487,13 +499,48 @@ def _normalise_dates(evidence: list[EtfReportFieldEvidence], fields: dict[str, s
         normalised = _normalise_date(item.value)
         if normalised is None:
             fields[item.field_name] = None
-            updated[index] = EtfReportFieldEvidence(item.field_name, None, item.source_page, "low", "malformed", item.candidates, item.matched_label, item.candidate_pages, item.source_excerpt)
+            updated[index] = EtfReportFieldEvidence(item.field_name, None, item.source_page, "low", "malformed", item.candidates, item.matched_label, item.candidate_pages, item.source_excerpt, item.unit)
         elif datetime.fromisoformat(normalised).date() > datetime.now(timezone.utc).date():
             fields[item.field_name] = None
-            updated[index] = EtfReportFieldEvidence(item.field_name, None, item.source_page, "low", "future", item.candidates, item.matched_label, item.candidate_pages, item.source_excerpt)
+            updated[index] = EtfReportFieldEvidence(item.field_name, None, item.source_page, "low", "future", item.candidates, item.matched_label, item.candidate_pages, item.source_excerpt, item.unit)
         else:
             fields[item.field_name] = normalised
-            updated[index] = EtfReportFieldEvidence(item.field_name, normalised, item.source_page, item.confidence, item.status, (normalised,), item.matched_label, item.candidate_pages, item.source_excerpt)
+            updated[index] = EtfReportFieldEvidence(item.field_name, normalised, item.source_page, item.confidence, item.status, (normalised,), item.matched_label, item.candidate_pages, item.source_excerpt, item.unit)
+    return updated, fields
+
+
+_NUMERIC_UNITS = {
+    "exposure": "fraction_of_nav",
+    "collateral_fraction": "fraction_of_exposure",
+    "haircut_fraction": "scenario_haircut_fraction",
+    "concentration_limit_fraction": "fraction_of_collateral",
+}
+
+
+def _normalise_numeric_fractions(
+    evidence: list[EtfReportFieldEvidence], fields: dict[str, str | None]
+) -> tuple[list[EtfReportFieldEvidence], dict[str, str | None]]:
+    updated = list(evidence)
+    for index, item in enumerate(updated):
+        if item.field_name not in _NUMERIC_UNITS or not item.value:
+            continue
+        try:
+            number = Decimal(item.value)
+        except (InvalidOperation, TypeError, ValueError):
+            number = None
+        if number is None or not number.is_finite() or not Decimal("0") <= number <= Decimal("1"):
+            fields[item.field_name] = None
+            updated[index] = EtfReportFieldEvidence(
+                item.field_name, None, item.source_page, "low", "malformed", item.candidates,
+                item.matched_label, item.candidate_pages, item.source_excerpt, item.unit,
+            )
+            continue
+        normalised = format(number, "f")
+        fields[item.field_name] = normalised
+        updated[index] = EtfReportFieldEvidence(
+            item.field_name, normalised, item.source_page, item.confidence, item.status,
+            (normalised,), item.matched_label, item.candidate_pages, item.source_excerpt, item.unit,
+        )
     return updated, fields
 
 

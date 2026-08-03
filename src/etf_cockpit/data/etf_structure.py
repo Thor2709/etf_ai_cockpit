@@ -283,6 +283,15 @@ def calculate_structural_stress(
             "concentration_limit_fraction": "fraction_of_collateral",
             "outputs": "fraction_of_nav",
         },
+        "provenance": {
+            field: _numeric_provenance_payload(value)
+            for field, value in (
+                ("exposure", exposure),
+                ("collateral_fraction", collateral_fraction),
+                ("haircut_fraction", haircut_fraction),
+                ("concentration_limit_fraction", concentration_limit_fraction),
+            )
+        },
         "formula_version": STRESS_FORMULA_VERSION,
         "execution_allowed": False,
     }
@@ -349,16 +358,21 @@ def project_etf_structure(
     versions = _version_rows(registry, selected_sources)
     matrix = _document_matrix(registry, selected_sources, usable)
     flags = _risk_flags(fields)
+    derived_numeric_inputs, derived_numeric_candidates = _report_numeric_inputs(
+        report_records, registry, target, decision, selected_sources
+    )
+    effective_numeric_inputs = numeric_inputs if numeric_inputs is not None else derived_numeric_inputs
+    effective_numeric_candidates = numeric_candidates if numeric_candidates is not None else derived_numeric_candidates
     stress = (
         calculate_structural_stress(
-            **numeric_inputs,
+            **effective_numeric_inputs,
             registry=registry,
             report_records=report_records,
-            candidates=numeric_candidates,
+            candidates=effective_numeric_candidates,
             decision_time=decision,
             instrument_id=target,
         )
-        if numeric_inputs
+        if effective_numeric_inputs and set(_NUMERIC_UNITS).issubset(effective_numeric_inputs)
         else _unavailable_stress()
     )
     applicable_fields, applicability_evidence = _applicable_fields(fields)
@@ -629,6 +643,15 @@ def _selected_review_event(row: Mapping[str, object], checksum: str, decision: d
     fingerprint = _text(row.get("stored_extraction_sha256")) or _text(row.get("extraction_sha256"))
     history = _json_rows(row.get("review_history"))
     matching: list[tuple[int, dict[str, object], datetime]] = []
+    current_status = _text(row.get("verification_status"))
+    current_evidence_eligible = _stored_true(row.get("evidence_eligible"))
+    if history:
+        current_decision = _text(history[-1].get("decision"))
+        if (
+            current_status != current_decision
+            or current_evidence_eligible != (current_decision == "verified")
+        ):
+            return None, "report_review_state_inconsistent"
     for index, item in enumerate(history):
         event_fingerprint = _text(item.get("extraction_sha256"))
         if not fingerprint or event_fingerprint != fingerprint:
@@ -731,7 +754,7 @@ def _make_candidate(target: str, field: str, value: str, source_id: str, registe
 
 def _latest_sources(registry: list[dict[str, object]], candidates: Iterable[StructureCandidate] = ()) -> dict[str, set[str]]:
     result: dict[str, set[str]] = {}
-    grouped: dict[str, list[dict[str, object]]] = {}
+    grouped: dict[tuple[str, str], list[dict[str, object]]] = {}
     candidate_source_ids = {item.source_id for item in candidates}
     for row in registry:
         family = _family(str(row.get("document_kind") or row.get("document_type") or ""))
@@ -741,10 +764,13 @@ def _latest_sources(registry: list[dict[str, object]], candidates: Iterable[Stru
             continue
         if candidate_source_ids and str(row.get("source_id")) not in candidate_source_ids:
             continue
-        grouped.setdefault(family, []).append(row)
-    for family, rows in grouped.items():
+        kind = _text(row.get("document_kind")) or _text(row.get("document_type")) or ""
+        normalised_kind = kind.casefold().replace("-", "_")
+        selection_key = normalised_kind if family == "prospectus" and normalised_kind in _REPORT_KINDS else family
+        grouped.setdefault((family, selection_key), []).append(row)
+    for (family, _selection_key), rows in grouped.items():
         latest = max(rows, key=lambda row: (_date_text(row.get("document_date")) or "", _date_time_text(row.get("known_at")) or "", str(row.get("source_id"))))
-        result[family] = {str(latest["source_id"])}
+        result.setdefault(family, set()).add(str(latest["source_id"]))
     return result
 
 
@@ -897,6 +923,70 @@ def _confidence_value(value: object) -> float | None:
     return _CONFIDENCE.get(str(value or "").strip().casefold())
 
 
+def _report_numeric_inputs(
+    report_records: object,
+    registry: list[dict[str, object]],
+    target: str,
+    decision: datetime | None,
+    selected_sources: Mapping[str, set[str]],
+) -> tuple[dict[str, NumericEvidence], list[NumericEvidence]]:
+    """Build typed stress inputs only from reviewed, selected report evidence."""
+
+    registry_by_id = {str(row.get("source_id")): row for row in registry}
+    selected = selected_sources.get("prospectus", set())
+    by_field: dict[str, list[NumericEvidence]] = {field: [] for field in _NUMERIC_UNITS}
+    for row in _rows(report_records):
+        source_id = _text(row.get("source_id"))
+        registered = registry_by_id.get(source_id or "")
+        if source_id not in selected or registered is None or _text(row.get("instrument_id")) != target:
+            continue
+        checksum = _text(registered.get("checksum")) or _text(registered.get("sha256"))
+        document_date = _date_text(registered.get("document_date"))
+        known_at = _date_time_text(registered.get("known_at")) or _date_time_text(registered.get("ingested_at"))
+        if not checksum or not document_date or not known_at or not _report_identity_matches(
+            row,
+            row_checksum=checksum,
+            row_date=document_date,
+            row_known_at=known_at,
+            registered=registered,
+        ):
+            continue
+        review_event, _ = _selected_review_event(row, checksum, decision)
+        if review_event is None:
+            continue
+        for item in _json_rows(row.get("field_evidence")):
+            field = _canonical_field(item.get("field_name"))
+            unit = _text(item.get("unit"))
+            if field not in _NUMERIC_UNITS or unit != _NUMERIC_UNITS[field]:
+                continue
+            status = str(item.get("status") or "unknown").casefold()
+            page = _page(item.get("source_page")) or _first_page(item.get("candidate_pages"))
+            candidate = NumericEvidence(
+                item.get("value"),
+                unit,
+                source_id=source_id,
+                document_date=document_date,
+                page=page,
+                confidence=item.get("confidence"),
+                known_at=known_at,
+                checksum=checksum,
+                instrument_id=target,
+                field_name=field,
+                status=status,
+            )
+            if status in _USABLE_STATUSES and candidate.normalized_value is not None:
+                by_field[field].append(candidate)
+    if any(not values for values in by_field.values()):
+        return {}, []
+    chosen: dict[str, NumericEvidence] = {}
+    for field, values in by_field.items():
+        distinct = {(item.normalized_value, item.unit) for item in values}
+        if len(distinct) != 1:
+            return {}, []
+        chosen[field] = max(values, key=lambda item: (item.document_date, item.known_at, item.source_id, item.page or 0))
+    return chosen, list(chosen.values())
+
+
 def _decimal_input(
     value: object,
     *,
@@ -1028,6 +1118,23 @@ def _unavailable_stress(reason_code: str = "numeric_evidence_not_supplied") -> d
         "concentration_exposure": None,
         "formula_version": STRESS_FORMULA_VERSION,
         "execution_allowed": False,
+    }
+
+
+def _numeric_provenance_payload(value: object) -> dict[str, object]:
+    if not isinstance(value, NumericEvidence):
+        return {"status": "unavailable"}
+    return {
+        "source_id": value.source_id,
+        "document_date": value.document_date,
+        "page": value.page,
+        "confidence": _confidence_value(value.confidence),
+        "known_at": value.known_at,
+        "checksum": value.checksum,
+        "instrument_id": value.instrument_id,
+        "field_name": value.field_name,
+        "unit": value.unit,
+        "value": str(value.value),
     }
 
 

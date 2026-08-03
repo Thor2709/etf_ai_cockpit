@@ -1126,7 +1126,7 @@ def _warning_codes(value: Any) -> set[str]:
 
 
 def _field_to_dict(item: Any) -> dict[str, Any]:
-    return {"field_name": item.field_name, "value": item.value, "source_page": item.source_page, "confidence": item.confidence, "status": item.status, "candidates": list(item.candidates), "matched_label": item.matched_label, "candidate_pages": list(item.candidate_pages), "source_excerpt": item.source_excerpt}
+    return {"field_name": item.field_name, "value": item.value, "unit": item.unit, "source_page": item.source_page, "confidence": item.confidence, "status": item.status, "candidates": list(item.candidates), "matched_label": item.matched_label, "candidate_pages": list(item.candidate_pages), "source_excerpt": item.source_excerpt}
 
 
 def _field_pages(row: pd.Series, field: str) -> str:

@@ -328,7 +328,7 @@ def test_pre_21_report_fingerprint_loads_after_report_columns_expand(tmp_path: P
         )
     )
     current = read_etf_report_records(reports)
-    legacy = current.drop(columns=["known_at", "legal_form", "domicile", "replication_method", "derivatives", "counterparties", "collateral_terms", "concentration_limits", "lending_policy", "lending_revenue_split"]).copy()
+    legacy = current.drop(columns=["known_at", "legal_form", "domicile", "replication_method", "derivatives", "counterparties", "collateral_terms", "concentration_limits", "lending_policy", "lending_revenue_split", "exposure", "collateral_fraction", "haircut_fraction", "concentration_limit_fraction"]).copy()
     legacy["schema_version"] = 2
     legacy_fingerprint = module._row_extraction_fingerprint(legacy.iloc[0], columns=module._LEGACY_REPORT_COLUMNS)
     assert legacy_fingerprint != module._row_extraction_fingerprint(legacy.iloc[0])
@@ -433,7 +433,7 @@ def test_reviewed_pre_21_same_source_reimport_migrates_fingerprint_with_history(
     current_row = current.iloc[0]
     module.review_etf_report(EtfReportReviewRequest(imported.source_id, str(current_row["extraction_sha256"]), "analyst", "verified"), destination=reports, registry_destination=registry, conflict_destination=conflicts)
     reviewed = module.read_etf_report_records(reports).iloc[0]
-    legacy = module.read_etf_report_records(reports).drop(columns=["known_at", "legal_form", "domicile", "replication_method", "derivatives", "counterparties", "collateral_terms", "concentration_limits", "lending_policy", "lending_revenue_split"]).copy()
+    legacy = module.read_etf_report_records(reports).drop(columns=["known_at", "legal_form", "domicile", "replication_method", "derivatives", "counterparties", "collateral_terms", "concentration_limits", "lending_policy", "lending_revenue_split", "exposure", "collateral_fraction", "haircut_fraction", "concentration_limit_fraction"]).copy()
     legacy["schema_version"] = 2
     legacy_fingerprint = module._row_extraction_fingerprint(legacy.iloc[0], columns=module._LEGACY_REPORT_COLUMNS)
     legacy["extraction_sha256"] = legacy_fingerprint
@@ -474,7 +474,7 @@ def test_multi_row_pre_21_reimport_migrates_reviewed_and_unreviewed_rows_atomica
         conflict_destination=conflicts,
     )
     reviewed = module.read_etf_report_records(reports)
-    legacy = reviewed.drop(columns=["known_at", "legal_form", "domicile", "replication_method", "derivatives", "counterparties", "collateral_terms", "concentration_limits", "lending_policy", "lending_revenue_split"]).copy()
+    legacy = reviewed.drop(columns=["known_at", "legal_form", "domicile", "replication_method", "derivatives", "counterparties", "collateral_terms", "concentration_limits", "lending_policy", "lending_revenue_split", "exposure", "collateral_fraction", "haircut_fraction", "concentration_limit_fraction"]).copy()
     legacy["schema_version"] = 2
     for index, row in legacy.iterrows():
         fingerprint = module._row_extraction_fingerprint(row, columns=module._LEGACY_REPORT_COLUMNS)
