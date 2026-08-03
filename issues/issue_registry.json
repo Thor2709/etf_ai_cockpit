@@ -26398,6 +26398,28 @@
           "reviewed_date": "2026-08-02",
           "reviewer": "Codex root orchestrator and independent reviewers",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product PR #651 merged exact independently approved head ccff5d7421d01df7bdcbfde3f3158893f5c449f2 as 7bffd0c57a992f599008a658425fc23575b9aef8",
+            "Release run 30772069784 classified tier H and passed preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; status guard 30772069791 passed",
+            "Ordered writer run 30773099083 applied UPDATEV2-0018 ready to in_progress with zero_action_readback=true; generic convergence run 30773099086 produced no patch and execution_allowed=false remains unchanged"
+          ],
+          "review_reference": "PR #651 exact-head whole-diff and risk reviews plus H-tier validation",
+          "reviewed_date": "2026-08-03",
+          "reviewer": "Codex independent reviewers and root orchestrator",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product PR #651 merged exact independently approved head ccff5d7421d01df7bdcbfde3f3158893f5c449f2 as 7bffd0c57a992f599008a658425fc23575b9aef8",
+            "Release run 30772069784 classified tier H and passed preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; status guard 30772069791 passed",
+            "Ordered writer run 30773099083 applied UPDATEV2-0018 ready to in_progress with zero_action_readback=true; generic convergence run 30773099086 produced no patch and execution_allowed=false remains unchanged"
+          ],
+          "review_reference": "PR #651 exact-head whole-diff and risk reviews plus H-tier validation",
+          "reviewed_date": "2026-08-03",
+          "reviewer": "Codex independent reviewers and root orchestrator",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -26424,7 +26446,7 @@
       "package_status": "Open",
       "phase": "phase-02-data-policy-identity",
       "priority": "P1",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -26448,8 +26470,8 @@
       "source_record_id": "UPDATEV2-0018",
       "source_title": "ETF prospectus, annual and half-year report parser",
       "title": "ETF prospectus, annual and half-year report parser (original update ISSUE-0018)",
-      "verified_commit": "772d297264c071f83bb668d2190723e969b12cde",
-      "verified_date": "2026-08-02",
+      "verified_commit": "7bffd0c57a992f599008a658425fc23575b9aef8",
+      "verified_date": "2026-08-03",
       "why": "These reports contain legal structure, holdings, lending, collateral, costs and operational risks unavailable from price feeds.",
       "write_conflict_group": "data-and-evidence"
     },
@@ -27697,7 +27719,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "fb3aa24b43240c342be6a5d9a48346ace50cdbab7ecd62edbb4aac705c9195a0",
+    "programme_control_state_sha256": "f8cf2c7d74d5b696c4b01e52bb23dad3c09bf01fffe030328a560852e20f2ebe",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

@@ -85,6 +85,33 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   correction adds only import/verify/reject contracts linked to
   `tests/ui/test_etf_report_ui.py` and makes their keys explicit in the
   existing button-inventory regression.
+- Product PR #651 subsequently merged independently approved exact head
+  `ccff5d7421d01df7bdcbfde3f3158893f5c449f2` as
+  `7bffd0c57a992f599008a658425fc23575b9aef8`. H-tier run `30772069784`
+  passed protected preflight, supply chain, authoritative Linux and Windows
+  package gates and terminal validation; status guard `30772069791` passed.
+  Ordered writer `30773099083` applied only UPDATEV2-0018
+  `ready -> in_progress` with `terminal_status=applied_and_verified` and
+  `zero_action_readback=true`; generic convergence `30773099086` produced no
+  patch and `execution_allowed=false` remains unchanged.
+- Clean completion lane
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_updatev2_0018_completion`,
+  branch `codex/updatev2-0018-completion-20260803`, starts empty at exact base
+  `7bffd0c57a992f599008a658425fc23575b9aef8`. Its bounded scope is only the
+  existing two-hop UPDATEV2-0018 replay
+  `in_progress -> implemented_initially -> integrated`, bound to PR #651,
+  its merged product commit and completed review/gate/writer evidence. The
+  exact live one-action plan is
+  `ce935663ef8c49098b5b53f24fa0827b33370cc7f134cb1d946de6eddf9d56d7`;
+  prepared replay authority
+  `6d5f03adc998d774a53d517bcb110d7d02da442ce8dbf8a42a5457238719749a`
+  and candidate ref
+  `bc7b8e36f23681298376e15fe631b463001b2ffeaf253038383395aa849800b3`
+  preserve `execution_allowed=false`. Reusable evidence is refreshed to the
+  exact H-reviewed range `772d2972...ccff5d74` for subsequent eligible
+  control-only transactions. Because the sidecar itself changes here, the
+  classifier correctly withholds reuse for this PR and requires fresh package
+  gates rather than accepting self-authorised evidence.
 
 ## Completed convergence repair checkpoint
 
