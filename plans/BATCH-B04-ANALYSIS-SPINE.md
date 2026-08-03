@@ -228,6 +228,17 @@ Ruff, compile and diff hygiene pass, and `execution_allowed=false` is unchanged.
 Freeze the replacement head for both exact-head reviews and fresh H-tier hosted
 gates.
 
+Exact head `52cae8cf7f87da46f95e53c643061acc7d394e54` was rejected after
+both reviewers completed. The complete finding set is field-local negation,
+unconditional `parse_success` schema typing and stale-cache prevention when
+structural storage is corrupt or unreadable. Release run `30805501748` was
+cancelled and is stale.
+
+Correction commit `3fa69aaef0757aba3013598497cb74ae98fdfd6d` covers only those
+reproduced paths. The focused suite passes 153 tests; Ruff, compile and diff
+hygiene pass, and execution/lifecycle authority is unchanged. Freeze the
+replacement head for both exact-head reviews and fresh H-tier hosted gates.
+
 ## Completed UPDATEV2-0018 parser lane
 
 ISSUE-0103 completion PR #648 merged exact reviewed head
