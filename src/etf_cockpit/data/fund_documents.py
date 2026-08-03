@@ -278,7 +278,11 @@ _DOCUMENT_COLUMNS = [
 ]
 
 
-def _registry_frame(documents: Iterable[FundDocument | dict[str, object]] | pd.DataFrame) -> pd.DataFrame:
+def _registry_frame(
+    documents: Iterable[FundDocument | dict[str, object]] | pd.DataFrame,
+    *,
+    deduplicate: bool = True,
+) -> pd.DataFrame:
     if isinstance(documents, pd.DataFrame):
         frame = documents.copy()
     else:
@@ -306,7 +310,10 @@ def _registry_frame(documents: Iterable[FundDocument | dict[str, object]] | pd.D
     for column in _DOCUMENT_COLUMNS:
         if column not in frame.columns:
             frame[column] = None
-    return frame[_DOCUMENT_COLUMNS].drop_duplicates(subset=["source_id"], keep="last").reset_index(drop=True)
+    result = frame[_DOCUMENT_COLUMNS]
+    if not deduplicate and result["source_id"].duplicated(keep=False).any():
+        raise ValueError("Fund document registry contains duplicate source_id")
+    return result.drop_duplicates(subset=["source_id"], keep="last").reset_index(drop=True)
 
 
 def write_document_registry(
@@ -394,7 +401,7 @@ def read_document_registry(*, path: Path = FUND_DOCUMENTS_PATH) -> pd.DataFrame:
         frame = pd.read_parquet(destination)
     except Exception:
         return pd.DataFrame(columns=_DOCUMENT_COLUMNS)
-    return _registry_frame(frame)
+    return _registry_frame(frame, deduplicate=False)
 
 
 # Compatibility aliases for provider/import callers.

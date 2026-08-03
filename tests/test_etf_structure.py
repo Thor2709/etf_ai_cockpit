@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 import pandas as pd
+import pytest
 
 from etf_cockpit.backtest.engine import backtest_input_checksum
 from etf_cockpit.core.config import load_config
@@ -210,6 +211,35 @@ def test_factsheet_prospectus_and_holdings_conflicts_remain_visible() -> None:
     assert projection["fields"]["replication_method"]["status"] == "conflict"
     assert len(projection["fields"]["replication_method"]["candidates"]) == 3
     assert {projection["documents"][family]["status"] for family in ("factsheet", "prospectus", "holdings")} == {"available"}
+
+
+@pytest.mark.parametrize("document_type", ["factsheet", "holdings"])
+@pytest.mark.parametrize("status", ["unknown", "conflict", "rejected", "quarantined"])
+def test_non_usable_supplemental_statuses_never_resolve(document_type: str, status: str) -> None:
+    source_id = f"{document_type}-1"
+    registry = _registry(source_id=source_id, document_type=document_type, document_kind=document_type)
+    rows = pd.DataFrame([{
+        "instrument_id": "ETF-1",
+        "source_id": source_id,
+        "document_type": document_type,
+        "checksum": CHECKSUM,
+        "document_date": "2026-07-01",
+        "known_at": "2026-07-02T00:00:00Z",
+        "field_name": "replication_method",
+        "value": "Physical",
+        "page": 1,
+        "confidence": "high",
+        "status": status,
+    }])
+    projection = project_etf_structure(
+        "ETF-1",
+        document_registry=registry,
+        supplemental_rows=rows if document_type == "factsheet" else None,
+        holdings=rows if document_type == "holdings" else None,
+    )
+
+    assert projection["fields"]["replication_method"]["status"] != "resolved"
+    assert any(item["reason_code"] == "candidate_unusable" for item in projection["rejected_candidates"])
 
 
 def test_supplemental_rows_without_page_or_exact_identity_fail_closed() -> None:
@@ -511,6 +541,32 @@ def test_numeric_stress_does_not_authenticate_caller_created_candidates() -> Non
     assert stress["status"] == "unavailable"
 
 
+def test_numeric_stress_rejects_wrong_numeric_evidence_instrument() -> None:
+    numeric = {
+        field: NumericEvidence(value, unit, "report:v2:one", "2026-07-01", 4, "high", "2026-07-02T00:00:00Z", CHECKSUM, "ETF-1", field)
+        for field, value, unit in (
+            ("exposure", "0.4", "fraction_of_nav"),
+            ("collateral_fraction", "0.8", "fraction_of_exposure"),
+            ("haircut_fraction", "0.1", "scenario_haircut_fraction"),
+            ("concentration_limit_fraction", "0.25", "fraction_of_collateral"),
+        )
+    }
+    numeric["exposure"] = NumericEvidence(
+        "0.4", "fraction_of_nav", "report:v2:one", "2026-07-01", 4, "high", "2026-07-02T00:00:00Z", CHECKSUM, "ETF-2", "exposure"
+    )
+
+    stress = calculate_structural_stress(
+        **numeric,
+        registry=_registry(),
+        report_records=_report(),
+        candidates=list(numeric.values()),
+        decision_time="2026-07-03T00:00:00Z",
+        instrument_id="ETF-1",
+    )
+
+    assert stress["status"] == "unavailable"
+
+
 def test_no_derivatives_and_no_securities_lending_do_not_activate_risk_branches() -> None:
     report = _report()
     evidence = json.loads(report.loc[0, "field_evidence"])
@@ -558,3 +614,24 @@ def test_backtest_input_checksum_includes_structural_evidence() -> None:
     second = backtest_input_checksum(config, prices, None, structure_document_registry=registry, structure_report_records=changed)
 
     assert first != second
+
+    holdings = pd.DataFrame([{"instrument_id": config.universe.enabled_ids[0], "source_id": "holdings-1", "weight": 0.4}])
+    changed_holdings = holdings.copy()
+    changed_holdings.loc[0, "weight"] = 0.6
+    holdings_first = backtest_input_checksum(
+        config,
+        prices,
+        None,
+        structure_document_registry=registry,
+        structure_report_records=reports,
+        structure_holdings=holdings,
+    )
+    holdings_second = backtest_input_checksum(
+        config,
+        prices,
+        None,
+        structure_document_registry=registry,
+        structure_report_records=reports,
+        structure_holdings=changed_holdings,
+    )
+    assert holdings_first != holdings_second

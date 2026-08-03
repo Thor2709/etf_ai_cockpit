@@ -48,6 +48,7 @@ from etf_cockpit.data.etf_economics import (
 from etf_cockpit.data.etf_structure import structure_confidence_caps
 from etf_cockpit.data.fx_data import commit_fx_import, fx_data_inventory, load_fx_rates, validate_fx_rates
 from etf_cockpit.data.fund_documents import read_document_registry
+from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
 from etf_cockpit.data.fundamentals import load_fundamental_evidence
 from etf_cockpit.data.import_pipeline import commit_price_import, rollback_latest_price_import as rollback_price_store
 from etf_cockpit.data.manual_notes import commit_manual_news_import, load_manual_news, validate_manual_news
@@ -872,9 +873,11 @@ class BacktestService:
         try:
             structure_registry = read_document_registry()
             structure_reports = read_etf_report_records()
+            structure_holdings = pd.read_parquet(FUND_HOLDINGS_PATH) if FUND_HOLDINGS_PATH.exists() else pd.DataFrame()
         except Exception:
             structure_registry = None
             structure_reports = None
+            structure_holdings = None
         try:
             report = run_backtest(
                 self.config,
@@ -882,6 +885,7 @@ class BacktestService:
                 fundamentals=fundamentals,
                 structure_document_registry=structure_registry,
                 structure_report_records=structure_reports,
+                structure_holdings=structure_holdings,
             )
         except BacktestDataUnavailableError as exc:
             return _empty_backtest_report(str(exc))
@@ -972,15 +976,18 @@ class BacktestService:
             try:
                 structure_registry = read_document_registry()
                 structure_reports = read_etf_report_records()
+                structure_holdings = pd.read_parquet(FUND_HOLDINGS_PATH) if FUND_HOLDINGS_PATH.exists() else pd.DataFrame()
             except Exception:
                 structure_registry = None
                 structure_reports = None
+                structure_holdings = None
             if metadata.get("input_checksum") != backtest_input_checksum(
                 self.config,
                 load_prices(),
                 load_fundamental_evidence(),
                 structure_document_registry=structure_registry,
                 structure_report_records=structure_reports,
+                structure_holdings=structure_holdings,
             ):
                 return None
             if not quality_evidence_path.exists():

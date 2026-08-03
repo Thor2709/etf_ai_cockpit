@@ -74,6 +74,23 @@ compile and diff hygiene pass. Freeze a new
 checkpoint head, then repeat both independent reviews and fresh H-tier hosted
 validation in parallel.
 
+Exact head `43b7c168718245fad0549db0464705ccaf102c9b` is rejected after
+both reviewers completed. The complete findings are real backtest and
+service/cache holdings propagation, supplemental non-usable status
+preservation, duplicate rejection at the canonical registry reader, and exact
+numeric instrument binding. Stale release run `30785676406` passed its
+96-case affected selection in 99.45 seconds but failed the protected
+presentation boundary because the selector directly imported an implementation
+constant; package jobs did not start.
+
+One bounded follow-up covers the full set, exports the structural-field
+contract through the existing application facade, and replaces the
+88.69-second hosted full-snapshot test with focused section-routing evidence.
+Direct correction, architecture and document suites pass 57 tests; the final
+108-case affected selection passes with one expected skip in 76.3 seconds
+locally. Ruff, compile and diff hygiene pass. Record the correction commit and
+freeze the next exact review head.
+
 ## Completed UPDATEV2-0018 parser lane
 
 ISSUE-0103 completion PR #648 merged exact reviewed head

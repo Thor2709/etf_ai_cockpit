@@ -591,6 +591,7 @@ def _supplemental_candidates(value: object, registry: list[dict[str, object]], t
         row_checksum = _text(row.get("checksum")) or _text(row.get("sha256"))
         row_date = _date_text(row.get("document_date"))
         row_known_at = _date_time_text(row.get("known_at"))
+        status = (_text(row.get("status")) or _text(row.get("coverage_status")) or "extracted").casefold()
         reason = None
         if str(row.get("instrument_id") or "").strip() != target or not source_id or registered is None:
             reason = "candidate_not_bound_to_registry"
@@ -602,10 +603,12 @@ def _supplemental_candidates(value: object, registry: list[dict[str, object]], t
             reason = "candidate_registry_binding_incomplete"
         elif row_checksum != _text(registered.get("checksum")) or row_date != _date_text(registered.get("document_date")) or row_known_at != _date_time_text(registered.get("known_at")):
             reason = "candidate_registry_binding_mismatch"
+        elif status not in _USABLE_STATUSES:
+            reason = "candidate_unusable"
         if reason:
             rejected.append({"field_name": field, "reason_code": reason, "source_id": source_id or "unavailable"})
             continue
-        candidate, candidate_reason = _make_candidate(target, field, value_text, source_id, registered, page, row.get("confidence"), decision, status=_text(row.get("status")) or "extracted")
+        candidate, candidate_reason = _make_candidate(target, field, value_text, source_id, registered, page, row.get("confidence"), decision, status=status)
         if candidate is None:
             rejected.append({"field_name": field, "reason_code": candidate_reason, "source_id": source_id})
         else:
@@ -852,6 +855,8 @@ def _numeric_provenance_is_bound(
     page = _page(value.page)
     confidence = _confidence_value(value.confidence)
     if not source_id or not checksum or not document_date or not known_at or page is None or confidence is None:
+        return False
+    if not instrument_id or _text(value.instrument_id) != instrument_id:
         return False
     if value.field_name != field_name or value.unit != unit or normalized_value is None or str(value.status).casefold() not in _USABLE_STATUSES:
         return False

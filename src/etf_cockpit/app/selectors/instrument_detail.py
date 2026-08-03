@@ -40,6 +40,7 @@ from etf_cockpit.application.ui_facade import (
     read_index_methodology_records,
     read_priips_kid_records,
     score_history_frame,
+    STRUCTURAL_FIELDS,
     sort_news_items,
     sort_calendar_events,
 )
@@ -47,7 +48,6 @@ from etf_cockpit.core.paths import DERIVED_DIR
 from etf_cockpit.core.paths import ETF_QUOTES_PATH
 from etf_cockpit.features.etf_economics import calculate_etf_liquidity
 from etf_cockpit.services import CockpitSnapshot
-from etf_cockpit.data.etf_structure import STRUCTURAL_FIELDS
 from etf_cockpit.application.ui_facade import SimpleInstrumentScore
 from etf_cockpit.application.ui_facade import load_peer_cohort_projection
 from etf_cockpit.application.ui_facade import load_financial_institution_projection

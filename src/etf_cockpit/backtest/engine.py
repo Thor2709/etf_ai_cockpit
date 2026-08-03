@@ -192,6 +192,7 @@ def run_backtest(
     structure_document_registry: object = None,
     structure_report_records: object = None,
     structure_supplemental_rows: object = None,
+    structure_holdings: object = None,
 ) -> BacktestReport:
     pivot_raw = _price_pivot(prices)
     columns = [column for column in config.universe.enabled_ids if column in pivot_raw.columns]
@@ -236,6 +237,7 @@ def run_backtest(
             structure_document_registry=structure_document_registry,
             structure_report_records=structure_report_records,
             structure_supplemental_rows=structure_supplemental_rows,
+            holdings=structure_holdings,
         ),
     }
     if missing_observation_rows:
@@ -339,6 +341,7 @@ def run_backtest(
                 document_registry=structure_document_registry,
                 report_records=structure_report_records,
                 supplemental_rows=structure_supplemental_rows,
+                holdings=structure_holdings,
                 decision_time=dt.date(),
             )
             signals = generate_signals(
