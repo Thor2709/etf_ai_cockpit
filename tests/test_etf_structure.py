@@ -643,6 +643,26 @@ def test_no_derivatives_and_no_securities_lending_do_not_activate_risk_branches(
     assert not any(flag.startswith(("synthetic_", "lending_")) for flag in projection["flags"])
 
 
+def test_explicit_synthetic_and_derivative_negations_remain_negative_through_facade() -> None:
+    from etf_cockpit.application.ui_facade import load_etf_structure_projection
+
+    report = _report()
+    evidence = json.loads(report.loc[0, "field_evidence"])
+    for item in evidence:
+        if item["field_name"] == "replication_method":
+            item["value"] = "Not synthetic"
+        elif item["field_name"] == "derivatives":
+            item["value"] = "No derivative exposure"
+    report.loc[0, "field_evidence"] = json.dumps(evidence)
+    _refresh_report_fingerprint(report)
+
+    projection = load_etf_structure_projection("ETF-1", document_registry=_registry(), report_records=report)
+
+    assert "counterparties" not in projection["applicable_fields"]
+    assert "collateral_terms" not in projection["applicable_fields"]
+    assert not any(flag.startswith("synthetic_") for flag in projection["flags"])
+
+
 def test_report_document_family_mismatch_fails_closed() -> None:
     report = _report()
     report.loc[0, "document_type"] = "annual_report"
@@ -651,6 +671,92 @@ def test_report_document_family_mismatch_fails_closed() -> None:
 
     assert projection["fields"]["replication_method"]["status"] == "unknown"
     assert any(item["reason_code"] == "candidate_document_family_mismatch" for item in projection["rejected_candidates"])
+
+
+def test_numeric_stress_requires_report_document_family_binding_through_facade() -> None:
+    from etf_cockpit.application.ui_facade import load_etf_structure_projection
+
+    numeric = {
+        field: NumericEvidence(
+            value,
+            unit,
+            "report:v2:one",
+            "2026-07-01",
+            4,
+            "high",
+            "2026-07-02T00:00:00Z",
+            CHECKSUM,
+            "ETF-1",
+            field,
+        )
+        for field, value, unit in (
+            ("exposure", "0.4", "fraction_of_nav"),
+            ("collateral_fraction", "0.8", "fraction_of_exposure"),
+            ("haircut_fraction", "0.1", "scenario_haircut_fraction"),
+            ("concentration_limit_fraction", "0.25", "fraction_of_collateral"),
+        )
+    }
+    report = _report()
+    report.loc[0, "document_type"] = "factsheet"
+    _refresh_report_fingerprint(report)
+
+    projection = load_etf_structure_projection(
+        "ETF-1",
+        document_registry=_registry(),
+        report_records=report,
+        numeric_inputs=numeric,
+        numeric_candidates=list(numeric.values()),
+    )
+
+    assert projection["stress"]["status"] == "unavailable"
+    assert projection["execution_allowed"] is False
+
+
+@pytest.mark.parametrize("parse_success", ["true", 1, None])
+def test_parse_success_requires_stored_boolean_true_in_canonical_and_supplied_paths(parse_success: object) -> None:
+    import etf_cockpit.data.parsed_disclosures as disclosures
+    from etf_cockpit.application.ui_facade import load_etf_structure_projection
+
+    report = _report()
+    report["parse_success"] = report["parse_success"].astype(object)
+    report.loc[0, "parse_success"] = parse_success
+    _refresh_report_fingerprint(report)
+
+    with pytest.raises(ValueError, match="incomplete report cannot be evidence eligible"):
+        disclosures._read_report_frame_from_frame(report, validate_authority=False)
+
+    projection = load_etf_structure_projection("ETF-1", document_registry=_registry(), report_records=report)
+    caps = structure_confidence_caps(["ETF-1"], document_registry=_registry(), report_records=report)
+
+    assert projection["status"] == "unusable"
+    assert projection["fields"]["replication_method"]["status"] == "unknown"
+    assert projection["evidence_confidence_cap"] == 0.0
+    assert caps["ETF-1"] == 0.0
+    assert projection["execution_allowed"] is False
+
+
+def test_duplicate_registry_source_ids_fail_closed_for_structure_and_backtest_cache_identity() -> None:
+    registry = _registry()
+    duplicate = registry.copy()
+    duplicate.loc[0, "instrument_id"] = "ETF-2"
+    malformed_registry = pd.concat([registry, duplicate], ignore_index=True)
+    config = load_config()
+    prices = pd.DataFrame(
+        {"date": ["2026-01-01"], "etf_id": [config.universe.enabled_ids[0]], "adjusted_close": [100.0]}
+    )
+
+    from etf_cockpit.data.etf_structure import structure_input_checksum
+
+    with pytest.raises(ValueError, match="duplicate source_id"):
+        structure_input_checksum(document_registry=malformed_registry, report_records=_report())
+    with pytest.raises(ValueError, match="duplicate source_id"):
+        backtest_input_checksum(
+            config,
+            prices,
+            None,
+            structure_document_registry=malformed_registry,
+            structure_report_records=_report(),
+        )
 
 
 def test_backtest_input_checksum_includes_structural_evidence() -> None:

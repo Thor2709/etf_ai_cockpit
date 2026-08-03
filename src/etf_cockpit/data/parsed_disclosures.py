@@ -1148,7 +1148,12 @@ def _document_family(value: Any) -> str:
 
 
 def _row_is_verifiable(row: pd.Series) -> bool:
-    if str(row.get("extraction_status")) != "complete" or not bool(row.get("parse_success")):
+    parse_success = row.get("parse_success")
+    if (
+        str(row.get("extraction_status")) != "complete"
+        or type(parse_success).__name__ not in {"bool", "bool_"}
+        or not bool(parse_success)
+    ):
         return False
     try:
         evidence = json.loads(str(row.get("field_evidence") or "[]"))

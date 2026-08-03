@@ -546,12 +546,16 @@ def structure_input_checksum(
 ) -> str:
     """Fingerprint every local structural input that can change a projection."""
 
+    registry_rows = _rows(document_registry)
+    duplicate_registry_ids = _duplicate_source_ids(registry_rows)
+    if duplicate_registry_ids:
+        raise ValueError(f"document registry contains duplicate source_id values: {', '.join(sorted(duplicate_registry_ids))}")
     validated_reports = _validated_report_rows(report_records)
     payload = {
         "projection_version": STRUCTURE_PROJECTION_VERSION,
         "schema_version": STRUCTURE_SCHEMA_VERSION,
         "confidence_version": STRUCTURE_CONFIDENCE_VERSION,
-        "document_registry": _stable_rows(document_registry),
+        "document_registry": _stable_rows(registry_rows),
         "report_records": _stable_rows(validated_reports),
         "supplemental_rows": _stable_rows(supplemental_rows),
         "holdings": _stable_rows(holdings),
@@ -589,12 +593,7 @@ def _validated_report_rows(value: object) -> list[dict[str, object]]:
 def _bound_registry(target: str, rows: list[dict[str, object]], decision: datetime | None) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     bound: list[dict[str, object]] = []
     rejected: list[dict[str, object]] = []
-    source_counts: dict[str, int] = {}
-    for row in rows:
-        source_id = _text(row.get("source_id"))
-        if source_id:
-            source_counts[source_id] = source_counts.get(source_id, 0) + 1
-    duplicate_source_ids = {source_id for source_id, count in source_counts.items() if count > 1}
+    duplicate_source_ids = _duplicate_source_ids(rows)
     for row in rows:
         if str(row.get("instrument_id") or "").strip() != target:
             continue
@@ -616,6 +615,15 @@ def _bound_registry(target: str, rows: list[dict[str, object]], decision: dateti
     return bound, rejected
 
 
+def _duplicate_source_ids(rows: Iterable[Mapping[str, object]]) -> set[str]:
+    source_counts: dict[str, int] = {}
+    for row in rows:
+        source_id = _text(row.get("source_id"))
+        if source_id:
+            source_counts[source_id] = source_counts.get(source_id, 0) + 1
+    return {source_id for source_id, count in source_counts.items() if count > 1}
+
+
 def _report_candidates(value: object, registry: list[dict[str, object]], target: str, decision: datetime | None) -> tuple[list[StructureCandidate], list[dict[str, object]]]:
     result: list[StructureCandidate] = []
     rejected: list[dict[str, object]] = []
@@ -626,10 +634,7 @@ def _report_candidates(value: object, registry: list[dict[str, object]], target:
         if not source_id or registered is None or str(row.get("instrument_id") or "").strip() != target:
             rejected.append({"reason_code": "candidate_not_bound_to_registry", "source_id": source_id or "unavailable"})
             continue
-        registry_family = _family(str(registered.get("document_kind") or registered.get("document_type") or ""))
-        report_types = [_text(row.get("document_type")), _text(row.get("document_kind"))]
-        report_families = {_family(item) for item in report_types if item}
-        if not report_families or not report_families.issubset({registry_family}):
+        if not _report_family_matches_registry(row, registered):
             rejected.append({"reason_code": "candidate_document_family_mismatch", "source_id": source_id})
             continue
         report_kind = _text(row.get("document_kind"))
@@ -964,7 +969,7 @@ def _applicable_fields(fields: Mapping[str, Mapping[str, object]]) -> tuple[tupl
     return tuple(applicable), evidence
 
 
-def _positive_disclosure(value: str, positive_terms: Iterable[str], *, negative_terms: Iterable[str] = ("no derivatives", "no swaps", "not used", "none used", "none", "not permitted", "prohibited", "not allowed")) -> bool:
+def _positive_disclosure(value: str, positive_terms: Iterable[str], *, negative_terms: Iterable[str] = ("no derivative", "no swaps", "not synthetic", "not used", "none used", "none", "not permitted", "prohibited", "not allowed")) -> bool:
     text = " ".join(str(value or "").casefold().replace("-", " ").split())
     if any(term in text for term in negative_terms):
         return False
@@ -1225,9 +1230,17 @@ def _report_identity_matches(
         and row_checksum == (_text(registered.get("checksum")) or _text(registered.get("sha256")))
         and row_date == _date_text(registered.get("document_date"))
         and row_known_at == (_date_time_text(registered.get("known_at")) or _date_time_text(registered.get("ingested_at")))
+        and _report_family_matches_registry(row, registered)
         and _text(row.get("document_kind")) == _text(registered.get("document_kind"))
         and _text(row.get("source_authority")) == (_text(registered.get("authority")) or _text(registered.get("source_authority")))
     )
+
+
+def _report_family_matches_registry(row: Mapping[str, object], registered: Mapping[str, object]) -> bool:
+    registry_family = _family(str(registered.get("document_kind") or registered.get("document_type") or ""))
+    report_types = [_text(row.get("document_type")), _text(row.get("document_kind"))]
+    report_families = {_family(item) for item in report_types if item}
+    return bool(registry_family and report_families and report_families.issubset({registry_family}))
 
 
 def _unavailable_stress(reason_code: str = "numeric_evidence_not_supplied") -> dict[str, object]:
