@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -13,6 +14,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, read_atomic_group
+from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.paths import DATA_DIR
 
 
@@ -97,6 +99,8 @@ class ThesisDiaryEntry(BaseModel):
     evidence_snapshot_hash: str
     llm_output: dict[str, Any]
     llm_output_hash: str
+    generation_record: dict[str, Any]
+    generation_record_hash: str
     instrument_id: str = "unavailable"
     input_sources: list[str] = Field(default_factory=list)
     thesis_summary: str = ""
@@ -114,6 +118,7 @@ class ThesisDiaryEntry(BaseModel):
     expires_at: str | None = None
     execution_allowed: Literal[False] = False
     executable_authority: Literal[False] = False
+    content_redacted: bool = False
     checksum: str | None = None
 
 
@@ -162,6 +167,7 @@ def build_thesis_entry(
     created_at: str | None = None,
     redaction_state: Literal["unredacted", "redacted"] = "unredacted",
     expires_at: str | None = None,
+    generation_record: dict[str, Any] | None = None,
 ) -> ThesisDiaryEntry:
     """Build a hash-bound entry; no caller-supplied content hash is trusted."""
 
@@ -181,6 +187,8 @@ def build_thesis_entry(
     checkpoint_values = dict(outcomes or {horizon: None for horizon in sorted(_OUTCOME_HORIZONS)})
     if set(checkpoint_values) - _OUTCOME_HORIZONS:
         raise ValueError("thesis outcomes must use 20, 60 or 120 trading-day horizons")
+    if any(value is not None for value in checkpoint_values.values()):
+        raise ValueError("initial thesis outcomes must be empty")
     if backtest_validity not in _BACKTEST_VALIDITY:
         raise ValueError("unsupported thesis backtest validity")
     if backtest_validity == "forward_only":
@@ -191,6 +199,13 @@ def build_thesis_entry(
         if not isinstance(value, dict):
             raise ValueError(f"{name} must be a JSON object")
         canonical_json(value)
+    generation = generation_record or {
+        "request": {"messages": [{"role": "user", "content": prompt}]},
+        "response": {"parsed_output": llm_output},
+    }
+    if not isinstance(generation, dict):
+        raise ValueError("thesis generation record must be a JSON object")
+    canonical_json(generation)
     fields = {
         "prompt": prompt,
         "model": model,
@@ -198,6 +213,7 @@ def build_thesis_entry(
         "retrieval_snapshot": retrieval_snapshot,
         "evidence_snapshot": evidence_snapshot,
         "llm_output": llm_output,
+        "generation_record": generation,
         "instrument_id": instrument,
         "input_sources": sources,
         "thesis_summary": thesis_summary,
@@ -229,6 +245,8 @@ def build_thesis_entry(
         evidence_snapshot_hash=sha256_value(evidence_snapshot),
         llm_output=llm_output,
         llm_output_hash=sha256_value(llm_output),
+        generation_record=generation,
+        generation_record_hash=sha256_value(generation),
         instrument_id=instrument,
         input_sources=sources,
         thesis_summary=thesis_summary,
@@ -287,8 +305,20 @@ def _validate_hash_bindings(entry: ThesisDiaryEntry) -> None:
         "retrieval_hash": sha256_value(entry.retrieval_snapshot),
         "evidence_snapshot_hash": sha256_value(entry.evidence_snapshot),
         "llm_output_hash": sha256_value(entry.llm_output),
+        "generation_record_hash": sha256_value(entry.generation_record),
     }
     for field, value in expected.items():
+        if entry.content_redacted and field in {
+            "prompt_hash",
+            "model_hash",
+            "source_hash",
+            "retrieval_hash",
+            "evidence_snapshot_hash",
+            "llm_output_hash",
+            "generation_record_hash",
+        }:
+            _hash(getattr(entry, field), field)
+            continue
         if getattr(entry, field) != value:
             raise ThesisDiaryIntegrityError(f"thesis hash binding mismatch: {entry.thesis_id}:{field}")
     if entry.checksum != _entry_checksum(entry):
@@ -297,8 +327,8 @@ def _validate_hash_bindings(entry: ThesisDiaryEntry) -> None:
     _safe_id(entry.instrument_id, "instrument id")
     if any(not isinstance(source, str) or not source.strip() for source in entry.input_sources):
         raise ThesisDiaryIntegrityError(f"thesis input source is invalid: {entry.thesis_id}")
-    if set(entry.outcomes) - _OUTCOME_HORIZONS:
-        raise ThesisDiaryIntegrityError(f"thesis outcome horizon is invalid: {entry.thesis_id}")
+    if set(entry.outcomes) != _OUTCOME_HORIZONS or any(value is not None for value in entry.outcomes.values()):
+        raise ThesisDiaryIntegrityError(f"initial thesis outcomes are not empty: {entry.thesis_id}")
     if entry.backtest_validity == "forward_only":
         metadata = entry.evidence_snapshot.get("backtest_metadata")
         if not isinstance(metadata, dict) or metadata.get("forward_only") is not True or metadata.get("llm_available_at_decision") is not True:
@@ -309,6 +339,8 @@ def _validate_hash_bindings(entry: ThesisDiaryEntry) -> None:
         raise ThesisDiaryIntegrityError(f"thesis expiry precedes decision time: {entry.thesis_id}")
     if entry.execution_allowed is not False or entry.executable_authority is not False:
         raise ThesisDiaryIntegrityError("thesis diary execution authority is not false")
+    if not isinstance(entry.content_redacted, bool):
+        raise ThesisDiaryIntegrityError("thesis diary redaction marker is invalid")
 
 
 def _validate_event(event: dict[str, Any], expected_sequence: int | None = None) -> None:
@@ -365,6 +397,18 @@ def _validate_event(event: dict[str, Any], expected_sequence: int | None = None)
         raise ThesisDiaryIntegrityError(f"thesis diary event checksum mismatch: {event['event_id']}")
 
 
+def _validate_outcome_timing(entry: ThesisDiaryEntry, event: dict[str, Any]) -> None:
+    if event["operation"] != "outcome":
+        return
+    observed_at = _time_key(event["payload"]["observed_at"])
+    event_decision_time = _time_key(event["decision_time"])
+    thesis_decision_time = _time_key(entry.decision_time)
+    if not thesis_decision_time <= observed_at <= event_decision_time:
+        raise ThesisDiaryIntegrityError(
+            f"thesis outcome observation is outside decision bounds: {entry.thesis_id}"
+        )
+
+
 class ThesisDiaryStore:
     """Persist immutable entry payloads and a chained append-only event log."""
 
@@ -384,6 +428,22 @@ class ThesisDiaryStore:
     @property
     def events_path(self) -> Path:
         return self.directory / "events.jsonl"
+
+    @property
+    def commitment_path(self) -> Path:
+        return self.directory / "events.commitment.json"
+
+    @property
+    def guard_path(self) -> Path:
+        return self.directory / ".thesis-diary.guard"
+
+    @contextmanager
+    def _transaction(self):
+        """Serialize the complete read/validate/write transaction cross-process."""
+
+        with self._lock:
+            with persistent_file_guard(self.guard_path):
+                yield
 
     def entry_path(self, thesis_id: str) -> Path:
         return self.directory / "entries" / f"{_safe_id(thesis_id)}.json"
@@ -439,6 +499,33 @@ class ThesisDiaryStore:
             events.append(event)
         return events
 
+    def _read_commitment(self, events: list[dict[str, Any]]) -> None:
+        if not self.commitment_path.is_file():
+            if events:
+                raise ThesisDiaryIntegrityError("thesis diary event commitment is missing")
+            return
+        try:
+            payload = json.loads(read_atomic_group((self.commitment_path,))[0].decode("utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ThesisDiaryIntegrityError("thesis diary event commitment is unreadable") from exc
+        expected = {
+            "schema_version": THESIS_DIARY_SCHEMA,
+            "sequence": len(events),
+            "event_hash": events[-1]["event_hash"] if events else None,
+            "events_hash": sha256_value(events),
+        }
+        if payload != expected:
+            raise ThesisDiaryIntegrityError("thesis diary event commitment is inconsistent")
+
+    @staticmethod
+    def _commitment(events: list[dict[str, Any]]) -> dict[str, Any]:
+        return {
+            "schema_version": THESIS_DIARY_SCHEMA,
+            "sequence": len(events),
+            "event_hash": events[-1]["event_hash"] if events else None,
+            "events_hash": sha256_value(events),
+        }
+
     def _load(self) -> tuple[dict[str, ThesisDiaryEntry], list[dict[str, Any]]]:
         index = self._read_index()
         entries: dict[str, ThesisDiaryEntry] = {}
@@ -462,11 +549,18 @@ class ThesisDiaryStore:
             raise ThesisDiaryIntegrityError("thesis diary has events but no entries")
         created_ids: set[str] = set()
         first_event_by_thesis: set[str] = set()
+        previous_decision_time: datetime | None = None
         for event in events:
             if event["thesis_id"] not in entries:
                 raise ThesisDiaryIntegrityError("thesis diary event references an unknown thesis")
             if event["thesis_id"] not in first_event_by_thesis and event["operation"] != "created":
                 raise ThesisDiaryIntegrityError("thesis diary lifecycle starts without a creation event")
+            if _time_key(event["decision_time"]) < _time_key(entries[event["thesis_id"]].decision_time):
+                raise ThesisDiaryIntegrityError("thesis diary event precedes thesis decision time")
+            if previous_decision_time is not None and _time_key(event["decision_time"]) < previous_decision_time:
+                raise ThesisDiaryIntegrityError("thesis diary event history is backdated")
+            _validate_outcome_timing(entries[event["thesis_id"]], event)
+            previous_decision_time = _time_key(event["decision_time"])
             first_event_by_thesis.add(event["thesis_id"])
             if event["operation"] == "created":
                 if event["thesis_id"] in created_ids or event["payload"] != {"entry_checksum": entries[event["thesis_id"]].checksum} or event["decision_time"] != entries[event["thesis_id"]].decision_time:
@@ -474,13 +568,14 @@ class ThesisDiaryStore:
                 created_ids.add(event["thesis_id"])
         if created_ids != set(entries):
             raise ThesisDiaryIntegrityError("thesis diary creation events are incomplete")
+        self._read_commitment(events)
         return entries, events
 
     def create(self, entry: ThesisDiaryEntry) -> ThesisDiaryEntry:
         """Create once; replaying the same identity/content is idempotent."""
 
         _validate_hash_bindings(entry)
-        with self._lock:
+        with self._transaction():
             entries, events = self._load()
             existing = entries.get(entry.thesis_id)
             if existing is not None:
@@ -496,6 +591,8 @@ class ThesisDiaryStore:
             index.append({"thesis_id": entry.thesis_id, "created_at": entry.created_at, "checksum": str(entry.checksum)})
             index.sort(key=lambda row: (row["created_at"], row["thesis_id"]))
             previous = events[-1]["event_hash"] if events else None
+            if events and _time_key(entry.decision_time) < _time_key(events[-1]["decision_time"]):
+                raise ValueError("thesis diary creation cannot be backdated")
             event = {
                 "schema_version": THESIS_DIARY_SCHEMA,
                 "sequence": len(events) + 1,
@@ -515,23 +612,25 @@ class ThesisDiaryStore:
                 AtomicWriteRequest(diary_entry_path, _json_bytes(entry.model_dump(mode="json")), lambda path: ThesisDiaryEntry.model_validate(json.loads(path.read_text(encoding="utf-8")))),
                 AtomicWriteRequest(self.index_path, _json_bytes(index), lambda path: json.loads(path.read_text(encoding="utf-8"))),
                 AtomicWriteRequest(self.events_path, event_bytes, lambda path: path.read_bytes()),
+                AtomicWriteRequest(self.commitment_path, _json_bytes(self._commitment(new_events)), lambda path: json.loads(path.read_text(encoding="utf-8"))),
             )
             atomic_write_group(requests)
             return entry
 
     def get(self, thesis_id: str) -> ThesisDiaryEntry:
-        entries, _ = self._load()
-        try:
-            return entries[_safe_id(thesis_id)]
-        except KeyError as exc:
-            raise KeyError(f"unknown thesis: {thesis_id}") from exc
+        with self._transaction():
+            entries, _ = self._load()
+            try:
+                return entries[_safe_id(thesis_id)]
+            except KeyError as exc:
+                raise KeyError(f"unknown thesis: {thesis_id}") from exc
 
     def list_entries(self) -> list[ThesisDiaryEntry]:
-        entries, _ = self._load()
-        return sorted(entries.values(), key=lambda entry: (entry.created_at, entry.thesis_id))
+        with self._transaction():
+            entries, _ = self._load()
+            return sorted(entries.values(), key=lambda entry: (entry.created_at, entry.thesis_id))
 
     def _append(self, thesis_id: str, operation: str, payload: dict[str, Any], *, decision_time: str, event_id: str | None = None) -> dict[str, Any]:
-        entry = self.get(thesis_id)
         decision = _normalise_time(decision_time)
         if operation not in _OPERATIONS - {"created"}:
             raise ValueError("unsupported thesis diary event operation")
@@ -549,9 +648,11 @@ class ThesisDiaryStore:
             payload = {**payload, "expires_at": _normalise_time(str(payload.get("expires_at", "")))}
         if operation == "outcome" and not payload.get("outcome"):
             raise ValueError("outcome event requires a non-empty outcome")
-        with self._lock:
+        with self._transaction():
             entries, events = self._load()
-            entry = entries[entry.thesis_id]
+            entry = entries.get(_safe_id(thesis_id))
+            if entry is None:
+                raise KeyError(f"unknown thesis: {thesis_id}")
             existing_event_id = event_id or f"{operation}-{sha256_value({'thesis_id': thesis_id, 'decision_time': decision, 'payload': payload})[:32]}"
             _safe_id(existing_event_id, "event id")
             candidate_values = {
@@ -573,9 +674,17 @@ class ThesisDiaryStore:
                     raise ThesisDiaryConflictError(f"conflicting thesis event identity: {existing_event_id}")
             if events and _time_key(decision) < _time_key(events[-1]["decision_time"]):
                 raise ValueError("thesis diary events cannot be backdated")
+            if _time_key(decision) < _time_key(entry.decision_time):
+                raise ValueError("thesis diary event precedes thesis decision time")
+            _validate_outcome_timing(entry, candidate_values)
             _validate_event(candidate_values, len(events) + 1)
             new_events = events + [candidate_values]
-            atomic_write_group((AtomicWriteRequest(self.events_path, b"".join(_json_bytes(item) for item in new_events), lambda path: path.read_bytes()),))
+            atomic_write_group(
+                (
+                    AtomicWriteRequest(self.events_path, b"".join(_json_bytes(item) for item in new_events), lambda path: path.read_bytes()),
+                    AtomicWriteRequest(self.commitment_path, _json_bytes(self._commitment(new_events)), lambda path: json.loads(path.read_text(encoding="utf-8"))),
+                )
+            )
             return candidate_values
 
     def append_redaction(self, thesis_id: str, *, state: Literal["unredacted", "redacted"], reason: str, decision_time: str, event_id: str | None = None) -> dict[str, Any]:
@@ -594,39 +703,106 @@ class ThesisDiaryStore:
         return self._append(thesis_id, "outcome", payload, decision_time=decision_time, event_id=event_id)
 
     def replay(self, thesis_id: str, *, at: str | None = None) -> ThesisDiaryState:
-        entries, events = self._load()
-        entry = entries.get(_safe_id(thesis_id))
-        if entry is None:
-            raise KeyError(f"unknown thesis: {thesis_id}")
-        cutoff = _normalise_time(at) if at is not None else None
-        if cutoff is not None and _time_key(cutoff) < _time_key(entry.decision_time):
-            raise ValueError("replay time precedes thesis decision time")
-        selected = [event for event in events if event["thesis_id"] == entry.thesis_id and (cutoff is None or _time_key(event["decision_time"]) <= _time_key(cutoff))]
-        selected.sort(key=lambda event: (event["decision_time"], event["sequence"]))
-        redaction_state = entry.redaction_state
-        review: dict[str, Any] = {"status": entry.human_review_status, "reviewer": None, "notes": ""}
-        expires_at = entry.expires_at
-        outcomes: list[dict[str, Any]] = []
-        applied: list[str] = []
-        for event in selected:
-            applied.append(event["event_id"])
-            if event["operation"] == "redaction":
-                redaction_state = event["payload"]["state"]
-            elif event["operation"] == "review":
-                review = dict(event["payload"])
-            elif event["operation"] == "expiry":
-                expires_at = event["payload"]["expires_at"]
-            elif event["operation"] == "outcome":
-                outcomes.append(dict(event["payload"]))
-        replayed_at = cutoff
-        replay_time = _time_key(cutoff) if cutoff is not None else datetime.now(timezone.utc)
-        expired = expires_at is not None and _time_key(expires_at) <= replay_time
-        return ThesisDiaryState(thesis_id=entry.thesis_id, entry=entry, redaction_state=redaction_state, human_review=review, expires_at=expires_at, expired=expired, outcomes=tuple(outcomes), applied_event_ids=tuple(applied), replayed_at=replayed_at)
+        with self._transaction():
+            entries, events = self._load()
+            entry = entries.get(_safe_id(thesis_id))
+            if entry is None:
+                raise KeyError(f"unknown thesis: {thesis_id}")
+            cutoff = _normalise_time(at) if at is not None else None
+            if cutoff is not None and _time_key(cutoff) < _time_key(entry.decision_time):
+                raise ValueError("replay time precedes thesis decision time")
+            selected = [event for event in events if event["thesis_id"] == entry.thesis_id and (cutoff is None or _time_key(event["decision_time"]) <= _time_key(cutoff))]
+            selected.sort(key=lambda event: (event["decision_time"], event["sequence"]))
+            redaction_state = entry.redaction_state
+            review: dict[str, Any] = {"status": entry.human_review_status, "reviewer": None, "notes": ""}
+            expires_at = entry.expires_at
+            outcomes: list[dict[str, Any]] = []
+            applied: list[str] = []
+            for event in selected:
+                applied.append(event["event_id"])
+                if event["operation"] == "redaction":
+                    redaction_state = event["payload"]["state"]
+                elif event["operation"] == "review":
+                    review = dict(event["payload"])
+                elif event["operation"] == "expiry":
+                    expires_at = event["payload"]["expires_at"]
+                elif event["operation"] == "outcome":
+                    outcomes.append(dict(event["payload"]))
+            replayed_at = cutoff
+            replay_time = _time_key(cutoff) if cutoff is not None else datetime.now(timezone.utc)
+            expired = expires_at is not None and _time_key(expires_at) <= replay_time
+            return ThesisDiaryState(thesis_id=entry.thesis_id, entry=entry, redaction_state=redaction_state, human_review=review, expires_at=expires_at, expired=expired, outcomes=tuple(outcomes), applied_event_ids=tuple(applied), replayed_at=replayed_at)
 
-    def export_packet(self) -> dict[str, Any]:
-        entries, events = self._load()
-        entry_records = [entries[key].model_dump(mode="json") for key in sorted(entries)]
-        event_records = [dict(event) for event in events]
+    def export_packet(self, *, disclosure_safe: bool = False) -> dict[str, Any]:
+        with self._transaction():
+            entries, events = self._load()
+            return self._export_packet_locked(entries, events, disclosure_safe=disclosure_safe)
+
+    def _export_packet_locked(
+        self,
+        entries: dict[str, ThesisDiaryEntry],
+        events: list[dict[str, Any]],
+        *,
+        disclosure_safe: bool,
+    ) -> dict[str, Any]:
+        original_commitment = self._commitment(events)
+        redacted_ids: set[str] = set()
+        redaction_states = {key: entries[key].redaction_state for key in entries}
+        for event in events:
+            if event["operation"] == "redaction":
+                redaction_states[event["thesis_id"]] = event["payload"]["state"]
+        if disclosure_safe:
+            redacted_ids = {key for key, state in redaction_states.items() if state == "redacted"}
+
+        entry_records: list[dict[str, Any]] = []
+        for key in sorted(entries):
+            entry = entries[key]
+            if key in redacted_ids:
+                safe_entry = entry.model_copy(
+                    update={
+                        "prompt": "[REDACTED]",
+                        "model": "[REDACTED]",
+                        "source_snapshot": {"redacted": True},
+                        "retrieval_snapshot": {"redacted": True},
+                        "evidence_snapshot": {"redacted": True},
+                        "llm_output": {"redacted": True},
+                        "generation_record": {"redacted": True},
+                        "input_sources": [],
+                        "thesis_summary": "[REDACTED]",
+                        "risk_summary": "[REDACTED]",
+                        "contradiction_summary": "[REDACTED]",
+                        "redaction_state": "redacted",
+                        "content_redacted": True,
+                        "checksum": None,
+                    }
+                )
+                safe_entry = safe_entry.model_copy(update={"checksum": _entry_checksum(safe_entry)})
+                entry_records.append(safe_entry.model_dump(mode="json"))
+            else:
+                entry_records.append(entry.model_dump(mode="json"))
+
+        event_records: list[dict[str, Any]] = []
+        previous: str | None = None
+        safe_checksums = {record["thesis_id"]: record["checksum"] for record in entry_records}
+        for event in events:
+            safe_event = dict(event)
+            if event["thesis_id"] in redacted_ids:
+                payload = dict(event["payload"])
+                if event["operation"] == "created":
+                    payload["entry_checksum"] = safe_checksums[event["thesis_id"]]
+                elif event["operation"] == "redaction":
+                    payload["reason"] = "[REDACTED]"
+                elif event["operation"] == "review":
+                    payload.update({"reviewer": "[REDACTED]", "notes": "[REDACTED]"})
+                elif event["operation"] == "expiry":
+                    payload["reason"] = "[REDACTED]"
+                elif event["operation"] == "outcome":
+                    payload.update({"outcome": "[REDACTED]", "details": {"redacted": True}})
+                safe_event["payload"] = payload
+            safe_event["previous_event_hash"] = previous
+            safe_event["event_hash"] = _event_checksum(safe_event)
+            previous = safe_event["event_hash"]
+            event_records.append(safe_event)
         return {
             "schema_version": THESIS_DIARY_SCHEMA,
             "execution_allowed": False,
@@ -636,6 +812,10 @@ class ThesisDiaryStore:
             "checksums": {
                 "entries": {record["thesis_id"]: record["checksum"] for record in entry_records},
                 "events": sha256_value(event_records),
+            },
+            "local_commitments": {
+                "entries": {key: entries[key].checksum for key in sorted(entries)},
+                "events": original_commitment,
             },
         }
 
@@ -675,8 +855,11 @@ def reproduce_thesis_from_packet(packet: dict[str, Any], thesis_id: str, *, at: 
         if event["thesis_id"] not in first_event_by_thesis and event["operation"] != "created":
             raise ThesisDiaryIntegrityError("thesis diary packet lifecycle starts without a creation event")
         first_event_by_thesis.add(event["thesis_id"])
+        entry = entries[event["thesis_id"]]
+        if _time_key(event["decision_time"]) < _time_key(entry.decision_time):
+            raise ThesisDiaryIntegrityError("thesis diary packet event precedes thesis decision time")
+        _validate_outcome_timing(entry, event)
         if event["operation"] == "created":
-            entry = entries[event["thesis_id"]]
             if event["thesis_id"] in created_ids or event["payload"] != {"entry_checksum": entry.checksum} or event["decision_time"] != entry.decision_time:
                 raise ThesisDiaryIntegrityError("thesis diary packet creation binding is inconsistent")
             created_ids.add(event["thesis_id"])
@@ -716,7 +899,7 @@ def reproduce_thesis_from_packet(packet: dict[str, Any], thesis_id: str, *, at: 
 def export_thesis_diary_packet(destination: Path, *, root: Path = DATA_DIR) -> Path:
     """Write a deterministic, independently reproducible diary evidence file."""
 
-    payload = ThesisDiaryStore(root).export_packet()
+    payload = ThesisDiaryStore(root).export_packet(disclosure_safe=True)
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_group((AtomicWriteRequest(destination, _json_bytes(payload), lambda path: json.loads(path.read_text(encoding="utf-8"))),))

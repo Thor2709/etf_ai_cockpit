@@ -656,6 +656,12 @@ def test_store_modules_and_tests_require_platform_gate_without_substring_spillov
     assert boundary["package_gate_required"] is False
 
 
+def test_thesis_diary_persistence_surface_is_explicitly_h() -> None:
+    assert build_report(["src/etf_cockpit/audit/thesis_diary.py"])["tier"] == "H"
+    assert build_report(["src/etf_cockpit/audit/local_llm.py"], ordinary_issues_since_full_gate=0)["tier"] == "O"
+    assert build_report(["docs/product-completion/PROGRESS.md"])["tier"] == "E"
+
+
 def test_terminal_summary_accepts_every_valid_conditional_combination() -> None:
     common = {"classifier": "success", "preflight": "success", "supply_chain": "success"}
 

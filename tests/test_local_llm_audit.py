@@ -7,8 +7,11 @@ from etf_cockpit.audit.local_llm import (
     LocalLLMSettings,
     build_local_audit_context,
     check_local_llm_status,
+    generate_local_audit_commentary,
     parse_local_llm_response,
+    save_local_audit_commentary,
 )
+from etf_cockpit.audit.thesis_diary import ThesisDiaryStore
 from etf_cockpit.services import build_snapshot
 
 
@@ -82,3 +85,48 @@ def test_local_llm_context_contains_only_deterministic_snapshot_outputs() -> Non
     assert isinstance(context["signals"], list)
     assert "validation_issues" in context
     assert "backtest" in context
+
+
+def test_generation_persists_the_exact_request_and_response_binding(
+    monkeypatch, tmp_path
+) -> None:
+    context = {
+        "as_of_date": "2026-08-03",
+        "authority": "commentary_only_no_trade_execution",
+        "signals": [{"etf_id": "VWCE", "input_sources": ["scoreboard"]}],
+    }
+    response_payload = {
+        "id": "completion-1",
+        "choices": [{
+            "message": {
+                "content": '{"summary":"Review only","confidence":0.5,"executable_authority":false}'
+            }
+        }],
+    }
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(local_llm.requests, "get", lambda *_args, **_kwargs: _Response({"data": [{"id": "exact-model"}]}))
+
+    def post(_url, *, json, **_kwargs):
+        captured["body"] = json
+        return _Response(response_payload)
+
+    monkeypatch.setattr(local_llm.requests, "post", post)
+    status, commentary = generate_local_audit_commentary(context, LocalLLMSettings(model="exact-model"))
+    assert commentary is not None
+    assert status.request_envelope == captured["body"]
+    assert status.response_payload == response_payload
+
+    save_local_audit_commentary(
+        commentary,
+        model=status.model,
+        context=context,
+        request_envelope=status.request_envelope,
+        response_payload=status.response_payload,
+        directory=tmp_path / "reports",
+        diary_root=tmp_path / "data",
+    )
+    entry = ThesisDiaryStore(tmp_path / "data").list_entries()[0]
+    assert entry.prompt == captured["body"]["messages"][1]["content"]  # type: ignore[index]
+    assert entry.generation_record["request"] == captured["body"]  # type: ignore[index]
+    assert entry.generation_record["response"] == response_payload

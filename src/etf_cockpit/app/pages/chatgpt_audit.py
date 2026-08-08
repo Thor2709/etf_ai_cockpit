@@ -30,6 +30,7 @@ def _thesis_diary_text() -> str:
         return "No persisted instrument-specific LLM thesis entries."
     lines = []
     for entry in entries:
+        state = ThesisDiaryStore().replay(entry.thesis_id)
         lines.append(
             " | ".join(
                 (
@@ -43,8 +44,12 @@ def _thesis_diary_text() -> str:
                     f"thesis={entry.thesis_summary}",
                     f"risk={entry.risk_summary}",
                     f"contradictions={entry.contradiction_summary}",
-                    f"review={entry.human_review_status}",
-                    f"outcomes={entry.outcomes}",
+                    f"review={state.human_review}",
+                    f"redaction={state.redaction_state}",
+                    f"expires_at={state.expires_at or 'none'}",
+                    f"expired={state.expired}",
+                    f"outcomes={list(state.outcomes)}",
+                    f"replayed_at={state.replayed_at or 'current'}",
                     f"backtest={entry.backtest_validity}",
                     "execution_allowed=false",
                 )
@@ -119,7 +124,13 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
                 llm_output.value = f"{status.status}: {status.message}"
                 state.finish_activity(llm_output.value)
             else:
-                saved_path = save_local_audit_commentary(commentary, model=status.model, context=context)
+                saved_path = save_local_audit_commentary(
+                    commentary,
+                    model=status.model,
+                    context=context,
+                    request_envelope=status.request_envelope,
+                    response_payload=status.response_payload,
+                )
                 llm_output.value = f"Saved local LLM thesis diary: {saved_path}\n{commentary.summary}"
                 diary_output.value = _thesis_diary_text()
                 state.finish_activity(f"Saved local LLM commentary: {saved_path}", output_path=saved_path)

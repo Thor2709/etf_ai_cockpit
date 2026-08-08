@@ -31,6 +31,8 @@ class LocalLLMStatus(BaseModel):
     message: str
     base_url: str
     model: str | None = None
+    request_envelope: dict[str, Any] | None = None
+    response_payload: dict[str, Any] | None = None
 
 
 class LocalAuditCommentary(BaseModel):
@@ -204,7 +206,7 @@ def generate_local_audit_commentary(
     response.raise_for_status()
     payload = response.json()
     content = payload["choices"][0]["message"]["content"]
-    return status, parse_local_llm_response(content)
+    return status.model_copy(update={"request_envelope": body, "response_payload": payload}), parse_local_llm_response(content)
 
 
 def save_local_audit_commentary(
@@ -212,11 +214,39 @@ def save_local_audit_commentary(
     *,
     model: str | None,
     context: dict[str, Any] | None = None,
+    request_envelope: dict[str, Any] | None = None,
+    response_payload: dict[str, Any] | None = None,
     directory: Path = REPORTS_DIR,
     diary_root: Path = DATA_DIR,
 ) -> Path:
     context = context or {"status": "unavailable", "authority": "commentary_only_no_trade_execution"}
     model_name = model or "unavailable"
+    envelope = request_envelope or {
+        "model": model_name,
+        "messages": [
+            {"role": "system", "content": "You provide non-executable audit commentary only."},
+            {"role": "user", "content": build_local_audit_prompt(context)},
+        ],
+        "temperature": 0.1,
+    }
+    if not isinstance(envelope, dict):
+        raise ValueError("LLM request envelope must be a JSON object")
+    messages = envelope.get("messages")
+    prompt = (
+        messages[1].get("content")
+        if isinstance(messages, list) and len(messages) > 1 and isinstance(messages[1], dict)
+        else None
+    )
+    if not isinstance(prompt, str) or not prompt:
+        raise ValueError("LLM request envelope must contain the full user prompt")
+    generation_record = {
+        "request": envelope,
+        "response": response_payload or {
+            "choices": [{"message": {"content": json.dumps(commentary.model_dump(mode="json"), sort_keys=True)}}]
+        },
+    }
+    if not isinstance(generation_record["response"], dict):
+        raise ValueError("LLM response payload must be a JSON object")
     signals = context.get("signals")
     scoped_signals = signals if isinstance(signals, list) and signals else [{"etf_id": context.get("instrument_id", "unavailable"), "input_sources": ["cockpit_snapshot"]}]
     stored_entries = []
@@ -224,7 +254,6 @@ def save_local_audit_commentary(
         signal = signal if isinstance(signal, dict) else {}
         instrument_id = str(signal.get("etf_id") or context.get("instrument_id") or "unavailable")
         scoped_context = {**context, "signals": [signal], "instrument_id": instrument_id}
-        prompt = build_local_audit_prompt(scoped_context)
         input_sources = sorted({str(source) for source in signal.get("input_sources", []) if str(source).strip()} | {"cockpit_snapshot", f"signal:{instrument_id}"})
         source_snapshot = {"source": "cockpit_snapshot", "input_sources": input_sources, "snapshot": scoped_context}
         retrieval_snapshot = {
@@ -243,6 +272,7 @@ def save_local_audit_commentary(
             retrieval_snapshot=retrieval_snapshot,
             evidence_snapshot=scoped_context,
             llm_output=commentary.model_dump(mode="json"),
+            generation_record=generation_record,
             thesis_summary=commentary.summary,
             risk_summary="; ".join(commentary.blocked_trade_explanations) or "No additional risk summary supplied.",
             contradiction_summary="; ".join(commentary.contradictions) or "No contradictions supplied.",
@@ -265,6 +295,8 @@ def save_local_audit_commentary(
         "thesis_ids": [entry.thesis_id for entry in stored_entries],
         "thesis_checksums": {entry.thesis_id: entry.checksum for entry in stored_entries},
         "instrument_ids": [entry.instrument_id for entry in stored_entries],
+        "generation_record": generation_record,
+        "generation_record_hash": sha256_value(generation_record),
         "executable_authority": False,
         "commentary": commentary.model_dump(),
         "thesis_records": [entry.model_dump(mode="json") for entry in stored_entries],

@@ -1344,6 +1344,12 @@ def _thesis_diary_panel(instrument_id: str, *, root: Path | None = None) -> dict
             record.update(
                 {
                     "human_review_status": state.human_review.get("status", entry.human_review_status),
+                    "human_review": dict(state.human_review),
+                    "redaction_state": state.redaction_state,
+                    "expires_at": state.expires_at,
+                    "expired": state.expired,
+                    "replayed_at": state.replayed_at,
+                    "applied_event_ids": list(state.applied_event_ids),
                     "outcomes": outcomes,
                     "outcome_events": list(state.outcomes),
                     "execution_allowed": False,
