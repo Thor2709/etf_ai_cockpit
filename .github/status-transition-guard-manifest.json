@@ -3,23 +3,23 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "ready",
+      "from": "in_progress",
       "issue_id": "ISSUE-0104",
-      "to": "in_progress"
+      "to": "integrated"
     }
   ],
-  "base_commit": "fca004a529cccc3b0d4251fc600a897035298014",
-  "branch": "codex/issue0104-product-20260803",
+  "base_commit": "ae9a792c8ebe360618d57980be2b4e77ed746943",
+  "branch": "codex/issue0104-completion-20260809",
   "issue_ids": [
     "ISSUE-0104"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "b2a63a095aeed2e1d24af27e9840bcd0f45a002f6105e9e748921eb4bf5ac7df",
+    "base_registry_sha256": "6e79d88c047d2081fc98a39c17947eb52becbeab593c3ed4585786335aea96e0",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "6e79d88c047d2081fc98a39c17947eb52becbeab593c3ed4585786335aea96e0",
-    "reason": "Advance only ISSUE-0104 from ready to in_progress alongside its exact reviewed ETF structure implementation; preserve dependencies, acceptance criteria, external authority and execution_allowed=false.",
+    "proposed_registry_sha256": "d9bd35e11205e4e5b2450c4b5f7cf6b9cae74cc0f1622c19a1fdd924583d949e",
+    "reason": "Complete only ISSUE-0104 through the authorised two-hop in_progress to implemented_initially to integrated replay, bound to reviewed PR #655 product evidence; preserve dependencies, external authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },

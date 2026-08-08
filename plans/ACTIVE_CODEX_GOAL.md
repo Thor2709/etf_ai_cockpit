@@ -13,7 +13,39 @@ former active-goal record and chronology are archived in
 `plans/archive/ATOMIC_FAST_PATH_ISSUE-0179-0180_2026-07-31.md`. Current delivery
 mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 
-## Current ISSUE-0104 product checkpoint
+## Current ISSUE-0104 completion checkpoint
+
+- Product PR #655 merged independently approved exact head
+  `977031f161800398962111ac1e0af8f4e5646134` as
+  `ae9a792c8ebe360618d57980be2b4e77ed746943`. Exact-head H-tier run
+  `31262430310` passed preflight, supply chain, authoritative Linux and Windows
+  package gates and terminal validation; status guard `31262430312` passed.
+- Ordered writer `31265258916` applied only ISSUE-0104
+  `ready -> in_progress`, returned `applied_and_verified` with
+  `zero_action_readback=true`, and preserved `execution_allowed=false`.
+  Generic convergence `31265258925` passed without producing a patch.
+- Both report-only four-worker pilots passed. Their cross-platform aggregation
+  reported only the intentional Linux-pass/Windows-skip difference in
+  `test_memory_limit_configuration_has_a_platform_specific_stdlib_path`; this
+  is a non-authoritative follow-up and does not reopen validation infrastructure.
+- Clean completion worktree
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0104_completion`,
+  branch `codex/issue0104-completion-20260809`, started empty at exact main
+  `ae9a792c8ebe360618d57980be2b4e77ed746943`. It records only the authorised
+  ISSUE-0104 `in_progress -> implemented_initially -> integrated` replay.
+- Canonical inputs were updated first and all projections are byte-clean. Live
+  plan `96ebe03609cb9ca041067fe8e46a8e305f14dee430f8ef9ac7dd8dd501f0072c`
+  contains one status-only update for issue #244. Append-only replay authority
+  `88b3271e4b2f146d0bdf2b8f09932de00406a0b838f0709c1a096e4e28dfce91`
+  and candidate ref
+  `1a6434afbe945a1d2250b5387b9db375515bc50a67f9f836e05c3f863d06ec53`
+  bind both hops to PR #655 and preserve `execution_allowed=false`.
+- Next action is focused E-tier guard/reconciliation validation, one frozen
+  exact-head review cycle, protected merge, ordered-writer/readback proof, then
+  transplant and review the dependency-ready ISSUE-0010 product lane on fresh
+  exact main.
+
+## ISSUE-0104 product chronology
 
 - Readiness PR #654 merged independently approved exact head
   `92523800cbbb83a307b9250867b495e722b5196c` as

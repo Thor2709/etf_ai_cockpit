@@ -9,7 +9,32 @@ Current delivery mechanics are defined in
 to sole workers, Sol-low workers or old lifecycle PR chains describe past
 execution and are not current operational instructions.
 
-## Current ISSUE-0104 product lane
+## Current ISSUE-0104 completion lane
+
+Product PR #655 merged independently approved exact head
+`977031f161800398962111ac1e0af8f4e5646134` as
+`ae9a792c8ebe360618d57980be2b4e77ed746943`. H-tier run `31262430310`
+passed authoritative Linux, Windows and terminal validation; guard
+`31262430312` passed. Writer `31265258916` applied only
+`ready -> in_progress` with zero-action readback, generic convergence
+`31265258925` produced no patch, and `execution_allowed=false` remains.
+Both report-only pilots passed; their aggregate reported only the intentional
+platform-specific memory-limit test pass/skip difference, recorded as a
+non-authoritative follow-up without reopening validation infrastructure.
+
+The clean `codex/issue0104-completion-20260809` lane starts at that exact merge
+and records only `in_progress -> implemented_initially -> integrated`. Its
+byte-clean canonical projections, one-action live plan
+`96ebe03609cb9ca041067fe8e46a8e305f14dee430f8ef9ac7dd8dd501f0072c`,
+append-only authority
+`88b3271e4b2f146d0bdf2b8f09932de00406a0b838f0709c1a096e4e28dfce91`
+and candidate ref
+`1a6434afbe945a1d2250b5387b9db375515bc50a67f9f836e05c3f863d06ec53`
+are bound to PR #655 and issue #244. Focused E-tier guards, exact-head review,
+merge and writer/readback verification remain; ISSUE-0010 is the prepared next
+dependency-ready product issue.
+
+## ISSUE-0104 product chronology
 
 Readiness PR #654 merged independently approved exact head
 `92523800cbbb83a307b9250867b495e722b5196c` as

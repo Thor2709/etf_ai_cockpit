@@ -3,7 +3,7 @@
   "outputs": [
     {
       "path": ".github/status-transition-guard-manifest.json",
-      "sha256": "8a72e69d253a967ba9f0a92d198880add898014c3004d319dfb009725a750f74"
+      "sha256": "f443ee8828cd500c4f32b2f309efdebab9153ce89b6106513972af86c211c1b1"
     },
     {
       "path": "CHANGELOG.md",
@@ -15,7 +15,7 @@
     },
     {
       "path": "docs/product-completion/CURRENT_STATUS.json",
-      "sha256": "6a5948f6adba41b1dc1729c236a5ff533df85da40055a10718528f00d26c5340"
+      "sha256": "0cdd506faa01d70a295d04973e554908ae33eff567412e433bb3174fcb1a5fb5"
     },
     {
       "path": "docs/product-completion/DELIVERY_WORKFLOW.md",
@@ -23,7 +23,7 @@
     },
     {
       "path": "docs/product-completion/PROGRESS.md",
-      "sha256": "18ce86b915610bf47fd4353e08e0cad6f30c424a9406ff6840484e8c702be35a"
+      "sha256": "cc573ef49c42b7cc5f18148967513ccea6aed1a9ad2bef7889fdd58bf961b94a"
     },
     {
       "path": "docs/product-completion/programme/git-workflow.md",
@@ -47,7 +47,7 @@
     },
     {
       "path": "docs/product-completion/programme/phases/phase-04-etf-research.md",
-      "sha256": "da8af6ab057f321b08ca0da7654bd4e132cf953440a224ee35cd0a9876f0869b"
+      "sha256": "69720704b2e29d0f4cd61913d85924ae2254d2599032f6d5f5e843bd78457a5c"
     },
     {
       "path": "docs/product-completion/programme/phases/phase-05-returns-risk-portfolio.md",
@@ -83,11 +83,11 @@
     },
     {
       "path": "docs/product-completion/programme/readiness.json",
-      "sha256": "d198faa37ea9d49d088cc915bce8cd931e5de50c68cdb8d7ca02b79c26b5e69a"
+      "sha256": "c636520abbfaed9495ba69648e8a0962364a31510278f9c3840c1036a2787a80"
     },
     {
       "path": "docs/product-completion/programme/roadmap.md",
-      "sha256": "8f23b5e580676d0bd83317c6e2ec02862cb65c3a4d44632c6310ba8aad68c500"
+      "sha256": "19799501161cba55eb3f1bcb2b4c8f5cdba14a45ba37e8888535304950c4d4f6"
     },
     {
       "path": "docs/product-completion/programme/test-and-performance-strategy.md",
@@ -147,11 +147,11 @@
     },
     {
       "path": "docs/product-completion/reconciliation/2026-07-21-2337f69/source-to-canonical.csv",
-      "sha256": "6928cb8fa4c719b1f8d9cf3ae780e03cda75f4e8262f95e3de3b122f313c6a7c"
+      "sha256": "333f8ff814db833b89d88c6e87c9abadc152aebaae5b79bf809009bb52f9b354"
     },
     {
       "path": "issues/issue_registry.json",
-      "sha256": "6e79d88c047d2081fc98a39c17947eb52becbeab593c3ed4585786335aea96e0"
+      "sha256": "d9bd35e11205e4e5b2450c4b5f7cf6b9cae74cc0f1622c19a1fdd924583d949e"
     },
     {
       "path": "issues/open.md",
@@ -159,7 +159,7 @@
     },
     {
       "path": "issues/programme_control_state.json",
-      "sha256": "6790bbef790c7ccd03a7d324b532cc3fa1cce943e925ad0ed09f2aa01df0f88d"
+      "sha256": "42bcfd24e2dafd485e2f2653a7990bf1dfda4f89505c09949ec587781b8d2e6f"
     }
   ],
   "schema_version": "programme-generation.v1"
