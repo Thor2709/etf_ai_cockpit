@@ -632,9 +632,16 @@ def test_registry_entrypoint_rejects_handcrafted_invalid_transition_events(
 ) -> None:
     prior = json.loads((ROOT / issue_registry_core.CONTROL_STATE_PATH).read_text(encoding="utf-8"))
     source = prior["records"][issue_id]["programme_status"]
+    legal_target = {
+        "planned": "ready",
+        "ready": "in_progress",
+        "in_progress": "implemented_initially",
+        "implemented_initially": "integrated",
+        "integrated": "closed",
+    }[source]
     event: dict[str, object] = {
         "from": source,
-        "to": "closed" if source == "integrated" else "ready",
+        "to": legal_target,
         "review_reference": "B00-R/adversarial-review",
         "evidence_references": ["tests/contracts/adversarial.json"],
         "reviewer": "independent-reviewer",

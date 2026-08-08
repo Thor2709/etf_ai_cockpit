@@ -112,8 +112,14 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   requires exact audit contexts to carry an ISO snapshot date, and rejects an
   expiry before its event time. Focused mutation/retry, future-payload/readback,
   nested-future-evidence, historical-availability and expiry regressions pass.
-  Freeze the next head after exact validation and repeat review/CI without
-  adjacent hardening.
+  Exact head `79ec77ba659659dfee8fba54d764c6a93daa3af7` received both
+  independent approvals. H run `31275348236` then failed identically on Linux
+  and Windows only because the existing malformed-transition fixture still
+  constructed obsolete ISSUE-0010 `in_progress -> ready`, masking its intended
+  malformed date/commit/evidence errors. The bounded test-only correction now
+  derives the legal next hop before injecting each malformed field; all seven
+  adversarial cases pass. Freeze the replacement head after focused/exact
+  validation and repeat both reviews and H-tier CI without adjacent changes.
 
 ## ISSUE-0104 product chronology
 

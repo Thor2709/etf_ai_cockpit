@@ -81,8 +81,14 @@ review then reproduced nested future metadata, a retroactively backdated expiry
 payload and exact availability before the required snapshot date. The bounded
 closure recursively checks recognized temporal fields in dictionaries/lists,
 requires an ISO snapshot date for exact contexts and rejects expiry before its
-event time. Focused regressions pass. Freeze the next exact head and repeat
-review/CI; no adjacent hardening.
+event time. Focused regressions pass. Exact head
+`79ec77ba659659dfee8fba54d764c6a93daa3af7` received both independent
+approvals, but H run `31275348236` failed identically on both platforms because
+the existing malformed-transition fixture still used obsolete ISSUE-0010
+`in_progress -> ready`, masking its intended malformed-field checks. The
+test-only correction derives the legal next hop before injecting each invalid
+field; all seven cases pass. Freeze the replacement head after exact validation
+and repeat review/CI; no adjacent hardening.
 
 ## ISSUE-0104 product chronology
 
