@@ -356,6 +356,24 @@ Ruff, compile, generator check and diff hygiene pass. Lifecycle authority and
 `execution_allowed=false` remain unchanged. Freeze one replacement head for
 both reviews and fresh H-tier gates in parallel.
 
+Exact head `8c48b7199705396d42bb137f72a65c46b3258241` was rejected after
+both reviewers completed. The newly reproduced defects are an empty existing
+Parquet bypassing schema validation and the document-coupled writer publishing
+its post-binding holdings frame without staged semantic validation. Run
+`31252092595` passed classifier, preflight, supply-chain, candidate validation
+and lint/type gates; Linux and Windows each timed out in the unchanged
+1,800-second full-test stage, terminal validation failed, and the pilots were
+cancelled as stale.
+
+Narrow follow-up commit
+`8a94de3613f02f58c10de8571895c86c05e0342d` validates schema before any
+empty-frame return and validates the complete post-binding frame before and
+from staged Parquet publication. Direct load, merge and no-write rollback
+regressions pass with the full holdings and ISSUE-0104 correction modules;
+Ruff, compile and diff hygiene pass. Lifecycle and `execution_allowed=false`
+remain unchanged. Freeze one replacement head for both reviews and fresh
+H-tier gates in parallel.
+
 ## Completed UPDATEV2-0018 parser lane
 
 ISSUE-0103 completion PR #648 merged exact reviewed head

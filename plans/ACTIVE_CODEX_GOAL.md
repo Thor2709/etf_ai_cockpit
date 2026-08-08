@@ -348,6 +348,22 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   pass at 100%; Ruff, compile, generator check and diff hygiene pass.
   Lifecycle authority and `execution_allowed=false` are unchanged. Freeze one
   replacement head for both reviews and fresh H-tier hosted validation.
+- Exact head `8c48b7199705396d42bb137f72a65c46b3258241` was rejected
+  after both reviewers completed. The two newly demonstrated defects are an
+  empty existing Parquet bypassing schema checks and the document-coupled
+  holdings writer publishing its post-binding frame without the semantic
+  staged validator. Run `31252092595` passed classifier, preflight,
+  supply-chain, candidate validation and lint/type gates; both package jobs
+  timed out in the unchanged 1,800-second full-test stage, terminal validation
+  failed, and the still-running pilots were cancelled as stale.
+- Narrow follow-up commit
+  `8a94de3613f02f58c10de8571895c86c05e0342d` checks required schema before
+  accepting an empty persisted frame and validates the complete post-binding
+  holdings frame both before staging and from staged Parquet bytes. Direct
+  load, merge and rollback regressions pass, as do the full holdings and
+  ISSUE-0104 correction modules, Ruff, compile and diff hygiene. No lifecycle,
+  provider or execution authority changes. Freeze one replacement exact head
+  and repeat both reviews plus fresh H-tier hosted validation.
 
 ## Completed UPDATEV2-0018 product checkpoint
 
