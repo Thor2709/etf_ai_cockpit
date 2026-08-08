@@ -134,7 +134,17 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   demonstrated harness correction assigns only changed-test execution a
   bounded 240-second ceiling, leaving every selected test, classifier, H-tier
   package and terminal requirement unchanged, with a direct timeout-contract
-  regression. Freeze one final head for both reviews and fresh H-tier CI.
+  regression. Head `4670c084fcfec15342527652c90a9968205485af`
+  passed exact guard `31278463750`; hosted run `31278463749` passed authority,
+  supply chain and the full changed-test preflight in 125.2 seconds before its
+  now-stale package jobs were cancelled after whole-diff review rejected the
+  head. The risk reviewer approved. The consolidated final findings were an
+  accepted contradictory redaction state retaining raw content and nested
+  future timestamps in outcome details bypassing the PIT bound. The bounded
+  product correction enforces redaction-state/content consistency and reuses
+  the existing recursive temporal validator for outcome details, with direct
+  adversarial regressions. Freeze one replacement head for both reviews and
+  fresh H-tier CI.
 
 ## ISSUE-0104 product chronology
 

@@ -221,6 +221,8 @@ class ThesisDiaryEntry(BaseModel):
 
     @model_validator(mode="after")
     def validate_generation_provenance(self) -> "ThesisDiaryEntry":
+        if self.redaction_state == "redacted" and not self.content_redacted:
+            raise ValueError("redacted thesis must have redacted content")
         if self.content_redacted and self.redaction_state != "redacted":
             raise ValueError("content-redacted thesis must have redacted state")
         if self.content_redacted:
@@ -634,6 +636,11 @@ def _validate_outcome_timing(entry: ThesisDiaryEntry, event: dict[str, Any]) -> 
         raise ThesisDiaryIntegrityError(
             f"thesis outcome observation is outside decision bounds: {entry.thesis_id}"
         )
+    _validate_snapshot_temporal_bound(
+        event["payload"]["details"],
+        name="outcome_details",
+        decision_time=event["decision_time"],
+    )
 
 
 def _validate_event_history(entries: dict[str, ThesisDiaryEntry], events: list[dict[str, Any]]) -> None:

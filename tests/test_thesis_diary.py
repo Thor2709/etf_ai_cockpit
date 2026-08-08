@@ -168,6 +168,20 @@ def test_initial_outcomes_and_observation_bounds_fail_closed(tmp_path: Path) -> 
     assert len(store.replay(entry.thesis_id, at="2026-08-03T02:00:00+00:00").outcomes) == 1
 
 
+def test_nested_outcome_detail_timestamps_cannot_postdate_event_decision(tmp_path: Path) -> None:
+    store = ThesisDiaryStore(tmp_path)
+    entry = store.create(_entry())
+
+    with pytest.raises(ValueError, match="outcome_details.*postdates thesis decision time"):
+        store.append_outcome(
+            entry.thesis_id,
+            outcome="held",
+            observed_at="2026-08-03T02:00:00+00:00",
+            decision_time="2026-08-03T02:00:00+00:00",
+            details={"observations": [{"metadata": {"timestamp": "2026-08-03T02:00:01+00:00"}}]},
+        )
+
+
 def test_snapshot_observation_times_cannot_postdate_decision() -> None:
     with pytest.raises(ValueError, match="evidence_snapshot.as_of_date postdates"):
         _entry(evidence_snapshot={"as_of_date": "2099-01-01"})
@@ -742,6 +756,10 @@ def test_packet_rejects_missing_generation_provenance_after_rehash(tmp_path: Pat
 def test_inconsistent_redaction_markers_and_checksum_valid_content_fail_closed(tmp_path: Path) -> None:
     entry = ThesisDiaryStore(tmp_path).create(_entry())
     raw = entry.model_dump(mode="json")
+    raw["redaction_state"] = "redacted"
+    with pytest.raises(ValueError, match="redacted content"):
+        type(entry).model_validate(raw)
+
     raw["content_redacted"] = True
     raw["redaction_state"] = "unredacted"
     with pytest.raises(ValueError, match="redacted state"):

@@ -101,8 +101,15 @@ independent approvals and guard `31277808316` passed, but release run
 packages; authority and supply chain passed. The sole demonstrated harness
 correction gives only changed-test execution a bounded 240-second ceiling,
 retains every test and H-tier package/terminal requirement, and adds a direct
-contract regression. Freeze one final head for both reviews and fresh H-tier
-CI; no adjacent hardening.
+contract regression. Head `4670c084fcfec15342527652c90a9968205485af`
+passed guard `31278463750` and hosted run `31278463749` passed authority,
+supply chain and the complete changed-test preflight in 125.2 seconds. Its
+package jobs became stale and were cancelled after whole-diff review found two
+product defects; risk review approved. One consolidated correction now rejects
+contradictory redaction state retaining raw content and reuses the existing
+recursive temporal bound for nested outcome details, with direct regressions.
+Freeze one replacement head for both reviews and fresh H-tier CI; no adjacent
+hardening.
 
 ## ISSUE-0104 product chronology
 
