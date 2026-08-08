@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+import threading
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
 
@@ -15,6 +16,20 @@ from etf_cockpit.services import CockpitSnapshot
 
 
 LOCAL_LLM_CONFIG_PATH = CONFIG_DIR / "local_llm.yaml"
+_generation_time_lock = threading.Lock()
+_last_generation_time: datetime | None = None
+
+
+def _fresh_generation_time() -> str:
+    """Return a fresh availability timestamp even on coarse/frozen clocks."""
+
+    global _last_generation_time
+    with _generation_time_lock:
+        current = datetime.now(timezone.utc)
+        if _last_generation_time is not None and current <= _last_generation_time:
+            current = _last_generation_time + timedelta(microseconds=1)
+        _last_generation_time = current
+        return current.isoformat()
 
 
 class LocalLLMSettings(BaseModel):
@@ -27,12 +42,15 @@ class LocalLLMSettings(BaseModel):
 
 
 class LocalLLMStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
     status: Literal["disabled", "ok", "unavailable"]
     message: str
     base_url: str
     model: str | None = None
     request_envelope: dict[str, Any] | None = None
     response_payload: dict[str, Any] | None = None
+    generation_time: str | None = None
 
 
 class LocalAuditCommentary(BaseModel):
@@ -169,13 +187,15 @@ def parse_local_llm_response(content: str) -> LocalAuditCommentary:
 def build_local_audit_prompt(context: dict[str, Any]) -> str:
     """Build the deterministic prompt persisted with a local thesis."""
 
+    prompt_context = {key: value for key, value in context.items() if key != "generation_time"}
+
     return (
         "You are auditing a local ETF decision-support cockpit. "
         "Only explain deterministic outputs supplied in JSON. "
         "Do not calculate portfolio metrics, invent data, override risk gates, or recommend direct buy/sell execution. "
         "Return exactly one JSON object with fields: summary, blocked_trade_explanations, contradictions, "
         "external_review_questions, confidence, executable_authority. executable_authority must be false.\n\n"
-        f"Audit context:\n{json.dumps(context, default=str, indent=2)}"
+        f"Audit context:\n{json.dumps(prompt_context, default=str, indent=2)}"
     )
 
 
@@ -205,15 +225,16 @@ def generate_local_audit_commentary(
     )
     response.raise_for_status()
     payload = response.json()
-    if "generation_time" in context:
-        try:
-            context["generation_time"] = _normalise_time(context["generation_time"])
-        except (TypeError, ValueError) as exc:
-            raise ValueError("LLM generation_time must be a timezone-aware ISO-8601 timestamp") from exc
-    else:
-        context["generation_time"] = datetime.now(timezone.utc).isoformat()
     content = payload["choices"][0]["message"]["content"]
-    return status.model_copy(update={"request_envelope": body, "response_payload": payload}), parse_local_llm_response(content)
+    commentary = parse_local_llm_response(content)
+    availability = _fresh_generation_time()
+    return status.model_copy(
+        update={
+            "request_envelope": body,
+            "response_payload": payload,
+            "generation_time": availability,
+        }
+    ), commentary
 
 
 def _generation_binding(
@@ -230,20 +251,9 @@ def _generation_binding(
         raise ValueError("exact LLM provenance requires both request envelope and response payload")
     if request_envelope is None and response_payload is None:
         model_name = model or "unavailable"
-        envelope = {
-            "model": model_name,
-            "messages": [
-                {"role": "system", "content": "You provide non-executable audit commentary only."},
-                {"role": "user", "content": build_local_audit_prompt(context)},
-            ],
-            "temperature": 0.1,
-        }
-        response = {"choices": [{"message": {"content": json.dumps(commentary.model_dump(mode="json"), sort_keys=True)}}]}
-        return model_name, envelope["messages"][1]["content"], {
+        return model_name, build_local_audit_prompt(context), {
             "provenance": "synthetic_fallback",
             "synthetic": True,
-            "request": envelope,
-            "response": response,
         }
 
     envelope = request_envelope
@@ -282,11 +292,10 @@ def _generation_binding(
     }
 
 
-def _generation_time(context: dict[str, Any], *, exact: bool) -> str:
-    value = context.get("generation_time")
+def _generation_time(value: str | None, *, exact: bool) -> str:
     if value is None:
         if exact:
-            raise ValueError("exact LLM generation requires a stable generation_time")
+            raise ValueError("exact LLM generation requires an immutable availability timestamp")
         return datetime.now(timezone.utc).isoformat()
     try:
         return _normalise_time(value)
@@ -301,6 +310,7 @@ def save_local_audit_commentary(
     context: dict[str, Any] | None = None,
     request_envelope: dict[str, Any] | None = None,
     response_payload: dict[str, Any] | None = None,
+    generation_time: str | None = None,
     directory: Path = REPORTS_DIR,
     diary_root: Path = DATA_DIR,
 ) -> Path:
@@ -312,29 +322,30 @@ def save_local_audit_commentary(
         response_payload=response_payload,
         context=context,
     )
-    generation_time = _generation_time(context, exact=request_envelope is not None)
-    generation_record = {**generation_record, "generation_time": generation_time}
+    availability = _generation_time(generation_time, exact=request_envelope is not None)
+    generation_record = {**generation_record, "generation_time": availability}
     generation_id = f"generation-{sha256_value(generation_record)[:32]}"
-    decision_time = generation_time
-    signals = context.get("signals")
+    decision_time = availability
+    stable_context = {key: value for key, value in context.items() if key != "generation_time"}
+    signals = stable_context.get("signals")
     if signals is None or signals == []:
-        scoped_signals = [{"etf_id": context.get("instrument_id", "unavailable"), "input_sources": ["cockpit_snapshot"]}]
+        scoped_signals = [{"etf_id": stable_context.get("instrument_id", "unavailable"), "input_sources": ["cockpit_snapshot"]}]
     elif not isinstance(signals, list) or any(not isinstance(signal, dict) for signal in signals):
         raise ValueError("LLM audit signal batch must contain only JSON objects")
     else:
         scoped_signals = signals
     if not scoped_signals:
         raise ValueError("LLM audit signal batch must not be empty")
-    batch_identity = {"generation_id": generation_id, "context": context, "signals": scoped_signals}
+    batch_identity = {"generation_id": generation_id, "context": stable_context, "signals": scoped_signals}
     batch_id = f"batch-{sha256_value(batch_identity)[:32]}"
     batch_generation = {**generation_record, "generation_id": generation_id, "batch_id": batch_id}
     stored_entries = []
     diary_store = ThesisDiaryStore(diary_root)
     for signal in scoped_signals:
-        instrument_id = signal.get("etf_id") or context.get("instrument_id") or "unavailable"
+        instrument_id = signal.get("etf_id") or stable_context.get("instrument_id") or "unavailable"
         if not isinstance(instrument_id, str) or not instrument_id.strip():
             raise ValueError("LLM audit signal requires a valid instrument id")
-        scoped_context = {**context, "signals": [signal], "instrument_id": instrument_id}
+        scoped_context = {**stable_context, "signals": [signal], "instrument_id": instrument_id}
         input_sources = sorted({str(source) for source in signal.get("input_sources", []) if str(source).strip()} | {"cockpit_snapshot", f"signal:{instrument_id}"})
         source_snapshot = {"source": "cockpit_snapshot", "input_sources": input_sources, "snapshot": scoped_context}
         retrieval_snapshot = {

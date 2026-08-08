@@ -141,6 +141,7 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
                     context=context,
                     request_envelope=status.request_envelope,
                     response_payload=status.response_payload,
+                    generation_time=status.generation_time,
                 )
                 llm_output.value = f"Saved local LLM thesis diary: {saved_path}\n{commentary.summary}"
                 diary_output.value = _thesis_diary_text()

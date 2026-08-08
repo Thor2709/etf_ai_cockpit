@@ -92,6 +92,56 @@ def test_local_llm_context_contains_only_deterministic_snapshot_outputs() -> Non
     assert "backtest" in context
 
 
+def test_generation_repeated_with_same_context_is_fresh_and_does_not_mutate_prompt_input(monkeypatch) -> None:
+    context = {
+        "as_of_date": "2026-08-03",
+        "generation_time": "2000-01-01T00:00:00+00:00",
+        "signals": [{"etf_id": "VWCE"}],
+    }
+    response_payload = {
+        "model": "exact-model",
+        "choices": [{"message": {"content": '{"summary":"Review only","confidence":0.5,"executable_authority":false}'}}],
+    }
+    prompts: list[str] = []
+
+    monkeypatch.setattr(local_llm.requests, "get", lambda *_args, **_kwargs: _Response({"data": [{"id": "exact-model"}]}))
+
+    def post(_url, *, json, **_kwargs):
+        prompts.append(json["messages"][1]["content"])
+        return _Response(response_payload)
+
+    monkeypatch.setattr(local_llm.requests, "post", post)
+    original = json.loads(json.dumps(context))
+    first_status, _ = generate_local_audit_commentary(context, LocalLLMSettings(model="exact-model"))
+    second_status, _ = generate_local_audit_commentary(context, LocalLLMSettings(model="exact-model"))
+
+    assert context == original
+    assert "2000-01-01T00:00:00+00:00" not in prompts[0]
+    assert prompts[1] == prompts[0]
+    assert first_status.generation_time != second_status.generation_time
+
+
+def test_generation_failure_then_success_does_not_backdate_or_mutate_context(monkeypatch) -> None:
+    context = {"as_of_date": "2026-08-03", "signals": [{"etf_id": "VWCE"}]}
+    response_payload = {
+        "model": "exact-model",
+        "choices": [{"message": {"content": '{"summary":"Review only","confidence":0.5,"executable_authority":false}'}}],
+    }
+    responses = iter((
+        _Response({"model": "exact-model", "choices": [{"message": {"content": "not json"}}]}),
+        _Response(response_payload),
+    ))
+    monkeypatch.setattr(local_llm.requests, "get", lambda *_args, **_kwargs: _Response({"data": [{"id": "exact-model"}]}))
+    monkeypatch.setattr(local_llm.requests, "post", lambda *_args, **_kwargs: next(responses))
+
+    with pytest.raises(ValueError, match="did not contain a JSON object"):
+        generate_local_audit_commentary(context, LocalLLMSettings(model="exact-model"))
+    assert "generation_time" not in context
+    status, _ = generate_local_audit_commentary(context, LocalLLMSettings(model="exact-model"))
+    assert status.generation_time is not None
+    assert "generation_time" not in context
+
+
 def test_generation_persists_the_exact_request_and_response_binding(
     monkeypatch, tmp_path
 ) -> None:
@@ -119,10 +169,13 @@ def test_generation_persists_the_exact_request_and_response_binding(
         return _Response(response_payload)
 
     monkeypatch.setattr(local_llm.requests, "post", post)
+    original_context = json.loads(json.dumps(context))
     status, commentary = generate_local_audit_commentary(context, LocalLLMSettings(model="exact-model"))
     assert commentary is not None
     assert status.request_envelope == captured["body"]
     assert status.response_payload == response_payload
+    assert status.generation_time is not None
+    assert context == original_context
 
     save_local_audit_commentary(
         commentary,
@@ -130,12 +183,13 @@ def test_generation_persists_the_exact_request_and_response_binding(
         context=context,
         request_envelope=status.request_envelope,
         response_payload=status.response_payload,
+        generation_time=status.generation_time,
         directory=tmp_path / "reports",
         diary_root=tmp_path / "data",
     )
     entry = ThesisDiaryStore(tmp_path / "data").list_entries()[0]
     assert entry.prompt == captured["body"]["messages"][1]["content"]  # type: ignore[index]
-    assert entry.created_at == "2026-08-03T12:00:00+00:00"
+    assert entry.created_at == status.generation_time
     assert entry.decision_time == entry.created_at
     assert entry.evidence_snapshot["as_of_date"] == "2026-08-03"
     with pytest.raises(ValueError, match="precedes thesis decision time"):
@@ -162,7 +216,7 @@ def test_exact_generation_requires_stable_generation_time(tmp_path: Path) -> Non
         "choices": [{"message": {"content": '{"summary":"Review only","confidence":0.5,"executable_authority":false}'}}],
     }
 
-    with pytest.raises(ValueError, match="stable generation_time"):
+    with pytest.raises(ValueError, match="immutable availability timestamp"):
         local_llm.save_local_audit_commentary(
             commentary,
             model="exact-model",
@@ -278,12 +332,14 @@ def test_exact_batch_retry_is_idempotent_and_interruption_leaves_zero_files(tmp_
         "model": "local-test-model",
         "choices": [{"message": {"content": '{"summary":"Review only","confidence":0.5,"executable_authority":false}'}}],
     }
+    generation_time = "2026-08-03T12:00:00+00:00"
     first = local_llm.save_local_audit_commentary(
         commentary,
         model="local-test-model",
         context=context,
         request_envelope=envelope,
         response_payload=response,
+        generation_time=generation_time,
         directory=tmp_path / "reports",
         diary_root=tmp_path / "data",
     )
@@ -294,6 +350,7 @@ def test_exact_batch_retry_is_idempotent_and_interruption_leaves_zero_files(tmp_
         context=context,
         request_envelope=envelope,
         response_payload=response,
+        generation_time=generation_time,
         directory=tmp_path / "reports",
         diary_root=tmp_path / "data",
     )
@@ -318,6 +375,7 @@ def test_exact_batch_retry_is_idempotent_and_interruption_leaves_zero_files(tmp_
             context=context,
             request_envelope=envelope,
             response_payload=response,
+            generation_time=generation_time,
             directory=interrupted / "reports",
             diary_root=interrupted / "data",
         )

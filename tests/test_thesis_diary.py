@@ -40,6 +40,7 @@ def _entry(
     expires_at: str | None = None,
     instrument_id: str = "VWCE",
     backtest_validity: str = "unknown",
+    generation_record: dict | None = None,
 ):
     return build_thesis_entry(
         thesis_id=thesis_id,
@@ -63,6 +64,7 @@ def _entry(
         decision_time=decision_time,
         created_at=created_at,
         expires_at=expires_at,
+        generation_record=generation_record,
     )
 
 
@@ -611,6 +613,113 @@ def test_packet_reproduction_rejects_self_consistent_exact_provenance_mismatch(t
 
     with pytest.raises(ThesisDiaryIntegrityError, match="packet entry is malformed"):
         reproduce_thesis_from_packet(packet, entry.thesis_id, at="2026-08-03T12:00:00+00:00")
+
+
+@pytest.mark.parametrize(
+    "generation_record",
+    [
+        {"synthetic": True},
+        {"provenance": "unknown", "synthetic": True},
+        {"provenance": "synthetic_fallback", "synthetic": False},
+        {
+            "provenance": "synthetic_fallback",
+            "synthetic": True,
+            "request": {"model": "local-test-model"},
+            "response": {"model": "local-test-model"},
+        },
+    ],
+)
+def test_generation_provenance_is_required_and_synthetic_cannot_claim_exact_records(generation_record: dict) -> None:
+    with pytest.raises(ValueError, match="provenance|synthetic"):
+        _entry(generation_record=generation_record)
+
+
+def test_packet_rejects_missing_generation_provenance_after_rehash(tmp_path: Path) -> None:
+    store = ThesisDiaryStore(tmp_path)
+    entry = store.create(_entry())
+    packet = store.export_packet()
+    record = packet["entries"][0]
+    record["generation_record"] = {"synthetic": True}
+    record["generation_record_hash"] = sha256_value(record["generation_record"])
+    checksum_values = dict(record)
+    checksum_values.pop("checksum")
+    record["checksum"] = sha256_value(checksum_values)
+    packet["checksums"]["entries"][entry.thesis_id] = record["checksum"]
+    _rehash_packet_events(packet, packet["events"])
+    packet["events"][0]["payload"] = {"entry_checksum": record["checksum"]}
+    _rehash_packet_events(packet, packet["events"])
+
+    with pytest.raises(ThesisDiaryIntegrityError, match="packet entry is malformed"):
+        reproduce_thesis_from_packet(packet, entry.thesis_id)
+
+
+def test_inconsistent_redaction_markers_and_checksum_valid_content_fail_closed(tmp_path: Path) -> None:
+    entry = ThesisDiaryStore(tmp_path).create(_entry())
+    raw = entry.model_dump(mode="json")
+    raw["content_redacted"] = True
+    raw["redaction_state"] = "unredacted"
+    with pytest.raises(ValueError, match="redacted state"):
+        type(entry).model_validate(raw)
+
+    packet = ThesisDiaryStore(tmp_path).export_packet()
+    record = packet["entries"][0]
+    record.update(
+        {
+            "content_redacted": True,
+            "redaction_state": "redacted",
+            "prompt": "protected prompt",
+            "llm_output": {"secret": "protected output"},
+            "generation_record": {"provenance": "redacted_content", "content_redacted": True},
+        }
+    )
+    checksum_values = dict(record)
+    checksum_values.pop("checksum")
+    record["checksum"] = sha256_value(checksum_values)
+    packet["checksums"]["entries"][entry.thesis_id] = record["checksum"]
+    created = packet["events"][0]
+    created["payload"] = {"entry_checksum": record["checksum"]}
+    created_without_hash = dict(created)
+    created_without_hash.pop("event_hash")
+    created["event_hash"] = sha256_value(created_without_hash)
+    packet["checksums"]["events"] = sha256_value(packet["events"])
+
+    with pytest.raises(ThesisDiaryIntegrityError, match="packet entry is malformed"):
+        reproduce_thesis_from_packet(packet, entry.thesis_id)
+
+
+def _rehash_packet_events(packet: dict, events: list[dict]) -> None:
+    previous = None
+    for sequence, event in enumerate(events, start=1):
+        event["sequence"] = sequence
+        event["previous_event_hash"] = previous
+        values = dict(event)
+        values.pop("event_hash")
+        event["event_hash"] = sha256_value(values)
+        previous = event["event_hash"]
+    packet["events"] = events
+    packet["checksums"]["events"] = sha256_value(events)
+
+
+def test_packet_reproduction_reuses_store_chronology_and_unique_event_invariants(tmp_path: Path) -> None:
+    store = ThesisDiaryStore(tmp_path)
+    entry = store.create(_entry())
+    store.append_review(entry.thesis_id, status="approved", reviewer="one", decision_time="2026-08-03T01:00:00+00:00", event_id="review-one")
+    store.append_review(entry.thesis_id, status="approved", reviewer="two", decision_time="2026-08-03T02:00:00+00:00", event_id="review-two")
+
+    backdated = store.export_packet()
+    backdated_events = json.loads(json.dumps(backdated["events"]))
+    backdated_events[2]["decision_time"] = "2026-08-03T00:30:00+00:00"
+    _rehash_packet_events(backdated, backdated_events)
+    with pytest.raises(ThesisDiaryIntegrityError, match="history is backdated"):
+        reproduce_thesis_from_packet(backdated, entry.thesis_id)
+
+    duplicated = store.export_packet()
+    duplicated_events = json.loads(json.dumps(duplicated["events"]))
+    duplicate = dict(duplicated_events[2])
+    duplicated_events.append(duplicate)
+    _rehash_packet_events(duplicated, duplicated_events)
+    with pytest.raises(ThesisDiaryIntegrityError, match="event identity is duplicated"):
+        reproduce_thesis_from_packet(duplicated, entry.thesis_id)
 
 
 def test_local_llm_save_creates_non_executable_diary_record(tmp_path: Path) -> None:

@@ -82,9 +82,20 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   availability to both creation and decision time, preserves snapshot
   `as_of_date` separately, revalidates exact provenance at immutable-entry and
   packet boundaries, and adds focused historical replay, mismatch and retry
-  regressions. The focused diary/LLM suite passes. Commit this checkpoint,
-  rerun the exact changed validation once, then freeze one new head for both
-  reviews and fresh H-tier CI in parallel.
+  regressions. Head `e8a122f00bba59712a3afb010edddcda84142744`
+  passed 37 exact changed tests in 41.8 seconds plus all exact control checks,
+  but both parallel reviewers found one final consolidated boundary set:
+  caller-context reuse could backdate a later response, malformed synthetic
+  provenance and redaction markers were accepted, and packet replay omitted
+  store chronology/unique-event invariants. Release run `31271660658` is stale.
+- The permitted final correction keeps generation availability in the frozen
+  response status and passes it through the UI save path without mutating the
+  request context; requires strict exact/synthetic provenance; enforces fully
+  scrubbed, internally consistent redacted entries; and reuses full store event
+  history validation for packet replay. Focused LLM, diary and ISSUE-0010 UI
+  tests pass. Freeze the next exact head after one exact changed/control
+  validation and repeat both reviews with fresh H-tier CI; no further
+  speculative correction cycle is authorised.
 
 ## ISSUE-0104 product chronology
 

@@ -27,6 +27,8 @@ _REVIEW_STATES = {"pending", "approved", "rejected", "deferred"}
 _REDACTION_STATES = {"unredacted", "redacted"}
 _OUTCOME_HORIZONS = {"20", "60", "120"}
 _BACKTEST_VALIDITY = {"unknown", "forward_only"}
+_GENERATION_PROVENANCE = {"exact_generation", "synthetic_fallback"}
+_REDACTED_GENERATION_PROVENANCE = "redacted_content"
 
 
 class ThesisDiaryIntegrityError(ValueError):
@@ -94,11 +96,13 @@ def _validate_generation_semantics(
     """Validate the semantic content of an exact, immutable generation."""
 
     provenance = generation.get("provenance")
-    if provenance not in {"exact_generation", "synthetic_fallback"}:
+    if provenance not in _GENERATION_PROVENANCE:
+        raise ValueError("thesis generation provenance marker is missing or unknown")
+    if provenance == "synthetic_fallback":
+        if generation.get("synthetic") is not True:
+            raise ValueError("synthetic thesis generation must be marked synthetic")
         if "request" in generation or "response" in generation:
-            raise ValueError("thesis generation provenance marker is missing")
-        return
-    if provenance != "exact_generation":
+            raise ValueError("synthetic thesis generation must not contain exact request or response records")
         return
     if generation.get("synthetic") is not False:
         raise ValueError("exact LLM provenance must not be synthetic")
@@ -181,7 +185,11 @@ class ThesisDiaryEntry(BaseModel):
 
     @model_validator(mode="after")
     def validate_generation_provenance(self) -> "ThesisDiaryEntry":
-        if not self.content_redacted:
+        if self.content_redacted and self.redaction_state != "redacted":
+            raise ValueError("content-redacted thesis must have redacted state")
+        if self.content_redacted:
+            _validate_redacted_entry(self)
+        else:
             _validate_generation_semantics(
                 self.generation_record,
                 prompt=self.prompt,
@@ -195,6 +203,27 @@ class ThesisDiaryEntry(BaseModel):
             ):
                 raise ValueError("thesis generation time must bind created and decision availability")
         return self
+
+
+def _validate_redacted_entry(entry: ThesisDiaryEntry) -> None:
+    """Require the exact scrubbed shape used at disclosure boundaries."""
+
+    expected = {
+        "prompt": "[REDACTED]",
+        "model": "[REDACTED]",
+        "source_snapshot": {"redacted": True},
+        "retrieval_snapshot": {"redacted": True},
+        "evidence_snapshot": {"redacted": True},
+        "llm_output": {"redacted": True},
+        "generation_record": {"provenance": _REDACTED_GENERATION_PROVENANCE, "content_redacted": True},
+        "input_sources": [],
+        "thesis_summary": "[REDACTED]",
+        "risk_summary": "[REDACTED]",
+        "contradiction_summary": "[REDACTED]",
+    }
+    for field, value in expected.items():
+        if getattr(entry, field) != value:
+            raise ValueError(f"content-redacted thesis field is not scrubbed: {field}")
 
 
 class ThesisDiaryState(BaseModel):
@@ -274,11 +303,9 @@ def build_thesis_entry(
         if not isinstance(value, dict):
             raise ValueError(f"{name} must be a JSON object")
         canonical_json(value)
-    generation = generation_record or {
+    generation = dict(generation_record) if generation_record is not None else {
         "provenance": "synthetic_fallback",
         "synthetic": True,
-        "request": {"messages": [{"role": "user", "content": prompt}]},
-        "response": {"parsed_output": llm_output},
     }
     if not isinstance(generation, dict):
         raise ValueError("thesis generation record must be a JSON object")
@@ -370,7 +397,7 @@ def disclosure_safe_entry(entry: ThesisDiaryEntry) -> ThesisDiaryEntry:
             "retrieval_snapshot": {"redacted": True},
             "evidence_snapshot": {"redacted": True},
             "llm_output": {"redacted": True},
-            "generation_record": {"redacted": True},
+            "generation_record": {"provenance": _REDACTED_GENERATION_PROVENANCE, "content_redacted": True},
             "input_sources": [],
             "thesis_summary": "[REDACTED]",
             "risk_summary": "[REDACTED]",
@@ -555,6 +582,43 @@ def _validate_outcome_timing(entry: ThesisDiaryEntry, event: dict[str, Any]) -> 
         )
 
 
+def _validate_event_history(entries: dict[str, ThesisDiaryEntry], events: list[dict[str, Any]]) -> None:
+    """Apply the complete store event invariants to any replayable history."""
+
+    created_ids: set[str] = set()
+    first_event_by_thesis: set[str] = set()
+    seen_event_ids: set[str] = set()
+    previous_decision_time: datetime | None = None
+    previous_event_hash: str | None = None
+    for sequence, event in enumerate(events, start=1):
+        _validate_event(event, sequence)
+        if event["previous_event_hash"] != previous_event_hash:
+            raise ThesisDiaryIntegrityError("thesis diary event hash chain is broken")
+        if event["event_id"] in seen_event_ids:
+            raise ThesisDiaryIntegrityError("thesis diary event identity is duplicated")
+        seen_event_ids.add(event["event_id"])
+        if event["thesis_id"] not in entries:
+            raise ThesisDiaryIntegrityError("thesis diary event references an unknown thesis")
+        if event["thesis_id"] not in first_event_by_thesis and event["operation"] != "created":
+            raise ThesisDiaryIntegrityError("thesis diary lifecycle starts without a creation event")
+        event_time = _time_key(event["decision_time"])
+        if event_time < _time_key(entries[event["thesis_id"]].decision_time):
+            raise ThesisDiaryIntegrityError("thesis diary event precedes thesis decision time")
+        if previous_decision_time is not None and event_time < previous_decision_time:
+            raise ThesisDiaryIntegrityError("thesis diary event history is backdated")
+        _validate_outcome_timing(entries[event["thesis_id"]], event)
+        previous_decision_time = event_time
+        first_event_by_thesis.add(event["thesis_id"])
+        if event["operation"] == "created":
+            entry = entries[event["thesis_id"]]
+            if event["thesis_id"] in created_ids or event["payload"] != {"entry_checksum": entry.checksum} or event["decision_time"] != entry.decision_time:
+                raise ThesisDiaryIntegrityError("thesis diary created event is inconsistent")
+            created_ids.add(event["thesis_id"])
+        previous_event_hash = event["event_hash"]
+    if created_ids != set(entries):
+        raise ThesisDiaryIntegrityError("thesis diary creation events are incomplete")
+
+
 class ThesisDiaryStore:
     """Persist immutable entry payloads and a chained append-only event log."""
 
@@ -631,6 +695,7 @@ class ThesisDiaryStore:
             raise ThesisDiaryIntegrityError("thesis diary event log is unreadable") from exc
         events: list[dict[str, Any]] = []
         previous: str | None = None
+        seen_event_ids: set[str] = set()
         for sequence, line in enumerate(raw.splitlines(), start=1):
             try:
                 event = json.loads(line)
@@ -639,6 +704,9 @@ class ThesisDiaryStore:
             if not isinstance(event, dict):
                 raise ThesisDiaryIntegrityError("thesis diary event is not an object")
             _validate_event(event, sequence)
+            if event["event_id"] in seen_event_ids:
+                raise ThesisDiaryIntegrityError("thesis diary event identity is duplicated")
+            seen_event_ids.add(event["event_id"])
             if event["previous_event_hash"] != previous:
                 raise ThesisDiaryIntegrityError("thesis diary event hash chain is broken")
             previous = event["event_hash"]
@@ -714,6 +782,7 @@ class ThesisDiaryStore:
                 created_ids.add(event["thesis_id"])
         if created_ids != set(entries):
             raise ThesisDiaryIntegrityError("thesis diary creation events are incomplete")
+        _validate_event_history(entries, events)
         self._read_commitment(events)
         return entries, events
 
@@ -1061,10 +1130,14 @@ def reproduce_thesis_from_packet(packet: dict[str, Any], thesis_id: str, *, at: 
     parsed_events: list[dict[str, Any]] = []
     created_ids: set[str] = set()
     first_event_by_thesis: set[str] = set()
+    seen_event_ids: set[str] = set()
     for sequence, event in enumerate(events_raw, start=1):
         if not isinstance(event, dict):
             raise ThesisDiaryIntegrityError("thesis diary packet event is malformed")
         _validate_event(event, sequence)
+        if event["event_id"] in seen_event_ids:
+            raise ThesisDiaryIntegrityError("thesis diary packet event identity is duplicated")
+        seen_event_ids.add(event["event_id"])
         if event["previous_event_hash"] != previous or event["thesis_id"] not in entries:
             raise ThesisDiaryIntegrityError("thesis diary packet event binding is inconsistent")
         if event["thesis_id"] not in first_event_by_thesis and event["operation"] != "created":
@@ -1082,6 +1155,7 @@ def reproduce_thesis_from_packet(packet: dict[str, Any], thesis_id: str, *, at: 
         parsed_events.append(event)
     if created_ids != set(entries):
         raise ThesisDiaryIntegrityError("thesis diary packet creation records are incomplete")
+    _validate_event_history(entries, parsed_events)
     thesis = _safe_id(thesis_id)
     if thesis not in entries:
         raise KeyError(f"unknown thesis: {thesis_id}")

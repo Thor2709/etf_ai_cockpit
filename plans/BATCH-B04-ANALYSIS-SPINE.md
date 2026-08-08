@@ -58,9 +58,18 @@ provenance. Release run `31270403242` is stale. One consolidated four-file
 correction now binds stable generation availability to creation and decision
 time, retains snapshot time separately, revalidates request/model/raw response
 and parsed commentary at immutable boundaries, and adds focused replay,
-mismatch and retry regressions. Its focused diary/LLM suite passes; freeze the
-next exact head only after one exact changed validation, then repeat both
-reviews and fresh H-tier CI in parallel.
+mismatch and retry regressions. Head
+`e8a122f00bba59712a3afb010edddcda84142744` passed 37 exact changed tests in
+41.8 seconds and all control checks, but both parallel reviewers then found the
+final bounded boundary set: mutable caller-context timestamp reuse, malformed
+synthetic/redaction markers, and missing packet chronology/unique-event
+validation. Release run `31271660658` is stale. The permitted final correction
+keeps availability on the immutable response status and passes it through the
+UI save path, requires strict provenance and fully scrubbed redaction shapes,
+and reuses complete store event invariants for packet replay. Focused LLM,
+diary and UI tests pass. Freeze the next exact head after one exact
+changed/control validation, then repeat both reviews and fresh H-tier CI in
+parallel; do not start speculative further hardening.
 
 ## ISSUE-0104 product chronology
 
