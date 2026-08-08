@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
@@ -8,7 +9,7 @@ import requests
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from etf_cockpit.audit.thesis_diary import ThesisDiaryStore, build_thesis_entry, sha256_value
+from etf_cockpit.audit.thesis_diary import ThesisDiaryStore, _normalise_time, build_thesis_entry, sha256_value
 from etf_cockpit.core.paths import CONFIG_DIR, DATA_DIR, REPORTS_DIR
 from etf_cockpit.services import CockpitSnapshot
 
@@ -204,6 +205,13 @@ def generate_local_audit_commentary(
     )
     response.raise_for_status()
     payload = response.json()
+    if "generation_time" in context:
+        try:
+            context["generation_time"] = _normalise_time(context["generation_time"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("LLM generation_time must be a timezone-aware ISO-8601 timestamp") from exc
+    else:
+        context["generation_time"] = datetime.now(timezone.utc).isoformat()
     content = payload["choices"][0]["message"]["content"]
     return status.model_copy(update={"request_envelope": body, "response_payload": payload}), parse_local_llm_response(content)
 
@@ -247,6 +255,9 @@ def _generation_binding(
         raise ValueError("exact LLM request envelope must contain a model")
     if model != request_model:
         raise ValueError("stored model contradicts the immutable LLM request envelope")
+    response_model = response.get("model")
+    if not isinstance(response_model, str) or response_model != request_model:
+        raise ValueError("exact LLM response and request models must agree")
     messages = envelope.get("messages")
     if not isinstance(messages, list):
         raise ValueError("exact LLM request envelope must contain messages")
@@ -271,14 +282,16 @@ def _generation_binding(
     }
 
 
-def _deterministic_decision_time(context: dict[str, Any]) -> str:
-    value = context.get("decision_time")
-    if isinstance(value, str) and value.strip():
-        return value
-    as_of_date = context.get("as_of_date")
-    if isinstance(as_of_date, str) and as_of_date.strip():
-        return f"{as_of_date.strip()}T00:00:00+00:00"
-    return "1970-01-01T00:00:00+00:00"
+def _generation_time(context: dict[str, Any], *, exact: bool) -> str:
+    value = context.get("generation_time")
+    if value is None:
+        if exact:
+            raise ValueError("exact LLM generation requires a stable generation_time")
+        return datetime.now(timezone.utc).isoformat()
+    try:
+        return _normalise_time(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("LLM generation_time must be a timezone-aware ISO-8601 timestamp") from exc
 
 
 def save_local_audit_commentary(
@@ -299,8 +312,10 @@ def save_local_audit_commentary(
         response_payload=response_payload,
         context=context,
     )
+    generation_time = _generation_time(context, exact=request_envelope is not None)
+    generation_record = {**generation_record, "generation_time": generation_time}
     generation_id = f"generation-{sha256_value(generation_record)[:32]}"
-    decision_time = _deterministic_decision_time(context)
+    decision_time = generation_time
     signals = context.get("signals")
     if signals is None or signals == []:
         scoped_signals = [{"etf_id": context.get("instrument_id", "unavailable"), "input_sources": ["cockpit_snapshot"]}]

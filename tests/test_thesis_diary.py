@@ -19,6 +19,7 @@ from etf_cockpit.audit.thesis_diary import (
     ThesisDiaryStore,
     build_thesis_entry,
     reproduce_thesis_from_packet,
+    sha256_value,
 )
 from etf_cockpit.chatgpt_bridge import export_pack
 from etf_cockpit.core.atomic_io import atomic_write_group as real_atomic_write_group
@@ -555,6 +556,61 @@ def test_corrupt_store_and_inconsistent_packet_fail_closed(tmp_path: Path) -> No
     }
     with pytest.raises(ThesisDiaryIntegrityError):
         reproduce_thesis_from_packet(valid_packet, "thesis-1")
+
+
+def test_packet_reproduction_rejects_self_consistent_exact_provenance_mismatch(tmp_path: Path) -> None:
+    commentary = {
+        "summary": "Stored commentary",
+        "blocked_trade_explanations": [],
+        "contradictions": [],
+        "external_review_questions": [],
+        "confidence": 0.5,
+        "executable_authority": False,
+    }
+    prompt = "immutable prompt"
+    generation = {
+        "provenance": "exact_generation",
+        "synthetic": False,
+        "generation_time": "2026-08-03T12:00:00+00:00",
+        "request": {"model": "exact-model", "messages": [{"role": "user", "content": prompt}]},
+        "response": {
+            "model": "exact-model",
+            "choices": [{"message": {"content": json.dumps(commentary, sort_keys=True)}}],
+        },
+    }
+    entry = ThesisDiaryStore(tmp_path).create(
+        build_thesis_entry(
+            thesis_id="exact-thesis",
+            prompt=prompt,
+            model="exact-model",
+            source_snapshot={"source": "test"},
+            retrieval_snapshot={"retrieval": "test"},
+            evidence_snapshot={"as_of_date": "2026-08-03"},
+            llm_output=commentary,
+            generation_record=generation,
+            decision_time="2026-08-03T12:00:00+00:00",
+            created_at="2026-08-03T12:00:00+00:00",
+        )
+    )
+    packet = ThesisDiaryStore(tmp_path).export_packet()
+    record = packet["entries"][0]
+    record["generation_record"]["response"]["choices"][0]["message"]["content"] = json.dumps(
+        {**commentary, "summary": "Tampered commentary"}, sort_keys=True
+    )
+    record["generation_record_hash"] = sha256_value(record["generation_record"])
+    checksum_values = dict(record)
+    checksum_values.pop("checksum")
+    record["checksum"] = sha256_value(checksum_values)
+    packet["checksums"]["entries"][entry.thesis_id] = record["checksum"]
+    created = packet["events"][0]
+    created["payload"] = {"entry_checksum": record["checksum"]}
+    created_without_hash = dict(created)
+    created_without_hash.pop("event_hash")
+    created["event_hash"] = sha256_value(created_without_hash)
+    packet["checksums"]["events"] = sha256_value(packet["events"])
+
+    with pytest.raises(ThesisDiaryIntegrityError, match="packet entry is malformed"):
+        reproduce_thesis_from_packet(packet, entry.thesis_id, at="2026-08-03T12:00:00+00:00")
 
 
 def test_local_llm_save_creates_non_executable_diary_record(tmp_path: Path) -> None:

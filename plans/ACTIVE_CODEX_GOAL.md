@@ -69,9 +69,22 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   effective-current replay and redaction cutoffs, fully scrubbed current UI,
   exact semantic provenance binding and explicit synthetic fallback records.
   The two broad tests now match base; dedicated ISSUE-0010 modules reduce the
-  exact changed-test selection to 42.3 seconds on Windows. Freeze the resulting
-  checkpoint after exact guard/candidate validation, then rerun both reviews
-  and fresh H-tier CI in parallel.
+  exact changed-test selection to 42.3 seconds on Windows.
+- Replacement head `f1462202e8630cb6f41623a59ac4e0ed9575ea3d`
+  passed byte-clean generation, transition guard, H classification, live
+  candidate validation and focused local validation. Both parallel reviewers
+  rejected it only after all verdicts were collected: generated entries used
+  snapshot time rather than actual response availability, and immutable
+  entry/packet validation trusted self-consistent hashes without rechecking
+  exact request/model/raw-response/commentary semantics. Release run
+  `31270403242` is stale and must not be reused.
+- One consolidated four-file correction now hash-binds stable response
+  availability to both creation and decision time, preserves snapshot
+  `as_of_date` separately, revalidates exact provenance at immutable-entry and
+  packet boundaries, and adds focused historical replay, mismatch and retry
+  regressions. The focused diary/LLM suite passes. Commit this checkpoint,
+  rerun the exact changed validation once, then freeze one new head for both
+  reviews and fresh H-tier CI in parallel.
 
 ## ISSUE-0104 product chronology
 

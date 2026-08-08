@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, read_atomic_group
 from etf_cockpit.core.file_guard import persistent_file_guard
@@ -84,6 +84,58 @@ def _hash(value: str, label: str) -> str:
     return value
 
 
+def _validate_generation_semantics(
+    generation: dict[str, Any],
+    *,
+    prompt: str,
+    model: str,
+    llm_output: dict[str, Any],
+) -> None:
+    """Validate the semantic content of an exact, immutable generation."""
+
+    provenance = generation.get("provenance")
+    if provenance not in {"exact_generation", "synthetic_fallback"}:
+        if "request" in generation or "response" in generation:
+            raise ValueError("thesis generation provenance marker is missing")
+        return
+    if provenance != "exact_generation":
+        return
+    if generation.get("synthetic") is not False:
+        raise ValueError("exact LLM provenance must not be synthetic")
+    generation_time = generation.get("generation_time")
+    if not isinstance(generation_time, str) or not generation_time.strip():
+        raise ValueError("exact LLM provenance requires generation_time")
+    _normalise_time(generation_time)
+    request = generation.get("request")
+    response = generation.get("response")
+    if not isinstance(request, dict) or not isinstance(response, dict):
+        raise ValueError("exact LLM provenance must contain request and response records")
+    request_model = request.get("model")
+    response_model = response.get("model")
+    if not isinstance(request_model, str) or not request_model.strip() or request_model != model:
+        raise ValueError("exact LLM request model contradicts the immutable entry model")
+    if not isinstance(response_model, str) or not response_model.strip() or response_model != request_model:
+        raise ValueError("exact LLM response and request models must agree")
+    messages = request.get("messages")
+    user_messages = [message for message in messages if isinstance(message, dict) and message.get("role") == "user"] if isinstance(messages, list) else []
+    if not isinstance(messages, list) or len(user_messages) != 1 or user_messages[0].get("content") != prompt:
+        raise ValueError("exact LLM request prompt contradicts the immutable entry prompt")
+    try:
+        raw_content = response["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise ValueError("exact LLM response payload is missing raw message content") from exc
+    if not isinstance(raw_content, str):
+        raise ValueError("exact LLM response content must be text")
+    try:
+        from etf_cockpit.audit.local_llm import parse_local_llm_response
+
+        parsed = parse_local_llm_response(raw_content)
+    except ValueError as exc:
+        raise ValueError("exact LLM response content is not valid commentary") from exc
+    if parsed.model_dump(mode="json") != llm_output:
+        raise ValueError("exact LLM response does not parse to the immutable entry commentary")
+
+
 class ThesisDiaryEntry(BaseModel):
     """The immutable input/output packet for one LLM thesis."""
 
@@ -126,6 +178,23 @@ class ThesisDiaryEntry(BaseModel):
     executable_authority: Literal[False] = False
     content_redacted: bool = False
     checksum: str | None = None
+
+    @model_validator(mode="after")
+    def validate_generation_provenance(self) -> "ThesisDiaryEntry":
+        if not self.content_redacted:
+            _validate_generation_semantics(
+                self.generation_record,
+                prompt=self.prompt,
+                model=self.model,
+                llm_output=self.llm_output,
+            )
+            generation_time = self.generation_record.get("generation_time")
+            if generation_time is not None and (
+                _normalise_time(generation_time) != self.created_at
+                or _normalise_time(generation_time) != self.decision_time
+            ):
+                raise ValueError("thesis generation time must bind created and decision availability")
+        return self
 
 
 class ThesisDiaryState(BaseModel):
@@ -214,6 +283,12 @@ def build_thesis_entry(
     if not isinstance(generation, dict):
         raise ValueError("thesis generation record must be a JSON object")
     canonical_json(generation)
+    _validate_generation_semantics(generation, prompt=prompt, model=model, llm_output=llm_output)
+    generation_time = generation.get("generation_time")
+    if generation_time is not None and (
+        _normalise_time(generation_time) != created or _normalise_time(generation_time) != decision
+    ):
+        raise ValueError("thesis generation time must bind created and decision availability")
     fields = {
         "prompt": prompt,
         "model": model,
@@ -376,6 +451,22 @@ def _validate_hash_bindings(entry: ThesisDiaryEntry) -> None:
             continue
         if getattr(entry, field) != value:
             raise ThesisDiaryIntegrityError(f"thesis hash binding mismatch: {entry.thesis_id}:{field}")
+    if not entry.content_redacted:
+        try:
+            _validate_generation_semantics(
+                entry.generation_record,
+                prompt=entry.prompt,
+                model=entry.model,
+                llm_output=entry.llm_output,
+            )
+        except ValueError as exc:
+            raise ThesisDiaryIntegrityError(f"thesis generation provenance is inconsistent: {entry.thesis_id}") from exc
+        generation_time = entry.generation_record.get("generation_time")
+        if generation_time is not None and (
+            _normalise_time(generation_time) != entry.created_at
+            or _normalise_time(generation_time) != entry.decision_time
+        ):
+            raise ThesisDiaryIntegrityError(f"thesis generation time binding is inconsistent: {entry.thesis_id}")
     if entry.checksum != _entry_checksum(entry):
         raise ThesisDiaryIntegrityError(f"thesis checksum mismatch: {entry.thesis_id}")
     _safe_id(entry.thesis_id)

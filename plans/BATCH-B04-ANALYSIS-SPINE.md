@@ -49,8 +49,18 @@ tests took 65 and 109 seconds. Consolidated correction
 `d28da1de5c367a85077cfda333730c3b2d6a25c9` closes the full finding set,
 restores those broad tests to base and moves only the new assertions into fast
 ISSUE-0010 modules. The resulting exact Windows changed-test selection passes
-in 42.3 seconds. Complete exact guard/candidate validation, then freeze one
-replacement head for parallel review and fresh H-tier CI.
+in 42.3 seconds. Replacement head
+`f1462202e8630cb6f41623a59ac4e0ed9575ea3d` passed exact guard/candidate and
+focused validation, but both parallel reviewers rejected it after all verdicts
+were collected: response availability was backdated to snapshot time and
+immutable entry/packet validation did not independently recheck exact semantic
+provenance. Release run `31270403242` is stale. One consolidated four-file
+correction now binds stable generation availability to creation and decision
+time, retains snapshot time separately, revalidates request/model/raw response
+and parsed commentary at immutable boundaries, and adds focused replay,
+mismatch and retry regressions. Its focused diary/LLM suite passes; freeze the
+next exact head only after one exact changed validation, then repeat both
+reviews and fresh H-tier CI in parallel.
 
 ## ISSUE-0104 product chronology
 
