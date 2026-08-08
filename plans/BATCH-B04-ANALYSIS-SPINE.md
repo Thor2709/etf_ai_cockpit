@@ -41,6 +41,17 @@ and `execution_allowed=false`. Focused adversarial tests, exact guard,
 byte-clean generation, H-tier classification and exact one-action candidate
 validation pass. Freeze this completed tree for parallel review and H-tier CI.
 
+Frozen head `b3afaa2ab790e13af439e4db5f7fb883d9224cfb` was rejected by
+both reviews for current-time future-event leakage, redaction disclosure,
+partial multi-instrument writes and unbound exact provenance. H run
+`31269127682` timed out preflight before packages because two changed broad
+tests took 65 and 109 seconds. Consolidated correction
+`d28da1de5c367a85077cfda333730c3b2d6a25c9` closes the full finding set,
+restores those broad tests to base and moves only the new assertions into fast
+ISSUE-0010 modules. The resulting exact Windows changed-test selection passes
+in 42.3 seconds. Complete exact guard/candidate validation, then freeze one
+replacement head for parallel review and fresh H-tier CI.
+
 ## ISSUE-0104 product chronology
 
 Readiness PR #654 merged independently approved exact head

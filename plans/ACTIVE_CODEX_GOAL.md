@@ -58,6 +58,20 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   status guard, byte-clean generation, H-tier classification and the exact
   one-action candidate validation pass. Freeze this completed tree and start
   both independent reviews and H-tier hosted CI in parallel.
+- Frozen head `b3afaa2ab790e13af439e4db5f7fb883d9224cfb` was rejected
+  after both parallel reviews completed. Their consolidated findings were
+  current-time future-event leakage, redaction disclosure in UI/export,
+  partial multi-instrument generation writes and unbound request/model/response
+  provenance. H run `31269127682` also timed out preflight because two changed
+  broad test modules took 65 and 109 seconds before packages could start.
+- Consolidated correction `d28da1de5c367a85077cfda333730c3b2d6a25c9`
+  closes all findings with one atomic generation batch/report transaction,
+  effective-current replay and redaction cutoffs, fully scrubbed current UI,
+  exact semantic provenance binding and explicit synthetic fallback records.
+  The two broad tests now match base; dedicated ISSUE-0010 modules reduce the
+  exact changed-test selection to 42.3 seconds on Windows. Freeze the resulting
+  checkpoint after exact guard/candidate validation, then rerun both reviews
+  and fresh H-tier CI in parallel.
 
 ## ISSUE-0104 product chronology
 
