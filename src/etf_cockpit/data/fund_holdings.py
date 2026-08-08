@@ -24,7 +24,7 @@ from etf_cockpit.data.fund_documents import (
 FUND_HOLDINGS_PATH = CLEAN_DIR / "fund_holdings.parquet"
 HOLDINGS_CLEAN_PATH = FUND_HOLDINGS_PATH
 _EXPLICIT_IDENTITY_COLUMNS = ("isin", "ticker", "holding_id", "security_id")
-_REQUIRED_HOLDINGS_COLUMNS = (
+REQUIRED_HOLDINGS_COLUMNS = (
     "security",
     "weight",
     "instrument_id",
@@ -321,7 +321,7 @@ def _holdings_write_reasons(result: HoldingsNormalisationResult, frame: pd.DataF
         return ["frame is not a DataFrame"]
     if bool(frame.columns.duplicated().any()):
         return ["duplicate frame columns"]
-    missing = [column for column in _REQUIRED_HOLDINGS_COLUMNS if column not in frame.columns]
+    missing = [column for column in REQUIRED_HOLDINGS_COLUMNS if column not in frame.columns]
     if missing:
         reasons.append(f"missing required columns={','.join(missing)}")
     if frame.empty:

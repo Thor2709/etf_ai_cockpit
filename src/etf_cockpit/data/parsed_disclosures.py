@@ -1340,6 +1340,7 @@ def _review_history(
     if not isinstance(parsed, list):
         raise ValueError("review history is corrupt")
     prior: datetime | None = None
+    timestamps: list[datetime] = []
     for item in parsed:
         if not isinstance(item, dict):
             raise ValueError("review history is corrupt")
@@ -1359,9 +1360,21 @@ def _review_history(
         if prior is not None and timestamp < prior:
             raise ValueError("review history is not ordered")
         prior = timestamp
+        timestamps.append(timestamp)
         if expected_fingerprint is not None and fingerprint != expected_fingerprint:
             raise ValueError("review history fingerprint does not match extraction")
     if row is not None:
+        known_at_value = _cell_text(row.get("known_at")) or _cell_text(row.get("ingested_at"))
+        if known_at_value:
+            try:
+                known_at = datetime.fromisoformat(known_at_value.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError("report known_at timestamp is malformed") from exc
+            if known_at.tzinfo is None:
+                raise ValueError("report known_at timestamp is malformed")
+            known_at = known_at.astimezone(timezone.utc)
+            if any(timestamp < known_at for timestamp in timestamps):
+                raise ValueError("review history predates report known_at")
         if parsed:
             final = parsed[-1]
             if (

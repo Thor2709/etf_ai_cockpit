@@ -111,6 +111,13 @@ def load_local_structural_evidence(
         except Exception as exc:
             raise ValueError(f"Canonical holdings store is corrupt: {holdings_path}") from exc
         _validate_canonical_frame(holdings, "holdings", holdings_path)
+        from etf_cockpit.data.fund_holdings import REQUIRED_HOLDINGS_COLUMNS
+
+        missing_columns = set(REQUIRED_HOLDINGS_COLUMNS) - set(holdings.columns)
+        if missing_columns:
+            raise ValueError(
+                f"Canonical holdings store is missing required columns: {holdings_path}"
+            )
     else:
         holdings = pd.DataFrame()
     return LocalStructuralEvidence(registry, reports, factsheet, holdings)
@@ -923,6 +930,9 @@ def _selected_review_event(row: Mapping[str, object], checksum: str, decision: d
     matching: list[tuple[int, dict[str, object], datetime]] = []
     current_status = _text(row.get("verification_status"))
     current_evidence_eligible = _stored_true(row.get("evidence_eligible"))
+    row_known_at = _agreed_alias(
+        row, ("known_at", "ingested_at", "document_known_at"), _date_time_text
+    )
     if history:
         validated_history: list[tuple[dict[str, object], datetime]] = []
         previous_at: datetime | None = None
@@ -949,6 +959,8 @@ def _selected_review_event(row: Mapping[str, object], checksum: str, decision: d
                 reviewed_at = _parse_timestamp(event_reviewed_at)
             except (TypeError, ValueError):
                 return None, "report_review_history_malformed"
+            if row_known_at and reviewed_at < _parse_timestamp(row_known_at):
+                return None, "report_review_predates_known_at"
             if previous_at is not None and reviewed_at < previous_at:
                 return None, "report_review_history_malformed"
             previous_at = reviewed_at

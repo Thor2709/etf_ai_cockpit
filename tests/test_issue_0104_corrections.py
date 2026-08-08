@@ -132,6 +132,9 @@ def test_instrument_detail_standard_loading_reaches_local_factsheet_and_holdings
     holdings = pd.DataFrame([{
         "instrument_id": "ETF-1", "source_id": "holdings-1", "document_type": "holdings",
         "checksum": "b" * 64, "document_date": "2026-07-01", "known_at": "2026-07-02T00:00:00Z",
+        "security": "Synthetic holding", "weight": 1.0, "as_of": "2026-07-01", "source": "test",
+        "completeness": "complete", "freshness": "fresh",
+        "authority": "issuer_document", "score_eligible": False,
         "field_name": "replication_method", "value": "Synthetic swap", "page": 1, "confidence": "high", "status": "extracted",
     }])
     factsheet_path = tmp_path / "etf_metadata.parquet"
@@ -241,6 +244,41 @@ def test_missing_optional_holdings_preserves_valid_factsheet_evidence(tmp_path, 
     assert projection["fields"]["replication_method"]["status"] == "resolved"
     assert projection["fields"]["replication_method"]["value"] == "Physical"
     assert projection["execution_allowed"] is False
+
+
+def test_holdings_with_instrument_id_and_unrelated_columns_fail_closed_at_structural_root(tmp_path, monkeypatch) -> None:
+    import etf_cockpit.app.selectors.instrument_detail as selector
+    from etf_cockpit.data.etf_structure import load_local_structural_evidence, structure_confidence_caps
+
+    holdings_path = tmp_path / "fund_holdings.parquet"
+    pd.DataFrame({"instrument_id": ["ETF-1"], "unrelated": ["not canonical holdings"]}).to_parquet(
+        holdings_path, index=False
+    )
+    factsheet_path = tmp_path / "missing-factsheet.parquet"
+
+    with pytest.raises(ValueError, match="missing required columns"):
+        load_local_structural_evidence(
+            registry_reader=pd.DataFrame,
+            report_reader=pd.DataFrame,
+            factsheet_path=factsheet_path,
+            holdings_path=holdings_path,
+        )
+
+    monkeypatch.setattr(selector, "ETF_METADATA_CLEAN_PATH", factsheet_path)
+    monkeypatch.setattr(selector, "FUND_HOLDINGS_PATH", holdings_path)
+    projection = selector._etf_structure_panel(
+        "ETF-1",
+        document_registry=pd.DataFrame(),
+        report_records=pd.DataFrame(),
+        supplemental_rows=None,
+        holdings=None,
+    )
+
+    assert projection["status"] == "unavailable"
+    assert projection["evidence_confidence_cap"] == 0.0
+    assert projection["execution_allowed"] is False
+    caps = structure_confidence_caps(["ETF-1"], holdings=pd.DataFrame({"instrument_id": ["ETF-1"], "unrelated": ["x"]}))
+    assert caps["ETF-1"] == 0.0
 
 
 def test_real_canonical_writers_preserve_bindings_through_shared_projection_and_backtest(tmp_path) -> None:
@@ -926,7 +964,12 @@ def test_real_260_session_backtest_accepts_structural_holdings() -> None:
 
     config = services.load_config()
     prices = generate_sample_prices(config, periods=260, end_date=date(2026, 7, 10))
-    holdings = pd.DataFrame([{"instrument_id": config.universe.enabled_ids[0], "source_id": "holdings-1", "weight": 0.4}])
+    holdings = pd.DataFrame([{
+        "security": "Test holding", "weight": 0.4, "instrument_id": config.universe.enabled_ids[0],
+        "as_of": "2026-07-10", "source": "test", "source_id": "holdings-1",
+        "completeness": "complete", "freshness": "fresh", "confidence": 1.0,
+        "authority": "issuer_document", "score_eligible": False,
+    }])
 
     report = run_backtest(config, prices, structure_holdings=holdings)
 
@@ -955,7 +998,12 @@ def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path,
     registry = pd.DataFrame([{"instrument_id": config.universe.enabled_ids[0], "source_id": "registry-1"}])
     reports = pd.DataFrame()
     holdings_path = tmp_path / "fund_holdings.parquet"
-    holdings = pd.DataFrame([{"instrument_id": config.universe.enabled_ids[0], "source_id": "holdings-1", "weight": 0.4}])
+    holdings = pd.DataFrame([{
+        "security": "Test holding", "weight": 0.4, "instrument_id": config.universe.enabled_ids[0],
+        "as_of": "2026-07-10", "source": "test", "source_id": "holdings-1",
+        "completeness": "complete", "freshness": "fresh", "confidence": 1.0,
+        "authority": "issuer_document", "score_eligible": False,
+    }])
     holdings.to_parquet(holdings_path, index=False)
     factsheet_path = tmp_path / "etf_metadata.parquet"
     factsheet = pd.DataFrame([{"instrument_id": config.universe.enabled_ids[0], "source_id": "factsheet-1", "field_name": "domicile", "value": "IE"}])
@@ -1199,7 +1247,12 @@ def test_yfinance_script_reuses_local_structural_evidence_for_signals_and_backte
     report = SimpleNamespace(as_of_date=date(2026, 7, 10), issues=[], status="ok")
     registry = pd.DataFrame([{"source_id": "local-registry"}])
     reports = pd.DataFrame([{"source_id": "local-report"}])
-    structural_holdings = pd.DataFrame([{"source_id": "local-holdings"}])
+    structural_holdings = pd.DataFrame([{
+        "security": "Local holding", "weight": 1.0, "instrument_id": instrument,
+        "as_of": "2026-07-10", "source": "test", "source_id": "local-holdings",
+        "completeness": "complete", "freshness": "fresh", "confidence": 1.0,
+        "authority": "issuer_document", "score_eligible": False,
+    }])
     structural_holdings_path = tmp_path / "fund_holdings.parquet"
     factsheet = pd.DataFrame([{"source_id": "local-factsheet", "field_name": "domicile", "value": "IE"}])
     factsheet_path = tmp_path / "etf_metadata.parquet"

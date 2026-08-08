@@ -875,6 +875,7 @@ def test_review_eligibility_remains_separate_from_conflict_and_rejection_authori
     ("corruption", "field", "value"),
     [
         ("out_of_order", None, None),
+        ("predates_known_at", None, None),
         ("stale_fingerprint", None, None),
         ("top_level_mismatch", None, None),
         ("blank_reviewer", None, None),
@@ -901,6 +902,12 @@ def test_review_history_corruption_fails_closed_on_read(tmp_path: Path, monkeypa
     if corruption == "out_of_order":
         earlier = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(timespec="seconds")
         history.append({**history[-1], "reviewed_at": earlier})
+        frame.at[0, "review_history"] = json.dumps(history)
+        frame.at[0, "verified_at"] = earlier
+    elif corruption == "predates_known_at":
+        known_at = datetime.fromisoformat(str(frame.at[0, "known_at"]).replace("Z", "+00:00"))
+        earlier = (known_at - timedelta(seconds=1)).isoformat(timespec="seconds")
+        history[-1]["reviewed_at"] = earlier
         frame.at[0, "review_history"] = json.dumps(history)
         frame.at[0, "verified_at"] = earlier
     elif corruption == "stale_fingerprint":

@@ -89,10 +89,10 @@ def _report(source_id: str = "report:v2:one", *, replication: str = "Synthetic s
         "known_at": known_at,
         "verification_status": "verified",
         "verified_by": "analyst",
-        "verified_at": "2026-07-02T12:00:00+00:00",
+        "verified_at": known_at,
         "review_note": "",
         "review_history": json.dumps([{
-            "decision": "verified", "reviewer": "analyst", "note": "", "reviewed_at": "2026-07-02T12:00:00+00:00", "extraction_sha256": "b" * 64,
+            "decision": "verified", "reviewer": "analyst", "note": "", "reviewed_at": known_at, "extraction_sha256": "b" * 64,
         }]),
         "extraction_sha256": "b" * 64,
         "stored_extraction_sha256": "b" * 64,
@@ -109,7 +109,7 @@ def _report(source_id: str = "report:v2:one", *, replication: str = "Synthetic s
     frame.loc[0, "extraction_sha256"] = fingerprint
     frame.loc[0, "stored_extraction_sha256"] = fingerprint
     frame.loc[0, "review_history"] = json.dumps([{
-        "decision": "verified", "reviewer": "analyst", "note": "", "reviewed_at": "2026-07-02T12:00:00+00:00", "extraction_sha256": fingerprint,
+        "decision": "verified", "reviewer": "analyst", "note": "", "reviewed_at": known_at, "extraction_sha256": fingerprint,
     }])
     return frame
 
@@ -333,6 +333,8 @@ def test_factsheet_prospectus_and_holdings_conflicts_remain_visible() -> None:
     holdings = pd.DataFrame([{
         "instrument_id": "ETF-1", "source_id": "holdings-1", "document_type": "holdings",
         "checksum": CHECKSUM, "document_date": "2026-07-01", "known_at": "2026-07-02T00:00:00Z",
+        "security": "Synthetic holding", "weight": 1.0, "as_of": "2026-07-01", "source": "test",
+        "completeness": "complete", "freshness": "fresh", "authority": "issuer_document", "score_eligible": False,
         "field_name": "replication_method", "value": "Physical sampled", "page": 3, "confidence": "high",
     }])
     report = _report(source_id="prospectus-1", replication="Synthetic swap")
@@ -491,6 +493,67 @@ def test_numeric_stress_rejects_unbound_and_future_provenance() -> None:
     )
     assert invalid["status"] == "unavailable"
     assert rejected_future["status"] == "unavailable"
+
+
+def test_review_predating_exact_known_at_fails_closed_through_projection_caps_and_stress() -> None:
+    registry = _registry(known_at="2026-07-02T00:00:00Z")
+    reports = _report(known_at="2026-07-02T00:00:00+00:00")
+    history = json.loads(reports.loc[0, "review_history"])
+    history[0]["reviewed_at"] = "2026-07-01T23:59:59+00:00"
+    reports.loc[0, "review_history"] = json.dumps(history)
+    reports.loc[0, "verified_at"] = history[0]["reviewed_at"]
+
+    projection = project_etf_structure(
+        "ETF-1",
+        document_registry=registry,
+        report_records=reports,
+        decision_time="2026-07-03T00:00:00Z",
+    )
+    caps = structure_confidence_caps(
+        ["ETF-1"],
+        document_registry=registry,
+        report_records=reports,
+        decision_time="2026-07-03T00:00:00Z",
+    )
+
+    numeric_inputs = {
+        field: NumericEvidence(
+            value,
+            unit,
+            "report:v2:one",
+            "2026-07-01",
+            4,
+            "high",
+            "2026-07-02T00:00:00Z",
+            CHECKSUM,
+            "ETF-1",
+            field,
+        )
+        for field, value, unit in (
+            ("exposure", "0.4", "fraction_of_nav"),
+            ("collateral_fraction", "0.8", "fraction_of_exposure"),
+            ("haircut_fraction", "0.1", "scenario_haircut_fraction"),
+            ("concentration_limit_fraction", "0.25", "fraction_of_collateral"),
+        )
+    }
+    stress = calculate_structural_stress(
+        **numeric_inputs,
+        registry=registry,
+        report_records=reports,
+        candidates=list(numeric_inputs.values()),
+        decision_time="2026-07-03T00:00:00Z",
+        instrument_id="ETF-1",
+    )
+
+    assert projection["fields"]["replication_method"]["status"] != "resolved"
+    assert projection["evidence_confidence_cap"] == 0.0
+    assert projection["execution_allowed"] is False
+    assert caps["ETF-1"] == 0.0
+    assert caps.provenance["ETF-1"]["structure_provenance_hash"] == "unavailable"
+    assert stress["status"] == "unavailable"
+    assert stress["unsecured_pct_nav"] is None
+    assert stress["concentration_pct_nav"] is None
+    assert stress["execution_allowed"] is False
 
 
 def test_numeric_stress_rejects_changed_value_unit_and_repurposed_textual_candidate() -> None:
@@ -1373,7 +1436,12 @@ def test_backtest_input_checksum_includes_structural_evidence() -> None:
 
     assert first != second
 
-    holdings = pd.DataFrame([{"instrument_id": config.universe.enabled_ids[0], "source_id": "holdings-1", "weight": 0.4}])
+    holdings = pd.DataFrame([{
+        "security": "Test holding", "weight": 0.4, "instrument_id": config.universe.enabled_ids[0],
+        "as_of": "2026-07-10", "source": "test", "source_id": "holdings-1",
+        "completeness": "complete", "freshness": "fresh", "confidence": 1.0,
+        "authority": "issuer_document", "score_eligible": False,
+    }])
     changed_holdings = holdings.copy()
     changed_holdings.loc[0, "weight"] = 0.6
     holdings_first = backtest_input_checksum(
