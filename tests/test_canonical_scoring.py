@@ -9,6 +9,7 @@ import pytest
 from etf_cockpit.core.config import load_config
 from etf_cockpit.signals.canonical_scoring import (
     CanonicalComponent,
+    apply_structure_confidence_cap,
     build_canonical_score,
     canonical_score_from_signal_row,
     load_score_policy,
@@ -90,6 +91,44 @@ def test_missing_or_conflicted_evidence_reduces_coverage_and_confidence() -> Non
     assert complete.evidence_confidence_10 is not None
     assert incomplete.evidence_confidence_10 < complete.evidence_confidence_10
     assert any(warning.startswith("attractiveness_coverage:") for warning in incomplete.warnings)
+
+
+def test_structure_confidence_cap_only_changes_evidence_confidence() -> None:
+    score = build_canonical_score(
+        instrument_id="ETF-1",
+        asset_type="ETF",
+        decision_time="2026-07-10",
+        components=[_component("momentum", 0.5), _component("trend", 0.5), _component("relative_strength", 0.5), _component("risk", 0.5, "risk_implementation")],
+    )
+    capped = apply_structure_confidence_cap(score, 0.0)
+
+    assert capped.evidence_confidence_10 == 0.0
+    assert capped.attractiveness_10 == score.attractiveness_10
+    assert capped.expected_return_10 == score.expected_return_10
+    assert capped.coverage == score.coverage
+    assert "structure_confidence_cap:0.000" in capped.warnings
+
+
+def test_structural_provenance_and_cap_are_in_source_vintage_identity() -> None:
+    components = [_component("momentum", 0.5), _component("trend", 0.5), _component("relative_strength", 0.5), _component("risk", 0.5, "risk_implementation")]
+    first = build_canonical_score(
+        instrument_id="ETF-1",
+        asset_type="ETF",
+        decision_time="2026-07-10",
+        components=components,
+        structure_confidence_cap=0.0,
+        structure_provenance={"structure_projection_version": "etf-structure-documents.v1", "structure_provenance_hash": "a" * 64},
+    )
+    second = build_canonical_score(
+        instrument_id="ETF-1",
+        asset_type="ETF",
+        decision_time="2026-07-10",
+        components=components,
+        structure_confidence_cap=1.0,
+        structure_provenance={"structure_projection_version": "etf-structure-documents.v1", "structure_provenance_hash": "b" * 64},
+    )
+
+    assert first.source_vintage_hash != second.source_vintage_hash
 
 
 def test_legacy_migration_composite_omits_missing_components_instead_of_neutralising_them() -> None:

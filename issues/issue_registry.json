@@ -16901,6 +16901,17 @@
           "reviewed_date": "2026-08-03",
           "reviewer": "Codex independent reviewer and root orchestrator",
           "status": "ready"
+        },
+        {
+          "evidence_references": [
+            "Exact product commit 8a69a949 implements provenance-bound ETF structural, legal, counterparty, collateral and lending analysis with point-in-time replay and evidence-confidence-only score capping",
+            "Focused structure, scoring, parser, document, instrument-detail, backtest, recovery and publication validation passed 87 tests with 1 intentional skip; Ruff, compile and diff hygiene remain required before freeze",
+            "Unknown, conflicted, malformed, future-known and unbound evidence fail closed; numeric stress requires bound decimal-fraction provenance and execution_allowed remains false"
+          ],
+          "review_reference": "B04 ISSUE-0104 reviewed ETF structure implementation start",
+          "reviewed_date": "2026-08-03",
+          "reviewer": "Codex root orchestrator; independent exact-head reviews pending",
+          "status": "in_progress"
         }
       ],
       "activation_dependencies": [],
@@ -16960,7 +16971,7 @@
       "package_status": "",
       "phase": "phase-04-etf-research",
       "priority": "P0/P1",
-      "programme_status": "ready",
+      "programme_status": "in_progress",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -16988,7 +16999,7 @@
       ],
       "title": "Implement ETF structural, legal, counterparty, lending and collateral risk analysis",
       "ui_requirement": "ETF Structure & Documents panel.",
-      "verified_commit": "5f9aff22ed95ff0075b457ee72412b244d2373b6",
+      "verified_commit": "fca004a529cccc3b0d4251fc600a897035298014",
       "verified_date": "2026-08-03",
       "why": "Two ETFs with similar exposure can have materially different structural risks.",
       "write_conflict_group": "etf-research"
@@ -27735,7 +27746,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "1cba8ec5575d0a2ab9f52046ae4105980de9c68d585605f65e7085a19cc69dad",
+    "programme_control_state_sha256": "6790bbef790c7ccd03a7d324b532cc3fa1cce943e925ad0ed09f2aa01df0f88d",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

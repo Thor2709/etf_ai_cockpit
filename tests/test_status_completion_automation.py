@@ -1577,7 +1577,7 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
     assert "--require-hashes" in install
     assert "--only-binary=:all:" in install
     assert "--no-deps" not in install
-    assert '"cryptography": "49.0.0"' in install
+    assert '"cryptography": "50.0.0"' in install
     assert '"cffi": "2.0.0"' in install
     assert '"pycparser": "2.23"' in install
     assert "import cffi" in install
@@ -1786,8 +1786,8 @@ def test_github_mutation_runtime_is_complete_binary_hash_lock() -> None:
         ),
         (
             "cryptography",
-            "49.0.0",
-            "0e959b578856a3924bc0cbb710fc12c387b9412a951389f3ca61704a9e25f325",
+            "50.0.0",
+            "06a32a980526a6ab9a4b9bf8f7385800791e2bb960903cb6b530e4817509a3b7",
         ),
         (
             "pycparser",

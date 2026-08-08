@@ -9,21 +9,460 @@ Current delivery mechanics are defined in
 to sole workers, Sol-low workers or old lifecycle PR chains describe past
 execution and are not current operational instructions.
 
-## Current ISSUE-0104 readiness lane
+## Current ISSUE-0104 product lane
 
-Dependency PR #653 merged independently approved exact head
-`38e66a4a50cd7ce8833afa5daaaafdf99cd0a0aa` as exact main
-`5f9aff22ed95ff0075b457ee72412b244d2373b6`; release and guard checks passed,
-and convergence `30775335504` returned zero GitHub actions. Both ISSUE-0104
-blocking dependencies are now resolved and deterministic readiness is true.
+Readiness PR #654 merged independently approved exact head
+`92523800cbbb83a307b9250867b495e722b5196c` as
+`fca004a529cccc3b0d4251fc600a897035298014`. Writer `30776243636` applied and
+verified the sole `planned -> ready` projection with zero-action readback;
+fresh generic convergence is zero action at
+`f60115aa8e2cf9655974050b590864231261317ad82250a89563a1e6bf27571e`.
 
-Clean branch `codex/issue0104-ready-20260803` records only ISSUE-0104
-`planned -> ready`, append-only one-hop authority, allowlisted chronology and
-mechanically generated projections. Its live semantic plan
-`c5ea7e26c434487e209588b616c63eb60edacaddb95df0a4ba0ed3ad173f3ffc`
-contains one managed update for GitHub issue #244. Product code and dependency
-edges are unchanged and `execution_allowed=false`; exact E-tier validation,
-review, merge and zero-action readback are next before the product lane.
+Clean branch `codex/issue0104-product-20260803` now implements the bounded
+structural/legal/counterparty/lending/collateral analysis contract and ETF
+Structure & Documents panel from exact main. Every structural field retains
+document/date/page/confidence; unknowns and cross-document conflicts remain
+explicit, numeric stress requires numeric evidence, stock credit metrics and
+legal/sustainability alpha are prohibited, and `execution_allowed=false`.
+
+Product evidence commit `8a69a94919bf93d584778659ee01be030c020ce7`
+passes the 87-test affected suite with one expected skip. The byte-clean
+canonical projection now includes only `ISSUE-0104: ready -> in_progress`.
+Live status-only plan
+`6f0f011be2cfca6b24865e05fba0bd7356c083e6824ca570975ffe8d3c4b5d7d`
+is bound to issue #244, exact parent `fca004a529cccc3b0d4251fc600a897035298014`,
+append-only authority
+`3410411c01d92c04b7a47a456d1b17c50da1645dc5d08a72459f1020697902fe`
+and `execution_allowed=false`. Freeze the completed product/lifecycle head,
+run whole-diff review, financial/point-in-time risk review and H-tier hosted
+validation in parallel, then require the ordered writer and generic
+zero-action readback after merge.
+
+First frozen head `b4d5e8ad59df2ee35b63a43258b0c05041320623` and replacement
+head `68b5b5e2a436183c9a9c89c1b9a2fe1096325a3a` are rejected; their review
+and CI evidence is stale. The replacement reviewers jointly required
+point-in-time review-history replay, reachable typed numeric stress with input
+status validation, strict legacy-fingerprint scope and reviewed-row migration,
+negation-safe disclosure classification, and independent report-family
+binding. Release run `30781501084` also reproduced the 120-second changed-test
+timeout before Linux or Windows packaging began.
+
+Bounded follow-up commit `df215ae1810ffea55a50f96747305d9dccba52ca`
+covers every collected finding and moves the two new
+regressions out of the slow broad test modules. The final six-file affected
+selection passes 107 tests with one expected skip in 87.9 seconds; Ruff,
+compile and diff hygiene pass. Canonical/lifecycle authority and
+`execution_allowed=false` are unchanged. Freeze one checkpoint head, then
+repeat both independent reviews and fresh H-tier hosted validation in
+parallel.
+
+Replacement exact head `db8dfe4560912ccc885d2f3ec355af4984ece77a` is also
+rejected after both parallel reviewers completed. The complete finding set is
+persisted reviewed numeric-evidence binding, equal-time append-order replay,
+duplicate registry identity rejection, standard local factsheet/holdings
+reachability, and yfinance signal/backtest structural-evidence propagation.
+Release run `30783547607` timed out the broad affected suite at 120 seconds
+before package jobs began, so its evidence is stale.
+
+Final bounded correction commit `8ed78afef51893f50809d44db03da845c482dca5`
+covers all five findings and relocates the
+remaining Instrument Detail assertions into a dedicated focused module while
+restoring the broad module exactly to base. The final changed-test selection
+passes 94 tests with one expected skip in 68.3 seconds; the direct 26-test
+correction suite passes in 17.9 seconds including command overhead. Ruff,
+compile and diff hygiene pass. Freeze a new
+checkpoint head, then repeat both independent reviews and fresh H-tier hosted
+validation in parallel.
+
+Exact head `43b7c168718245fad0549db0464705ccaf102c9b` is rejected after
+both reviewers completed. The complete findings are real backtest and
+service/cache holdings propagation, supplemental non-usable status
+preservation, duplicate rejection at the canonical registry reader, and exact
+numeric instrument binding. Stale release run `30785676406` passed its
+96-case affected selection in 99.45 seconds but failed the protected
+presentation boundary because the selector directly imported an implementation
+constant; package jobs did not start.
+
+Bounded follow-up commit `004c8218d84fbbfb000a8efd85452594afb8611c`
+covers the full set, exports the structural-field
+contract through the existing application facade, and replaces the
+88.69-second hosted full-snapshot test with focused section-routing evidence.
+Direct correction, architecture and document suites pass 57 tests; the final
+108-case affected selection passes with one expected skip in 76.3 seconds
+locally. Ruff, compile and diff hygiene pass. Freeze the next exact review
+head.
+
+Exact head `c50647a809ccbe84649b05e43fb0025c8354d9f3` is rejected after
+both reviewers completed. The complete defects are an incorrect real-backtest
+checksum keyword, omitted factsheet evidence in shared score/backtest/cache
+loading, duplicate persisted report identities, and multi-row pre-2.1
+migration losing untouched-row fingerprint context. Release run `30787415201`
+passed preflight and reached both H-tier package jobs; Linux and Windows both
+failed the deterministic real-backtest defect, so that evidence is stale.
+
+Final narrow correction commit `853ade3f6ee042ad579201d5797f32ed06b81ad0`
+covers all four reproduced defects. It includes a
+real 260-session structural-holdings backtest, shared factsheet/holdings
+score/service/cache/yfinance loading, duplicate report-reader rejection and
+reviewed/unreviewed multi-row migration. The 111-case affected selection
+passes 110 tests with one expected skip in 35.7 seconds; architecture, Ruff,
+compile and diff hygiene pass. Freeze the replacement exact head.
+
+Replacement exact head `e9a672994541918b2a974e30a8d164c2cfd83314` is
+rejected after both parallel reviewers completed. The complete findings are
+fail-closed malformed canonical factsheet/holdings handling, preservation of
+real writer structural provenance, and stable cross-kind `legal_form`
+conflicts. Stale release run `30789907061` reached both H-tier package jobs;
+Linux and Windows failed, so none of its evidence is reusable.
+
+Consolidated correction commit
+`6e31cc5ae050b953066ad5374d3c5d4f6efdadf9` closes all three findings. It uses
+real factsheet-document/reference and holdings-document writers in the
+regression, proves their exact bindings survive the shared projection and
+backtest, and retains `execution_allowed=false`. Four direct adversarial cases
+pass; the combined affected structure, scoring, parser, document, holdings,
+release-hardening and architecture suite reaches 100% with one expected skip
+and no failures. Ruff, compile and diff hygiene pass. Freeze one checkpoint
+head, then repeat both reviews and fresh H-tier hosted validation in parallel.
+
+Exact head `ab8b7c0a79a52749eae68cf78165247f63893b7f` is rejected after
+both parallel reviewers completed. The full collected set is cross-kind legal
+conflicts projected as resolved, numeric stress unreachable through a real
+canonical parse/review/readback path, and inconsistent current review
+eligibility accepted through older verified history. Status guard
+`30792984804` passed. Stale release run `30792984780` passed preflight and
+Windows; it was cancelled after rejection while Linux was running, so Linux
+and terminal results are not reusable.
+
+The sole next pass corrects those three demonstrated defects and adds their
+focused regressions without changing lifecycle, authority, dependencies,
+providers or `execution_allowed=false`. Freeze one replacement head after the
+focused suite, then repeat both reviews and fresh H-tier hosted validation.
+
+Consolidated correction commit
+`fd0e6cb8957351427c0066c769ce4c820c973bf2` preserves valid point-in-time
+review replay while rejecting inconsistent current state, keeps cross-kind
+stable conflicts unresolved, and carries four typed fraction inputs through
+real PDF parse, reviewed persistence, readback and structural stress. The
+focused parser/disclosure/structure/correction suite reaches 100% with one
+expected skip; the direct review-history follow-up passes 20 tests. Ruff,
+compile and diff hygiene pass. Freeze the replacement checkpoint head.
+
+Exact head `6bdb98a489bd046175432d833626751cf73900ec` is rejected after
+both reviewers completed. The complete newly demonstrated set is partial-token
+acceptance of percentage/suffixed numeric stress values and malformed or
+metadata-inconsistent review history falling back to trusted top-level
+verification fields. Status guard `30795502020` passed. Release run
+`30795502035` was cancelled after rejection, so package and terminal evidence
+is stale.
+
+Make one narrow parser/review-state correction with real-path regressions,
+preserve valid historical replay and every prior fix, then freeze one exact
+head for both reviews and fresh H-tier gates.
+
+Narrow correction commit
+`be211955a1a4dde05723e03388c65b4c471d9ca2` requires complete bare-decimal
+stress tokens, rejects percent/suffix/backtracking cases through the real
+reviewed path, and fails closed on malformed or current-metadata-inconsistent
+review history. Valid verified-before-rejection replay remains covered. The
+focused correction/structure/parser suite passes 71 tests with one expected
+skip; Ruff, compile and diff hygiene pass. Freeze the checkpoint head.
+
+Exact head `86f6ba03e19cfe948ff852d9eb6ca84e3beef8b1` is rejected after
+both reviewers completed. The complete finding set is canonical readback
+accepting an empty reviewer/unsupported review decision, supplied projection
+accepting missing or empty verified history, and numeric stress combining a
+quartet across unrelated report revisions. Status guard `30797521767` passed;
+release run `30797521771` was cancelled after rejection and is stale.
+
+Correct those three exact authority/provenance cases only: verified evidence
+requires one semantically valid history, and every stress input must share one
+exact reviewed report revision. Preserve valid historical replay and all prior
+strict-token behavior, then freeze one replacement head.
+
+Consolidated correction commit
+`044375c91d9e56334266f7860c738609fc3508fe` enforces semantically complete
+review history in canonical and supplied readback and binds each numeric stress
+quartet to one report revision while preserving valid historical replay. The
+attributable focused suite passes 117 tests with one expected skip; Ruff,
+compile and diff hygiene pass. Freeze one exact replacement head for parallel
+whole-diff review, risk review and fresh H-tier hosted gates.
+
+Exact head `387d7de921dcc189a8479da2c11af155d2e22965` was rejected after
+both reviewers completed. The consolidated finding set is one supplied-frame
+trust-boundary gap: extraction content was not recomputed against its stored
+fingerprint, malformed score/execution flags were accepted, and duplicate
+report identities bypassed canonical readback validation. Release run
+`30799282419` was cancelled after rejection and is stale.
+
+Correction commit `1c53cea7a03dc40afea1c1f0742e7d294ab52843` routes supplied
+report frames through schema-aware fingerprint, review-authority and unique
+identity validation before structural or numeric use. Facade-level mutation,
+authority-flag and duplicate-ID regressions pass within a 112-test focused
+suite; Ruff, compile and diff hygiene pass. Freeze one replacement head and
+repeat both exact-head reviews plus fresh H-tier hosted gates.
+
+Exact head `750ee1be352f3b7c8852d2d779ec4abf352997b1` was rejected after
+both reviewers completed. Newly reproduced parity gaps covered canonical
+review/manual/verifiability semantics, original-container schema identity,
+non-mapping members, exact document-kind/source-authority binding, bare decimal
+grammar and global registry source identity. Release run `30801792515` was
+cancelled after rejection and is stale.
+
+Final parity correction commit
+`673f30f073427e03d181f6a5bcad4e908a4d01ee` applies those exact
+canonical rules to every supplied projection, cap and cache path without
+changing lifecycle or execution authority. The complete focused parity suite
+passes 124 tests; Ruff, compile and diff hygiene pass. Freeze one replacement
+head and repeat both reviews plus fresh H-tier gates.
+
+Exact head `1bcf863e6402e9cb7d883d319bd0e09b4210bc2f` was rejected after
+both reviewers completed. The complete new finding set is strict stored boolean
+handling for `parse_success`, numeric document-family binding,
+duplicate-registry cache identity and explicit derivative/synthetic negation.
+Release run `30803686888` was cancelled and is stale.
+
+Residual correction commit `875b893fd87d386475cdc3d0815acbe1d24d6c66`
+covers those four reproduced cases only. The focused suite passes 130 tests;
+Ruff, compile and diff hygiene pass, and `execution_allowed=false` is unchanged.
+Freeze the replacement head for both exact-head reviews and fresh H-tier hosted
+gates.
+
+Exact head `52cae8cf7f87da46f95e53c643061acc7d394e54` was rejected after
+both reviewers completed. The complete finding set is field-local negation,
+unconditional `parse_success` schema typing and stale-cache prevention when
+structural storage is corrupt or unreadable. Release run `30805501748` was
+cancelled and is stale.
+
+Correction commit `3fa69aaef0757aba3013598497cb74ae98fdfd6d` covers only those
+reproduced paths. The focused suite passes 153 tests; Ruff, compile and diff
+hygiene pass, and execution/lifecycle authority is unchanged. Freeze the
+replacement head for both exact-head reviews and fresh H-tier hosted gates.
+
+Exact head `ea5a7863876a7bff8ce32812de115a74590ed120` was rejected after
+both reviewers completed. The consolidated acceptance gaps are supported report
+schemas, one-revision numeric quartets, strict typed input channels and cache
+identity, clause-aware contradiction handling, and per-decision backtest
+structural provenance. Release run `30807318004` was cancelled and is stale.
+
+Complete provenance correction commit
+`e858f5a8c0d57690ed7456baf7132d0a47ccc434` covers those reproduced
+paths without lifecycle or authority changes. Four attributable focused suites
+pass 182 tests total; Ruff, compile and diff hygiene pass. Freeze the replacement
+head for both exact-head reviews and fresh H-tier hosted gates.
+
+Exact head `a7862cb70e33afd6c12f4db2656abb88e7ac8ae5` was rejected after
+both reviewers completed. The complete finding set is point-in-time conflict
+eligibility, same-clause contradiction safety, structural identity-alias
+agreement and typed-channel type/kind agreement. Release run `30811214008` was
+cancelled and is stale.
+
+Point-in-time correction commit
+`55582bf9169db7da3a2a293c76e6a8b8f48b8939` covers only those
+reproduced paths. Four focused suites pass 202 tests total; Ruff, compile and
+diff hygiene pass. Freeze the replacement head for both exact-head reviews and
+fresh H-tier hosted gates.
+
+Replacement exact head `10607cf4fa0563a958821391c7735491bfac2416` is
+rejected after both parallel reviewers completed. The complete finding set is
+decision-time replay of cross-report review authority, contradictory
+`instrument_id`/`etf_id` rejection, mandatory cached signal provenance and
+architecture wording consistent with point-in-time conflict scoring. Release
+run `30814812246` was cancelled after rejection and is stale.
+
+Consolidated correction commit
+`f82797a7fb854fdeb8ae2f70a68582835334df4c` covers those exact findings. It
+replays conflict eligibility from the review event visible at each decision,
+preserves earlier verified intervals before a later rejection, rejects
+contradictory instrument aliases before projection or hashing, and invalidates
+cached backtests without complete per-decision structural provenance. The four
+attributable focused suites, Ruff, compile and diff hygiene pass; the
+runtime-dated real-import fixture now uses an explicit post-import decision.
+Lifecycle authority, dependencies and `execution_allowed=false` are unchanged.
+Freeze one replacement head after this checkpoint and repeat both reviews plus
+fresh H-tier hosted gates in parallel.
+
+Exact head `6440440df1892a74c1734f935f52d1a437ed6ba8` is rejected after
+both reviewers completed. The full finding set is false cross-period conflicts
+for time-varying structure, omitted UI conflict-candidate provenance and cache
+acceptance without exact per-decision cap/hash recomputation. H-tier run
+`31246422546` additionally failed the vulnerability scan on
+`cryptography==49.0.0` / `CVE-2026-69247`; status guard, preflight and lifecycle
+candidate validation passed, but no package evidence was produced.
+
+Combined correction commit
+`9aea82a16bc2b1e71fbcf71c79068c02f9a83f25` shares one stable/varying conflict
+policy, selects the latest reporting period for varying fields while retaining
+same-period and stable-field conflicts, renders every conflict provenance
+field, and recomputes each cached signal cap/hash from canonical decision-time
+evidence. The directly coupled release and GitHub-writer runtime now pins fixed
+`cryptography==50.0.0` with reviewed Linux wheel hash
+`06a32a980526a6ab9a4b9bf8f7385800791e2bb960903cb6b530e4817509a3b7`.
+Four product suites and five supply-chain/authority suites pass; Ruff, compile,
+diff hygiene, binary hash-lock download and `pip-audit` pass with no known
+vulnerabilities. Lifecycle state and `execution_allowed=false` are unchanged.
+Freeze this checkpoint and repeat both reviews plus fresh H-tier gates in
+parallel.
+
+Exact head `e8001fe01a54878a89b1778137156cb265cb63c4` received risk
+approval after 361 passing tests and one expected skip, but whole-diff review
+reproduced one new defect: an absent optional holdings file was converted to an
+empty frame and then misclassified as a malformed canonical store, suppressing
+otherwise valid report/factsheet evidence. Run `31248171632` passed status
+guard, supply chain, locked-writer candidate validation and preflight, then was
+cancelled as stale while package and pilot jobs ran.
+
+Narrow correction commit
+`6781a488ab4fe68f77246ae4af6c340b91d693c6` validates holdings schema only
+when the canonical file exists; existing corrupt and schema-malformed stores
+still fail closed. An exact-registry-bound factsheet regression proves valid
+evidence remains resolved when optional holdings are absent. The correction
+suite, Ruff, compile and diff hygiene pass; `execution_allowed=false` and all
+lifecycle/authority state remain unchanged. Freeze the replacement head and
+repeat both reviews plus fresh H-tier gates in parallel.
+
+Replacement exact head `f81a16c0fe349450e889a22c6780aa1a85bad1ad` was
+rejected after both parallel reviewers completed. The complete finding set is
+review evidence predating the exact report `known_at` and an identity-bearing
+holdings store with an unrelated schema being silently skipped. Run
+`31249002466` passed status and supply-chain checks, then was cancelled as
+stale immediately after rejection.
+
+Consolidated correction commit
+`2bb6f818ddceeb1fcdea66727e59c0c446c8e243` enforces review/ingestion
+chronology in canonical, supplied and defensive structural paths and requires
+the writer's required schema on every existing canonical holdings store. The five
+directly coupled test modules, Ruff, compile and diff hygiene pass; lifecycle
+authority and `execution_allowed=false` are unchanged. Freeze one replacement
+head for both reviews and fresh H-tier gates in parallel.
+
+Exact head `bb72a93ba3c874e061c9b9668cc4950e90324a33` was rejected after
+both reviewers completed. The valid consolidated set is malformed existing
+holdings retained by merge, concurrent holdings lost updates, a review writer
+publishing before exact `known_at`, and a cache regression that returned before
+the structural loader. Release run `31250191446` passed classifier,
+supply-chain, candidate validation and preflight, then was cancelled as stale
+while package and pilot jobs ran. The claimed `issues/open.md` manifest
+mismatch is expected `programme-generation.v1` LF-canonical hashing; two
+mechanical generations and check mode were byte-clean.
+
+Combined correction commit
+`4630445c0380b9ad5dae56fb0fd588d241f8fb8a` fully validates canonical
+holdings at load, merge and publication, gives all holdings writers one
+complete-transaction guard with registry-first lock order, rejects and
+pre-validates future-bound reviews, and reaches the structural loader in the
+cache corruption test. The six directly coupled test modules pass at 100%;
+Ruff, compile, generator check and diff hygiene pass. Lifecycle authority and
+`execution_allowed=false` remain unchanged. Freeze one replacement head for
+both reviews and fresh H-tier gates in parallel.
+
+Exact head `8c48b7199705396d42bb137f72a65c46b3258241` was rejected after
+both reviewers completed. The newly reproduced defects are an empty existing
+Parquet bypassing schema validation and the document-coupled writer publishing
+its post-binding holdings frame without staged semantic validation. Run
+`31252092595` passed classifier, preflight, supply-chain, candidate validation
+and lint/type gates; Linux and Windows each timed out in the unchanged
+1,800-second full-test stage, terminal validation failed, and the pilots were
+cancelled as stale.
+
+Narrow follow-up commit
+`8a94de3613f02f58c10de8571895c86c05e0342d` validates schema before any
+empty-frame return and validates the complete post-binding frame before and
+from staged Parquet publication. Direct load, merge and no-write rollback
+regressions pass with the full holdings and ISSUE-0104 correction modules;
+Ruff, compile and diff hygiene pass. Lifecycle and `execution_allowed=false`
+remain unchanged. Freeze one replacement head for both reviews and fresh
+H-tier gates in parallel.
+
+Exact head `3581a1b2195890d08baa3fffb1ae04d8b3f118fe` received an
+independent risk approval but was rejected by the whole-diff review after both
+verdicts completed. Registry ordering could choose a different annual or
+half-year source for the document matrix and change the structure provenance
+hash. Release run `31254041778` passed classifier, supply chain, candidate
+validation and preflight, then was cancelled and discarded as stale.
+
+Bounded correction commit `17194503a000de86b723e5e12207495a201db604`
+selects the latest chosen family revision deterministically by document date,
+known-at time and source identity. The annual/half-year order-invariance
+regression, all 86 structure tests, Ruff and diff hygiene pass. Lifecycle
+authority and `execution_allowed=false` remain unchanged. Freeze one new
+exact head and repeat both reviews plus fresh H-tier gates in parallel.
+
+Replacement head `aab53ce37e58384ed4c2ae0c79217194a6b4fd97` received
+whole-diff and risk approvals; its only review note was a non-blocking
+report-row ordering follow-up. Fresh run `31255297689` passed classifier,
+supply chain, candidate validation and preflight, but both serial package
+suites timed out at exactly 1,800 seconds and terminal validation failed.
+Diagnosis reproduced a valid backtest cache read taking about 20 seconds
+because structural evidence was replayed once per signal row.
+
+Single blocker correction commit `0993e85a0093103884bc5ba413f95a14fd9a335c`
+batches cache readback by decision date/instrument and vectorizes the canonical
+no-evidence case while retaining exact cap/hash comparison. Cache readback
+falls from about 20.2 to 0.8 seconds and snapshot construction from about 26.1
+to 4.8 seconds. Direct cache/tamper regressions and the complete 69-test
+backtest/correction modules pass; Ruff and diff hygiene pass. Freeze one final
+exact head for both reviews and fresh H-tier packages/pilots; lifecycle and
+`execution_allowed=false` remain unchanged.
+
+Exact head `cc7f5748ebed06031f80f4c040e166e599a147fe` received risk
+approval but was rejected after both parallel verdicts completed. The
+whole-diff review demonstrated that null/sentinel instrument identities could
+pass the empty-evidence cache path and that the batching regression did not
+exercise non-empty evidence across multiple dates. Release run `31258800287`
+passed classifier, supply chain, candidate validation and preflight, then was
+cancelled and discarded as stale.
+
+Consolidated correction commit `3c6eac38be61677e1fcd4a1a6e785cc96e8129bb`
+rejects malformed cache identities before normalization and proves non-empty
+structural replay is batched once per unique decision date while exact cap/hash
+tamper rejection remains intact. The complete 77-test backtest/correction
+modules, Ruff and diff hygiene pass. Freeze one new exact head for both reviews
+and fresh H-tier packages/pilots; lifecycle authority and
+`execution_allowed=false` remain unchanged.
+
+Exact head `df97611e8fcfa5d9b1e8db00e31c882214ead1fe` was rejected after
+both parallel reviews completed. Both reviewers accepted the cache correction;
+their newly demonstrated findings were union-schema expansion changing
+retained holdings provenance and stale/ineligible holdings claims resolving as
+structural confidence evidence. Release run `31259494785` was cancelled and
+discarded as stale.
+
+Combined correction commit `811c094ae5f408f35f2f8fb569929c9eb2a5fc2a`
+uses one fixed canonical optional-identity schema for holdings provenance,
+covers sequential and concurrent ticker/ISIN merges, and rejects stale, aged,
+incomplete, non-issuer and non-score-eligible holdings claims at structural
+consumption. The 229-test backtest, holdings, structure and correction suite,
+Ruff and diff hygiene pass. Freeze one replacement head for both reviews and
+fresh H-tier packages/pilots; lifecycle and `execution_allowed=false` remain
+unchanged.
+
+Exact head `91cbf92e70afe339b8a835edf7f99b11eb319c5b` received a
+whole-diff approval with one non-blocking concurrent source-ID assertion, but
+risk review demonstrated a future-dated holdings claim could produce negative
+age and evade the stale check. Release run `31260389662` was cancelled and
+discarded as stale after both verdicts completed.
+
+Narrow follow-up commit `2efad098e514f4722f21e53fa771f452aeb5bb3b`
+rejects holdings dated after the effective decision, proves those claims stay
+unresolved with zero confidence and invalidate a forged cached replay, and
+asserts concurrent mixed-schema imports retain both expected source IDs. The
+231-test backtest, holdings, structure and correction suite, Ruff and diff
+hygiene pass. Freeze one replacement head for both reviews and fresh H-tier
+packages/pilots; lifecycle and `execution_allowed=false` remain unchanged.
+
+Exact head `52d2eb31096b141c23850fcc60ccbc89c445e9a3` received risk
+approval but was rejected by the whole-diff review after both verdicts
+completed because an arbitrary non-empty signal ID outside the configured
+universe could pass the empty-evidence cache path. Release run `31261532414`
+was cancelled and discarded as stale.
+
+Minimal correction commit `13e0b378e3686dffe9a5e5bdd9901d9f2b858d50`
+binds every cached signal ID to `config.universe.enabled_ids` before either
+cache-validation path and adds the unconfigured-ID regression. The complete
+79-test backtest/correction modules, Ruff and diff hygiene pass. Freeze the
+final head for both reviews and fresh H-tier packages/pilots; lifecycle and
+`execution_allowed=false` remain unchanged.
 
 ## Completed UPDATEV2-0018 parser lane
 

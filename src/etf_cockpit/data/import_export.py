@@ -196,31 +196,38 @@ class ImportService:
             )
             committed = pd.read_parquet(destination)
         elif preview.import_type == "etf_holdings":
-            from etf_cockpit.data.fund_holdings import _merge_holdings_frame, _read_existing_holdings, _write_holdings_frame, normalise_holdings
-
-            date_column = _first_column(frame, ("as_of", "as_of_date", "date", "holdings_date", "report_date"))
-            instrument_column = _first_column(frame, ("instrument_id", "etf_id", "parent_etf_id", "isin", "fund_isin", "ticker"))
-            if date_column is None or instrument_column is None:
-                raise ValueError("ETF holdings import requires as_of date and instrument identity")
-            instrument_id = str(frame[instrument_column].dropna().iloc[0]).strip()
-            # User-owned generic imports are context evidence. Authority must
-            # never be promoted from a free-text column in the imported file.
-            result = normalise_holdings(
-                frame,
-                instrument_id,
-                frame[date_column].dropna().iloc[0],
-                "manual_unverified",
-            )
-            if result.frame.empty:
-                raise ValueError("ETF holdings import is invalid; no data changed")
             destination = self.root / "data" / "clean" / "fund_holdings.parquet"
             destination.parent.mkdir(parents=True, exist_ok=True)
-            holdings_frame = result.frame.copy()
-            if "schema_version" not in holdings_frame.columns:
-                holdings_frame.insert(0, "schema_version", 1)
-            merged = _merge_holdings_frame(_read_existing_holdings(destination), holdings_frame, instrument_id)
-            _write_holdings_frame(merged, destination=destination)
-            committed = pd.read_parquet(destination)
+            from etf_cockpit.data.fund_holdings import (
+                _merge_holdings_frame,
+                _read_existing_holdings,
+                _write_holdings_frame,
+                holdings_store_guard,
+                normalise_holdings,
+            )
+
+            with holdings_store_guard(destination):
+                date_column = _first_column(frame, ("as_of", "as_of_date", "date", "holdings_date", "report_date"))
+                instrument_column = _first_column(frame, ("instrument_id", "etf_id", "parent_etf_id", "isin", "fund_isin", "ticker"))
+                if date_column is None or instrument_column is None:
+                    raise ValueError("ETF holdings import requires as_of date and instrument identity")
+                instrument_id = str(frame[instrument_column].dropna().iloc[0]).strip()
+                # User-owned generic imports are context evidence. Authority must
+                # never be promoted from a free-text column in the imported file.
+                result = normalise_holdings(
+                    frame,
+                    instrument_id,
+                    frame[date_column].dropna().iloc[0],
+                    "manual_unverified",
+                )
+                if result.frame.empty:
+                    raise ValueError("ETF holdings import is invalid; no data changed")
+                holdings_frame = result.frame.copy()
+                if "schema_version" not in holdings_frame.columns:
+                    holdings_frame.insert(0, "schema_version", 1)
+                merged = _merge_holdings_frame(_read_existing_holdings(destination), holdings_frame, instrument_id)
+                _write_holdings_frame(merged, destination=destination)
+                committed = pd.read_parquet(destination)
         else:
             destination.parent.mkdir(parents=True, exist_ok=True)
             atomic_write_bytes(destination, parquet_payload(frame), validate_parquet_file)

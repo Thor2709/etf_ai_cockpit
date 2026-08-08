@@ -13,6 +13,7 @@ from etf_cockpit.application.ui_facade import (
     EVENT_CLEAN_PATH,
     FUNDAMENTAL_CLEAN_PATH,
     FUND_HOLDINGS_PATH,
+    ETF_METADATA_CLEAN_PATH,
     NEWS_CLEAN_PATH,
     assess_fundamental_row,
     build_market_clock_diagnostics,
@@ -31,10 +32,13 @@ from etf_cockpit.application.ui_facade import (
     load_fixed_income_risk_projection,
     load_fixed_income_market_data_projection,
     load_fixed_income_analytics_projection,
+    load_etf_structure_projection,
+    load_local_structural_evidence,
     load_simple_scoreboard,
     load_statement_evidence,
     load_paper_trade_rows,
     read_document_registry,
+    read_etf_report_records,
     read_index_methodology_records,
     read_priips_kid_records,
     score_history_frame,
@@ -83,6 +87,7 @@ _SECTION_NAMES = (
     "attribution",
     "fundamentals",
     "etf_disclosures",
+    "etf_structure",
     "etf_holdings",
     "etf_overlap",
     "news",
@@ -743,6 +748,57 @@ def build_etf_disclosure_panel(model: InstrumentDetailViewModel) -> dict[str, An
     return value if isinstance(value, dict) else {"status": "unavailable", "document_inventory": [], "holdings": {"status": "unavailable"}, "kid": {"status": "unavailable"}, "methodology": {"status": "unavailable"}}
 
 
+def build_etf_structure_panel(model: InstrumentDetailViewModel) -> dict[str, Any]:
+    """Return the reusable structural/legal ETF panel model."""
+
+    value = model.sections.get("etf_structure")
+    return value if isinstance(value, dict) else {"status": "unavailable", "fields": {}, "documents": {}, "versions": [], "flags": ["structure_evidence_unavailable"], "execution_allowed": False}
+
+
+def _etf_structure_panel(
+    instrument_id: str,
+    *,
+    document_registry: pd.DataFrame | None = None,
+    report_records: pd.DataFrame | None = None,
+    supplemental_rows: object = None,
+    holdings: pd.DataFrame | None = None,
+    decision_time: object = None,
+) -> dict[str, Any]:
+    try:
+        evidence = None
+        if any(value is None for value in (document_registry, report_records, supplemental_rows, holdings)):
+            evidence = load_local_structural_evidence(
+                registry_reader=(lambda: document_registry) if document_registry is not None else read_document_registry,
+                report_reader=(lambda: report_records) if report_records is not None else read_etf_report_records,
+                factsheet_path=ETF_METADATA_CLEAN_PATH,
+                holdings_path=FUND_HOLDINGS_PATH,
+            )
+        local_registry = document_registry if document_registry is not None else evidence.document_registry
+        local_reports = report_records if report_records is not None else evidence.report_records
+        local_factsheet_rows = supplemental_rows if supplemental_rows is not None else evidence.supplemental_rows
+        local_holdings_rows = holdings if holdings is not None else evidence.holdings
+        return load_etf_structure_projection(
+            instrument_id,
+            document_registry=local_registry,
+            report_records=local_reports,
+            supplemental_rows=local_factsheet_rows,
+            holdings=local_holdings_rows,
+            decision_time=decision_time,
+        )
+    except Exception:
+        return {
+            "contract": "etf-structure-documents.v1",
+            "instrument_id": str(instrument_id),
+            "status": "unavailable",
+            "fields": {},
+            "documents": {family: {"status": "unknown", "execution_allowed": False} for family in ("factsheet", "prospectus", "holdings")},
+            "versions": [],
+            "flags": ["structure_evidence_invalid"],
+            "evidence_confidence_cap": 0.0,
+            "execution_allowed": False,
+        }
+
+
 def _friction_panel(instrument_id: str, *, candidate_score: SimpleInstrumentScore | None = None) -> dict[str, Any]:
     fields = (
         "gross_expected_edge_bps",
@@ -1080,6 +1136,14 @@ def _score_panel(signal: Any, scoreboard: Mapping[str, Any], derived: Mapping[st
     signal_score = _safe_float(getattr(signal, "total_score", None))
     canonical = getattr(signal, "canonical_score", None)
     canonical_payload = canonical.as_dict() if canonical is not None else {}
+    signal_metrics = getattr(signal, "supporting_metrics", {})
+    signal_confidence = (
+        _safe_float(signal_metrics.get("canonical_evidence_confidence_10"))
+        if isinstance(signal_metrics, Mapping)
+        else None
+    )
+    canonical_confidence = _safe_float(canonical_payload.get("evidence_confidence_10"))
+    scoreboard_confidence = _safe_float(scoreboard.get("canonical_evidence_confidence_10"))
     freshness = _safe_text(scoreboard.get("freshness_status"))
     freshness_valid = freshness is not None
     numeric_available = any(value is not None for value in (evidence_score, quality, signal_score))
@@ -1092,7 +1156,13 @@ def _score_panel(signal: Any, scoreboard: Mapping[str, Any], derived: Mapping[st
         "canonical_attractiveness_10": _safe_float(scoreboard.get("canonical_attractiveness_10")) or _safe_float(canonical_payload.get("attractiveness_10")),
         "canonical_expected_return_10": _safe_float(scoreboard.get("canonical_expected_return_10")) or _safe_float(canonical_payload.get("expected_return_10")),
         "canonical_risk_implementation_10": _safe_float(scoreboard.get("canonical_risk_implementation_10")) or _safe_float(canonical_payload.get("risk_implementation_10")),
-        "canonical_evidence_confidence_10": _safe_float(scoreboard.get("canonical_evidence_confidence_10")) or _safe_float(canonical_payload.get("evidence_confidence_10")),
+        "canonical_evidence_confidence_10": (
+            signal_confidence
+            if signal_confidence is not None
+            else canonical_confidence
+            if canonical_confidence is not None
+            else scoreboard_confidence
+        ),
         "canonical_coverage": _safe_float(scoreboard.get("canonical_coverage")) or _safe_float(canonical_payload.get("coverage")) or 0.0,
         "formula_version": scoreboard.get("formula_version") or canonical_payload.get("formula_version", "unavailable"),
         "formula_checksum": scoreboard.get("formula_checksum") or canonical_payload.get("formula_checksum", "unavailable"),
@@ -1281,6 +1351,8 @@ def build_instrument_detail(
     holdings: pd.DataFrame | None = None,
     kid_records: pd.DataFrame | None = None,
     methodology_records: pd.DataFrame | None = None,
+    report_records: pd.DataFrame | None = None,
+    structure_rows: object = None,
     fundamentals: pd.DataFrame | None = None,
     news: pd.DataFrame | None = None,
     events: pd.DataFrame | None = None,
@@ -1414,6 +1486,14 @@ def build_instrument_detail(
             }
         )
     disclosure = _etf_disclosure_panel(instrument_id, document_registry=document_registry, holdings=holdings, kid_records=kid_records, methodology_records=methodology_records)
+    structure = _etf_structure_panel(
+        instrument_id,
+        document_registry=document_registry,
+        report_records=report_records,
+        supplemental_rows=structure_rows,
+        holdings=holdings,
+        decision_time=decision_time,
+    )
     overlap = build_direct_overlap_view(
         snapshot,
         [str(item.id) for item in snapshot.config.universe.etfs if bool(item.enabled)],
@@ -1501,6 +1581,7 @@ def build_instrument_detail(
             "attribution": _attribution_panel(derived, scoreboard),
             "fundamentals": _fundamentals_panel(instrument_id, fundamentals),
             "etf_disclosures": disclosure,
+            "etf_structure": structure,
             "etf_holdings": disclosure.get("exposure", _unavailable("ETF holdings/exposure unavailable.")),
             "etf_overlap": direct_overlap_payload(overlap),
             "news": _news_panel(instrument_id, news),

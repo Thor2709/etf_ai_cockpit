@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier
 
 import numpy as np
 import pandas as pd
@@ -305,21 +307,157 @@ def test_holdings_import_path_normalises_csv_and_persists_records(tmp_path: Path
     assert pd.read_parquet(destination).loc[0, "instrument_id"] == "VWCE"
 
 
-def test_holdings_import_merges_one_instrument_without_dropping_other_canonical_rows(tmp_path: Path) -> None:
+def test_holdings_import_merges_disjoint_identity_schemas_without_changing_provenance(tmp_path: Path) -> None:
     from etf_cockpit.data.fund_holdings import import_etf_holdings
 
     destination = tmp_path / "fund_holdings.parquet"
     first_source = tmp_path / "vwce.csv"
     second_source = tmp_path / "lyp6.csv"
     pd.DataFrame({"security": ["A"], "ticker": ["A"], "weight": [1.0]}).to_csv(first_source, index=False)
-    pd.DataFrame({"security": ["B"], "ticker": ["B"], "weight": [1.0]}).to_csv(second_source, index=False)
+    pd.DataFrame({"security": ["B"], "isin": ["IE00TEST0002"], "weight": [1.0]}).to_csv(second_source, index=False)
 
-    import_etf_holdings(first_source, "VWCE", "2026-07-10", "issuer", destination=destination, today="2026-07-11")
+    first = import_etf_holdings(first_source, "VWCE", "2026-07-10", "issuer", destination=destination, today="2026-07-11")
     import_etf_holdings(second_source, "LYP6", "2026-07-11", "issuer", destination=destination, today="2026-07-11")
 
     stored = pd.read_parquet(destination)
     assert set(stored["instrument_id"]) == {"VWCE", "LYP6"}
-    assert set(stored["ticker"]) == {"A", "B"}
+    assert stored.loc[stored["instrument_id"].eq("VWCE"), "source_id"].eq(first.source_id).all()
+    assert stored.loc[stored["instrument_id"].eq("VWCE"), "ticker"].eq("A").all()
+    assert stored.loc[stored["instrument_id"].eq("LYP6"), "isin"].eq("IE00TEST0002").all()
+
+
+def test_holdings_import_rejects_malformed_existing_store_without_writes(tmp_path: Path) -> None:
+    from etf_cockpit.data.fund_holdings import import_etf_holdings
+
+    destination = tmp_path / "fund_holdings.parquet"
+    malformed = pd.DataFrame({"instrument_id": ["OTHER"], "unrelated": ["not holdings"]})
+    malformed.to_parquet(
+        destination, index=False
+    )
+    mirror = destination.with_suffix(".csv")
+    malformed.to_csv(mirror, index=False)
+    prior_bytes = destination.read_bytes()
+    prior_mirror_bytes = mirror.read_bytes()
+    source = tmp_path / "vwce.csv"
+    pd.DataFrame({"security": ["A"], "ticker": ["A"], "weight": [1.0]}).to_csv(
+        source, index=False
+    )
+
+    with pytest.raises(ValueError, match="required|schema|canonical"):
+        import_etf_holdings(
+            source,
+            "VWCE",
+            "2026-07-10",
+            "issuer",
+            destination=destination,
+            today="2026-07-11",
+        )
+
+    assert destination.read_bytes() == prior_bytes
+    assert mirror.read_bytes() == prior_mirror_bytes
+
+
+def test_holdings_import_rejects_empty_existing_store_without_schema(tmp_path: Path) -> None:
+    from etf_cockpit.data.fund_holdings import import_etf_holdings
+
+    destination = tmp_path / "fund_holdings.parquet"
+    pd.DataFrame(columns=["instrument_id"]).to_parquet(destination, index=False)
+    prior_bytes = destination.read_bytes()
+    source = tmp_path / "vwce.csv"
+    pd.DataFrame({"security": ["A"], "ticker": ["A"], "weight": [1.0]}).to_csv(
+        source, index=False
+    )
+
+    with pytest.raises(ValueError, match="missing required columns"):
+        import_etf_holdings(
+            source,
+            "VWCE",
+            "2026-07-10",
+            "issuer",
+            destination=destination,
+            today="2026-07-11",
+        )
+
+    assert destination.read_bytes() == prior_bytes
+
+
+def test_document_holdings_import_rejects_invalid_post_binding_without_writes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import etf_cockpit.data.fund_holdings as fund_holdings
+
+    source = tmp_path / "holdings.csv"
+    pd.DataFrame({"security": ["A"], "ticker": ["A"], "weight": [1.0]}).to_csv(
+        source, index=False
+    )
+    holdings_destination = tmp_path / "fund_holdings.parquet"
+    registry_destination = tmp_path / "fund_documents.parquet"
+    real_attach = fund_holdings._attach_document_binding
+
+    def corrupt_binding(frame: pd.DataFrame, document: object) -> pd.DataFrame:
+        corrupted = real_attach(frame, document)
+        corrupted["source"] = ""
+        return corrupted
+
+    monkeypatch.setattr(fund_holdings, "_attach_document_binding", corrupt_binding)
+
+    with pytest.raises(ValueError, match="missing row provenance=source"):
+        fund_holdings.import_etf_holdings_with_document(
+            source,
+            "VWCE",
+            "2026-07-10",
+            holdings_destination=holdings_destination,
+            registry_destination=registry_destination,
+            today="2026-07-11",
+        )
+
+    for destination in (
+        holdings_destination,
+        holdings_destination.with_suffix(".csv"),
+        registry_destination,
+        registry_destination.with_suffix(".csv"),
+    ):
+        assert not destination.exists()
+
+
+def test_concurrent_holdings_imports_preserve_disjoint_identity_schemas(tmp_path: Path) -> None:
+    from etf_cockpit.data.fund_holdings import import_etf_holdings
+
+    destination = tmp_path / "fund_holdings.parquet"
+    sources = {}
+    for instrument, identity_column, identity_value in (
+        ("VWCE", "ticker", "A"),
+        ("LYP6", "isin", "IE00TEST0002"),
+    ):
+        source = tmp_path / f"{instrument.lower()}.csv"
+        pd.DataFrame({"security": [identity_value], identity_column: [identity_value], "weight": [1.0]}).to_csv(
+            source, index=False
+        )
+        sources[instrument] = source
+    start = Barrier(2)
+
+    def import_one(instrument: str) -> tuple[str, str]:
+        start.wait(timeout=20)
+        result = import_etf_holdings(
+            sources[instrument],
+            instrument,
+            "2026-07-10",
+            "issuer",
+            destination=destination,
+            today="2026-07-11",
+        )
+        return instrument, result.source_id
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(import_one, instrument) for instrument in sources]
+        expected_source_ids = dict(future.result(timeout=30) for future in futures)
+
+    stored = pd.read_parquet(destination)
+    assert set(stored["instrument_id"].astype(str)) == {"VWCE", "LYP6"}
+    assert {
+        instrument: group["source_id"].iloc[0]
+        for instrument, group in stored.groupby("instrument_id")
+    } == expected_source_ids
 
 
 def test_combined_holdings_import_preserves_registry_instrument_omitted_from_configured_ids(tmp_path: Path) -> None:

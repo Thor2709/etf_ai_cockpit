@@ -3,23 +3,23 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "planned",
+      "from": "ready",
       "issue_id": "ISSUE-0104",
-      "to": "ready"
+      "to": "in_progress"
     }
   ],
-  "base_commit": "5f9aff22ed95ff0075b457ee72412b244d2373b6",
-  "branch": "codex/issue0104-ready-20260803",
+  "base_commit": "fca004a529cccc3b0d4251fc600a897035298014",
+  "branch": "codex/issue0104-product-20260803",
   "issue_ids": [
     "ISSUE-0104"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "1aed7efdd4c9a3b1b9eab64842129e70df926ee1763997503b0f449fbf98a358",
+    "base_registry_sha256": "b2a63a095aeed2e1d24af27e9840bcd0f45a002f6105e9e748921eb4bf5ac7df",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "b2a63a095aeed2e1d24af27e9840bcd0f45a002f6105e9e748921eb4bf5ac7df",
-    "reason": "Advance only dependency-ready ISSUE-0104 from planned to ready after the reviewed UPDATEV2-0018 report-evidence edge merged; preserve dependencies, product code, external authority and execution_allowed=false.",
+    "proposed_registry_sha256": "6e79d88c047d2081fc98a39c17947eb52becbeab593c3ed4585786335aea96e0",
+    "reason": "Advance only ISSUE-0104 from ready to in_progress alongside its exact reviewed ETF structure implementation; preserve dependencies, acceptance criteria, external authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },

@@ -266,6 +266,8 @@ def _v2_report_result(
     success: bool = True,
     parser_version: str = "2.0",
     template_version: str = "v1",
+    legal_structure: str = "Irish UCITS investment company",
+    document_date: str = "2026-07-14",
 ) -> ParseResult:
     from etf_cockpit.parsers.etf_report import EtfReportFieldEvidence, EtfReportRecord
 
@@ -273,14 +275,14 @@ def _v2_report_result(
 
     checksum = hashlib.sha256(path.read_bytes()).hexdigest()
     values = {
-        "fund_name": fund_name, "isin": "IE00B4L5Y983", "document_date": "2026-07-14",
+        "fund_name": fund_name, "isin": "IE00B4L5Y983", "document_date": document_date,
         "reporting_period_end": "2026-06-30" if kind != "prospectus" else None,
-        "legal_structure": "Irish UCITS investment company", "securities_lending": "Up to 50%",
+        "legal_structure": legal_structure, "securities_lending": "Up to 50%",
         "collateral_policy": "Daily margining", "ongoing_costs": "0.22%", "holdings_count": "3612",
         "operational_risks": "Settlement risk",
     }
     evidence = tuple(EtfReportFieldEvidence(field, value, 1, "high", "extracted" if value is not None else "unknown", (value,) if value is not None else (), field, (1,) if value is not None else ()) for field, value in values.items())
-    record = EtfReportRecord(kind, "en", "language.en.v1", f"template.{kind.replace('_', '-')}.english.{template_version}", "2026-07-14", values, evidence, (1,), "high" if success else "partial", () if success else ("required_field_missing",), checksum)
+    record = EtfReportRecord(kind, "en", "language.en.v1", f"template.{kind.replace('_', '-')}.english.{template_version}", document_date, values, evidence, (1,), "high" if success else "partial", () if success else ("required_field_missing",), checksum)
     return ParseResult((record,), (), "etf_report", parser_version, checksum, success)
 
 
@@ -297,6 +299,7 @@ def test_v2_import_is_typed_checksum_bound_and_review_time_is_store_generated(tm
     imported = import_etf_report(EtfReportImportRequest("VWCE", "prospectus", "issuer_document", source_path=source, destination=report_path, registry_destination=registry_path, conflict_destination=conflict_path, raw_dir=tmp_path / "raw"))
     row = read_etf_report_records(report_path).iloc[0]
     assert imported.source_id.startswith("report:v2:")
+    assert row["schema_version"] == 2.1
     assert row["source_sha256"] == imported.document.sha256
     assert row["verification_status"] == "pending"
     assert bool(row["evidence_eligible"]) is False
@@ -309,6 +312,112 @@ def test_v2_import_is_typed_checksum_bound_and_review_time_is_store_generated(tm
     assert bool(verified["score_eligible"]) is False
     assert bool(verified["execution_allowed"]) is False
     assert "reviewed_at" in str(verified["review_history"])
+
+
+def test_review_with_future_known_at_is_rejected_before_publication(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import etf_cockpit.data.parsed_disclosures as module
+    from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest, EtfReportReviewRequest
+
+    source = tmp_path / "prospectus.pdf"
+    source.write_bytes(b"future known-at review")
+    monkeypatch.setattr(
+        module,
+        "parse_etf_report_in_child",
+        lambda path, kind, **_kwargs: _v2_report_result(path, kind=kind),
+    )
+    report_path = tmp_path / "reports.parquet"
+    registry_path = tmp_path / "fund_documents.parquet"
+    conflict_path = tmp_path / "conflicts.parquet"
+    imported = module.import_etf_report(
+        EtfReportImportRequest(
+            "VWCE",
+            "prospectus",
+            "issuer_document",
+            source_path=source,
+            destination=report_path,
+            registry_destination=registry_path,
+            conflict_destination=conflict_path,
+            raw_dir=tmp_path / "raw",
+        )
+    )
+
+    future_known_at = "2099-01-01T00:00:00+00:00"
+    reports = pd.read_parquet(report_path)
+    reports.loc[reports["source_id"].eq(imported.source_id), "known_at"] = future_known_at
+    reports.loc[reports["source_id"].eq(imported.source_id), "extraction_sha256"] = (
+        module._row_extraction_fingerprint(reports.loc[reports["source_id"].eq(imported.source_id)].iloc[0])
+    )
+    reports.loc[reports["source_id"].eq(imported.source_id), "stored_extraction_sha256"] = reports.loc[
+        reports["source_id"].eq(imported.source_id), "extraction_sha256"
+    ]
+    reports.to_parquet(report_path, index=False)
+
+    registry = pd.read_parquet(registry_path)
+    registry.loc[registry["source_id"].eq(imported.source_id), "known_at"] = future_known_at
+    if "ingested_at" in registry.columns:
+        registry.loc[registry["source_id"].eq(imported.source_id), "ingested_at"] = future_known_at
+    registry.to_parquet(registry_path, index=False)
+
+    paths = (
+        report_path,
+        report_path.with_suffix(".csv"),
+        registry_path,
+        registry_path.with_suffix(".csv"),
+        conflict_path,
+        conflict_path.with_suffix(".csv"),
+    )
+    prior = {path: path.read_bytes() for path in paths}
+    row = reports.loc[reports["source_id"].eq(imported.source_id)].iloc[0]
+
+    with pytest.raises(ValueError, match="known_at|future"):
+        module.review_etf_report(
+            EtfReportReviewRequest(
+                imported.source_id,
+                str(row["extraction_sha256"]),
+                "analyst",
+                "rejected",
+            ),
+            destination=report_path,
+            registry_destination=registry_path,
+            conflict_destination=conflict_path,
+        )
+
+    assert {path: path.read_bytes() for path in paths} == prior
+
+
+def test_pre_21_report_fingerprint_loads_after_report_columns_expand(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import etf_cockpit.data.parsed_disclosures as module
+    from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest, import_etf_report, read_etf_report_records
+
+    source = tmp_path / "legacy-report.pdf"
+    source.write_bytes(b"legacy report")
+    monkeypatch.setattr(module, "parse_etf_report_in_child", lambda path, kind, **_kwargs: _v2_report_result(path, kind=kind))
+    reports = tmp_path / "reports.parquet"
+    registry = tmp_path / "fund_documents.parquet"
+    imported = import_etf_report(
+        EtfReportImportRequest(
+            "VWCE", "prospectus", "issuer_document", source_path=source, destination=reports,
+            registry_destination=registry, conflict_destination=tmp_path / "conflicts.parquet", raw_dir=tmp_path / "raw",
+        )
+    )
+    current = read_etf_report_records(reports)
+    legacy = current.drop(columns=["known_at", "legal_form", "domicile", "replication_method", "derivatives", "counterparties", "collateral_terms", "concentration_limits", "lending_policy", "lending_revenue_split", "exposure", "collateral_fraction", "haircut_fraction", "concentration_limit_fraction"]).copy()
+    legacy["schema_version"] = 2
+    legacy_fingerprint = module._row_extraction_fingerprint(legacy.iloc[0], columns=module._LEGACY_REPORT_COLUMNS)
+    assert legacy_fingerprint != module._row_extraction_fingerprint(legacy.iloc[0])
+    legacy["extraction_sha256"] = legacy_fingerprint
+    legacy["stored_extraction_sha256"] = legacy_fingerprint
+    legacy.to_parquet(reports, index=False)
+
+    loaded = read_etf_report_records(reports).iloc[0]
+    assert loaded["source_id"] == imported.source_id
+    assert loaded["stored_extraction_sha256"] == legacy_fingerprint
+    assert loaded["known_at"]
+    tampered = legacy.copy()
+    tampered["legal_form"] = "tampered on disk"
+    tampered.to_parquet(reports, index=False)
+    with pytest.raises(ValueError, match="extraction store is corrupt"):
+        read_etf_report_records(reports)
 
 
 def test_failed_v2_parse_remains_checksum_backed_but_never_available(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -352,6 +461,113 @@ def test_v2_conflict_store_retains_both_sources_and_recomputes_after_rejection(t
     assert read_etf_report_conflicts(conflicts).empty
 
 
+def test_canonical_conflict_visibility_is_point_in_time_for_projection_and_backtest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import etf_cockpit.data.fund_documents as fund_documents
+    import etf_cockpit.data.parsed_disclosures as module
+    from etf_cockpit.backtest.engine import run_backtest
+    from etf_cockpit.core.config import load_config
+    from etf_cockpit.data.etf_structure import project_etf_structure
+    from etf_cockpit.data.fund_documents import read_document_registry
+    from etf_cockpit.data.sample_data import generate_sample_prices
+    from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest, EtfReportReviewRequest
+
+    class FrozenDateTime(datetime):
+        current = datetime(2026, 4, 1, tzinfo=timezone.utc)
+
+        @classmethod
+        def now(cls, tz=None):
+            value = cls.current
+            return value if tz is None else value.astimezone(tz)
+
+    config = load_config()
+    instrument_id = config.universe.enabled_ids[0]
+    reports, registry, conflicts = (
+        tmp_path / name for name in ("reports.parquet", "registry.parquet", "conflicts.parquet")
+    )
+    raw = tmp_path / "raw"
+    prospectus = tmp_path / "prospectus.pdf"
+    annual = tmp_path / "annual.pdf"
+    prospectus.write_bytes(b"prospectus")
+    annual.write_bytes(b"annual")
+
+    def parse(path: Path, kind: str, **_kwargs):
+        legal = "Irish UCITS investment company" if kind == "prospectus" else "Unit trust"
+        return _v2_report_result(path, kind=kind, legal_structure=legal, document_date="2026-03-31")
+
+    monkeypatch.setattr(module, "datetime", FrozenDateTime)
+    monkeypatch.setattr(fund_documents, "datetime", FrozenDateTime)
+    monkeypatch.setattr(module, "parse_etf_report_in_child", parse)
+
+    first = module.import_etf_report(EtfReportImportRequest(
+        instrument_id, "prospectus", "issuer_document", source_path=prospectus,
+        destination=reports, registry_destination=registry, conflict_destination=conflicts, raw_dir=raw,
+    ))
+    FrozenDateTime.current = datetime(2026, 4, 2, tzinfo=timezone.utc)
+    first_row = module.read_etf_report_records(reports).iloc[0]
+    module.review_etf_report(
+        EtfReportReviewRequest(first.source_id, str(first_row["extraction_sha256"]), "analyst", "verified"),
+        destination=reports, registry_destination=registry, conflict_destination=conflicts,
+    )
+    before_reports = module.read_etf_report_records(reports)
+    before_registry = read_document_registry(path=registry)
+    before = project_etf_structure(
+        instrument_id, document_registry=before_registry, report_records=before_reports,
+        decision_time="2026-04-02T00:00:00Z",
+    )
+
+    FrozenDateTime.current = datetime(2026, 4, 10, tzinfo=timezone.utc)
+    second = module.import_etf_report(EtfReportImportRequest(
+        instrument_id, "annual_report", "issuer_document", source_path=annual,
+        destination=reports, registry_destination=registry, conflict_destination=conflicts, raw_dir=raw,
+    ))
+    FrozenDateTime.current = datetime(2026, 4, 11, tzinfo=timezone.utc)
+    current = module.read_etf_report_records(reports)
+    second_row = current.loc[current["source_id"].eq(second.source_id)].iloc[0]
+    module.review_etf_report(
+        EtfReportReviewRequest(second.source_id, str(second_row["extraction_sha256"]), "analyst", "verified"),
+        destination=reports, registry_destination=registry, conflict_destination=conflicts,
+    )
+    after_reports = module.read_etf_report_records(reports)
+    after_registry = read_document_registry(path=registry)
+    historical = project_etf_structure(
+        instrument_id, document_registry=after_registry, report_records=after_reports,
+        decision_time="2026-04-02T00:00:00Z",
+    )
+    after = project_etf_structure(
+        instrument_id, document_registry=after_registry, report_records=after_reports,
+        decision_time="2026-04-12T00:00:00Z",
+    )
+
+    assert before["fields"]["legal_form"]["status"] == "resolved"
+    assert historical["fields"]["legal_form"] == before["fields"]["legal_form"]
+    assert historical["structure_provenance_hash"] == before["structure_provenance_hash"]
+    assert after["fields"]["legal_form"]["status"] == "conflict"
+    assert after["fields"]["legal_form"]["value"] is None
+    assert after["execution_allowed"] is False
+
+    prices = generate_sample_prices(config, periods=260, end_date=datetime(2026, 8, 31).date())
+    before_backtest = run_backtest(
+        config, prices, structure_document_registry=before_registry,
+        structure_report_records=before_reports,
+    )
+    after_backtest = run_backtest(
+        config, prices, structure_document_registry=after_registry,
+        structure_report_records=after_reports,
+    )
+    before_rows = before_backtest.signal_log.loc[
+        before_backtest.signal_log["etf_id"].eq(instrument_id)
+        & pd.to_datetime(before_backtest.signal_log["date"]).ge("2026-04-12")
+    ]
+    after_rows = after_backtest.signal_log.loc[
+        after_backtest.signal_log["etf_id"].eq(instrument_id)
+        & pd.to_datetime(after_backtest.signal_log["date"]).ge("2026-04-12")
+    ]
+    assert not before_rows.empty and not after_rows.empty
+    assert before_rows["structural_confidence_cap"].max() > after_rows["structural_confidence_cap"].max()
+
+
 def test_exact_report_reimport_preserves_review_registry_and_conflicts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import etf_cockpit.data.parsed_disclosures as module
     from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest, EtfReportReviewRequest
@@ -381,6 +597,83 @@ def test_exact_report_reimport_preserves_review_registry_and_conflicts(tmp_path:
     assert after_row["review_history"] == before_row["review_history"]
     pd.testing.assert_frame_equal(pd.read_parquet(registry).sort_values("source_id").reset_index(drop=True), before_registry)
     pd.testing.assert_frame_equal(module.read_etf_report_conflicts(conflicts), before_conflicts)
+
+
+def test_reviewed_pre_21_same_source_reimport_migrates_fingerprint_with_history(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import etf_cockpit.data.parsed_disclosures as module
+    from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest, EtfReportReviewRequest
+
+    monkeypatch.setattr(module, "parse_etf_report_in_child", lambda path, kind, **_kwargs: _v2_report_result(path, kind=kind))
+    reports, registry, conflicts = (tmp_path / name for name in ("reports.parquet", "registry.parquet", "conflicts.parquet"))
+    source = tmp_path / "legacy-reimport.pdf"
+    source.write_bytes(b"legacy reimport")
+    request = EtfReportImportRequest("VWCE", "prospectus", "issuer_document", source_path=source, destination=reports, registry_destination=registry, conflict_destination=conflicts, raw_dir=tmp_path / "raw")
+    imported = module.import_etf_report(request)
+    current = module.read_etf_report_records(reports)
+    current_row = current.iloc[0]
+    module.review_etf_report(EtfReportReviewRequest(imported.source_id, str(current_row["extraction_sha256"]), "analyst", "verified"), destination=reports, registry_destination=registry, conflict_destination=conflicts)
+    reviewed = module.read_etf_report_records(reports).iloc[0]
+    legacy = module.read_etf_report_records(reports).drop(columns=["known_at", "legal_form", "domicile", "replication_method", "derivatives", "counterparties", "collateral_terms", "concentration_limits", "lending_policy", "lending_revenue_split", "exposure", "collateral_fraction", "haircut_fraction", "concentration_limit_fraction"]).copy()
+    legacy["schema_version"] = 2
+    legacy_fingerprint = module._row_extraction_fingerprint(legacy.iloc[0], columns=module._LEGACY_REPORT_COLUMNS)
+    legacy["extraction_sha256"] = legacy_fingerprint
+    legacy["stored_extraction_sha256"] = legacy_fingerprint
+    legacy["review_history"] = json.dumps([{**item, "extraction_sha256": legacy_fingerprint} for item in json.loads(str(reviewed["review_history"]))])
+    legacy.to_parquet(reports, index=False)
+
+    module.import_etf_report(request)
+    after = module.read_etf_report_records(reports).iloc[0]
+    after_history = json.loads(str(after["review_history"]))
+
+    assert after["verification_status"] == "verified"
+    assert after["stored_extraction_sha256"] != legacy_fingerprint
+    assert after_history and {item["extraction_sha256"] for item in after_history} == {after["stored_extraction_sha256"]}
+
+
+def test_multi_row_pre_21_reimport_migrates_reviewed_and_unreviewed_rows_atomically(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import etf_cockpit.data.parsed_disclosures as module
+    from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest, EtfReportReviewRequest
+
+    monkeypatch.setattr(module, "parse_etf_report_in_child", lambda path, kind, **_kwargs: _v2_report_result(path, kind=kind))
+    reports, registry, conflicts = (tmp_path / name for name in ("reports.parquet", "registry.parquet", "conflicts.parquet"))
+    raw = tmp_path / "raw"
+    prospectus = tmp_path / "prospectus.pdf"
+    annual = tmp_path / "annual.pdf"
+    prospectus.write_bytes(b"multi-row prospectus")
+    annual.write_bytes(b"multi-row annual")
+    prospectus_request = EtfReportImportRequest("VWCE", "prospectus", "issuer_document", source_path=prospectus, destination=reports, registry_destination=registry, conflict_destination=conflicts, raw_dir=raw)
+    annual_request = EtfReportImportRequest("VWCE", "annual_report", "issuer_document", source_path=annual, destination=reports, registry_destination=registry, conflict_destination=conflicts, raw_dir=raw)
+
+    first = module.import_etf_report(prospectus_request)
+    module.import_etf_report(annual_request)
+    first_row = module.read_etf_report_records(reports).loc[lambda frame: frame["source_id"].eq(first.source_id)].iloc[0]
+    module.review_etf_report(
+        EtfReportReviewRequest(first.source_id, str(first_row["extraction_sha256"]), "analyst", "verified"),
+        destination=reports,
+        registry_destination=registry,
+        conflict_destination=conflicts,
+    )
+    reviewed = module.read_etf_report_records(reports)
+    legacy = reviewed.drop(columns=["known_at", "legal_form", "domicile", "replication_method", "derivatives", "counterparties", "collateral_terms", "concentration_limits", "lending_policy", "lending_revenue_split", "exposure", "collateral_fraction", "haircut_fraction", "concentration_limit_fraction"]).copy()
+    legacy["schema_version"] = 2
+    for index, row in legacy.iterrows():
+        fingerprint = module._row_extraction_fingerprint(row, columns=module._LEGACY_REPORT_COLUMNS)
+        legacy.at[index, "extraction_sha256"] = fingerprint
+        legacy.at[index, "stored_extraction_sha256"] = fingerprint
+        history = json.loads(str(row["review_history"]))
+        legacy.at[index, "review_history"] = json.dumps([{**item, "extraction_sha256": fingerprint} for item in history])
+    legacy.to_parquet(reports, index=False)
+
+    module.import_etf_report(prospectus_request)
+    migrated = module.read_etf_report_records(reports)
+
+    assert len(migrated) == 2
+    assert set(migrated["schema_version"]) == {module.REPORT_SCHEMA_VERSION}
+    assert set(migrated["verification_status"]) == {"verified", "pending"}
+    for _, row in migrated.iterrows():
+        assert row["stored_extraction_sha256"] == module._row_extraction_fingerprint(row)
+        history = json.loads(str(row["review_history"]))
+        assert all(item["extraction_sha256"] == row["stored_extraction_sha256"] for item in history)
 
 
 def test_parser_revision_reimport_retains_prior_review_as_separate_extraction(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -625,7 +918,7 @@ def test_report_atomic_group_rolls_back_report_registry_conflict_and_snapshot(tm
     assert {path: path.read_bytes() for path in paths} == prior
 
 
-def test_verified_eligibility_is_restored_after_conflict_rejection_but_invalid_stays_false(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_review_eligibility_remains_separate_from_conflict_and_rejection_authority(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import etf_cockpit.data.parsed_disclosures as module
     from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest, EtfReportReviewRequest
 
@@ -641,7 +934,7 @@ def test_verified_eligibility_is_restored_after_conflict_rejection_but_invalid_s
     module.review_etf_report(EtfReportReviewRequest(first.source_id, str(first_row["extraction_sha256"]), "analyst", "verified"), destination=reports, registry_destination=registry, conflict_destination=conflicts)
     second = module.import_etf_report(EtfReportImportRequest("VWCE", "annual_report", "issuer_document", source_path=annual, destination=reports, registry_destination=registry, conflict_destination=conflicts, raw_dir=raw))
     during = module.read_etf_report_records(reports).set_index("source_id")
-    assert bool(during.loc[first.source_id, "evidence_eligible"]) is False
+    assert bool(during.loc[first.source_id, "evidence_eligible"]) is True
     assert bool(during.loc[second.source_id, "evidence_eligible"]) is False
     module.review_etf_report(EtfReportReviewRequest(second.source_id, str(during.loc[second.source_id, "extraction_sha256"]), "analyst", "rejected"), destination=reports, registry_destination=registry, conflict_destination=conflicts)
     after = module.read_etf_report_records(reports).set_index("source_id")
@@ -653,8 +946,11 @@ def test_verified_eligibility_is_restored_after_conflict_rejection_but_invalid_s
     ("corruption", "field", "value"),
     [
         ("out_of_order", None, None),
+        ("predates_known_at", None, None),
         ("stale_fingerprint", None, None),
         ("top_level_mismatch", None, None),
+        ("blank_reviewer", None, None),
+        ("unsupported_decision", None, None),
         ("score_authority", "score_eligible", True),
         ("execution_authority", "execution_allowed", True),
         ("manual_review_authority", "manual_review", True),
@@ -679,11 +975,23 @@ def test_review_history_corruption_fails_closed_on_read(tmp_path: Path, monkeypa
         history.append({**history[-1], "reviewed_at": earlier})
         frame.at[0, "review_history"] = json.dumps(history)
         frame.at[0, "verified_at"] = earlier
+    elif corruption == "predates_known_at":
+        known_at = datetime.fromisoformat(str(frame.at[0, "known_at"]).replace("Z", "+00:00"))
+        earlier = (known_at - timedelta(seconds=1)).isoformat(timespec="seconds")
+        history[-1]["reviewed_at"] = earlier
+        frame.at[0, "review_history"] = json.dumps(history)
+        frame.at[0, "verified_at"] = earlier
     elif corruption == "stale_fingerprint":
         history[-1]["extraction_sha256"] = "0" * 64
         frame.at[0, "review_history"] = json.dumps(history)
     elif corruption == "top_level_mismatch":
         frame.at[0, "verified_by"] = "forged-reviewer"
+    elif corruption == "blank_reviewer":
+        history[-1]["reviewer"] = ""
+        frame.at[0, "review_history"] = json.dumps(history)
+    elif corruption == "unsupported_decision":
+        history[-1]["decision"] = "approved"
+        frame.at[0, "review_history"] = json.dumps(history)
     else:
         assert field is not None
         frame.at[0, field] = value

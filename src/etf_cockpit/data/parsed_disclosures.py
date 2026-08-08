@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from enum import StrEnum
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any, Iterable
 
 import pandas as pd
@@ -47,6 +48,15 @@ INDEX_METHODOLOGY_RECORDS_PATH = CLEAN_DIR / "index_methodology_records.parquet"
 ETF_REPORT_RECORDS_PATH = CLEAN_DIR / "etf_report_records.parquet"
 ETF_REPORT_CONFLICTS_PATH = CLEAN_DIR / "etf_report_conflicts.parquet"
 REPORT_RAW_DIR = RAW_DIR / "etf_reports"
+
+REPORT_STABLE_CONFLICT_FIELDS = frozenset(
+    {"fund_name", "isin", "legal_structure", "legal_form", "domicile"}
+)
+REPORT_TIME_VARYING_CONFLICT_FIELDS = frozenset(
+    set(REPORT_FIELDS)
+    - REPORT_STABLE_CONFLICT_FIELDS
+    - {"document_date", "reporting_period_end"}
+)
 
 KID_COLUMNS = [
     "schema_version", "source_id", "instrument_id", "parser_name", "parser_version", "source_sha256", "source_authority", "freshness_status",
@@ -549,10 +559,11 @@ class EtfReportImportResult:
         return self.parse_result.success
 
 
+REPORT_SCHEMA_VERSION = 2.1
 REPORT_COLUMNS = [
     "schema_version", "source_id", "instrument_id", "document_type", "document_kind",
     "parser_name", "parser_version", "language_plugin", "template_plugin", "source_sha256",
-    "source_authority", "source_url", "source_pages", *REPORT_FIELDS, "structured_fields", "field_evidence", "warnings", "extraction_status",
+    "source_authority", "source_url", "source_pages", "known_at", *REPORT_FIELDS, "structured_fields", "field_evidence", "warnings", "extraction_status",
     "parse_success", "extraction_sha256", "stored_extraction_sha256", "verification_status",
     "verified_by", "verified_at", "review_note", "review_history", "manual_review",
     "evidence_eligible", "score_eligible", "execution_allowed", "imported_at", "registry_path",
@@ -562,6 +573,20 @@ _REVIEW_COLUMNS = frozenset({
     "manual_review", "evidence_eligible", "score_eligible", "execution_allowed",
     "extraction_sha256", "stored_extraction_sha256", "imported_at",
 })
+_PRE_21_REPORT_FIELDS = (
+    "fund_name", "isin", "document_date", "reporting_period_end",
+    "legal_structure", "securities_lending", "collateral_policy",
+    "ongoing_costs", "holdings_count", "operational_risks",
+)
+_LEGACY_REPORT_COLUMNS = (
+    "schema_version", "source_id", "instrument_id", "document_type", "document_kind",
+    "parser_name", "parser_version", "language_plugin", "template_plugin", "source_sha256",
+    "source_authority", "source_url", "source_pages", *_PRE_21_REPORT_FIELDS,
+    "structured_fields", "field_evidence", "warnings", "extraction_status", "parse_success",
+    "extraction_sha256", "stored_extraction_sha256", "verification_status", "verified_by",
+    "verified_at", "review_note", "review_history", "manual_review", "evidence_eligible",
+    "score_eligible", "execution_allowed", "imported_at", "registry_path",
+)
 
 
 def import_etf_report(request: EtfReportImportRequest) -> EtfReportImportResult:
@@ -659,6 +684,10 @@ def import_etf_report(request: EtfReportImportRequest) -> EtfReportImportResult:
                         for field, old_field in (("instrument_id", "instrument_id"), ("document_kind", "document_kind"), ("source_sha256", "sha256"), ("source_authority", "authority"), ("document_date", "document_date")):
                             if _cell_text(prior_registry.get(old_field)) != _cell_text(identity[field]):
                                 raise ValueError(f"same-ID registry identity mismatch: {field}")
+                        report_row["known_at"] = _registry_known_at(prior_registry)
+                        refreshed_fingerprint = _row_extraction_fingerprint(pd.Series(report_row))
+                        report_row["extraction_sha256"] = refreshed_fingerprint
+                        report_row["stored_extraction_sha256"] = refreshed_fingerprint
                     combined = _merge_report_row(report_existing, report_row)
                     ids = [str(item).strip() for item in request.configured_instrument_ids if str(item).strip()]
                     if not registry_existing.empty and "instrument_id" in registry_existing.columns:
@@ -714,12 +743,21 @@ def review_etf_report(
                 stored_registry_path = _cell_text(row.get("registry_path"))
                 if not stored_registry_path or Path(stored_registry_path).resolve() != Path(registry_destination).resolve():
                     raise ValueError("review registry_destination does not match extraction registry_path")
-                actual_fingerprint = _row_extraction_fingerprint(row)
-                if actual_fingerprint != fingerprint or str(row.get("stored_extraction_sha256", "")) != fingerprint:
+                if not _fingerprint_matches(row, fingerprint, legacy_allowed=_legacy_fingerprint_allowed(frame.attrs.get("_original_columns"))) or str(row.get("stored_extraction_sha256", "")) != fingerprint:
                     raise ValueError("review fingerprint does not match stored extraction")
                 _validate_report_binding(row, Path(registry_destination))
                 history = _review_history(row.get("review_history"), expected_fingerprint=fingerprint, row=row)
                 now = datetime.now(timezone.utc)
+                known_at_value = _cell_text(row.get("known_at"))
+                if known_at_value:
+                    try:
+                        known_at = datetime.fromisoformat(known_at_value.replace("Z", "+00:00"))
+                    except ValueError as exc:
+                        raise ValueError("report known_at timestamp is malformed") from exc
+                    if known_at.tzinfo is None:
+                        raise ValueError("report known_at timestamp is malformed")
+                    if now < known_at.astimezone(timezone.utc):
+                        raise ValueError("review timestamp predates report known_at")
                 if history:
                     last = _review_timestamp(history[-1])
                     if now < last:
@@ -727,9 +765,6 @@ def review_etf_report(
                 if decision == "verified":
                     if not _row_is_verifiable(row):
                         raise ValueError("only a complete, fully evidenced extraction can be verified")
-                    current_conflicts = build_etf_report_conflicts(frame)
-                    if source_id in set(current_conflicts.get("source_id_a", ())) | set(current_conflicts.get("source_id_b", ())):
-                        raise ValueError("conflicting report evidence requires manual resolution")
                 history.append({
                     "decision": decision,
                     "reviewer": reviewer,
@@ -749,6 +784,10 @@ def review_etf_report(
                 conflicts = build_etf_report_conflicts(frame)
                 registry = _read_registry_fail_closed(Path(registry_destination))
                 frame = _apply_conflict_eligibility(frame, conflicts, registry)
+                frame = _read_report_frame_from_frame(
+                    frame,
+                    original_columns=frame.attrs.get("_original_columns"),
+                )
                 _write_report_group(frame, registry, conflicts, Path(destination), Path(registry_destination), conflict_path, include_registry=False)
     return Path(destination)
 
@@ -761,35 +800,41 @@ def build_etf_report_conflicts(frame: pd.DataFrame) -> pd.DataFrame:
     if frame.empty:
         return pd.DataFrame(columns=REPORT_CONFLICT_COLUMNS)
     candidates = frame.loc[~frame["verification_status"].astype(str).eq("rejected")].copy()
-    stable = {"fund_name", "isin", "legal_structure"}
-    varying = set(REPORT_FIELDS) - stable - {"document_date", "reporting_period_end"}
     for instrument_id, group in candidates.groupby("instrument_id", sort=True):
         latest: dict[str, pd.Series] = {}
         for kind, kind_group in group.groupby("document_kind", sort=True):
             latest[str(kind)] = kind_group.sort_values(["document_date", "imported_at", "source_id"], kind="stable").iloc[-1]
-        for field in (*stable, *sorted(varying)):
-            pairs = list(latest.values())
-            if field in varying:
-                pairs = [row for row in pairs if str(row.get("reporting_period_end") or "").strip()]
-                pairs = [row for row in pairs if all(str(row.get("reporting_period_end")) == str(other.get("reporting_period_end")) for other in pairs)]
-            for left_index, left in enumerate(pairs):
-                for right in pairs[left_index + 1:]:
-                    left_value = _cell_text(left.get(field))
-                    right_value = _cell_text(right.get(field))
-                    if not left_value or not right_value or left_value == right_value:
-                        continue
-                    conflict_id = hashlib.sha256(f"{instrument_id}|{field}|{min(left['source_id'], right['source_id'])}|{max(left['source_id'], right['source_id'])}".encode()).hexdigest()
-                    rows.append({
-                        "conflict_id": f"report-conflict:{conflict_id}", "instrument_id": str(instrument_id), "field_name": field,
-                        "source_id_a": str(left["source_id"]), "source_id_b": str(right["source_id"]),
-                        "source_a": str(left["source_id"]), "source_b": str(right["source_id"]),
-                        "document_kind_a": str(left["document_kind"]), "document_kind_b": str(right["document_kind"]),
-                        "document_date_a": _cell_text(left.get("document_date")), "document_date_b": _cell_text(right.get("document_date")),
-                        "reporting_period_end": _cell_text(left.get("reporting_period_end")), "value_a": left_value, "value_b": right_value,
-                        "pages_a": _field_pages(left, field), "pages_b": _field_pages(right, field),
-                        "resolution_status": "unresolved", "requires_manual_review": True, "canonical_value": None,
-                        "score_eligible": False, "execution_allowed": False,
-                    })
+        for field in (*sorted(REPORT_STABLE_CONFLICT_FIELDS), *sorted(REPORT_TIME_VARYING_CONFLICT_FIELDS)):
+            if field in REPORT_TIME_VARYING_CONFLICT_FIELDS:
+                by_period: dict[str, list[pd.Series]] = {}
+                for row in latest.values():
+                    period = str(row.get("reporting_period_end") or "").strip()
+                    if period:
+                        by_period.setdefault(period, []).append(row)
+                pair_groups = by_period.values()
+            else:
+                pair_groups = (latest.values(),)
+            for period_rows in pair_groups:
+                pairs = list(period_rows)
+                for left_index, left in enumerate(pairs):
+                    for right in pairs[left_index + 1:]:
+                        left_value = _cell_text(left.get(field))
+                        right_value = _cell_text(right.get(field))
+                        if not left_value or not right_value or left_value == right_value:
+                            continue
+                        period = str(left.get("reporting_period_end") or "") if field in REPORT_TIME_VARYING_CONFLICT_FIELDS else ""
+                        conflict_id = hashlib.sha256(f"{instrument_id}|{field}|{period}|{min(left['source_id'], right['source_id'])}|{max(left['source_id'], right['source_id'])}".encode()).hexdigest()
+                        rows.append({
+                            "conflict_id": f"report-conflict:{conflict_id}", "instrument_id": str(instrument_id), "field_name": field,
+                            "source_id_a": str(left["source_id"]), "source_id_b": str(right["source_id"]),
+                            "source_a": str(left["source_id"]), "source_b": str(right["source_id"]),
+                            "document_kind_a": str(left["document_kind"]), "document_kind_b": str(right["document_kind"]),
+                            "document_date_a": _cell_text(left.get("document_date")), "document_date_b": _cell_text(right.get("document_date")),
+                            "reporting_period_end": _cell_text(left.get("reporting_period_end")), "value_a": left_value, "value_b": right_value,
+                            "pages_a": _field_pages(left, field), "pages_b": _field_pages(right, field),
+                            "resolution_status": "unresolved", "requires_manual_review": True, "canonical_value": None,
+                            "score_eligible": False, "execution_allowed": False,
+                        })
     return pd.DataFrame(rows, columns=REPORT_CONFLICT_COLUMNS)
 
 
@@ -839,11 +884,12 @@ def _report_row(result: ParseResult[EtfReportRecord], record: EtfReportRecord | 
     fields = {field: (record.structured_fields.get(field) if record is not None else None) for field in REPORT_FIELDS}
     evidence = [_field_to_dict(item) for item in (record.field_evidence if record is not None else ())]
     row: dict[str, Any] = {
-        "schema_version": 2, "source_id": source_id, "instrument_id": request.instrument_id, "document_type": "prospectus_report",
+        "schema_version": REPORT_SCHEMA_VERSION, "source_id": source_id, "instrument_id": request.instrument_id, "document_type": "prospectus_report",
         "document_kind": request.canonical_kind(), "parser_name": result.parser_name, "parser_version": result.parser_version,
         "language_plugin": record.language_plugin if record else None, "template_plugin": record.template_plugin if record else None,
         "source_sha256": result.source_sha256, "source_authority": request.authority().value, "source_url": request.source_url,
         "source_pages": _json(record.source_pages if record else ()), "document_date": record.document_date if record else None,
+        "known_at": getattr(document, "ingested_at", None),
         "reporting_period_end": fields["reporting_period_end"], **fields, "structured_fields": _json(fields), "field_evidence": _json(evidence),
         "warnings": _json(_warning_payload(result.warnings, record.warnings if record else ())), "extraction_status": status,
         "parse_success": bool(result.success), "verification_status": "pending", "verified_by": None, "verified_at": None,
@@ -870,6 +916,7 @@ def _preserve_registry_rows(inventory: pd.DataFrame, existing: pd.DataFrame) -> 
 def _merge_report_row(existing: pd.DataFrame, incoming: dict[str, Any]) -> pd.DataFrame:
     if existing.empty:
         return pd.DataFrame([incoming], columns=REPORT_COLUMNS)
+    existing = _migrate_legacy_report_rows(existing)
     matches = existing.index[existing["source_id"].astype(str).eq(str(incoming["source_id"]))]
     if len(matches) > 1:
         raise ValueError("same-ID report extraction is corrupt: duplicate source_id")
@@ -879,7 +926,8 @@ def _merge_report_row(existing: pd.DataFrame, incoming: dict[str, Any]) -> pd.Da
             if _cell_text(prior.get(field)) != _cell_text(incoming.get(field)):
                 raise ValueError(f"same-ID report identity mismatch: {field}")
         prior_fingerprint = str(prior.get("stored_extraction_sha256") or "")
-        if prior_fingerprint and prior_fingerprint == str(incoming["stored_extraction_sha256"]):
+        legacy_allowed = _legacy_fingerprint_allowed(existing.attrs.get("_original_columns"))
+        if prior_fingerprint and _fingerprint_matches_rows(prior, incoming, prior_fingerprint, legacy_allowed=legacy_allowed):
             incoming["verification_status"] = prior.get("verification_status", "pending")
             incoming["verified_by"] = prior.get("verified_by")
             incoming["verified_at"] = prior.get("verified_at")
@@ -887,6 +935,10 @@ def _merge_report_row(existing: pd.DataFrame, incoming: dict[str, Any]) -> pd.Da
             incoming["review_history"] = prior.get("review_history", "[]")
             incoming["manual_review"] = prior.get("manual_review", True)
             incoming["evidence_eligible"] = prior.get("evidence_eligible", False)
+            incoming["score_eligible"] = prior.get("score_eligible", False)
+            incoming["execution_allowed"] = prior.get("execution_allowed", False)
+            if legacy_allowed and str(incoming.get("stored_extraction_sha256") or "") != prior_fingerprint:
+                incoming["review_history"] = _rebind_review_history(incoming.get("review_history"), str(incoming["stored_extraction_sha256"]))
         else:
             raise ValueError("same-ID report extraction fingerprint mismatch")
         existing = existing.drop(index=matches[0])
@@ -894,9 +946,25 @@ def _merge_report_row(existing: pd.DataFrame, incoming: dict[str, Any]) -> pd.Da
     return _read_report_frame_from_frame(combined, validate_authority=False)
 
 
+def _migrate_legacy_report_rows(frame: pd.DataFrame) -> pd.DataFrame:
+    """Migrate every pre-2.1 row before publishing a multi-row reimport."""
+
+    result = frame.copy()
+    result["schema_version"] = result["schema_version"].astype(object)
+    for index, row in result.iterrows():
+        if not _is_legacy_report_row(row):
+            continue
+        result.at[index, "schema_version"] = REPORT_SCHEMA_VERSION
+        fingerprint = _row_extraction_fingerprint(result.loc[index])
+        result.at[index, "extraction_sha256"] = fingerprint
+        result.at[index, "stored_extraction_sha256"] = fingerprint
+        result.at[index, "review_history"] = _rebind_review_history(row.get("review_history"), fingerprint)
+    result.attrs.update(frame.attrs)
+    return result
+
+
 def _apply_conflict_eligibility(frame: pd.DataFrame, conflicts: pd.DataFrame, registry: pd.DataFrame) -> pd.DataFrame:
     result = frame.copy()
-    conflicted = set(conflicts["source_id_a"].astype(str)) | set(conflicts["source_id_b"].astype(str)) if not conflicts.empty else set()
     for index, row in result.iterrows():
         result.at[index, "score_eligible"] = False
         result.at[index, "execution_allowed"] = False
@@ -904,10 +972,9 @@ def _apply_conflict_eligibility(frame: pd.DataFrame, conflicts: pd.DataFrame, re
         eligible = (
             _cell_text(row.get("verification_status")) == "verified"
             and bool(fingerprint)
-            and fingerprint == _row_extraction_fingerprint(row)
+            and _fingerprint_matches(row, fingerprint, legacy_allowed=_legacy_fingerprint_allowed(result.attrs.get("_original_columns")))
             and _row_is_verifiable(row)
             and _row_binding_matches_registry(row, registry)
-            and str(row.get("source_id")) not in conflicted
         )
         result.at[index, "evidence_eligible"] = eligible
     return result
@@ -948,40 +1015,106 @@ def _read_report_frame(path: Path) -> pd.DataFrame:
     if not path.is_file():
         return pd.DataFrame(columns=REPORT_COLUMNS)
     try:
-        return _read_report_frame_from_frame(pd.read_parquet(path))
+        source = pd.read_parquet(path)
+        original_columns = tuple(str(column) for column in source.columns)
+        result = _read_report_frame_from_frame(source, original_columns=original_columns)
+        result.attrs["_original_columns"] = original_columns
+        return result
+    except ValueError as exc:
+        raise ValueError(f"ETF report extraction store is corrupt: {path}: {exc}") from exc
     except Exception as exc:
         raise ValueError(f"ETF report extraction store is corrupt: {path}") from exc
 
 
-def _read_report_frame_from_frame(frame: pd.DataFrame, *, validate_authority: bool = True) -> pd.DataFrame:
+def _read_report_frame_from_frame(frame: pd.DataFrame, *, validate_authority: bool = True, original_columns: tuple[str, ...] | None = None) -> pd.DataFrame:
+    source_columns = tuple(original_columns or (str(column) for column in frame.columns))
+    legacy_allowed = _legacy_fingerprint_allowed(source_columns)
     result = frame.copy()
+    for _, row in result.iterrows():
+        _validate_report_schema_version(row.get("schema_version"), legacy_allowed=legacy_allowed)
     for column in REPORT_COLUMNS:
         if column not in result.columns:
             result[column] = None
+    source_ids = result["source_id"].map(_cell_text)
+    if source_ids[source_ids.ne("")].duplicated(keep=False).any():
+        raise ValueError("ETF report extraction store contains duplicate source_id")
     result = result[REPORT_COLUMNS].sort_values("source_id", kind="stable").reset_index(drop=True)
+    _backfill_legacy_known_at(result)
     for _, row in result.iterrows():
+        _strict_stored_bool(row.get("parse_success"), "parse_success")
         fingerprint = _cell_text(row.get("stored_extraction_sha256"))
-        if fingerprint and fingerprint != _row_extraction_fingerprint(row):
+        if fingerprint and not _fingerprint_matches(row, fingerprint, legacy_allowed=legacy_allowed):
             raise ValueError("stored extraction fingerprint does not match extraction")
         _review_history(row.get("review_history"), expected_fingerprint=fingerprint or None, row=row)
     if validate_authority:
-        conflicts = build_etf_report_conflicts(result)
-        conflicted = set(conflicts["source_id_a"].astype(str)) | set(conflicts["source_id_b"].astype(str)) if not conflicts.empty else set()
         for _, row in result.iterrows():
             fingerprint = _cell_text(row.get("stored_extraction_sha256"))
             registry_path = _cell_text(row.get("registry_path"))
             eligible = (
                 _cell_text(row.get("verification_status")) == "verified"
                 and bool(fingerprint)
-                and fingerprint == _row_extraction_fingerprint(row)
+                and _fingerprint_matches(row, fingerprint, legacy_allowed=legacy_allowed)
                 and _row_is_verifiable(row)
                 and bool(registry_path)
                 and _row_binding_matches_registry(row, _read_registry_fail_closed(Path(registry_path)))
-                and str(row.get("source_id")) not in conflicted
             )
             if _strict_stored_bool(row.get("evidence_eligible"), "evidence_eligible") != eligible:
                 raise ValueError("evidence eligibility does not match persisted evidence")
+    result.attrs["_original_columns"] = source_columns
     return result
+
+
+def report_extraction_fingerprint(row: pd.Series | Mapping[str, Any]) -> str:
+    """Return the schema-aware fingerprint used by canonical report readback."""
+
+    return _row_extraction_fingerprint(row if isinstance(row, pd.Series) else pd.Series(dict(row)))
+
+
+def validate_supplied_etf_report_records(value: object) -> pd.DataFrame:
+    """Validate caller-supplied report rows before structural evidence use.
+
+    Supplied frames do not pass through the canonical parquet reader.  Keep the
+    same extraction fingerprint and review-authority boundary here, while
+    leaving registry binding to the structural projection that owns it.
+    """
+
+    if value is None:
+        return pd.DataFrame(columns=REPORT_COLUMNS)
+    if isinstance(value, pd.DataFrame):
+        frame = value.copy()
+    elif isinstance(value, Mapping):
+        frame = pd.DataFrame([dict(value)])
+    else:
+        try:
+            items = list(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError) as exc:
+            raise ValueError("supplied ETF report records are not tabular") from exc
+        if any(not isinstance(item, Mapping) for item in items):
+            raise ValueError("supplied ETF report records contain a non-mapping member")
+        frame = pd.DataFrame([dict(item) for item in items])
+    if bool(frame.columns.duplicated().any()):
+        raise ValueError("supplied ETF report records contain duplicate columns")
+    legacy_allowed = _legacy_fingerprint_allowed(tuple(str(column) for column in frame.columns))
+
+    source_ids = frame.get("source_id", pd.Series(dtype=object)).map(_cell_text)
+    if source_ids[source_ids.ne("")].duplicated(keep=False).any():
+        raise ValueError("supplied ETF report records contain duplicate source_id/report identity")
+
+    for row in frame.to_dict("records"):
+        series = pd.Series(row)
+        _validate_report_schema_version(series.get("schema_version"), legacy_allowed=legacy_allowed)
+        _strict_stored_bool(series.get("parse_success"), "parse_success")
+        stored_fingerprint = _cell_text(row.get("stored_extraction_sha256"))
+        if stored_fingerprint:
+            if not _is_sha256_fingerprint(stored_fingerprint) or not _fingerprint_matches(series, stored_fingerprint, legacy_allowed=legacy_allowed):
+                raise ValueError("supplied report extraction fingerprint does not match extraction")
+
+        history = _review_history(series.get("review_history"), expected_fingerprint=stored_fingerprint or None, row=series)
+        if history and not stored_fingerprint:
+            raise ValueError("reviewed supplied report is missing stored extraction fingerprint")
+        if any(item["decision"] == "verified" for item in history) and not _row_is_verifiable(series):
+            raise ValueError("supplied report was not verifiable at review time")
+    return frame
 
 
 def _report_extraction_status(result: ParseResult[EtfReportRecord]) -> str:
@@ -1010,28 +1143,93 @@ def _row_binding_matches_registry(row: pd.Series, registry: pd.DataFrame) -> boo
     if len(matches) != 1:
         return False
     registered = matches.iloc[0]
-    for field in ("instrument_id", "document_kind", "source_sha256", "source_authority", "document_date"):
-        registry_field = {"source_sha256": "sha256", "source_authority": "authority"}.get(field, field)
+    registered_families = {
+        _document_family(registered.get(field))
+        for field in ("document_type", "document_kind")
+        if _cell_text(registered.get(field))
+    }
+    row_families = {
+        _document_family(row.get(field))
+        for field in ("document_type", "document_kind")
+        if _cell_text(row.get(field))
+    }
+    if len(registered_families) != 1 or row_families != registered_families:
+        return False
+    alias_groups = (
+        (("source_sha256", "sha256", "checksum"), ("sha256", "checksum"), "text"),
+        (("document_date", "as_of", "as_of_date"), ("document_date", "as_of", "as_of_date"), "date"),
+        (("known_at", "ingested_at"), ("known_at", "ingested_at"), "timestamp"),
+    )
+    for row_aliases, registry_aliases, kind in alias_groups:
+        row_value = _agreed_identity_alias(row, row_aliases, kind)
+        registered_value = _agreed_identity_alias(registered, registry_aliases, kind)
+        if not row_value or row_value != registered_value:
+            return False
+    for field, registry_field in (
+        ("instrument_id", "instrument_id"),
+        ("document_kind", "document_kind"),
+        ("source_authority", "authority"),
+    ):
         if _cell_text(registered.get(registry_field)) != _cell_text(row.get(field)):
             return False
     return True
 
 
+def _agreed_identity_alias(row: Any, aliases: tuple[str, ...], kind: str) -> str | None:
+    values: list[str] = []
+    for alias in aliases:
+        raw = row.get(alias)
+        if not _cell_text(raw):
+            continue
+        try:
+            if kind == "timestamp":
+                normalized = pd.Timestamp(raw).isoformat()
+            elif kind == "date":
+                normalized = pd.Timestamp(raw).date().isoformat()
+            else:
+                normalized = _cell_text(raw).casefold()
+        except (TypeError, ValueError):
+            return None
+        values.append(normalized)
+    return values[0] if values and len(set(values)) == 1 else None
+
+
+def _document_family(value: Any) -> str:
+    normalized = _cell_text(value).casefold().replace("-", "_").replace(" ", "_")
+    if normalized in {"prospectus", "prospectus_report", "annual_report", "half_year_report", "half_year", "semi_annual_report"}:
+        return "prospectus"
+    return {
+        "factsheet": "factsheet",
+        "holdings": "holdings",
+        "kid": "kid",
+        "priips_kid": "kid",
+    }.get(normalized, normalized)
+
+
 def _row_is_verifiable(row: pd.Series) -> bool:
-    if str(row.get("extraction_status")) != "complete" or not bool(row.get("parse_success")):
+    parse_success = row.get("parse_success")
+    if (
+        str(row.get("extraction_status")) != "complete"
+        or type(parse_success).__name__ not in {"bool", "bool_"}
+        or not bool(parse_success)
+    ):
         return False
     try:
         evidence = json.loads(str(row.get("field_evidence") or "[]"))
     except (TypeError, json.JSONDecodeError):
         return False
-    required = set(REPORT_FIELDS[:3]) | {"legal_structure"}
+    required = set(REPORT_FIELDS[:3])
     if str(row.get("document_kind")) in {"annual_report", "half_year_report"}:
         required.add("reporting_period_end")
     by_field = {str(item.get("field_name")): item for item in evidence if isinstance(item, dict)}
     warning_codes = _warning_codes(row.get("warnings"))
     if warning_codes & {"field_conflict", "page_text_limit", "total_text_limit", "page_limit_applied", "required_field_missing", "identity_mismatch"}:
         return False
-    return all(by_field.get(field, {}).get("status") == "extracted" and by_field[field].get("candidate_pages") for field in required)
+    legal_structure_ok = any(
+        by_field.get(field, {}).get("status") == "extracted" and by_field[field].get("candidate_pages")
+        for field in ("legal_structure", "legal_form")
+    )
+    return legal_structure_ok and all(by_field.get(field, {}).get("status") == "extracted" and by_field[field].get("candidate_pages") for field in required)
 
 
 def _warning_codes(value: Any) -> set[str]:
@@ -1043,7 +1241,7 @@ def _warning_codes(value: Any) -> set[str]:
 
 
 def _field_to_dict(item: Any) -> dict[str, Any]:
-    return {"field_name": item.field_name, "value": item.value, "source_page": item.source_page, "confidence": item.confidence, "status": item.status, "candidates": list(item.candidates), "matched_label": item.matched_label, "candidate_pages": list(item.candidate_pages), "source_excerpt": item.source_excerpt}
+    return {"field_name": item.field_name, "value": item.value, "unit": item.unit, "source_page": item.source_page, "confidence": item.confidence, "status": item.status, "candidates": list(item.candidates), "matched_label": item.matched_label, "candidate_pages": list(item.candidate_pages), "source_excerpt": item.source_excerpt}
 
 
 def _field_pages(row: pd.Series, field: str) -> str:
@@ -1055,11 +1253,86 @@ def _field_pages(row: pd.Series, field: str) -> str:
         return "[]"
 
 
-def _row_extraction_fingerprint(row: pd.Series) -> str:
-    payload = {column: _jsonable(row.get(column)) for column in REPORT_COLUMNS if column not in _REVIEW_COLUMNS}
+def _row_extraction_fingerprint(row: pd.Series, *, columns: tuple[str, ...] | None = None) -> str:
+    fingerprint_columns = columns or tuple(REPORT_COLUMNS)
+    payload = {column: _jsonable(row.get(column)) for column in fingerprint_columns if column not in _REVIEW_COLUMNS}
     payload.pop("extraction_sha256", None)
     payload.pop("stored_extraction_sha256", None)
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")).hexdigest()
+
+
+def _report_schema_version(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _validate_report_schema_version(value: Any, *, legacy_allowed: bool) -> float:
+    if isinstance(value, bool) or type(value).__name__ not in {"int", "int64", "float", "float64"}:
+        raise ValueError("report schema_version is missing or malformed")
+    version = float(value)
+    if version == REPORT_SCHEMA_VERSION:
+        return version
+    if version == 2.0 and legacy_allowed:
+        return version
+    raise ValueError("report schema_version is unsupported")
+
+
+def _is_legacy_report_row(row: pd.Series | dict[str, Any]) -> bool:
+    return _report_schema_version(row.get("schema_version")) < REPORT_SCHEMA_VERSION
+
+
+def _fingerprint_matches(row: pd.Series, fingerprint: str, *, legacy_allowed: bool = False) -> bool:
+    if fingerprint == _row_extraction_fingerprint(row):
+        return True
+    return legacy_allowed and _is_legacy_report_row(row) and fingerprint == _row_extraction_fingerprint(row, columns=_LEGACY_REPORT_COLUMNS)
+
+
+def _fingerprint_matches_rows(prior: pd.Series, incoming: dict[str, Any], fingerprint: str, *, legacy_allowed: bool = False) -> bool:
+    incoming_series = pd.Series(incoming)
+    if fingerprint == _row_extraction_fingerprint(incoming_series):
+        return True
+    if not legacy_allowed or not _is_legacy_report_row(prior):
+        return False
+    legacy_incoming = incoming_series.copy()
+    legacy_incoming["schema_version"] = prior.get("schema_version")
+    return fingerprint == _row_extraction_fingerprint(legacy_incoming, columns=_LEGACY_REPORT_COLUMNS)
+
+
+def _legacy_fingerprint_allowed(original_columns: object) -> bool:
+    if original_columns is None:
+        return False
+    columns = {str(column) for column in original_columns}
+    added_columns = set(REPORT_COLUMNS) - set(_LEGACY_REPORT_COLUMNS)
+    return not (columns & added_columns)
+
+
+def _rebind_review_history(value: Any, fingerprint: str) -> str:
+    history = _review_history(value)
+    return _json([{**item, "extraction_sha256": fingerprint} for item in history])
+
+
+def _registry_known_at(row: Any) -> str:
+    return _cell_text(row.get("known_at")) or _cell_text(row.get("ingested_at"))
+
+
+def _backfill_legacy_known_at(frame: pd.DataFrame) -> None:
+    for index, row in frame.iterrows():
+        if not _is_legacy_report_row(row) or _cell_text(row.get("known_at")):
+            continue
+        registry_path = _cell_text(row.get("registry_path"))
+        if not registry_path:
+            continue
+        try:
+            registry = _read_registry_fail_closed(Path(registry_path))
+            matches = registry.loc[registry["source_id"].astype(str).eq(_cell_text(row.get("source_id")))]
+            if len(matches) == 1:
+                known_at = _registry_known_at(matches.iloc[0])
+                if known_at:
+                    frame.at[index, "known_at"] = known_at
+        except Exception:
+            continue
 
 
 def _jsonable(value: Any) -> Any:
@@ -1081,23 +1354,52 @@ def _review_history(
     if not isinstance(parsed, list):
         raise ValueError("review history is corrupt")
     prior: datetime | None = None
+    timestamps: list[datetime] = []
     for item in parsed:
         if not isinstance(item, dict):
             raise ValueError("review history is corrupt")
+        decision = item.get("decision")
+        reviewer = item.get("reviewer")
+        note = item.get("note")
+        fingerprint = item.get("extraction_sha256")
+        if not isinstance(decision, str) or decision not in {"verified", "rejected"}:
+            raise ValueError("review history decision is invalid")
+        if not isinstance(reviewer, str) or not reviewer.strip():
+            raise ValueError("review history reviewer is invalid")
+        if "note" not in item or not isinstance(note, str):
+            raise ValueError("review history note is invalid")
+        if not isinstance(fingerprint, str) or not _is_sha256_fingerprint(fingerprint):
+            raise ValueError("review history fingerprint is invalid")
         timestamp = _review_timestamp(item)
         if prior is not None and timestamp < prior:
             raise ValueError("review history is not ordered")
         prior = timestamp
-        if expected_fingerprint is not None and _cell_text(item.get("extraction_sha256")) != expected_fingerprint:
+        timestamps.append(timestamp)
+        if expected_fingerprint is not None and fingerprint != expected_fingerprint:
             raise ValueError("review history fingerprint does not match extraction")
     if row is not None:
+        known_at_value = _cell_text(row.get("known_at")) or _cell_text(row.get("ingested_at"))
+        if known_at_value:
+            try:
+                known_at = datetime.fromisoformat(known_at_value.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError("report known_at timestamp is malformed") from exc
+            if known_at.tzinfo is None:
+                raise ValueError("report known_at timestamp is malformed")
+            known_at = known_at.astimezone(timezone.utc)
+            if any(timestamp < known_at for timestamp in timestamps):
+                raise ValueError("review history predates report known_at")
         if parsed:
             final = parsed[-1]
             if (
-                _cell_text(row.get("verification_status")) != _cell_text(final.get("decision"))
-                or _cell_text(row.get("verified_by")) != _cell_text(final.get("reviewer"))
-                or _cell_text(row.get("verified_at")) != _cell_text(final.get("reviewed_at"))
-                or _cell_text(row.get("review_note")) != _cell_text(final.get("note"))
+                not isinstance(row.get("verification_status"), str)
+                or row.get("verification_status") != final["decision"]
+                or not isinstance(row.get("verified_by"), str)
+                or row.get("verified_by") != final["reviewer"]
+                or not isinstance(row.get("verified_at"), str)
+                or row.get("verified_at") != final["reviewed_at"]
+                or not isinstance(row.get("review_note"), str)
+                or row.get("review_note") != final["note"]
             ):
                 raise ValueError("top-level review fields do not match review history")
         elif (
@@ -1131,12 +1433,19 @@ def _strict_stored_bool(value: Any, field: str) -> bool:
 
 def _review_timestamp(item: dict[str, Any]) -> datetime:
     try:
-        timestamp = datetime.fromisoformat(str(item["reviewed_at"]).replace("Z", "+00:00"))
+        raw_timestamp = item["reviewed_at"]
+        if not isinstance(raw_timestamp, str):
+            raise ValueError("timestamp is not a string")
+        timestamp = datetime.fromisoformat(raw_timestamp.replace("Z", "+00:00"))
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("review history timestamp is malformed") from exc
     if timestamp.tzinfo is None or timestamp > datetime.now(timezone.utc):
         raise ValueError("review history timestamp is invalid or in the future")
     return timestamp
+
+
+def _is_sha256_fingerprint(value: object) -> bool:
+    return isinstance(value, str) and len(value) == 64 and all(character in "0123456789abcdefABCDEF" for character in value)
 
 
 def _cell_text(value: Any) -> str:
@@ -1183,8 +1492,9 @@ def _guard_path(path: Path) -> Path:
 __all__ = [
     "ETF_REPORT_CONFLICTS_PATH", "ETF_REPORT_RECORDS_PATH", "EtfReportAuthority", "EtfReportImportRequest", "EtfReportImportResult", "EtfReportReviewRequest",
     "INDEX_METHODOLOGY_RECORDS_PATH", "KID_COLUMNS", "METHODOLOGY_COLUMNS", "PRIIPS_KID_RECORDS_PATH", "REPORT_COLUMNS",
-    "REPORT_CONFLICT_COLUMNS", "REPORT_RAW_DIR", "ReportSourceAuthority", "build_etf_report_conflicts", "import_etf_report",
+    "REPORT_CONFLICT_COLUMNS", "REPORT_RAW_DIR", "REPORT_STABLE_CONFLICT_FIELDS", "REPORT_TIME_VARYING_CONFLICT_FIELDS", "ReportSourceAuthority", "build_etf_report_conflicts", "import_etf_report",
     "persist_index_methodology", "persist_index_methodology_result", "persist_index_methodology_with_document", "persist_priips_kid",
     "persist_priips_kid_result", "persist_priips_kid_with_document", "read_etf_report_conflicts", "read_etf_report_records",
-    "read_index_methodology_records", "read_priips_kid_records", "review_etf_report", "review_etf_report_record",
+    "read_index_methodology_records", "read_priips_kid_records", "report_extraction_fingerprint", "review_etf_report", "review_etf_report_record",
+    "validate_supplied_etf_report_records",
 ]

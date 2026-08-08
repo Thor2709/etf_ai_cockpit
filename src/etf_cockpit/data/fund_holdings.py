@@ -3,14 +3,17 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from numbers import Integral
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
+from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.paths import CLEAN_DIR
 from etf_cockpit.data.fund_documents import (
     FUND_DOCUMENTS_PATH,
@@ -24,7 +27,7 @@ from etf_cockpit.data.fund_documents import (
 FUND_HOLDINGS_PATH = CLEAN_DIR / "fund_holdings.parquet"
 HOLDINGS_CLEAN_PATH = FUND_HOLDINGS_PATH
 _EXPLICIT_IDENTITY_COLUMNS = ("isin", "ticker", "holding_id", "security_id")
-_REQUIRED_HOLDINGS_COLUMNS = (
+REQUIRED_HOLDINGS_COLUMNS = (
     "security",
     "weight",
     "instrument_id",
@@ -36,6 +39,11 @@ _REQUIRED_HOLDINGS_COLUMNS = (
     "confidence",
     "authority",
     "score_eligible",
+)
+_HOLDING_CANONICAL_COLUMNS = (
+    "security", "weight", "isin", "ticker", "sector", "region", "country", "currency", "issuer", "company",
+    "holding_id", "holding_id_namespace", "security_id", "security_id_namespace", "exchange", "venue",
+    "identity_type", "identity_namespace", "identity_value", "instrument_type",
 )
 
 
@@ -174,6 +182,13 @@ def normalise_holdings(
     ):
         if column in clean.columns and column not in selected.columns:
             selected[column] = clean[column]
+    # Preserve explicit structural claims for the shared read model. These
+    # are optional and are never inferred from ordinary holding columns.
+    for column in ("field_name", "field", "value", "page", "source_page", "status"):
+        if column in clean.columns and column not in selected.columns:
+            selected[column] = clean[column]
+    if "confidence" in clean.columns:
+        selected["structural_confidence"] = clean["confidence"]
     duplicate_count = int(selected.duplicated(keep="first").sum())
     if duplicate_count:
         selected = selected.drop_duplicates(keep="first").reset_index(drop=True)
@@ -206,7 +221,7 @@ def normalise_holdings(
     if name_only_manual_review:
         confidence = min(confidence, 0.55)
     score_eligible = completeness == "full" and freshness == "fresh" and authority == "issuer" and not name_only_manual_review
-    canonical = _canonical_holdings_json(selected)
+    canonical = _canonical_holdings_json(selected[[column for column in _HOLDING_CANONICAL_COLUMNS if column in selected.columns]])
     source_id = "fundhold:" + hashlib.sha256(f"{instrument}|{as_of_date.isoformat()}|{source}|{canonical}".encode("utf-8")).hexdigest()[:24]
     selected["instrument_id"] = instrument
     selected["as_of"] = as_of_date.isoformat()
@@ -227,8 +242,12 @@ def normalise_holdings(
 def _canonical_holdings_json(frame: pd.DataFrame) -> str:
     """Return an order-independent finite JSON representation for provenance."""
 
+    # Hash one fixed schema so a later multi-instrument merge cannot change a
+    # retained instrument's identity merely by introducing another optional
+    # identity column (for example, ISIN alongside ticker).
+    canonical_frame = frame.reindex(columns=_HOLDING_CANONICAL_COLUMNS)
     records: list[dict[str, object]] = []
-    for row in frame.to_dict(orient="records"):
+    for row in canonical_frame.to_dict(orient="records"):
         clean: dict[str, object] = {}
         for key, value in row.items():
             if value is None or (not isinstance(value, (str, bytes)) and pd.isna(value)):
@@ -250,24 +269,36 @@ def write_holdings_records(
     destination: Path = FUND_HOLDINGS_PATH,
 ) -> Path:
     """Persist normalised holdings plus provenance in one atomic transaction."""
-    frame = result.frame.copy() if isinstance(result.frame, pd.DataFrame) else result.frame
-    reasons = _holdings_write_reasons(result, frame)
-    if reasons:
-        detail = "; ".join(reasons)
-        raise ValueError(f"Holdings result is not score-eligible; refusing to replace canonical store ({detail}).")
-    if "schema_version" not in frame.columns:
-        frame.insert(0, "schema_version", 1)
     destination = Path(destination)
-    _write_holdings_frame(frame, destination=destination)
+    with holdings_store_guard(destination):
+        frame = result.frame.copy() if isinstance(result.frame, pd.DataFrame) else result.frame
+        reasons = _holdings_write_reasons(result, frame)
+        if reasons:
+            detail = "; ".join(reasons)
+            raise ValueError(f"Holdings result is not score-eligible; refusing to replace canonical store ({detail}).")
+        if "schema_version" not in frame.columns:
+            frame.insert(0, "schema_version", 1)
+        _read_existing_holdings(destination)
+        _write_holdings_frame(frame, destination=destination)
     return destination
+
+
+@contextmanager
+def holdings_store_guard(destination: Path, *, timeout_seconds: float = 5.0):
+    """Serialize each complete holdings-store read/validate/merge/write transaction."""
+
+    candidate = Path(destination)
+    with persistent_file_guard(candidate.with_name(candidate.name + ".guard"), timeout_seconds=timeout_seconds):
+        yield
 
 
 def _write_holdings_frame(frame: pd.DataFrame, *, destination: Path) -> None:
     """Publish a canonical/context holdings frame and its CSV mirror atomically."""
     destination = Path(destination)
+    validate_holdings_store_frame(frame, destination=destination)
     csv_destination = destination.with_suffix(".csv")
     requests = (
-        AtomicWriteRequest(destination, parquet_payload(frame), validate_parquet_file),
+        AtomicWriteRequest(destination, parquet_payload(frame), validate_holdings_parquet_file),
         AtomicWriteRequest(csv_destination, frame.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
     )
     atomic_write_group(requests)
@@ -280,10 +311,7 @@ def _read_existing_holdings(destination: Path) -> pd.DataFrame:
         existing = pd.read_parquet(destination)
     except Exception as exc:
         raise ValueError(f"Existing holdings store could not be read: {destination}") from exc
-    if existing.empty:
-        return existing
-    if "instrument_id" not in existing.columns:
-        raise ValueError(f"Existing holdings store is missing instrument_id: {destination}")
+    validate_holdings_store_frame(existing, destination=destination)
     return existing
 
 
@@ -302,29 +330,39 @@ def _merge_holdings_frame(existing: pd.DataFrame, result_frame: pd.DataFrame, in
     return merged
 
 
-def _holdings_write_reasons(result: HoldingsNormalisationResult, frame: pd.DataFrame) -> list[str]:
+def _holdings_write_reasons(
+    result: HoldingsNormalisationResult,
+    frame: pd.DataFrame,
+    *,
+    require_score_eligibility: bool = True,
+    require_explicit_identity: bool = True,
+    require_full_weights: bool = True,
+    require_schema_version: bool = False,
+) -> list[str]:
     """Return fail-closed reasons for a frame about to replace canonical holdings."""
     reasons: list[str] = []
     if not isinstance(frame, pd.DataFrame):
         return ["frame is not a DataFrame"]
     if bool(frame.columns.duplicated().any()):
         return ["duplicate frame columns"]
-    missing = [column for column in _REQUIRED_HOLDINGS_COLUMNS if column not in frame.columns]
+    missing = [column for column in REQUIRED_HOLDINGS_COLUMNS if column not in frame.columns]
     if missing:
         reasons.append(f"missing required columns={','.join(missing)}")
     if frame.empty:
         reasons.append("empty frame")
-    if result.completeness != "full":
+    if require_score_eligibility and result.completeness != "full":
         reasons.append(f"completeness={result.completeness!r}")
-    if result.freshness != "fresh":
+    if require_score_eligibility and result.freshness != "fresh":
         reasons.append(f"freshness={result.freshness!r}")
-    if result.authority != "issuer":
+    if require_score_eligibility and result.authority != "issuer":
         reasons.append(f"authority={result.authority!r}")
-    if result.score_eligible is not True:
+    if require_score_eligibility and result.score_eligible is not True:
         reasons.append("score_eligible=False")
     if missing or frame.empty:
         return reasons
 
+    if require_schema_version and "schema_version" not in frame.columns:
+        reasons.append("missing schema_version")
     if "schema_version" in frame.columns:
         schema_values = frame["schema_version"]
         valid_schema = schema_values.notna() & schema_values.map(
@@ -341,13 +379,14 @@ def _holdings_write_reasons(result: HoldingsNormalisationResult, frame: pd.DataF
 
     identity_columns = [column for column in _EXPLICIT_IDENTITY_COLUMNS if column in frame.columns]
     if not identity_columns:
-        reasons.append("missing required holding identity")
+        if require_explicit_identity:
+            reasons.append("missing required holding identity")
     else:
         identified = pd.Series(False, index=frame.index)
         for column in identity_columns:
             values = frame[column]
             identified |= values.notna() & values.astype(str).str.strip().ne("")
-        if not bool(identified.all()):
+        if require_explicit_identity and not bool(identified.all()):
             reasons.append("row missing required holding identity")
 
     weights = pd.to_numeric(frame["weight"], errors="coerce")
@@ -357,7 +396,7 @@ def _holdings_write_reasons(result: HoldingsNormalisationResult, frame: pd.DataF
         numeric_weights = weights.astype(float)
         if not bool((numeric_weights >= 0).all()) or not bool((numeric_weights <= 1).all()):
             reasons.append("weight outside [0, 1]")
-        elif not 0.99 - 1e-9 <= float(numeric_weights.sum()) <= 1.01 + 1e-9:
+        elif require_full_weights and not 0.99 - 1e-9 <= float(numeric_weights.sum()) <= 1.01 + 1e-9:
             reasons.append("weights are not full")
 
     expected_values = {
@@ -372,7 +411,9 @@ def _holdings_write_reasons(result: HoldingsNormalisationResult, frame: pd.DataF
             reasons.append(f"mismatched summary={column}")
 
     score_values = frame["score_eligible"]
-    if not bool(score_values.map(lambda value: type(value) is bool and value).all()):
+    if not bool(score_values.map(lambda value: isinstance(value, (bool, np.bool_))).all()):
+        reasons.append("row score_eligible is not boolean")
+    elif require_score_eligibility and not bool(score_values.all()):
         reasons.append("row score_eligible is not True")
     confidence = pd.to_numeric(frame["confidence"], errors="coerce")
     if confidence.isna().any() or not bool(confidence.between(0, 1).all()):
@@ -402,30 +443,7 @@ def _holdings_write_reasons(result: HoldingsNormalisationResult, frame: pd.DataF
     if "holding_name" in frame.columns and not frame["holding_name"].astype(str).str.strip().eq(frame["security"].astype(str).str.strip()).all():
         reasons.append("mismatched summary=holding_name")
 
-    canonical_columns = ["security", "weight"] + [
-        column
-        for column in (
-            "isin",
-            "ticker",
-            "sector",
-            "region",
-            "country",
-            "currency",
-            "issuer",
-            "company",
-            "holding_id",
-            "holding_id_namespace",
-            "security_id",
-            "security_id_namespace",
-            "exchange",
-            "venue",
-            "identity_type",
-            "identity_namespace",
-            "identity_value",
-            "instrument_type",
-        )
-        if column in frame.columns
-    ]
+    canonical_columns = [column for column in _HOLDING_CANONICAL_COLUMNS if column in frame.columns]
     canonical = _canonical_holdings_json(frame[canonical_columns])
     expected_source_id = "fundhold:" + hashlib.sha256(
         f"{instrument_values.iloc[0]}|{as_of_date.isoformat() if as_of_date else result.as_of}|{result.source}|{canonical}".encode("utf-8")
@@ -435,6 +453,72 @@ def _holdings_write_reasons(result: HoldingsNormalisationResult, frame: pd.DataF
     if not bool(frame["source_id"].astype(str).str.strip().eq(expected_source_id).all()):
         reasons.append("mismatched row source_id")
     return reasons
+
+
+def validate_holdings_store_frame(frame: pd.DataFrame, *, destination: Path) -> None:
+    """Validate every persisted holdings row before it can be retained or published."""
+
+    if not isinstance(frame, pd.DataFrame):
+        raise ValueError(f"Existing holdings store is not tabular: {destination}")
+    if bool(frame.columns.duplicated().any()):
+        raise ValueError(f"Existing holdings store contains duplicate columns: {destination}")
+    missing = [column for column in REQUIRED_HOLDINGS_COLUMNS if column not in frame.columns]
+    if "schema_version" not in frame.columns:
+        missing.append("schema_version")
+    if missing:
+        raise ValueError(f"Existing holdings store is missing required columns={','.join(missing)}: {destination}")
+    if frame.empty:
+        return
+
+    for instrument_id, group in frame.groupby("instrument_id", sort=False, dropna=False):
+        if not str(instrument_id).strip():
+            raise ValueError(f"Existing holdings store contains an empty instrument_id: {destination}")
+        score_values = group["score_eligible"]
+        if score_values.nunique(dropna=False) != 1:
+            raise ValueError(f"Existing holdings store contains mixed score_eligible rows: {destination}")
+        score_eligible = score_values.iloc[0]
+        if not isinstance(score_eligible, (bool, np.bool_)):
+            raise ValueError(f"Existing holdings store contains a non-boolean score_eligible row: {destination}")
+        score_eligible = bool(score_eligible)
+        try:
+            confidence = float(group["confidence"].iloc[0])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Existing holdings store contains invalid confidence: {destination}") from exc
+        result = HoldingsNormalisationResult(
+            group,
+            str(group["completeness"].iloc[0]),
+            str(group["source"].iloc[0]),
+            str(group["as_of"].iloc[0]),
+            (),
+            str(group["source_id"].iloc[0]),
+            str(group["freshness"].iloc[0]),
+            confidence,
+            str(group["authority"].iloc[0]),
+            score_eligible,
+        )
+        reasons = _holdings_write_reasons(
+            result,
+            group,
+            require_score_eligibility=score_eligible,
+            require_explicit_identity=score_eligible,
+            require_full_weights=score_eligible,
+            require_schema_version=True,
+        )
+        if reasons:
+            raise ValueError(f"Existing holdings store is corrupt: {destination}: {'; '.join(reasons)}")
+        if result.completeness not in {"full", "partial"}:
+            raise ValueError(f"Existing holdings store has invalid completeness: {destination}")
+        if result.freshness not in {"fresh", "stale"}:
+            raise ValueError(f"Existing holdings store has invalid freshness: {destination}")
+        if result.authority not in {"issuer", "vendor", "unknown"}:
+            raise ValueError(f"Existing holdings store has invalid authority: {destination}")
+
+
+def validate_holdings_parquet_file(path: Path) -> None:
+    """Validate staged holdings bytes structurally and semantically before publication."""
+
+    validate_parquet_file(path)
+    validate_holdings_store_frame(pd.read_parquet(path), destination=path)
 
 
 def import_etf_holdings(
@@ -448,13 +532,14 @@ def import_etf_holdings(
 ) -> HoldingsNormalisationResult:
     """Read a local CSV/XLSX holdings file, validate it and persist only eligible data."""
     destination = Path(destination or FUND_HOLDINGS_PATH)
-    _, frame, effective_as_of = _read_holdings_import(path, as_of)
-    result = normalise_holdings(frame, instrument_id, effective_as_of, source, today=today)
-    if not result.score_eligible:
-        detail = ", ".join(result.warnings) or f"completeness={result.completeness}, freshness={result.freshness}"
-        raise ValueError(f"Holdings import is invalid or ineligible; no data changed ({detail}).")
-    merged = _merge_holdings_frame(_read_existing_holdings(destination), result.frame, instrument_id)
-    _write_holdings_frame(merged, destination=destination)
+    with holdings_store_guard(destination):
+        _, frame, effective_as_of = _read_holdings_import(path, as_of)
+        result = normalise_holdings(frame, instrument_id, effective_as_of, source, today=today)
+        if not result.score_eligible:
+            detail = ", ".join(result.warnings) or f"completeness={result.completeness}, freshness={result.freshness}"
+            raise ValueError(f"Holdings import is invalid or ineligible; no data changed ({detail}).")
+        merged = _merge_holdings_frame(_read_existing_holdings(destination), result.frame, instrument_id)
+        _write_holdings_frame(merged, destination=destination)
     return result
 
 
@@ -501,39 +586,66 @@ def import_etf_holdings_with_document(
     """Import eligible holdings and register their source in one atomic group."""
     holdings_destination = Path(holdings_destination or FUND_HOLDINGS_PATH)
     registry_destination = Path(registry_destination or FUND_DOCUMENTS_PATH)
-    candidate, frame, effective_as_of = _read_holdings_import(path, as_of)
-    result = normalise_holdings(frame, instrument_id, effective_as_of, source, today=today)
-    if not result.score_eligible:
-        detail = ", ".join(result.warnings) or f"completeness={result.completeness}, freshness={result.freshness}"
-        raise ValueError(f"Holdings import is invalid or ineligible; no data changed ({detail}).")
-
     with fund_document_registry_guard(registry_destination):
-        existing_holdings = _read_existing_holdings(holdings_destination)
-        merged_holdings = _merge_holdings_frame(existing_holdings, result.frame, instrument_id)
-        document = register_document(
-            candidate,
-            "holdings",
-            str(instrument_id).strip(),
-            "",
-            "issuer_document",
-            document_date=result.as_of,
-        )
-        existing_registry = read_document_registry(path=registry_destination)
-        instrument_ids = [str(item).strip() for item in configured_instrument_ids or () if str(item).strip()]
-        if not existing_registry.empty and "instrument_id" in existing_registry.columns:
-            instrument_ids.extend(value for value in existing_registry["instrument_id"].dropna().astype(str).map(str.strip) if value)
-        instrument_ids.append(str(instrument_id).strip())
-        inventory = build_document_inventory(instrument_ids, [*existing_registry.to_dict("records"), document])
+        with holdings_store_guard(holdings_destination):
+            candidate, frame, effective_as_of = _read_holdings_import(path, as_of)
+            result = normalise_holdings(frame, instrument_id, effective_as_of, source, today=today)
+            if not result.score_eligible:
+                detail = ", ".join(result.warnings) or f"completeness={result.completeness}, freshness={result.freshness}"
+                raise ValueError(f"Holdings import is invalid or ineligible; no data changed ({detail}).")
+            existing_holdings = _read_existing_holdings(holdings_destination)
+            merged_holdings = _merge_holdings_frame(existing_holdings, result.frame, instrument_id)
+            document = register_document(
+                candidate,
+                "holdings",
+                str(instrument_id).strip(),
+                "",
+                "issuer_document",
+                document_date=result.as_of,
+            )
+            merged_holdings = _attach_document_binding(merged_holdings, document)
+            existing_registry = read_document_registry(path=registry_destination)
+            instrument_ids = [str(item).strip() for item in configured_instrument_ids or () if str(item).strip()]
+            if not existing_registry.empty and "instrument_id" in existing_registry.columns:
+                instrument_ids.extend(value for value in existing_registry["instrument_id"].dropna().astype(str).map(str.strip) if value)
+            instrument_ids.append(str(instrument_id).strip())
+            inventory = build_document_inventory(instrument_ids, [*existing_registry.to_dict("records"), document])
+            validate_holdings_store_frame(merged_holdings, destination=holdings_destination)
 
-        holdings_csv_destination = holdings_destination.with_suffix(".csv")
-        registry_csv_destination = registry_destination.with_suffix(".csv")
-        requests = (
-            AtomicWriteRequest(holdings_destination, parquet_payload(merged_holdings), validate_parquet_file),
-            AtomicWriteRequest(holdings_csv_destination, merged_holdings.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
-            AtomicWriteRequest(registry_destination, parquet_payload(inventory), validate_parquet_file),
-            AtomicWriteRequest(registry_csv_destination, inventory.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
-        )
-        atomic_write_group(requests)
+            holdings_csv_destination = holdings_destination.with_suffix(".csv")
+            registry_csv_destination = registry_destination.with_suffix(".csv")
+            requests = (
+                AtomicWriteRequest(
+                    holdings_destination,
+                    parquet_payload(merged_holdings),
+                    validate_holdings_parquet_file,
+                ),
+                AtomicWriteRequest(holdings_csv_destination, merged_holdings.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
+                AtomicWriteRequest(registry_destination, parquet_payload(inventory), validate_parquet_file),
+                AtomicWriteRequest(registry_csv_destination, inventory.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
+            )
+            atomic_write_group(requests)
+    return result
+
+
+def _attach_document_binding(frame: pd.DataFrame, document: object) -> pd.DataFrame:
+    """Expose the registered document identity without replacing fundhold IDs."""
+
+    result = frame.copy()
+    instrument_id = str(getattr(document, "instrument_id", "")).strip()
+    mask = result["instrument_id"].astype(str).str.strip().eq(instrument_id)
+    bindings = {
+        "document_source_id": str(getattr(document, "source_id", "")),
+        "document_checksum": str(getattr(document, "sha256", "")),
+        "document_date": getattr(document, "document_date", None),
+        "document_known_at": str(getattr(document, "ingested_at", "")),
+        "document_type": "holdings",
+        "document_status": str(getattr(document, "coverage_status", "unavailable")),
+    }
+    for column, value in bindings.items():
+        if column not in result.columns:
+            result[column] = None
+        result.loc[mask, column] = value
     return result
 
 

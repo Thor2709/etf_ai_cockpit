@@ -45,12 +45,17 @@ from etf_cockpit.data.etf_economics import (
     load_etf_economics_records,
     load_total_return_evidence,
 )
+from etf_cockpit.data.etf_structure import load_local_structural_evidence, structure_confidence_caps
 from etf_cockpit.data.fx_data import commit_fx_import, fx_data_inventory, load_fx_rates, validate_fx_rates
+from etf_cockpit.data.fund_documents import read_document_registry
+from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
 from etf_cockpit.data.fundamentals import load_fundamental_evidence
 from etf_cockpit.data.import_pipeline import commit_price_import, rollback_latest_price_import as rollback_price_store
 from etf_cockpit.data.manual_notes import commit_manual_news_import, load_manual_news, validate_manual_news
+from etf_cockpit.data.parsed_disclosures import read_etf_report_records
 from etf_cockpit.data.providers import GenericHTTPProvider, ManualLocalFileProvider, ProviderResult
 from etf_cockpit.data.reference_data import (
+    ETF_METADATA_CLEAN_PATH,
     commit_reference_import,
     normalise_reference_dataset_type,
     reference_data_inventory,
@@ -96,6 +101,98 @@ def _cache_matches_universe(path: Path, revision: str, settings_revision: str | 
         and str(payload.get("universe_revision") or "") == revision
         and str(payload.get("settings_revision") or "") == expected_settings
     )
+
+
+def _load_local_structural_evidence():
+    return load_local_structural_evidence(
+        registry_reader=read_document_registry,
+        report_reader=read_etf_report_records,
+        factsheet_path=ETF_METADATA_CLEAN_PATH,
+        holdings_path=FUND_HOLDINGS_PATH,
+    )
+
+
+def _load_structure_caps(instrument_ids: object, decision_time: object) -> dict[str, float]:
+    """Load local structural evidence once at the signal service boundary."""
+
+    ids = [str(item) for item in instrument_ids] if instrument_ids is not None else []
+    try:
+        evidence = _load_local_structural_evidence()
+        return structure_confidence_caps(
+            ids,
+            document_registry=evidence.document_registry,
+            report_records=evidence.report_records,
+            supplemental_rows=evidence.supplemental_rows,
+            holdings=evidence.holdings,
+            decision_time=decision_time,
+        )
+    except Exception:
+        return {item: 0.0 for item in ids}
+
+
+def _cached_structure_columns_match(
+    signal_log: pd.DataFrame,
+    structural_caps: pd.Series,
+    structural_hashes: pd.Series,
+    structure_evidence: object,
+    allowed_instrument_ids: object,
+) -> bool:
+    """Validate cached structural identity without replaying once per row."""
+
+    decision_times = pd.to_datetime(signal_log["date"], errors="coerce")
+    raw_instrument_ids = signal_log["etf_id"]
+    instrument_ids = raw_instrument_ids.astype(str).str.strip()
+    invalid_instrument_ids = raw_instrument_ids.isna() | instrument_ids.str.lower().isin(
+        {"", "<na>", "nan", "none", "null"}
+    )
+    allowed_ids = {
+        str(item).strip()
+        for item in (allowed_instrument_ids or ())
+        if str(item).strip()
+    }
+    if (
+        decision_times.isna().any()
+        or invalid_instrument_ids.any()
+        or not allowed_ids
+        or not instrument_ids.isin(allowed_ids).all()
+    ):
+        return False
+    evidence_channels = (
+        structure_evidence.document_registry,
+        structure_evidence.report_records,
+        structure_evidence.supplemental_rows,
+        structure_evidence.holdings,
+    )
+    if all(isinstance(channel, pd.DataFrame) and channel.empty for channel in evidence_channels):
+        return bool(structural_caps.eq(0.0).all() and structural_hashes.eq("unavailable").all())
+
+    replay_rows = pd.DataFrame(
+        {
+            "decision_date": decision_times.dt.date,
+            "instrument_id": instrument_ids,
+            "stored_cap": structural_caps,
+            "stored_hash": structural_hashes,
+        }
+    )
+    for decision_date, rows in replay_rows.groupby("decision_date", sort=True):
+        expected_caps = structure_confidence_caps(
+            sorted(rows["instrument_id"].unique()),
+            document_registry=structure_evidence.document_registry,
+            report_records=structure_evidence.report_records,
+            supplemental_rows=structure_evidence.supplemental_rows,
+            holdings=structure_evidence.holdings,
+            decision_time=decision_date,
+        )
+        for row in rows.itertuples(index=False):
+            expected_cap = float(expected_caps.get(row.instrument_id, 0.0))
+            expected_hash = str(
+                expected_caps.provenance.get(row.instrument_id, {}).get(
+                    "structure_provenance_hash", "unavailable"
+                )
+            ).strip()
+            if float(row.stored_cap) != expected_cap or row.stored_hash != expected_hash:
+                return False
+    return True
 
 
 def _write_universe_cache_metadata(path: Path, revision: str, settings_revision: str | None = None) -> None:
@@ -763,6 +860,7 @@ class SignalService:
         report = DataService(self.config).validate_prices(prices, as_of_date=effective_date, holdings=holdings)
         status = model_availability(self.config)
         forecasts = load_latest_forecasts(universe_revision=_current_universe_revision())
+        structure_caps = _load_structure_caps(self.config.universe.enabled_ids, effective_date)
         return generate_signals(
             self.config,
             latest,
@@ -773,6 +871,7 @@ class SignalService:
             timesfm_available=status["timesfm"],
             forecast_scores=forecast_component_maps(forecasts),
             forecast_distributions=forecast_return_distributions(forecasts),
+            structure_confidence_caps=structure_caps,
         )
 
 
@@ -847,7 +946,19 @@ class BacktestService:
         prices = load_prices()
         fundamentals = load_fundamental_evidence()
         try:
-            report = run_backtest(self.config, prices, fundamentals=fundamentals)
+            structure_evidence = _load_local_structural_evidence()
+        except Exception:
+            structure_evidence = None
+        try:
+            report = run_backtest(
+                self.config,
+                prices,
+                fundamentals=fundamentals,
+                structure_document_registry=(structure_evidence.document_registry if structure_evidence else None),
+                structure_report_records=(structure_evidence.report_records if structure_evidence else None),
+                structure_supplemental_rows=(structure_evidence.supplemental_rows if structure_evidence else None),
+                structure_holdings=(structure_evidence.holdings if structure_evidence else None),
+            )
         except BacktestDataUnavailableError as exc:
             return _empty_backtest_report(str(exc))
         run_id = settings_bound_run_id("backtest", settings_identity=settings_identity)
@@ -927,17 +1038,48 @@ class BacktestService:
                     return None
             equity_curves = pd.read_csv(equity_path, index_col=0, parse_dates=True)
             trade_log = pd.read_csv(trade_path) if trade_path.exists() else pd.DataFrame()
-            signal_log = pd.read_csv(signal_path) if signal_path.exists() else pd.DataFrame()
+            if not signal_path.exists():
+                return None
+            signal_log = pd.read_csv(signal_path)
+            required_signal_columns = {
+                "date",
+                "etf_id",
+                "structural_confidence_cap",
+                "structural_provenance_hash",
+            }
+            if signal_log.empty or not required_signal_columns.issubset(signal_log.columns):
+                return None
+            structural_caps = pd.to_numeric(
+                signal_log["structural_confidence_cap"], errors="coerce"
+            )
+            if structural_caps.isna().any() or not structural_caps.between(0.0, 1.0).all():
+                return None
+            structural_hashes = signal_log["structural_provenance_hash"].astype(str).str.strip()
+            if structural_hashes.eq("").any() or structural_hashes.str.casefold().isin({"nan", "none"}).any():
+                return None
             quality_momentum_evidence = pd.read_csv(quality_evidence_path) if quality_evidence_path.exists() else pd.DataFrame()
             metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
             if not isinstance(metadata, dict):
                 metadata = {}
             if metadata.get("quality_momentum_strategy_version") != QUALITY_MOMENTUM_VERSION:
                 return None
+            structure_evidence = _load_local_structural_evidence()
+            if not _cached_structure_columns_match(
+                signal_log,
+                structural_caps,
+                structural_hashes,
+                structure_evidence,
+                self.config.universe.enabled_ids,
+            ):
+                return None
             if metadata.get("input_checksum") != backtest_input_checksum(
                 self.config,
                 load_prices(),
                 load_fundamental_evidence(),
+                structure_document_registry=(structure_evidence.document_registry if structure_evidence else None),
+                structure_report_records=(structure_evidence.report_records if structure_evidence else None),
+                structure_supplemental_rows=(structure_evidence.supplemental_rows if structure_evidence else None),
+                structure_holdings=(structure_evidence.holdings if structure_evidence else None),
             ):
                 return None
             if not quality_evidence_path.exists():
@@ -1025,6 +1167,7 @@ def _build_snapshot(force_sample: bool = False) -> CockpitSnapshot:
     status = model_availability(config)
     inventory = model_diagnostics(config)
     forecasts = load_latest_forecasts(universe_revision=universe_revision)
+    structure_caps = _load_structure_caps(config.universe.enabled_ids, data_report.as_of_date)
     signals = (
         []
         if latest.empty
@@ -1038,6 +1181,7 @@ def _build_snapshot(force_sample: bool = False) -> CockpitSnapshot:
             timesfm_available=status["timesfm"],
             forecast_scores=forecast_component_maps(forecasts),
             forecast_distributions=forecast_return_distributions(forecasts),
+            structure_confidence_caps=structure_caps,
         )
     )
     backtest = _empty_backtest_report("Backtest skipped because no clean prices exist for the current two-tier universe yet.") if prices.empty else BacktestService(config, universe_revision=universe_revision).load_or_run_backtest(data_report.as_of_date)

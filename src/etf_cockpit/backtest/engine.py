@@ -17,6 +17,7 @@ from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.types import DataQualityReport
 from etf_cockpit.data.validation import validate_prices
 from etf_cockpit.data.provenance import sha256_dataframe
+from etf_cockpit.data.etf_structure import structure_confidence_caps, structure_input_checksum
 from etf_cockpit.features.feature_pipeline import compute_features, latest_features
 from etf_cockpit.portfolio.costs import COST_MODEL_ID, estimate_rebalance_cost
 from etf_cockpit.signals.quality_momentum import FRAME_COLUMNS, QUALITY_MOMENTUM_VERSION, build_quality_momentum_frame, quality_momentum_weights
@@ -44,6 +45,11 @@ def backtest_input_checksum(
     config: AppConfig,
     prices: pd.DataFrame,
     fundamentals: pd.DataFrame | None,
+    *,
+    structure_document_registry: object = None,
+    structure_report_records: object = None,
+    structure_supplemental_rows: object = None,
+    structure_holdings: object = None,
 ) -> str:
     """Fingerprint every local input that can change a cached backtest."""
 
@@ -68,6 +74,12 @@ def backtest_input_checksum(
     payload = {
         "prices": _stable(prices, ("date", "etf_id", "instrument_id")),
         "fundamentals": _stable(fundamentals, ("instrument_id", "as_of_date", "available_at", "evidence_checksum")),
+        "structure": structure_input_checksum(
+            document_registry=structure_document_registry,
+            report_records=structure_report_records,
+            supplemental_rows=structure_supplemental_rows,
+            holdings=structure_holdings,
+        ),
         "universe": universe_payload,
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
@@ -177,6 +189,10 @@ def run_backtest(
     initial_value_eur: float = 10000,
     rebalance_frequency_days: int = 21,
     transaction_cost_bps: float | None = None,
+    structure_document_registry: object = None,
+    structure_report_records: object = None,
+    structure_supplemental_rows: object = None,
+    structure_holdings: object = None,
 ) -> BacktestReport:
     pivot_raw = _price_pivot(prices)
     columns = [column for column in config.universe.enabled_ids if column in pivot_raw.columns]
@@ -214,7 +230,15 @@ def run_backtest(
         "not_enough_data_policy": "fail_closed",
         "quality_momentum_strategy_version": QUALITY_MOMENTUM_VERSION,
         "quality_momentum_evidence": "pending",
-        "input_checksum": backtest_input_checksum(config, prices, fundamentals),
+        "input_checksum": backtest_input_checksum(
+            config,
+            prices,
+            fundamentals,
+            structure_document_registry=structure_document_registry,
+            structure_report_records=structure_report_records,
+            structure_supplemental_rows=structure_supplemental_rows,
+            structure_holdings=structure_holdings,
+        ),
     }
     if missing_observation_rows:
         metadata["data_warning"] = "Incomplete adjusted-price rows were excluded; no forward-fill was applied."
@@ -312,6 +336,14 @@ def run_backtest(
             report = validate_prices(truncated_prices, as_of_date=dt.date(), min_history_days=180)
             if report.status == "Blocked":
                 report = DataQualityReport(as_of_date=dt.date(), issues=[issue for issue in report.issues if issue.code != "insufficient_history"])
+            structure_caps = structure_confidence_caps(
+                columns,
+                document_registry=structure_document_registry,
+                report_records=structure_report_records,
+                supplemental_rows=structure_supplemental_rows,
+                holdings=structure_holdings,
+                decision_time=dt.date(),
+            )
             signals = generate_signals(
                 config,
                 latest,
@@ -319,11 +351,13 @@ def run_backtest(
                 report,
                 as_of_date=dt.date(),
                 run_id=f"backtest_{dt:%Y%m%d}",
+                structure_confidence_caps=structure_caps,
             )
             signal_weight = weights["signal_strategy"].copy()
             target = target_weights(config, columns)
             for signal in signals:
                 canonical = signal.canonical_score
+                structural_identity = structure_caps.provenance.get(signal.etf_id, {})
                 signal_rows.append(
                     {
                         "date": dt.date(),
@@ -338,6 +372,10 @@ def run_backtest(
                         "formula_version": canonical.formula_version if canonical else "unavailable",
                         "formula_checksum": canonical.formula_checksum if canonical else "unavailable",
                         "source_vintage_hash": canonical.source_vintage_hash if canonical else "unavailable",
+                        "structural_confidence_cap": float(structure_caps.get(signal.etf_id, 0.0)),
+                        "structural_provenance_hash": str(
+                            structural_identity.get("structure_provenance_hash", "unavailable")
+                        ),
                     }
                 )
                 if signal.etf_id not in signal_weight:

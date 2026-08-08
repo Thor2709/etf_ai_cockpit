@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import date, datetime, timezone
 from math import isfinite
+from collections.abc import Mapping
 
 import pandas as pd
 
@@ -37,6 +38,7 @@ def generate_signals(
     timesfm_available: bool = False,
     forecast_scores: dict[str, dict[str, float]] | None = None,
     forecast_distributions: dict[str, dict[str, object]] | None = None,
+    structure_confidence_caps: dict[str, float] | None = None,
 ) -> list[SignalResult]:
     run_id = run_id or current_run_id("signals")
     signal_date = as_of_date or data_report.as_of_date
@@ -67,12 +69,20 @@ def generate_signals(
     cash_weight = max(0.0, 1.0 - float(holdings["current_weight"].sum()))
     signals: list[SignalResult] = []
     for _, row in scored.sort_values("total_score", ascending=False).iterrows():
+        structure_cap = _structure_cap_for_row(structure_confidence_caps, str(row["etf_id"]))
+        structure_provenance = (
+            getattr(structure_confidence_caps, "provenance", {}).get(str(row["etf_id"]))
+            if isinstance(getattr(structure_confidence_caps, "provenance", {}), Mapping)
+            else None
+        )
         canonical_score = canonical_score_from_signal_row(
             row,
             config,
             signal_date,
             toto_available=toto_available,
             timesfm_available=timesfm_available,
+            structure_confidence_cap=structure_cap,
+            structure_provenance=structure_provenance,
         )
         canonical_total_score = canonical_score.legacy_composite_raw
         total_score = float(canonical_total_score if canonical_total_score is not None else row["total_score"])
@@ -145,7 +155,7 @@ def generate_signals(
             signal_date=signal_date,
             etf_id=str(row["etf_id"]),
             action=final_action,
-            confidence=round(float(row["confidence"]), 4),
+            confidence=round(float(row["confidence"]) * structure_cap, 4),
             total_score=round(total_score, 4),
             components=row_components(row),
             blocked_by=blocked_by,
@@ -159,6 +169,9 @@ def generate_signals(
                 "canonical_expected_return_10": canonical_score.expected_return_10,
                 "canonical_risk_implementation_10": canonical_score.risk_implementation_10,
                 "canonical_evidence_confidence_10": canonical_score.evidence_confidence_10,
+                "structure_confidence_cap": structure_cap,
+                "structure_projection_version": (structure_provenance or {}).get("structure_projection_version", "unavailable"),
+                "structure_provenance_hash": (structure_provenance or {}).get("structure_provenance_hash", "unavailable"),
                 "canonical_coverage": canonical_score.coverage,
                 "formula_version": canonical_score.formula_version,
                 "formula_checksum": canonical_score.formula_checksum,
@@ -391,3 +404,15 @@ def _primary_horizon_distribution_value(distribution: dict[str, object] | None, 
     if _distribution_value(distribution, "horizon_days") != 60:
         return None
     return _distribution_value(distribution, key)
+
+
+def _structure_cap_for_row(caps: dict[str, float] | None, etf_id: str) -> float:
+    """Return a bounded, fail-closed evidence cap for a signal row."""
+
+    if not isinstance(caps, dict):
+        return 0.0
+    try:
+        value = float(caps.get(etf_id, 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+    return min(1.0, max(0.0, value)) if isfinite(value) else 0.0

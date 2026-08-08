@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation
 import hashlib
 import multiprocessing as mp
 import os
@@ -19,7 +20,7 @@ from typing import Any
 from etf_cockpit.parsers.contracts import ParseResult, ParseWarning
 
 
-PARSER_VERSION = "2.0"
+PARSER_VERSION = "2.1"
 REPORT_KINDS = ("prospectus", "annual_report", "half_year_report")
 DEFAULT_MAX_FILE_BYTES = 50 * 1024 * 1024
 DEFAULT_MAX_PAGES = 250
@@ -49,11 +50,24 @@ REPORT_FIELDS = (
     "document_date",
     "reporting_period_end",
     "legal_structure",
+    "legal_form",
+    "domicile",
+    "replication_method",
+    "derivatives",
+    "counterparties",
+    "collateral_terms",
+    "concentration_limits",
     "securities_lending",
+    "lending_policy",
+    "lending_revenue_split",
     "collateral_policy",
     "ongoing_costs",
     "holdings_count",
     "operational_risks",
+    "exposure",
+    "collateral_fraction",
+    "haircut_fraction",
+    "concentration_limit_fraction",
 )
 REQUIRED_FIELDS = {
     "fund_name",
@@ -76,6 +90,7 @@ class EtfReportFieldEvidence:
     matched_label: str | None
     candidate_pages: tuple[int, ...] = ()
     source_excerpt: str = ""
+    unit: str | None = None
 
     @property
     def pages(self) -> tuple[int, ...]:
@@ -120,6 +135,7 @@ class _FieldPattern:
     field_name: str
     label: str
     expression: str
+    unit: str | None = None
 
 
 @dataclass(frozen=True)
@@ -137,12 +153,25 @@ _EN_FIELDS = (
     _FieldPattern("isin", "ISIN", r"\bISIN\s*:\s*(?P<value>[A-Z]{2}[A-Z0-9]{10})\b"),
     _FieldPattern("document_date", "Document date", r"(?:document\s+date|dated)\s*:\s*(?P<value>[^\n]{1,80})"),
     _FieldPattern("reporting_period_end", "Reporting period ended", r"(?:reporting\s+period\s+ended|period\s+ended|for\s+the\s+(?:year|half[- ]year)\s+ended)\s*:\s*(?P<value>[^\n]{1,80})"),
-    _FieldPattern("legal_structure", "Legal structure", r"(?:legal\s+structure|legal\s+form|fund\s+structure)\s*:\s*(?P<value>[^\n]{1,300})"),
+    _FieldPattern("legal_structure", "Legal structure", r"(?:legal\s+structure|fund\s+structure)\s*:\s*(?P<value>[^\n]{1,300})"),
+    _FieldPattern("legal_form", "Legal form", r"(?:legal\s+form)\s*:\s*(?P<value>[^\n]{1,300})"),
+    _FieldPattern("domicile", "Domicile", r"(?:fund\s+)?domicile\s*:\s*(?P<value>[^\n]{1,160})"),
+    _FieldPattern("replication_method", "Replication method", r"replication\s+method\s*:\s*(?P<value>[^\n]{1,300})"),
+    _FieldPattern("derivatives", "Derivatives", r"(?:derivatives?|derivative\s+use)\s*:\s*(?P<value>[^\n]{1,500})"),
+    _FieldPattern("counterparties", "Counterparties", r"counterpart(?:y|ies)\s*:\s*(?P<value>[^\n]{1,500})"),
+    _FieldPattern("collateral_terms", "Collateral terms", r"collateral\s+terms\s*:\s*(?P<value>[^\n]{1,500})"),
+    _FieldPattern("concentration_limits", "Concentration limits", r"concentration\s+limits?\s*:\s*(?P<value>[^\n]{1,500})"),
     _FieldPattern("securities_lending", "Securities lending", r"(?:securities\s+lending|stock\s+lending)\s*:\s*(?P<value>[^\n]{1,500})"),
+    _FieldPattern("lending_policy", "Lending policy", r"lending\s+policy\s*:\s*(?P<value>[^\n]{1,500})"),
+    _FieldPattern("lending_revenue_split", "Lending revenue split", r"(?:lending\s+revenue\s+split|revenue\s+split)\s*:\s*(?P<value>[^\n]{1,240})"),
     _FieldPattern("collateral_policy", "Collateral policy", r"(?:collateral\s+policy|collateral)\s*:\s*(?P<value>[^\n]{1,500})"),
     _FieldPattern("ongoing_costs", "Ongoing charges", r"(?:ongoing\s+(?:charges|costs)|total\s+expense\s+ratio|management\s+fee)\s*:\s*(?P<value>[^\n]{1,80})"),
     _FieldPattern("holdings_count", "Number of holdings", r"(?:number\s+of\s+holdings|total\s+holdings)\s*:\s*(?P<value>[^\n]{1,80})"),
     _FieldPattern("operational_risks", "Operational risks", r"(?:operational\s+risks?|operational\s+risk\s+factors?)\s*:\s*(?P<value>[^\n]{1,500})"),
+    _FieldPattern("exposure", "Exposure", r"exposure\s*:\s*(?P<value>[^\n]*)(?=\n|\Z)", "fraction_of_nav"),
+    _FieldPattern("collateral_fraction", "Collateral fraction", r"collateral\s+fraction\s*:\s*(?P<value>[^\n]*)(?=\n|\Z)", "fraction_of_exposure"),
+    _FieldPattern("haircut_fraction", "Haircut fraction", r"haircut\s+fraction\s*:\s*(?P<value>[^\n]*)(?=\n|\Z)", "scenario_haircut_fraction"),
+    _FieldPattern("concentration_limit_fraction", "Concentration limit fraction", r"concentration\s+limit\s+fraction\s*:\s*(?P<value>[^\n]*)(?=\n|\Z)", "fraction_of_collateral"),
 )
 
 _PLUGINS = tuple(
@@ -300,6 +329,7 @@ def parse_etf_report(
     evidence = [_extract_field(pattern, pages) for pattern in plugin.fields]
     fields = {item.field_name: item.value for item in evidence}
     evidence, fields = _normalise_dates(evidence, fields)
+    evidence, fields = _normalise_numeric_fractions(evidence, fields)
     required = set(REQUIRED_FIELDS)
     if kind in {"annual_report", "half_year_report"}:
         required.add("reporting_period_end")
@@ -313,7 +343,10 @@ def parse_etf_report(
                 "truncated": "field_output_truncated",
             }[item.status]
             warnings.append(ParseWarning(code, f"Bounded report field is {item.status}: {item.field_name}", severity, _pages_location(item)))
-        elif item.status == "unknown" and item.field_name in required:
+        elif item.status == "unknown" and item.field_name in required and not (
+            item.field_name == "legal_structure"
+            and any(candidate.field_name == "legal_form" and candidate.status == "extracted" for candidate in evidence)
+        ):
             warnings.append(ParseWarning("required_field_missing", f"Required report field is unavailable: {item.field_name}", "error", "document"))
     expected = str(expected_isin or "").strip().upper()
     actual = str(fields.get("isin") or "").strip().upper()
@@ -445,17 +478,17 @@ def _extract_field(pattern: _FieldPattern, pages: list[str]) -> EtfReportFieldEv
             grouped[key][1].add(number)
             grouped[key][2].append(page[max(0, match.start() - 80): match.end() + 80])
     if not grouped:
-        return EtfReportFieldEvidence(pattern.field_name, None, None, "unknown", "unknown", (), pattern.label)
+        return EtfReportFieldEvidence(pattern.field_name, None, None, "unknown", "unknown", (), pattern.label, unit=pattern.unit)
     values = tuple(item[0] for item in grouped.values())
     candidate_pages = tuple(sorted(page for _, pages_for_value, _ in grouped.values() for page in pages_for_value))
     excerpts = " | ".join(f"page {page}: {excerpt}" for value, pages_for_value, excerpts_for_value in grouped.values() for page in sorted(pages_for_value) for excerpt in excerpts_for_value)
     excerpts = " ".join(excerpts.split())[:MAX_EXCERPT_CHARS]
     if len(values) > 1:
-        return EtfReportFieldEvidence(pattern.field_name, None, None, "low", "conflict", values, pattern.label, candidate_pages, excerpts)
+        return EtfReportFieldEvidence(pattern.field_name, None, None, "low", "conflict", values, pattern.label, candidate_pages, excerpts, pattern.unit)
     value, pages_for_value, _ = next(iter(grouped.values()))
     if len(value) > MAX_FIELD_VALUE_CHARS:
-        return EtfReportFieldEvidence(pattern.field_name, None, min(pages_for_value), "low", "truncated", (value[:MAX_FIELD_VALUE_CHARS],), pattern.label, tuple(sorted(pages_for_value)), excerpts)
-    return EtfReportFieldEvidence(pattern.field_name, value, min(pages_for_value), "high", "extracted", values, pattern.label, tuple(sorted(pages_for_value)), excerpts)
+        return EtfReportFieldEvidence(pattern.field_name, None, min(pages_for_value), "low", "truncated", (value[:MAX_FIELD_VALUE_CHARS],), pattern.label, tuple(sorted(pages_for_value)), excerpts, pattern.unit)
+    return EtfReportFieldEvidence(pattern.field_name, value, min(pages_for_value), "high", "extracted", values, pattern.label, tuple(sorted(pages_for_value)), excerpts, pattern.unit)
 
 
 def _normalise_dates(evidence: list[EtfReportFieldEvidence], fields: dict[str, str | None]) -> tuple[list[EtfReportFieldEvidence], dict[str, str | None]]:
@@ -466,13 +499,61 @@ def _normalise_dates(evidence: list[EtfReportFieldEvidence], fields: dict[str, s
         normalised = _normalise_date(item.value)
         if normalised is None:
             fields[item.field_name] = None
-            updated[index] = EtfReportFieldEvidence(item.field_name, None, item.source_page, "low", "malformed", item.candidates, item.matched_label, item.candidate_pages, item.source_excerpt)
+            updated[index] = EtfReportFieldEvidence(item.field_name, None, item.source_page, "low", "malformed", item.candidates, item.matched_label, item.candidate_pages, item.source_excerpt, item.unit)
         elif datetime.fromisoformat(normalised).date() > datetime.now(timezone.utc).date():
             fields[item.field_name] = None
-            updated[index] = EtfReportFieldEvidence(item.field_name, None, item.source_page, "low", "future", item.candidates, item.matched_label, item.candidate_pages, item.source_excerpt)
+            updated[index] = EtfReportFieldEvidence(item.field_name, None, item.source_page, "low", "future", item.candidates, item.matched_label, item.candidate_pages, item.source_excerpt, item.unit)
         else:
             fields[item.field_name] = normalised
-            updated[index] = EtfReportFieldEvidence(item.field_name, normalised, item.source_page, item.confidence, item.status, (normalised,), item.matched_label, item.candidate_pages, item.source_excerpt)
+            updated[index] = EtfReportFieldEvidence(item.field_name, normalised, item.source_page, item.confidence, item.status, (normalised,), item.matched_label, item.candidate_pages, item.source_excerpt, item.unit)
+    return updated, fields
+
+
+_NUMERIC_UNITS = {
+    "exposure": "fraction_of_nav",
+    "collateral_fraction": "fraction_of_exposure",
+    "haircut_fraction": "scenario_haircut_fraction",
+    "concentration_limit_fraction": "fraction_of_collateral",
+}
+_BARE_DECIMAL_FRACTION = re.compile(r"\A(?:\d+(?:\.\d+)?|\.\d+)\Z")
+
+
+def normalise_bare_decimal_fraction(value: object) -> Decimal | None:
+    """Parse one complete bare decimal fraction using the report grammar."""
+
+    if isinstance(value, bool):
+        return None
+    raw_value = str(value).strip()
+    if not _BARE_DECIMAL_FRACTION.fullmatch(raw_value):
+        return None
+    try:
+        number = Decimal(raw_value)
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    return number if number.is_finite() and Decimal("0") <= number <= Decimal("1") else None
+
+
+def _normalise_numeric_fractions(
+    evidence: list[EtfReportFieldEvidence], fields: dict[str, str | None]
+) -> tuple[list[EtfReportFieldEvidence], dict[str, str | None]]:
+    updated = list(evidence)
+    for index, item in enumerate(updated):
+        if item.field_name not in _NUMERIC_UNITS or not item.value:
+            continue
+        number = normalise_bare_decimal_fraction(item.value)
+        if number is None:
+            fields[item.field_name] = None
+            updated[index] = EtfReportFieldEvidence(
+                item.field_name, None, item.source_page, "low", "malformed", item.candidates,
+                item.matched_label, item.candidate_pages, item.source_excerpt, item.unit,
+            )
+            continue
+        normalised = format(number, "f")
+        fields[item.field_name] = normalised
+        updated[index] = EtfReportFieldEvidence(
+            item.field_name, normalised, item.source_page, item.confidence, item.status,
+            (normalised,), item.matched_label, item.candidate_pages, item.source_excerpt, item.unit,
+        )
     return updated, fields
 
 
@@ -529,6 +610,7 @@ __all__ = [
     "canonical_report_kind",
     "configure_memory_limit",
     "memory_limit_backend",
+    "normalise_bare_decimal_fraction",
     "parse_etf_report",
     "parse_etf_report_in_child",
 ]

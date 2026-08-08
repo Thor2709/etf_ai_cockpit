@@ -87,9 +87,19 @@ def test_approved_import_shapes_validate_and_commit_only_after_preview(tmp_path:
 
 
 def test_etf_holdings_import_retains_existing_instruments(tmp_path: Path) -> None:
+    from etf_cockpit.data.fund_holdings import normalise_holdings
+
     destination = tmp_path / "data" / "clean" / "fund_holdings.parquet"
     destination.parent.mkdir(parents=True)
-    pd.DataFrame({"instrument_id": ["OTHER"], "security": ["Issuer B"], "weight": [1.0]}).to_parquet(destination, index=False)
+    existing = normalise_holdings(
+        pd.DataFrame({"security": ["Issuer B"], "ticker": ["B"], "weight": [1.0]}),
+        "OTHER",
+        "2026-07-10",
+        "manual_unverified",
+        today="2026-07-10",
+    ).frame
+    existing.insert(0, "schema_version", 1)
+    existing.to_parquet(destination, index=False)
     source = tmp_path / "holdings.csv"
     pd.DataFrame({"as_of_date": ["2026-07-10"], "etf_id": ["VWCE"], "holding_name": ["Issuer A"], "ticker": ["A"], "weight": [1.0]}).to_csv(source, index=False)
     preview = validate_import("etf_holdings", source)

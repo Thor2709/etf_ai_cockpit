@@ -3905,6 +3905,17 @@
           "reviewed_date": "2026-08-03",
           "reviewer": "Codex independent reviewer and root orchestrator",
           "status": "ready"
+        },
+        {
+          "evidence_references": [
+            "Exact product commit 8a69a949 implements provenance-bound ETF structural, legal, counterparty, collateral and lending analysis with point-in-time replay and evidence-confidence-only score capping",
+            "Focused structure, scoring, parser, document, instrument-detail, backtest, recovery and publication validation passed 87 tests with 1 intentional skip; Ruff, compile and diff hygiene remain required before freeze",
+            "Unknown, conflicted, malformed, future-known and unbound evidence fail closed; numeric stress requires bound decimal-fraction provenance and execution_allowed remains false"
+          ],
+          "review_reference": "B04 ISSUE-0104 reviewed ETF structure implementation start",
+          "reviewed_date": "2026-08-03",
+          "reviewer": "Codex root orchestrator; independent exact-head reviews pending",
+          "status": "in_progress"
         }
       ],
       "dependency_edge_evidence": {
@@ -3930,11 +3941,11 @@
         }
       },
       "phase": "phase-04-etf-research",
-      "programme_status": "ready",
+      "programme_status": "in_progress",
       "status_transition": {
-        "from": "planned",
-        "review_reference": "B04 ISSUE-0104 readiness after reviewed UPDATEV2-0018 report-evidence dependency edge",
-        "to": "ready"
+        "from": "ready",
+        "review_reference": "B04 ISSUE-0104 reviewed ETF structure implementation start",
+        "to": "in_progress"
       },
       "transition_history": [
         {
@@ -3977,9 +3988,23 @@
           "reviewer": "Codex independent reviewer and root orchestrator",
           "to": "ready",
           "verified_commit": "5f9aff22ed95ff0075b457ee72412b244d2373b6"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Exact product commit 8a69a949 implements provenance-bound ETF structural, legal, counterparty, collateral and lending analysis with point-in-time replay and evidence-confidence-only score capping",
+            "Focused structure, scoring, parser, document, instrument-detail, backtest, recovery and publication validation passed 87 tests with 1 intentional skip; Ruff, compile and diff hygiene remain required before freeze",
+            "Unknown, conflicted, malformed, future-known and unbound evidence fail closed; numeric stress requires bound decimal-fraction provenance and execution_allowed remains false"
+          ],
+          "from": "ready",
+          "review_reference": "B04 ISSUE-0104 reviewed ETF structure implementation start",
+          "reviewed_date": "2026-08-03",
+          "reviewer": "Codex root orchestrator; independent exact-head reviews pending",
+          "to": "in_progress",
+          "verified_commit": "fca004a529cccc3b0d4251fc600a897035298014"
         }
       ],
-      "verified_commit": "5f9aff22ed95ff0075b457ee72412b244d2373b6",
+      "verified_commit": "fca004a529cccc3b0d4251fc600a897035298014",
       "verified_date": "2026-08-03"
     },
     "ISSUE-0105": {
