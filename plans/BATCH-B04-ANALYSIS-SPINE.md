@@ -108,8 +108,14 @@ package jobs became stale and were cancelled after whole-diff review found two
 product defects; risk review approved. One consolidated correction now rejects
 contradictory redaction state retaining raw content and reuses the existing
 recursive temporal bound for nested outcome details, with direct regressions.
-Freeze one replacement head for both reviews and fresh H-tier CI; no adjacent
-hardening.
+Replacement head `e10b9914f4806f0e3e549cd3f74edb1c4132455e` passed the exact
+changed selection in 69.9 seconds and guard `31279691735`; H run `31279691720`
+became stale and was cancelled after risk review found Windows case-insensitive
+ID overwrite and tuple-nested PIT bypasses; whole-diff review approved. The
+consolidated correction rejects normalized ID collisions inside existing
+single/batch transaction boundaries, preserves the original entry and extends
+the existing recursive temporal traversal to tuple arrays. Freeze one
+replacement head for both reviews and fresh H-tier CI; no adjacent hardening.
 
 ## ISSUE-0104 product chronology
 

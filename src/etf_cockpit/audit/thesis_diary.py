@@ -103,7 +103,7 @@ def _validate_snapshot_temporal_bound(snapshot: dict[str, Any], *, name: str, de
                     if observed > decision:
                         raise ValueError(f"{field_path} postdates thesis decision time")
                 walk(nested, field_path)
-        elif isinstance(value, list):
+        elif isinstance(value, (list, tuple)):
             for index, nested in enumerate(value):
                 walk(nested, f"{path}[{index}]")
 
@@ -114,6 +114,12 @@ def _safe_id(value: str, label: str = "thesis id") -> str:
     if not isinstance(value, str) or not _ID_RE.fullmatch(value):
         raise ValueError(f"{label} must be a safe non-empty identifier")
     return value
+
+
+def _normalise_id(value: str) -> str:
+    """Return the deterministic identity used for filesystem collision checks."""
+
+    return value.casefold()
 
 
 def _hash(value: str, label: str) -> str:
@@ -733,15 +739,18 @@ class ThesisDiaryStore:
             raise ThesisDiaryIntegrityError("thesis diary index is not a list")
         rows: list[dict[str, str]] = []
         seen: set[str] = set()
+        normalized_seen: set[str] = set()
         for row in value:
             if not isinstance(row, dict) or set(row) != {"thesis_id", "created_at", "checksum"}:
                 raise ThesisDiaryIntegrityError("thesis diary index row is malformed")
             _safe_id(row["thesis_id"])
             _normalise_time(row["created_at"])
             _hash(row["checksum"], "entry checksum")
-            if row["thesis_id"] in seen:
+            normalized_id = _normalise_id(row["thesis_id"])
+            if row["thesis_id"] in seen or normalized_id in normalized_seen:
                 raise ThesisDiaryIntegrityError("duplicate thesis diary index identity")
             seen.add(row["thesis_id"])
+            normalized_seen.add(normalized_id)
             rows.append(row)
         if rows != sorted(rows, key=lambda row: (row["created_at"], row["thesis_id"])):
             raise ThesisDiaryIntegrityError("thesis diary index ordering is invalid")
@@ -858,8 +867,14 @@ class ThesisDiaryStore:
                 if existing.model_dump(mode="json") == entry.model_dump(mode="json"):
                     return existing
                 raise ThesisDiaryConflictError(f"conflicting thesis identity: {entry.thesis_id}")
-            if entry.thesis_id in {row["thesis_id"] for row in self._read_index()}:
+            index_rows = self._read_index()
+            indexed_ids = {row["thesis_id"] for row in index_rows}
+            normalized_entry_id = _normalise_id(entry.thesis_id)
+            normalized_indexed_ids = {_normalise_id(thesis_id) for thesis_id in indexed_ids}
+            if entry.thesis_id in indexed_ids:
                 raise ThesisDiaryIntegrityError(f"thesis diary identity is indexed without a payload: {entry.thesis_id}")
+            if normalized_entry_id in normalized_indexed_ids:
+                raise ThesisDiaryConflictError(f"conflicting thesis identity: {entry.thesis_id}")
             index = [
                 {"thesis_id": item.thesis_id, "created_at": item.created_at, "checksum": str(item.checksum)}
                 for item in entries.values()
@@ -910,17 +925,20 @@ class ThesisDiaryStore:
         report_bytes = _json_bytes(report_payload)
         for entry in entries:
             _validate_hash_bindings(entry)
-        if len({entry.thesis_id for entry in entries}) != len(entries):
+        if len({_normalise_id(entry.thesis_id) for entry in entries}) != len(entries):
             raise ThesisDiaryConflictError("thesis diary batch contains duplicate identities")
 
         with self._transaction():
             current_entries, current_events = self._load()
             current_ids = set(current_entries)
+            current_normalized_ids = {_normalise_id(thesis_id) for thesis_id in current_ids}
             batch_ids = {entry.thesis_id for entry in entries}
             existing_ids = current_ids & batch_ids
             for entry in entries:
                 existing = current_entries.get(entry.thesis_id)
                 if existing is not None and existing.model_dump(mode="json") != entry.model_dump(mode="json"):
+                    raise ThesisDiaryConflictError(f"conflicting thesis identity: {entry.thesis_id}")
+                if _normalise_id(entry.thesis_id) in current_normalized_ids and entry.thesis_id not in current_ids:
                     raise ThesisDiaryConflictError(f"conflicting thesis identity: {entry.thesis_id}")
             if existing_ids and existing_ids != batch_ids:
                 raise ThesisDiaryConflictError("thesis diary batch is only partially persisted")

@@ -104,6 +104,17 @@ def test_thesis_persistence_is_immutable_and_idempotent(tmp_path: Path) -> None:
     assert len(store.list_entries()) == 1
 
 
+def test_case_variant_thesis_identity_conflict_preserves_original(tmp_path: Path) -> None:
+    store = ThesisDiaryStore(tmp_path)
+    original = store.create(_entry(thesis_id="Case-ID"))
+
+    with pytest.raises(ThesisDiaryConflictError, match="conflicting thesis identity"):
+        store.create(_entry(thesis_id="case-id"))
+
+    assert store.get("Case-ID") == original
+    assert [entry.thesis_id for entry in store.list_entries()] == ["Case-ID"]
+
+
 def test_hash_bindings_replay_lifecycle_and_packet_reproduction(tmp_path: Path) -> None:
     store = ThesisDiaryStore(tmp_path)
     entry = store.create(_entry())
@@ -181,6 +192,15 @@ def test_nested_outcome_detail_timestamps_cannot_postdate_event_decision(tmp_pat
             details={"observations": [{"metadata": {"timestamp": "2026-08-03T02:00:01+00:00"}}]},
         )
 
+    with pytest.raises(ValueError, match=r"outcome_details\.observations\[0\]\.metadata\.timestamp postdates thesis decision time"):
+        store.append_outcome(
+            entry.thesis_id,
+            outcome="held",
+            observed_at="2026-08-03T02:00:00+00:00",
+            decision_time="2026-08-03T02:00:00+00:00",
+            details={"observations": ({"metadata": {"timestamp": "2026-08-03T02:00:01+00:00"}},)},
+        )
+
 
 def test_snapshot_observation_times_cannot_postdate_decision() -> None:
     with pytest.raises(ValueError, match="evidence_snapshot.as_of_date postdates"):
@@ -194,6 +214,13 @@ def test_snapshot_observation_times_cannot_postdate_decision() -> None:
             evidence_snapshot={
                 "as_of_date": "2026-08-03",
                 "metadata": [{"retrieved_at": "2099-01-01T00:00:00+00:00"}],
+            }
+        )
+    with pytest.raises(ValueError, match=r"evidence_snapshot.metadata\[0\].retrieved_at postdates"):
+        _entry(
+            evidence_snapshot={
+                "as_of_date": "2026-08-03",
+                "metadata": ({"retrieved_at": "2099-01-01T00:00:00+00:00"},),
             }
         )
 

@@ -143,8 +143,17 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   future timestamps in outcome details bypassing the PIT bound. The bounded
   product correction enforces redaction-state/content consistency and reuses
   the existing recursive temporal validator for outcome details, with direct
-  adversarial regressions. Freeze one replacement head for both reviews and
-  fresh H-tier CI.
+  adversarial regressions. Replacement head
+  `e10b9914f4806f0e3e549cd3f74edb1c4132455e` passed the full exact changed
+  selection in 69.9 seconds and guard `31279691735`; its now-stale H run
+  `31279691720` was cancelled after risk review found two further deterministic
+  defects, while whole-diff review approved. Case variants of a thesis ID could
+  collide on a Windows path and tuples could bypass recursive PIT checks before
+  JSON normalization. The consolidated correction adds casefolded collision
+  rejection inside single/batch transaction boundaries while preserving the
+  original entry, and traverses tuple arrays in the existing recursive temporal
+  validator for snapshots and outcomes. Freeze one replacement head for both
+  reviews and fresh H-tier CI.
 
 ## ISSUE-0104 product chronology
 
