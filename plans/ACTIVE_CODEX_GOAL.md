@@ -311,6 +311,23 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   `execution_allowed=false` and all lifecycle/authority state remain unchanged.
   Freeze the replacement head for both exact-head reviews and fresh H-tier
   hosted validation.
+- Replacement exact head `f81a16c0fe349450e889a22c6780aa1a85bad1ad`
+  was rejected after both parallel reviewers completed. The consolidated
+  findings are review events accepted before the exact report `known_at` and
+  an existing holdings store with identity plus unrelated columns being
+  silently skipped instead of rejected. Run `31249002466` passed status and
+  supply-chain checks, then was cancelled as stale immediately after the
+  review rejection.
+- Consolidated correction commit
+  `2bb6f818ddceeb1fcdea66727e59c0c446c8e243` rejects review history before
+  report ingestion in canonical, supplied and defensive structural replay,
+  and requires every existing canonical holdings store to contain the required
+  writer schema. Projection, confidence-cap, stress, selector, canonical
+  readback, service/cache and backtest regressions pass across the five
+  directly coupled test modules; Ruff, compile and diff hygiene pass.
+  Lifecycle authority and `execution_allowed=false` remain unchanged. Freeze
+  one replacement exact head and repeat both reviews plus fresh H-tier hosted
+  validation in parallel.
 
 ## Completed UPDATEV2-0018 product checkpoint
 

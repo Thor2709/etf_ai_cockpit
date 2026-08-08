@@ -321,6 +321,21 @@ suite, Ruff, compile and diff hygiene pass; `execution_allowed=false` and all
 lifecycle/authority state remain unchanged. Freeze the replacement head and
 repeat both reviews plus fresh H-tier gates in parallel.
 
+Replacement exact head `f81a16c0fe349450e889a22c6780aa1a85bad1ad` was
+rejected after both parallel reviewers completed. The complete finding set is
+review evidence predating the exact report `known_at` and an identity-bearing
+holdings store with an unrelated schema being silently skipped. Run
+`31249002466` passed status and supply-chain checks, then was cancelled as
+stale immediately after rejection.
+
+Consolidated correction commit
+`2bb6f818ddceeb1fcdea66727e59c0c446c8e243` enforces review/ingestion
+chronology in canonical, supplied and defensive structural paths and requires
+the writer's required schema on every existing canonical holdings store. The five
+directly coupled test modules, Ruff, compile and diff hygiene pass; lifecycle
+authority and `execution_allowed=false` are unchanged. Freeze one replacement
+head for both reviews and fresh H-tier gates in parallel.
+
 ## Completed UPDATEV2-0018 parser lane
 
 ISSUE-0103 completion PR #648 merged exact reviewed head
