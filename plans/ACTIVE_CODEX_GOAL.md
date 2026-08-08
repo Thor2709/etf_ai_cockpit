@@ -273,6 +273,28 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   Lifecycle authority, dependencies and `execution_allowed=false` are
   unchanged. Freeze one replacement head after this checkpoint, then run both
   exact-head reviews and fresh H-tier hosted gates in parallel.
+- Exact head `6440440df1892a74c1734f935f52d1a437ed6ba8` was rejected
+  after both reviewers completed. The consolidated defects are false
+  cross-period conflicts for time-varying structure, omitted conflict-candidate
+  provenance in the ETF panel, and cache acceptance without recomputing exact
+  per-decision structural cap/hash. H-tier run `31246422546` also failed its
+  vulnerability scan on `cryptography==49.0.0` / `CVE-2026-69247`; preflight,
+  lifecycle-candidate validation and status guard passed, but package jobs did
+  not start, so the run is stale.
+- Combined correction commit
+  `9aea82a16bc2b1e71fbcf71c79068c02f9a83f25` uses one shared stable/varying
+  field policy, binds varying fields to the latest reporting period while
+  preserving same-period and stable-field conflicts, renders complete conflict
+  provenance, and recomputes cached cap/hash from canonical evidence for every
+  signal date. It also updates only the directly coupled release and GitHub
+  writer runtime to non-vulnerable `cryptography==50.0.0`; the reviewed Linux
+  wheel hash is
+  `06a32a980526a6ab9a4b9bf8f7385800791e2bb960903cb6b530e4817509a3b7`.
+  Four product suites and five supply-chain/authority suites pass; Ruff,
+  compile, diff hygiene, binary hash-lock download and `pip-audit` pass with no
+  known vulnerabilities. Lifecycle state and `execution_allowed=false` are
+  unchanged. Freeze the checkpoint head and repeat both exact-head reviews and
+  fresh H-tier gates in parallel.
 
 ## Completed UPDATEV2-0018 product checkpoint
 

@@ -282,6 +282,28 @@ Lifecycle authority, dependencies and `execution_allowed=false` are unchanged.
 Freeze one replacement head after this checkpoint and repeat both reviews plus
 fresh H-tier hosted gates in parallel.
 
+Exact head `6440440df1892a74c1734f935f52d1a437ed6ba8` is rejected after
+both reviewers completed. The full finding set is false cross-period conflicts
+for time-varying structure, omitted UI conflict-candidate provenance and cache
+acceptance without exact per-decision cap/hash recomputation. H-tier run
+`31246422546` additionally failed the vulnerability scan on
+`cryptography==49.0.0` / `CVE-2026-69247`; status guard, preflight and lifecycle
+candidate validation passed, but no package evidence was produced.
+
+Combined correction commit
+`9aea82a16bc2b1e71fbcf71c79068c02f9a83f25` shares one stable/varying conflict
+policy, selects the latest reporting period for varying fields while retaining
+same-period and stable-field conflicts, renders every conflict provenance
+field, and recomputes each cached signal cap/hash from canonical decision-time
+evidence. The directly coupled release and GitHub-writer runtime now pins fixed
+`cryptography==50.0.0` with reviewed Linux wheel hash
+`06a32a980526a6ab9a4b9bf8f7385800791e2bb960903cb6b530e4817509a3b7`.
+Four product suites and five supply-chain/authority suites pass; Ruff, compile,
+diff hygiene, binary hash-lock download and `pip-audit` pass with no known
+vulnerabilities. Lifecycle state and `execution_allowed=false` are unchanged.
+Freeze this checkpoint and repeat both reviews plus fresh H-tier gates in
+parallel.
+
 ## Completed UPDATEV2-0018 parser lane
 
 ISSUE-0103 completion PR #648 merged exact reviewed head
