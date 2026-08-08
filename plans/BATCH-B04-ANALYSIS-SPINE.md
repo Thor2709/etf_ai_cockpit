@@ -37,8 +37,9 @@ authority is
 `52a917e9e678729a974545b08dc8ef74abe6079168af8270dd430d9b2e262e80`,
 candidate ref is
 `6741dbdac63e87a11dc6671e305bf04d623e72cd91b03fb45c23d9a78418e4ee`,
-and `execution_allowed=false`. Complete exact focused validation, freeze one
-head, then run parallel review and H-tier CI.
+and `execution_allowed=false`. Focused adversarial tests, exact guard,
+byte-clean generation, H-tier classification and exact one-action candidate
+validation pass. Freeze this completed tree for parallel review and H-tier CI.
 
 ## ISSUE-0104 product chronology
 

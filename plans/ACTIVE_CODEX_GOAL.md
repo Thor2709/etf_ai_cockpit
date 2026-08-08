@@ -54,9 +54,10 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   and candidate ref
   `6741dbdac63e87a11dc6671e305bf04d623e72cd91b03fb45c23d9a78418e4ee`
   bind it to exact parent `43b7561b910758aafe7c5501803fbcbe86fd197b`
-  and preserve `execution_allowed=false`. Complete exact focused validation,
-  freeze one head, then start both independent reviews and H-tier hosted CI in
-  parallel.
+  and preserve `execution_allowed=false`. Focused adversarial tests, exact
+  status guard, byte-clean generation, H-tier classification and the exact
+  one-action candidate validation pass. Freeze this completed tree and start
+  both independent reviews and H-tier hosted CI in parallel.
 
 ## ISSUE-0104 product chronology
 
