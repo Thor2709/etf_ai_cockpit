@@ -364,6 +364,7 @@ def test_factsheet_prospectus_and_holdings_conflicts_remain_visible() -> None:
     [
         ({"freshness": "stale"}, "candidate_holdings_stale"),
         ({"as_of": "2025-01-01", "document_date": "2025-01-01"}, "candidate_holdings_stale"),
+        ({"as_of": "2026-07-20", "document_date": "2026-07-20"}, "candidate_holdings_future"),
         ({"completeness": "partial"}, "candidate_holdings_incomplete"),
         ({"authority": "vendor"}, "candidate_holdings_authority_ineligible"),
         ({"score_eligible": False}, "candidate_holdings_not_score_eligible"),

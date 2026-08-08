@@ -1098,6 +1098,60 @@ def test_cached_structure_validation_batches_non_empty_evidence_by_decision_date
     ]
 
 
+def test_cached_structure_validation_rejects_future_holdings_confidence() -> None:
+    checksum = "a" * 64
+    evidence = SimpleNamespace(
+        document_registry=pd.DataFrame(
+            [
+                {
+                    "instrument_id": "ETF-1",
+                    "source_id": "holdings-1",
+                    "document_type": "holdings",
+                    "document_kind": "holdings",
+                    "authority": "issuer_document",
+                    "sha256": checksum,
+                    "checksum": checksum,
+                    "document_date": "2026-07-20",
+                    "known_at": "2026-07-02T00:00:00Z",
+                    "coverage_status": "available",
+                    "document_version": "v1",
+                }
+            ]
+        ),
+        report_records=pd.DataFrame(),
+        supplemental_rows=pd.DataFrame(),
+        holdings=pd.DataFrame(
+            [
+                {
+                    "instrument_id": "ETF-1",
+                    "document_source_id": "holdings-1",
+                    "document_type": "holdings",
+                    "document_checksum": checksum,
+                    "document_date": "2026-07-20",
+                    "document_known_at": "2026-07-02T00:00:00Z",
+                    "as_of": "2026-07-20",
+                    "field_name": "replication_method",
+                    "value": "Physical sampled",
+                    "page": 3,
+                    "structural_confidence": 1.0,
+                    "status": "extracted",
+                    "freshness": "fresh",
+                    "completeness": "full",
+                    "authority": "issuer",
+                    "score_eligible": True,
+                }
+            ]
+        ),
+    )
+
+    assert services._cached_structure_columns_match(
+        pd.DataFrame([{"date": "2026-07-15", "etf_id": "ETF-1"}]),
+        pd.Series([1.0]),
+        pd.Series(["forged-future-confidence"]),
+        evidence,
+    ) is False
+
+
 def test_real_260_session_backtest_accepts_structural_holdings() -> None:
     from etf_cockpit.data.etf_structure import structure_confidence_caps
 

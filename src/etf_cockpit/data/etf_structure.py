@@ -1088,7 +1088,9 @@ def _supplemental_candidates(
             score_eligible = row.get("score_eligible")
             effective_date = (decision or datetime.now(timezone.utc)).date()
             holdings_date = date.fromisoformat(row_date)
-            if freshness != "fresh" or (effective_date - holdings_date).days > 90:
+            if holdings_date > effective_date:
+                reason = "candidate_holdings_future"
+            elif freshness != "fresh" or (effective_date - holdings_date).days > 90:
                 reason = "candidate_holdings_stale"
             elif completeness != "full":
                 reason = "candidate_holdings_incomplete"

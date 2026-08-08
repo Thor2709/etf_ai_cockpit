@@ -436,9 +436,9 @@ def test_concurrent_holdings_imports_preserve_disjoint_identity_schemas(tmp_path
         sources[instrument] = source
     start = Barrier(2)
 
-    def import_one(instrument: str) -> None:
+    def import_one(instrument: str) -> tuple[str, str]:
         start.wait(timeout=20)
-        import_etf_holdings(
+        result = import_etf_holdings(
             sources[instrument],
             instrument,
             "2026-07-10",
@@ -446,14 +446,18 @@ def test_concurrent_holdings_imports_preserve_disjoint_identity_schemas(tmp_path
             destination=destination,
             today="2026-07-11",
         )
+        return instrument, result.source_id
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = [pool.submit(import_one, instrument) for instrument in sources]
-        for future in futures:
-            future.result(timeout=30)
+        expected_source_ids = dict(future.result(timeout=30) for future in futures)
 
     stored = pd.read_parquet(destination)
     assert set(stored["instrument_id"].astype(str)) == {"VWCE", "LYP6"}
+    assert {
+        instrument: group["source_id"].iloc[0]
+        for instrument, group in stored.groupby("instrument_id")
+    } == expected_source_ids
 
 
 def test_combined_holdings_import_preserves_registry_instrument_omitted_from_configured_ids(tmp_path: Path) -> None:
