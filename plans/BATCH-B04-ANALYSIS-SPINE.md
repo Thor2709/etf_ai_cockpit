@@ -374,6 +374,20 @@ Ruff, compile and diff hygiene pass. Lifecycle and `execution_allowed=false`
 remain unchanged. Freeze one replacement head for both reviews and fresh
 H-tier gates in parallel.
 
+Exact head `3581a1b2195890d08baa3fffb1ae04d8b3f118fe` received an
+independent risk approval but was rejected by the whole-diff review after both
+verdicts completed. Registry ordering could choose a different annual or
+half-year source for the document matrix and change the structure provenance
+hash. Release run `31254041778` passed classifier, supply chain, candidate
+validation and preflight, then was cancelled and discarded as stale.
+
+Bounded correction commit `17194503a000de86b723e5e12207495a201db604`
+selects the latest chosen family revision deterministically by document date,
+known-at time and source identity. The annual/half-year order-invariance
+regression, all 86 structure tests, Ruff and diff hygiene pass. Lifecycle
+authority and `execution_allowed=false` remain unchanged. Freeze one new
+exact head and repeat both reviews plus fresh H-tier gates in parallel.
+
 ## Completed UPDATEV2-0018 parser lane
 
 ISSUE-0103 completion PR #648 merged exact reviewed head

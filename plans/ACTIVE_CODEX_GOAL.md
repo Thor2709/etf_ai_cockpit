@@ -364,6 +364,21 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   ISSUE-0104 correction modules, Ruff, compile and diff hygiene. No lifecycle,
   provider or execution authority changes. Freeze one replacement exact head
   and repeat both reviews plus fresh H-tier hosted validation.
+- Exact head `3581a1b2195890d08baa3fffb1ae04d8b3f118fe` received an
+  independent risk approval but was rejected by the whole-diff review after
+  both verdicts completed. Reversing annual/half-year registry order changed
+  the family source displayed by the document matrix and therefore changed
+  the structure provenance hash. Release run `31254041778` passed classifier,
+  supply chain, candidate validation and preflight, then was cancelled and
+  its in-flight package/pilot evidence discarded as stale.
+- Bounded correction commit
+  `17194503a000de86b723e5e12207495a201db604` deterministically selects the
+  latest selected family revision by document date, known-at time and source
+  identity. The annual/half-year regression proves both the displayed source
+  and complete structure provenance hash are invariant to registry ordering;
+  all 86 structure tests, Ruff and diff hygiene pass. Lifecycle authority and
+  `execution_allowed=false` remain unchanged. Freeze one new exact head and
+  repeat both reviews plus fresh H-tier hosted validation in parallel.
 
 ## Completed UPDATEV2-0018 product checkpoint
 
