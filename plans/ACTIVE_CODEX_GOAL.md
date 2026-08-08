@@ -429,6 +429,22 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   diff hygiene. Freeze one replacement head and repeat both reviews plus fresh
   H-tier hosted validation in parallel. Lifecycle authority and
   `execution_allowed=false` remain unchanged.
+- Exact head `91cbf92e70afe339b8a835edf7f99b11eb319c5b` received a
+  whole-diff approval with one non-blocking concurrent source-ID assertion,
+  but risk review demonstrated that a holding dated after the historical
+  decision produced a negative age and could bypass the stale check. Release
+  run `31260389662` reached package and pilot execution, then was cancelled and
+  discarded as stale after both verdicts completed.
+- Narrow follow-up commit
+  `2efad098e514f4722f21e53fa771f452aeb5bb3b` rejects a holdings date
+  later than the effective decision before freshness evaluation, proves future
+  holdings cannot resolve, raise the confidence cap or validate a forged
+  cached replay, and asserts each concurrent mixed-schema import retains its
+  expected source ID. The 231-test combined backtest, holdings, structure and
+  correction suite passes, as do Ruff and diff hygiene. Freeze the replacement
+  head for both reviews and fresh H-tier hosted validation; no further change
+  is permitted without a newly demonstrated defect. Lifecycle authority and
+  `execution_allowed=false` remain unchanged.
 
 ## Completed UPDATEV2-0018 product checkpoint
 

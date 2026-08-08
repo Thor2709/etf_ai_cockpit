@@ -437,6 +437,20 @@ Ruff and diff hygiene pass. Freeze one replacement head for both reviews and
 fresh H-tier packages/pilots; lifecycle and `execution_allowed=false` remain
 unchanged.
 
+Exact head `91cbf92e70afe339b8a835edf7f99b11eb319c5b` received a
+whole-diff approval with one non-blocking concurrent source-ID assertion, but
+risk review demonstrated a future-dated holdings claim could produce negative
+age and evade the stale check. Release run `31260389662` was cancelled and
+discarded as stale after both verdicts completed.
+
+Narrow follow-up commit `2efad098e514f4722f21e53fa771f452aeb5bb3b`
+rejects holdings dated after the effective decision, proves those claims stay
+unresolved with zero confidence and invalidate a forged cached replay, and
+asserts concurrent mixed-schema imports retain both expected source IDs. The
+231-test backtest, holdings, structure and correction suite, Ruff and diff
+hygiene pass. Freeze one replacement head for both reviews and fresh H-tier
+packages/pilots; lifecycle and `execution_allowed=false` remain unchanged.
+
 ## Completed UPDATEV2-0018 parser lane
 
 ISSUE-0103 completion PR #648 merged exact reviewed head
