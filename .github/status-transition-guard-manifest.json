@@ -3,23 +3,23 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "planned",
+      "from": "in_progress",
       "issue_id": "ISSUE-0010",
-      "to": "in_progress"
+      "to": "integrated"
     }
   ],
-  "base_commit": "43b7561b910758aafe7c5501803fbcbe86fd197b",
-  "branch": "codex/issue0010-product-20260809-v3",
+  "base_commit": "dbb53c04a17327b8b97a73c8841c5368c2e82c9f",
+  "branch": "codex/issue0010-completion-20260809",
   "issue_ids": [
     "ISSUE-0010"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "d9bd35e11205e4e5b2450c4b5f7cf6b9cae74cc0f1622c19a1fdd924583d949e",
+    "base_registry_sha256": "fb7904c01da32d874b74c0b09e90a2915d6f19cd8d132623c251854df34f01af",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "fb7904c01da32d874b74c0b09e90a2915d6f19cd8d132623c251854df34f01af",
-    "reason": "Advance only ISSUE-0010 from planned to in_progress alongside its exact reviewed non-executable thesis diary implementation; preserve dependencies, acceptance criteria, external authority and execution_allowed=false.",
+    "proposed_registry_sha256": "d66fec351ec685a5b7eb74dc6ad383ab9fca21f2a1ff4377e147abe38cc7edde",
+    "reason": "Replay only ISSUE-0010 through the ordered in_progress to implemented_initially to integrated completion contract using the exact reviewed product and validation evidence; preserve dependencies, acceptance criteria, external authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },

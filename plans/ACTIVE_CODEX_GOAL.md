@@ -160,8 +160,25 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   of nested `executable_authority=true` in synthetic provenance. The bounded
   correction restores those entrypoint assertions now that the 240-second
   ceiling is proven and recursively rejects executable-authority markers in
-  JSON-compatible synthetic metadata. Freeze one replacement head for both
-  reviews and fresh H-tier CI.
+  JSON-compatible synthetic metadata. Final reviewed product head
+  `19bbee09aef0f4bb19faa72183510c0dc5975973` passed exact guard
+  `31281965468` and H-tier run `31281965469`, including fresh Linux, Windows
+  and terminal validation, then merged in PR #657 as exact main
+  `dbb53c04a17327b8b97a73c8841c5368c2e82c9f`.
+- Ordered writer `31284329688` applied only ISSUE-0010 `planned -> in_progress`
+  with `terminal_status=applied_and_verified` and zero-action readback;
+  generic convergence `31284329681` passed and `execution_allowed=false`
+  remains. Clean completion lane
+  `codex/issue0010-completion-20260809` starts at that exact main with an empty
+  diff. Its sole scope is the existing atomic ISSUE-0010
+  `in_progress -> implemented_initially -> integrated` replay, bound to PR
+  #657, the reviewed merge, reviews and exact validation evidence. Canonical
+  inputs are updated first and generated projections are byte-clean; no
+  product, dependency-edge or authority-framework change is permitted. The
+  classifier keeps this control-only transaction E-tier. The base-anchored
+  reusable sidecar predates ISSUE-0010's product changes, so it cannot
+  self-authorize replacement in this transaction and the hosted package gate
+  remains required.
 
 ## ISSUE-0104 product chronology
 

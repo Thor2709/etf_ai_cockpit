@@ -120,8 +120,20 @@ in 71.8 seconds and risk review approved; stale H run `31281223390` was
 cancelled after whole-diff review required every malformed variant to exercise
 both generic registry entrypoints and nested synthetic executable-authority
 metadata to fail closed. The bounded correction restores those assertions and
-recursively rejects the marker across dict/list/tuple metadata. Freeze one
-replacement head for both reviews and fresh H-tier CI; no adjacent hardening.
+recursively rejects the marker across dict/list/tuple metadata. Final reviewed
+head `19bbee09aef0f4bb19faa72183510c0dc5975973` passed guard `31281965468`
+and full H-tier run `31281965469`, then merged in PR #657 as
+`dbb53c04a17327b8b97a73c8841c5368c2e82c9f`. Ordered writer `31284329688`
+applied only `planned -> in_progress` with terminal verification and
+zero-action readback; convergence `31284329681` passed and
+`execution_allowed=false` remains. Clean completion branch
+`codex/issue0010-completion-20260809` starts at that exact main and records
+only the existing atomic `in_progress -> implemented_initially -> integrated`
+replay, exact reviewed product/validation evidence, generated projections and
+the required append-only authority transaction. No product or dependency-edge
+change is in scope. Classification remains E-tier; because the unchanged
+base-anchored reusable sidecar predates the ISSUE-0010 product diff, the hosted
+package gate remains required and is not bypassed.
 
 ## ISSUE-0104 product chronology
 
