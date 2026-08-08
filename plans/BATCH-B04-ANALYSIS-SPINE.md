@@ -114,7 +114,13 @@ became stale and was cancelled after risk review found Windows case-insensitive
 ID overwrite and tuple-nested PIT bypasses; whole-diff review approved. The
 consolidated correction rejects normalized ID collisions inside existing
 single/batch transaction boundaries, preserves the original entry and extends
-the existing recursive temporal traversal to tuple arrays. Freeze one
+the existing recursive temporal traversal to tuple arrays. Replacement head
+`5d11f10d95931b3971b33e606920aed526a0b570` passed the exact changed suite
+in 71.8 seconds and risk review approved; stale H run `31281223390` was
+cancelled after whole-diff review required every malformed variant to exercise
+both generic registry entrypoints and nested synthetic executable-authority
+metadata to fail closed. The bounded correction restores those assertions and
+recursively rejects the marker across dict/list/tuple metadata. Freeze one
 replacement head for both reviews and fresh H-tier CI; no adjacent hardening.
 
 ## ISSUE-0104 product chronology

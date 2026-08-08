@@ -152,7 +152,15 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   JSON normalization. The consolidated correction adds casefolded collision
   rejection inside single/batch transaction boundaries while preserving the
   original entry, and traverses tuple arrays in the existing recursive temporal
-  validator for snapshots and outcomes. Freeze one replacement head for both
+  validator for snapshots and outcomes. Replacement head
+  `5d11f10d95931b3971b33e606920aed526a0b570` passed the exact changed suite
+  in 71.8 seconds and received risk approval; its stale H run `31281223390`
+  was cancelled after whole-diff review required restoration of all seven
+  malformed variants through both generic registry entrypoints and rejection
+  of nested `executable_authority=true` in synthetic provenance. The bounded
+  correction restores those entrypoint assertions now that the 240-second
+  ceiling is proven and recursively rejects executable-authority markers in
+  JSON-compatible synthetic metadata. Freeze one replacement head for both
   reviews and fresh H-tier CI.
 
 ## ISSUE-0104 product chronology

@@ -612,15 +612,15 @@ def _handcrafted_control_transition(
 
 
 @pytest.mark.parametrize(
-    ("case", "issue_id", "expected_error", "check_entrypoints"),
+    ("case", "issue_id", "expected_error"),
     [
-        ("skip", "ISSUE-0010", "transition is not allowed", True),
-        ("unreviewed_downgrade", "ISSUE-0071", "transition is not allowed", False),
-        ("invalid_date", "ISSUE-0010", "valid YYYY-MM-DD", False),
-        ("invalid_commit", "ISSUE-0010", "full lowercase Git SHA", False),
-        ("missing_reviewer", "ISSUE-0010", "requires reviewer", False),
-        ("missing_evidence", "ISSUE-0010", "requires non-blank evidence", False),
-        ("malformed_edge", "ISSUE-0071", "unsupported edge evidence schema", False),
+        ("skip", "ISSUE-0010", "transition is not allowed"),
+        ("unreviewed_downgrade", "ISSUE-0071", "transition is not allowed"),
+        ("invalid_date", "ISSUE-0010", "valid YYYY-MM-DD"),
+        ("invalid_commit", "ISSUE-0010", "full lowercase Git SHA"),
+        ("missing_reviewer", "ISSUE-0010", "requires reviewer"),
+        ("missing_evidence", "ISSUE-0010", "requires non-blank evidence"),
+        ("malformed_edge", "ISSUE-0071", "unsupported edge evidence schema"),
     ],
 )
 def test_registry_entrypoint_rejects_handcrafted_invalid_transition_events(
@@ -629,7 +629,6 @@ def test_registry_entrypoint_rejects_handcrafted_invalid_transition_events(
     case: str,
     issue_id: str,
     expected_error: str,
-    check_entrypoints: bool,
 ) -> None:
     prior = json.loads((ROOT / issue_registry_core.CONTROL_STATE_PATH).read_text(encoding="utf-8"))
     source = prior["records"][issue_id]["programme_status"]
@@ -687,9 +686,8 @@ def test_registry_entrypoint_rejects_handcrafted_invalid_transition_events(
     monkeypatch.setattr(issue_registry_core.subprocess, "check_output", authoritative)
     with pytest.raises(ValueError, match=expected_error):
         build_registry(ROOT)
-    if check_entrypoints:
-        assert generate_issue_registry.main(["--root", str(ROOT), "--check"]) == 1
-        assert validate_issue_registry.main(["--root", str(ROOT)]) == 1
+    assert generate_issue_registry.main(["--root", str(ROOT), "--check"]) == 1
+    assert validate_issue_registry.main(["--root", str(ROOT)]) == 1
 
 
 def test_unreachable_generation_base_fails_every_canonical_check(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -754,6 +754,9 @@ def test_packet_reproduction_rejects_self_consistent_exact_provenance_mismatch(t
             "request": {"model": "local-test-model"},
             "response": {"model": "local-test-model"},
         },
+        {"provenance": "synthetic_fallback", "synthetic": True, "metadata": {"executable_authority": True}},
+        {"provenance": "synthetic_fallback", "synthetic": True, "metadata": [{"executable_authority": True}]},
+        {"provenance": "synthetic_fallback", "synthetic": True, "metadata": ({"executable_authority": True},)},
     ],
 )
 def test_generation_provenance_is_required_and_synthetic_cannot_claim_exact_records(generation_record: dict) -> None:

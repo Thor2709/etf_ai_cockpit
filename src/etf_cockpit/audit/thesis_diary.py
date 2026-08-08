@@ -145,6 +145,8 @@ def _validate_generation_semantics(
             raise ValueError("synthetic thesis generation must be marked synthetic")
         if "request" in generation or "response" in generation:
             raise ValueError("synthetic thesis generation must not contain exact request or response records")
+        if _contains_executable_authority(generation):
+            raise ValueError("synthetic thesis generation must not contain executable authority")
         return
     if generation.get("synthetic") is not False:
         raise ValueError("exact LLM provenance must not be synthetic")
@@ -180,6 +182,18 @@ def _validate_generation_semantics(
         raise ValueError("exact LLM response content is not valid commentary") from exc
     if parsed.model_dump(mode="json") != llm_output:
         raise ValueError("exact LLM response does not parse to the immutable entry commentary")
+
+
+def _contains_executable_authority(value: Any) -> bool:
+    """Find an affirmative executable-authority marker in JSON-compatible metadata."""
+
+    if isinstance(value, dict):
+        return value.get("executable_authority") is True or any(
+            _contains_executable_authority(nested) for nested in value.values()
+        )
+    if isinstance(value, (list, tuple)):
+        return any(_contains_executable_authority(nested) for nested in value)
+    return False
 
 
 class ThesisDiaryEntry(BaseModel):
