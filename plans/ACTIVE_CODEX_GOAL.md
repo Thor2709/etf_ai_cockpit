@@ -396,6 +396,22 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   69-test backtest/correction modules pass; Ruff and diff hygiene pass.
   Freeze one final exact head for both reviews and fresh H-tier packages and
   pilots. Lifecycle authority and `execution_allowed=false` are unchanged.
+- Exact head `cc7f5748ebed06031f80f4c040e166e599a147fe` received risk
+  approval but was rejected after both parallel verdicts completed. The
+  whole-diff review demonstrated that null/sentinel instrument identities
+  could pass the empty-evidence cache path and that the batching regression
+  did not exercise non-empty evidence across multiple dates. Fresh release
+  run `31258800287` passed classifier, supply chain, candidate validation and
+  preflight, then was cancelled; its package and pilot evidence is stale.
+- Consolidated correction commit
+  `3c6eac38be61677e1fcd4a1a6e785cc96e8129bb` rejects null, empty and
+  sentinel cache identities before normalization and proves non-empty
+  structural replay occurs once per unique decision date for all instruments
+  while retaining exact cap/hash tamper rejection. The complete 77-test
+  backtest/correction modules, Ruff and diff hygiene pass. Freeze one new
+  exact head, repeat both reviews and fresh H-tier hosted validation in
+  parallel, and make no further correction absent a newly demonstrated
+  defect. Lifecycle authority and `execution_allowed=false` remain unchanged.
 
 ## Completed UPDATEV2-0018 product checkpoint
 

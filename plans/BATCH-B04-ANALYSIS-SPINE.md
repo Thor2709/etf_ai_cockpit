@@ -405,6 +405,22 @@ backtest/correction modules pass; Ruff and diff hygiene pass. Freeze one final
 exact head for both reviews and fresh H-tier packages/pilots; lifecycle and
 `execution_allowed=false` remain unchanged.
 
+Exact head `cc7f5748ebed06031f80f4c040e166e599a147fe` received risk
+approval but was rejected after both parallel verdicts completed. The
+whole-diff review demonstrated that null/sentinel instrument identities could
+pass the empty-evidence cache path and that the batching regression did not
+exercise non-empty evidence across multiple dates. Release run `31258800287`
+passed classifier, supply chain, candidate validation and preflight, then was
+cancelled and discarded as stale.
+
+Consolidated correction commit `3c6eac38be61677e1fcd4a1a6e785cc96e8129bb`
+rejects malformed cache identities before normalization and proves non-empty
+structural replay is batched once per unique decision date while exact cap/hash
+tamper rejection remains intact. The complete 77-test backtest/correction
+modules, Ruff and diff hygiene pass. Freeze one new exact head for both reviews
+and fresh H-tier packages/pilots; lifecycle authority and
+`execution_allowed=false` remain unchanged.
+
 ## Completed UPDATEV2-0018 parser lane
 
 ISSUE-0103 completion PR #648 merged exact reviewed head
