@@ -336,6 +336,26 @@ directly coupled test modules, Ruff, compile and diff hygiene pass; lifecycle
 authority and `execution_allowed=false` are unchanged. Freeze one replacement
 head for both reviews and fresh H-tier gates in parallel.
 
+Exact head `bb72a93ba3c874e061c9b9668cc4950e90324a33` was rejected after
+both reviewers completed. The valid consolidated set is malformed existing
+holdings retained by merge, concurrent holdings lost updates, a review writer
+publishing before exact `known_at`, and a cache regression that returned before
+the structural loader. Release run `31250191446` passed classifier,
+supply-chain, candidate validation and preflight, then was cancelled as stale
+while package and pilot jobs ran. The claimed `issues/open.md` manifest
+mismatch is expected `programme-generation.v1` LF-canonical hashing; two
+mechanical generations and check mode were byte-clean.
+
+Combined correction commit
+`4630445c0380b9ad5dae56fb0fd588d241f8fb8a` fully validates canonical
+holdings at load, merge and publication, gives all holdings writers one
+complete-transaction guard with registry-first lock order, rejects and
+pre-validates future-bound reviews, and reaches the structural loader in the
+cache corruption test. The six directly coupled test modules pass at 100%;
+Ruff, compile, generator check and diff hygiene pass. Lifecycle authority and
+`execution_allowed=false` remain unchanged. Freeze one replacement head for
+both reviews and fresh H-tier gates in parallel.
+
 ## Completed UPDATEV2-0018 parser lane
 
 ISSUE-0103 completion PR #648 merged exact reviewed head

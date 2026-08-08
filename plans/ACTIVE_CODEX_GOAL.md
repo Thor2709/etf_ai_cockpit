@@ -328,6 +328,26 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   Lifecycle authority and `execution_allowed=false` remain unchanged. Freeze
   one replacement exact head and repeat both reviews plus fresh H-tier hosted
   validation in parallel.
+- Exact head `bb72a93ba3c874e061c9b9668cc4950e90324a33` was rejected
+  after both parallel reviewers completed. The consolidated valid findings
+  are malformed existing holdings surviving a later merge, lost updates from
+  concurrent holdings publishers, review publication before exact
+  `known_at`, and a cache regression that returned before exercising the
+  structural loader. Release run `31250191446` passed classifier,
+  supply-chain, candidate validation and preflight, then was cancelled as
+  stale while Linux, Windows and pilots ran. The reported `issues/open.md`
+  manifest mismatch is not a contract defect: `programme-generation.v1`
+  deliberately hashes canonical LF text, and two mechanical generations plus
+  check mode were byte-clean.
+- Combined correction commit
+  `4630445c0380b9ad5dae56fb0fd588d241f8fb8a` applies full canonical holdings
+  validation at every reader/writer boundary, serializes every holdings
+  publisher across the complete transaction with registry-first lock order,
+  rejects and pre-validates future-bound report reviews, and makes the cache
+  corruption regression reach the loader. The six directly coupled modules
+  pass at 100%; Ruff, compile, generator check and diff hygiene pass.
+  Lifecycle authority and `execution_allowed=false` are unchanged. Freeze one
+  replacement head for both reviews and fresh H-tier hosted validation.
 
 ## Completed UPDATEV2-0018 product checkpoint
 
