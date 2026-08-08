@@ -13,37 +13,50 @@ former active-goal record and chronology are archived in
 `plans/archive/ATOMIC_FAST_PATH_ISSUE-0179-0180_2026-07-31.md`. Current delivery
 mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 
-## Current ISSUE-0104 completion checkpoint
+## Current ISSUE-0010 product checkpoint
 
-- Product PR #655 merged independently approved exact head
-  `977031f161800398962111ac1e0af8f4e5646134` as
-  `ae9a792c8ebe360618d57980be2b4e77ed746943`. Exact-head H-tier run
-  `31262430310` passed preflight, supply chain, authoritative Linux and Windows
-  package gates and terminal validation; status guard `31262430312` passed.
-- Ordered writer `31265258916` applied only ISSUE-0104
-  `ready -> in_progress`, returned `applied_and_verified` with
-  `zero_action_readback=true`, and preserved `execution_allowed=false`.
-  Generic convergence `31265258925` passed without producing a patch.
-- Both report-only four-worker pilots passed. Their cross-platform aggregation
-  reported only the intentional Linux-pass/Windows-skip difference in
-  `test_memory_limit_configuration_has_a_platform_specific_stdlib_path`; this
-  is a non-authoritative follow-up and does not reopen validation infrastructure.
-- Clean completion worktree
-  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0104_completion`,
-  branch `codex/issue0104-completion-20260809`, started empty at exact main
-  `ae9a792c8ebe360618d57980be2b4e77ed746943`. It records only the authorised
-  ISSUE-0104 `in_progress -> implemented_initially -> integrated` replay.
-- Canonical inputs were updated first and all projections are byte-clean. Live
-  plan `96ebe03609cb9ca041067fe8e46a8e305f14dee430f8ef9ac7dd8dd501f0072c`
-  contains one status-only update for issue #244. Append-only replay authority
-  `88b3271e4b2f146d0bdf2b8f09932de00406a0b838f0709c1a096e4e28dfce91`
+- ISSUE-0104 completion PR #656 merged independently approved exact head
+  `2e183215d64ba7cdb3bf1dc649bfeca62eb9dad5` as exact main
+  `43b7561b910758aafe7c5501803fbcbe86fd197b`. Release run `31265876805`
+  passed classifier, preflight, supply chain, authoritative Linux and Windows
+  packages and terminal validation; guard `31265876806` passed.
+- Ordered writer `31267257715` applied the sole aggregate ISSUE-0104
+  `in_progress -> implemented_initially -> integrated` replay with one proposal
+  and receipt, `terminal_status=applied_and_verified` and
+  `zero_action_readback=true`. Generic convergence `31267257761` passed. A fresh
+  exact-main generic readback has zero actions; canonical state and GitHub issue
+  #244 both resolve to `integrated`, and `execution_allowed=false` remains.
+- ISSUE-0010 is dependency-ready with no blocking inputs. Clean worktree
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0010_product_v3`,
+  branch `codex/issue0010-product-20260809-v3`, starts empty at exact main
+  `43b7561b910758aafe7c5501803fbcbe86fd197b`.
+- The bounded scope is a local, non-executable LLM thesis diary with exact
+  generation provenance, immutable/reproducible forward-only lifecycle,
+  disclosure-safe redaction export and behavioral isolation from scores,
+  optimisers, risk gates, proposals and orders. It must preserve
+  `execution_allowed=false` and requires H-tier persistence validation.
+- The first prepared product head
+  `ede07a26d6556e0caff79a78ecb10aa935f3fbcf` passed its focused suite but was
+  rejected after both parallel reviews. Their complete finding set is
+  cross-process lost updates, future-observation replay, reconstructed rather
+  than exact prompt provenance, stale UI lifecycle projection, unsafe
+  redaction export, missing behavioral non-interference proof and incorrect
+  non-H classification.
+- Consolidated correction commit
+  `f535c0dec6285de2a31a4b515fd83f907b8eadc1` passed focused adversarial
+  validation and was transplanted once onto this exact-main lane without
+  conflict. Canonical inputs now record only the legal ISSUE-0010
+  `planned -> in_progress` transaction and all generated projections are
+  byte-clean.
+- Live plan `e85ef463b0ec18b3b33ffdbf20c449fc26915d302bf66a6f0e8014aa80db782f`
+  contains one status-only update for GitHub issue #14. Append-only authority
+  `52a917e9e678729a974545b08dc8ef74abe6079168af8270dd430d9b2e262e80`
   and candidate ref
-  `1a6434afbe945a1d2250b5387b9db375515bc50a67f9f836e05c3f863d06ec53`
-  bind both hops to PR #655 and preserve `execution_allowed=false`.
-- Next action is focused E-tier guard/reconciliation validation, one frozen
-  exact-head review cycle, protected merge, ordered-writer/readback proof, then
-  transplant and review the dependency-ready ISSUE-0010 product lane on fresh
-  exact main.
+  `6741dbdac63e87a11dc6671e305bf04d623e72cd91b03fb45c23d9a78418e4ee`
+  bind it to exact parent `43b7561b910758aafe7c5501803fbcbe86fd197b`
+  and preserve `execution_allowed=false`. Complete exact focused validation,
+  freeze one head, then start both independent reviews and H-tier hosted CI in
+  parallel.
 
 ## ISSUE-0104 product chronology
 

@@ -9313,7 +9313,19 @@
       "write_conflict_group": "programme-governance"
     },
     {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Exact product commit f535c0dec6285de2a31a4b515fd83f907b8eadc1 implements a local immutable thesis diary with cross-process serialized writes, exact generation provenance, forward-only outcomes, lifecycle replay and disclosure-safe export",
+            "Focused diary, local-LLM, classifier, instrument-detail and ChatGPT export validation passed, including multiprocess, interrupted-write, point-in-time and exact request-envelope regressions",
+            "Behavioral regressions prove diary creation and lifecycle mutation do not change canonical scores, optimiser outputs, risk gates or trade proposals; execution_allowed remains false"
+          ],
+          "review_reference": "B04 ISSUE-0010 reviewed non-executable thesis diary implementation start",
+          "reviewed_date": "2026-08-09",
+          "reviewer": "Codex root orchestrator; independent exact-head reviews pending",
+          "status": "in_progress"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [],
       "canonical_id": "ISSUE-0010",
@@ -9337,7 +9349,7 @@
       "package_status": "Open",
       "phase": "phase-01-governance-scope",
       "priority": "P2",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -9362,8 +9374,8 @@
       "source_record_id": "ISSUE-0010",
       "source_title": "Add non-executable LLM thesis diary",
       "title": "Add non-executable LLM thesis diary",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "43b7561b910758aafe7c5501803fbcbe86fd197b",
+      "verified_date": "2026-08-09",
       "why": "A diary can aid review and learning, but LLM text is not deterministic financial evidence and can contain hallucinations or historically contaminated claims.",
       "write_conflict_group": "programme-governance"
     },
@@ -27768,7 +27780,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "42bcfd24e2dafd485e2f2653a7990bf1dfda4f89505c09949ec587781b8d2e6f",
+    "programme_control_state_sha256": "1545651d8990645f955df76fe2581a69efe107b6b37550f309583b9a2aca7ffb",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

@@ -9,30 +9,36 @@ Current delivery mechanics are defined in
 to sole workers, Sol-low workers or old lifecycle PR chains describe past
 execution and are not current operational instructions.
 
-## Current ISSUE-0104 completion lane
+## Current ISSUE-0010 product lane
 
-Product PR #655 merged independently approved exact head
-`977031f161800398962111ac1e0af8f4e5646134` as
-`ae9a792c8ebe360618d57980be2b4e77ed746943`. H-tier run `31262430310`
-passed authoritative Linux, Windows and terminal validation; guard
-`31262430312` passed. Writer `31265258916` applied only
-`ready -> in_progress` with zero-action readback, generic convergence
-`31265258925` produced no patch, and `execution_allowed=false` remains.
-Both report-only pilots passed; their aggregate reported only the intentional
-platform-specific memory-limit test pass/skip difference, recorded as a
-non-authoritative follow-up without reopening validation infrastructure.
+ISSUE-0104 completion PR #656 merged independently approved exact head
+`2e183215d64ba7cdb3bf1dc649bfeca62eb9dad5` as
+`43b7561b910758aafe7c5501803fbcbe86fd197b`. Exact-head release run
+`31265876805` passed authoritative Linux, Windows and terminal validation and
+guard `31265876806` passed. Writer `31267257715` applied the aggregate
+`in_progress -> implemented_initially -> integrated` replay with one proposal
+and receipt and zero-action readback; convergence `31267257761` and a fresh
+generic readback are zero-action. Canonical state and GitHub issue #244 agree
+on `integrated`; `execution_allowed=false` remains.
 
-The clean `codex/issue0104-completion-20260809` lane starts at that exact merge
-and records only `in_progress -> implemented_initially -> integrated`. Its
-byte-clean canonical projections, one-action live plan
-`96ebe03609cb9ca041067fe8e46a8e305f14dee430f8ef9ac7dd8dd501f0072c`,
-append-only authority
-`88b3271e4b2f146d0bdf2b8f09932de00406a0b838f0709c1a096e4e28dfce91`
-and candidate ref
-`1a6434afbe945a1d2250b5387b9db375515bc50a67f9f836e05c3f863d06ec53`
-are bound to PR #655 and issue #244. Focused E-tier guards, exact-head review,
-merge and writer/readback verification remain; ISSUE-0010 is the prepared next
-dependency-ready product issue.
+ISSUE-0010 is the next dependency-ready issue. Clean branch
+`codex/issue0010-product-20260809-v3` starts at that exact main. The first
+prepared head `ede07a26d6556e0caff79a78ecb10aa935f3fbcf` passed focused tests
+but both parallel reviews rejected it for cross-process lost updates,
+future-observation replay, inexact prompt provenance, stale lifecycle UI,
+unsafe redaction export, missing behavioral financial non-interference proof
+and incorrect non-H classification. Consolidated correction
+`f535c0dec6285de2a31a4b515fd83f907b8eadc1` passed focused adversarial
+validation and was transplanted once without conflict. Canonical inputs now
+record only `planned -> in_progress`; generated projections are byte-clean.
+The one-action live plan is
+`e85ef463b0ec18b3b33ffdbf20c449fc26915d302bf66a6f0e8014aa80db782f`,
+authority is
+`52a917e9e678729a974545b08dc8ef74abe6079168af8270dd430d9b2e262e80`,
+candidate ref is
+`6741dbdac63e87a11dc6671e305bf04d623e72cd91b03fb45c23d9a78418e4ee`,
+and `execution_allowed=false`. Complete exact focused validation, freeze one
+head, then run parallel review and H-tier CI.
 
 ## ISSUE-0104 product chronology
 
