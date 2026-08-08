@@ -973,7 +973,25 @@ class BacktestService:
                     return None
             equity_curves = pd.read_csv(equity_path, index_col=0, parse_dates=True)
             trade_log = pd.read_csv(trade_path) if trade_path.exists() else pd.DataFrame()
-            signal_log = pd.read_csv(signal_path) if signal_path.exists() else pd.DataFrame()
+            if not signal_path.exists():
+                return None
+            signal_log = pd.read_csv(signal_path)
+            required_signal_columns = {
+                "date",
+                "etf_id",
+                "structural_confidence_cap",
+                "structural_provenance_hash",
+            }
+            if signal_log.empty or not required_signal_columns.issubset(signal_log.columns):
+                return None
+            structural_caps = pd.to_numeric(
+                signal_log["structural_confidence_cap"], errors="coerce"
+            )
+            if structural_caps.isna().any() or not structural_caps.between(0.0, 1.0).all():
+                return None
+            structural_hashes = signal_log["structural_provenance_hash"].astype(str).str.strip()
+            if structural_hashes.eq("").any() or structural_hashes.str.casefold().isin({"nan", "none"}).any():
+                return None
             quality_momentum_evidence = pd.read_csv(quality_evidence_path) if quality_evidence_path.exists() else pd.DataFrame()
             metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
             if not isinstance(metadata, dict):

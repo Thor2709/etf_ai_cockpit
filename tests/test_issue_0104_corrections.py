@@ -591,7 +591,7 @@ def test_real_report_numeric_fields_survive_parse_import_review_readback_and_pro
     evidence = {item["field_name"]: item for item in json.loads(str(readback.iloc[0]["field_evidence"]))}
     projection = project_etf_structure(
         "ETF-1", document_registry=pd.read_parquet(registry_path), report_records=readback,
-        decision_time="2026-08-04T00:00:00Z",
+        decision_time="2099-01-01T00:00:00Z",
     )
 
     assert {field: evidence[field]["unit"] for field in ("exposure", "collateral_fraction", "haircut_fraction", "concentration_limit_fraction")} == {
@@ -944,6 +944,13 @@ def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path,
     assert cached is not None
     assert cached.signal_log.loc[0, "structural_confidence_cap"] == 0.5
     assert cached.signal_log.loc[0, "structural_provenance_hash"] == "c" * 64
+
+    missing_provenance = persisted_signal_log.drop(
+        columns=["structural_confidence_cap", "structural_provenance_hash"]
+    )
+    missing_provenance.to_csv(services.BACKTESTS_DIR / "signal_log.csv", index=False)
+    assert service._load_cached_backtest() is None
+    persisted_signal_log.to_csv(services.BACKTESTS_DIR / "signal_log.csv", index=False)
 
     changed = holdings.copy()
     changed.loc[0, "weight"] = 0.6

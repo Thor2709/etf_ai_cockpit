@@ -123,6 +123,30 @@ def _refresh_report_fingerprint(frame: pd.DataFrame) -> pd.DataFrame:
     return frame
 
 
+def _annual_conflict_report(
+    *,
+    source_id: str = "annual",
+    checksum: str = "b" * 64,
+    legal_form: str = "Unit trust",
+) -> pd.DataFrame:
+    report = _report(source_id=source_id)
+    report.loc[0, "document_kind"] = "annual_report"
+    report.loc[0, "source_sha256"] = checksum
+    evidence = json.loads(report.loc[0, "field_evidence"])
+    next(item for item in evidence if item["field_name"] == "legal_form")["value"] = legal_form
+    evidence.append({
+        "field_name": "reporting_period_end",
+        "value": "2026-06-30",
+        "source_page": 1,
+        "candidate_pages": [1],
+        "confidence": "high",
+        "status": "extracted",
+    })
+    report.loc[0, "field_evidence"] = json.dumps(evidence)
+    _refresh_report_fingerprint(report)
+    return report
+
+
 def test_projection_requires_exact_registry_binding_and_preserves_provenance() -> None:
     projection = project_etf_structure("ETF-1", document_registry=_registry(), report_records=_report(), decision_time="2026-07-03T00:00:00Z")
 
@@ -532,6 +556,88 @@ def test_cap_mapping_is_point_in_time_and_rejects_future_revision() -> None:
     assert after_import["ETF-1"] < before_import["ETF-1"]
 
 
+def test_conflicts_replay_review_authority_at_decision_time() -> None:
+    checksum_b = "b" * 64
+    prospectus_registry = _registry(source_id="prospectus")
+    annual_registry = _registry(source_id="annual", document_kind="annual_report")
+    annual_registry.loc[0, ["sha256", "checksum"]] = checksum_b
+    registry = pd.concat([prospectus_registry, annual_registry], ignore_index=True)
+
+    prospectus = _report(source_id="prospectus")
+    fingerprint = prospectus.loc[0, "stored_extraction_sha256"]
+    future_history = [{
+        "decision": "verified",
+        "reviewer": "analyst",
+        "note": "",
+        "reviewed_at": "2026-07-10T00:00:00Z",
+        "extraction_sha256": fingerprint,
+    }]
+    prospectus.loc[0, "review_history"] = json.dumps(future_history)
+    prospectus.loc[0, "verified_at"] = "2026-07-10T00:00:00Z"
+    annual = _annual_conflict_report(checksum=checksum_b)
+    reports = pd.concat([prospectus, annual], ignore_index=True)
+
+    before_review = project_etf_structure(
+        "ETF-1",
+        document_registry=registry,
+        report_records=reports,
+        decision_time="2026-07-03T00:00:00Z",
+    )
+    after_review = project_etf_structure(
+        "ETF-1",
+        document_registry=registry,
+        report_records=reports,
+        decision_time="2026-07-11T00:00:00Z",
+    )
+
+    assert before_review["fields"]["legal_form"]["status"] == "resolved"
+    assert before_review["fields"]["legal_form"]["value"] == "Unit trust"
+    assert after_review["fields"]["legal_form"]["status"] == "conflict"
+
+
+def test_conflicts_preserve_earlier_verified_interval_before_later_rejection() -> None:
+    checksum_b = "b" * 64
+    prospectus_registry = _registry(source_id="prospectus")
+    annual_registry = _registry(source_id="annual", document_kind="annual_report")
+    annual_registry.loc[0, ["sha256", "checksum"]] = checksum_b
+    registry = pd.concat([prospectus_registry, annual_registry], ignore_index=True)
+
+    prospectus = _report(source_id="prospectus")
+    fingerprint = prospectus.loc[0, "stored_extraction_sha256"]
+    history = [
+        {
+            "decision": "verified", "reviewer": "analyst", "note": "",
+            "reviewed_at": "2026-07-02T12:00:00Z", "extraction_sha256": fingerprint,
+        },
+        {
+            "decision": "rejected", "reviewer": "auditor", "note": "superseded",
+            "reviewed_at": "2026-07-10T00:00:00Z", "extraction_sha256": fingerprint,
+        },
+    ]
+    prospectus.loc[0, "review_history"] = json.dumps(history)
+    prospectus.loc[0, "verification_status"] = "rejected"
+    prospectus.loc[0, "evidence_eligible"] = False
+    prospectus.loc[0, "manual_review"] = True
+    prospectus.loc[0, "verified_by"] = "auditor"
+    prospectus.loc[0, "verified_at"] = "2026-07-10T00:00:00Z"
+    prospectus.loc[0, "review_note"] = "superseded"
+    annual = _annual_conflict_report(checksum=checksum_b)
+    reports = pd.concat([prospectus, annual], ignore_index=True)
+
+    verified_interval = project_etf_structure(
+        "ETF-1", document_registry=registry, report_records=reports,
+        decision_time="2026-07-05T00:00:00Z",
+    )
+    after_rejection = project_etf_structure(
+        "ETF-1", document_registry=registry, report_records=reports,
+        decision_time="2026-07-11T00:00:00Z",
+    )
+
+    assert verified_interval["fields"]["legal_form"]["status"] == "conflict"
+    assert after_rejection["fields"]["legal_form"]["status"] == "resolved"
+    assert after_rejection["fields"]["legal_form"]["value"] == "Unit trust"
+
+
 def test_review_history_replays_before_verification_at_verification_and_after_rejection() -> None:
     report = _report()
     history = [
@@ -883,6 +989,20 @@ def test_numeric_stress_requires_report_document_family_binding_through_facade()
 
     assert projection["stress"]["status"] == "unavailable"
     assert projection["execution_allowed"] is False
+
+
+def test_instrument_identity_aliases_must_agree_before_projection_and_hashing() -> None:
+    from etf_cockpit.data.etf_structure import structure_input_checksum
+
+    registry = _registry()
+    registry["etf_id"] = "ETF-OTHER"
+
+    with pytest.raises(ValueError, match="contradictory identity aliases"):
+        project_etf_structure(
+            "ETF-1", document_registry=registry, report_records=_report()
+        )
+    with pytest.raises(ValueError, match="contradictory identity aliases"):
+        structure_input_checksum(document_registry=registry, report_records=_report())
 
 
 @pytest.mark.parametrize("parse_success", ["true", 1, None])

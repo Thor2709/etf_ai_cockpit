@@ -124,6 +124,7 @@ def _read_local_structural_rows(path: object, default_document_type: str) -> pd.
     for source in frame.to_dict("records"):
         common = {
             "instrument_id": source.get("instrument_id", source.get("etf_id")),
+            "etf_id": source.get("etf_id"),
             "source_id": source.get("source_id"),
             "document_type": source.get("document_type") or default_document_type,
             "document_kind": source.get("document_kind"),
@@ -340,7 +341,9 @@ def project_etf_structure(
         validated_reports = []
         supplied_report_error = str(exc)
     registry, rejected_registry = _bound_registry(target, registry_rows, decision)
-    visible_report_conflicts = _visible_report_conflict_fields(validated_reports, registry, target)
+    visible_report_conflicts = _visible_report_conflict_fields(
+        validated_reports, registry, target, decision
+    )
     candidates, rejected_candidates = _report_candidates(validated_reports, registry, target, decision)
     supplemental, supplemental_rejections = _supplemental_candidates(
         _strict_channel_rows(supplemental_rows, "supplemental rows", "factsheet"),
@@ -681,6 +684,7 @@ def _identity_aliases_agree(row: Mapping[str, object]) -> bool:
         if value
     }
     return len(document_families) <= 1 and all((
+        _aliases_agree(row, ("instrument_id", "etf_id"), _text),
         _aliases_agree(row, ("source_sha256", "sha256", "checksum", "document_checksum"), _text),
         _aliases_agree(row, ("document_date", "as_of", "as_of_date"), _date_text),
         _aliases_agree(row, ("known_at", "ingested_at", "document_known_at"), _date_time_text),
@@ -731,6 +735,7 @@ def _visible_report_conflict_fields(
     rows: list[dict[str, object]],
     registry: list[dict[str, object]],
     target: str,
+    decision: datetime | None,
 ) -> set[str]:
     from etf_cockpit.data.parsed_disclosures import build_etf_report_conflicts
 
@@ -739,21 +744,19 @@ def _visible_report_conflict_fields(
     for row in rows:
         source_id = _text(row.get("source_id"))
         registered = registry_by_id.get(source_id or "")
-        if (
-            registered is None
-            or _text(row.get("instrument_id")) != target
-            or _text(row.get("verification_status")) == "rejected"
-        ):
+        if registered is None or _text(row.get("instrument_id")) != target:
             continue
         checksum = _agreed_alias(registered, ("sha256", "checksum"), _text)
         document_date = _agreed_alias(
             registered, ("document_date", "as_of", "as_of_date"), _date_text
         )
         known_at = _agreed_alias(registered, ("known_at", "ingested_at"), _date_time_text)
+        review_event, _ = _selected_review_event(row, checksum or "", decision)
         if (
             not checksum
             or not document_date
             or not known_at
+            or review_event is None
             or not _report_identity_matches(
                 row,
                 row_checksum=checksum,
