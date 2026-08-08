@@ -256,6 +256,23 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   reproduced paths. Four focused suites pass 202 tests total; Ruff, compile and
   diff hygiene pass. Freeze the replacement head for both exact-head reviews
   and fresh H-tier hosted gates.
+- Replacement exact head `10607cf4fa0563a958821391c7735491bfac2416`
+  was rejected after both parallel reviewers completed. The consolidated set
+  is decision-time replay of cross-report review authority, contradictory
+  `instrument_id`/`etf_id` rejection, mandatory cached signal provenance and
+  architecture wording consistent with point-in-time conflict scoring.
+  Release run `30814812246` was cancelled after rejection and is stale.
+- Consolidated correction commit
+  `f82797a7fb854fdeb8ae2f70a68582835334df4c` binds conflicts to the review
+  event visible at each decision, preserves verified intervals before later
+  rejection, rejects contradictory instrument aliases before projection or
+  hashing, and invalidates cached backtests without complete per-decision
+  structural provenance. The four attributable focused suites, Ruff, compile
+  and diff hygiene pass. A runtime-dated integration fixture was also made
+  deterministic by selecting an explicit post-import decision time.
+  Lifecycle authority, dependencies and `execution_allowed=false` are
+  unchanged. Freeze one replacement head after this checkpoint, then run both
+  exact-head reviews and fresh H-tier hosted gates in parallel.
 
 ## Completed UPDATEV2-0018 product checkpoint
 
