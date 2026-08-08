@@ -49,6 +49,15 @@ ETF_REPORT_RECORDS_PATH = CLEAN_DIR / "etf_report_records.parquet"
 ETF_REPORT_CONFLICTS_PATH = CLEAN_DIR / "etf_report_conflicts.parquet"
 REPORT_RAW_DIR = RAW_DIR / "etf_reports"
 
+REPORT_STABLE_CONFLICT_FIELDS = frozenset(
+    {"fund_name", "isin", "legal_structure", "legal_form", "domicile"}
+)
+REPORT_TIME_VARYING_CONFLICT_FIELDS = frozenset(
+    set(REPORT_FIELDS)
+    - REPORT_STABLE_CONFLICT_FIELDS
+    - {"document_date", "reporting_period_end"}
+)
+
 KID_COLUMNS = [
     "schema_version", "source_id", "instrument_id", "parser_name", "parser_version", "source_sha256", "source_authority", "freshness_status",
     "source_pages", "product", "isin", "manufacturer", "sri", "cost_fields", "holding_period_years",
@@ -777,38 +786,41 @@ def build_etf_report_conflicts(frame: pd.DataFrame) -> pd.DataFrame:
     if frame.empty:
         return pd.DataFrame(columns=REPORT_CONFLICT_COLUMNS)
     candidates = frame.loc[~frame["verification_status"].astype(str).eq("rejected")].copy()
-    # These identify the fund/share class or its durable legal domicile/form.
-    # Other structural fields can change between report vintages and therefore
-    # remain period-bound rather than being treated as timeless conflicts.
-    stable = {"fund_name", "isin", "legal_structure", "legal_form", "domicile"}
-    varying = set(REPORT_FIELDS) - stable - {"document_date", "reporting_period_end"}
     for instrument_id, group in candidates.groupby("instrument_id", sort=True):
         latest: dict[str, pd.Series] = {}
         for kind, kind_group in group.groupby("document_kind", sort=True):
             latest[str(kind)] = kind_group.sort_values(["document_date", "imported_at", "source_id"], kind="stable").iloc[-1]
-        for field in (*stable, *sorted(varying)):
-            pairs = list(latest.values())
-            if field in varying:
-                pairs = [row for row in pairs if str(row.get("reporting_period_end") or "").strip()]
-                pairs = [row for row in pairs if all(str(row.get("reporting_period_end")) == str(other.get("reporting_period_end")) for other in pairs)]
-            for left_index, left in enumerate(pairs):
-                for right in pairs[left_index + 1:]:
-                    left_value = _cell_text(left.get(field))
-                    right_value = _cell_text(right.get(field))
-                    if not left_value or not right_value or left_value == right_value:
-                        continue
-                    conflict_id = hashlib.sha256(f"{instrument_id}|{field}|{min(left['source_id'], right['source_id'])}|{max(left['source_id'], right['source_id'])}".encode()).hexdigest()
-                    rows.append({
-                        "conflict_id": f"report-conflict:{conflict_id}", "instrument_id": str(instrument_id), "field_name": field,
-                        "source_id_a": str(left["source_id"]), "source_id_b": str(right["source_id"]),
-                        "source_a": str(left["source_id"]), "source_b": str(right["source_id"]),
-                        "document_kind_a": str(left["document_kind"]), "document_kind_b": str(right["document_kind"]),
-                        "document_date_a": _cell_text(left.get("document_date")), "document_date_b": _cell_text(right.get("document_date")),
-                        "reporting_period_end": _cell_text(left.get("reporting_period_end")), "value_a": left_value, "value_b": right_value,
-                        "pages_a": _field_pages(left, field), "pages_b": _field_pages(right, field),
-                        "resolution_status": "unresolved", "requires_manual_review": True, "canonical_value": None,
-                        "score_eligible": False, "execution_allowed": False,
-                    })
+        for field in (*sorted(REPORT_STABLE_CONFLICT_FIELDS), *sorted(REPORT_TIME_VARYING_CONFLICT_FIELDS)):
+            if field in REPORT_TIME_VARYING_CONFLICT_FIELDS:
+                by_period: dict[str, list[pd.Series]] = {}
+                for row in latest.values():
+                    period = str(row.get("reporting_period_end") or "").strip()
+                    if period:
+                        by_period.setdefault(period, []).append(row)
+                pair_groups = by_period.values()
+            else:
+                pair_groups = (latest.values(),)
+            for period_rows in pair_groups:
+                pairs = list(period_rows)
+                for left_index, left in enumerate(pairs):
+                    for right in pairs[left_index + 1:]:
+                        left_value = _cell_text(left.get(field))
+                        right_value = _cell_text(right.get(field))
+                        if not left_value or not right_value or left_value == right_value:
+                            continue
+                        period = str(left.get("reporting_period_end") or "") if field in REPORT_TIME_VARYING_CONFLICT_FIELDS else ""
+                        conflict_id = hashlib.sha256(f"{instrument_id}|{field}|{period}|{min(left['source_id'], right['source_id'])}|{max(left['source_id'], right['source_id'])}".encode()).hexdigest()
+                        rows.append({
+                            "conflict_id": f"report-conflict:{conflict_id}", "instrument_id": str(instrument_id), "field_name": field,
+                            "source_id_a": str(left["source_id"]), "source_id_b": str(right["source_id"]),
+                            "source_a": str(left["source_id"]), "source_b": str(right["source_id"]),
+                            "document_kind_a": str(left["document_kind"]), "document_kind_b": str(right["document_kind"]),
+                            "document_date_a": _cell_text(left.get("document_date")), "document_date_b": _cell_text(right.get("document_date")),
+                            "reporting_period_end": _cell_text(left.get("reporting_period_end")), "value_a": left_value, "value_b": right_value,
+                            "pages_a": _field_pages(left, field), "pages_b": _field_pages(right, field),
+                            "resolution_status": "unresolved", "requires_manual_review": True, "canonical_value": None,
+                            "score_eligible": False, "execution_allowed": False,
+                        })
     return pd.DataFrame(rows, columns=REPORT_CONFLICT_COLUMNS)
 
 
@@ -1453,7 +1465,7 @@ def _guard_path(path: Path) -> Path:
 __all__ = [
     "ETF_REPORT_CONFLICTS_PATH", "ETF_REPORT_RECORDS_PATH", "EtfReportAuthority", "EtfReportImportRequest", "EtfReportImportResult", "EtfReportReviewRequest",
     "INDEX_METHODOLOGY_RECORDS_PATH", "KID_COLUMNS", "METHODOLOGY_COLUMNS", "PRIIPS_KID_RECORDS_PATH", "REPORT_COLUMNS",
-    "REPORT_CONFLICT_COLUMNS", "REPORT_RAW_DIR", "ReportSourceAuthority", "build_etf_report_conflicts", "import_etf_report",
+    "REPORT_CONFLICT_COLUMNS", "REPORT_RAW_DIR", "REPORT_STABLE_CONFLICT_FIELDS", "REPORT_TIME_VARYING_CONFLICT_FIELDS", "ReportSourceAuthority", "build_etf_report_conflicts", "import_etf_report",
     "persist_index_methodology", "persist_index_methodology_result", "persist_index_methodology_with_document", "persist_priips_kid",
     "persist_priips_kid_result", "persist_priips_kid_with_document", "read_etf_report_conflicts", "read_etf_report_records",
     "read_index_methodology_records", "read_priips_kid_records", "report_extraction_fingerprint", "review_etf_report", "review_etf_report_record",

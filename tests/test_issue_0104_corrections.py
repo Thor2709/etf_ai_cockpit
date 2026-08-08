@@ -19,6 +19,7 @@ from etf_cockpit.app.selectors.instrument_detail import (
     _score_panel,
     build_etf_structure_panel,
 )
+from etf_cockpit.app.pages.instrument_detail import render_etf_structure_panel
 from etf_cockpit.backtest.engine import BacktestReport, backtest_input_checksum, run_backtest
 from etf_cockpit.data.fund_documents import read_document_registry
 from etf_cockpit.data.sample_data import generate_sample_prices
@@ -795,6 +796,81 @@ def test_instrument_detail_keeps_required_structure_section() -> None:
     assert build_etf_structure_panel(model)["execution_allowed"] is False
 
 
+def test_instrument_detail_renders_complete_conflict_candidate_provenance() -> None:
+    model = InstrumentDetailViewModel(
+        instrument_id="ETF-1",
+        display_name="ETF 1",
+        status="ready",
+        identity={},
+        sections={
+            "etf_structure": {
+                "status": "conflict",
+                "execution_allowed": False,
+                "fields": {
+                    "replication_method": {
+                        "status": "conflict",
+                        "value": None,
+                        "document_id": "unavailable",
+                        "document_date": "unavailable",
+                        "page": None,
+                        "confidence": 0.0,
+                        "known_at": "unavailable",
+                        "checksum": "unavailable",
+                        "candidates": [
+                            {
+                                "value": "Physical",
+                                "source_id": "source-a",
+                                "document_id": "document-a",
+                                "document_date": "2026-06-30",
+                                "page": 4,
+                                "confidence": 1.0,
+                                "known_at": "2026-07-01T00:00:00+00:00",
+                                "checksum": "a" * 64,
+                            },
+                            {
+                                "value": "Synthetic swap",
+                                "source_id": "source-b",
+                                "document_id": "document-b",
+                                "document_date": "2026-06-30",
+                                "page": 8,
+                                "confidence": 0.75,
+                                "known_at": "2026-07-01T01:00:00+00:00",
+                                "checksum": "b" * 64,
+                            },
+                        ],
+                    },
+                },
+                "documents": {},
+                "versions": [],
+                "flags": [],
+            }
+        },
+    )
+
+    def text_values(node: object) -> list[str]:
+        values: list[str] = []
+        for attribute in ("value", "text"):
+            value = getattr(node, attribute, None)
+            if value:
+                values.append(str(value))
+        content = getattr(node, "content", None)
+        if content is not None:
+            values.extend(text_values(content))
+        for attribute in ("controls", "rows", "cells"):
+            for child in getattr(node, attribute, None) or []:
+                values.extend(text_values(child))
+        return values
+
+    rendered = "\n".join(text_values(render_etf_structure_panel(model)))
+    for expected in (
+        "value=Physical", "source_id=source-a", "document_id=document-a", "date=2026-06-30",
+        "page=4", "confidence=1.0", "known_at=2026-07-01T00:00:00+00:00", "checksum=" + "a" * 64,
+        "value=Synthetic swap", "source_id=source-b", "document_id=document-b", "page=8",
+        "confidence=0.75", "known_at=2026-07-01T01:00:00+00:00", "checksum=" + "b" * 64,
+    ):
+        assert expected in rendered
+
+
 def test_real_backtest_signature_accepts_structural_holdings() -> None:
     parameters = inspect.signature(run_backtest).parameters
 
@@ -868,6 +944,18 @@ def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path,
             structure_supplemental_rows=structure_supplemental_rows,
             structure_holdings=structure_holdings,
         )
+        structural_caps = services.structure_confidence_caps(
+            [config_arg.universe.enabled_ids[0]],
+            document_registry=structure_document_registry,
+            report_records=structure_report_records,
+            supplemental_rows=structure_supplemental_rows,
+            holdings=structure_holdings,
+            decision_time="2026-07-10",
+        )
+        structural_cap = structural_caps[config_arg.universe.enabled_ids[0]]
+        structural_hash = structural_caps.provenance[config_arg.universe.enabled_ids[0]]["structure_provenance_hash"]
+        captured["structural_cap"] = structural_cap
+        captured["structural_hash"] = structural_hash
         results = pd.DataFrame(
             [
                 {
@@ -891,8 +979,8 @@ def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path,
             signal_log=pd.DataFrame([{
                 "date": "2026-07-10",
                 "etf_id": config_arg.universe.enabled_ids[0],
-                "structural_confidence_cap": 0.5,
-                "structural_provenance_hash": "c" * 64,
+                "structural_confidence_cap": structural_cap,
+                "structural_provenance_hash": structural_hash,
             }]),
             ai_added_value=False,
             quality_label="low",
@@ -938,12 +1026,22 @@ def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path,
     assert captured["structure_holdings"].equals(holdings)
     assert captured["structure_supplemental_rows"]["source_id"].tolist() == ["factsheet-1"]
     persisted_signal_log = pd.read_csv(services.BACKTESTS_DIR / "signal_log.csv")
-    assert persisted_signal_log.loc[0, "structural_confidence_cap"] == 0.5
-    assert persisted_signal_log.loc[0, "structural_provenance_hash"] == "c" * 64
+    assert persisted_signal_log.loc[0, "structural_confidence_cap"] == captured["structural_cap"]
+    assert persisted_signal_log.loc[0, "structural_provenance_hash"] == captured["structural_hash"]
     cached = service._load_cached_backtest()
     assert cached is not None
-    assert cached.signal_log.loc[0, "structural_confidence_cap"] == 0.5
-    assert cached.signal_log.loc[0, "structural_provenance_hash"] == "c" * 64
+    assert cached.signal_log.loc[0, "structural_confidence_cap"] == captured["structural_cap"]
+    assert cached.signal_log.loc[0, "structural_provenance_hash"] == captured["structural_hash"]
+
+    tampered_cap = persisted_signal_log.copy()
+    tampered_cap.loc[0, "structural_confidence_cap"] = float(captured["structural_cap"]) + 0.1
+    tampered_cap.to_csv(services.BACKTESTS_DIR / "signal_log.csv", index=False)
+    assert service._load_cached_backtest() is None
+
+    tampered_hash = persisted_signal_log.copy()
+    tampered_hash.loc[0, "structural_provenance_hash"] = "d" * 64
+    tampered_hash.to_csv(services.BACKTESTS_DIR / "signal_log.csv", index=False)
+    assert service._load_cached_backtest() is None
 
     missing_provenance = persisted_signal_log.drop(
         columns=["structural_confidence_cap", "structural_provenance_hash"]

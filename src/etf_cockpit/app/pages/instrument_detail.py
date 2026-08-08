@@ -58,8 +58,20 @@ def render_etf_structure_panel(model: InstrumentDetailViewModel) -> ft.Control:
             f"{field_name}: status={field.get('status', 'unknown')} | value={field.get('value', 'unavailable')} | "
             f"document={field.get('document_id', 'unavailable')} | date={field.get('document_date', 'unavailable')} | "
             f"page={field.get('page', 'unavailable')} | confidence={field.get('confidence', 0.0)} | "
-            f"known_at={field.get('known_at', 'unavailable')}"
+            f"known_at={field.get('known_at', 'unavailable')} | checksum={field.get('checksum', 'unavailable')}"
         )
+        if field.get("status") == "conflict":
+            for index, candidate in enumerate(field.get("candidates", []), start=1):
+                if not isinstance(candidate, Mapping):
+                    continue
+                field_lines.append(
+                    f"{field_name} conflict candidate {index}: value={candidate.get('value', 'unavailable')} | "
+                    f"source_id={candidate.get('source_id', 'unavailable')} | "
+                    f"document_id={candidate.get('document_id', candidate.get('source_id', 'unavailable'))} | "
+                    f"date={candidate.get('document_date', 'unavailable')} | page={candidate.get('page', 'unavailable')} | "
+                    f"confidence={candidate.get('confidence', 0.0)} | known_at={candidate.get('known_at', 'unavailable')} | "
+                    f"checksum={candidate.get('checksum', 'unavailable')}"
+                )
     document_lines = [
         f"{family}: status={value.get('status', 'unknown')} | source_id={value.get('source_id', 'unavailable')} | "
         f"date={value.get('document_date', 'unavailable')} | version={value.get('version', 'unavailable')} | "

@@ -147,6 +147,23 @@ def _annual_conflict_report(
     return report
 
 
+def _period_structural_report(source_id: str, kind: str, period_end: str, replication: str) -> pd.DataFrame:
+    report = _report(source_id=source_id, replication=replication, document_date=period_end)
+    report.loc[0, "document_kind"] = kind
+    evidence = json.loads(report.loc[0, "field_evidence"])
+    evidence.append({
+        "field_name": "reporting_period_end",
+        "value": period_end,
+        "source_page": 1,
+        "candidate_pages": [1],
+        "confidence": "high",
+        "status": "extracted",
+    })
+    report.loc[0, "field_evidence"] = json.dumps(evidence)
+    _refresh_report_fingerprint(report)
+    return report
+
+
 def test_projection_requires_exact_registry_binding_and_preserves_provenance() -> None:
     projection = project_etf_structure("ETF-1", document_registry=_registry(), report_records=_report(), decision_time="2026-07-03T00:00:00Z")
 
@@ -160,6 +177,49 @@ def test_projection_requires_exact_registry_binding_and_preserves_provenance() -
     assert projection["documents"]["prospectus"]["status"] == "available"
     assert projection["documents"]["holdings"]["status"] == "unknown"
     assert projection["execution_allowed"] is False
+
+
+def test_time_varying_conflicts_are_limited_to_same_reporting_period() -> None:
+    annual_registry = _registry(
+        source_id="annual-2025", document_kind="annual_report", document_date="2025-12-31"
+    )
+    half_year_registry = _registry(
+        source_id="half-2026", document_kind="half_year_report", document_date="2026-06-30"
+    )
+    registry = pd.concat([annual_registry, half_year_registry], ignore_index=True)
+    reports = pd.concat(
+        [
+            _period_structural_report("annual-2025", "annual_report", "2025-12-31", "Physical"),
+            _period_structural_report("half-2026", "half_year_report", "2026-06-30", "Synthetic swap"),
+        ],
+        ignore_index=True,
+    )
+
+    different_periods = project_etf_structure(
+        "ETF-1", document_registry=registry, report_records=reports, decision_time="2026-07-10"
+    )
+
+    assert different_periods["fields"]["replication_method"]["status"] == "resolved"
+    assert different_periods["fields"]["replication_method"]["value"] == "Synthetic swap"
+
+    same_period = reports.copy()
+    same_period.loc[1, "field_evidence"] = same_period.loc[1, "field_evidence"].replace(
+        "2026-06-30", "2025-12-31"
+    )
+    fingerprint = report_extraction_fingerprint(same_period.iloc[1])
+    same_period.loc[1, "extraction_sha256"] = fingerprint
+    same_period.loc[1, "stored_extraction_sha256"] = fingerprint
+    history = json.loads(same_period.loc[1, "review_history"])
+    same_period.loc[1, "review_history"] = json.dumps(
+        [{**item, "extraction_sha256": fingerprint} for item in history]
+    )
+
+    same_period_projection = project_etf_structure(
+        "ETF-1", document_registry=registry, report_records=same_period, decision_time="2026-07-10"
+    )
+
+    assert same_period_projection["fields"]["replication_method"]["status"] == "conflict"
+    assert {item["reporting_period_end"] for item in same_period_projection["fields"]["replication_method"]["candidates"]} == {"2025-12-31"}
 
 
 def test_duplicate_registry_source_id_is_quarantined_instead_of_last_row_win() -> None:

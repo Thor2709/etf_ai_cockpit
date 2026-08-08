@@ -19,6 +19,11 @@ from pathlib import Path
 import re
 import pandas as pd
 
+from etf_cockpit.data.parsed_disclosures import (
+    REPORT_STABLE_CONFLICT_FIELDS,
+    REPORT_TIME_VARYING_CONFLICT_FIELDS,
+)
+
 
 STRUCTURE_SCHEMA_VERSION = 1
 STRUCTURE_PROJECTION_VERSION = "etf-structure-documents.v1"
@@ -171,6 +176,7 @@ class StructureCandidate:
     checksum: str
     status: str = "extracted"
     review_event: Mapping[str, object] | None = None
+    reporting_period_end: str = ""
 
 
 @dataclass(frozen=True)
@@ -341,9 +347,6 @@ def project_etf_structure(
         validated_reports = []
         supplied_report_error = str(exc)
     registry, rejected_registry = _bound_registry(target, registry_rows, decision)
-    visible_report_conflicts = _visible_report_conflict_fields(
-        validated_reports, registry, target, decision
-    )
     candidates, rejected_candidates = _report_candidates(validated_reports, registry, target, decision)
     supplemental, supplemental_rejections = _supplemental_candidates(
         _strict_channel_rows(supplemental_rows, "supplemental rows", "factsheet"),
@@ -368,6 +371,9 @@ def project_etf_structure(
         rejected.append({"reason_code": "supplied_report_records_invalid", "detail": supplied_report_error})
     selected_sources = _latest_sources(registry, candidates)
     usable = [item for item in candidates if item.source_id in selected_sources.get(_family(item.document_type), set())]
+    visible_report_conflicts = _visible_report_conflict_fields(
+        validated_reports, registry, target, decision, selected_sources=selected_sources
+    )
     source_vintage = {
         source_id: dict(event)
         for source_id, event in sorted(
@@ -381,7 +387,7 @@ def project_etf_structure(
 
     fields: dict[str, dict[str, object]] = {}
     for field in STRUCTURAL_FIELDS:
-        applicable = [item for item in usable if item.field_name == field]
+        applicable = _period_bound_candidates(field, [item for item in usable if item.field_name == field])
         if field in visible_report_conflicts:
             fields[field] = _field_payload(field, status="conflict", candidates=applicable)
             continue
@@ -736,6 +742,8 @@ def _visible_report_conflict_fields(
     registry: list[dict[str, object]],
     target: str,
     decision: datetime | None,
+    *,
+    selected_sources: Mapping[str, set[str]] | None = None,
 ) -> set[str]:
     from etf_cockpit.data.parsed_disclosures import build_etf_report_conflicts
 
@@ -745,6 +753,10 @@ def _visible_report_conflict_fields(
         source_id = _text(row.get("source_id"))
         registered = registry_by_id.get(source_id or "")
         if registered is None or _text(row.get("instrument_id")) != target:
+            continue
+        if selected_sources is not None and source_id not in selected_sources.get(
+            _family(_text(row.get("document_kind")) or _text(row.get("document_type")) or ""), set()
+        ):
             continue
         checksum = _agreed_alias(registered, ("sha256", "checksum"), _text)
         document_date = _agreed_alias(
@@ -859,6 +871,16 @@ def _report_candidates(value: object, registry: list[dict[str, object]], target:
             rejected.append({"reason_code": review_reason or "report_evidence_not_eligible", "source_id": source_id})
             continue
         evidence = _json_rows(row.get("field_evidence"))
+        reporting_period_end = _date_text(row.get("reporting_period_end"))
+        if not reporting_period_end:
+            reporting_period_end = next(
+                (
+                    _date_text(item.get("value"))
+                    for item in evidence
+                    if _canonical_field(item.get("field_name")) == "reporting_period_end"
+                ),
+                None,
+            )
         for item in evidence:
             field = _canonical_field(item.get("field_name"))
             if field not in STRUCTURAL_FIELDS:
@@ -870,7 +892,18 @@ def _report_candidates(value: object, registry: list[dict[str, object]], target:
                 if status not in {"unknown", ""}:
                     rejected.append({"field_name": field, "reason_code": "candidate_unusable", "source_id": source_id})
                 continue
-            candidate, reason = _make_candidate(target, field, value_text, source_id, registered, page, item.get("confidence"), decision, review_event=review_event)
+            candidate, reason = _make_candidate(
+                target,
+                field,
+                value_text,
+                source_id,
+                registered,
+                page,
+                item.get("confidence"),
+                decision,
+                review_event=review_event,
+                reporting_period_end=reporting_period_end,
+            )
             if candidate is None:
                 rejected.append({"field_name": field, "reason_code": reason, "source_id": source_id})
             else:
@@ -1040,7 +1073,18 @@ def _supplemental_candidates(
             rejected.append({"field_name": field, "reason_code": reason, "source_id": source_id or "unavailable"})
             continue
         confidence = row.get("structural_confidence") if "structural_confidence" in row else row.get("confidence")
-        candidate, candidate_reason = _make_candidate(target, field, value_text, source_id, registered, page, confidence, decision, status=status)
+        candidate, candidate_reason = _make_candidate(
+            target,
+            field,
+            value_text,
+            source_id,
+            registered,
+            page,
+            confidence,
+            decision,
+            status=status,
+            reporting_period_end=_date_text(row.get("reporting_period_end")),
+        )
         if candidate is None:
             rejected.append({"field_name": field, "reason_code": candidate_reason, "source_id": source_id})
         else:
@@ -1048,7 +1092,7 @@ def _supplemental_candidates(
     return result, rejected
 
 
-def _make_candidate(target: str, field: str, value: str, source_id: str, registered: Mapping[str, object], page: int | None, confidence: object, decision: datetime | None, *, status: str = "extracted", review_event: Mapping[str, object] | None = None) -> tuple[StructureCandidate | None, str]:
+def _make_candidate(target: str, field: str, value: str, source_id: str, registered: Mapping[str, object], page: int | None, confidence: object, decision: datetime | None, *, status: str = "extracted", review_event: Mapping[str, object] | None = None, reporting_period_end: str | None = None) -> tuple[StructureCandidate | None, str]:
     if page is None or page <= 0:
         return None, "candidate_page_invalid"
     confidence_value = _confidence_value(confidence)
@@ -1061,7 +1105,21 @@ def _make_candidate(target: str, field: str, value: str, source_id: str, registe
         return None, "candidate_registry_binding_incomplete"
     if decision is not None and _parse_timestamp(known_at) > decision:
         return None, "candidate_not_known_at_decision_time"
-    return StructureCandidate(target, field, value, source_id, _text(registered.get("document_type")) or _text(registered.get("document_kind")) or "unknown", document_date, page, confidence_value, known_at, checksum, status, dict(review_event) if review_event else None), ""
+    return StructureCandidate(
+        target,
+        field,
+        value,
+        source_id,
+        _text(registered.get("document_type")) or _text(registered.get("document_kind")) or "unknown",
+        document_date,
+        page,
+        confidence_value,
+        known_at,
+        checksum,
+        status,
+        dict(review_event) if review_event else None,
+        reporting_period_end or "",
+    ), ""
 
 
 def _latest_sources(registry: list[dict[str, object]], candidates: Iterable[StructureCandidate] = ()) -> dict[str, set[str]]:
@@ -1263,6 +1321,19 @@ def _bounded_phrase_spans(
     ]
 
 
+def _period_bound_candidates(field: str, candidates: Iterable[StructureCandidate]) -> list[StructureCandidate]:
+    """Use the latest reporting period for fields that can vary over time."""
+
+    items = list(candidates)
+    if field in REPORT_STABLE_CONFLICT_FIELDS or field not in REPORT_TIME_VARYING_CONFLICT_FIELDS:
+        return items
+    period_items = [item for item in items if item.reporting_period_end]
+    if not period_items:
+        return items
+    latest_period = max(item.reporting_period_end for item in period_items)
+    return [item for item in period_items if item.reporting_period_end == latest_period]
+
+
 def _field_payload(field: str, *, status: str, candidate: StructureCandidate | None = None, candidates: Iterable[StructureCandidate] = ()) -> dict[str, object]:
     items = tuple(candidates)
     if candidate is None and items:
@@ -1286,7 +1357,19 @@ def _field_payload(field: str, *, status: str, candidate: StructureCandidate | N
 
 
 def _candidate_payload(item: StructureCandidate) -> dict[str, object]:
-    return {"value": item.value, "source_id": item.source_id, "document_type": item.document_type, "document_date": item.document_date, "page": item.page, "confidence": item.confidence, "known_at": item.known_at, "checksum": item.checksum, "review_event": dict(item.review_event) if item.review_event else None}
+    return {
+        "value": item.value,
+        "source_id": item.source_id,
+        "document_id": item.source_id,
+        "document_type": item.document_type,
+        "document_date": item.document_date,
+        "reporting_period_end": item.reporting_period_end,
+        "page": item.page,
+        "confidence": item.confidence,
+        "known_at": item.known_at,
+        "checksum": item.checksum,
+        "review_event": dict(item.review_event) if item.review_event else None,
+    }
 
 
 def _family(document_type: str) -> str:

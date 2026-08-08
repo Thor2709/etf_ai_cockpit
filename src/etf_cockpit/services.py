@@ -999,6 +999,31 @@ class BacktestService:
             if metadata.get("quality_momentum_strategy_version") != QUALITY_MOMENTUM_VERSION:
                 return None
             structure_evidence = _load_local_structural_evidence()
+            for index, row in enumerate(signal_log.to_dict("records")):
+                decision_timestamp = pd.to_datetime(row.get("date"), errors="coerce")
+                if pd.isna(decision_timestamp):
+                    return None
+                instrument_id = str(row.get("etf_id", "")).strip()
+                if not instrument_id:
+                    return None
+                expected_caps = structure_confidence_caps(
+                    [instrument_id],
+                    document_registry=structure_evidence.document_registry,
+                    report_records=structure_evidence.report_records,
+                    supplemental_rows=structure_evidence.supplemental_rows,
+                    holdings=structure_evidence.holdings,
+                    decision_time=decision_timestamp.date(),
+                )
+                expected_cap = float(expected_caps.get(instrument_id, 0.0))
+                expected_hash = str(
+                    expected_caps.provenance.get(instrument_id, {}).get(
+                        "structure_provenance_hash", "unavailable"
+                    )
+                ).strip()
+                if float(structural_caps.iloc[index]) != expected_cap:
+                    return None
+                if structural_hashes.iloc[index] != expected_hash:
+                    return None
             if metadata.get("input_checksum") != backtest_input_checksum(
                 self.config,
                 load_prices(),
