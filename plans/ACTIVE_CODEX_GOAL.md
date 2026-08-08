@@ -295,6 +295,22 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   known vulnerabilities. Lifecycle state and `execution_allowed=false` are
   unchanged. Freeze the checkpoint head and repeat both exact-head reviews and
   fresh H-tier gates in parallel.
+- Exact head `e8001fe01a54878a89b1778137156cb265cb63c4` received risk
+  approval after 361 passing tests and one expected skip, but whole-diff review
+  reproduced one new defect: an absent optional holdings file was converted to
+  an empty frame and then misclassified as a malformed canonical store,
+  suppressing otherwise valid report/factsheet evidence. Run `31248171632`
+  passed status guard, supply chain, locked-writer candidate validation and
+  preflight, then was cancelled as stale while H-tier packages and pilots ran.
+- Narrow correction commit
+  `6781a488ab4fe68f77246ae4af6c340b91d693c6` validates holdings schema only
+  when the canonical file exists, while existing corrupt and schema-malformed
+  files still fail closed. The new exact-registry-bound factsheet regression
+  proves valid evidence remains resolved when optional holdings are absent;
+  the correction suite, Ruff, compile and diff hygiene pass.
+  `execution_allowed=false` and all lifecycle/authority state remain unchanged.
+  Freeze the replacement head for both exact-head reviews and fresh H-tier
+  hosted validation.
 
 ## Completed UPDATEV2-0018 product checkpoint
 

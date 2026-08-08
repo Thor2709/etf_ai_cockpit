@@ -304,6 +304,23 @@ vulnerabilities. Lifecycle state and `execution_allowed=false` are unchanged.
 Freeze this checkpoint and repeat both reviews plus fresh H-tier gates in
 parallel.
 
+Exact head `e8001fe01a54878a89b1778137156cb265cb63c4` received risk
+approval after 361 passing tests and one expected skip, but whole-diff review
+reproduced one new defect: an absent optional holdings file was converted to an
+empty frame and then misclassified as a malformed canonical store, suppressing
+otherwise valid report/factsheet evidence. Run `31248171632` passed status
+guard, supply chain, locked-writer candidate validation and preflight, then was
+cancelled as stale while package and pilot jobs ran.
+
+Narrow correction commit
+`6781a488ab4fe68f77246ae4af6c340b91d693c6` validates holdings schema only
+when the canonical file exists; existing corrupt and schema-malformed stores
+still fail closed. An exact-registry-bound factsheet regression proves valid
+evidence remains resolved when optional holdings are absent. The correction
+suite, Ruff, compile and diff hygiene pass; `execution_allowed=false` and all
+lifecycle/authority state remain unchanged. Freeze the replacement head and
+repeat both reviews plus fresh H-tier gates in parallel.
+
 ## Completed UPDATEV2-0018 parser lane
 
 ISSUE-0103 completion PR #648 merged exact reviewed head
