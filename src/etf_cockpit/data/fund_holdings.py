@@ -294,7 +294,7 @@ def _write_holdings_frame(frame: pd.DataFrame, *, destination: Path) -> None:
     validate_holdings_store_frame(frame, destination=destination)
     csv_destination = destination.with_suffix(".csv")
     requests = (
-        AtomicWriteRequest(destination, parquet_payload(frame), validate_parquet_file),
+        AtomicWriteRequest(destination, parquet_payload(frame), validate_holdings_parquet_file),
         AtomicWriteRequest(csv_destination, frame.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
     )
     atomic_write_group(requests)
@@ -458,13 +458,13 @@ def validate_holdings_store_frame(frame: pd.DataFrame, *, destination: Path) -> 
         raise ValueError(f"Existing holdings store is not tabular: {destination}")
     if bool(frame.columns.duplicated().any()):
         raise ValueError(f"Existing holdings store contains duplicate columns: {destination}")
-    if frame.empty:
-        return
     missing = [column for column in REQUIRED_HOLDINGS_COLUMNS if column not in frame.columns]
     if "schema_version" not in frame.columns:
         missing.append("schema_version")
     if missing:
         raise ValueError(f"Existing holdings store is missing required columns={','.join(missing)}: {destination}")
+    if frame.empty:
+        return
 
     for instrument_id, group in frame.groupby("instrument_id", sort=False, dropna=False):
         if not str(instrument_id).strip():
@@ -508,6 +508,13 @@ def validate_holdings_store_frame(frame: pd.DataFrame, *, destination: Path) -> 
             raise ValueError(f"Existing holdings store has invalid freshness: {destination}")
         if result.authority not in {"issuer", "vendor", "unknown"}:
             raise ValueError(f"Existing holdings store has invalid authority: {destination}")
+
+
+def validate_holdings_parquet_file(path: Path) -> None:
+    """Validate staged holdings bytes structurally and semantically before publication."""
+
+    validate_parquet_file(path)
+    validate_holdings_store_frame(pd.read_parquet(path), destination=path)
 
 
 def import_etf_holdings(
@@ -599,11 +606,16 @@ def import_etf_holdings_with_document(
                 instrument_ids.extend(value for value in existing_registry["instrument_id"].dropna().astype(str).map(str.strip) if value)
             instrument_ids.append(str(instrument_id).strip())
             inventory = build_document_inventory(instrument_ids, [*existing_registry.to_dict("records"), document])
+            validate_holdings_store_frame(merged_holdings, destination=holdings_destination)
 
             holdings_csv_destination = holdings_destination.with_suffix(".csv")
             registry_csv_destination = registry_destination.with_suffix(".csv")
             requests = (
-                AtomicWriteRequest(holdings_destination, parquet_payload(merged_holdings), validate_parquet_file),
+                AtomicWriteRequest(
+                    holdings_destination,
+                    parquet_payload(merged_holdings),
+                    validate_holdings_parquet_file,
+                ),
                 AtomicWriteRequest(holdings_csv_destination, merged_holdings.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
                 AtomicWriteRequest(registry_destination, parquet_payload(inventory), validate_parquet_file),
                 AtomicWriteRequest(registry_csv_destination, inventory.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),

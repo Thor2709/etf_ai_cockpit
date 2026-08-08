@@ -355,6 +355,69 @@ def test_holdings_import_rejects_malformed_existing_store_without_writes(tmp_pat
     assert mirror.read_bytes() == prior_mirror_bytes
 
 
+def test_holdings_import_rejects_empty_existing_store_without_schema(tmp_path: Path) -> None:
+    from etf_cockpit.data.fund_holdings import import_etf_holdings
+
+    destination = tmp_path / "fund_holdings.parquet"
+    pd.DataFrame(columns=["instrument_id"]).to_parquet(destination, index=False)
+    prior_bytes = destination.read_bytes()
+    source = tmp_path / "vwce.csv"
+    pd.DataFrame({"security": ["A"], "ticker": ["A"], "weight": [1.0]}).to_csv(
+        source, index=False
+    )
+
+    with pytest.raises(ValueError, match="missing required columns"):
+        import_etf_holdings(
+            source,
+            "VWCE",
+            "2026-07-10",
+            "issuer",
+            destination=destination,
+            today="2026-07-11",
+        )
+
+    assert destination.read_bytes() == prior_bytes
+
+
+def test_document_holdings_import_rejects_invalid_post_binding_without_writes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import etf_cockpit.data.fund_holdings as fund_holdings
+
+    source = tmp_path / "holdings.csv"
+    pd.DataFrame({"security": ["A"], "ticker": ["A"], "weight": [1.0]}).to_csv(
+        source, index=False
+    )
+    holdings_destination = tmp_path / "fund_holdings.parquet"
+    registry_destination = tmp_path / "fund_documents.parquet"
+    real_attach = fund_holdings._attach_document_binding
+
+    def corrupt_binding(frame: pd.DataFrame, document: object) -> pd.DataFrame:
+        corrupted = real_attach(frame, document)
+        corrupted["source"] = ""
+        return corrupted
+
+    monkeypatch.setattr(fund_holdings, "_attach_document_binding", corrupt_binding)
+
+    with pytest.raises(ValueError, match="missing row provenance=source"):
+        fund_holdings.import_etf_holdings_with_document(
+            source,
+            "VWCE",
+            "2026-07-10",
+            holdings_destination=holdings_destination,
+            registry_destination=registry_destination,
+            today="2026-07-11",
+        )
+
+    for destination in (
+        holdings_destination,
+        holdings_destination.with_suffix(".csv"),
+        registry_destination,
+        registry_destination.with_suffix(".csv"),
+    ):
+        assert not destination.exists()
+
+
 def test_concurrent_holdings_imports_preserve_both_instruments(tmp_path: Path) -> None:
     from etf_cockpit.data.fund_holdings import import_etf_holdings
 

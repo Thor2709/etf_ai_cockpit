@@ -320,6 +320,21 @@ def test_holdings_with_complete_columns_but_invalid_row_fail_closed_at_structura
         )
 
 
+def test_empty_existing_holdings_without_schema_fail_closed_at_structural_root(tmp_path) -> None:
+    from etf_cockpit.data.etf_structure import load_local_structural_evidence
+
+    holdings_path = tmp_path / "fund_holdings.parquet"
+    pd.DataFrame(columns=["instrument_id"]).to_parquet(holdings_path, index=False)
+
+    with pytest.raises(ValueError, match="missing required columns"):
+        load_local_structural_evidence(
+            registry_reader=pd.DataFrame,
+            report_reader=pd.DataFrame,
+            factsheet_path=tmp_path / "missing-factsheet.parquet",
+            holdings_path=holdings_path,
+        )
+
+
 def test_real_canonical_writers_preserve_bindings_through_shared_projection_and_backtest(tmp_path) -> None:
     from etf_cockpit.backtest.engine import backtest_input_checksum, run_backtest
     from etf_cockpit.data.etf_structure import load_local_structural_evidence, project_etf_structure, structure_confidence_caps
