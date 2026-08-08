@@ -1081,6 +1081,21 @@ def _supplemental_candidates(
             reason = "candidate_registry_binding_mismatch"
         elif status not in _USABLE_STATUSES:
             reason = "candidate_unusable"
+        elif channel_family == "holdings":
+            freshness = (_text(row.get("freshness")) or "").casefold()
+            completeness = (_text(row.get("completeness")) or "").casefold()
+            authority = (_text(row.get("authority")) or "").casefold()
+            score_eligible = row.get("score_eligible")
+            effective_date = (decision or datetime.now(timezone.utc)).date()
+            holdings_date = date.fromisoformat(row_date)
+            if freshness != "fresh" or (effective_date - holdings_date).days > 90:
+                reason = "candidate_holdings_stale"
+            elif completeness != "full":
+                reason = "candidate_holdings_incomplete"
+            elif authority != "issuer":
+                reason = "candidate_holdings_authority_ineligible"
+            elif score_eligible is not True:
+                reason = "candidate_holdings_not_score_eligible"
         if reason:
             rejected.append({"field_name": field, "reason_code": reason, "source_id": source_id or "unavailable"})
             continue

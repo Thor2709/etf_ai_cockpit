@@ -242,8 +242,12 @@ def normalise_holdings(
 def _canonical_holdings_json(frame: pd.DataFrame) -> str:
     """Return an order-independent finite JSON representation for provenance."""
 
+    # Hash one fixed schema so a later multi-instrument merge cannot change a
+    # retained instrument's identity merely by introducing another optional
+    # identity column (for example, ISIN alongside ticker).
+    canonical_frame = frame.reindex(columns=_HOLDING_CANONICAL_COLUMNS)
     records: list[dict[str, object]] = []
-    for row in frame.to_dict(orient="records"):
+    for row in canonical_frame.to_dict(orient="records"):
         clean: dict[str, object] = {}
         for key, value in row.items():
             if value is None or (not isinstance(value, (str, bytes)) and pd.isna(value)):

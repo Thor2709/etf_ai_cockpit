@@ -344,7 +344,7 @@ def test_factsheet_prospectus_and_holdings_conflicts_remain_visible() -> None:
         "instrument_id": "ETF-1", "source_id": "holdings-1", "document_type": "holdings",
         "checksum": CHECKSUM, "document_date": "2026-07-01", "known_at": "2026-07-02T00:00:00Z",
         "security": "Synthetic holding", "weight": 1.0, "as_of": "2026-07-01", "source": "test",
-        "completeness": "complete", "freshness": "fresh", "authority": "issuer_document", "score_eligible": False,
+        "completeness": "full", "freshness": "fresh", "authority": "issuer", "score_eligible": True,
         "field_name": "replication_method", "value": "Physical sampled", "page": 3, "confidence": "high",
     }])
     report = _report(source_id="prospectus-1", replication="Synthetic swap")
@@ -357,6 +357,64 @@ def test_factsheet_prospectus_and_holdings_conflicts_remain_visible() -> None:
     assert projection["fields"]["replication_method"]["status"] == "conflict"
     assert len(projection["fields"]["replication_method"]["candidates"]) == 3
     assert {projection["documents"][family]["status"] for family in ("factsheet", "prospectus", "holdings")} == {"available"}
+
+
+@pytest.mark.parametrize(
+    ("overrides", "reason_code"),
+    [
+        ({"freshness": "stale"}, "candidate_holdings_stale"),
+        ({"as_of": "2025-01-01", "document_date": "2025-01-01"}, "candidate_holdings_stale"),
+        ({"completeness": "partial"}, "candidate_holdings_incomplete"),
+        ({"authority": "vendor"}, "candidate_holdings_authority_ineligible"),
+        ({"score_eligible": False}, "candidate_holdings_not_score_eligible"),
+    ],
+)
+def test_ineligible_holdings_claims_remain_unusable_structural_context(
+    overrides: dict[str, object], reason_code: str
+) -> None:
+    row = {
+        "instrument_id": "ETF-1",
+        "document_source_id": "holdings-1",
+        "document_type": "holdings",
+        "document_checksum": CHECKSUM,
+        "document_date": "2026-07-01",
+        "document_known_at": "2026-07-02T00:00:00Z",
+        "as_of": "2026-07-01",
+        "field_name": "replication_method",
+        "value": "Physical sampled",
+        "page": 3,
+        "structural_confidence": 1.0,
+        "status": "extracted",
+        "freshness": "fresh",
+        "completeness": "full",
+        "authority": "issuer",
+        "score_eligible": True,
+    }
+    row.update(overrides)
+    registry = _registry(
+        source_id="holdings-1",
+        document_type="holdings",
+        document_kind="holdings",
+        document_date=str(row["document_date"]),
+    )
+
+    projection = project_etf_structure(
+        "ETF-1",
+        document_registry=registry,
+        holdings=pd.DataFrame([row]),
+        decision_time="2026-07-15T00:00:00Z",
+    )
+    caps = structure_confidence_caps(
+        ["ETF-1"],
+        document_registry=registry,
+        holdings=pd.DataFrame([row]),
+        decision_time="2026-07-15T00:00:00Z",
+    )
+
+    assert projection["fields"]["replication_method"]["status"] != "resolved"
+    assert projection["evidence_confidence_cap"] == 0.0
+    assert caps["ETF-1"] == 0.0
+    assert any(item["reason_code"] == reason_code for item in projection["rejected_candidates"])
 
 
 @pytest.mark.parametrize("document_type", ["factsheet", "holdings"])

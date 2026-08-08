@@ -307,21 +307,23 @@ def test_holdings_import_path_normalises_csv_and_persists_records(tmp_path: Path
     assert pd.read_parquet(destination).loc[0, "instrument_id"] == "VWCE"
 
 
-def test_holdings_import_merges_one_instrument_without_dropping_other_canonical_rows(tmp_path: Path) -> None:
+def test_holdings_import_merges_disjoint_identity_schemas_without_changing_provenance(tmp_path: Path) -> None:
     from etf_cockpit.data.fund_holdings import import_etf_holdings
 
     destination = tmp_path / "fund_holdings.parquet"
     first_source = tmp_path / "vwce.csv"
     second_source = tmp_path / "lyp6.csv"
     pd.DataFrame({"security": ["A"], "ticker": ["A"], "weight": [1.0]}).to_csv(first_source, index=False)
-    pd.DataFrame({"security": ["B"], "ticker": ["B"], "weight": [1.0]}).to_csv(second_source, index=False)
+    pd.DataFrame({"security": ["B"], "isin": ["IE00TEST0002"], "weight": [1.0]}).to_csv(second_source, index=False)
 
-    import_etf_holdings(first_source, "VWCE", "2026-07-10", "issuer", destination=destination, today="2026-07-11")
+    first = import_etf_holdings(first_source, "VWCE", "2026-07-10", "issuer", destination=destination, today="2026-07-11")
     import_etf_holdings(second_source, "LYP6", "2026-07-11", "issuer", destination=destination, today="2026-07-11")
 
     stored = pd.read_parquet(destination)
     assert set(stored["instrument_id"]) == {"VWCE", "LYP6"}
-    assert set(stored["ticker"]) == {"A", "B"}
+    assert stored.loc[stored["instrument_id"].eq("VWCE"), "source_id"].eq(first.source_id).all()
+    assert stored.loc[stored["instrument_id"].eq("VWCE"), "ticker"].eq("A").all()
+    assert stored.loc[stored["instrument_id"].eq("LYP6"), "isin"].eq("IE00TEST0002").all()
 
 
 def test_holdings_import_rejects_malformed_existing_store_without_writes(tmp_path: Path) -> None:
@@ -418,14 +420,17 @@ def test_document_holdings_import_rejects_invalid_post_binding_without_writes(
         assert not destination.exists()
 
 
-def test_concurrent_holdings_imports_preserve_both_instruments(tmp_path: Path) -> None:
+def test_concurrent_holdings_imports_preserve_disjoint_identity_schemas(tmp_path: Path) -> None:
     from etf_cockpit.data.fund_holdings import import_etf_holdings
 
     destination = tmp_path / "fund_holdings.parquet"
     sources = {}
-    for instrument, ticker in (("VWCE", "A"), ("LYP6", "B")):
+    for instrument, identity_column, identity_value in (
+        ("VWCE", "ticker", "A"),
+        ("LYP6", "isin", "IE00TEST0002"),
+    ):
         source = tmp_path / f"{instrument.lower()}.csv"
-        pd.DataFrame({"security": [ticker], "ticker": [ticker], "weight": [1.0]}).to_csv(
+        pd.DataFrame({"security": [identity_value], identity_column: [identity_value], "weight": [1.0]}).to_csv(
             source, index=False
         )
         sources[instrument] = source
