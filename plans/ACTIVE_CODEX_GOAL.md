@@ -118,8 +118,16 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   constructed obsolete ISSUE-0010 `in_progress -> ready`, masking its intended
   malformed date/commit/evidence errors. The bounded test-only correction now
   derives the legal next hop before injecting each malformed field; all seven
-  adversarial cases pass. Freeze the replacement head after focused/exact
-  validation and repeat both reviews and H-tier CI without adjacent changes.
+  adversarial cases pass. Replacement head
+  `6b5a00b34e6d5c992c5a182428b3df648a704489` received both independent
+  approvals and passed the exact status guard. H-tier run `31276736844` then
+  timed out the unchanged exact changed-test selection at 120 seconds in both
+  the initial attempt and its single permitted retry; authority preflight and
+  supply-chain validation passed. The sole bounded correction preserves all
+  seven independent malformed-event assertions while exercising the two
+  generic registry entrypoints once instead of redundantly for every malformed
+  variant. The exact local selection passes in 65.3 seconds. Freeze one new
+  head, repeat both reviews and fresh H-tier CI, and make no adjacent change.
 
 ## ISSUE-0104 product chronology
 

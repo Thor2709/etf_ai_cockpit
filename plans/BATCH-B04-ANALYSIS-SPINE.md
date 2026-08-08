@@ -87,8 +87,16 @@ approvals, but H run `31275348236` failed identically on both platforms because
 the existing malformed-transition fixture still used obsolete ISSUE-0010
 `in_progress -> ready`, masking its intended malformed-field checks. The
 test-only correction derives the legal next hop before injecting each invalid
-field; all seven cases pass. Freeze the replacement head after exact validation
-and repeat review/CI; no adjacent hardening.
+field; all seven cases pass. Replacement head
+`6b5a00b34e6d5c992c5a182428b3df648a704489` received both independent
+approvals and passed the exact guard, but H run `31276736844` timed out the
+exact changed-test selection at 120 seconds on both its initial attempt and
+single permitted retry; authority preflight and supply-chain checks passed.
+The one bounded test-only correction retains all seven independent malformed
+event checks and runs the generic generator/validator entrypoints once rather
+than redundantly for every variant. The same exact local selection passes in
+65.3 seconds. Freeze one new head for both reviews and fresh H-tier CI; no
+adjacent hardening.
 
 ## ISSUE-0104 product chronology
 
