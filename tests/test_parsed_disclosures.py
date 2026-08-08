@@ -314,6 +314,77 @@ def test_v2_import_is_typed_checksum_bound_and_review_time_is_store_generated(tm
     assert "reviewed_at" in str(verified["review_history"])
 
 
+def test_review_with_future_known_at_is_rejected_before_publication(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import etf_cockpit.data.parsed_disclosures as module
+    from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest, EtfReportReviewRequest
+
+    source = tmp_path / "prospectus.pdf"
+    source.write_bytes(b"future known-at review")
+    monkeypatch.setattr(
+        module,
+        "parse_etf_report_in_child",
+        lambda path, kind, **_kwargs: _v2_report_result(path, kind=kind),
+    )
+    report_path = tmp_path / "reports.parquet"
+    registry_path = tmp_path / "fund_documents.parquet"
+    conflict_path = tmp_path / "conflicts.parquet"
+    imported = module.import_etf_report(
+        EtfReportImportRequest(
+            "VWCE",
+            "prospectus",
+            "issuer_document",
+            source_path=source,
+            destination=report_path,
+            registry_destination=registry_path,
+            conflict_destination=conflict_path,
+            raw_dir=tmp_path / "raw",
+        )
+    )
+
+    future_known_at = "2099-01-01T00:00:00+00:00"
+    reports = pd.read_parquet(report_path)
+    reports.loc[reports["source_id"].eq(imported.source_id), "known_at"] = future_known_at
+    reports.loc[reports["source_id"].eq(imported.source_id), "extraction_sha256"] = (
+        module._row_extraction_fingerprint(reports.loc[reports["source_id"].eq(imported.source_id)].iloc[0])
+    )
+    reports.loc[reports["source_id"].eq(imported.source_id), "stored_extraction_sha256"] = reports.loc[
+        reports["source_id"].eq(imported.source_id), "extraction_sha256"
+    ]
+    reports.to_parquet(report_path, index=False)
+
+    registry = pd.read_parquet(registry_path)
+    registry.loc[registry["source_id"].eq(imported.source_id), "known_at"] = future_known_at
+    if "ingested_at" in registry.columns:
+        registry.loc[registry["source_id"].eq(imported.source_id), "ingested_at"] = future_known_at
+    registry.to_parquet(registry_path, index=False)
+
+    paths = (
+        report_path,
+        report_path.with_suffix(".csv"),
+        registry_path,
+        registry_path.with_suffix(".csv"),
+        conflict_path,
+        conflict_path.with_suffix(".csv"),
+    )
+    prior = {path: path.read_bytes() for path in paths}
+    row = reports.loc[reports["source_id"].eq(imported.source_id)].iloc[0]
+
+    with pytest.raises(ValueError, match="known_at|future"):
+        module.review_etf_report(
+            EtfReportReviewRequest(
+                imported.source_id,
+                str(row["extraction_sha256"]),
+                "analyst",
+                "rejected",
+            ),
+            destination=report_path,
+            registry_destination=registry_path,
+            conflict_destination=conflict_path,
+        )
+
+    assert {path: path.read_bytes() for path in paths} == prior
+
+
 def test_pre_21_report_fingerprint_loads_after_report_columns_expand(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import etf_cockpit.data.parsed_disclosures as module
     from etf_cockpit.data.parsed_disclosures import EtfReportImportRequest, import_etf_report, read_etf_report_records

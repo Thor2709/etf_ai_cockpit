@@ -111,13 +111,9 @@ def load_local_structural_evidence(
         except Exception as exc:
             raise ValueError(f"Canonical holdings store is corrupt: {holdings_path}") from exc
         _validate_canonical_frame(holdings, "holdings", holdings_path)
-        from etf_cockpit.data.fund_holdings import REQUIRED_HOLDINGS_COLUMNS
+        from etf_cockpit.data.fund_holdings import validate_holdings_store_frame
 
-        missing_columns = set(REQUIRED_HOLDINGS_COLUMNS) - set(holdings.columns)
-        if missing_columns:
-            raise ValueError(
-                f"Canonical holdings store is missing required columns: {holdings_path}"
-            )
+        validate_holdings_store_frame(holdings, destination=holdings_candidate)
     else:
         holdings = pd.DataFrame()
     return LocalStructuralEvidence(registry, reports, factsheet, holdings)

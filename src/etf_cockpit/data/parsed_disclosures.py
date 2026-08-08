@@ -748,6 +748,16 @@ def review_etf_report(
                 _validate_report_binding(row, Path(registry_destination))
                 history = _review_history(row.get("review_history"), expected_fingerprint=fingerprint, row=row)
                 now = datetime.now(timezone.utc)
+                known_at_value = _cell_text(row.get("known_at"))
+                if known_at_value:
+                    try:
+                        known_at = datetime.fromisoformat(known_at_value.replace("Z", "+00:00"))
+                    except ValueError as exc:
+                        raise ValueError("report known_at timestamp is malformed") from exc
+                    if known_at.tzinfo is None:
+                        raise ValueError("report known_at timestamp is malformed")
+                    if now < known_at.astimezone(timezone.utc):
+                        raise ValueError("review timestamp predates report known_at")
                 if history:
                     last = _review_timestamp(history[-1])
                     if now < last:
@@ -774,6 +784,10 @@ def review_etf_report(
                 conflicts = build_etf_report_conflicts(frame)
                 registry = _read_registry_fail_closed(Path(registry_destination))
                 frame = _apply_conflict_eligibility(frame, conflicts, registry)
+                frame = _read_report_frame_from_frame(
+                    frame,
+                    original_columns=frame.attrs.get("_original_columns"),
+                )
                 _write_report_group(frame, registry, conflicts, Path(destination), Path(registry_destination), conflict_path, include_registry=False)
     return Path(destination)
 
