@@ -388,6 +388,23 @@ regression, all 86 structure tests, Ruff and diff hygiene pass. Lifecycle
 authority and `execution_allowed=false` remain unchanged. Freeze one new
 exact head and repeat both reviews plus fresh H-tier gates in parallel.
 
+Replacement head `aab53ce37e58384ed4c2ae0c79217194a6b4fd97` received
+whole-diff and risk approvals; its only review note was a non-blocking
+report-row ordering follow-up. Fresh run `31255297689` passed classifier,
+supply chain, candidate validation and preflight, but both serial package
+suites timed out at exactly 1,800 seconds and terminal validation failed.
+Diagnosis reproduced a valid backtest cache read taking about 20 seconds
+because structural evidence was replayed once per signal row.
+
+Single blocker correction commit `0993e85a0093103884bc5ba413f95a14fd9a335c`
+batches cache readback by decision date/instrument and vectorizes the canonical
+no-evidence case while retaining exact cap/hash comparison. Cache readback
+falls from about 20.2 to 0.8 seconds and snapshot construction from about 26.1
+to 4.8 seconds. Direct cache/tamper regressions and the complete 69-test
+backtest/correction modules pass; Ruff and diff hygiene pass. Freeze one final
+exact head for both reviews and fresh H-tier packages/pilots; lifecycle and
+`execution_allowed=false` remain unchanged.
+
 ## Completed UPDATEV2-0018 parser lane
 
 ISSUE-0103 completion PR #648 merged exact reviewed head

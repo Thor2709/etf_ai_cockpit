@@ -379,6 +379,23 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   all 86 structure tests, Ruff and diff hygiene pass. Lifecycle authority and
   `execution_allowed=false` remain unchanged. Freeze one new exact head and
   repeat both reviews plus fresh H-tier hosted validation in parallel.
+- Replacement head `aab53ce37e58384ed4c2ae0c79217194a6b4fd97` received
+  whole-diff and risk approvals; the sole whole-diff note was a non-blocking
+  report-row ordering follow-up. Fresh run `31255297689` passed classifier,
+  supply chain, candidate validation and preflight, but both serial package
+  suites timed out at exactly 1,800 seconds and terminal validation failed.
+  Bounded diagnosis reproduced a valid cache hit taking about 20 seconds
+  because structural evidence was replayed separately for every signal row;
+  repeated snapshots therefore exhausted the cross-platform suite ceiling.
+- Single blocker correction commit
+  `0993e85a0093103884bc5ba413f95a14fd9a335c` batches structural cache
+  readback by decision date and instrument and vectorizes the canonical
+  no-evidence case without weakening provenance comparison. Valid cache
+  readback falls from about 20.2 to 0.8 seconds and snapshot construction from
+  about 26.1 to 4.8 seconds. Both direct cache/tamper regressions and the full
+  69-test backtest/correction modules pass; Ruff and diff hygiene pass.
+  Freeze one final exact head for both reviews and fresh H-tier packages and
+  pilots. Lifecycle authority and `execution_allowed=false` are unchanged.
 
 ## Completed UPDATEV2-0018 product checkpoint
 
