@@ -139,8 +139,12 @@ def _cached_structure_columns_match(
     """Validate cached structural identity without replaying once per row."""
 
     decision_times = pd.to_datetime(signal_log["date"], errors="coerce")
-    instrument_ids = signal_log["etf_id"].astype(str).str.strip()
-    if decision_times.isna().any() or instrument_ids.eq("").any():
+    raw_instrument_ids = signal_log["etf_id"]
+    instrument_ids = raw_instrument_ids.astype(str).str.strip()
+    invalid_instrument_ids = raw_instrument_ids.isna() | instrument_ids.str.lower().isin(
+        {"", "<na>", "nan", "none", "null"}
+    )
+    if decision_times.isna().any() or invalid_instrument_ids.any():
         return False
     evidence_channels = (
         structure_evidence.document_registry,

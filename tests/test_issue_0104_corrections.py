@@ -1013,6 +1013,91 @@ def test_real_backtest_signature_accepts_structural_holdings() -> None:
     assert parameters["structure_holdings"].kind is inspect.Parameter.KEYWORD_ONLY
 
 
+@pytest.mark.parametrize("invalid_id", [None, pd.NA, "", "nan", "None", "null", "<NA>"])
+def test_cached_structure_validation_rejects_missing_and_sentinel_instrument_ids(
+    invalid_id: object,
+) -> None:
+    evidence = SimpleNamespace(
+        document_registry=pd.DataFrame(),
+        report_records=pd.DataFrame(),
+        supplemental_rows=pd.DataFrame(),
+        holdings=pd.DataFrame(),
+    )
+    signal_log = pd.DataFrame([{"date": "2026-07-10", "etf_id": invalid_id}])
+
+    assert services._cached_structure_columns_match(
+        signal_log,
+        pd.Series([0.0]),
+        pd.Series(["unavailable"]),
+        evidence,
+    ) is False
+
+
+def test_cached_structure_validation_batches_non_empty_evidence_by_decision_date(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Caps(dict[str, float]):
+        provenance: dict[str, dict[str, str]]
+
+    calls: list[tuple[tuple[str, ...], date]] = []
+
+    def fake_structure_caps(
+        instrument_ids: list[str],
+        *,
+        decision_time: date,
+        **_kwargs: object,
+    ) -> Caps:
+        ids = tuple(instrument_ids)
+        calls.append((ids, decision_time))
+        result = Caps({instrument_id: 0.5 for instrument_id in ids})
+        result.provenance = {
+            instrument_id: {
+                "structure_provenance_hash": f"{decision_time}:{instrument_id}"
+            }
+            for instrument_id in ids
+        }
+        return result
+
+    monkeypatch.setattr(services, "structure_confidence_caps", fake_structure_caps)
+    evidence = SimpleNamespace(
+        document_registry=pd.DataFrame([{"source_id": "source-1"}]),
+        report_records=pd.DataFrame(),
+        supplemental_rows=pd.DataFrame(),
+        holdings=pd.DataFrame(),
+    )
+    signal_log = pd.DataFrame(
+        [
+            {"date": "2026-07-10", "etf_id": "ETF-1"},
+            {"date": "2026-07-10", "etf_id": "ETF-2"},
+            {"date": "2026-07-11", "etf_id": "ETF-1"},
+            {"date": "2026-07-11", "etf_id": "ETF-2"},
+        ]
+    )
+    stored_caps = pd.Series([0.5] * len(signal_log))
+    stored_hashes = pd.Series(
+        [f"{row.date()}:{instrument_id}" for row, instrument_id in zip(pd.to_datetime(signal_log["date"]), signal_log["etf_id"], strict=True)]
+    )
+
+    assert services._cached_structure_columns_match(
+        signal_log, stored_caps, stored_hashes, evidence
+    ) is True
+    assert calls == [
+        (("ETF-1", "ETF-2"), date(2026, 7, 10)),
+        (("ETF-1", "ETF-2"), date(2026, 7, 11)),
+    ]
+
+    calls.clear()
+    tampered_hashes = stored_hashes.copy()
+    tampered_hashes.iloc[-1] = "tampered"
+    assert services._cached_structure_columns_match(
+        signal_log, stored_caps, tampered_hashes, evidence
+    ) is False
+    assert calls == [
+        (("ETF-1", "ETF-2"), date(2026, 7, 10)),
+        (("ETF-1", "ETF-2"), date(2026, 7, 11)),
+    ]
+
+
 def test_real_260_session_backtest_accepts_structural_holdings() -> None:
     from etf_cockpit.data.etf_structure import structure_confidence_caps
 
