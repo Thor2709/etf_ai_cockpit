@@ -200,6 +200,49 @@ def test_instrument_detail_schema_malformed_canonical_structure_is_unavailable(t
     assert projection["execution_allowed"] is False
 
 
+def test_missing_optional_holdings_preserves_valid_factsheet_evidence(tmp_path, monkeypatch) -> None:
+    import etf_cockpit.app.selectors.instrument_detail as selector
+
+    factsheet_path = tmp_path / "etf_metadata.parquet"
+    pd.DataFrame([{
+        "instrument_id": "ETF-1",
+        "source_id": "factsheet-1",
+        "document_type": "factsheet",
+        "checksum": "a" * 64,
+        "document_date": "2026-07-01",
+        "known_at": "2026-07-02T00:00:00Z",
+        "field_name": "replication_method",
+        "value": "Physical",
+        "page": 1,
+        "confidence": "high",
+        "status": "extracted",
+    }]).to_parquet(factsheet_path, index=False)
+    monkeypatch.setattr(selector, "ETF_METADATA_CLEAN_PATH", factsheet_path)
+    monkeypatch.setattr(selector, "FUND_HOLDINGS_PATH", tmp_path / "missing-holdings.parquet")
+    registry = pd.DataFrame([{
+        "instrument_id": "ETF-1",
+        "source_id": "factsheet-1",
+        "document_type": "factsheet",
+        "document_kind": "factsheet",
+        "sha256": "a" * 64,
+        "checksum": "a" * 64,
+        "document_date": "2026-07-01",
+        "known_at": "2026-07-02T00:00:00Z",
+    }])
+
+    projection = selector._etf_structure_panel(
+        "ETF-1",
+        document_registry=registry,
+        report_records=pd.DataFrame(),
+        supplemental_rows=None,
+        holdings=None,
+    )
+
+    assert projection["fields"]["replication_method"]["status"] == "resolved"
+    assert projection["fields"]["replication_method"]["value"] == "Physical"
+    assert projection["execution_allowed"] is False
+
+
 def test_real_canonical_writers_preserve_bindings_through_shared_projection_and_backtest(tmp_path) -> None:
     from etf_cockpit.backtest.engine import backtest_input_checksum, run_backtest
     from etf_cockpit.data.etf_structure import load_local_structural_evidence, project_etf_structure, structure_confidence_caps

@@ -104,11 +104,15 @@ def load_local_structural_evidence(
     registry = registry_reader()
     reports = report_reader()
     factsheet = _read_local_structural_rows(factsheet_path, "factsheet")
-    try:
-        holdings = pd.read_parquet(holdings_path) if Path(holdings_path).exists() else pd.DataFrame()
-    except Exception as exc:
-        raise ValueError(f"Canonical holdings store is corrupt: {holdings_path}") from exc
-    _validate_canonical_frame(holdings, "holdings", holdings_path)
+    holdings_candidate = Path(holdings_path)
+    if holdings_candidate.exists():
+        try:
+            holdings = pd.read_parquet(holdings_candidate)
+        except Exception as exc:
+            raise ValueError(f"Canonical holdings store is corrupt: {holdings_path}") from exc
+        _validate_canonical_frame(holdings, "holdings", holdings_path)
+    else:
+        holdings = pd.DataFrame()
     return LocalStructuralEvidence(registry, reports, factsheet, holdings)
 
 
