@@ -56,7 +56,13 @@ from etf_cockpit.application.ui_facade import load_financial_institution_project
 from etf_cockpit.application.ui_facade import load_real_asset_projection
 from etf_cockpit.application.ui_facade import load_cyclical_projection
 from etf_cockpit.application.ui_facade import load_innovation_projection
-from etf_cockpit.audit.thesis_diary import ThesisDiaryIntegrityError, ThesisDiaryStore
+from etf_cockpit.audit.thesis_diary import (
+    ThesisDiaryIntegrityError,
+    ThesisDiaryStore,
+    disclosure_safe_entry,
+    disclosure_safe_outcome,
+    disclosure_safe_review,
+)
 from etf_cockpit.core.paths import DATA_DIR
 
 
@@ -1340,18 +1346,26 @@ def _thesis_diary_panel(instrument_id: str, *, root: Path | None = None) -> dict
                 horizon = event.get("horizon")
                 if horizon in outcomes:
                     outcomes[horizon] = dict(event)
-            record = entry.model_dump(mode="json")
+            currently_redacted = state.redaction_state == "redacted"
+            display_entry = disclosure_safe_entry(entry) if currently_redacted else entry
+            record = display_entry.model_dump(mode="json")
             record.update(
                 {
                     "human_review_status": state.human_review.get("status", entry.human_review_status),
-                    "human_review": dict(state.human_review),
+                    "human_review": disclosure_safe_review(state.human_review) if currently_redacted else dict(state.human_review),
                     "redaction_state": state.redaction_state,
                     "expires_at": state.expires_at,
                     "expired": state.expired,
                     "replayed_at": state.replayed_at,
                     "applied_event_ids": list(state.applied_event_ids),
-                    "outcomes": outcomes,
-                    "outcome_events": list(state.outcomes),
+                    "outcomes": {
+                        horizon: disclosure_safe_outcome(value) if currently_redacted and isinstance(value, dict) else value
+                        for horizon, value in outcomes.items()
+                    },
+                    "outcome_events": [
+                        disclosure_safe_outcome(value) if currently_redacted else value
+                        for value in state.outcomes
+                    ],
                     "execution_allowed": False,
                     "executable_authority": False,
                     "score_eligible": False,

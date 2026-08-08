@@ -9,7 +9,13 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import build_version_registry, compatibility_summary, extract_and_validate_audit_archive
-from etf_cockpit.audit.thesis_diary import ThesisDiaryIntegrityError, ThesisDiaryStore
+from etf_cockpit.audit.thesis_diary import (
+    ThesisDiaryIntegrityError,
+    ThesisDiaryStore,
+    disclosure_safe_entry,
+    disclosure_safe_outcome,
+    disclosure_safe_review,
+)
 from etf_cockpit.audit.local_llm import (
     build_local_audit_context,
     check_local_llm_status,
@@ -29,28 +35,33 @@ def _thesis_diary_text() -> str:
     if not entries:
         return "No persisted instrument-specific LLM thesis entries."
     lines = []
+    store = ThesisDiaryStore()
     for entry in entries:
-        state = ThesisDiaryStore().replay(entry.thesis_id)
+        state = store.replay(entry.thesis_id)
+        currently_redacted = state.redaction_state == "redacted"
+        display_entry = disclosure_safe_entry(entry) if currently_redacted else entry
+        review = disclosure_safe_review(state.human_review) if currently_redacted else state.human_review
+        outcomes = [disclosure_safe_outcome(value) for value in state.outcomes] if currently_redacted else list(state.outcomes)
         lines.append(
             " | ".join(
                 (
-                    f"{entry.instrument_id} @ {entry.decision_time}",
-                    f"label={entry.final_advisory_label}",
-                    f"evidence_score={entry.evidence_score if entry.evidence_score is not None else 'unknown'}",
-                    f"evidence_quality={entry.evidence_quality if entry.evidence_quality is not None else 'unknown'}",
-                    f"risk_friction={entry.risk_friction if entry.risk_friction is not None else 'unknown'}",
-                    f"uncertainty={entry.uncertainty}",
-                    f"sources={','.join(entry.input_sources) or 'unknown'}",
-                    f"thesis={entry.thesis_summary}",
-                    f"risk={entry.risk_summary}",
-                    f"contradictions={entry.contradiction_summary}",
-                    f"review={state.human_review}",
+                    f"{display_entry.instrument_id} @ {display_entry.decision_time}",
+                    f"label={display_entry.final_advisory_label}",
+                    f"evidence_score={display_entry.evidence_score if display_entry.evidence_score is not None else 'unknown'}",
+                    f"evidence_quality={display_entry.evidence_quality if display_entry.evidence_quality is not None else 'unknown'}",
+                    f"risk_friction={display_entry.risk_friction if display_entry.risk_friction is not None else 'unknown'}",
+                    f"uncertainty={display_entry.uncertainty}",
+                    f"sources={','.join(display_entry.input_sources) or 'unknown'}",
+                    f"thesis={display_entry.thesis_summary}",
+                    f"risk={display_entry.risk_summary}",
+                    f"contradictions={display_entry.contradiction_summary}",
+                    f"review={review}",
                     f"redaction={state.redaction_state}",
                     f"expires_at={state.expires_at or 'none'}",
                     f"expired={state.expired}",
-                    f"outcomes={list(state.outcomes)}",
+                    f"outcomes={outcomes}",
                     f"replayed_at={state.replayed_at or 'current'}",
-                    f"backtest={entry.backtest_validity}",
+                    f"backtest={display_entry.backtest_validity}",
                     "execution_allowed=false",
                 )
             )

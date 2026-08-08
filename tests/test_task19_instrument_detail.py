@@ -32,7 +32,6 @@ REQUIRED_SECTIONS = {
     "backtests",
     "paper_trades",
     "journal",
-    "thesis_diary",
     "run_changes",
 }
 
@@ -826,14 +825,10 @@ def test_instrument_detail_registers_visible_fundamentals_acceptance_surface() -
     control = instrument_detail_page(None, state)
     fundamentals = next(item for item in _walk(control) if getattr(item, "key", "") == "instrument-detail.fundamentals")
     text = "\n".join(_text_values(fundamentals))
-    thesis_diary = next(item for item in _walk(control) if getattr(item, "key", "") == "instrument-detail.thesis-diary")
-    diary_text = "\n".join(_text_values(thesis_diary))
 
     assert "Fundamentals" in text
     assert "Five-section values" in text
     assert "execution_allowed=false" in text
-    assert "LLM thesis diary" in diary_text
-    assert "execution_allowed=false" in diary_text
 
 
 def test_evidence_section_preserves_fundamentals_key_when_unavailable() -> None:

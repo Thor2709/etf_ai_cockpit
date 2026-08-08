@@ -435,6 +435,93 @@ def test_replay_without_cutoff_uses_current_time_for_expiry(monkeypatch: pytest.
     assert store.replay(entry.thesis_id).expired is True
 
 
+def test_omitted_cutoff_excludes_future_events_in_store_and_packet(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    class ControlledDateTime(datetime):
+        current = datetime(2026, 8, 3, 1, tzinfo=timezone.utc)
+
+        @classmethod
+        def now(cls, tz=None):
+            return cls.current.astimezone(tz) if tz is not None else cls.current
+
+    monkeypatch.setattr(thesis_diary, "datetime", ControlledDateTime)
+    store = ThesisDiaryStore(tmp_path)
+    entry = store.create(_entry())
+    store.append_review(
+        entry.thesis_id,
+        status="approved",
+        reviewer="future-reviewer",
+        decision_time="2099-01-01T00:00:00+00:00",
+    )
+
+    current = store.replay(entry.thesis_id)
+    assert current.human_review["status"] == "pending"
+    assert current.replayed_at == "2026-08-03T01:00:00+00:00"
+    packet_state = reproduce_thesis_from_packet(store.export_packet(), entry.thesis_id)
+    assert packet_state.human_review["status"] == "pending"
+    assert packet_state.applied_event_ids == current.applied_event_ids
+
+
+def test_current_redaction_cannot_be_reversed_by_future_unredaction(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    class ControlledDateTime(datetime):
+        current = datetime(2026, 8, 3, 3, tzinfo=timezone.utc)
+
+        @classmethod
+        def now(cls, tz=None):
+            return cls.current.astimezone(tz) if tz is not None else cls.current
+
+    monkeypatch.setattr(thesis_diary, "datetime", ControlledDateTime)
+    store = ThesisDiaryStore(tmp_path)
+    entry = store.create(_entry(prompt="private prompt"))
+    store.append_redaction(entry.thesis_id, state="redacted", reason="private reason", decision_time="2026-08-03T02:00:00+00:00")
+    store.append_redaction(entry.thesis_id, state="unredacted", reason="future release", decision_time="2099-01-01T00:00:00+00:00")
+
+    packet = store.export_packet(disclosure_safe=True)
+    exported = packet["entries"][0]
+    assert exported["redaction_state"] == "redacted"
+    assert exported["content_redacted"] is True
+    assert "private prompt" not in json.dumps(packet)
+    assert "private reason" not in json.dumps(packet)
+    assert "future release" not in json.dumps(packet)
+
+
+def test_redacted_instrument_and_chat_projections_scrub_protected_fields(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    store = ThesisDiaryStore(tmp_path / "data")
+    entry = store.create(build_thesis_entry(
+        thesis_id="thesis-secret",
+        prompt="secret prompt",
+        model="secret-model",
+        source_snapshot={"secret_source": "source-value"},
+        retrieval_snapshot={"secret_retrieval": "retrieval-value"},
+        evidence_snapshot={"secret_evidence": "evidence-value"},
+        llm_output={"secret_output": "output-value"},
+        generation_record={"provenance": "synthetic_fallback", "synthetic": True, "secret_generation": "generation-value"},
+        instrument_id="VWCE",
+        input_sources=["secret-source"],
+        thesis_summary="secret thesis",
+        risk_summary="secret risk",
+        contradiction_summary="secret contradiction",
+        decision_time="2026-08-03T00:00:00+00:00",
+        created_at="2026-08-03T00:00:00+00:00",
+    ))
+    store.append_redaction(entry.thesis_id, state="redacted", reason="private reason", decision_time="2026-08-03T01:00:00+00:00")
+    store.append_review(entry.thesis_id, status="approved", reviewer="secret reviewer", notes="secret notes", decision_time="2026-08-03T02:00:00+00:00")
+    store.append_outcome(entry.thesis_id, outcome="secret outcome", observed_at="2026-08-03T03:00:00+00:00", decision_time="2026-08-03T03:00:00+00:00", details={"secret_detail": "detail-value"})
+
+    panel = _thesis_diary_panel("VWCE", root=tmp_path / "data")
+    rendered = json.dumps(panel)
+    assert panel["entries"][0]["content_redacted"] is True
+    assert panel["entries"][0]["human_review"]["reviewer"] == "[REDACTED]"
+    assert panel["entries"][0]["outcome_events"][0]["details"] == {"redacted": True}
+    for secret in ("secret prompt", "secret-model", "source-value", "retrieval-value", "evidence-value", "output-value", "generation-value", "secret-source", "secret thesis", "secret risk", "secret contradiction", "secret reviewer", "secret notes", "secret outcome", "detail-value"):
+        assert secret not in rendered
+
+    monkeypatch.setattr("etf_cockpit.app.pages.chatgpt_audit.ThesisDiaryStore", lambda: store)
+    audit_text = _thesis_diary_text()
+    for secret in ("secret prompt", "secret-model", "secret-source", "secret thesis", "secret risk", "secret contradiction", "secret reviewer", "secret notes", "secret outcome", "detail-value"):
+        assert secret not in audit_text
+    assert "redaction=redacted" in audit_text
+
+
 def test_review_rejects_empty_reviewer(tmp_path: Path) -> None:
     store = ThesisDiaryStore(tmp_path)
     entry = store.create(_entry())
@@ -573,7 +660,7 @@ def test_local_llm_save_scopes_records_and_keeps_diary_non_authoritative(tmp_pat
 def test_instrument_and_audit_projections_are_context_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     store = ThesisDiaryStore(tmp_path / "data")
     entry = store.create(_entry())
-    store.append_outcome(entry.thesis_id, outcome="positive", horizon="20", observed_at="2026-09-01T00:00:00+00:00", decision_time="2026-09-01T00:00:00+00:00", details={"return": 0.1})
+    store.append_outcome(entry.thesis_id, outcome="positive", horizon="20", observed_at="2026-08-04T00:00:00+00:00", decision_time="2026-08-04T00:00:00+00:00", details={"return": 0.1})
 
     panel = _thesis_diary_panel("VWCE", root=tmp_path / "data")
     assert panel["status"] == "available"

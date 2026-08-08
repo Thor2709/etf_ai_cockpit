@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from etf_cockpit.audit import local_llm
@@ -11,7 +14,9 @@ from etf_cockpit.audit.local_llm import (
     parse_local_llm_response,
     save_local_audit_commentary,
 )
+import etf_cockpit.audit.thesis_diary as thesis_diary
 from etf_cockpit.audit.thesis_diary import ThesisDiaryStore
+from etf_cockpit.core.atomic_io import atomic_write_group as real_atomic_write_group
 from etf_cockpit.services import build_snapshot
 
 
@@ -130,3 +135,92 @@ def test_generation_persists_the_exact_request_and_response_binding(
     assert entry.prompt == captured["body"]["messages"][1]["content"]  # type: ignore[index]
     assert entry.generation_record["request"] == captured["body"]  # type: ignore[index]
     assert entry.generation_record["response"] == response_payload
+
+
+def test_exact_generation_rejects_model_and_response_commentary_contradictions(tmp_path: Path) -> None:
+    commentary = local_llm.LocalAuditCommentary(summary="Review only", confidence=0.5)
+    envelope = {
+        "model": "exact-model",
+        "messages": [{"role": "user", "content": "immutable prompt"}],
+    }
+    response = {
+        "choices": [{"message": {"content": '{"summary":"Different","confidence":0.5,"executable_authority":false}'}}]
+    }
+
+    with pytest.raises(ValueError, match="does not parse"):
+        local_llm.save_local_audit_commentary(
+            commentary,
+            model="exact-model",
+            context={"as_of_date": "2026-08-03", "signals": [{"etf_id": "VWCE"}]},
+            request_envelope=envelope,
+            response_payload=response,
+            directory=tmp_path / "reports",
+            diary_root=tmp_path / "data",
+        )
+    with pytest.raises(ValueError, match="contradicts"):
+        local_llm.save_local_audit_commentary(
+            commentary,
+            model="other-model",
+            context={"as_of_date": "2026-08-03", "signals": [{"etf_id": "VWCE"}]},
+            request_envelope=envelope,
+            response_payload={"choices": [{"message": {"content": '{"summary":"Review only","confidence":0.5,"executable_authority":false}'}}]},
+            directory=tmp_path / "reports",
+            diary_root=tmp_path / "data",
+        )
+    assert not (tmp_path / "data" / "thesis_diary" / "index.json").exists()
+
+
+def test_synthetic_fallback_is_explicitly_non_exact(tmp_path: Path) -> None:
+    report = local_llm.save_local_audit_commentary(
+        local_llm.LocalAuditCommentary(summary="Synthetic review", confidence=0.5),
+        model="local-test-model",
+        context={"as_of_date": "2026-08-03", "signals": [{"etf_id": "VWCE"}]},
+        directory=tmp_path / "reports",
+        diary_root=tmp_path / "data",
+    )
+    entry = ThesisDiaryStore(tmp_path / "data").list_entries()[0]
+    assert entry.generation_record["provenance"] == "synthetic_fallback"
+    assert entry.generation_record["synthetic"] is True
+    assert json.loads(report.read_text(encoding="utf-8"))["batch_id"].startswith("batch-")
+
+
+def test_invalid_later_signal_writes_no_batch_entries_or_report(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="instrument id"):
+        local_llm.save_local_audit_commentary(
+            local_llm.LocalAuditCommentary(summary="Review only", confidence=0.5),
+            model="local-test-model",
+            context={
+                "as_of_date": "2026-08-03",
+                "signals": [{"etf_id": "VWCE"}, {"etf_id": "not safe"}],
+            },
+            directory=tmp_path / "reports",
+            diary_root=tmp_path / "data",
+        )
+    assert ThesisDiaryStore(tmp_path / "data").list_entries() == []
+    assert not list((tmp_path / "reports").glob("*.json"))
+
+
+def test_exact_batch_retry_is_idempotent_and_interruption_leaves_zero_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    context = {"as_of_date": "2026-08-03", "signals": [{"etf_id": "VWCE"}, {"etf_id": "XDWU"}]}
+    commentary = local_llm.LocalAuditCommentary(summary="Review only", confidence=0.5)
+    first = local_llm.save_local_audit_commentary(commentary, model="local-test-model", context=context, directory=tmp_path / "reports", diary_root=tmp_path / "data")
+    first_bytes = first.read_bytes()
+    second = local_llm.save_local_audit_commentary(commentary, model="local-test-model", context=context, directory=tmp_path / "reports", diary_root=tmp_path / "data")
+    assert second == first
+    assert second.read_bytes() == first_bytes
+    assert len(ThesisDiaryStore(tmp_path / "data").list_entries()) == 2
+
+    interrupted = tmp_path / "interrupted"
+
+    def interrupting_write(requests, **_kwargs):
+        def hook(state: str, _journal: Path) -> None:
+            if state == "memory":
+                raise RuntimeError("batch interruption")
+
+        return real_atomic_write_group(requests, lifecycle_hook=hook)
+
+    monkeypatch.setattr(thesis_diary, "atomic_write_group", interrupting_write)
+    with pytest.raises(RuntimeError, match="batch interruption"):
+        local_llm.save_local_audit_commentary(commentary, model="local-test-model", context=context, directory=interrupted / "reports", diary_root=interrupted / "data")
+    assert ThesisDiaryStore(interrupted / "data").list_entries() == []
+    assert not list((interrupted / "reports").glob("*.json"))

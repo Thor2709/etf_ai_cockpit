@@ -66,6 +66,12 @@ def _time_key(value: str) -> datetime:
     return datetime.fromisoformat(_normalise_time(value))
 
 
+def _effective_cutoff(at: str | None) -> str:
+    """Return an explicit, normalized replay cutoff for every projection."""
+
+    return _normalise_time(at) if at is not None else _normalise_time(datetime.now(timezone.utc).isoformat())
+
+
 def _safe_id(value: str, label: str = "thesis id") -> str:
     if not isinstance(value, str) or not _ID_RE.fullmatch(value):
         raise ValueError(f"{label} must be a safe non-empty identifier")
@@ -200,6 +206,8 @@ def build_thesis_entry(
             raise ValueError(f"{name} must be a JSON object")
         canonical_json(value)
     generation = generation_record or {
+        "provenance": "synthetic_fallback",
+        "synthetic": True,
         "request": {"messages": [{"role": "user", "content": prompt}]},
         "response": {"parsed_output": llm_output},
     }
@@ -274,6 +282,53 @@ def _entry_values(entry: ThesisDiaryEntry) -> dict[str, Any]:
 
 def _entry_checksum(entry: ThesisDiaryEntry) -> str:
     return sha256_value(_entry_values(entry))
+
+
+def disclosure_safe_entry(entry: ThesisDiaryEntry) -> ThesisDiaryEntry:
+    """Return a hash-preserving entry with all protected content scrubbed."""
+
+    safe_entry = entry.model_copy(
+        update={
+            "prompt": "[REDACTED]",
+            "model": "[REDACTED]",
+            "source_snapshot": {"redacted": True},
+            "retrieval_snapshot": {"redacted": True},
+            "evidence_snapshot": {"redacted": True},
+            "llm_output": {"redacted": True},
+            "generation_record": {"redacted": True},
+            "input_sources": [],
+            "thesis_summary": "[REDACTED]",
+            "risk_summary": "[REDACTED]",
+            "contradiction_summary": "[REDACTED]",
+            "redaction_state": "redacted",
+            "content_redacted": True,
+            "checksum": None,
+        }
+    )
+    return safe_entry.model_copy(update={"checksum": _entry_checksum(safe_entry)})
+
+
+def disclosure_safe_review(review: dict[str, Any]) -> dict[str, Any]:
+    """Keep review state while removing reviewer identity and notes."""
+
+    return {
+        "status": review.get("status", "pending"),
+        "reviewer": "[REDACTED]",
+        "notes": "[REDACTED]",
+    }
+
+
+def disclosure_safe_outcome(outcome: dict[str, Any]) -> dict[str, Any]:
+    """Keep timing/horizon commitments while removing outcome content."""
+
+    safe: dict[str, Any] = {
+        "outcome": "[REDACTED]",
+        "observed_at": outcome.get("observed_at"),
+        "details": {"redacted": True},
+    }
+    if "horizon" in outcome:
+        safe["horizon"] = outcome["horizon"]
+    return safe
 
 
 def _event_values(event: dict[str, Any]) -> dict[str, Any]:
@@ -617,6 +672,93 @@ class ThesisDiaryStore:
             atomic_write_group(requests)
             return entry
 
+    def create_batch(
+        self,
+        entries: list[ThesisDiaryEntry],
+        *,
+        report_path: Path,
+        report_payload: dict[str, Any],
+    ) -> tuple[ThesisDiaryEntry, ...]:
+        """Commit a complete diary batch and report under one atomic group."""
+
+        if not entries:
+            raise ValueError("thesis diary batch must contain at least one entry")
+        if not isinstance(report_payload, dict):
+            raise ValueError("thesis diary batch report must be a JSON object")
+        report_path = Path(report_path).resolve()
+        report_bytes = _json_bytes(report_payload)
+        for entry in entries:
+            _validate_hash_bindings(entry)
+        if len({entry.thesis_id for entry in entries}) != len(entries):
+            raise ThesisDiaryConflictError("thesis diary batch contains duplicate identities")
+
+        with self._transaction():
+            current_entries, current_events = self._load()
+            current_ids = set(current_entries)
+            batch_ids = {entry.thesis_id for entry in entries}
+            existing_ids = current_ids & batch_ids
+            for entry in entries:
+                existing = current_entries.get(entry.thesis_id)
+                if existing is not None and existing.model_dump(mode="json") != entry.model_dump(mode="json"):
+                    raise ThesisDiaryConflictError(f"conflicting thesis identity: {entry.thesis_id}")
+            if existing_ids and existing_ids != batch_ids:
+                raise ThesisDiaryConflictError("thesis diary batch is only partially persisted")
+
+            if report_path in {self.entry_path(entry.thesis_id).resolve() for entry in entries}:
+                raise ValueError("thesis diary batch report path overlaps an entry")
+            if report_path.is_file():
+                try:
+                    if json.loads(report_path.read_text(encoding="utf-8")) != report_payload:
+                        raise ThesisDiaryConflictError("conflicting thesis diary batch report")
+                except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                    raise ThesisDiaryConflictError("conflicting thesis diary batch report") from exc
+
+            ordered_entries = sorted(entries, key=lambda item: (item.decision_time, item.thesis_id)) if not existing_ids else []
+            if ordered_entries and current_events and _time_key(ordered_entries[0].decision_time) < _time_key(current_events[-1]["decision_time"]):
+                raise ValueError("thesis diary batch creation cannot be backdated")
+            index = [
+                {"thesis_id": item.thesis_id, "created_at": item.created_at, "checksum": str(item.checksum)}
+                for item in (*current_entries.values(), *ordered_entries)
+            ]
+            index.sort(key=lambda row: (row["created_at"], row["thesis_id"]))
+            new_events = list(current_events)
+            previous = new_events[-1]["event_hash"] if new_events else None
+            for entry in ordered_entries:
+                event = {
+                    "schema_version": THESIS_DIARY_SCHEMA,
+                    "sequence": len(new_events) + 1,
+                    "event_id": f"created-{entry.checksum[:32]}",
+                    "thesis_id": entry.thesis_id,
+                    "operation": "created",
+                    "decision_time": entry.decision_time,
+                    "payload": {"entry_checksum": entry.checksum},
+                    "previous_event_hash": previous,
+                    "execution_allowed": False,
+                }
+                event["event_hash"] = _event_checksum(event)
+                _validate_event(event, len(new_events) + 1)
+                new_events.append(event)
+                previous = event["event_hash"]
+
+            requests = [
+                AtomicWriteRequest(
+                    self.entry_path(entry.thesis_id),
+                    _json_bytes(entry.model_dump(mode="json")),
+                    lambda path: ThesisDiaryEntry.model_validate(json.loads(path.read_text(encoding="utf-8"))),
+                )
+                for entry in ordered_entries
+            ]
+            requests.extend(
+                (
+                    AtomicWriteRequest(self.index_path, _json_bytes(index), lambda path: json.loads(path.read_text(encoding="utf-8"))),
+                    AtomicWriteRequest(self.events_path, b"".join(_json_bytes(item) for item in new_events), lambda path: path.read_bytes()),
+                    AtomicWriteRequest(self.commitment_path, _json_bytes(self._commitment(new_events)), lambda path: json.loads(path.read_text(encoding="utf-8"))),
+                    AtomicWriteRequest(report_path, report_bytes, lambda path: json.loads(path.read_text(encoding="utf-8"))),
+                )
+            )
+            atomic_write_group(tuple(requests))
+            return tuple(entries)
+
     def get(self, thesis_id: str) -> ThesisDiaryEntry:
         with self._transaction():
             entries, _ = self._load()
@@ -708,10 +850,10 @@ class ThesisDiaryStore:
             entry = entries.get(_safe_id(thesis_id))
             if entry is None:
                 raise KeyError(f"unknown thesis: {thesis_id}")
-            cutoff = _normalise_time(at) if at is not None else None
+            cutoff = _effective_cutoff(at)
             if cutoff is not None and _time_key(cutoff) < _time_key(entry.decision_time):
                 raise ValueError("replay time precedes thesis decision time")
-            selected = [event for event in events if event["thesis_id"] == entry.thesis_id and (cutoff is None or _time_key(event["decision_time"]) <= _time_key(cutoff))]
+            selected = [event for event in events if event["thesis_id"] == entry.thesis_id and _time_key(event["decision_time"]) <= _time_key(cutoff)]
             selected.sort(key=lambda event: (event["decision_time"], event["sequence"]))
             redaction_state = entry.redaction_state
             review: dict[str, Any] = {"status": entry.human_review_status, "reviewer": None, "notes": ""}
@@ -729,7 +871,7 @@ class ThesisDiaryStore:
                 elif event["operation"] == "outcome":
                     outcomes.append(dict(event["payload"]))
             replayed_at = cutoff
-            replay_time = _time_key(cutoff) if cutoff is not None else datetime.now(timezone.utc)
+            replay_time = _time_key(cutoff)
             expired = expires_at is not None and _time_key(expires_at) <= replay_time
             return ThesisDiaryState(thesis_id=entry.thesis_id, entry=entry, redaction_state=redaction_state, human_review=review, expires_at=expires_at, expired=expired, outcomes=tuple(outcomes), applied_event_ids=tuple(applied), replayed_at=replayed_at)
 
@@ -748,8 +890,9 @@ class ThesisDiaryStore:
         original_commitment = self._commitment(events)
         redacted_ids: set[str] = set()
         redaction_states = {key: entries[key].redaction_state for key in entries}
+        cutoff = _effective_cutoff(None)
         for event in events:
-            if event["operation"] == "redaction":
+            if event["operation"] == "redaction" and _time_key(event["decision_time"]) <= _time_key(cutoff):
                 redaction_states[event["thesis_id"]] = event["payload"]["state"]
         if disclosure_safe:
             redacted_ids = {key for key, state in redaction_states.items() if state == "redacted"}
@@ -758,26 +901,7 @@ class ThesisDiaryStore:
         for key in sorted(entries):
             entry = entries[key]
             if key in redacted_ids:
-                safe_entry = entry.model_copy(
-                    update={
-                        "prompt": "[REDACTED]",
-                        "model": "[REDACTED]",
-                        "source_snapshot": {"redacted": True},
-                        "retrieval_snapshot": {"redacted": True},
-                        "evidence_snapshot": {"redacted": True},
-                        "llm_output": {"redacted": True},
-                        "generation_record": {"redacted": True},
-                        "input_sources": [],
-                        "thesis_summary": "[REDACTED]",
-                        "risk_summary": "[REDACTED]",
-                        "contradiction_summary": "[REDACTED]",
-                        "redaction_state": "redacted",
-                        "content_redacted": True,
-                        "checksum": None,
-                    }
-                )
-                safe_entry = safe_entry.model_copy(update={"checksum": _entry_checksum(safe_entry)})
-                entry_records.append(safe_entry.model_dump(mode="json"))
+                entry_records.append(disclosure_safe_entry(entry).model_dump(mode="json"))
             else:
                 entry_records.append(entry.model_dump(mode="json"))
 
@@ -871,10 +995,10 @@ def reproduce_thesis_from_packet(packet: dict[str, Any], thesis_id: str, *, at: 
     if thesis not in entries:
         raise KeyError(f"unknown thesis: {thesis_id}")
     entry = entries[thesis]
-    cutoff = _normalise_time(at) if at is not None else None
+    cutoff = _effective_cutoff(at)
     if cutoff is not None and _time_key(cutoff) < _time_key(entry.decision_time):
         raise ValueError("replay time precedes thesis decision time")
-    selected = [event for event in parsed_events if event["thesis_id"] == thesis and (cutoff is None or _time_key(event["decision_time"]) <= _time_key(cutoff))]
+    selected = [event for event in parsed_events if event["thesis_id"] == thesis and _time_key(event["decision_time"]) <= _time_key(cutoff)]
     selected.sort(key=lambda event: (event["decision_time"], event["sequence"]))
     redaction = entry.redaction_state
     review: dict[str, Any] = {"status": entry.human_review_status, "reviewer": None, "notes": ""}
@@ -891,7 +1015,7 @@ def reproduce_thesis_from_packet(packet: dict[str, Any], thesis_id: str, *, at: 
             expires_at = event["payload"]["expires_at"]
         elif event["operation"] == "outcome":
             outcomes.append(dict(event["payload"]))
-    replay_time = _time_key(cutoff) if cutoff is not None else datetime.now(timezone.utc)
+    replay_time = _time_key(cutoff)
     expired = expires_at is not None and _time_key(expires_at) <= replay_time
     return ThesisDiaryState(thesis_id=thesis, entry=entry, redaction_state=redaction, human_review=review, expires_at=expires_at, expired=expired, outcomes=tuple(outcomes), applied_event_ids=tuple(applied), replayed_at=cutoff)
 
