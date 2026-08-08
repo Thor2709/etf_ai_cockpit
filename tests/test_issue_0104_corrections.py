@@ -1013,8 +1013,11 @@ def test_real_backtest_signature_accepts_structural_holdings() -> None:
     assert parameters["structure_holdings"].kind is inspect.Parameter.KEYWORD_ONLY
 
 
-@pytest.mark.parametrize("invalid_id", [None, pd.NA, "", "nan", "None", "null", "<NA>"])
-def test_cached_structure_validation_rejects_missing_and_sentinel_instrument_ids(
+@pytest.mark.parametrize(
+    "invalid_id",
+    [None, pd.NA, "", "nan", "None", "null", "<NA>", "UNCONFIGURED-ETF"],
+)
+def test_cached_structure_validation_rejects_invalid_or_unconfigured_instrument_ids(
     invalid_id: object,
 ) -> None:
     evidence = SimpleNamespace(
@@ -1030,6 +1033,7 @@ def test_cached_structure_validation_rejects_missing_and_sentinel_instrument_ids
         pd.Series([0.0]),
         pd.Series(["unavailable"]),
         evidence,
+        ["ETF-1"],
     ) is False
 
 
@@ -1079,7 +1083,7 @@ def test_cached_structure_validation_batches_non_empty_evidence_by_decision_date
     )
 
     assert services._cached_structure_columns_match(
-        signal_log, stored_caps, stored_hashes, evidence
+        signal_log, stored_caps, stored_hashes, evidence, ["ETF-1", "ETF-2"]
     ) is True
     assert calls == [
         (("ETF-1", "ETF-2"), date(2026, 7, 10)),
@@ -1090,7 +1094,7 @@ def test_cached_structure_validation_batches_non_empty_evidence_by_decision_date
     tampered_hashes = stored_hashes.copy()
     tampered_hashes.iloc[-1] = "tampered"
     assert services._cached_structure_columns_match(
-        signal_log, stored_caps, tampered_hashes, evidence
+        signal_log, stored_caps, tampered_hashes, evidence, ["ETF-1", "ETF-2"]
     ) is False
     assert calls == [
         (("ETF-1", "ETF-2"), date(2026, 7, 10)),
@@ -1149,6 +1153,7 @@ def test_cached_structure_validation_rejects_future_holdings_confidence() -> Non
         pd.Series([1.0]),
         pd.Series(["forged-future-confidence"]),
         evidence,
+        ["ETF-1"],
     ) is False
 
 

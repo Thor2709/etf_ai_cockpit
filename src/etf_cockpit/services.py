@@ -135,6 +135,7 @@ def _cached_structure_columns_match(
     structural_caps: pd.Series,
     structural_hashes: pd.Series,
     structure_evidence: object,
+    allowed_instrument_ids: object,
 ) -> bool:
     """Validate cached structural identity without replaying once per row."""
 
@@ -144,7 +145,17 @@ def _cached_structure_columns_match(
     invalid_instrument_ids = raw_instrument_ids.isna() | instrument_ids.str.lower().isin(
         {"", "<na>", "nan", "none", "null"}
     )
-    if decision_times.isna().any() or invalid_instrument_ids.any():
+    allowed_ids = {
+        str(item).strip()
+        for item in (allowed_instrument_ids or ())
+        if str(item).strip()
+    }
+    if (
+        decision_times.isna().any()
+        or invalid_instrument_ids.any()
+        or not allowed_ids
+        or not instrument_ids.isin(allowed_ids).all()
+    ):
         return False
     evidence_channels = (
         structure_evidence.document_registry,
@@ -1058,6 +1069,7 @@ class BacktestService:
                 structural_caps,
                 structural_hashes,
                 structure_evidence,
+                self.config.universe.enabled_ids,
             ):
                 return None
             if metadata.get("input_checksum") != backtest_input_checksum(
