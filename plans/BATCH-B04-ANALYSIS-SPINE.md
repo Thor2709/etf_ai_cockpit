@@ -421,6 +421,22 @@ modules, Ruff and diff hygiene pass. Freeze one new exact head for both reviews
 and fresh H-tier packages/pilots; lifecycle authority and
 `execution_allowed=false` remain unchanged.
 
+Exact head `df97611e8fcfa5d9b1e8db00e31c882214ead1fe` was rejected after
+both parallel reviews completed. Both reviewers accepted the cache correction;
+their newly demonstrated findings were union-schema expansion changing
+retained holdings provenance and stale/ineligible holdings claims resolving as
+structural confidence evidence. Release run `31259494785` was cancelled and
+discarded as stale.
+
+Combined correction commit `811c094ae5f408f35f2f8fb569929c9eb2a5fc2a`
+uses one fixed canonical optional-identity schema for holdings provenance,
+covers sequential and concurrent ticker/ISIN merges, and rejects stale, aged,
+incomplete, non-issuer and non-score-eligible holdings claims at structural
+consumption. The 229-test backtest, holdings, structure and correction suite,
+Ruff and diff hygiene pass. Freeze one replacement head for both reviews and
+fresh H-tier packages/pilots; lifecycle and `execution_allowed=false` remain
+unchanged.
+
 ## Completed UPDATEV2-0018 parser lane
 
 ISSUE-0103 completion PR #648 merged exact reviewed head

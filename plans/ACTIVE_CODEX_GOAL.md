@@ -412,6 +412,23 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   exact head, repeat both reviews and fresh H-tier hosted validation in
   parallel, and make no further correction absent a newly demonstrated
   defect. Lifecycle authority and `execution_allowed=false` remain unchanged.
+- Exact head `df97611e8fcfa5d9b1e8db00e31c882214ead1fe` was rejected
+  after both parallel reviews completed. Both reviewers accepted the cache
+  correction; their newly demonstrated findings were mixed optional holdings
+  identity columns changing retained provenance after a union-schema merge,
+  and stale/ineligible holdings claims resolving as structural confidence
+  evidence. Release run `31259494785` reached package and pilot execution but
+  was cancelled and its evidence discarded as stale.
+- Combined correction commit
+  `811c094ae5f408f35f2f8fb569929c9eb2a5fc2a` hashes every holding
+  against one fixed canonical optional-identity schema, with sequential and
+  concurrent ticker/ISIN merge regressions. Structural consumption now rejects
+  stale, aged, incomplete, non-issuer and non-score-eligible holdings claims
+  explicitly, keeping their confidence cap at zero. The 229-test combined
+  backtest, holdings, structure and correction suite passes, as do Ruff and
+  diff hygiene. Freeze one replacement head and repeat both reviews plus fresh
+  H-tier hosted validation in parallel. Lifecycle authority and
+  `execution_allowed=false` remain unchanged.
 
 ## Completed UPDATEV2-0018 product checkpoint
 
