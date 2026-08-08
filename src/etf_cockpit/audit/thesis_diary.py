@@ -7,7 +7,7 @@ import json
 import re
 import threading
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
@@ -29,6 +29,8 @@ _OUTCOME_HORIZONS = {"20", "60", "120"}
 _BACKTEST_VALIDITY = {"unknown", "forward_only"}
 _GENERATION_PROVENANCE = {"exact_generation", "synthetic_fallback"}
 _REDACTED_GENERATION_PROVENANCE = "redacted_content"
+_SNAPSHOT_DATE_FIELDS = {"as_of_date"}
+_SNAPSHOT_TIMESTAMP_FIELDS = {"observed_at", "retrieved_at", "timestamp"}
 
 
 class ThesisDiaryIntegrityError(ValueError):
@@ -72,6 +74,30 @@ def _effective_cutoff(at: str | None) -> str:
     """Return an explicit, normalized replay cutoff for every projection."""
 
     return _normalise_time(at) if at is not None else _normalise_time(datetime.now(timezone.utc).isoformat())
+
+
+def _validate_snapshot_temporal_bound(snapshot: dict[str, Any], *, name: str, decision_time: str) -> None:
+    """Reject recognized snapshot observations that postdate the decision."""
+
+    decision = _time_key(decision_time)
+    for field, value in snapshot.items():
+        if field in _SNAPSHOT_DATE_FIELDS:
+            if not isinstance(value, str):
+                raise ValueError(f"{name}.{field} must be an ISO-8601 date")
+            try:
+                parsed = date.fromisoformat(value.strip())
+            except ValueError as exc:
+                raise ValueError(f"{name}.{field} must be an ISO-8601 date") from exc
+            observed = datetime(parsed.year, parsed.month, parsed.day, tzinfo=timezone.utc)
+        elif field in _SNAPSHOT_TIMESTAMP_FIELDS:
+            try:
+                observed = _time_key(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{name}.{field} must be a timezone-aware ISO-8601 timestamp") from exc
+        else:
+            continue
+        if observed > decision:
+            raise ValueError(f"{name}.{field} postdates thesis decision time")
 
 
 def _safe_id(value: str, label: str = "thesis id") -> str:
@@ -202,6 +228,12 @@ class ThesisDiaryEntry(BaseModel):
                 or _normalise_time(generation_time) != self.decision_time
             ):
                 raise ValueError("thesis generation time must bind created and decision availability")
+        for name, snapshot in (
+            ("source_snapshot", self.source_snapshot),
+            ("retrieval_snapshot", self.retrieval_snapshot),
+            ("evidence_snapshot", self.evidence_snapshot),
+        ):
+            _validate_snapshot_temporal_bound(snapshot, name=name, decision_time=self.decision_time)
         return self
 
 
@@ -311,6 +343,12 @@ def build_thesis_entry(
         raise ValueError("thesis generation record must be a JSON object")
     canonical_json(generation)
     _validate_generation_semantics(generation, prompt=prompt, model=model, llm_output=llm_output)
+    for name, snapshot in (
+        ("source_snapshot", source_snapshot),
+        ("retrieval_snapshot", retrieval_snapshot),
+        ("evidence_snapshot", evidence_snapshot),
+    ):
+        _validate_snapshot_temporal_bound(snapshot, name=name, decision_time=decision)
     generation_time = generation.get("generation_time")
     if generation_time is not None and (
         _normalise_time(generation_time) != created or _normalise_time(generation_time) != decision
@@ -1035,10 +1073,10 @@ class ThesisDiaryStore:
             expired = expires_at is not None and _time_key(expires_at) <= replay_time
             return ThesisDiaryState(thesis_id=entry.thesis_id, entry=entry, redaction_state=redaction_state, human_review=review, expires_at=expires_at, expired=expired, outcomes=tuple(outcomes), applied_event_ids=tuple(applied), replayed_at=replayed_at)
 
-    def export_packet(self, *, disclosure_safe: bool = False) -> dict[str, Any]:
+    def export_packet(self, *, disclosure_safe: bool = False, at: str | None = None) -> dict[str, Any]:
         with self._transaction():
             entries, events = self._load()
-            return self._export_packet_locked(entries, events, disclosure_safe=disclosure_safe)
+            return self._export_packet_locked(entries, events, disclosure_safe=disclosure_safe, at=at)
 
     def _export_packet_locked(
         self,
@@ -1046,20 +1084,29 @@ class ThesisDiaryStore:
         events: list[dict[str, Any]],
         *,
         disclosure_safe: bool,
+        at: str | None,
     ) -> dict[str, Any]:
-        original_commitment = self._commitment(events)
+        cutoff = _effective_cutoff(at)
+        visible_entries = {
+            key: entry for key, entry in entries.items() if _time_key(entry.decision_time) <= _time_key(cutoff)
+        }
+        visible_events = [
+            event
+            for event in events
+            if event["thesis_id"] in visible_entries and _time_key(event["decision_time"]) <= _time_key(cutoff)
+        ]
+        visible_commitment = self._commitment(visible_events)
         redacted_ids: set[str] = set()
-        redaction_states = {key: entries[key].redaction_state for key in entries}
-        cutoff = _effective_cutoff(None)
-        for event in events:
-            if event["operation"] == "redaction" and _time_key(event["decision_time"]) <= _time_key(cutoff):
+        redaction_states = {key: visible_entries[key].redaction_state for key in visible_entries}
+        for event in visible_events:
+            if event["operation"] == "redaction":
                 redaction_states[event["thesis_id"]] = event["payload"]["state"]
         if disclosure_safe:
             redacted_ids = {key for key, state in redaction_states.items() if state == "redacted"}
 
         entry_records: list[dict[str, Any]] = []
-        for key in sorted(entries):
-            entry = entries[key]
+        for key in sorted(visible_entries):
+            entry = visible_entries[key]
             if key in redacted_ids:
                 entry_records.append(disclosure_safe_entry(entry).model_dump(mode="json"))
             else:
@@ -1068,8 +1115,8 @@ class ThesisDiaryStore:
         event_records: list[dict[str, Any]] = []
         previous: str | None = None
         safe_checksums = {record["thesis_id"]: record["checksum"] for record in entry_records}
-        for event in events:
-            safe_event = dict(event)
+        for sequence, event in enumerate(visible_events, start=1):
+            safe_event = {**event, "sequence": sequence}
             if event["thesis_id"] in redacted_ids:
                 payload = dict(event["payload"])
                 if event["operation"] == "created":
@@ -1098,8 +1145,8 @@ class ThesisDiaryStore:
                 "events": sha256_value(event_records),
             },
             "local_commitments": {
-                "entries": {key: entries[key].checksum for key in sorted(entries)},
-                "events": original_commitment,
+                "entries": {key: visible_entries[key].checksum for key in sorted(visible_entries)},
+                "events": visible_commitment,
             },
         }
 

@@ -66,10 +66,18 @@ synthetic/redaction markers, and missing packet chronology/unique-event
 validation. Release run `31271660658` is stale. The permitted final correction
 keeps availability on the immutable response status and passes it through the
 UI save path, requires strict provenance and fully scrubbed redaction shapes,
-and reuses complete store event invariants for packet replay. Focused LLM,
-diary and UI tests pass. Freeze the next exact head after one exact
-changed/control validation, then repeat both reviews and fresh H-tier CI in
-parallel; do not start speculative further hardening.
+and reuses complete store event invariants for packet replay. Head
+`d83b691c5cfd3d449a002726013296ce2969d917` passed 46 exact changed tests in
+44.5 seconds and all control checks, but adversarial exact-head review then
+demonstrated save-context/request-context mismatch, post-cutoff event leakage
+from safe exports and future-dated evidence acceptance. Release run
+`31273205539` is stale. The final bounded correction deep-copies and requires
+the immutable generation context for every exact save, filters safe exports to
+the effective cutoff while rebuilding chains/checksums, and rejects recognized
+snapshot observations after decision time. Focused mutation/retry,
+future-payload/readback and future-evidence regressions pass. Freeze the next
+head after exact changed/control validation, then repeat both reviews and fresh
+H-tier CI; no adjacent hardening.
 
 ## ISSUE-0104 product chronology
 

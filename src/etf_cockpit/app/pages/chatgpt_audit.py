@@ -135,10 +135,12 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
                 llm_output.value = f"{status.status}: {status.message}"
                 state.finish_activity(llm_output.value)
             else:
+                if status.context_snapshot is None:
+                    raise ValueError("Local LLM generation did not retain its immutable context snapshot")
                 saved_path = save_local_audit_commentary(
                     commentary,
                     model=status.model,
-                    context=context,
+                    context=status.context_snapshot,
                     request_envelope=status.request_envelope,
                     response_payload=status.response_payload,
                     generation_time=status.generation_time,

@@ -92,10 +92,21 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   response status and passes it through the UI save path without mutating the
   request context; requires strict exact/synthetic provenance; enforces fully
   scrubbed, internally consistent redacted entries; and reuses full store event
-  history validation for packet replay. Focused LLM, diary and ISSUE-0010 UI
-  tests pass. Freeze the next exact head after one exact changed/control
-  validation and repeat both reviews with fresh H-tier CI; no further
-  speculative correction cycle is authorised.
+  history validation for packet replay. Head
+  `d83b691c5cfd3d449a002726013296ce2969d917` passed 46 exact changed tests in
+  44.5 seconds and all control checks, but exact-head adversarial review then
+  demonstrated three remaining PIT gaps: save context was not bound to the
+  generated request context, safe exports retained post-cutoff event payloads,
+  and future-dated evidence snapshots were accepted. Release run
+  `31273205539` is stale.
+- The final bounded correction now retains and deep-copies the immutable
+  generation context, requires every exact request to carry that context and
+  rejects any save mismatch, filters exported entries/events to the effective
+  cutoff while rebuilding chains and checksums, and rejects recognized snapshot
+  dates/timestamps after decision availability. Focused mutation, retry,
+  future-payload, packet-readback and future-evidence regressions pass. Freeze
+  the next head only after exact changed/control validation, then repeat both
+  reviews and fresh H-tier CI; do not add adjacent hardening.
 
 ## ISSUE-0104 product chronology
 

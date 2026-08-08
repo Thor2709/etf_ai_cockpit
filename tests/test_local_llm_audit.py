@@ -205,11 +205,69 @@ def test_generation_persists_the_exact_request_and_response_binding(
     assert entry.generation_record["response"] == response_payload
 
 
+def test_exact_generation_rejects_mutated_save_context_and_retries_same_status(
+    monkeypatch, tmp_path
+) -> None:
+    context = {
+        "as_of_date": "2026-08-03",
+        "authority": "commentary_only_no_trade_execution",
+        "signals": [{"etf_id": "VWCE", "input_sources": ["scoreboard"]}],
+    }
+    response_payload = {
+        "model": "exact-model",
+        "choices": [{"message": {"content": '{"summary":"Review only","confidence":0.5,"executable_authority":false}'}}],
+    }
+    monkeypatch.setattr(local_llm.requests, "get", lambda *_args, **_kwargs: _Response({"data": [{"id": "exact-model"}]}))
+    monkeypatch.setattr(local_llm.requests, "post", lambda *_args, **_kwargs: _Response(response_payload))
+
+    status, commentary = generate_local_audit_commentary(context, LocalLLMSettings(model="exact-model"))
+    assert commentary is not None
+    assert status.context_snapshot is not None
+    context["signals"][0]["input_sources"] = ["mutated-after-generation"]
+
+    with pytest.raises(ValueError, match="contradicts save context"):
+        save_local_audit_commentary(
+            commentary,
+            model=status.model,
+            context=context,
+            request_envelope=status.request_envelope,
+            response_payload=status.response_payload,
+            generation_time=status.generation_time,
+            directory=tmp_path / "reports",
+            diary_root=tmp_path / "data",
+        )
+
+    first = save_local_audit_commentary(
+        commentary,
+        model=status.model,
+        context=status.context_snapshot,
+        request_envelope=status.request_envelope,
+        response_payload=status.response_payload,
+        generation_time=status.generation_time,
+        directory=tmp_path / "reports",
+        diary_root=tmp_path / "data",
+    )
+    second = save_local_audit_commentary(
+        commentary,
+        model=status.model,
+        context=status.context_snapshot,
+        request_envelope=status.request_envelope,
+        response_payload=status.response_payload,
+        generation_time=status.generation_time,
+        directory=tmp_path / "reports",
+        diary_root=tmp_path / "data",
+    )
+    assert second == first
+    assert second.read_bytes() == first.read_bytes()
+    assert len(ThesisDiaryStore(tmp_path / "data").list_entries()) == 1
+
+
 def test_exact_generation_requires_stable_generation_time(tmp_path: Path) -> None:
     commentary = local_llm.LocalAuditCommentary(summary="Review only", confidence=0.5)
+    context = {"as_of_date": "2026-08-03", "signals": [{"etf_id": "VWCE"}]}
     envelope = {
         "model": "exact-model",
-        "messages": [{"role": "user", "content": "immutable prompt"}],
+        "messages": [{"role": "user", "content": local_llm.build_local_audit_prompt(context)}],
     }
     response = {
         "model": "exact-model",
@@ -220,9 +278,34 @@ def test_exact_generation_requires_stable_generation_time(tmp_path: Path) -> Non
         local_llm.save_local_audit_commentary(
             commentary,
             model="exact-model",
-            context={"as_of_date": "2026-08-03", "signals": [{"etf_id": "VWCE"}]},
+            context=context,
             request_envelope=envelope,
             response_payload=response,
+            directory=tmp_path / "reports",
+            diary_root=tmp_path / "data",
+        )
+
+
+def test_exact_generation_rejects_request_without_immutable_context(tmp_path: Path) -> None:
+    commentary = local_llm.LocalAuditCommentary(summary="Review only", confidence=0.5)
+    with pytest.raises(ValueError, match="prompt context is invalid"):
+        local_llm.save_local_audit_commentary(
+            commentary,
+            model="exact-model",
+            context={"as_of_date": "2026-08-03", "signals": [{"etf_id": "VWCE"}]},
+            request_envelope={
+                "model": "exact-model",
+                "messages": [{"role": "user", "content": "legacy prompt without immutable context"}],
+            },
+            response_payload={
+                "model": "exact-model",
+                "choices": [{
+                    "message": {
+                        "content": '{"summary":"Review only","confidence":0.5,"executable_authority":false}'
+                    }
+                }],
+            },
+            generation_time="2026-08-03T12:00:00+00:00",
             directory=tmp_path / "reports",
             diary_root=tmp_path / "data",
         )
@@ -258,9 +341,10 @@ def test_immutable_entry_rejects_self_consistent_but_semantically_inconsistent_e
 
 def test_exact_generation_rejects_model_and_response_commentary_contradictions(tmp_path: Path) -> None:
     commentary = local_llm.LocalAuditCommentary(summary="Review only", confidence=0.5)
+    context = {"as_of_date": "2026-08-03", "signals": [{"etf_id": "VWCE"}]}
     envelope = {
         "model": "exact-model",
-        "messages": [{"role": "user", "content": "immutable prompt"}],
+        "messages": [{"role": "user", "content": local_llm.build_local_audit_prompt(context)}],
     }
     response = {
         "model": "exact-model",
@@ -271,7 +355,7 @@ def test_exact_generation_rejects_model_and_response_commentary_contradictions(t
         local_llm.save_local_audit_commentary(
             commentary,
             model="exact-model",
-            context={"as_of_date": "2026-08-03", "signals": [{"etf_id": "VWCE"}]},
+            context=context,
             request_envelope=envelope,
             response_payload=response,
             directory=tmp_path / "reports",
@@ -281,7 +365,7 @@ def test_exact_generation_rejects_model_and_response_commentary_contradictions(t
         local_llm.save_local_audit_commentary(
             commentary,
             model="other-model",
-            context={"as_of_date": "2026-08-03", "signals": [{"etf_id": "VWCE"}]},
+            context=context,
             request_envelope=envelope,
             response_payload={"choices": [{"message": {"content": '{"summary":"Review only","confidence":0.5,"executable_authority":false}'}}]},
             directory=tmp_path / "reports",
@@ -327,7 +411,10 @@ def test_exact_batch_retry_is_idempotent_and_interruption_leaves_zero_files(tmp_
         "signals": [{"etf_id": "VWCE"}, {"etf_id": "XDWU"}],
     }
     commentary = local_llm.LocalAuditCommentary(summary="Review only", confidence=0.5)
-    envelope = {"model": "local-test-model", "messages": [{"role": "user", "content": "immutable prompt"}]}
+    envelope = {
+        "model": "local-test-model",
+        "messages": [{"role": "user", "content": local_llm.build_local_audit_prompt(context)}],
+    }
     response = {
         "model": "local-test-model",
         "choices": [{"message": {"content": '{"summary":"Review only","confidence":0.5,"executable_authority":false}'}}],

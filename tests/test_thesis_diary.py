@@ -41,14 +41,17 @@ def _entry(
     instrument_id: str = "VWCE",
     backtest_validity: str = "unknown",
     generation_record: dict | None = None,
+    source_snapshot: dict | None = None,
+    retrieval_snapshot: dict | None = None,
+    evidence_snapshot: dict | None = None,
 ):
     return build_thesis_entry(
         thesis_id=thesis_id,
         prompt=prompt,
         model="local-test-model",
-        source_snapshot={"source_id": "snapshot-1", "source_checksum": "source-checksum"},
-        retrieval_snapshot={"retrieval_id": "retrieval-1", "retrieved_at": "2026-08-03T00:00:00+00:00"},
-        evidence_snapshot={"etf_id": "VWCE", "as_of_date": "2026-08-01", "status": "valid"},
+        source_snapshot=source_snapshot if source_snapshot is not None else {"source_id": "snapshot-1", "source_checksum": "source-checksum"},
+        retrieval_snapshot=retrieval_snapshot if retrieval_snapshot is not None else {"retrieval_id": "retrieval-1", "retrieved_at": "2026-08-03T00:00:00+00:00"},
+        evidence_snapshot=evidence_snapshot if evidence_snapshot is not None else {"etf_id": "VWCE", "as_of_date": "2026-08-01", "status": "valid"},
         llm_output={"summary": "Commentary only", "executable_authority": False},
         instrument_id=instrument_id,
         input_sources=["cockpit_snapshot", "signal:VWCE"],
@@ -163,6 +166,22 @@ def test_initial_outcomes_and_observation_bounds_fail_closed(tmp_path: Path) -> 
     )
     assert store.replay(entry.thesis_id, at="2026-08-03T01:59:59+00:00").outcomes == ()
     assert len(store.replay(entry.thesis_id, at="2026-08-03T02:00:00+00:00").outcomes) == 1
+
+
+def test_snapshot_observation_times_cannot_postdate_decision() -> None:
+    with pytest.raises(ValueError, match="evidence_snapshot.as_of_date postdates"):
+        _entry(evidence_snapshot={"as_of_date": "2099-01-01"})
+    with pytest.raises(ValueError, match="retrieval_snapshot.retrieved_at must be"):
+        _entry(retrieval_snapshot={"retrieved_at": "not-a-timestamp"})
+    with pytest.raises(ValueError, match="source_snapshot.timestamp postdates"):
+        _entry(source_snapshot={"timestamp": "2099-01-01T00:00:00+00:00"})
+
+    valid = _entry(
+        source_snapshot={"timestamp": "2026-08-03T00:00:00+00:00"},
+        retrieval_snapshot={"retrieved_at": "2026-08-02T23:59:59+00:00"},
+        evidence_snapshot={"as_of_date": "2026-08-03"},
+    )
+    assert valid.evidence_snapshot["as_of_date"] == "2026-08-03"
 
 
 def test_multiprocess_create_append_read_and_export_are_serialized(tmp_path: Path) -> None:
@@ -462,6 +481,53 @@ def test_omitted_cutoff_excludes_future_events_in_store_and_packet(monkeypatch: 
     packet_state = reproduce_thesis_from_packet(store.export_packet(), entry.thesis_id)
     assert packet_state.human_review["status"] == "pending"
     assert packet_state.applied_event_ids == current.applied_event_ids
+
+
+def test_disclosure_safe_export_at_cutoff_drops_future_payloads_and_replays(tmp_path: Path) -> None:
+    store = ThesisDiaryStore(tmp_path)
+    entry = store.create(_entry(prompt="protected prompt"))
+    store.append_review(
+        entry.thesis_id,
+        status="approved",
+        reviewer="future reviewer secret",
+        notes="future review secret",
+        decision_time="2099-01-01T00:00:00+00:00",
+    )
+    store.append_redaction(
+        entry.thesis_id,
+        state="redacted",
+        reason="future redaction secret",
+        decision_time="2099-01-01T01:00:00+00:00",
+    )
+    store.append_expiry(
+        entry.thesis_id,
+        expires_at="2099-01-02T00:00:00+00:00",
+        reason="future expiry secret",
+        decision_time="2099-01-01T02:00:00+00:00",
+    )
+    store.append_outcome(
+        entry.thesis_id,
+        outcome="future outcome secret",
+        observed_at="2099-01-01T03:00:00+00:00",
+        decision_time="2099-01-01T03:00:00+00:00",
+        details={"future_detail": "secret"},
+    )
+
+    cutoff = "2026-08-03T01:00:00+00:00"
+    packet = store.export_packet(disclosure_safe=True, at=cutoff)
+    encoded = json.dumps(packet, sort_keys=True)
+    assert len(packet["events"]) == 1
+    assert packet["events"][0]["operation"] == "created"
+    assert packet["events"][0]["sequence"] == 1
+    assert packet["checksums"]["events"] == sha256_value(packet["events"])
+    for secret in ("future reviewer secret", "future review secret", "future redaction secret", "future expiry secret", "future outcome secret", "future_detail"):
+        assert secret not in encoded
+
+    reproduced = reproduce_thesis_from_packet(packet, entry.thesis_id, at=cutoff)
+    assert reproduced.human_review["status"] == "pending"
+    assert reproduced.redaction_state == "unredacted"
+    assert reproduced.outcomes == ()
+    assert reproduced.applied_event_ids == (packet["events"][0]["event_id"],)
 
 
 def test_current_redaction_cannot_be_reversed_by_future_unredaction(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

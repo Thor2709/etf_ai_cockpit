@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -10,7 +11,7 @@ import requests
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from etf_cockpit.audit.thesis_diary import ThesisDiaryStore, _normalise_time, build_thesis_entry, sha256_value
+from etf_cockpit.audit.thesis_diary import ThesisDiaryStore, _normalise_time, build_thesis_entry, canonical_json, sha256_value
 from etf_cockpit.core.paths import CONFIG_DIR, DATA_DIR, REPORTS_DIR
 from etf_cockpit.services import CockpitSnapshot
 
@@ -18,6 +19,7 @@ from etf_cockpit.services import CockpitSnapshot
 LOCAL_LLM_CONFIG_PATH = CONFIG_DIR / "local_llm.yaml"
 _generation_time_lock = threading.Lock()
 _last_generation_time: datetime | None = None
+_AUDIT_CONTEXT_MARKER = "\n\nAudit context:\n"
 
 
 def _fresh_generation_time() -> str:
@@ -51,6 +53,7 @@ class LocalLLMStatus(BaseModel):
     request_envelope: dict[str, Any] | None = None
     response_payload: dict[str, Any] | None = None
     generation_time: str | None = None
+    context_snapshot: dict[str, Any] | None = None
 
 
 class LocalAuditCommentary(BaseModel):
@@ -164,6 +167,30 @@ def build_local_audit_context(snapshot: CockpitSnapshot) -> dict[str, Any]:
     }
 
 
+def _normalise_context_snapshot(context: dict[str, Any]) -> dict[str, Any]:
+    """Copy and validate the exact context represented by an audit prompt."""
+
+    if not isinstance(context, dict):
+        raise ValueError("LLM audit context must be a JSON object")
+    snapshot = {key: value for key, value in context.items() if key != "generation_time"}
+    try:
+        canonical_json(snapshot)
+    except ValueError as exc:
+        raise ValueError("LLM audit context must be deterministic JSON") from exc
+    return deepcopy(snapshot)
+
+
+def _prompt_context(prompt: str) -> dict[str, Any]:
+    if not isinstance(prompt, str) or _AUDIT_CONTEXT_MARKER not in prompt:
+        raise ValueError("exact LLM request prompt is missing its audit context")
+    raw_context = prompt.split(_AUDIT_CONTEXT_MARKER, 1)[1]
+    try:
+        parsed = json.loads(raw_context)
+    except json.JSONDecodeError as exc:
+        raise ValueError("exact LLM request prompt contains invalid audit context JSON") from exc
+    return _normalise_context_snapshot(parsed)
+
+
 def parse_local_llm_response(content: str) -> LocalAuditCommentary:
     text = content.strip()
     if text.startswith("```"):
@@ -187,7 +214,7 @@ def parse_local_llm_response(content: str) -> LocalAuditCommentary:
 def build_local_audit_prompt(context: dict[str, Any]) -> str:
     """Build the deterministic prompt persisted with a local thesis."""
 
-    prompt_context = {key: value for key, value in context.items() if key != "generation_time"}
+    prompt_context = _normalise_context_snapshot(context)
 
     return (
         "You are auditing a local ETF decision-support cockpit. "
@@ -207,7 +234,8 @@ def generate_local_audit_commentary(
     status = check_local_llm_status(settings)
     if status.status != "ok" or not status.model:
         return status, None
-    prompt = build_local_audit_prompt(context)
+    context_snapshot = _normalise_context_snapshot(context)
+    prompt = build_local_audit_prompt(context_snapshot)
     body = {
         "model": status.model,
         "messages": [
@@ -233,6 +261,7 @@ def generate_local_audit_commentary(
             "request_envelope": body,
             "response_payload": payload,
             "generation_time": availability,
+            "context_snapshot": context_snapshot,
         }
     ), commentary
 
@@ -275,6 +304,13 @@ def _generation_binding(
     if len(user_messages) != 1 or not isinstance(user_messages[0].get("content"), str) or not user_messages[0]["content"]:
         raise ValueError("exact LLM request envelope must contain one full user prompt")
     prompt = user_messages[0]["content"]
+    try:
+        prompt_context = _prompt_context(prompt)
+        save_context = _normalise_context_snapshot(context)
+    except ValueError as exc:
+        raise ValueError("exact LLM request prompt context is invalid") from exc
+    if sha256_value(prompt_context) != sha256_value(save_context):
+        raise ValueError("exact LLM request prompt context contradicts save context")
     try:
         raw_content = response["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError) as exc:
